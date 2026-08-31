@@ -68,6 +68,30 @@ knowing before you touch it:
 - Ratatui emits only changed cells, so an incremental frame carries `1` rather than `attention 1`.
   The script forces one full repaint through a resize and asserts against that frame.
 
+## Parallel checkouts
+
+Worktrees go in `.worktrees/<name>/`, or `.claude/worktrees/` when a harness puts them there
+itself. Both are ignored. Never put one in `.agents/`, which is the tracked corpus, and never
+delete one with `rm -rf` — `git worktree remove` takes the ignored `target/` directory with it.
+
+**Never share `CARGO_TARGET_DIR` between worktrees.** It looks free — the checkouts differ by four
+crates out of seventy-six — and it silently runs the wrong code. Two checkouts of this workspace
+produce the same fingerprint for a member crate, so the second build overwrites the first's
+artifact, and the first checkout's older source files then pass the freshness check against it.
+Reproduce in under a minute:
+
+```console
+git worktree add --detach .worktrees/probe HEAD
+printf '\n#[cfg(test)]\nmod probe { #[test] fn only_in_the_worktree() {} }\n' \
+    >> .worktrees/probe/crates/plexmaton-core/src/lib.rs
+(cd .worktrees/probe && CARGO_TARGET_DIR=/tmp/shared cargo test -p plexmaton-core --lib -- --list)
+CARGO_TARGET_DIR=/tmp/shared cargo test -p plexmaton-core --lib -- --list
+```
+
+The second listing, run against the main checkout, contains `only_in_the_worktree`. This is
+[cargo#12516](https://github.com/rust-lang/cargo/issues/12516), still open. A separate target
+directory per worktree costs 245 MB and a 4-second cold build, and is the only safe answer.
+
 ## Claiming a result
 
 Do not claim a check passed unless it was actually run in this workspace, in this state. Report

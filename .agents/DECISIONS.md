@@ -19,6 +19,7 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-035 | 2026-08-31 | Worktrees live in ignored directories inside the repository, each with its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
 | D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
 | D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
 | D-032 | 2026-08-31 | Documents are layered by load-time; only `AGENTS.md` is always-on, and every layer has a warn-only budget | Accepted | [.agents/README.md](./README.md), `scripts/check-doc-budget.sh` |
@@ -96,6 +97,28 @@ document over budget is a design question — which layer does this belong in �
 converts that question into pressure to delete a sentence. The escape hatches in
 [`.agents/README.md`](./README.md) are the actual mechanism; the number only starts the
 conversation.
+
+### D-035 · Worktrees under `.agents/worktrees/` — rejected
+
+Mechanically it works: a nested worktree there is invisible to `check-file-length.sh`, which walks
+`crates/`, and to `check-doc-budget.sh`, which reads the index. It was rejected on meaning.
+`.agents/` is declared the project's durable memory and holds eighteen tracked, budgeted markdown
+files. A worktree is its opposite — untracked, disposable, and 245 MB of build output each. A
+directory that holds both stops being a directory anyone can describe. `.worktrees/` at the root
+carries the same vendor neutrality, which was the real point, without that cost.
+
+### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
+
+The standard advice, and it silently runs the wrong code here. Two checkouts of this workspace
+produce the same fingerprint for a member crate, so the second build overwrites the first's
+artifact and the first checkout then passes its freshness check against it. Measured: a main
+checkout listed and ran a test that exists only in a worktree. Sharing saves four crate builds out
+of seventy-six; the reproduction is in
+[standards/quality-gates.md](./standards/quality-gates.md).
+
+`sccache` was considered as the cross-checkout answer and does not reach it either: absolute paths
+enter its cache key, and the `SCCACHE_BASEDIRS` escape hatch needs statically configured
+directories, which is the opposite of a worktree per task.
 
 ### D-034 · Folding specs into the plans folder — rejected
 
