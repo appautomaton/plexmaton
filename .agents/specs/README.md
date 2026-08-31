@@ -49,7 +49,7 @@ Every spec carries this front matter and these sections.
 Two or three sentences: what it is, and what breaks without it.
 
 ## Invariants
-Numbered `INV-1`, `INV-2`, … Each one must be independently testable and stated so that a
+Numbered under this spec's own prefix. Each one must be independently testable and stated so that a
 violation is recognisable. An invariant nobody can write a failing test for is prose, not a spec.
 
 ## Model
@@ -65,6 +65,14 @@ What this spec deliberately does not decide, and which document decides it.
 A table mapping each invariant to the test that proves it. Unproven invariants are listed as
 unproven rather than omitted.
 ```
+
+## One prefix per spec
+
+Invariant identifiers are cited bare, in test names and commit messages, far from the file that
+defines them. So each spec owns a distinct prefix and no two specs number from the same one:
+`INV-` is [interaction routing](./interaction-routing.md), `SURF-` is the
+[surface model](./surface-model.md). Two specs both starting at `INV-1` would make every citation
+ambiguous exactly where the reader has the least context.
 
 ## The evidence rule
 

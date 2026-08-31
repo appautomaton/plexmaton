@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(LayoutClass::for_size(47, 11), LayoutClass::TooSmall);
     }
 
-    /// C-1: a rectangle that layout computed but did not register would leave a hole here.
+    /// SURF-1: a rectangle that layout computed but did not register would leave a hole here.
     #[test]
     fn registered_surfaces_tile_the_terminal_without_gaps_or_overlap() {
         for (width, height, has_notices) in [

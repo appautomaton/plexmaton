@@ -16,7 +16,7 @@ use crate::{
 /// Projects the current view state into a Ratatui frame without mutating it.
 ///
 /// Returns the surfaces this frame actually drew, which is what the router must hit-test against.
-/// Handing the registry back rather than recomputing it elsewhere is what keeps C-1 true: routing
+/// Handing the registry back rather than recomputing it elsewhere is what keeps SURF-1 true: routing
 /// cannot be given geometry the renderer did not use.
 pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> SurfaceTree {
     let area = frame.area();
@@ -310,7 +310,7 @@ mod tests {
         theme::Palette,
     };
 
-    /// C-1: every registered surface is painted inside the rectangle it registered.
+    /// SURF-1: every registered surface is painted inside the rectangle it registered.
     ///
     /// Move any panel's draw call to a different rectangle and its signature leaves the region
     /// this walks, which is the "the click landed one panel over" defect caught before it ships.

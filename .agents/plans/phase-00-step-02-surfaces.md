@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Phase | [Phase 00](../roadmap/phase-00-experience-skeleton.md), delivery sequence step 2 |
-| Contract | [interaction-routing](../specs/interaction-routing.md) for routing; the surface model is inline below until it earns a spec |
+| Contract | [surface-model](../specs/surface-model.md) SURF-1 to SURF-5; routing in [interaction-routing](../specs/interaction-routing.md) |
 | Status | Slice 1 landed 2026-08-31 — 1 of 5 slices |
 
 ## Outcome
@@ -13,53 +13,46 @@ the router routes against. When the last slice lands, a click reaches the region
 drawn, keyboard focus is a property of a surface rather than a two-state fact the caller asserts,
 and the `CycleFocus`, `Dismiss`, and `Pointer` intents from step 1 have consumers.
 
-## Contract (inline)
-
-Promote to `specs/surface-model.md` only if these outlive the slices.
-
-- **C-1 — Drawn equals registered.** A surface's registered rectangle is the rectangle the renderer
-  draws into. Layout that computes a rectangle without registering it is a defect, because hit
-  testing and painting then disagree and a click lands one panel over.
-- **C-2 — Clip, not bounds.** Hit testing uses the intersection of a surface's bounds with its clip
-  rectangle. A surface scrolled partly out of its parent is not hit where it is not visible.
-- **C-3 — Focus is a surface property.** Exactly one surface holds keyboard focus. Whether a text
-  cursor exists is derived from that surface's kind, never asserted independently.
-- **C-4 — A modal blocks delivery below it.** Pointer and keyboard events do not reach surfaces
-  beneath a modal, and hit testing stops at it rather than falling through.
-- **C-5 — Hidden state survives.** A surface keeps its own focus and scroll state while covered,
-  so re-opening it restores what the user left. Scroll arrives in step 3; the ownership is
-  established here.
+The contract these slices prove was inline here until 2026-08-31 and is now
+[specs/surface-model.md](../specs/surface-model.md), because five later delivery steps are built
+against it and a consumed plan cannot hold a contract that outlives it.
 
 ## Slices
 
 **Slice 1 — the registration seam.** *Done 2026-08-31.* `layout::workspace` registers every region;
 `render` draws by walking the tree and returns it; the executable routes against the tree the last
-frame drew. C-1 proven twice — signatures read back through each registered rectangle, and a tiling
-check that fails on a region laid out but never registered. `SurfaceId` became a named enum (D-036).
+frame drew. SURF-1 proven twice — signatures read back through each registered rectangle, and a
+tiling check that fails on a region laid out but never registered. `SurfaceId` became a named enum
+(D-036).
 
-**Slice 2 — clipping.** `Surface` gains a clip rectangle; `hit_test` intersects bounds with clip.
-*Proves C-2:* a child extending past its parent is hit inside the overlap and missed outside it.
+**Slice 2 — clipping.** `Surface` gains a clip rectangle and a `visible()` intersection; hit testing
+and painting both use it.
+*Proves SURF-2:* a surface extending past its clip is hit inside the overlap and missed outside it,
+and a surface clipped to nothing is registered, painted as nothing, and unhittable.
 *Unblocks:* focus and modality, both of which are meaningless if hit testing is wrong.
 
-**Slice 3 — focus.** The tree gains a focused surface and an ordered focus ring including the
-collapsed composer row (D-027). `CycleFocus` gets a consumer, a press focuses the surface it hits
-and promotes its z-order, and `RouterContext::focus` is derived from the focused surface instead of
-supplied by the caller.
-*Proves C-3:* focus survives a covering surface opening and closing; a press on an unfocusable
-surface does not move focus; hover still never does (INV-3).
-*Unblocks:* modality, which is defined in terms of what focus and hit routing may reach.
+**Slice 3 — kind, and focus as a surface property.** `accepts_pointer` is replaced by a `kind` that
+derives it along with focusability. The tree gains a focused surface and a deterministic focus ring;
+`CycleFocus` gets a consumer, a press focuses the surface it hits, and `RouterContext::focus` is
+derived from the focused surface's kind instead of supplied by the caller.
+*Proves SURF-3:* the ring order is stable across frames, a press on an unfocusable surface does not
+move focus, hover never does (INV-3), and focus held by a surface that stops being registered lands
+on a real stop rather than dangling.
+*Unblocks:* modality, defined in terms of what focus and hit routing may reach; and the composer,
+which is a focus stop whose kind is what puts the cursor on screen.
 
-**Slice 4 — modality and the dismissible stack.** `Surface` gains modality. Delivery below a modal
-is blocked, and `RouterContext::dismissible` becomes a query over the tree rather than the
-placeholder `bool` step 1 left. `Dismiss` gets a consumer.
-*Proves C-4 and INV-6:* a pointer event over a covered surface does not reach it; `Escape` closes
-exactly one layer and restores the focus that layer took.
+**Slice 4 — modality and the dismissible stack.** A blocking kind joins the table. Delivery below a
+blocking surface stops, and `RouterContext::dismissible` becomes a query over the tree rather than
+the placeholder `bool` step 1 left. `Dismiss` gets a consumer.
+*Proves SURF-4 and INV-6:* a pointer event over a covered surface does not reach it, the focus ring
+contains only the modal, and `Escape` closes exactly one layer and restores the focus it took.
 
-**Slice 5 — turn the mouse on.** The CLI enables mouse capture. This is last because until slice 1
-lands there is nothing for a pointer event to hit, and it is separate because it is the only slice
-whose proof is not a unit test.
-*Proves INV-8 end to end:* `scripts/smoke-tui.py` gains a case showing a click reaches a surface
-and that a `Shift`-modified drag is left to the terminal's own selection.
+**Slice 5 — turn the mouse on.** The CLI enables mouse capture and releases it on every exit path,
+including panic. This is last because until slice 1 landed there was nothing for a pointer event to
+hit, and it is separate because it is the only slice whose proof is not a unit test.
+*Proves INV-8 end to end:* `scripts/smoke-tui.py` gains a case showing a click reaches a surface,
+that a `Shift`-modified drag is left to the terminal's own selection, and that the terminal is
+restored with mouse reporting off.
 
 ## Order and why
 
@@ -75,10 +68,9 @@ hermetically.
 
 ## Deliberately not in this plan
 
-- **Viewports and scroll ownership.** Step 3. C-5 establishes who owns the state; step 3 fills it.
-- **Shelf geometry and the ten-row guarantee** (D-016, D-023). Needs viewports.
-- **Shelf drag and resize** (D-028). Step 6.
-- **The composer.** `Text` intents still have no consumer after this step. The delivery sequence
-  does not currently name a composer step, which is a gap in the sequence rather than an omission
-  here; it needs an owner before step 4 closes.
-- **Attention queue and selection/copy.** Step 7.
+- **The composer.** Delivery step 3, which this step's focus ring is a prerequisite for. Slice 3
+  adds the kind that will carry the cursor; it does not add an input.
+- **Viewports and scroll ownership.** Step 4. SURF-5 establishes who owns the state; step 4 fills it.
+- **Shelf geometry, the ten-row guarantee, and shelf resize** (D-016, D-023, D-028). Step 7. Slice 4
+  gives them modality; it does not give them geometry.
+- **Attention queue and selection/copy.** Step 8.

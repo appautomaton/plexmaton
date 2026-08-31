@@ -19,7 +19,8 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
-| D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [plans/phase-00-step-02-surfaces.md](./plans/phase-00-step-02-surfaces.md) C-1 |
+| D-037 | 2026-08-31 | The composer is delivery step 3 of Phase 00, so the sequence grows from seven steps to eight | Accepted | [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery sequence |
+| D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [surface-model](./specs/surface-model.md) SURF-1 |
 | D-035 | 2026-08-31 | `.worktrees/` is the single ignored location for parallel checkouts, and each one keeps its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
 | D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
 | D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
@@ -93,11 +94,22 @@ does nothing but point at the file that owns the content.
 
 ### D-032 · A blocking document-budget gate — rejected
 
-The code sentinel blocks, so symmetry argued for blocking here too. It was rejected because a
-document over budget is a design question — which layer does this belong in — and a blocking gate
-converts that question into pressure to delete a sentence. The escape hatches in
-[`.agents/README.md`](./README.md) are the actual mechanism; the number only starts the
-conversation.
+Aged: [`.agents/README.md`](./README.md) §budgets now owns the reasoning. The verdict is that a
+document over budget is a design question, and a blocking gate turns it into pressure to delete a
+sentence.
+
+### D-037 · Leaving the composer to Phase 01, and folding it into the surfaces step — both rejected
+
+Deferring it was rejected on the exit gate, not on taste. Three of its criteria need a real text
+input: continuing to interact with A while B streams, performing the canonical journey by keyboard
+alone, and copying from semantic source. INV-2 also stays proven only against fixtures while
+`KeyboardFocus::TextInput` is unreachable in the running binary, which is precisely the "documented
+behaviour with no implementation behind it" this phase already had to correct once.
+
+Folding it into step 2 was the tempting option, since focus is where the cursor question lives. It
+was rejected because that step would then own five slices of geometry plus an editing model, and a
+step whose plan needs a phase-sized document is a step that was not cut. Its own step also gives the
+`ratatui-textarea` question a place to be answered with evidence rather than by default.
 
 ### D-036 · Numeric identities and a second layout for hit testing — rejected
 
@@ -125,26 +137,18 @@ and `git worktree add` is supported everywhere, so honouring one costs nothing.
 
 ### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
 
-The standard advice, and it silently runs the wrong code here. Two checkouts of this workspace
-produce the same fingerprint for a member crate, so the second build overwrites the first's
-artifact and the first checkout then passes its freshness check against it. Measured: a main
-checkout listed and ran a test that exists only in a worktree. Sharing saves four crate builds out
-of seventy-six; the reproduction is in
-[standards/quality-gates.md](./standards/quality-gates.md).
-
-`sccache` was considered as the cross-checkout answer and does not reach it either: absolute paths
-enter its cache key, and the `SCCACHE_BASEDIRS` escape hatch needs statically configured
-directories, which is the opposite of a worktree per task.
+The standard advice, and it silently runs the wrong code here; the fingerprint collision and its
+one-minute reproduction are owned by [standards/quality-gates.md](./standards/quality-gates.md).
+What that file does not record: sharing saves four crate builds out of seventy-six, and `sccache`
+was considered as the cross-checkout answer and does not reach it either — absolute paths enter its
+cache key, and the `SCCACHE_BASEDIRS` escape hatch needs statically configured directories, which is
+the opposite of a worktree per task.
 
 ### D-034 · Folding specs into the plans folder — rejected
 
-Merging them was considered, on the argument that most mechanisms do not need their own file. The
-merge was rejected because the two have opposite lifetimes: a spec outlives its phase because the
-code is checked against it forever, and a plan stops being true the day the work lands. One folder
-would mean either keeping dead plans or deleting live contracts.
-
-The useful half of the idea was kept: a spec is no longer written by default. A small mechanism
-carries its contract inline in the plan and is promoted to `specs/` only once it proves durable.
+Aged: [plans/README.md](./plans/README.md) now owns the comparison. The verdict is that the two have
+opposite lifetimes, so one folder would mean either keeping dead plans or deleting live contracts.
+The useful half was kept — a spec is earned, not written by default.
 
 ### D-031 · `Escape` as the quit key — rejected
 
@@ -166,13 +170,10 @@ composition boundary — not by widening the intent enum until it spans both wor
 ### D-027 · Hiding the unfocused composer entirely — rejected
 
 Hiding recovers three rows instead of one, which matters at 48 × 12 where the composer is a quarter
-of the screen. It was rejected for two reasons, and performance was not one of them: painting three
-dim rows costs nothing a terminal can measure.
-
-A vanished composer moves the transcript's bottom edge, and because the transcript follows its
-tail, the line the user is actually reading jumps three rows on every focus change. It also removes
-the affordance — someone working inside a sub-agent has no visible evidence they can still address
-the primary one. Collapsing to a single row keeps both the evidence and two of the three rows.
+of the screen. Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rule and its reasoning — a vanished
+composer jumps the tail the user is reading, and removes the evidence that the primary agent is
+still addressable. Worth keeping here: performance was not a reason. Painting three dim rows costs
+nothing a terminal can measure.
 
 ### D-028 · Full floating-window drag in Phase 00 — rejected for now
 

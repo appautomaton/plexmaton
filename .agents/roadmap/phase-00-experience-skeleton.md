@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine started; step 1 of 7 complete, step 2 at slice 1 of 5 |
+| Status | In progress — interaction spine started; step 1 of 8 complete, step 2 at slice 1 of 5 |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
@@ -44,18 +44,21 @@ order means building against a boundary that has not been decided yet.
 1. **Intents and interaction router.** *Done 2026-08-31.* A typed `TuiIntent`, and one router that
    owns terminal event translation. Specified in
    [interaction-routing](../specs/interaction-routing.md).
-2. **Surfaces with clipping.** Give `SurfaceTree` a clipping rectangle, focus, and modality, and
-   put it on the application path. It is currently exercised only by its own unit test.
-3. **Viewports and scroll ownership.** Per-surface scroll state and the locked hover-routing and
+2. **Surfaces with clipping, focus, and modality.** Put `SurfaceTree` on the application path.
+   Specified in [surface-model](../specs/surface-model.md).
+3. **The composer and the single cursor.** The one text input, its grapheme-aware editing model, and
+   the collapsed row (D-017, D-018, D-027). Added to this sequence on 2026-08-31 (D-037).
+4. **Viewports and scroll ownership.** Per-surface scroll state and the locked hover-routing and
    no-propagation rules from the UI/UX contract.
-4. **Transcript virtualization.** Visible-range layout, width-and-revision keyed wrapping cache,
+5. **Transcript virtualization.** Visible-range layout, width-and-revision keyed wrapping cache,
    semantic anchors, and tail-follow separate from scroll offset.
-5. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads
+6. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads
    below can produce numbers worth recording.
-6. **Floating inspectors.** Drag, resize, pointer capture, z-order promotion, boundary clamping.
-7. **Attention queue and selection/copy.** Both depend on surfaces and viewports already existing.
+7. **Inspectors as shelves.** Shelf geometry and the ten-row guarantee, vertical resize with pointer
+   capture, z-order promotion, pin and maximize, boundary clamping (D-016, D-023, D-028).
+8. **Attention queue and selection/copy.** Both depend on surfaces and viewports already existing.
 
-Steps 1 to 4 are the interaction spine. A finding at any step that changes a durable invariant is
+Steps 1 to 5 are the interaction spine. A finding at any step that changes a durable invariant is
 promoted to the parent roadmap or the UI/UX contract rather than recorded only here.
 
 ## Workspace and dependency skeleton
@@ -88,9 +91,9 @@ Composer state and commands are product contracts; no textarea crate may become 
 
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
-Of the evidence tooling in [standards/testing.md](../standards/testing.md), `insta` and `proptest`
-arrive with the surface and viewport steps and `criterion` with the measurement harness. None are
-in a manifest yet.
+Of the evidence tooling in [standards/testing.md](../standards/testing.md), `proptest` arrives with
+clipping, `insta` with the viewport and virtualization steps, and `criterion` with the measurement
+harness. Each enters a manifest with the first test that needs it, never before.
 
 ### Explicitly absent in Phase 00
 
@@ -151,8 +154,8 @@ the test proving each. Three facts corrected earlier claims:
 - **Declining an event is a named outcome.** `Routed::Ignored` carries a reason, so a key that does
   nothing is distinguishable in a test from a routing defect.
 
-`Text` still has no consumer, and the delivery sequence names no composer step. That is a gap in
-the sequence; it needs an owner before step 4 closes.
+`Text` had no consumer and the sequence named no composer step. That gap is now delivery step 3
+(D-037).
 
 ### Delivery step 2, slice 1 — the registration seam — 2026-08-31
 
@@ -170,7 +173,7 @@ Two facts worth recording:
   than letting the caller recompute one. A second layout computed for hit testing is how a click
   lands one panel over, and this removes the possibility rather than testing for it.
 
-C-1 has two proofs. `every_registered_surface_is_drawn_inside_its_own_bounds` reads the painted
+SURF-1 has two proofs. `every_registered_surface_is_drawn_inside_its_own_bounds` reads the painted
 cells back through each registered rectangle and asserts that surface's signature is inside it;
 `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` fails on a region that was laid out
 but never registered. Mutation checks: drawing the agent rail into the transcript's rectangle fails
