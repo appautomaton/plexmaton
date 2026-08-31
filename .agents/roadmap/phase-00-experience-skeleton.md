@@ -184,6 +184,24 @@ and the workspace now denies `print_stdout`, `print_stderr`, `unwrap_used`, `too
 `cognitive_complexity`. `missing_docs` is denied in `plexmaton-core` only, because that crate is the
 semantic contract; enforcing it workspace-wide invited restated signatures, which AGENTS.md rejects.
 
+### Tooling lanes — 2026-08-31
+
+- `deny.toml` makes the dependency rules machine-checked. The ban on duplicate `ratatui` and
+  `crossterm` generations was previously prose plus a manual `cargo tree -d`; it now fails a build.
+  The licence allow-list is exactly the five licences present in the resolved graph rather than a
+  wishlist, so a new dependency carrying anything else stops for review.
+- `cargo machete` reports declared-but-unused dependencies; the workspace is currently clean.
+- `typos` covers prose and identifiers, with `_typos.toml` holding proper nouns.
+- `scripts/check-file-length.sh` adds a 400-line file-level sentinel measured above the first
+  `#[cfg(test)]` module. It was verified to fire by running it at a lowered threshold.
+- `.githooks/pre-commit` runs the fast gates locally; `.github/workflows/ci.yml` runs everything
+  including the pseudo-terminal smoke.
+
+`state.rs` was split into `state/{mod,agent,ordered}.rs` as part of adopting the sentinel, and the
+per-agent invariants — transcript item identity and per-item revision continuity — moved from
+`ViewState` into `AgentView`. The reducer is now left owning only what is genuinely cross-agent:
+stream ordering, selection, and the notice log. Tests went from 21 to 26.
+
 This is implementation evidence for the skeleton only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope

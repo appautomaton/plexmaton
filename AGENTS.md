@@ -261,9 +261,24 @@ The current workspace gates are:
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 
-Formatting and lint policy are pinned in `rustfmt.toml`, `clippy.toml`, and the root `[workspace.lints]` table. Sprawl guards (`too_many_lines`, `cognitive_complexity`) are thresholds for finding unseparated responsibilities, not line-count style rules; when one fires, split by responsibility rather than raising the threshold.
+Plus the supply-chain lane, which depends on the resolved graph rather than on any single edit:
 
-`./scripts/smoke-tui.py` is an out-of-band evidence command, not a gate. It covers terminal lifecycle that `TestBackend` cannot represent: alternate-screen release, resize repaint, and the quit key in front of a real pseudo-terminal. Run it when changing the event loop, terminal setup, or layout classes.
+- `cargo deny check` — licences, advisories, and the ban on duplicate Ratatui/Crossterm generations
+- `cargo machete` — dependencies that are declared but unused
+- `typos` — prose and identifier spelling
+- `./scripts/check-file-length.sh` — module sprawl sentinel
+
+Formatting and lint policy are pinned in `rustfmt.toml`, `clippy.toml`, `deny.toml`, `_typos.toml`, and the root `[workspace.lints]` table.
+
+Sprawl guards exist at two levels and are thresholds for finding unseparated responsibilities, not line-count style rules. `too_many_lines` and `cognitive_complexity` work at function level and are the effective guard, because a large file of small functions is usually fine while a long function never is. `check-file-length.sh` adds a 400-line file-level sentinel measured above the first `#[cfg(test)]` module, so inline tests do not count against the budget. When either fires, split by responsibility and invariant; raising the threshold is not the fix.
+
+Local commits run the fast gates through a repository-managed hook. Enable it once per clone:
+
+```console
+git config core.hooksPath .githooks
+```
+
+`./scripts/smoke-tui.py` covers terminal lifecycle that `TestBackend` cannot represent: alternate-screen release, resize repaint, and the quit key in front of a real pseudo-terminal. It runs in CI and should be run locally when changing the event loop, terminal setup, or layout classes.
 
 Use `cargo tree -d` and `cargo tree -e features` when adding or upgrading dependencies. Add narrower crate/test commands as the owning modules become substantial; do not replace the workspace gates with undocumented local variants.
 

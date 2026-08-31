@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Local gate. Lives in the repository rather than .git/hooks so it is reviewable and shared;
+# enable it once per clone with:
+#
+#     git config core.hooksPath .githooks
+#
+# This runs the fast checks only. The supply-chain lane (cargo-deny, cargo-machete) is slower and
+# depends on the resolved graph rather than the edit, so it runs in CI.
+#
+# Set PLEXMATON_SKIP_HOOKS=1 to bypass deliberately; do not remove a check to make a commit pass.
+set -euo pipefail
+
+if [[ "${PLEXMATON_SKIP_HOOKS:-0}" == "1" ]]; then
+    echo "pre-commit: skipped by PLEXMATON_SKIP_HOOKS" >&2
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+run() {
+    printf '\033[36m→ %s\033[0m\n' "$*"
+    "$@"
+}
+
+run cargo fmt --all --check
+run ./scripts/check-file-length.sh
+run cargo clippy --workspace --all-targets -- -D warnings
+run cargo test --workspace --quiet
+
+# Optional locally, enforced in CI. Missing tools must not silently weaken the commit, so the
+# skip is announced.
+if command -v typos >/dev/null 2>&1; then
+    run typos
+else
+    echo "pre-commit: typos not installed, skipping (CI still enforces it)" >&2
+fi
+
+echo "pre-commit: all local gates passed"

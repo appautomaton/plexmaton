@@ -26,10 +26,25 @@ cargo test --workspace
 
 Press `q`, `Esc`, or `Ctrl-C` to leave the synthetic TUI.
 
+Supply chain and prose, which depend on the resolved graph rather than on a single edit:
+
+```console
+cargo deny check
+cargo machete
+typos
+./scripts/check-file-length.sh
+```
+
 Terminal lifecycle cannot be proven by Ratatui's `TestBackend`. To exercise alternate-screen
 entry and release, resize handling, and the quit key in front of a real pseudo-terminal:
 
 ```console
 ./scripts/smoke-tui.py
+```
+
+Enable the shared pre-commit hook once per clone:
+
+```console
+git config core.hooksPath .githooks
 ```
 

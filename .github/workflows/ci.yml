@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: Workspace gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The toolchain is pinned by rust-toolchain.toml; this action honors it and caches builds.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo fmt --all --check
+      - run: ./scripts/check-file-length.sh
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-machete,typos-cli
+      # Licences, advisories, and the ban on duplicate Ratatui/Crossterm generations.
+      - run: cargo deny check
+      - run: cargo machete
+      - run: typos
+
+  smoke:
+    name: Terminal smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      # Terminal lifecycle in a real pseudo-terminal: alternate-screen release, resize repaint,
+      # and the quit key. TestBackend cannot represent any of these.
+      - run: ./scripts/smoke-tui.py

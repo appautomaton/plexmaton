@@ -1,0 +1,45 @@
+# Supply-chain policy. This is the machine check for dependency rules that AGENTS.md states in
+# prose: audited licences, no known advisories, and above all no duplicate generations of the
+# foundational terminal crates. `cargo tree -d` can show that last one but cannot fail a build.
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+# Exactly the licences present in the current resolved graph, not a wishlist. A new dependency
+# carrying anything else fails here on purpose: adding an entry is a review decision.
+allow = [
+    "Apache-2.0",
+    "BSL-1.0",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+# The four workspace crates are `publish = false` and carry no licence field. Choosing a licence
+# for them is the owner's decision, not a lint's, so private members are skipped rather than
+# given a placeholder.
+ignore = true
+
+[bans]
+# A second copy of an ordinary transitive crate is a fact of the ecosystem, so it is reported
+# rather than fatal. The terminal foundations below are different: two generations in one binary
+# means two incompatible cell buffers or event readers, which AGENTS.md forbids outright.
+multiple-versions = "warn"
+wildcards = "deny"
+# Internal `path` dependencies have no version requirement by design; the ban targets published
+# crates pinned with `*`.
+allow-wildcard-paths = true
+deny = [
+    { crate = "ratatui", deny-multiple-versions = true },
+    { crate = "crossterm", deny-multiple-versions = true },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
