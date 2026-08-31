@@ -79,8 +79,11 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) {
         render_notices(frame, state, palette, area);
     }
 
+    // Escape resolves the topmost layer and never quits, so the hint must not offer it as an exit.
     let footer = Line::from(vec![
-        Span::styled(" q / Esc ", palette.style(Role::KeyHint)),
+        Span::styled(" ↑↓ ", palette.style(Role::KeyHint)),
+        Span::styled(" select  ·  ", palette.style(Role::Muted)),
+        Span::styled(" q ", palette.style(Role::KeyHint)),
         Span::styled(
             " quit  ·  deterministic Phase 00 timeline",
             palette.style(Role::Muted),

@@ -1,13 +1,23 @@
 use std::{collections::VecDeque, time::Duration};
 
 use anyhow::Context;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{Event, EventStream};
 use futures_util::StreamExt;
 use plexmaton_sim::{Scenario, ScenarioStep};
-use plexmaton_tui::{Palette, ViewRevision, ViewState};
+use plexmaton_tui::{
+    KeyboardFocus, Palette, Routed, Router, RouterContext, SurfaceTree, TuiIntent, ViewRevision,
+    ViewState,
+};
 use ratatui::DefaultTerminal;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(180);
+
+/// Whether the event loop continues after an intent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Flow {
+    Continue,
+    Quit,
+}
 
 struct RestoreTerminal;
 
@@ -32,6 +42,10 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     let mut terminal_events = EventStream::new();
     let mut painted: Option<ViewRevision> = None;
+    let mut router = Router::default();
+    // Regions reach the surface tree in delivery step 2. Until they do, a pointer event resolves
+    // to nothing rather than to a guessed region.
+    let surfaces = SurfaceTree::default();
     // Named colour roles resolve through the user's own terminal theme by default.
     let palette = Palette::default();
 
@@ -54,10 +68,9 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
             }
             terminal_event = terminal_events.next() => {
                 match terminal_event {
-                    Some(Ok(Event::Key(key))) if should_quit(key) => break,
                     Some(Ok(event)) => {
-                        if invalidates_frame(&event) {
-                            painted = None;
+                        if route(&mut router, &surfaces, &event, &mut state, &mut painted) == Flow::Quit {
+                            break;
                         }
                     }
                     Some(Err(error)) => return Err(error).context("read terminal event"),
@@ -68,6 +81,50 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     }
 
     Ok(())
+}
+
+/// Translates one terminal event and applies whatever it asked for.
+fn route(
+    router: &mut Router,
+    surfaces: &SurfaceTree,
+    event: &Event,
+    state: &mut ViewState,
+    painted: &mut Option<ViewRevision>,
+) -> Flow {
+    let context = RouterContext {
+        surfaces,
+        // No composer exists yet, so nothing holds the workspace's single cursor.
+        focus: KeyboardFocus::Navigation,
+        dismissible: false,
+    };
+    match router.translate(event, &context) {
+        Routed::Intent(intent) => apply_intent(state, intent, painted),
+        Routed::Ignored(_) => Flow::Continue,
+    }
+}
+
+/// Applies one intent to the workspace.
+///
+/// Intents whose reducer arrives in a later delivery step are listed explicitly rather than caught
+/// by a wildcard, so a new intent cannot be added and silently do nothing.
+fn apply_intent(
+    state: &mut ViewState,
+    intent: TuiIntent,
+    painted: &mut Option<ViewRevision>,
+) -> Flow {
+    match intent {
+        TuiIntent::Quit => return Flow::Quit,
+        TuiIntent::MoveSelection(direction) => state.move_selection(direction),
+        // A resize leaves the projection unchanged, so the revision gate has to be told that the
+        // painted frame is no longer valid.
+        TuiIntent::TerminalResized { .. } => *painted = None,
+        TuiIntent::CycleFocus(_)
+        | TuiIntent::Dismiss
+        | TuiIntent::Scroll { .. }
+        | TuiIntent::Pointer(_)
+        | TuiIntent::Text(_) => {}
+    }
+    Flow::Continue
 }
 
 fn apply_ready(state: &mut ViewState, timeline: &mut VecDeque<ScenarioStep>, tick: u64) {
@@ -81,50 +138,57 @@ fn apply_ready(state: &mut ViewState, timeline: &mut VecDeque<ScenarioStep>, tic
     }
 }
 
-/// Terminal events that invalidate the painted frame without changing the projection.
-fn invalidates_frame(event: &Event) -> bool {
-    matches!(event, Event::Resize(_, _))
-}
-
-fn should_quit(key: KeyEvent) -> bool {
-    if key.kind != KeyEventKind::Press {
-        return false;
-    }
-    matches!(key.code, KeyCode::Esc | KeyCode::Char('q'))
-        || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
-}
-
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use plexmaton_tui::{Router, SurfaceTree, ViewState};
 
-    use super::{invalidates_frame, should_quit};
+    use super::{Flow, route};
 
-    #[test]
-    fn explicit_quit_keys_are_recognized() {
-        assert!(should_quit(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-        assert!(should_quit(KeyEvent::new(
-            KeyCode::Char('c'),
-            KeyModifiers::CONTROL
-        )));
-        assert!(!should_quit(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::NONE
-        )));
+    fn press(code: KeyCode, modifiers: KeyModifiers) -> Event {
+        Event::Key(KeyEvent::new(code, modifiers))
     }
 
     #[test]
-    fn only_resize_invalidates_the_painted_frame() {
-        assert!(invalidates_frame(&Event::Resize(100, 40)));
-        assert!(!invalidates_frame(&Event::Key(KeyEvent::new(
-            KeyCode::Char('x'),
-            KeyModifiers::NONE
-        ))));
-        assert!(!invalidates_frame(&Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Moved,
-            column: 4,
-            row: 2,
-            modifiers: KeyModifiers::NONE,
-        })));
+    fn quit_stops_the_loop_and_resize_invalidates_the_painted_frame() {
+        let mut router = Router::default();
+        let surfaces = SurfaceTree::default();
+        let mut state = ViewState::default();
+        let mut painted = Some(state.revision());
+
+        assert_eq!(
+            route(
+                &mut router,
+                &surfaces,
+                &press(KeyCode::Char('x'), KeyModifiers::NONE),
+                &mut state,
+                &mut painted,
+            ),
+            Flow::Continue
+        );
+        assert!(painted.is_some(), "an unbound key must not force a redraw");
+
+        assert_eq!(
+            route(
+                &mut router,
+                &surfaces,
+                &Event::Resize(100, 40),
+                &mut state,
+                &mut painted,
+            ),
+            Flow::Continue
+        );
+        assert!(painted.is_none(), "a resize must force the next redraw");
+
+        assert_eq!(
+            route(
+                &mut router,
+                &surfaces,
+                &press(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &mut state,
+                &mut painted,
+            ),
+            Flow::Quit
+        );
     }
 }

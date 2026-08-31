@@ -19,6 +19,9 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-031 | 2026-08-31 | `Escape` resolves one interaction layer per press and never quits; `Ctrl-C` always quits and `q` quits only from a navigation surface | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7 |
+| D-030 | 2026-08-31 | The intent vocabulary lives in `plexmaton-tui`; `plexmaton-core` stays the runtime-to-projection semantic boundary | Accepted | `plexmaton-tui::intent` |
+| D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
 | D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-027 | 2026-08-31 | An unfocused primary composer collapses to one row rather than hiding or staying full height | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-026 | 2026-08-31 | Opening a sub-agent focuses it, so its input is usable immediately | Accepted | [ui-ux](./roadmap/ui-ux.md) |
@@ -74,6 +77,23 @@ The cheapest option and the worst. The delegator's model of the task goes stale 
 is the "multiple sources of truth with synchronisation code between them" anti-pattern in its
 textbook form. It also produces a failure the user cannot diagnose: the delegator reports one
 thing while the worker does another.
+
+### D-031 · `Escape` as the quit key — rejected
+
+The prototype shipped with `Esc` quitting, which was convenient while there was nothing to dismiss.
+It cannot survive the interaction spine: `Escape` is the key people press to back out of a mistake,
+so the moment a shelf, a menu, or a draft exists, the same reflex that closes an overlay would end
+the session one press later. Reserving it for the ladder costs one binding and removes a whole
+class of destructive misfire. `Ctrl-C` is the unconditional exit; `q` is the convenient one, and it
+is unreachable while a text input holds the cursor because there `q` is a letter.
+
+### D-030 · Putting `TuiIntent` in `plexmaton-core` — rejected
+
+The Phase 00 crate sketch originally listed intents under core. Core is what a future real runtime
+and the projection agree on; scroll, focus cycling, and pointer capture are none of the runtime's
+business, and putting them there would make the semantic boundary a grab bag. When a user action
+does need to reach the runtime it becomes a command in core's own vocabulary, converted at the
+composition boundary — not by widening the intent enum until it spans both worlds.
 
 ### D-027 · Hiding the unfocused composer entirely — rejected
 

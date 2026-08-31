@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — skeleton verified and tightened; interaction spine not started |
+| Status | In progress — interaction spine started; step 1 of 7 complete |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Delivery sequence step 1 — intents and interaction router |
+| Next step | Delivery sequence step 2 — surfaces with clipping, focus, and modality |
 
 ## Phase outcome
 
@@ -41,8 +41,9 @@ Math rendering was part of this scenario until 2026-08-31 and now belongs to the
 The scope below is not a flat list. Each step needs the previous one to exist, and starting out of
 order means building against a boundary that has not been decided yet.
 
-1. **Intents and interaction router.** A typed `TuiIntent`, and one router that owns terminal event
-   translation. Until this exists, every later interaction is wired ad hoc into a widget.
+1. **Intents and interaction router.** *Done 2026-08-31.* A typed `TuiIntent`, and one router that
+   owns terminal event translation. Specified in
+   [interaction-routing](../specs/interaction-routing.md).
 2. **Surfaces with clipping.** Give `SurfaceTree` a clipping rectangle, focus, and modality, and
    put it on the application path. It is currently exercised only by its own unit test.
 3. **Viewports and scroll ownership.** Per-surface scroll state and the locked hover-routing and
@@ -63,7 +64,7 @@ Phase 00 uses a deliberately small workspace:
 
 ```text
 crates/
-  plexmaton-core/   semantic prototype events, identities, intents, and state-independent contracts
+  plexmaton-core/   semantic prototype events, identities, and state-independent contracts
   plexmaton-tui/    reducer, SurfaceTree, interaction routing, transcript layout, and Ratatui rendering
   plexmaton-sim/    deterministic synthetic scenarios and workload generation
   plexmaton-cli/    terminal lifecycle and composition root for the runnable prototype
@@ -219,7 +220,38 @@ unimplemented until the interaction spine exists. Tests: 26 to 34.
 These were worked out against ASCII compositions rather than a visual mock. `ui-ux.md` and
 [DECISIONS.md](../DECISIONS.md) are the record; no external design document is authoritative.
 
-This is implementation evidence for the skeleton only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
+### Delivery step 1 — intents and interaction router — 2026-08-31
+
+The interaction spine now has its first vertebra. `plexmaton-tui::intent` holds the typed
+vocabulary and `plexmaton-tui::router` is the only place in the workspace that accepts a terminal
+event. [`specs/interaction-routing.md`](../specs/interaction-routing.md) carries INV-1 to INV-9 and
+maps each one to the test that proves it.
+
+Three facts about this step are worth recording because they change earlier claims:
+
+- **`Escape` no longer quits.** It resolves one interaction layer per press. `Ctrl-C` is the
+  unconditional exit and `q` quits only from a navigation surface, so it stays a letter while a
+  text input holds the cursor. Recorded as D-031; the footer hint and `smoke-tui.py` were corrected
+  with it.
+- **Intents live in `plexmaton-tui`, not `plexmaton-core`.** The crate sketch above previously
+  listed them under core and has been corrected. D-030 records why.
+- **Declining an event is a named outcome.** `Routed::Ignored` carries a reason, so a key that
+  does nothing is distinguishable in a test from a routing defect.
+
+The grammar is complete for every binding already locked in `ui-ux.md`; the consumers are not.
+`Quit`, `MoveSelection`, and `TerminalResized` reach the workspace today. `CycleFocus`, `Dismiss`,
+`Scroll`, `Pointer`, and `Text` are produced and tested but have no reducer until steps 2 to 4, and
+the executable lists them explicitly rather than swallowing them in a wildcard. The surface tree
+the router hit-tests against is still empty on the application path, so pointer events resolve to
+`OutsideWorkspace` in the running binary; step 2 registers the regions.
+
+Mutation checks confirm the new tests have teeth. Reordering the Escape ladder, re-hit-testing
+during a drag instead of honouring capture, and letting `q` quit past a dismissible layer each fail
+exactly the test that names the invariant, and reordering the ladder fails nothing else.
+
+Tests: 34 to 49. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
+This is implementation evidence for the skeleton and step 1 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope
 

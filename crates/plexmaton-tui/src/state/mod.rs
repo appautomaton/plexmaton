@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptItemView};
 
+use crate::intent::Direction;
 use ordered::OrderedById;
 
 /// Upper bound on retained runtime notices.
@@ -202,6 +203,36 @@ impl ViewState {
         Ok(())
     }
 
+    /// Moves the agent selection one step in arrival order, clamped at both ends.
+    ///
+    /// Clamping rather than wrapping keeps a held key idempotent at the boundary: a list that
+    /// wraps sends the user back to the first agent at the moment they stop reading the keys.
+    pub fn move_selection(&mut self, direction: Direction) {
+        let Some(current) = self.selected_agent.clone() else {
+            // Nothing is selected yet, so either arrow lands on the first agent.
+            let first = self.agents.iter().next().map(|agent| agent.id.clone());
+            if let Some(first) = first {
+                self.selected_agent = Some(first);
+                self.touch();
+            }
+            return;
+        };
+        let Some(index) = self.agents.iter().position(|agent| agent.id == current) else {
+            return;
+        };
+        let target = match direction {
+            Direction::Forward => index.saturating_add(1),
+            Direction::Backward => index.saturating_sub(1),
+        };
+        let Some(next) = self.agents.iter().nth(target).map(|agent| agent.id.clone()) else {
+            return;
+        };
+        if next != current {
+            self.selected_agent = Some(next);
+            self.touch();
+        }
+    }
+
     fn apply_event(&mut self, event: PrototypeEvent) -> Result<(), ReduceError> {
         match event {
             PrototypeEvent::AgentCreated {
@@ -315,6 +346,7 @@ mod tests {
     use plexmaton_sim::Scenario;
 
     use super::{ApplyOutcome, NoticeView, ReduceError, ViewState};
+    use crate::intent::Direction;
 
     fn agent_id(value: &str) -> AgentId {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
@@ -356,6 +388,43 @@ mod tests {
         assert_eq!(state.attention_count(), 1);
         assert_eq!(state.agents().count(), 2);
         assert_eq!(state.notices().count(), 0);
+    }
+
+    fn selected(state: &ViewState) -> String {
+        state
+            .selected_agent()
+            .map_or_else(|| "none".to_owned(), |agent| agent.id.to_string())
+    }
+
+    #[test]
+    fn selection_moves_in_arrival_order_and_clamps_at_both_ends() {
+        let mut state = canonical_state();
+        assert_eq!(selected(&state), "agent-a");
+
+        state.move_selection(Direction::Backward);
+        assert_eq!(selected(&state), "agent-a", "clamped at the first agent");
+
+        state.move_selection(Direction::Forward);
+        assert_eq!(selected(&state), "agent-b");
+
+        let at_end = state.revision();
+        state.move_selection(Direction::Forward);
+        assert_eq!(selected(&state), "agent-b", "clamped at the last agent");
+        assert_eq!(
+            state.revision(),
+            at_end,
+            "a clamped move changes nothing visible and must not force a repaint"
+        );
+    }
+
+    #[test]
+    fn moving_the_selection_with_no_agents_is_a_no_op() {
+        let mut state = ViewState::default();
+
+        state.move_selection(Direction::Forward);
+
+        assert!(state.selected_agent().is_none());
+        assert_eq!(state.revision().get(), 0);
     }
 
     #[test]

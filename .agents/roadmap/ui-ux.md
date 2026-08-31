@@ -250,9 +250,12 @@ somewhere other than where the layout puts it.
 - Nested scrolling first targets the deepest eligible viewport. An exhausted child does not pass the event upward; see the locked decision above.
 - Drag begins with pointer capture and continues to the captured surface until release or cancellation, even if the pointer leaves its rectangle.
 - Keyboard input routes to the focused surface; hover alone does not redirect keyboard input.
-- `Escape` resolves the topmost dismissible interaction before affecting the underlying workspace.
+- `Escape` resolves the topmost dismissible interaction before affecting the underlying workspace, one layer per press, and never quits.
 - Modal surfaces block pointer and keyboard delivery to surfaces below them.
 - Focus order and command availability must be inspectable for keyboard-only use.
+
+The mechanism — translation, capture state machine, key grammar, and the numbered invariants — is
+specified in [`specs/interaction-routing.md`](../specs/interaction-routing.md).
 
 Exact click, double-click, context-menu, pin, maximize, drag, and resize bindings remain a Phase 00 design decision. They must be tested as one coherent grammar rather than assigned widget by widget.
 
@@ -381,12 +384,14 @@ Initial measurements should distinguish target, observed value, workload, termin
 - Pin/maximize interaction and keyboard bindings
 - How much tool activity remains visible in collapsed transcript blocks
 - Notification treatment for mail that arrives while its sender inspector is open
-- Whether the ultrawide second column is replaced on selection or can be pinned per agent
-- The exact ultrawide threshold, and whether ten rows is the right primary-conversation guarantee
+- Whether ten rows is the right primary-conversation guarantee under real transcripts
 - Interaction between application selection, terminal-native selection, mouse capture, and tmux
 - Whether selection may span virtualized off-screen transcript items in the first product slice
 - Clipboard backend behavior across local desktop, SSH, tmux, OSC 52, and unavailable-clipboard environments
 - Whether the Phase 00 composer retains `ratatui-textarea` or replaces it after the interaction spike
-- Minimum supported terminal size and low-color behavior
 
 These questions should be resolved by the Phase 00 prototype and recorded here as durable interaction rules.
+
+Four earlier questions have been answered and moved out of this list: the ultrawide threshold and
+whether its second column is replaced on selection (D-024), the minimum supported terminal size
+(D-025), and low-colour behaviour (D-013). Each is stated in the section that owns it.
