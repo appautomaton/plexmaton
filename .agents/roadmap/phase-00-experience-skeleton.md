@@ -216,8 +216,8 @@ The remaining five decisions — shelf geometry, the ten-row guarantee, focus on
 composer row, and the reduced drag scope — are recorded in [ui-ux.md](./ui-ux.md) and are
 unimplemented until the interaction spine exists. Tests: 26 to 34.
 
-The design artifact for this work is published separately and is currently behind these documents;
-`ui-ux.md` and `DECISIONS.md` are authoritative.
+These were worked out against ASCII compositions rather than a visual mock. `ui-ux.md` and
+[DECISIONS.md](../DECISIONS.md) are the record; no external design document is authoritative.
 
 This is implementation evidence for the skeleton only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
