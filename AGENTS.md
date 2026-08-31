@@ -11,13 +11,14 @@ Keep context high-signal. Read only the material needed for the active task.
 Default routing order:
 
 1. This `AGENTS.md`.
-2. `.agents/DECISIONS.md` when you need to know whether something is already settled, what was rejected, or why. It is an index; follow its links rather than treating it as the rule.
-3. `.agents/roadmap/plexmaton.md` for durable product and architecture direction.
-4. The active phase linked by that roadmap.
-5. `.agents/specs/<mechanism>.md` before implementing or reviewing that mechanism. Specs carry numbered invariants and an evidence table; cite the invariant in the test that proves it.
-6. Only the relevant sections of `.agents/roadmap/ui-ux.md` for UI/UX work.
-7. The nearest source, tests, and module documentation for the code being changed.
-8. Third-party references under `.references/` only when a concrete comparison is needed. That directory is gitignored and is not present in a fresh clone; treat its absence as normal and do not reconstruct it to answer a question.
+2. The newest letter in `.agents/handoffs/` when you are picking up work rather than answering a narrow question. It routes and warns; it never holds a rule. See `.agents/handoffs/README.md`.
+3. `.agents/DECISIONS.md` when you need to know whether something is already settled, what was rejected, or why. It is an index; follow its links rather than treating it as the rule.
+4. `.agents/roadmap/plexmaton.md` for durable product and architecture direction.
+5. The active phase linked by that roadmap.
+6. `.agents/specs/<mechanism>.md` before implementing or reviewing that mechanism. Specs carry numbered invariants and an evidence table; cite the invariant in the test that proves it.
+7. Only the relevant sections of `.agents/roadmap/ui-ux.md` for UI/UX work.
+8. The nearest source, tests, and module documentation for the code being changed.
+9. Third-party references under `.references/` only when a concrete comparison is needed. That directory is gitignored and is not present in a fresh clone; treat its absence as normal and do not reconstruct it to answer a question.
 
 Do not load every roadmap phase, all reference repositories, or broad source trees by default. Progressive disclosure is a working rule, not just a documentation style.
 
@@ -28,6 +29,7 @@ When documenting work:
 - Put the precise, testable definition of one mechanism in `specs/`, following the shape in `specs/README.md`. A spec invariant with no test is marked unproven, never left reading as fact.
 - Add a row to `DECISIONS.md` when something is actually decided, and record the rejected alternative when one was seriously considered. Never let that file become the only statement of a rule.
 - Put implementation scope, evidence, and exit criteria in the active phase file.
+- Leave a handoff in `.agents/handoffs/` when you finish a stretch of work: what is real versus aspirational, the traps you hit, and the next move. Delete a stale one rather than correcting it.
 - Expand future phase documents just in time, using evidence from the current phase.
 - Link to one source of truth instead of copying the same rule into several files.
 - Promote a finding to the parent roadmap only when it changes a durable invariant or system boundary.
