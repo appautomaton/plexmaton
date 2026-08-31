@@ -254,6 +254,37 @@ in its evidence row that nothing in this phase proves it.
 
 Tests: 68, unchanged — this slice's proof is a command, not a unit test.
 
+### Correction — the layout registered regions it had no room to draw — 2026-08-31
+
+Measuring the geometry before adding composer rows found two live defects at the supported
+minimum, both invisible to the tests that existed. At 48 × 12 the activity panel was registered
+`48x0` and sat on top of the footer; with a notice strip the agent rail collapsed to `48x1`. A
+zero-area region is worse than an absent one — it is still a focus stop and still a pointer target,
+and it shows nothing that would explain either.
+
+The cause was trusting Ratatui's constraint solver at a size where the constraints do not fit. It
+returns a zero-height rectangle rather than failing, and `Length(5) + Min(6) + Length(8)` needs 19
+rows in a body that had 7. The tiling test passed throughout, because a zero-area rectangle adds
+nothing to the covered area and intersects nothing.
+
+Rows are now reserved in the order the journey needs them, all-or-nothing: agent identity outranks
+activity detail, and the conversation is the residual that always exists. The notice strip shrinks
+from four rows to three rather than costing the rail a screen that still had room for it — visible
+degradation is locked (D-003), so it yields rather than disappearing. Measured at 48 × 12 with a
+notice: rail 5, conversation 3, notices 3, footer 1.
+
+Two mutations, and one of them found a hole in the tests rather than in the code. Removing the
+floor check fails three tests. Restoring the fixed four-row notice strip failed *nothing* — the
+existing test only covered the no-notice case, which is the one where the strip does not compete
+for rows. The missing assertion was added, and it now fails.
+
+**Not fixed here, and now recorded:** `ui-ux.md` describes Narrow as "one major surface at a time",
+while the implementation stacks three bands. The stacking is what the geometry above repairs, and
+the contradiction with the contract is a separate question owned by step 7, where inspection
+becomes a full-region transition.
+
+Tests: 68 to 71.
+
 This is implementation evidence for the skeleton and steps 1 to 2 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope
