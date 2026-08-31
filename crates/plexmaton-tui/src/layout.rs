@@ -6,7 +6,7 @@
 
 use ratatui::layout::{Constraint, Layout, Rect};
 
-use crate::surface::{Surface, SurfaceId, SurfaceTree};
+use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 
 /// Rows reserved for the notice strip when it has something to report.
 const NOTICE_HEIGHT: u16 = 4;
@@ -71,15 +71,20 @@ pub fn workspace(area: Rect, has_notices: bool) -> SurfaceTree {
 
     let (agents, transcript, activity) = body_regions(area, body);
 
-    register(&mut tree, SurfaceId::Agents, agents, true);
-    register(&mut tree, SurfaceId::Transcript, transcript, true);
-    register(&mut tree, SurfaceId::Activity, activity, true);
+    register(&mut tree, SurfaceId::Agents, agents, SurfaceKind::Panel);
+    register(
+        &mut tree,
+        SurfaceId::Transcript,
+        transcript,
+        SurfaceKind::Panel,
+    );
+    register(&mut tree, SurfaceId::Activity, activity, SurfaceKind::Panel);
     if has_notices {
-        // The strip is a bounded tail with no viewport of its own yet, so there is nothing for a
-        // pointer to do in it. It becomes pointer-eligible when it gains scroll state in step 3.
-        register(&mut tree, SurfaceId::Notices, notices, false);
+        // A bounded tail with no viewport of its own yet, so there is nothing for a pointer or a
+        // focus stop to do in it. It becomes a panel when it gains scroll state in step 4.
+        register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Chrome);
     }
-    register(&mut tree, SurfaceId::Footer, footer, false);
+    register(&mut tree, SurfaceId::Footer, footer, SurfaceKind::Chrome);
 
     tree
 }
@@ -127,13 +132,13 @@ fn body_regions(area: Rect, body: Rect) -> (Rect, Rect, Rect) {
     }
 }
 
-fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Rect, accepts_pointer: bool) {
+fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Rect, kind: SurfaceKind) {
     tree.insert(Surface {
         id,
         bounds,
         // Every workspace region is a sibling. Shelves and modals introduce depth in later slices.
         z_index: 0,
-        accepts_pointer,
+        kind,
     })
     .expect("each workspace region is registered exactly once, under a distinct identity");
 }
@@ -216,8 +221,7 @@ mod tests {
         let tree = workspace(Rect::new(0, 0, 120, 24), true);
         let pointer_eligible = |id| {
             tree.get(id)
-                .map(|surface| surface.accepts_pointer)
-                .unwrap_or_default()
+                .is_some_and(|surface| surface.kind.accepts_pointer())
         };
 
         assert!(pointer_eligible(SurfaceId::Transcript));
@@ -229,7 +233,27 @@ mod tests {
         );
         assert!(
             !pointer_eligible(SurfaceId::Notices),
-            "no viewport until step 3"
+            "no viewport until step 4"
         );
+    }
+
+    /// SURF-3: the ring is the same stops in the same order at every layout class, so keyboard
+    /// navigation does not silently re-order itself when the terminal crosses a threshold.
+    #[test]
+    fn the_focus_ring_is_the_three_panels_at_every_layout_class() {
+        for (width, height) in [(140, 30), (120, 24), (80, 20), (60, 30), (48, 12)] {
+            let tree = workspace(Rect::new(0, 0, width, height), true);
+            let ring: Vec<_> = tree.focus_ring().collect();
+
+            assert_eq!(
+                ring,
+                [
+                    SurfaceId::Agents,
+                    SurfaceId::Transcript,
+                    SurfaceId::Activity
+                ],
+                "{width}x{height} produced a different focus ring"
+            );
+        }
     }
 }

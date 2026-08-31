@@ -26,15 +26,18 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
     }
 
     let surfaces = layout::workspace(area, state.notices().next().is_some());
+    let focused = state.focused(&surfaces);
     // Drawing walks the registry, so a region that layout computed without registering has no
     // rectangle to be drawn into, and a new surface identity will not compile until it has an arm.
     for surface in surfaces.iter() {
+        let bounds = surface.bounds;
+        let has_focus = focused == Some(surface.id);
         match surface.id {
-            SurfaceId::Agents => render_agents(frame, state, palette, surface.bounds),
-            SurfaceId::Transcript => render_transcript(frame, state, palette, surface.bounds),
-            SurfaceId::Activity => render_activity(frame, state, palette, surface.bounds),
-            SurfaceId::Notices => render_notices(frame, state, palette, surface.bounds),
-            SurfaceId::Footer => render_footer(frame, palette, surface.bounds),
+            SurfaceId::Agents => render_agents(frame, state, palette, bounds, has_focus),
+            SurfaceId::Transcript => render_transcript(frame, state, palette, bounds, has_focus),
+            SurfaceId::Activity => render_activity(frame, state, palette, bounds, has_focus),
+            SurfaceId::Notices => render_notices(frame, state, palette, bounds),
+            SurfaceId::Footer => render_footer(frame, palette, bounds),
         }
     }
 
@@ -46,11 +49,10 @@ fn render_footer(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
     let footer = Line::from(vec![
         Span::styled(" ↑↓ ", palette.style(Role::KeyHint)),
         Span::styled(" select  ·  ", palette.style(Role::Muted)),
+        Span::styled(" ⇥ ", palette.style(Role::KeyHint)),
+        Span::styled(" focus  ·  ", palette.style(Role::Muted)),
         Span::styled(" q ", palette.style(Role::KeyHint)),
-        Span::styled(
-            " quit  ·  deterministic Phase 00 timeline",
-            palette.style(Role::Muted),
-        ),
+        Span::styled(" quit", palette.style(Role::Muted)),
     ]);
     frame.render_widget(Paragraph::new(footer), area);
 }
@@ -73,14 +75,34 @@ fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
-fn panel(palette: &Palette, title: impl Into<String>) -> Block<'static> {
+/// A bordered region.
+///
+/// The border carries focus and the title carries attention, so the two never compete for the same
+/// pixels and a focused panel with a pending request still reads as both.
+fn panel(
+    palette: &Palette,
+    title: impl Into<String>,
+    title_role: Role,
+    focused: bool,
+) -> Block<'static> {
+    let border = if focused {
+        Role::BorderFocused
+    } else {
+        Role::Border
+    };
     Block::default()
         .borders(Borders::ALL)
-        .border_style(palette.style(Role::Border))
-        .title(Span::styled(title.into(), palette.style(Role::Muted)))
+        .border_style(palette.style(border))
+        .title(Span::styled(title.into(), palette.style(title_role)))
 }
 
-fn render_agents(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+fn render_agents(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    focused: bool,
+) {
     let selected = state.selected_agent().map(|agent| agent.id.clone());
     let items = state.agents().map(|agent| {
         let (marker, marker_role) = if selected.as_ref() == Some(&agent.id) {
@@ -99,28 +121,34 @@ fn render_agents(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, ar
     });
 
     let attention = state.attention_count();
-    let title = format!(" Agents · attention {attention} ");
-    let block = if attention == 0 {
-        panel(palette, title)
+    // An unanswered request must read as action required, not as ambient decoration.
+    let title_role = if attention == 0 {
+        Role::Muted
     } else {
-        // An unanswered request must read as action required, not as ambient decoration.
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(palette.style(Role::Border))
-            .title(Span::styled(title, palette.style(Role::ActionRequired)))
+        Role::ActionRequired
     };
+    let title = format!(" Agents · attention {attention} ");
 
-    frame.render_widget(List::new(items).block(block), area);
+    frame.render_widget(
+        List::new(items).block(panel(palette, title, title_role, focused)),
+        area,
+    );
 }
 
-fn render_transcript(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+fn render_transcript(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    focused: bool,
+) {
     let Some(agent) = state.selected_agent() else {
         frame.render_widget(
             Paragraph::new(Line::styled(
                 "Waiting for the first semantic event…",
                 palette.style(Role::Muted),
             ))
-            .block(panel(palette, " Transcript ")),
+            .block(panel(palette, " Transcript ", Role::Muted, focused)),
             area,
         );
         return;
@@ -149,13 +177,19 @@ fn render_transcript(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(panel(palette, title)),
+            .block(panel(palette, title, Role::Muted, focused)),
         area,
     );
 }
 
-fn render_activity(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
-    let block = panel(palette, " Activity ");
+fn render_activity(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    focused: bool,
+) {
+    let block = panel(palette, " Activity ", Role::Muted, focused);
     let Some(agent) = state.selected_agent() else {
         frame.render_widget(
             Paragraph::new(Line::styled(
@@ -252,7 +286,8 @@ fn render_notices(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, a
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(panel(palette, title)),
+            // Chrome, so it never carries focus (SURF-3).
+            .block(panel(palette, title, Role::Muted, false)),
         area,
     );
 }
@@ -304,11 +339,84 @@ const fn tool_marker(status: ToolActivityStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        surface::SurfaceId,
-        test_support::{canonical_state, degraded_state, draw, draw_frame, draw_with, region_text},
-        theme::Palette,
+    use ratatui::{
+        buffer::Buffer,
+        style::{Color, Modifier, Style},
     };
+
+    use crate::{
+        intent::Direction,
+        surface::{SurfaceId, SurfaceTree},
+        test_support::{canonical_state, degraded_state, draw, draw_frame, draw_with, region_text},
+        theme::{Palette, Role},
+    };
+
+    /// The visible part of a style: colour and modifiers.
+    ///
+    /// A whole `Style` cannot be compared against a palette entry, because the buffer fills unset
+    /// fields with `Reset` where the palette leaves them `None`. That difference is plumbing; these
+    /// two fields are what the user sees, and between them every palette carries the distinction.
+    type Ink = (Option<Color>, Modifier);
+
+    fn ink(style: Style) -> Ink {
+        // An unset colour and an explicit reset paint the same thing; the buffer stores the second
+        // where a palette stores the first, and monochrome sets neither.
+        (
+            style.fg.filter(|colour| *colour != Color::Reset),
+            style.add_modifier,
+        )
+    }
+
+    fn border_ink(buffer: &Buffer, surfaces: &SurfaceTree, id: SurfaceId) -> Ink {
+        let bounds = surfaces
+            .get(id)
+            .unwrap_or_else(|| panic!("{id:?} must be registered"))
+            .bounds;
+        ink(buffer[(bounds.x, bounds.y)].style())
+    }
+
+    fn role_ink(palette: &Palette, role: Role) -> Ink {
+        ink(palette.style(role))
+    }
+
+    /// SURF-3: exactly one surface holds focus, and the screen says which.
+    ///
+    /// Reading it back from painted cells is what makes this more than a state assertion: a focus
+    /// model the renderer ignores would leave the user with no way to tell where `Tab` went. Run
+    /// against every palette, because a monochrome terminal must show focus too.
+    #[test]
+    fn only_the_focused_panel_carries_the_focused_border() {
+        for palette in [Palette::ansi(), Palette::truecolor(), Palette::monochrome()] {
+            let mut state = canonical_state();
+
+            let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
+            assert_eq!(
+                state.focused(&surfaces),
+                Some(SurfaceId::Agents),
+                "focus starts at the first stop on the ring"
+            );
+            assert_eq!(
+                border_ink(&buffer, &surfaces, SurfaceId::Agents),
+                role_ink(&palette, Role::BorderFocused)
+            );
+            assert_eq!(
+                border_ink(&buffer, &surfaces, SurfaceId::Transcript),
+                role_ink(&palette, Role::Border)
+            );
+
+            state.cycle_focus(&surfaces, Direction::Forward);
+            let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
+            assert_eq!(
+                border_ink(&buffer, &surfaces, SurfaceId::Agents),
+                role_ink(&palette, Role::Border)
+            );
+            assert_eq!(
+                border_ink(&buffer, &surfaces, SurfaceId::Transcript),
+                role_ink(&palette, Role::BorderFocused),
+                "the focused border moved with the ring rather than being painted twice"
+            );
+        }
+    }
 
     /// SURF-1: every registered surface is painted inside the rectangle it registered.
     ///

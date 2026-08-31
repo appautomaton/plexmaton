@@ -11,7 +11,10 @@ use thiserror::Error;
 
 pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptItemView};
 
-use crate::intent::Direction;
+use crate::{
+    intent::Direction,
+    surface::{KeyboardFocus, SurfaceId, SurfaceTree},
+};
 use ordered::OrderedById;
 
 /// Upper bound on retained runtime notices.
@@ -104,6 +107,13 @@ pub struct ViewState {
     attention: OrderedById<AttentionId, AttentionView>,
     notices: VecDeque<NoticeView>,
     notices_dropped: u64,
+    /// Which surface the user last put focus on.
+    ///
+    /// A preference, not an assertion: the surfaces registered change with every frame, so this
+    /// may name one that is not on screen right now. `focused` resolves it against the current
+    /// tree instead of repairing it, which is what makes SURF-5 fall out — a surface that comes
+    /// back gets its focus back, with nothing to keep in sync.
+    focus: Option<SurfaceId>,
 }
 
 impl ViewState {
@@ -233,6 +243,54 @@ impl ViewState {
         }
     }
 
+    /// Resolves which surface holds keyboard focus for the frame `surfaces` describes.
+    ///
+    /// Derived rather than stored, so a stale preference can never be delivered to. A stored focus
+    /// that is no longer a stop falls back to the first one, and the preference is left alone so
+    /// the surface reclaims focus when it returns.
+    #[must_use]
+    pub fn focused(&self, surfaces: &SurfaceTree) -> Option<SurfaceId> {
+        self.focus
+            .filter(|id| surfaces.get(*id).is_some_and(|s| s.kind.is_focusable()))
+            .or_else(|| surfaces.focus_ring().next())
+    }
+
+    /// Resolves where typed text would go, from the focused surface's kind alone (SURF-3).
+    #[must_use]
+    pub fn keyboard_focus(&self, surfaces: &SurfaceTree) -> KeyboardFocus {
+        self.focused(surfaces)
+            .and_then(|id| surfaces.get(id))
+            .map_or(KeyboardFocus::default(), |surface| {
+                surface.kind.keyboard_focus()
+            })
+    }
+
+    /// Moves focus one stop around the ring.
+    pub fn cycle_focus(&mut self, surfaces: &SurfaceTree, direction: Direction) {
+        let next = surfaces.next_focus(self.focused(surfaces), direction);
+        self.set_focus(next);
+    }
+
+    /// Focuses the surface a press landed on, if that surface is a stop.
+    ///
+    /// A press on chrome routes but does not move focus, so clicking the hint strip does not strand
+    /// the keyboard somewhere it cannot act.
+    pub fn focus_surface(&mut self, surfaces: &SurfaceTree, surface_id: SurfaceId) {
+        if surfaces
+            .get(surface_id)
+            .is_some_and(|surface| surface.kind.is_focusable())
+        {
+            self.set_focus(Some(surface_id));
+        }
+    }
+
+    fn set_focus(&mut self, next: Option<SurfaceId>) {
+        if next.is_some() && next != self.focus {
+            self.focus = next;
+            self.touch();
+        }
+    }
+
     fn apply_event(&mut self, event: PrototypeEvent) -> Result<(), ReduceError> {
         match event {
             PrototypeEvent::AgentCreated {
@@ -344,9 +402,104 @@ mod tests {
         AgentId, AgentStatus, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
     };
     use plexmaton_sim::Scenario;
+    use ratatui::layout::Rect;
 
     use super::{ApplyOutcome, NoticeView, ReduceError, ViewState};
-    use crate::{intent::Direction, test_support::canonical_state};
+    use crate::{
+        intent::Direction,
+        layout,
+        surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree},
+        test_support::canonical_state,
+    };
+
+    /// A tree holding exactly the named stops, so a surface can be taken away and given back.
+    fn tree_of(ids: &[SurfaceId]) -> SurfaceTree {
+        let mut tree = SurfaceTree::default();
+        for id in ids {
+            tree.insert(Surface {
+                id: *id,
+                bounds: Rect::new(0, 0, 10, 10),
+                z_index: 0,
+                kind: SurfaceKind::Panel,
+            })
+            .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
+        }
+        tree
+    }
+
+    /// SURF-3: focus is a stop on the ring, and a press on chrome is not a way off it.
+    #[test]
+    fn focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it() {
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), true);
+        let mut state = canonical_state();
+
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
+
+        state.focus_surface(&surfaces, SurfaceId::Transcript);
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
+
+        let before = state.revision();
+        state.focus_surface(&surfaces, SurfaceId::Footer);
+        assert_eq!(
+            state.focused(&surfaces),
+            Some(SurfaceId::Transcript),
+            "a hint strip is not a focus stop, so the press must leave focus where it was"
+        );
+        assert_eq!(
+            state.revision(),
+            before,
+            "a press that changes nothing must not force a repaint"
+        );
+    }
+
+    #[test]
+    fn cycling_focus_walks_the_ring_and_wraps() {
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), true);
+        let mut state = canonical_state();
+        let mut seen = Vec::new();
+
+        for _ in 0..4 {
+            seen.push(state.focused(&surfaces));
+            state.cycle_focus(&surfaces, Direction::Forward);
+        }
+
+        assert_eq!(
+            seen,
+            [
+                Some(SurfaceId::Agents),
+                Some(SurfaceId::Transcript),
+                Some(SurfaceId::Activity),
+                Some(SurfaceId::Agents),
+            ]
+        );
+    }
+
+    /// SURF-5: focus belongs to the surface, not to the frame that happened to draw it.
+    #[test]
+    fn focus_returns_to_a_surface_that_comes_back() {
+        let full = tree_of(&[SurfaceId::Agents, SurfaceId::Transcript]);
+        let reduced = tree_of(&[SurfaceId::Agents]);
+        let mut state = ViewState::default();
+        state.focus_surface(&full, SurfaceId::Transcript);
+
+        assert_eq!(
+            state.focused(&reduced),
+            Some(SurfaceId::Agents),
+            "focus must never be delivered to a surface that is not on screen"
+        );
+        assert_eq!(
+            state.focused(&full),
+            Some(SurfaceId::Transcript),
+            "and the preference must survive, or reopening loses where the user was"
+        );
+    }
+
+    #[test]
+    fn focus_resolves_to_nothing_when_no_surface_is_registered() {
+        let state = ViewState::default();
+
+        assert_eq!(state.focused(&SurfaceTree::default()), None);
+    }
 
     fn agent_id(value: &str) -> AgentId {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))

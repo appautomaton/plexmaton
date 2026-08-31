@@ -11,21 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
-    surface::{Point, SurfaceId, SurfaceTree},
+    surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree},
 };
-
-/// What holds the workspace's single text cursor.
-///
-/// This is the whole reason a printable key is sometimes text and sometimes a command, so it is a
-/// two-state fact rather than a set of booleans that could disagree.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum KeyboardFocus {
-    /// A navigational surface holds focus and no cursor is on screen.
-    #[default]
-    Navigation,
-    /// A text input holds the cursor.
-    TextInput,
-}
 
 /// Read-only view facts the router reads but does not own.
 ///
@@ -240,7 +227,7 @@ mod tests {
     use super::{Ignored, KeyboardFocus, Routed, Router, RouterContext};
     use crate::{
         intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
-        surface::{Point, Surface, SurfaceId, SurfaceTree},
+        surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree},
     };
 
     // Two real identities in a covering arrangement. The router's grammar does not depend on which
@@ -258,7 +245,7 @@ mod tests {
                 id,
                 bounds,
                 z_index,
-                accepts_pointer: true,
+                kind: SurfaceKind::Panel,
             })
             .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
         }

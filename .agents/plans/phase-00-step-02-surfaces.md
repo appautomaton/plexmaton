@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 00](../roadmap/phase-00-experience-skeleton.md), delivery sequence step 2 |
 | Contract | [surface-model](../specs/surface-model.md) SURF-1 to SURF-5; routing in [interaction-routing](../specs/interaction-routing.md) |
-| Status | Slice 1 landed 2026-08-31 — 1 of 5 slices |
+| Status | Slices 1 and 2 landed 2026-08-31 — 2 of 4 |
 
 ## Outcome
 
@@ -25,29 +25,19 @@ frame drew. SURF-1 proven twice — signatures read back through each registered
 tiling check that fails on a region laid out but never registered. `SurfaceId` became a named enum
 (D-036).
 
-**Slice 2 — clipping.** `Surface` gains a clip rectangle and a `visible()` intersection; hit testing
-and painting both use it.
-*Proves SURF-2:* a surface extending past its clip is hit inside the overlap and missed outside it,
-and a surface clipped to nothing is registered, painted as nothing, and unhittable.
-*Unblocks:* focus and modality, both of which are meaningless if hit testing is wrong.
+**Slice 2 — kind, and focus as a surface property.** *Done 2026-08-31.* `accepts_pointer` became a
+`SurfaceKind` that derives it along with focusability and the cursor; the tree gained a focus ring;
+`ViewState` holds focus as a preference resolved against the current tree; `CycleFocus` and
+`Press` gained consumers; `RouterContext::focus` is derived rather than supplied. SURF-3 proven at
+four levels, and SURF-5 proven for focus by lazy resolution rather than by a repair step.
 
-**Slice 3 — kind, and focus as a surface property.** `accepts_pointer` is replaced by a `kind` that
-derives it along with focusability. The tree gains a focused surface and a deterministic focus ring;
-`CycleFocus` gets a consumer, a press focuses the surface it hits, and `RouterContext::focus` is
-derived from the focused surface's kind instead of supplied by the caller.
-*Proves SURF-3:* the ring order is stable across frames, a press on an unfocusable surface does not
-move focus, hover never does (INV-3), and focus held by a surface that stops being registered lands
-on a real stop rather than dangling.
-*Unblocks:* modality, defined in terms of what focus and hit routing may reach; and the composer,
-which is a focus stop whose kind is what puts the cursor on screen.
-
-**Slice 4 — modality and the dismissible stack.** A blocking kind joins the table. Delivery below a
+**Slice 3 — modality and the dismissible stack.** A blocking kind joins the table. Delivery below a
 blocking surface stops, and `RouterContext::dismissible` becomes a query over the tree rather than
 the placeholder `bool` step 1 left. `Dismiss` gets a consumer.
 *Proves SURF-4 and INV-6:* a pointer event over a covered surface does not reach it, the focus ring
 contains only the modal, and `Escape` closes exactly one layer and restores the focus it took.
 
-**Slice 5 — turn the mouse on.** The CLI enables mouse capture and releases it on every exit path,
+**Slice 4 — turn the mouse on.** The CLI enables mouse capture and releases it on every exit path,
 including panic. This is last because until slice 1 landed there was nothing for a pointer event to
 hit, and it is separate because it is the only slice whose proof is not a unit test.
 *Proves INV-8 end to end:* `scripts/smoke-tui.py` gains a case showing a click reaches a surface,
@@ -61,12 +51,19 @@ model work before the seam would repeat that at larger scale and leave four slic
 focus logic proven only against fixtures. With the seam first, every later slice has a real caller
 on the day it lands.
 
-After that the order is forced: clipping before focus and modality, because both are defined in
-terms of what a pointer can reach; focus before modality, because modality is a restriction on
-focus and delivery; the terminal last, because it is the only step that cannot be proven
-hermetically.
+After that the order is forced: focus before modality, because modality is a restriction on focus
+and delivery; the terminal last, because it is the only step that cannot be proven hermetically.
 
 ## Deliberately not in this plan
+
+- **Clipping (SURF-2).** This step planned a clipping slice and does not contain one. Every surface
+  the workspace registers fits inside its parent, so a clip rectangle would have had no caller and
+  `visible()` would have returned `bounds` at every call site — the speculative abstraction
+  `AGENTS.md` rejects, and a repeat of the step-1 mistake of shipping something with no consumer.
+  The first surface that genuinely outgrows its parent is a transcript item scrolled past its
+  viewport edge, which needs items to be hit targets; SURF-2 is therefore owned by step 8, and its
+  evidence row names that step. If a viewport in step 4 produces a clipped surface sooner, it moves
+  sooner — this is a plan, and finding the order is what it is for.
 
 - **The composer.** Delivery step 3, which this step's focus ring is a prerequisite for. Slice 3
   adds the kind that will carry the cursor; it does not add an input.

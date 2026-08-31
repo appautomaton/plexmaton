@@ -5,7 +5,7 @@ use crossterm::event::{Event, EventStream};
 use futures_util::StreamExt;
 use plexmaton_sim::{Scenario, ScenarioStep};
 use plexmaton_tui::{
-    KeyboardFocus, Palette, Routed, Router, RouterContext, SurfaceTree, TuiIntent, ViewRevision,
+    Palette, PointerIntent, Routed, Router, RouterContext, SurfaceTree, TuiIntent, ViewRevision,
     ViewState,
 };
 use ratatui::DefaultTerminal;
@@ -96,12 +96,14 @@ fn route(
 ) -> Flow {
     let context = RouterContext {
         surfaces,
-        // No composer exists yet, so nothing holds the workspace's single cursor.
-        focus: KeyboardFocus::Navigation,
+        // Derived from whichever surface holds focus, never asserted here (SURF-3). Until a
+        // composer exists no kind returns `TextInput`, so this is navigation by consequence rather
+        // than by assumption.
+        focus: state.keyboard_focus(surfaces),
         dismissible: false,
     };
     match router.translate(event, &context) {
-        Routed::Intent(intent) => apply_intent(state, intent, painted),
+        Routed::Intent(intent) => apply_intent(state, surfaces, intent, painted),
         Routed::Ignored(_) => Flow::Continue,
     }
 }
@@ -112,19 +114,29 @@ fn route(
 /// by a wildcard, so a new intent cannot be added and silently do nothing.
 fn apply_intent(
     state: &mut ViewState,
+    surfaces: &SurfaceTree,
     intent: TuiIntent,
     painted: &mut Option<ViewRevision>,
 ) -> Flow {
     match intent {
         TuiIntent::Quit => return Flow::Quit,
         TuiIntent::MoveSelection(direction) => state.move_selection(direction),
+        TuiIntent::CycleFocus(direction) => state.cycle_focus(surfaces, direction),
+        // A press focuses what it hit; the rest of the gesture is a drag, which has no consumer
+        // until a surface has an edge worth dragging.
+        TuiIntent::Pointer(PointerIntent::Press { surface, .. }) => {
+            state.focus_surface(surfaces, surface);
+        }
         // A resize leaves the projection unchanged, so the revision gate has to be told that the
         // painted frame is no longer valid.
         TuiIntent::TerminalResized { .. } => *painted = None,
-        TuiIntent::CycleFocus(_)
-        | TuiIntent::Dismiss
+        TuiIntent::Dismiss
         | TuiIntent::Scroll { .. }
-        | TuiIntent::Pointer(_)
+        | TuiIntent::Pointer(
+            PointerIntent::Drag { .. }
+            | PointerIntent::Release { .. }
+            | PointerIntent::Cancel { .. },
+        )
         | TuiIntent::Text(_) => {}
     }
     Flow::Continue
@@ -143,8 +155,11 @@ fn apply_ready(state: &mut ViewState, timeline: &mut VecDeque<ScenarioStep>, tic
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
-    use plexmaton_tui::{Router, SurfaceTree, ViewState};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState};
+    use ratatui::layout::Rect;
 
     use super::{Flow, route};
 
@@ -192,6 +207,48 @@ mod tests {
                 &mut painted,
             ),
             Flow::Quit
+        );
+    }
+
+    /// SURF-3 through the executable: `CycleFocus` and `Press` have consumers, not just tests.
+    ///
+    /// The router has produced both intents since step 1. Proving them here rather than only in the
+    /// reducer is what distinguishes a wired binary from a translated event nobody listens to.
+    #[test]
+    fn tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in() {
+        let mut router = Router::default();
+        let surfaces = plexmaton_tui::workspace(Rect::new(0, 0, 120, 24), false);
+        let mut state = ViewState::default();
+        let mut painted = Some(state.revision());
+        let mut send = |event: &Event, state: &mut ViewState| {
+            route(&mut router, &surfaces, event, state, &mut painted)
+        };
+
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
+
+        send(&press(KeyCode::Tab, KeyModifiers::NONE), &mut state);
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
+
+        send(&press(KeyCode::BackTab, KeyModifiers::SHIFT), &mut state);
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
+
+        let activity = surfaces
+            .get(SurfaceId::Activity)
+            .unwrap_or_else(|| panic!("a wide workspace registers an activity column"))
+            .bounds;
+        send(
+            &Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: activity.x,
+                row: activity.y,
+                modifiers: KeyModifiers::NONE,
+            }),
+            &mut state,
+        );
+        assert_eq!(
+            state.focused(&surfaces),
+            Some(SurfaceId::Activity),
+            "a press focuses the surface it hit"
         );
     }
 }

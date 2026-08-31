@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine started; step 1 of 8 complete, step 2 at slice 1 of 5 |
+| Status | In progress — interaction spine started; step 1 of 8 complete, step 2 at slice 2 of 4 |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 2 slice 2 — clipping; see [the plan](../plans/phase-00-step-02-surfaces.md) |
+| Next step | Step 2 slice 3 — modality; see [the plan](../plans/phase-00-step-02-surfaces.md) |
 
 ## Phase outcome
 
@@ -185,10 +185,45 @@ readable back out of a cell buffer. `plexmaton-core` gained a round-trip test ov
 variant plus one pinned wire tag; a renamed variant fails only the tag test, which is the point,
 since a round trip cannot see a rename. `serde_json` entered as a dev-dependency with that test.
 
-Not in this slice: clipping, focus, modality, and mouse capture. `render.rs` fell from 400 code
-lines — at the sentinel — to 304.
-
 Tests: 49 to 57. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
+### Delivery step 2, slice 2 — kind, and focus as a surface property — 2026-08-31
+
+`Surface::accepts_pointer` was a boolean, and focus needed a second one. Both are now derived from
+one `SurfaceKind`, so a chrome strip that holds the cursor or a focus stop the pointer cannot reach
+are unrepresentable rather than merely untested. `KeyboardFocus` moved out of the router and beside
+the kind that decides it, which is what makes SURF-3's "never asserted independently" structural:
+the executable no longer names a focus, it asks the focused surface's kind.
+
+Three findings:
+
+- **Focus is a preference, resolved per frame, not a value repaired after layout.** The tree is
+  rebuilt every frame, so a stored focus can name a surface that is not on screen. Resolving it
+  lazily — the stored stop if it is still registered, otherwise the first — means there is nothing
+  to keep in sync, and SURF-5 falls out of it: a surface that comes back gets its focus back. The
+  repair alternative would have had to mutate state during layout, which the anti-pattern list
+  forbids.
+- **The ring wraps where the agent list clamps**, and the contrast is deliberate. A held arrow key
+  that wraps sends the user back to the first agent at the moment they stop reading; a `Tab` that
+  stops cycling is a dead key with no way to discover why.
+- **Ring order is `SurfaceId` declaration order, not geometric order.** A ring that reorders itself
+  when the terminal crosses a layout-class threshold costs exactly the muscle memory it exists to
+  build. The enum is declared in reading order, so at every class the two agree anyway — asserted
+  across all five.
+
+**Planned and not done: clipping.** The step had a clipping slice; it was cut on inspection, because
+every surface the workspace registers fits inside its parent, so `visible()` would have returned
+`bounds` at every call site. SURF-2 stays in the spec, listed as unproven and owned by step 8, where
+a transcript item scrolled past its viewport edge is the first surface that genuinely outgrows its
+parent. Shipping the field early would have repeated step 1's own mistake at model level.
+
+Focus is proven at four levels — kind, tree, reducer, and painted cells — and read back from the
+buffer against all three palettes, so a monochrome terminal must show focus too. Six mutations were
+each caught by the intended tests: chrome made focusable (5 failures), the fallback removed (5), the
+stored preference discarded (5), every panel painted focused (1), the ring clamped (2), and hit
+testing ignoring kind (1).
+
+Tests: 57 to 68. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
 This is implementation evidence for the skeleton and steps 1 to 2 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
