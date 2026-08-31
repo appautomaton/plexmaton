@@ -15,10 +15,16 @@ Rules for this file: a row is added only when something is actually decided — 
 the active phase document or its design artifact. A row never becomes the only statement of a
 rule. Superseded rows are struck through in the Status column, never deleted.
 
+That last rule makes this the one budget with an irreducible half: the ledger grows by a line per
+decision forever, and only the prose below it can be aged. It went from 200 lines to 250 on
+2026-08-31, after nine of fourteen rejected-alternative blocks had already been compressed. Raise it
+again the same way — age first, then move the number.
+
 ## Ledger
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-038 | 2026-08-31 | The composer is first-party; `ratatui-textarea` is not adopted, and a submitted message is a runtime command rather than a write | Accepted | [ui-ux](./roadmap/ui-ux.md) §input, `plexmaton-sim::Runtime` |
 | D-037 | 2026-08-31 | The composer is delivery step 3 of Phase 00, so the sequence grows from seven steps to eight | Accepted | [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery sequence |
 | D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [surface-model](./specs/surface-model.md) SURF-1 |
 | D-035 | 2026-08-31 | `.worktrees/` is the single ignored location for parallel checkouts, and each one keeps its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
@@ -29,7 +35,7 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 | D-030 | 2026-08-31 | The intent vocabulary lives in `plexmaton-tui`; `plexmaton-core` stays the runtime-to-projection semantic boundary | Accepted | `plexmaton-tui::intent` |
 | D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
 | D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-027 | 2026-08-31 | An unfocused primary composer collapses to one row rather than hiding or staying full height | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-027 | 2026-08-31 | While a sub-agent's input is active the primary composer collapses to one row rather than hiding | Accepted | [ui-ux](./roadmap/ui-ux.md) §input |
 | D-026 | 2026-08-31 | Opening a sub-agent focuses it, so its input is usable immediately | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-025 | 2026-08-31 | Minimum terminal is 48 × 12; below it one explicit notice and no workspace content | Accepted | `LayoutClass::for_size` |
 | D-024 | 2026-08-31 | Ultrawide starts at 132 and holds exactly one secondary column, replaced on selection | Accepted | `LayoutClass::for_size`, [ui-ux](./roadmap/ui-ux.md) |
@@ -63,13 +69,9 @@ Only where a serious alternative was considered. The reason matters more than th
 
 ### D-017 · One composer that retargets on selection — rejected
 
-A single input whose target follows the selected agent is fewer moving parts, and it is a mode
-error generator. The target is invisible state: you glance away, the selection changes, you type,
-and the message reaches the wrong worker. There is no visual cue reliable enough to prevent it,
-and a misdirected steer to a running agent is not undone by sending another one.
-
-Two inputs, each living inside the surface it belongs to, make the answer to "where does this
-keystroke go" a physical fact rather than something to remember.
+Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rationale. The verdict is that a target which
+follows the selection is invisible state, and a misdirected steer to a running worker is not undone
+by sending another one.
 
 ### D-019 · Forbidding direct user steering — rejected
 
@@ -98,6 +100,23 @@ Aged: [`.agents/README.md`](./README.md) §budgets now owns the reasoning. The v
 document over budget is a design question, and a blocking gate turns it into pressure to delete a
 sentence.
 
+### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
+
+The crate was in the candidate table for a composer spike, and its own API decided the question:
+it takes a `crossterm::event::Event`. Feeding it one would put a second terminal-event consumer in
+a workspace where exactly one component may have that (D-029, INV-1), and driving it through its
+lower-level editing calls instead would leave us using a few per cent of it for a model that is
+four verbs — insert, delete, newline, submit — with no cursor movement in the key grammar to need
+anything more. `unicode-segmentation` and `unicode-width` were already audited into the foundation
+and are what the four verbs actually require.
+
+Letting `Submit` append to the transcript directly was the shorter path and would have made the
+projection a second writer over state the event stream owns — the divergence this project already
+rejected for delegation records. A submitted message is a command; it reaches the screen as the
+runtime's own events or not at all. The cost is real and was accepted: sequence numbering had to
+move out of the scenario fixture into the runtime, because two sources feeding one monotonic stream
+cannot both be numbering it.
+
 ### D-037 · Leaving the composer to Phase 01, and folding it into the surfaces step — both rejected
 
 Deferring it was rejected on the exit gate, not on taste. Three of its criteria need a real text
@@ -113,27 +132,20 @@ step whose plan needs a phase-sized document is a step that was not cut. Its own
 
 ### D-036 · Numeric identities and a second layout for hit testing — rejected
 
-Both alternatives were already available and needed no new code. `SurfaceId(u64)` with constants in
-layout was rejected because the number is agreed by convention, and a convention is what silently
-breaks when a region is added; a named enum makes the draw loop exhaustive, so a surface with no
-way to be drawn does not compile. Inspectors and shelves arrive as variants carrying their own
-identity rather than as allocated numbers.
-
-Letting the router recompute the same rectangles was rejected as the "multiple sources of truth
-with synchronization code between them" anti-pattern, whose failure mode here is the click that
-lands one panel over — visible only to whoever is clicking. Returning the registry from `render`
-makes the geometry that routes the geometry that was painted, by construction rather than by test.
+Aged: [surface-model](./specs/surface-model.md) owns both mechanisms. The verdicts are that a
+numbered identity is a convention, and a convention is exactly what breaks silently when a region is
+added; and that a second layout computed for hit testing is the multiple-sources-of-truth
+anti-pattern, whose failure mode here is the click that lands one panel over — visible only to
+whoever is clicking.
 
 ### D-035 · Worktrees under `.agents/worktrees/` — rejected
 
-Mechanically it works: a nested worktree there is invisible to `check-file-length.sh`, which walks
-`crates/`, and to `check-doc-budget.sh`, which reads the index. It was rejected on meaning.
-`.agents/` is declared the project's durable memory and holds eighteen tracked, budgeted markdown
-files. A worktree is its opposite — untracked, disposable, and 245 MB of build output each. A
-directory that holds both stops being a directory anyone can describe. `.worktrees/` at the root
-carries the same vendor neutrality, which was the real point, without that cost. A second ignored
-path for whatever a harness defaults to was rejected with it: two locations is not a convention,
-and `git worktree add` is supported everywhere, so honouring one costs nothing.
+Mechanically it works — a nested worktree there is invisible to both corpus scripts — and it was
+rejected on meaning. `.agents/` is the project's declared durable memory of tracked, budgeted
+markdown; a worktree is untracked, disposable, and 245 MB of build output each, and a directory
+holding both stops being one anyone can describe. `.worktrees/` at the root carries the same vendor
+neutrality, which was the real point. A second ignored path for whatever a harness defaults to was
+rejected with it: two locations is not a convention.
 
 ### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
 
@@ -152,20 +164,17 @@ The useful half was kept — a spec is earned, not written by default.
 
 ### D-031 · `Escape` as the quit key — rejected
 
-The prototype shipped with `Esc` quitting, which was convenient while there was nothing to dismiss.
-It cannot survive the interaction spine: `Escape` is the key people press to back out of a mistake,
-so the moment a shelf, a menu, or a draft exists, the same reflex that closes an overlay would end
-the session one press later. Reserving it for the ladder costs one binding and removes a whole
-class of destructive misfire. `Ctrl-C` is the unconditional exit; `q` is the convenient one, and it
-is unreachable while a text input holds the cursor because there `q` is a letter.
+The fact worth keeping is that the prototype shipped this way and it was changed: `Esc` quit while
+there was nothing to dismiss, and the moment a shelf or a draft exists the same reflex that closes
+an overlay would end the session one press later. The rules that replaced it are
+[interaction-routing](./specs/interaction-routing.md) INV-6 and INV-7.
 
 ### D-030 · Putting `TuiIntent` in `plexmaton-core` — rejected
 
-The Phase 00 crate sketch originally listed intents under core. Core is what a future real runtime
-and the projection agree on; scroll, focus cycling, and pointer capture are none of the runtime's
-business, and putting them there would make the semantic boundary a grab bag. When a user action
-does need to reach the runtime it becomes a command in core's own vocabulary, converted at the
-composition boundary — not by widening the intent enum until it spans both worlds.
+Aged: the crate boundary is stated in [plexmaton](./roadmap/plexmaton.md) and the module's own
+documentation. The verdict is that scroll, focus cycling and pointer capture are none of a runtime's
+business, and a user action that does need to reach one becomes a command in core's vocabulary at
+the composition boundary rather than widening the intent enum across both worlds.
 
 ### D-027 · Hiding the unfocused composer entirely — rejected
 
@@ -177,11 +186,9 @@ nothing a terminal can measure.
 
 ### D-028 · Full floating-window drag in Phase 00 — rejected for now
 
-Free two-axis movement with eight-way resize needs pointer capture on both axes, boundary clamping,
-resize recovery, and keyboard equivalents for every gesture — roughly three to four times the work
-of a vertical resize handle. A shelf is docked by definition, so its position is not a user choice;
-only its height is. Nothing in the canonical journey needs a panel moved to an arbitrary corner
-yet, so the gesture waits until a pinned or maximized surface gives it a reason.
+Aged: [ui-ux](./roadmap/ui-ux.md) §drag scope owns it. The verdict is that a shelf is docked by
+definition, so only its height is a user choice, and nothing in the canonical journey yet needs a
+panel moved to an arbitrary corner.
 
 ### D-010, D-011 · Workspace-wide `missing_docs`, and a file-length limit as the primary guard — rejected
 

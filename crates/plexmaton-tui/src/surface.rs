@@ -39,19 +39,21 @@ pub enum SurfaceKind {
     Panel,
     /// Painted but never interactive, such as a key-hint strip.
     Chrome,
+    /// A text input. While it holds focus it owns the workspace's one cursor.
+    Composer,
 }
 
 impl SurfaceKind {
     /// Whether a pointer event may resolve to a surface of this kind.
     #[must_use]
     pub const fn accepts_pointer(self) -> bool {
-        matches!(self, Self::Panel)
+        matches!(self, Self::Panel | Self::Composer)
     }
 
     /// Whether a surface of this kind is a stop on the focus ring.
     #[must_use]
     pub const fn is_focusable(self) -> bool {
-        matches!(self, Self::Panel)
+        matches!(self, Self::Panel | Self::Composer)
     }
 
     /// What typing does while a surface of this kind holds focus.
@@ -59,6 +61,7 @@ impl SurfaceKind {
     pub const fn keyboard_focus(self) -> KeyboardFocus {
         match self {
             Self::Panel | Self::Chrome => KeyboardFocus::Navigation,
+            Self::Composer => KeyboardFocus::TextInput,
         }
     }
 }
@@ -77,6 +80,11 @@ pub enum SurfaceId {
     Transcript,
     /// Tools, artifacts, and mail belonging to the selected agent.
     Activity,
+    /// The one text input, bound to the primary agent (D-017).
+    ///
+    /// Declared last among the focus stops because it is drawn last, at the bottom of the
+    /// workspace: the ring then runs down the screen rather than jumping back up it.
+    Composer,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
     /// The key-hint strip.

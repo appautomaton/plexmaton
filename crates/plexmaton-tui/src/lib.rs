@@ -11,12 +11,12 @@ mod test_support;
 mod theme;
 
 pub use intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent};
-pub use layout::{LayoutClass, workspace};
+pub use layout::{LayoutClass, WorkspaceInput, workspace};
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
-    AgentView, ApplyOutcome, ArtifactView, AttentionView, MailView, NoticeView, ReduceError,
-    ToolActivityView, TranscriptItemView, ViewRevision, ViewState,
+    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, MailView, NoticeView,
+    ReduceError, ToolActivityView, TranscriptItemView, ViewRevision, ViewState,
 };
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError,

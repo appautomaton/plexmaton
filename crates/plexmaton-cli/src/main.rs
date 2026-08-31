@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, io, time::Duration};
+use std::{io, time::Duration};
 
 use anyhow::Context;
 use crossterm::{
@@ -6,7 +6,8 @@ use crossterm::{
     execute,
 };
 use futures_util::StreamExt;
-use plexmaton_sim::{Scenario, ScenarioStep};
+use plexmaton_core::PrototypeEventEnvelope;
+use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
 use plexmaton_tui::{
     Palette, PointerIntent, Routed, Router, RouterContext, SurfaceTree, TuiIntent, ViewRevision,
     ViewState,
@@ -16,8 +17,9 @@ use ratatui::DefaultTerminal;
 const TICK_INTERVAL: Duration = Duration::from_millis(180);
 
 /// Whether the event loop continues after an intent.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum Flow {
+    #[default]
     Continue,
     Quit,
 }
@@ -46,12 +48,11 @@ async fn main() -> anyhow::Result<()> {
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
     execute!(io::stdout(), EnableMouseCapture).context("enable mouse reporting")?;
-    run(terminal, scenario.into_steps()).await
+    run(terminal, Runtime::new(scenario)).await
 }
 
-async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow::Result<()> {
+async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Result<()> {
     let mut state = ViewState::default();
-    let mut timeline: VecDeque<_> = steps.into();
     let mut tick = 0_u64;
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     let mut terminal_events = EventStream::new();
@@ -64,7 +65,7 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     // Named colour roles resolve through the user's own terminal theme by default.
     let palette = Palette::default();
 
-    apply_ready(&mut state, &mut timeline, tick);
+    emit(&mut state, runtime.ready(tick));
 
     loop {
         // Repaint only when the projection actually changed. Ambient background activity and
@@ -81,12 +82,16 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
         tokio::select! {
             _ = ticker.tick() => {
                 tick = tick.saturating_add(1);
-                apply_ready(&mut state, &mut timeline, tick);
+                emit(&mut state, runtime.ready(tick));
             }
             terminal_event = terminal_events.next() => {
                 match terminal_event {
                     Some(Ok(event)) => {
-                        if route(&mut router, &surfaces, &event, &mut state, &mut painted) == Flow::Quit {
+                        let outcome = route(&mut router, &surfaces, &event, &mut state, &mut painted);
+                        if let Some(text) = outcome.submitted {
+                            send(&mut runtime, &mut state, text)?;
+                        }
+                        if outcome.flow == Flow::Quit {
                             break;
                         }
                     }
@@ -100,6 +105,24 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     Ok(())
 }
 
+/// What one terminal event left for the composition root to do.
+#[derive(Debug, Default, Eq, PartialEq)]
+struct Outcome {
+    flow: Flow,
+    /// Text the user submitted. Only the runtime may turn it into transcript events, so it leaves
+    /// the reducer as a value rather than being written anywhere (COM-3).
+    submitted: Option<String>,
+}
+
+impl Outcome {
+    const fn quit() -> Self {
+        Self {
+            flow: Flow::Quit,
+            submitted: None,
+        }
+    }
+}
+
 /// Translates one terminal event and applies whatever it asked for.
 fn route(
     router: &mut Router,
@@ -107,18 +130,16 @@ fn route(
     event: &Event,
     state: &mut ViewState,
     painted: &mut Option<ViewRevision>,
-) -> Flow {
+) -> Outcome {
     let context = RouterContext {
         surfaces,
-        // Derived from whichever surface holds focus, never asserted here (SURF-3). Until a
-        // composer exists no kind returns `TextInput`, so this is navigation by consequence rather
-        // than by assumption.
+        // Derived from whichever surface holds focus, never asserted here (SURF-3).
         focus: state.keyboard_focus(surfaces),
         dismissible: false,
     };
     match router.translate(event, &context) {
         Routed::Intent(intent) => apply_intent(state, surfaces, intent, painted),
-        Routed::Ignored(_) => Flow::Continue,
+        Routed::Ignored(_) => Outcome::default(),
     }
 }
 
@@ -131,9 +152,15 @@ fn apply_intent(
     surfaces: &SurfaceTree,
     intent: TuiIntent,
     painted: &mut Option<ViewRevision>,
-) -> Flow {
+) -> Outcome {
     match intent {
-        TuiIntent::Quit => return Flow::Quit,
+        TuiIntent::Quit => return Outcome::quit(),
+        TuiIntent::Text(edit) => {
+            return Outcome {
+                flow: Flow::Continue,
+                submitted: state.edit(edit),
+            };
+        }
         TuiIntent::MoveSelection(direction) => state.move_selection(direction),
         TuiIntent::CycleFocus(direction) => state.cycle_focus(surfaces, direction),
         // A press focuses what it hit; the rest of the gesture is a drag, which has no consumer
@@ -150,21 +177,34 @@ fn apply_intent(
             PointerIntent::Drag { .. }
             | PointerIntent::Release { .. }
             | PointerIntent::Cancel { .. },
-        )
-        | TuiIntent::Text(_) => {}
+        ) => {}
     }
-    Flow::Continue
+    Outcome::default()
 }
 
-fn apply_ready(state: &mut ViewState, timeline: &mut VecDeque<ScenarioStep>, tick: u64) {
-    while timeline.front().is_some_and(|step| step.at_tick <= tick) {
-        let Some(step) = timeline.pop_front() else {
-            break;
-        };
+fn emit(state: &mut ViewState, events: Vec<PrototypeEventEnvelope>) {
+    for envelope in events {
         // A producer contract violation is a visible, typed notice inside the projection rather
         // than a reason to tear down the user's terminal.
-        let _outcome = state.apply(step.envelope);
+        let _outcome = state.apply(envelope);
     }
+}
+
+/// Hands a submitted draft to the runtime and applies whatever it emits in response.
+///
+/// The projection is never written directly here. A message reaches the screen as the runtime's
+/// own events or not at all, which is what keeps the transcript to one writer (COM-3).
+fn send(runtime: &mut Runtime, state: &mut ViewState, text: String) -> anyhow::Result<()> {
+    let Some(to) = state.primary_agent().map(|agent| agent.id.clone()) else {
+        // Nothing has been delegated to yet, so there is no session to deliver into. Dropping the
+        // text here would lose it silently; it stays in the draft until an agent exists.
+        return Ok(());
+    };
+    let emitted = runtime
+        .submit(RuntimeCommand::SendMessage { to, text })
+        .context("submit the composed message")?;
+    emit(state, emitted);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -172,13 +212,18 @@ mod tests {
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
-    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState};
+    use plexmaton_sim::{Runtime, Scenario};
+    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState, WorkspaceInput};
     use ratatui::layout::Rect;
 
-    use super::{Flow, route};
+    use super::{Flow, Outcome, emit, route, send};
 
     fn press(code: KeyCode, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(code, modifiers))
+    }
+
+    fn workspace() -> SurfaceTree {
+        plexmaton_tui::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default())
     }
 
     #[test]
@@ -196,7 +241,7 @@ mod tests {
                 &mut state,
                 &mut painted,
             ),
-            Flow::Continue
+            Outcome::default()
         );
         assert!(painted.is_some(), "an unbound key must not force a redraw");
 
@@ -208,7 +253,7 @@ mod tests {
                 &mut state,
                 &mut painted,
             ),
-            Flow::Continue
+            Outcome::default()
         );
         assert!(painted.is_none(), "a resize must force the next redraw");
 
@@ -220,7 +265,7 @@ mod tests {
                 &mut state,
                 &mut painted,
             ),
-            Flow::Quit
+            Outcome::quit()
         );
     }
 
@@ -231,26 +276,26 @@ mod tests {
     #[test]
     fn tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in() {
         let mut router = Router::default();
-        let surfaces = plexmaton_tui::workspace(Rect::new(0, 0, 120, 24), false);
+        let surfaces = workspace();
         let mut state = ViewState::default();
         let mut painted = Some(state.revision());
-        let mut send = |event: &Event, state: &mut ViewState| {
+        let mut deliver = |event: &Event, state: &mut ViewState| {
             route(&mut router, &surfaces, event, state, &mut painted)
         };
 
         assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
 
-        send(&press(KeyCode::Tab, KeyModifiers::NONE), &mut state);
+        deliver(&press(KeyCode::Tab, KeyModifiers::NONE), &mut state);
         assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
 
-        send(&press(KeyCode::BackTab, KeyModifiers::SHIFT), &mut state);
+        deliver(&press(KeyCode::BackTab, KeyModifiers::SHIFT), &mut state);
         assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
 
         let activity = surfaces
             .get(SurfaceId::Activity)
             .unwrap_or_else(|| panic!("a wide workspace registers an activity column"))
             .bounds;
-        send(
+        deliver(
             &Event::Mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column: activity.x,
@@ -263,6 +308,79 @@ mod tests {
             state.focused(&surfaces),
             Some(SurfaceId::Activity),
             "a press focuses the surface it hit"
+        );
+    }
+
+    /// COM-1 to COM-3 through the executable: typing reaches the runtime and comes back as a
+    /// transcript item.
+    ///
+    /// The round trip is the point. Nothing here writes to the projection, so a message that
+    /// appears has been through the same boundary a real runtime will occupy.
+    #[test]
+    fn a_typed_message_reaches_the_transcript_by_way_of_the_runtime() {
+        let mut router = Router::default();
+        let surfaces = workspace();
+        let mut runtime =
+            Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")));
+        let mut state = ViewState::default();
+        let mut painted = None;
+        emit(&mut state, runtime.ready(u64::MAX));
+
+        state.focus_surface(&surfaces, SurfaceId::Composer);
+        assert_eq!(
+            state.focused(&surfaces),
+            Some(SurfaceId::Composer),
+            "the composer is a focus stop"
+        );
+
+        let mut deliver = |event: &Event, state: &mut ViewState| {
+            route(&mut router, &surfaces, event, state, &mut painted)
+        };
+        for character in "hi q".chars() {
+            let outcome = deliver(
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+                &mut state,
+            );
+            assert_eq!(outcome.flow, Flow::Continue, "typing must never quit");
+            assert!(outcome.submitted.is_none());
+        }
+        assert_eq!(
+            state.composer().draft(),
+            "hi q",
+            "`q` is a letter while the cursor is in the composer (INV-7)"
+        );
+
+        let outcome = deliver(&press(KeyCode::Enter, KeyModifiers::NONE), &mut state);
+        let submitted = outcome
+            .submitted
+            .unwrap_or_else(|| panic!("Enter must submit the draft"));
+        assert_eq!(submitted, "hi q");
+        assert_eq!(state.composer().draft(), "", "and the draft is cleared");
+
+        let before: Vec<_> = state
+            .primary_agent()
+            .map(|agent| agent.transcript().map(|item| item.role).collect())
+            .unwrap_or_default();
+        assert!(
+            !before.contains(&plexmaton_core::TranscriptRole::User),
+            "nothing may appear in the transcript until the runtime emits it"
+        );
+
+        send(&mut runtime, &mut state, submitted)
+            .unwrap_or_else(|error| panic!("the runtime accepts the message: {error}"));
+
+        let user_items: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
+            .transcript()
+            .filter(|item| item.role == plexmaton_core::TranscriptRole::User)
+            .map(|item| item.source.clone())
+            .collect();
+        assert_eq!(user_items, ["hi q"]);
+        assert_eq!(
+            state.notices().count(),
+            0,
+            "a submitted message must not break the sequence the projection is checking"
         );
     }
 }

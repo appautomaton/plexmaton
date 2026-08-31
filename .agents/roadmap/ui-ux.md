@@ -388,10 +388,11 @@ Initial measurements should distinguish target, observed value, workload, termin
 - Interaction between application selection, terminal-native selection, mouse capture, and tmux
 - Whether selection may span virtualized off-screen transcript items in the first product slice
 - Clipboard backend behavior across local desktop, SSH, tmux, OSC 52, and unavailable-clipboard environments
-- Whether the Phase 00 composer retains `ratatui-textarea` or replaces it after the interaction spike
 
 These questions should be resolved by the Phase 00 prototype and recorded here as durable interaction rules.
 
-Four earlier questions have been answered and moved out of this list: the ultrawide threshold and
+Five earlier questions have been answered and moved out of this list: the ultrawide threshold and
 whether its second column is replaced on selection (D-024), the minimum supported terminal size
-(D-025), and low-colour behaviour (D-013). Each is stated in the section that owns it.
+(D-025), low-colour behaviour (D-013), and whether the composer keeps `ratatui-textarea` (D-038 —
+it is first-party, because the crate consumes terminal events and only one component may). Each is
+stated in the section that owns it.

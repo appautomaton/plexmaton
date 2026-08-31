@@ -480,6 +480,7 @@ dependencies = [
  "anyhow",
  "crossterm",
  "futures-util",
+ "plexmaton-core",
  "plexmaton-sim",
  "plexmaton-tui",
  "ratatui",
@@ -510,6 +511,8 @@ dependencies = [
  "plexmaton-sim",
  "ratatui",
  "thiserror",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]

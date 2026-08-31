@@ -16,7 +16,7 @@ budget_for() {
         .agents/standards/*.md) echo 150 ;;
         .agents/specs/*.md) echo 200 ;;
         .agents/plans/*.md) echo 150 ;;
-        .agents/DECISIONS.md) echo 200 ;;
+        .agents/DECISIONS.md) echo 250 ;;
         .agents/roadmap/plexmaton.md) echo 250 ;;
         # Long-format documents. A phase or the interaction contract legitimately carries many
         # distinct sections, so their ceiling catches runaway growth rather than shaping structure.

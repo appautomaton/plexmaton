@@ -5,17 +5,22 @@
 //! payer.
 
 use plexmaton_core::{EventSequence, PrototypeEvent, PrototypeEventEnvelope};
-use plexmaton_sim::Scenario;
+use plexmaton_sim::{Runtime, Scenario};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 
 use crate::{ViewState, render, surface::SurfaceTree, theme::Palette};
 
-/// The canonical A-delegates-to-B timeline, fully applied.
+/// A runtime holding the canonical A-delegates-to-B timeline, with nothing emitted yet.
+pub fn canonical_runtime() -> Runtime {
+    Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}")))
+}
+
+/// The canonical timeline, fully replayed into a projection.
 pub fn canonical_state() -> ViewState {
-    let scenario = Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
     let mut state = ViewState::default();
-    for step in scenario.into_steps() {
-        state.apply(step.envelope);
+    // A tick past the end of the timeline, so everything scheduled has been emitted.
+    for envelope in canonical_runtime().ready(u64::MAX) {
+        state.apply(envelope);
     }
     state
 }

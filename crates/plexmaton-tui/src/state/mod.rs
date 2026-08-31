@@ -1,27 +1,28 @@
 mod agent;
+mod attention;
+mod composer;
+mod focus;
+mod notices;
 mod ordered;
 
-use std::collections::VecDeque;
-
 use plexmaton_core::{
-    AgentId, AttentionId, AttentionKind, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
-    TranscriptItemId,
+    AgentId, EventSequence, PrototypeEvent, PrototypeEventEnvelope, TranscriptItemId,
 };
 use thiserror::Error;
 
 pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptItemView};
+pub use attention::AttentionView;
+pub use composer::Composer;
+pub use notices::NoticeView;
 
 use crate::{
-    intent::Direction,
+    intent::{Direction, TextIntent},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
 };
+use attention::AttentionQueue;
+use focus::Focus;
+use notices::NoticeLog;
 use ordered::OrderedById;
-
-/// Upper bound on retained runtime notices.
-///
-/// Notices originate from producers the projection does not control, so the log discards its
-/// oldest entries and reports the discarded count rather than growing without limit.
-const NOTICE_CAPACITY: usize = 32;
 
 /// Why the projection rejected one semantic event.
 ///
@@ -74,29 +75,6 @@ impl ViewRevision {
     }
 }
 
-/// One queued background request. Adding it never changes keyboard focus.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttentionView {
-    pub id: AttentionId,
-    pub agent_id: AgentId,
-    pub kind: AttentionKind,
-    pub summary: String,
-}
-
-/// A runtime notice surfaced without interrupting the user's work.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NoticeView {
-    /// Warning reported by the event producer.
-    RuntimeWarning { message: String },
-    /// Events were lost before the received sequence; the projection resynchronized forward.
-    SequenceGap { expected: u64, received: u64 },
-    /// One event violated the projection contract and was dropped.
-    Rejected {
-        sequence: EventSequence,
-        error: ReduceError,
-    },
-}
-
 /// Revisioned, deterministic TUI projection.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ViewState {
@@ -104,16 +82,10 @@ pub struct ViewState {
     last_sequence: Option<EventSequence>,
     agents: OrderedById<AgentId, AgentView>,
     selected_agent: Option<AgentId>,
-    attention: OrderedById<AttentionId, AttentionView>,
-    notices: VecDeque<NoticeView>,
-    notices_dropped: u64,
-    /// Which surface the user last put focus on.
-    ///
-    /// A preference, not an assertion: the surfaces registered change with every frame, so this
-    /// may name one that is not on screen right now. `focused` resolves it against the current
-    /// tree instead of repairing it, which is what makes SURF-5 fall out — a surface that comes
-    /// back gets its focus back, with nothing to keep in sync.
-    focus: Option<SurfaceId>,
+    attention: AttentionQueue,
+    notices: NoticeLog,
+    focus: Focus,
+    composer: Composer,
 }
 
 impl ViewState {
@@ -170,6 +142,55 @@ impl ViewState {
         self.agents.iter()
     }
 
+    /// Returns the agent the composer addresses.
+    ///
+    /// The first agent to appear, and never the selected one (D-017). A composer whose target
+    /// follows the selection makes "where does this keystroke go" invisible state, and a
+    /// misdirected instruction to a running worker is not undone by sending another.
+    #[must_use]
+    pub fn primary_agent(&self) -> Option<&AgentView> {
+        self.agents.iter().next()
+    }
+
+    /// Returns the draft the user is typing.
+    #[must_use]
+    pub const fn composer(&self) -> &Composer {
+        &self.composer
+    }
+
+    /// Applies one edit, returning the text when the user asked to send it.
+    ///
+    /// The returned string is a *command* for the runtime, never something to write into the
+    /// transcript here: the projection has one writer, and it is the event stream (COM-3).
+    ///
+    /// This trusts INV-2 rather than re-checking focus. The router only produces a text intent
+    /// while a text input holds the cursor, and it reads that from this same state, so a second
+    /// check here would be a second source of truth for the same fact.
+    pub fn edit(&mut self, intent: TextIntent) -> Option<String> {
+        let changed = match intent {
+            TextIntent::Insert(character) => {
+                self.composer.insert(character);
+                true
+            }
+            TextIntent::Newline => {
+                self.composer.newline();
+                true
+            }
+            TextIntent::DeleteBackward => self.composer.delete_backward(),
+            TextIntent::Submit => {
+                let submitted = self.composer.take_draft();
+                if submitted.is_some() {
+                    self.touch();
+                }
+                return submitted;
+            }
+        };
+        if changed {
+            self.touch();
+        }
+        None
+    }
+
     /// Returns the selected agent projection, when one exists.
     #[must_use]
     pub fn selected_agent(&self) -> Option<&AgentView> {
@@ -196,8 +217,8 @@ impl ViewState {
 
     /// Number of notices discarded because the bounded log was full.
     #[must_use]
-    pub fn notices_dropped(&self) -> u64 {
-        self.notices_dropped
+    pub const fn notices_dropped(&self) -> u64 {
+        self.notices.dropped()
     }
 
     /// Selects an existing agent without changing semantic runtime state.
@@ -244,49 +265,27 @@ impl ViewState {
     }
 
     /// Resolves which surface holds keyboard focus for the frame `surfaces` describes.
-    ///
-    /// Derived rather than stored, so a stale preference can never be delivered to. A stored focus
-    /// that is no longer a stop falls back to the first one, and the preference is left alone so
-    /// the surface reclaims focus when it returns.
     #[must_use]
     pub fn focused(&self, surfaces: &SurfaceTree) -> Option<SurfaceId> {
-        self.focus
-            .filter(|id| surfaces.get(*id).is_some_and(|s| s.kind.is_focusable()))
-            .or_else(|| surfaces.focus_ring().next())
+        self.focus.resolve(surfaces)
     }
 
     /// Resolves where typed text would go, from the focused surface's kind alone (SURF-3).
     #[must_use]
     pub fn keyboard_focus(&self, surfaces: &SurfaceTree) -> KeyboardFocus {
-        self.focused(surfaces)
-            .and_then(|id| surfaces.get(id))
-            .map_or(KeyboardFocus::default(), |surface| {
-                surface.kind.keyboard_focus()
-            })
+        self.focus.keyboard(surfaces)
     }
 
     /// Moves focus one stop around the ring.
     pub fn cycle_focus(&mut self, surfaces: &SurfaceTree, direction: Direction) {
-        let next = surfaces.next_focus(self.focused(surfaces), direction);
-        self.set_focus(next);
-    }
-
-    /// Focuses the surface a press landed on, if that surface is a stop.
-    ///
-    /// A press on chrome routes but does not move focus, so clicking the hint strip does not strand
-    /// the keyboard somewhere it cannot act.
-    pub fn focus_surface(&mut self, surfaces: &SurfaceTree, surface_id: SurfaceId) {
-        if surfaces
-            .get(surface_id)
-            .is_some_and(|surface| surface.kind.is_focusable())
-        {
-            self.set_focus(Some(surface_id));
+        if self.focus.cycle(surfaces, direction) {
+            self.touch();
         }
     }
 
-    fn set_focus(&mut self, next: Option<SurfaceId>) {
-        if next.is_some() && next != self.focus {
-            self.focus = next;
+    /// Focuses the surface a press landed on, if that surface is a stop.
+    pub fn focus_surface(&mut self, surfaces: &SurfaceTree, surface_id: SurfaceId) {
+        if self.focus.point_at(surfaces, surface_id) {
             self.touch();
         }
     }
@@ -345,15 +344,12 @@ impl ViewState {
                 if !self.agents.contains(&agent_id) {
                     return Err(ReduceError::UnknownAgent(agent_id));
                 }
-                self.attention.upsert(
-                    attention_id.clone(),
-                    AttentionView {
-                        id: attention_id,
-                        agent_id,
-                        kind,
-                        summary,
-                    },
-                );
+                self.attention.request(AttentionView {
+                    id: attention_id,
+                    agent_id,
+                    kind,
+                    summary,
+                });
             }
             PrototypeEvent::MailDelivered {
                 mail_id,
@@ -377,11 +373,8 @@ impl ViewState {
     }
 
     fn push_notice(&mut self, notice: NoticeView) {
-        if self.notices.len() == NOTICE_CAPACITY {
-            self.notices.pop_front();
-            self.notices_dropped = self.notices_dropped.saturating_add(1);
-        }
-        self.notices.push_back(notice);
+        self.notices.push(notice);
+        // A notice is visible, so recording one is a change the renderer has to repaint for.
         self.touch();
     }
 
@@ -401,36 +394,20 @@ mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
     };
-    use plexmaton_sim::Scenario;
     use ratatui::layout::Rect;
 
     use super::{ApplyOutcome, NoticeView, ReduceError, ViewState};
     use crate::{
         intent::Direction,
-        layout,
-        surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree},
-        test_support::canonical_state,
+        layout::{self, WorkspaceInput},
+        surface::SurfaceId,
+        test_support::{canonical_runtime, canonical_state},
     };
-
-    /// A tree holding exactly the named stops, so a surface can be taken away and given back.
-    fn tree_of(ids: &[SurfaceId]) -> SurfaceTree {
-        let mut tree = SurfaceTree::default();
-        for id in ids {
-            tree.insert(Surface {
-                id: *id,
-                bounds: Rect::new(0, 0, 10, 10),
-                z_index: 0,
-                kind: SurfaceKind::Panel,
-            })
-            .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
-        }
-        tree
-    }
 
     /// SURF-3: focus is a stop on the ring, and a press on chrome is not a way off it.
     #[test]
     fn focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it() {
-        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), true);
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
         let mut state = canonical_state();
 
         assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
@@ -454,11 +431,11 @@ mod tests {
 
     #[test]
     fn cycling_focus_walks_the_ring_and_wraps() {
-        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), true);
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
         let mut state = canonical_state();
         let mut seen = Vec::new();
 
-        for _ in 0..4 {
+        for _ in 0..5 {
             seen.push(state.focused(&surfaces));
             state.cycle_focus(&surfaces, Direction::Forward);
         }
@@ -469,36 +446,11 @@ mod tests {
                 Some(SurfaceId::Agents),
                 Some(SurfaceId::Transcript),
                 Some(SurfaceId::Activity),
+                Some(SurfaceId::Composer),
                 Some(SurfaceId::Agents),
-            ]
+            ],
+            "the ring runs down the screen and wraps"
         );
-    }
-
-    /// SURF-5: focus belongs to the surface, not to the frame that happened to draw it.
-    #[test]
-    fn focus_returns_to_a_surface_that_comes_back() {
-        let full = tree_of(&[SurfaceId::Agents, SurfaceId::Transcript]);
-        let reduced = tree_of(&[SurfaceId::Agents]);
-        let mut state = ViewState::default();
-        state.focus_surface(&full, SurfaceId::Transcript);
-
-        assert_eq!(
-            state.focused(&reduced),
-            Some(SurfaceId::Agents),
-            "focus must never be delivered to a surface that is not on screen"
-        );
-        assert_eq!(
-            state.focused(&full),
-            Some(SurfaceId::Transcript),
-            "and the preference must survive, or reopening loses where the user was"
-        );
-    }
-
-    #[test]
-    fn focus_resolves_to_nothing_when_no_surface_is_registered() {
-        let state = ViewState::default();
-
-        assert_eq!(state.focused(&SurfaceTree::default()), None);
     }
 
     fn agent_id(value: &str) -> AgentId {
@@ -525,11 +477,9 @@ mod tests {
         // The shared fixture ignores the outcome so a degraded projection is still constructible.
         // Somebody has to assert that the canonical timeline itself has no producer defect in it,
         // or every test built on it would be testing against a silently broken baseline.
-        let scenario =
-            Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let mut state = ViewState::default();
-        for step in scenario.into_steps() {
-            assert_eq!(state.apply(step.envelope), ApplyOutcome::Accepted);
+        for envelope in canonical_runtime().ready(u64::MAX) {
+            assert_eq!(state.apply(envelope), ApplyOutcome::Accepted);
         }
         assert_eq!(state.notices().count(), 0);
     }
@@ -699,26 +649,5 @@ mod tests {
         state.apply(envelope(2, created("agent-a")));
 
         assert!(state.revision() > before);
-    }
-
-    #[test]
-    fn notice_log_is_bounded_and_reports_discarded_entries() {
-        let mut state = ViewState::default();
-        let total = super::NOTICE_CAPACITY + 8;
-        for index in 0..total {
-            state.apply(envelope(
-                index as u64 + 1,
-                PrototypeEvent::RuntimeWarning {
-                    message: format!("warning {index}"),
-                },
-            ));
-        }
-
-        assert_eq!(state.notices().count(), super::NOTICE_CAPACITY);
-        assert_eq!(state.notices_dropped(), 8);
-        assert!(matches!(
-            state.notices().next(),
-            Some(NoticeView::RuntimeWarning { message }) if message == "warning 8"
-        ));
     }
 }

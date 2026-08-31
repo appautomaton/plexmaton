@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine started; steps 1 and 2 of 8 complete |
+| Status | In progress — interaction spine half built; steps 1 to 3 of 8 complete |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 3 — the composer and the single cursor (D-037) |
+| Next step | Step 4 — viewports and scroll ownership |
 
 ## Phase outcome
 
@@ -44,10 +44,12 @@ order means building against a boundary that has not been decided yet.
 1. **Intents and interaction router.** *Done 2026-08-31.* A typed `TuiIntent`, and one router that
    owns terminal event translation. Specified in
    [interaction-routing](../specs/interaction-routing.md).
-2. **Surfaces on the application path.** Registration, surface kind, focus, and mouse capture.
-   Specified in [surface-model](../specs/surface-model.md).
-3. **The composer and the single cursor.** The one text input, its grapheme-aware editing model, and
-   the collapsed row (D-017, D-018, D-027). Added to this sequence on 2026-08-31 (D-037).
+2. **Surfaces on the application path.** *Done 2026-08-31.* Registration, surface kind, focus, and
+   mouse capture. Specified in [surface-model](../specs/surface-model.md).
+3. **The composer and the single cursor.** *Done 2026-08-31.* The one text input, its grapheme-aware
+   editing model, and a submitted message as a runtime command (D-017, D-018, D-038). Added to this
+   sequence on 2026-08-31 (D-037); the collapsed row (D-027) belongs to step 7 with the sub-agent
+   input that triggers it.
 4. **Viewports and scroll ownership.** Per-surface scroll state and the locked hover-routing and
    no-propagation rules from the UI/UX contract.
 5. **Transcript virtualization.** Visible-range layout, width-and-revision keyed wrapping cache,
@@ -85,10 +87,12 @@ so this section records only what stops being true when Phase 00 closes.
 
 | Candidate | Status | Constraint |
 | --- | --- | --- |
-| `ratatui-textarea 0.9.2` | Composer spike | Maintained Ratatui fork; compatible with the modular 0.30 generation and adds grapheme-aware wrapping. Wrap it behind our composer intent/state boundary before deciding whether to keep it |
 | `arboard 3.6.1` | Local clipboard candidate | Evaluate Linux X11/Wayland feature and lifecycle behavior. It cannot be the only copy path because SSH/tmux/remote sessions may need OSC 52 or terminal-native selection |
 
-Composer state and commands are product contracts; no textarea crate may become the event-routing or focus authority. Clipboard access is an adapter (`ClipboardSink`), so semantic copy tests do not depend on the host desktop. Neither adapter seam exists yet; the seam is written before the crate is added, not after.
+`ratatui-textarea` left this table on 2026-08-31, rejected rather than deferred: it consumes
+`crossterm::event::Event`, and exactly one component in this workspace may (D-038). Clipboard access
+is an adapter (`ClipboardSink`), so semantic copy tests do not depend on the host desktop. That seam
+does not exist yet; it is written before the crate is added, not after.
 
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
@@ -158,134 +162,78 @@ the test proving each. Three facts corrected earlier claims:
 `Text` had no consumer and the sequence named no composer step. That gap is now delivery step 3
 (D-037).
 
-### Delivery step 2, slice 1 — the registration seam — 2026-08-31
+### Delivery step 2 — surfaces on the application path — 2026-08-31 — compressed
 
-Layout is now the only place that computes a workspace rectangle, and every rectangle it computes
-is registered. `plexmaton-tui::layout::workspace` returns a `SurfaceTree`; `render` draws by walking
-that tree and returns it; the executable routes against the tree the last frame actually drew. The
-`SurfaceTree` is no longer a tested-but-unused structure, and pointer events in the running binary
-now resolve to a real region instead of `OutsideWorkspace`.
+`SurfaceTree` stopped being a tested-but-unused structure. Layout is the only producer of workspace
+rectangles, `render` draws by walking the registry and hands it back, and the executable routes
+against the tree the last frame actually drew, so routing geometry cannot diverge from painted
+geometry. Mouse reporting is on, released before the alternate screen and from the same guard that
+restores it. Five facts a future reader still needs:
 
-Two facts worth recording:
+- **Surface identities are named, and behaviour is derived from one kind** (D-036). The draw loop is
+  an exhaustive match, so a surface with no way to be drawn does not compile; and pointer
+  eligibility, focusability and the text cursor come from `SurfaceKind` rather than from booleans
+  that could disagree.
+- **Focus is a preference resolved per frame, not a value repaired after layout.** The tree is
+  rebuilt every frame, so a stored focus can name a surface that is not on screen. Resolving lazily
+  leaves nothing to keep in sync and is what satisfies SURF-5; repairing would have meant mutating
+  state during layout.
+- **The focus ring wraps where the agent list clamps**, and its order is `SurfaceId` declaration
+  order rather than geometric order, so it does not reorder itself when the terminal crosses a
+  layout-class threshold.
+- **Correction: the layout registered regions it had no room to draw.** At 48 × 12 the activity
+  panel was registered `48x0` on top of the footer, and with a notice strip the agent rail collapsed
+  to `48x1` — both invisible to the tiling test, because a zero-area rectangle covers nothing and
+  intersects nothing. Ratatui's solver returns such a rectangle rather than failing. Rows are now
+  reserved all-or-nothing in priority order, and a region that cannot clear three rows is not
+  registered at all.
+- **Two planned slices were cut, moving where two invariants are owned.** Clipping had no caller —
+  every registered surface fits inside its parent — so SURF-2 belongs to step 8, where a transcript
+  item scrolled past its viewport edge is the first surface that outgrows one. Modality has no owner
+  in Phase 00 at all: the canonical journey never opens a modal, because the Attention queue exists
+  so a background request does not, and a shelf overlays without blocking. `Dismiss` and the
+  `Escape` ladder therefore land in step 7.
 
-- **Surface identities are named, not numbered** (D-036). `SurfaceId` became an enum, so the draw
-  loop is an exhaustive match: a new surface cannot be added without stating how it is drawn.
-- **Routing geometry is the geometry that was painted.** `render` hands its registry back rather
-  than letting the caller recompute one. A second layout computed for hit testing is how a click
-  lands one panel over, and this removes the possibility rather than testing for it.
+Still unimplemented and now recorded: `ui-ux.md` calls Narrow "one major surface at a time" while
+the implementation stacks bands. Owned by step 7, where inspection becomes a full-region transition.
 
-SURF-1 has two proofs. `every_registered_surface_is_drawn_inside_its_own_bounds` reads the painted
-cells back through each registered rectangle and asserts that surface's signature is inside it;
-`registered_surfaces_tile_the_terminal_without_gaps_or_overlap` fails on a region that was laid out
-but never registered. Mutation checks: drawing the agent rail into the transcript's rectangle fails
-the first, and computing the activity region without registering it fails the second.
+### Delivery step 3 — the composer and the single cursor — 2026-08-31
 
-The test scaffolding changed with it. `canonical_state()` had been copied into two files and now has
-one home in `test_support`, alongside `region_text`, which is what makes "drawn equals registered"
-readable back out of a cell buffer. `plexmaton-core` gained a round-trip test over every event
-variant plus one pinned wire tag; a renamed variant fails only the tag test, which is the point,
-since a round trip cannot see a rename. `serde_json` entered as a dev-dependency with that test.
+The user can type a message and see it in the transcript. `KeyboardFocus::TextInput` is reachable in
+the running binary, so INV-2 is no longer proven only against fixtures, and all four `TextIntent`
+verbs have consumers. Every intent the router produces now has one except `Dismiss` and `Scroll`,
+which belong to steps 7 and 4.
 
-Tests: 49 to 57. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+- **`ratatui-textarea` was rejected, not deferred** (D-038). Its API consumes
+  `crossterm::event::Event`, and exactly one component in this workspace may. The editing model is
+  four verbs, and `unicode-segmentation` and `unicode-width` — already audited into the foundation
+  and until now inherited by no crate — are what those verbs actually need.
+- **A submitted message is a command, not a write.** The projection never appends to its own
+  transcript; text goes to `plexmaton-sim::Runtime` and reaches the screen as the events it emits
+  back. That forced sequence numbering out of the scenario fixture and into the runtime, because two
+  sources feeding one monotonic stream cannot both be numbering it — the projection rejects any gap
+  or repeat, so interleaving had to be correct by construction.
+- **The composer has no cursor offset.** The key grammar has no binding that moves a cursor, so the
+  insertion point is always the end of the draft. A stored offset nothing can change would be a
+  second thing able to disagree with the string.
+- **The priority at the smallest terminal changed, and a test changed with it.** Twelve rows cannot
+  hold a hint strip, a composer, a conversation, a notice strip and an agent rail. The rail is what
+  yields: typing and the conversation are the workspace, and a producer defect the user cannot see is
+  the failure D-003 exists to prevent, with no other signal for it. A step-2 assertion that the rail
+  always survives a notice was true before the composer took three of those twelve rows, and has
+  been replaced rather than relaxed.
+- **`state/mod.rs` hit the 400-line sentinel and was split by responsibility**, not by raising the
+  threshold: focus, the notice log, and the Attention queue each became a module owning its own
+  invariants. The queue's coalescing rule — one entry per request identity — now has a home and a
+  test before step 8 needs it.
 
-### Delivery step 2, slice 2 — kind, and focus as a surface property — 2026-08-31
+Twelve mutations across steps 2 and 3 were each caught by the intended tests. One of them found a
+hole in the tests rather than in the code: restoring a fixed four-row notice strip failed nothing,
+because the only test covering it used the case where the strip does not compete for rows.
 
-`Surface::accepts_pointer` was a boolean, and focus needed a second one. Both are now derived from
-one `SurfaceKind`, so a chrome strip that holds the cursor or a focus stop the pointer cannot reach
-are unrepresentable rather than merely untested. `KeyboardFocus` moved out of the router and beside
-the kind that decides it, which is what makes SURF-3's "never asserted independently" structural:
-the executable no longer names a focus, it asks the focused surface's kind.
+Tests: 49 at the start of step 2, 85 now. All workspace gates, the supply-chain lane, and
+`scripts/smoke-tui.py` pass.
 
-Three findings:
-
-- **Focus is a preference, resolved per frame, not a value repaired after layout.** The tree is
-  rebuilt every frame, so a stored focus can name a surface that is not on screen. Resolving it
-  lazily — the stored stop if it is still registered, otherwise the first — means there is nothing
-  to keep in sync, and SURF-5 falls out of it: a surface that comes back gets its focus back. The
-  repair alternative would have had to mutate state during layout, which the anti-pattern list
-  forbids.
-- **The ring wraps where the agent list clamps**, and the contrast is deliberate. A held arrow key
-  that wraps sends the user back to the first agent at the moment they stop reading; a `Tab` that
-  stops cycling is a dead key with no way to discover why.
-- **Ring order is `SurfaceId` declaration order, not geometric order.** A ring that reorders itself
-  when the terminal crosses a layout-class threshold costs exactly the muscle memory it exists to
-  build. The enum is declared in reading order, so at every class the two agree anyway — asserted
-  across all five.
-
-**Planned and not done: clipping.** The step had a clipping slice; it was cut on inspection, because
-every surface the workspace registers fits inside its parent, so `visible()` would have returned
-`bounds` at every call site. SURF-2 stays in the spec, listed as unproven and owned by step 8, where
-a transcript item scrolled past its viewport edge is the first surface that genuinely outgrows its
-parent. Shipping the field early would have repeated step 1's own mistake at model level.
-
-Focus is proven at four levels — kind, tree, reducer, and painted cells — and read back from the
-buffer against all three palettes, so a monochrome terminal must show focus too. Six mutations were
-each caught by the intended tests: chrome made focusable (5 failures), the fallback removed (5), the
-stored preference discarded (5), every panel painted focused (1), the ring clamped (2), and hit
-testing ignoring kind (1).
-
-Tests: 57 to 68. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
-
-### Delivery step 2, slice 3 — the mouse is on — 2026-08-31
-
-The router had translated pointer events since step 1 against a terminal that was never asked to
-send any. The executable now enables mouse reporting and releases it from the same guard that
-restores the screen, so the release also covers the error and panic paths.
-
-Releasing capture is ordered *before* the alternate screen is handed back. The other order switches
-the modes off on the terminal the user is already looking at, and a leaked capture is worse than a
-leaked screen: the shell keeps reporting movement with nothing left to explain why.
-
-`scripts/smoke-tui.py` grew the part `TestBackend` cannot hold. It sends a real SGR press so
-crossterm's parser is on the path, and asserts by *contrast*: a press on the transcript repaints,
-and a press on the key-hint strip repaints nothing. The negative half is what makes it a routing
-test rather than an "input causes redraw" test, and it is only meaningful because the deterministic
-timeline has drained by then, so nothing else can repaint. Three mutations each fail it: capture
-never released, capture never enabled, and chrome made interactive.
-
-**Step 2 is complete at three slices, not five.** Clipping and modality were both planned here and
-both cut, for one reason — this is the step where `SurfaceTree` gains real callers, so a field or a
-variant with no caller belongs to the step that earns it. Clipping moves to step 8, where a
-transcript item scrolled past its viewport edge is the first surface that outgrows its parent.
-Modality has no owner in Phase 00 at all: the canonical journey never opens a modal, because the
-Attention queue exists so that a background request does not, and the shelf overlays without
-blocking. `Dismiss` and the `Escape` ladder therefore land in step 7 with the shelf, and SURF-4 says
-in its evidence row that nothing in this phase proves it.
-
-Tests: 68, unchanged — this slice's proof is a command, not a unit test.
-
-### Correction — the layout registered regions it had no room to draw — 2026-08-31
-
-Measuring the geometry before adding composer rows found two live defects at the supported
-minimum, both invisible to the tests that existed. At 48 × 12 the activity panel was registered
-`48x0` and sat on top of the footer; with a notice strip the agent rail collapsed to `48x1`. A
-zero-area region is worse than an absent one — it is still a focus stop and still a pointer target,
-and it shows nothing that would explain either.
-
-The cause was trusting Ratatui's constraint solver at a size where the constraints do not fit. It
-returns a zero-height rectangle rather than failing, and `Length(5) + Min(6) + Length(8)` needs 19
-rows in a body that had 7. The tiling test passed throughout, because a zero-area rectangle adds
-nothing to the covered area and intersects nothing.
-
-Rows are now reserved in the order the journey needs them, all-or-nothing: agent identity outranks
-activity detail, and the conversation is the residual that always exists. The notice strip shrinks
-from four rows to three rather than costing the rail a screen that still had room for it — visible
-degradation is locked (D-003), so it yields rather than disappearing. Measured at 48 × 12 with a
-notice: rail 5, conversation 3, notices 3, footer 1.
-
-Two mutations, and one of them found a hole in the tests rather than in the code. Removing the
-floor check fails three tests. Restoring the fixed four-row notice strip failed *nothing* — the
-existing test only covered the no-notice case, which is the one where the strip does not compete
-for rows. The missing assertion was added, and it now fails.
-
-**Not fixed here, and now recorded:** `ui-ux.md` describes Narrow as "one major surface at a time",
-while the implementation stacks three bands. The stacking is what the geometry above repairs, and
-the contradiction with the contract is a separate question owned by step 7, where inspection
-becomes a full-region transition.
-
-Tests: 68 to 71.
-
-This is implementation evidence for the skeleton and steps 1 to 2 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope
 

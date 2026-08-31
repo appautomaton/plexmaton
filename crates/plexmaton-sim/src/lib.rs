@@ -1,16 +1,22 @@
 //! Deterministic semantic timelines for Phase 00.
 
+mod runtime;
+
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, EventSequence, IdError, MailId,
-    PrototypeEvent, PrototypeEventEnvelope, ToolActivityId, ToolActivityStatus, TranscriptItemId,
-    TranscriptRole,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, IdError, MailId, PrototypeEvent,
+    ToolActivityId, ToolActivityStatus, TranscriptItemId, TranscriptRole,
 };
 
+pub use runtime::{Runtime, RuntimeCommand};
+
 /// One event scheduled on a deterministic logical clock.
+///
+/// A step carries no sequence number. Numbering is the emitting runtime's job, and a scenario is
+/// one of two sources feeding a single monotonic stream — the user is the other.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioStep {
     pub at_tick: u64,
-    pub envelope: PrototypeEventEnvelope,
+    pub event: PrototypeEvent,
 }
 
 /// A replayable synthetic scenario.
@@ -153,14 +159,7 @@ impl Scenario {
 
         let steps = events
             .into_iter()
-            .enumerate()
-            .map(|(index, (at_tick, event))| ScenarioStep {
-                at_tick,
-                envelope: PrototypeEventEnvelope {
-                    sequence: EventSequence::new(index as u64 + 1),
-                    event,
-                },
-            })
+            .map(|(at_tick, event)| ScenarioStep { at_tick, event })
             .collect();
 
         Ok(Self { steps })
@@ -190,10 +189,16 @@ mod tests {
         let second =
             Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
 
-        assert_eq!(first, second);
-        assert!(first.steps().windows(2).all(|pair| {
-            pair[0].at_tick <= pair[1].at_tick
-                && pair[0].envelope.sequence < pair[1].envelope.sequence
-        }));
+        assert_eq!(
+            first, second,
+            "replay must be identical, not merely similar"
+        );
+        assert!(
+            first
+                .steps()
+                .windows(2)
+                .all(|pair| pair[0].at_tick <= pair[1].at_tick),
+            "a step must never be scheduled before the one in front of it"
+        );
     }
 }

@@ -75,7 +75,7 @@ the opposite of what it is for.
 | `.agents/standards/*.md` | 150 | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 200 | One spec defines one mechanism; split by mechanism |
 | `.agents/plans/*.md` | 150 | A plan this long is a phase; the step it plans is too big |
-| `.agents/DECISIONS.md` | 200 | Age the rejected-alternative prose, per below |
+| `.agents/DECISIONS.md` | 250 | Age the rejected-alternative prose, per below |
 | `.agents/roadmap/plexmaton.md` | 250 | Promote detail into a phase file or a spec |
 | `.agents/roadmap/ui-ux.md` | 750 | Move mechanism detail into `specs/`; keep the rule here |
 | `.agents/roadmap/phase-*.md` | 750 | Age the evidence log, per below |

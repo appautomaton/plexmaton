@@ -6,9 +6,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::{
     NoticeView, ViewState,
-    layout::{self, LayoutClass, MIN_HEIGHT, MIN_WIDTH},
+    layout::{self, LayoutClass, MIN_HEIGHT, MIN_WIDTH, WorkspaceInput},
     surface::{SurfaceId, SurfaceTree},
     theme::{Palette, Role, agent_role, tool_role},
 };
@@ -25,7 +27,13 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
         return SurfaceTree::default();
     }
 
-    let surfaces = layout::workspace(area, state.notices().next().is_some());
+    let surfaces = layout::workspace(
+        area,
+        WorkspaceInput {
+            has_notices: state.notices().next().is_some(),
+            composer_rows: state.composer().requested_rows(),
+        },
+    );
     let focused = state.focused(&surfaces);
     // Drawing walks the registry, so a region that layout computed without registering has no
     // rectangle to be drawn into, and a new surface identity will not compile until it has an arm.
@@ -36,6 +44,7 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
             SurfaceId::Agents => render_agents(frame, state, palette, bounds, has_focus),
             SurfaceId::Transcript => render_transcript(frame, state, palette, bounds, has_focus),
             SurfaceId::Activity => render_activity(frame, state, palette, bounds, has_focus),
+            SurfaceId::Composer => render_composer(frame, state, palette, bounds, has_focus),
             SurfaceId::Notices => render_notices(frame, state, palette, bounds),
             SurfaceId::Footer => render_footer(frame, palette, bounds),
         }
@@ -263,6 +272,58 @@ fn render_activity(
     );
 }
 
+/// Draws the draft, and places the workspace's one cursor when the composer holds focus.
+///
+/// The cursor is set here and nowhere else. Ratatui hides it unless a frame asks for it, so
+/// "exactly one cursor" (D-018) is a property of there being one call site, not of a rule anyone
+/// has to remember.
+fn render_composer(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+    focused: bool,
+) {
+    let composer = state.composer();
+    // The title names the target, which is what keeps the binding visible rather than remembered
+    // when the selection is on a different agent (COM-4).
+    let title = state.primary_agent().map_or_else(
+        || " Message ".to_owned(),
+        |agent| format!(" Message {} ", agent.label),
+    );
+
+    let lines: Vec<Line<'_>> = if composer.draft().is_empty() && !focused {
+        vec![Line::styled(
+            "Type a message · ⇥ to focus",
+            palette.style(Role::Muted),
+        )]
+    } else {
+        composer
+            .visible_lines()
+            .map(|line| Line::styled(line.to_owned(), palette.style(Role::Body)))
+            .collect()
+    };
+    let rows = u16::try_from(lines.len()).unwrap_or(1);
+
+    frame.render_widget(
+        Paragraph::new(lines).block(panel(palette, title, Role::Muted, focused)),
+        area,
+    );
+
+    if focused {
+        let last = composer.visible_lines().last().unwrap_or_default();
+        // The cursor sits at the display width of the line, not its byte or character count: a
+        // wide glyph occupies two cells and the caret has to land after both.
+        let column = u16::try_from(UnicodeWidthStr::width(last)).unwrap_or(u16::MAX);
+        let inside = area.width.saturating_sub(2);
+        frame.set_cursor_position((
+            area.x.saturating_add(1).saturating_add(column.min(inside)),
+            area.y
+                .saturating_add(rows.min(area.height.saturating_sub(2))),
+        ));
+    }
+}
+
 fn render_notices(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
     // The strip is a bounded tail view: older entries stay in the log but the workspace must not
     // give unbounded screen space to producer defects.
@@ -340,12 +401,19 @@ const fn tool_marker(status: ToolActivityStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use ratatui::{
+        Terminal,
+        backend::TestBackend,
         buffer::Buffer,
+        layout::Rect,
         style::{Color, Modifier, Style},
     };
 
     use crate::{
-        intent::Direction,
+        ViewState,
+        intent::{Direction, TextIntent},
+        layout,
+        layout::WorkspaceInput,
+        render,
         surface::{SurfaceId, SurfaceTree},
         test_support::{canonical_state, degraded_state, draw, draw_frame, draw_with, region_text},
         theme::{Palette, Role},
@@ -377,6 +445,80 @@ mod tests {
 
     fn role_ink(palette: &Palette, role: Role) -> Ink {
         ink(palette.style(role))
+    }
+
+    /// COM-1: a cursor is on screen exactly when the composer holds focus.
+    ///
+    /// Read from the backend rather than from state, because the question is what the terminal was
+    /// told. A focus model the renderer ignores would leave the user typing with no caret.
+    #[test]
+    fn the_cursor_exists_only_while_the_composer_holds_focus() {
+        let palette = Palette::default();
+        let mut state = canonical_state();
+        let cursor = |state: &ViewState| {
+            let mut terminal = Terminal::new(TestBackend::new(120, 24))
+                .unwrap_or_else(|error| panic!("test terminal: {error}"));
+            terminal
+                .draw(|frame| {
+                    render(frame, state, &palette);
+                })
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+            let backend = terminal.backend();
+            backend.cursor_visible().then(|| backend.cursor_position())
+        };
+
+        assert_eq!(cursor(&state), None, "focus starts on the agent rail");
+        // Type first, so a hidden cursor cannot be mistaken for an empty composer.
+        state.edit(TextIntent::Insert('h'));
+        assert_eq!(
+            cursor(&state),
+            None,
+            "a draft nobody is focused on still shows no cursor"
+        );
+
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
+        state.focus_surface(&surfaces, SurfaceId::Composer);
+        let bounds = surfaces
+            .get(SurfaceId::Composer)
+            .unwrap_or_else(|| panic!("the composer is always registered"))
+            .bounds;
+        let at = cursor(&state).unwrap_or_else(|| panic!("a focused composer owns the cursor"));
+
+        assert!(
+            bounds.contains(at),
+            "the cursor landed at {at:?}, outside the composer at {bounds:?}"
+        );
+    }
+
+    /// COM-4: the composer's target is on screen and does not follow the selection (D-017).
+    #[test]
+    fn the_composer_names_its_target_while_another_agent_is_selected() {
+        let mut state = canonical_state();
+        let agent_b = plexmaton_core::AgentId::new("agent-b")
+            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        state
+            .select_agent(&agent_b)
+            .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
+
+        let (surfaces, buffer) = draw_frame(&state, &Palette::default(), 120, 24);
+        let region = |id| {
+            region_text(
+                &buffer,
+                surfaces
+                    .get(id)
+                    .unwrap_or_else(|| panic!("{id:?} must be registered"))
+                    .bounds,
+            )
+        };
+
+        assert!(
+            region(SurfaceId::Transcript).contains("Agent B"),
+            "the selection really did move, so this is not a test of nothing changing"
+        );
+        assert!(
+            region(SurfaceId::Composer).contains("Message Agent A"),
+            "typing still goes to the primary agent, and the title has to say so"
+        );
     }
 
     /// SURF-3: exactly one surface holds focus, and the screen says which.
@@ -426,7 +568,7 @@ mod tests {
     fn every_registered_surface_is_drawn_inside_its_own_bounds() {
         let (surfaces, buffer) = draw_frame(&degraded_state(), &Palette::default(), 120, 24);
 
-        assert_eq!(surfaces.len(), 5, "a degraded workspace registers all five");
+        assert_eq!(surfaces.len(), 6, "a degraded workspace registers all six");
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
             // proves it was drawn.
@@ -434,6 +576,7 @@ mod tests {
                 SurfaceId::Agents => "Agents",
                 SurfaceId::Transcript => "Agent A · primary",
                 SurfaceId::Activity => "Artifacts",
+                SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Footer => "quit",
             };

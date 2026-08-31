@@ -9,6 +9,10 @@ publish.workspace = true
 plexmaton-core = { path = "../plexmaton-core" }
 ratatui.workspace = true
 thiserror.workspace = true
+# The composer edits and measures what the user sees, not what the bytes say: `Backspace` removes
+# one grapheme cluster, and the cursor sits at the display width of the line rather than its length.
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
 
 [dev-dependencies]
 plexmaton-sim = { path = "../plexmaton-sim" }

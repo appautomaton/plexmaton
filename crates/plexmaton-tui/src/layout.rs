@@ -64,12 +64,38 @@ impl LayoutClass {
     }
 }
 
+/// What the workspace needs from the projection in order to lay itself out.
+///
+/// A value rather than a borrow of `ViewState`, so layout stays testable without constructing a
+/// projection, and a struct rather than a growing parameter list because the shelf adds to it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkspaceInput {
+    /// Whether the notice strip has anything to report.
+    pub has_notices: bool,
+    /// Rows the composer asks for, borders included. Grows as the draft gains lines.
+    pub composer_rows: u16,
+}
+
+impl Default for WorkspaceInput {
+    fn default() -> Self {
+        Self {
+            has_notices: false,
+            // Two borders and one line: an empty composer is still a place to type.
+            composer_rows: MIN_PANEL_HEIGHT,
+        }
+    }
+}
+
 /// Registers every workspace region for one frame.
 ///
 /// A terminal below the minimum registers nothing: the notice that replaces the workspace has no
 /// interactive region, so a pointer event there must resolve to nothing rather than to a guess.
+///
+/// Rows are handed out from the bottom up, in the order the journey cannot do without them: the
+/// hint strip, then the composer, then the notice strip, and the workspace body takes what is
+/// left. At the supported minimum that order is what decides which region disappears.
 #[must_use]
-pub fn workspace(area: Rect, has_notices: bool) -> SurfaceTree {
+pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
     if LayoutClass::for_size(area.width, area.height) == LayoutClass::TooSmall {
         return tree;
@@ -77,19 +103,30 @@ pub fn workspace(area: Rect, has_notices: bool) -> SurfaceTree {
 
     // The hint strip is one row and never negotiates; everything else bids for what is left.
     let footer = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
-    let above_footer = area.height.saturating_sub(footer.height);
-    let notice_height = if has_notices {
-        notice_rows(above_footer)
+    let mut budget = area.height.saturating_sub(footer.height);
+
+    // Typing is the one thing a workspace this small still has to allow, so the composer is served
+    // before the notice strip and before the body, and only clamped to keep the conversation.
+    let composer_height = input
+        .composer_rows
+        .clamp(MIN_PANEL_HEIGHT, budget.saturating_sub(MIN_PANEL_HEIGHT));
+    budget = budget.saturating_sub(composer_height);
+
+    let notice_height = if input.has_notices {
+        notice_rows(budget)
     } else {
         0
     };
-    let body = Rect::new(
-        area.x,
-        area.y,
-        area.width,
-        above_footer.saturating_sub(notice_height),
-    );
+    budget = budget.saturating_sub(notice_height);
+
+    let body = Rect::new(area.x, area.y, area.width, budget);
     let notices = band(area, body.bottom(), notice_height);
+    let composer = Rect::new(
+        area.x,
+        body.bottom().saturating_add(notice_height),
+        area.width,
+        composer_height,
+    );
 
     let regions = body_regions(area, body);
 
@@ -111,6 +148,12 @@ pub fn workspace(area: Rect, has_notices: bool) -> SurfaceTree {
         regions.activity,
         SurfaceKind::Panel,
     );
+    register(
+        &mut tree,
+        SurfaceId::Composer,
+        Some(composer),
+        SurfaceKind::Composer,
+    );
     // A bounded tail with no viewport of its own yet, so there is nothing for a pointer or a focus
     // stop to do in it. It becomes a panel when it gains scroll state in step 4.
     register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Chrome);
@@ -126,11 +169,11 @@ pub fn workspace(area: Rect, has_notices: bool) -> SurfaceTree {
 
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
 ///
-/// A fixed four rows is a third of the shortest supported terminal, and spending them here costs
-/// the agent rail a screen that still had room for it. Degradation stays visible (D-003), so the
-/// strip shrinks rather than disappearing; at the 12-row minimum it settles on three.
-fn notice_rows(above_footer: u16) -> u16 {
-    NOTICE_HEIGHT.min(above_footer.saturating_sub(RAIL_HEIGHT.saturating_add(MIN_PANEL_HEIGHT)))
+/// It outranks the agent rail and loses to the conversation. A projection that is silently wrong
+/// is the failure D-003 exists to prevent and the user has no other way to detect it, whereas a
+/// missing rail is visible in itself and recovered by resizing.
+fn notice_rows(available: u16) -> u16 {
+    NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
 }
 
 /// What one frame's body is divided into. The conversation is the only region that always exists.
@@ -228,8 +271,16 @@ fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Option<Rect>, kind: S
 mod tests {
     use ratatui::layout::Rect;
 
-    use super::{LayoutClass, workspace};
+    use super::{LayoutClass, WorkspaceInput, workspace};
     use crate::surface::SurfaceId;
+
+    /// The default composer, which is the shape every one of these sizes is checked against.
+    fn input(has_notices: bool) -> WorkspaceInput {
+        WorkspaceInput {
+            has_notices,
+            ..WorkspaceInput::default()
+        }
+    }
 
     /// Both sides of every layout-class threshold, the supported minimum, and short-but-wide
     /// shapes where only the height is under pressure.
@@ -268,7 +319,7 @@ mod tests {
         for (width, height) in SIZES {
             for has_notices in [false, true] {
                 let area = Rect::new(0, 0, width, height);
-                let tree = workspace(area, has_notices);
+                let tree = workspace(area, input(has_notices));
                 let registered: Vec<_> = tree.iter().map(|surface| surface.bounds).collect();
 
                 let covered: u32 = registered.iter().map(|bounds| bounds.area()).sum();
@@ -300,7 +351,7 @@ mod tests {
     fn no_registered_region_is_too_small_to_draw() {
         for (width, height) in SIZES {
             for has_notices in [false, true] {
-                let tree = workspace(Rect::new(0, 0, width, height), has_notices);
+                let tree = workspace(Rect::new(0, 0, width, height), input(has_notices));
 
                 for surface in tree.iter() {
                     // The hint strip is one unbordered row by design; a bordered region needs two
@@ -325,20 +376,28 @@ mod tests {
     fn the_notice_strip_is_registered_only_when_a_notice_exists() {
         let area = Rect::new(0, 0, 120, 24);
 
-        assert!(workspace(area, false).get(SurfaceId::Notices).is_none());
-        assert!(workspace(area, true).get(SurfaceId::Notices).is_some());
+        assert!(
+            workspace(area, input(false))
+                .get(SurfaceId::Notices)
+                .is_none()
+        );
+        assert!(
+            workspace(area, input(true))
+                .get(SurfaceId::Notices)
+                .is_some()
+        );
     }
 
     #[test]
     fn a_terminal_below_the_minimum_registers_nothing() {
         // The notice that replaces the workspace has no interactive region. Registering a region
         // anyway would let a click resolve to a panel the user cannot see.
-        assert!(workspace(Rect::new(0, 0, 40, 10), true).is_empty());
+        assert!(workspace(Rect::new(0, 0, 40, 10), input(true)).is_empty());
     }
 
     #[test]
     fn the_wheel_cannot_reach_a_region_that_has_no_viewport() {
-        let tree = workspace(Rect::new(0, 0, 120, 24), true);
+        let tree = workspace(Rect::new(0, 0, 120, 24), input(true));
         let pointer_eligible = |id| {
             tree.get(id)
                 .is_some_and(|surface| surface.kind.accepts_pointer())
@@ -363,15 +422,16 @@ mod tests {
     /// the part the user builds muscle memory on, so that is the part held fixed.
     #[test]
     fn the_focus_ring_loses_stops_without_ever_reordering() {
-        const CANONICAL: [SurfaceId; 3] = [
+        const CANONICAL: [SurfaceId; 4] = [
             SurfaceId::Agents,
             SurfaceId::Transcript,
             SurfaceId::Activity,
+            SurfaceId::Composer,
         ];
 
         for (width, height) in SIZES {
             for has_notices in [false, true] {
-                let tree = workspace(Rect::new(0, 0, width, height), has_notices);
+                let tree = workspace(Rect::new(0, 0, width, height), input(has_notices));
                 let ring: Vec<_> = tree.focus_ring().collect();
                 let context = format!("{width}x{height} notices={has_notices}");
 
@@ -386,6 +446,10 @@ mod tests {
                     ring.contains(&SurfaceId::Transcript),
                     "{context}: the conversation must always be a stop"
                 );
+                assert!(
+                    ring.contains(&SurfaceId::Composer),
+                    "{context}: a workspace you cannot type into is not one of the shapes"
+                );
             }
         }
     }
@@ -393,7 +457,7 @@ mod tests {
     /// The workspace sheds detail before identity, and never sheds the conversation.
     #[test]
     fn a_short_terminal_drops_activity_before_the_agent_rail() {
-        let cramped = workspace(Rect::new(0, 0, 48, 12), false);
+        let cramped = workspace(Rect::new(0, 0, 48, 12), input(false));
         assert!(cramped.get(SurfaceId::Transcript).is_some());
         assert!(cramped.get(SurfaceId::Agents).is_some(), "identity stays");
         assert!(
@@ -401,30 +465,43 @@ mod tests {
             "tools and artifacts are the detail that goes first"
         );
 
-        let roomy = workspace(Rect::new(0, 0, 60, 30), false);
+        let roomy = workspace(Rect::new(0, 0, 60, 30), input(false));
         assert!(
             roomy.get(SurfaceId::Activity).is_some(),
             "and comes back when the rows exist"
         );
     }
 
-    /// The notice strip competes with the agent rail for the same rows on a short terminal, and
-    /// must lose. A fixed four rows costs identity on a screen that still had room for it, while
-    /// hiding the strip entirely would make a producer defect invisible (D-003).
+    /// What survives at the smallest supported terminal, in priority order.
+    ///
+    /// Twelve rows cannot hold a hint strip, a composer, a conversation, a notice strip and an
+    /// agent rail at once, so this pins which of them goes. Typing and the conversation are the
+    /// workspace. A producer defect the user cannot see is the failure D-003 exists to prevent, and
+    /// nothing else signals it. A missing agent rail is visible in itself and returns on resize, so
+    /// the rail is what yields.
+    ///
+    /// This replaced an assertion that the rail always survives a notice. That was true before the
+    /// composer took three of these twelve rows, and the composer is not the thing to give up.
     #[test]
-    fn the_notice_strip_yields_rows_rather_than_costing_agent_identity() {
-        let tree = workspace(Rect::new(0, 0, 48, 12), true);
-
-        let rail = tree.get(SurfaceId::Agents);
-        let strip = tree.get(SurfaceId::Notices);
-        assert!(rail.is_some(), "the agent rail survives a notice");
+    fn the_smallest_terminal_keeps_typing_the_conversation_and_the_defect_notice() {
+        let quiet = workspace(Rect::new(0, 0, 48, 12), input(false));
+        assert!(quiet.get(SurfaceId::Composer).is_some());
+        assert!(quiet.get(SurfaceId::Transcript).is_some());
         assert!(
-            strip.is_some(),
-            "and the notice stays visible while it does"
+            quiet.get(SurfaceId::Agents).is_some(),
+            "with no defect to report there is room for the rail"
+        );
+
+        let degraded = workspace(Rect::new(0, 0, 48, 12), input(true));
+        assert!(degraded.get(SurfaceId::Composer).is_some());
+        assert!(degraded.get(SurfaceId::Transcript).is_some());
+        assert!(
+            degraded.get(SurfaceId::Notices).is_some(),
+            "a silently wrong projection is the failure with no other signal"
         );
         assert!(
-            strip.is_some_and(|surface| surface.bounds.height < super::NOTICE_HEIGHT),
-            "the strip is the one that gave rows up"
+            degraded.get(SurfaceId::Agents).is_none(),
+            "the rail is what yields, and it returns as soon as the rows do"
         );
     }
 }
