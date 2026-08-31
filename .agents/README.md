@@ -61,6 +61,13 @@ Budgets are warnings, not blocks — `./scripts/check-doc-budget.sh` reports and
 They exist to catch content sitting in the wrong layer, so the escape hatch matters more than the
 number.
 
+Two formats, doing two different jobs. **Short-format** documents — `AGENTS.md`, standards, specs,
+plans — have tight budgets because there the number is the mechanism: exceeding it means the
+content belongs one layer down. **Long-format** documents — a phase, the interaction contract —
+legitimately carry many distinct sections, so their ceiling is generous and only catches runaway
+growth. A tight budget on a long-format document produces pressure to delete a sentence, which is
+the opposite of what it is for.
+
 | Path | Budget | Escape hatch when it fires |
 | --- | --- | --- |
 | `AGENTS.md` | 120 | Push the section down to `standards/` and add a trigger row |
@@ -70,8 +77,8 @@ number.
 | `.agents/plans/*.md` | 150 | A plan this long is a phase; the step it plans is too big |
 | `.agents/DECISIONS.md` | 200 | Age the rejected-alternative prose, per below |
 | `.agents/roadmap/plexmaton.md` | 250 | Promote detail into a phase file or a spec |
-| `.agents/roadmap/ui-ux.md` | 400 | Move mechanism detail into `specs/`; keep the rule here |
-| `.agents/roadmap/phase-*.md` | 300 | Age the evidence log, per below |
+| `.agents/roadmap/ui-ux.md` | 750 | Move mechanism detail into `specs/`; keep the rule here |
+| `.agents/roadmap/phase-*.md` | 750 | Age the evidence log, per below |
 | `.agents/handoffs/*.md` | 200 | Delete the stale letter instead of trimming it |
 
 ## Aging

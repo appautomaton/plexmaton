@@ -18,8 +18,10 @@ budget_for() {
         .agents/plans/*.md) echo 150 ;;
         .agents/DECISIONS.md) echo 200 ;;
         .agents/roadmap/plexmaton.md) echo 250 ;;
-        .agents/roadmap/ui-ux.md) echo 400 ;;
-        .agents/roadmap/phase-*.md) echo 300 ;;
+        # Long-format documents. A phase or the interaction contract legitimately carries many
+        # distinct sections, so their ceiling catches runaway growth rather than shaping structure.
+        .agents/roadmap/ui-ux.md) echo 750 ;;
+        .agents/roadmap/phase-*.md) echo 750 ;;
         .agents/handoffs/*.md) echo 200 ;;
         *) echo 0 ;;
     esac
