@@ -88,12 +88,16 @@ topmost, so a hole in a modal is not a hole in its modality.
 ### Viewports
 
 A surface's viewport is measured by the renderer, because how tall content is depends on the text
-and the width it wraps to. The offset the user chose lives in the projection and outlives the frame
-(SURF-5); absence of a stored offset is meaningful, and each surface then anchors to its own kind of
-content — a conversation opens at its newest line, a list at its first.
+and the width it wraps to. Where the user put it lives in the projection and outlives the frame
+(SURF-5); absence of a stored position is meaningful, and each surface then anchors to its own kind
+of content — a conversation opens at its newest line, a list at its first.
 
 Eligibility for the wheel is whether a viewport *can move*, which
 [`interaction-routing`](./interaction-routing.md) INV-3 turns into routing.
+
+The conversation is the exception that earned its own contract: it is measured item by item, built
+only where the viewport reaches, and parked against the message being read rather than a row
+number. [`transcript-layout`](./transcript-layout.md) owns that.
 
 ### Focus
 
@@ -128,4 +132,4 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | SURF-2 | Unproven — delivery step 8, the first step with a surface that outgrows its parent |
 | SURF-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
 | SURF-4 | Unproven, and unowned inside Phase 00. Nothing in the canonical journey blocks: the Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with the phase that owns real tools |
-| SURF-5 | `focus_returns_to_a_surface_that_comes_back` for focus; `a_scrolled_surface_is_where_the_user_left_it_after_a_resize` and `an_untouched_surface_has_no_stored_offset` for scroll |
+| SURF-5 | `focus_returns_to_a_surface_that_comes_back` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

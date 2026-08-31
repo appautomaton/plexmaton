@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine four steps in; steps 1 to 4 of 8 complete |
+| Status | In progress — the interaction spine is complete; steps 1 to 5 of 8 done |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 5 — transcript virtualization |
+| Next step | Step 6 — measurement harness |
 
 ## Phase outcome
 
@@ -52,8 +52,9 @@ order means building against a boundary that has not been decided yet.
    input that triggers it.
 4. **Viewports and scroll ownership.** *Done 2026-08-31.* Per-surface scroll state and the locked
    hover-routing and no-propagation rules from the UI/UX contract.
-5. **Transcript virtualization.** Visible-range layout, width-and-revision keyed wrapping cache,
-   semantic anchors, and tail-follow separate from scroll offset.
+5. **Transcript virtualization.** *Done 2026-08-31.* Visible-range layout, a width-and-revision
+   keyed wrapping cache, and semantic anchors. Specified in
+   [transcript-layout](../specs/transcript-layout.md).
 6. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads
    below can produce numbers worth recording.
 7. **Inspectors as shelves.** Shelf geometry and the ten-row guarantee, vertical resize with pointer
@@ -97,8 +98,10 @@ does not exist yet; it is written before the crate is added, not after.
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
 Of the evidence tooling in [standards/testing.md](../standards/testing.md), `proptest` arrives with
-clipping, `insta` with the viewport and virtualization steps, and `criterion` with the measurement
-harness. Each enters a manifest with the first test that needs it, never before.
+clipping and `criterion` with the measurement harness. `insta` was scheduled for the viewport and
+virtualization steps and did not enter either: both had a stronger test available than a snapshot —
+a viewport measured through the widget that paints it, and a virtualized panel compared against the
+whole one. Each tool enters a manifest with the first test that needs it, never before.
 
 ### Explicitly absent in Phase 00
 
@@ -231,7 +234,42 @@ Twelve mutations across steps 2 and 3 were each caught by the intended tests. On
 hole in the tests rather than in the code: restoring a fixed four-row notice strip failed nothing,
 because the only test covering it used the case where the strip does not compete for rows.
 
-Tests: 49 at the start of step 2, 85 now. All workspace gates, the supply-chain lane, and
+### Delivery step 5 — transcript virtualization — 2026-08-31
+
+A frame lays out only the rows it draws, and a conversation remembers its reader by the message they
+were on. [`specs/transcript-layout.md`](../specs/transcript-layout.md) carries TR-1 to TR-5. Three
+defects the step-4 code had, each fixed and each now covered:
+
+- **Every frame wrapped the whole history.** Heights are now measured per item and kept until that
+  item's revision or the panel's width changes — a delta costs one wrap, a resize one pass, an
+  unchanged frame none. `TranscriptMetrics::wrapped` is instrumentation that exists so the claim can
+  be counted rather than asserted, and step 6's harness inherits it.
+- **A resize moved the reader.** The step-4 test asserted that the stored *offset* survived a
+  resize, which is the wrong property: at a new width the same row names different text. It has been
+  replaced, not relaxed. A position is now an item plus a row inside it, and the row is clamped to
+  that item's height at the current width — without the clamp a message that wrapped shorter is
+  overshot and the next one appears at the top.
+- **All conversations shared one reading position**, so canonical journey step 4 — select B, come
+  back to A — lost A's place. Positions are keyed by agent.
+- **Following the tail was a coincidence**, not a state. `offset == max_offset` stops being true the
+  moment content arrives, so a reader at the newest line silently fell behind. `Tail` is now a
+  stored arm, and scrolling back to the end re-arms it.
+
+The strongest evidence here is differential rather than a snapshot: the virtualized panel is
+compared cell for cell against one `Paragraph` holding the whole conversation, at three sizes and
+four scroll positions. That proves virtualization changed the cost and not the picture, where a
+snapshot would only prove the screen is stable. `insta` was scheduled for this step and did not
+enter; it arrives with a test that needs it.
+
+Two named scope items were cut with their reasons recorded in D-040: **bounded overscan**, which
+prevents nothing in a synchronous renderer, and per-item **cache pruning**, which has nothing to
+prune until something drops a transcript item.
+
+`state/mod.rs` hit the 400-line sentinel again and was split rather than raised: `ingest.rs` now owns
+the producer contract — stream ordering, the typed refusals, and event dispatch — leaving the rest
+owning what the user is looking at.
+
+Tests: 49 at the start of step 2, 104 now. All workspace gates, the supply-chain lane, and
 `scripts/smoke-tui.py` pass.
 
 

@@ -24,6 +24,7 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
 | D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
 | D-038 | 2026-08-31 | The composer is first-party; `ratatui-textarea` is not adopted, and a submitted message is a runtime command rather than a write | Accepted | [ui-ux](./roadmap/ui-ux.md) §input, `plexmaton-sim::Runtime` |
 | D-037 | 2026-08-31 | The composer is delivery step 3 of Phase 00, so the sequence grows from seven steps to eight | Accepted | [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery sequence |
@@ -101,15 +102,30 @@ Aged: [`.agents/README.md`](./README.md) §budgets now owns the reasoning. The v
 document over budget is a design question, and a blocking gate turns it into pressure to delete a
 sentence.
 
-### D-039 · Owning the text wrapping instead — rejected for now
+### D-039 · Owning the text wrapping instead — rejected
 
-Writing our own wrap would avoid an unstable feature, and delivery step 5 may still need it for
-per-item virtualization. It was rejected here because the objection that made it attractive does not
-hold: `line_count` runs the same `WordWrapper` the renderer runs, so it is ratatui measuring its own
-wrapping rather than a second derivation that could drift. Owning it now would have meant roughly
-eighty lines of subtle grapheme-and-width logic to reach the same answer, with our own bugs instead
-of ratatui's. The version is pinned exactly and the lockfile committed, so an unstable API change
-surfaces at a reviewed bump rather than silently.
+Writing our own wrap would avoid an unstable feature. It was rejected because the objection that
+made it attractive does not hold: `line_count` runs the same `WordWrapper` the renderer runs, so it
+is ratatui measuring its own wrapping rather than a second derivation that could drift. Owning it
+would have meant roughly eighty lines of subtle grapheme-and-width logic to reach the same answer,
+with our own bugs instead of ratatui's. The version is pinned exactly and the lockfile committed, so
+an unstable API change surfaces at a reviewed bump rather than silently. Step 5 was the step
+expected to force the issue and did not: per-item virtualization calls the same function per item.
+
+### D-040 · A row offset, a per-surface reading position, and bounded overscan — all rejected
+
+**A row offset preserved across a resize** is what step 4 shipped, and its test asserted the number
+survived. The number surviving is not the property anyone wants: at a new width the same row names
+different text, so preserving it moves the reader while looking like it did not. An item identity is
+the durable half of a position, which is why the anchor stores one and clamps the row inside it.
+
+**Keying the conversation's position by surface**, like every other panel, is one line simpler and
+breaks step 4 of the canonical journey: selecting another agent and returning would drop the reader
+wherever the other conversation had been left. The position belongs to the conversation.
+
+**Bounded overscan** is named in the phase's scope and was not built. A frame here is synchronous and
+exact, so rendering extra items off screen costs extra wraps and prevents nothing — there is no
+asynchronous fill for it to hide. It arrives with a renderer that can be behind, not before.
 
 ### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
 

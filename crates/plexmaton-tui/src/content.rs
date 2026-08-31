@@ -9,7 +9,7 @@ use plexmaton_core::{AgentStatus, ToolActivityStatus, TranscriptRole};
 use ratatui::text::{Line, Span};
 
 use crate::{
-    NoticeView, ViewState,
+    NoticeView, TranscriptItemView, ViewState,
     theme::{Palette, Role, agent_role, tool_role},
 };
 
@@ -36,34 +36,35 @@ pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>>
         .collect()
 }
 
-/// The selected agent's conversation.
-pub(crate) fn transcript(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
-    let Some(agent) = state.selected_agent() else {
-        return vec![Line::styled(
-            "Waiting for the first semantic event…",
-            palette.style(Role::Muted),
-        )];
+/// One transcript item, as the logical lines a viewport measures and paints.
+///
+/// Per item rather than per conversation, because both the height cache and the visible range are
+/// expressed in items: a frame that asks for one item's rows must get exactly the rows that item
+/// contributes to the whole (TR-1).
+pub(crate) fn transcript_item(item: &TranscriptItemView, palette: &Palette) -> Vec<Line<'static>> {
+    let author = match item.role {
+        TranscriptRole::User => "you",
+        TranscriptRole::Assistant => "assistant",
+        TranscriptRole::System => "system",
     };
+    vec![
+        Line::styled(author, palette.style(Role::SectionHeading)),
+        Line::styled(item.source.clone(), palette.style(Role::Body)),
+        Line::raw(""),
+    ]
+}
 
-    let mut lines = Vec::new();
-    for item in agent.transcript() {
-        let author = match item.role {
-            TranscriptRole::User => "you",
-            TranscriptRole::Assistant => "assistant",
-            TranscriptRole::System => "system",
-        };
-        lines.push(Line::styled(author, palette.style(Role::SectionHeading)));
-        lines.push(Line::styled(item.source.clone(), palette.style(Role::Body)));
-        lines.push(Line::raw(""));
-    }
-
-    if lines.is_empty() {
-        lines.push(Line::styled(
-            "Agent is active; no transcript item has started yet.",
-            palette.style(Role::Muted),
-        ));
-    }
-    lines
+/// What the conversation says when it has no items to show.
+///
+/// An empty panel and a panel waiting for its first event look the same and mean different things,
+/// so neither is left to be inferred from blank rows.
+pub(crate) fn transcript_placeholder(palette: &Palette, has_agent: bool) -> Vec<Line<'static>> {
+    let message = if has_agent {
+        "Agent is active; no transcript item has started yet."
+    } else {
+        "Waiting for the first semantic event…"
+    };
+    vec![Line::styled(message, palette.style(Role::Muted))]
 }
 
 /// Tools, artifacts, and mail belonging to the selected agent.

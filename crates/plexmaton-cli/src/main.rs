@@ -9,8 +9,8 @@ use futures_util::StreamExt;
 use plexmaton_core::PrototypeEventEnvelope;
 use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
 use plexmaton_tui::{
-    Palette, PointerIntent, Routed, Router, RouterContext, SurfaceTree, TuiIntent, ViewRevision,
-    ViewState,
+    Palette, PointerIntent, Routed, Router, RouterContext, SurfaceTree, TranscriptMetrics,
+    TuiIntent, ViewRevision, ViewState,
 };
 use ratatui::DefaultTerminal;
 
@@ -64,6 +64,10 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
     let mut surfaces = SurfaceTree::default();
     // Named colour roles resolve through the user's own terminal theme by default.
     let palette = Palette::default();
+    // Wrapped transcript heights, which are the one thing a frame may not recompute from scratch.
+    // They live here because the renderer may not mutate the projection and a cache that dies with
+    // the frame is not one (TR-1).
+    let mut metrics = TranscriptMetrics::default();
 
     emit(&mut state, runtime.ready(tick));
 
@@ -73,7 +77,7 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
         if painted != Some(state.revision()) {
             let mut drawn = SurfaceTree::default();
             terminal
-                .draw(|frame| drawn = plexmaton_tui::render(frame, &state, &palette))
+                .draw(|frame| drawn = plexmaton_tui::render(frame, &state, &palette, &mut metrics))
                 .context("draw TUI frame")?;
             surfaces = drawn;
             painted = Some(state.revision());
@@ -87,7 +91,8 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
             terminal_event = terminal_events.next() => {
                 match terminal_event {
                     Some(Ok(event)) => {
-                        let outcome = route(&mut router, &surfaces, &event, &mut state, &mut painted);
+                        let outcome =
+                            route(&mut router, &surfaces, &metrics, &event, &mut state, &mut painted);
                         if let Some(text) = outcome.submitted {
                             send(&mut runtime, &mut state, text)?;
                         }
@@ -127,6 +132,7 @@ impl Outcome {
 fn route(
     router: &mut Router,
     surfaces: &SurfaceTree,
+    metrics: &TranscriptMetrics,
     event: &Event,
     state: &mut ViewState,
     painted: &mut Option<ViewRevision>,
@@ -138,7 +144,7 @@ fn route(
         dismissible: false,
     };
     match router.translate(event, &context) {
-        Routed::Intent(intent) => apply_intent(state, surfaces, intent, painted),
+        Routed::Intent(intent) => apply_intent(state, surfaces, metrics, intent, painted),
         Routed::Ignored(_) => Outcome::default(),
     }
 }
@@ -150,6 +156,7 @@ fn route(
 fn apply_intent(
     state: &mut ViewState,
     surfaces: &SurfaceTree,
+    metrics: &TranscriptMetrics,
     intent: TuiIntent,
     painted: &mut Option<ViewRevision>,
 ) -> Outcome {
@@ -173,7 +180,9 @@ fn apply_intent(
         TuiIntent::TerminalResized { .. } => *painted = None,
         // Hover routing: the wheel moves the viewport under the pointer and never touches focus
         // (INV-3). Which surface that is was already decided by viewport eligibility.
-        TuiIntent::Scroll { surface, direction } => state.scroll(surfaces, surface, direction),
+        TuiIntent::Scroll { surface, direction } => {
+            state.scroll(surfaces, metrics, surface, direction);
+        }
         TuiIntent::Dismiss
         | TuiIntent::Pointer(
             PointerIntent::Drag { .. }
@@ -215,7 +224,10 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use plexmaton_sim::{Runtime, Scenario};
-    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState, Viewport, WorkspaceInput};
+    use plexmaton_tui::{
+        Router, ScrollPosition, SurfaceId, SurfaceTree, TranscriptMetrics, ViewState, Viewport,
+        WorkspaceInput,
+    };
     use ratatui::layout::Rect;
 
     use super::{Flow, Outcome, emit, route, send};
@@ -239,6 +251,7 @@ mod tests {
             route(
                 &mut router,
                 &surfaces,
+                &TranscriptMetrics::default(),
                 &press(KeyCode::Char('x'), KeyModifiers::NONE),
                 &mut state,
                 &mut painted,
@@ -251,6 +264,7 @@ mod tests {
             route(
                 &mut router,
                 &surfaces,
+                &TranscriptMetrics::default(),
                 &Event::Resize(100, 40),
                 &mut state,
                 &mut painted,
@@ -263,6 +277,7 @@ mod tests {
             route(
                 &mut router,
                 &surfaces,
+                &TranscriptMetrics::default(),
                 &press(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 &mut state,
                 &mut painted,
@@ -282,7 +297,14 @@ mod tests {
         let mut state = ViewState::default();
         let mut painted = Some(state.revision());
         let mut deliver = |event: &Event, state: &mut ViewState| {
-            route(&mut router, &surfaces, event, state, &mut painted)
+            route(
+                &mut router,
+                &surfaces,
+                &TranscriptMetrics::default(),
+                event,
+                state,
+                &mut painted,
+            )
         };
 
         assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
@@ -323,9 +345,12 @@ mod tests {
         let mut surfaces = workspace();
         let mut state = ViewState::default();
         let mut painted = None;
+        // The activity column, not the conversation: a conversation parks against the message
+        // being read, which needs measured item heights and so belongs to the renderer's tests.
+        // What this proves is that the intent reaches a reducer at all.
         let bounds = surfaces
-            .get(SurfaceId::Transcript)
-            .unwrap_or_else(|| panic!("the conversation is always registered"))
+            .get(SurfaceId::Activity)
+            .unwrap_or_else(|| panic!("a wide workspace registers an activity column"))
             .bounds;
         let wheel = Event::Mouse(MouseEvent {
             kind: MouseEventKind::ScrollDown,
@@ -333,28 +358,39 @@ mod tests {
             row: bounds.y.saturating_add(1),
             modifiers: KeyModifiers::NONE,
         });
+        let mut deliver = |surfaces: &SurfaceTree, state: &mut ViewState| {
+            route(
+                &mut router,
+                surfaces,
+                &TranscriptMetrics::default(),
+                &wheel,
+                state,
+                &mut painted,
+            );
+        };
 
-        route(&mut router, &surfaces, &wheel, &mut state, &mut painted);
+        deliver(&surfaces, &mut state);
         assert_eq!(
-            state.scroll_offset(SurfaceId::Transcript),
+            state.scroll_position(SurfaceId::Activity),
             None,
             "an unmeasured workspace has no viewport to move"
         );
 
         surfaces.set_viewport(
-            SurfaceId::Transcript,
+            SurfaceId::Activity,
             Viewport {
                 content_rows: 100,
                 visible_rows: 10,
                 offset: 0,
             },
         );
-        route(&mut router, &surfaces, &wheel, &mut state, &mut painted);
+        deliver(&surfaces, &mut state);
         assert!(
-            state
-                .scroll_offset(SurfaceId::Transcript)
-                .is_some_and(|offset| offset > 0),
-            "a measured viewport moves"
+            matches!(
+                state.scroll_position(SurfaceId::Activity),
+                Some(ScrollPosition::Row(row)) if row > 0
+            ),
+            "a measured viewport moves, and stopping short of the end stops it following"
         );
     }
 
@@ -381,7 +417,14 @@ mod tests {
         );
 
         let mut deliver = |event: &Event, state: &mut ViewState| {
-            route(&mut router, &surfaces, event, state, &mut painted)
+            route(
+                &mut router,
+                &surfaces,
+                &TranscriptMetrics::default(),
+                event,
+                state,
+                &mut painted,
+            )
         };
         for character in "hi q".chars() {
             let outcome = deliver(

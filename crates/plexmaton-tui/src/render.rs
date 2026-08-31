@@ -9,8 +9,10 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     ViewState, content,
     layout::{self, LayoutClass, MIN_HEIGHT, MIN_WIDTH, WorkspaceInput},
+    state::ScrollPosition,
     surface::{SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     theme::{Palette, Role},
+    transcript::TranscriptMetrics,
 };
 
 /// Rows a bordered block spends on its own frame.
@@ -21,7 +23,16 @@ const BORDER_ROWS: u16 = 2;
 /// Returns the surfaces this frame actually drew, with each one's measured viewport, which is what
 /// the router hit-tests and scrolls against. Handing the registry back rather than recomputing it
 /// elsewhere is what keeps SURF-1 true: routing cannot be given geometry the renderer did not use.
-pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> SurfaceTree {
+///
+/// `metrics` is the one thing here that outlives the frame. The projection stays immutable, so
+/// wrapped heights have nowhere else to be remembered, and remembering them is what keeps a frame's
+/// cost proportional to what changed rather than to the conversation's length (TR-1).
+pub fn render(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    metrics: &mut TranscriptMetrics,
+) -> SurfaceTree {
     let area = frame.area();
     if LayoutClass::for_size(area.width, area.height) == LayoutClass::TooSmall {
         render_too_small(frame, palette, area);
@@ -48,36 +59,41 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
         // drawn and whether it scrolls.
         let panel = match id {
             SurfaceId::Agents => Some(Panel {
-                lines: content::agents(state, palette),
+                body: Body::Whole {
+                    lines: content::agents(state, palette),
+                    follows_tail: false,
+                },
                 title: agents_title(state),
                 title_role: attention_role(state),
-                follows_tail: false,
             }),
             SurfaceId::Transcript => Some(Panel {
-                lines: content::transcript(state, palette),
+                body: transcript_body(state, palette, metrics, bounds),
                 title: transcript_title(state),
                 title_role: Role::Muted,
-                // A conversation opens at its newest line; that is where the reader is.
-                follows_tail: true,
             }),
             SurfaceId::Activity => Some(Panel {
-                lines: content::activity(state, palette),
+                body: Body::Whole {
+                    lines: content::activity(state, palette),
+                    follows_tail: false,
+                },
                 title: " Activity ".to_owned(),
                 title_role: Role::Muted,
-                follows_tail: false,
             }),
             SurfaceId::Notices => Some(Panel {
-                lines: content::notices(state, palette),
+                body: Body::Whole {
+                    lines: content::notices(state, palette),
+                    follows_tail: true,
+                },
                 title: notices_title(state),
                 title_role: Role::Muted,
-                // A bounded tail view: the newest defect is the one worth showing.
-                follows_tail: true,
             }),
             SurfaceId::Composer => Some(Panel {
-                lines: content::composer(state, palette, has_focus),
+                body: Body::Whole {
+                    lines: content::composer(state, palette, has_focus),
+                    follows_tail: true,
+                },
                 title: composer_title(state),
                 title_role: Role::Muted,
-                follows_tail: true,
             }),
             SurfaceId::Footer => {
                 render_footer(frame, palette, bounds);
@@ -92,14 +108,14 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
             bounds,
             has_focus,
             &panel,
-            state.scroll_offset(id),
+            state.scroll_position(id),
         );
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
 
         if kind == SurfaceKind::Composer && has_focus {
-            place_cursor(frame, bounds, &panel.lines);
+            place_cursor(frame, bounds, panel.body.lines());
         }
     }
 
@@ -108,50 +124,148 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
 
 /// One bordered, scrollable region, ready to draw.
 struct Panel {
-    lines: Vec<Line<'static>>,
+    body: Body,
     title: String,
     title_role: Role,
-    /// Whether an untouched viewport opens at the end of its content rather than the start.
-    follows_tail: bool,
+}
+
+/// What a panel has to draw, and how much of it the frame had to build.
+///
+/// `follows_tail` belongs to the whole-body arm alone: a windowed body arrives with its offset
+/// already resolved through the reader's anchor, so a second answer here could only disagree.
+enum Body {
+    /// Content short enough that building all of it costs nothing, measured as one paragraph.
+    Whole {
+        lines: Vec<Line<'static>>,
+        /// Whether an untouched viewport opens at the end of its content rather than the start.
+        follows_tail: bool,
+    },
+    /// A conversation, measured item by item and built only where the viewport reaches (TR-2).
+    Window {
+        lines: Vec<Line<'static>>,
+        /// Rows to skip inside the first built item.
+        skip_rows: u16,
+        viewport: Viewport,
+    },
+}
+
+impl Body {
+    fn lines(&self) -> &[Line<'static>] {
+        match self {
+            Self::Whole { lines, .. } | Self::Window { lines, .. } => lines,
+        }
+    }
+}
+
+/// Builds the part of the selected conversation this frame will draw.
+///
+/// The whole history is measured, from the cache; only the items the viewport reaches are turned
+/// into lines. A conversation with no items falls back to a whole body, because a placeholder has
+/// nothing to virtualize.
+fn transcript_body(
+    state: &ViewState,
+    palette: &Palette,
+    metrics: &mut TranscriptMetrics,
+    area: Rect,
+) -> Body {
+    let Some(agent) = state.selected_agent() else {
+        return Body::Whole {
+            lines: content::transcript_placeholder(palette, false),
+            follows_tail: false,
+        };
+    };
+    let visible_rows = area.height.saturating_sub(BORDER_ROWS);
+    if metrics.measure(agent, palette, area.width.saturating_sub(BORDER_ROWS)) == 0 {
+        return Body::Whole {
+            lines: content::transcript_placeholder(palette, true),
+            follows_tail: false,
+        };
+    }
+
+    let mut viewport = Viewport {
+        content_rows: metrics.total_rows(&agent.id),
+        visible_rows,
+        offset: 0,
+    };
+    // An untouched conversation opens at its newest line; a parked one resolves through the item
+    // its reader stopped at, so this width's rows are recomputed rather than remembered (TR-3).
+    viewport.offset = state.conversation_position().map_or_else(
+        || viewport.max_offset(),
+        |position| metrics.offset_of(&agent.id, position, viewport.max_offset()),
+    );
+    let window = metrics.window(&agent.id, viewport.offset, visible_rows);
+
+    let lines = agent
+        .transcript()
+        .skip(window.items.start)
+        .take(window.items.len())
+        .flat_map(|item| content::transcript_item(item, palette))
+        .collect();
+    Body::Window {
+        lines,
+        skip_rows: window.skip_rows,
+        viewport,
+    }
 }
 
 /// Draws a panel through its viewport and returns what it measured.
 ///
-/// The measurement comes from the same `Paragraph` that paints, so the wrap that decides how tall
-/// the content is and the wrap that puts it on screen are the same computation.
+/// A whole body is measured by the same `Paragraph` that paints it, so the wrap deciding how tall
+/// the content is and the wrap putting it on screen are one computation. A windowed body arrives
+/// already measured, and scrolls by the rows into its first item rather than by rows into a history
+/// it never built.
 fn draw_panel(
     frame: &mut Frame<'_>,
     palette: &Palette,
     area: Rect,
     focused: bool,
     panel: &Panel,
-    stored_offset: Option<u16>,
+    parked: Option<ScrollPosition>,
 ) -> Viewport {
     let block = block(palette, panel.title.clone(), panel.title_role, focused);
-    let paragraph = Paragraph::new(panel.lines.clone())
+    let paragraph = Paragraph::new(panel.body.lines().to_vec())
         .wrap(Wrap { trim: false })
         .block(block);
 
-    // `line_count` wraps at exactly the width it is given and then adds the block's border rows, so
-    // it is asked for the inner width and those rows are taken back off.
-    let inner_width = area.width.saturating_sub(BORDER_ROWS);
-    let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
-    let mut viewport = Viewport {
-        content_rows: measured.saturating_sub(BORDER_ROWS),
-        visible_rows: area.height.saturating_sub(BORDER_ROWS),
-        offset: 0,
+    let (viewport, scroll) = match &panel.body {
+        Body::Whole { follows_tail, .. } => {
+            // `line_count` wraps at exactly the width it is given and then adds the block's border
+            // rows, so it is asked for the inner width and those rows are taken back off.
+            let inner_width = area.width.saturating_sub(BORDER_ROWS);
+            let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
+            let mut viewport = Viewport {
+                content_rows: measured.saturating_sub(BORDER_ROWS),
+                visible_rows: area.height.saturating_sub(BORDER_ROWS),
+                offset: 0,
+            };
+            viewport.offset = resolve_offset(parked, *follows_tail, viewport.max_offset());
+            (viewport, viewport.offset)
+        }
+        Body::Window {
+            skip_rows,
+            viewport,
+            ..
+        } => (*viewport, *skip_rows),
     };
-    // An untouched surface takes its anchor from its content, not from zero.
-    viewport.offset = stored_offset
-        .unwrap_or(if panel.follows_tail {
-            viewport.max_offset()
-        } else {
-            0
-        })
-        .min(viewport.max_offset());
 
-    frame.render_widget(paragraph.scroll((viewport.offset, 0)), area);
+    frame.render_widget(paragraph.scroll((scroll, 0)), area);
     viewport
+}
+
+/// Turns a stored scroll position into a row offset for a viewport this deep.
+///
+/// An untouched surface has no stored position at all, and takes its anchor from its own kind of
+/// content: a conversation opens at its newest line, a list at its first (TR-4).
+const fn resolve_offset(
+    parked: Option<ScrollPosition>,
+    follows_tail: bool,
+    max_offset: u16,
+) -> u16 {
+    match parked {
+        Some(position) => position.offset(max_offset),
+        None if follows_tail => max_offset,
+        None => 0,
+    }
 }
 
 /// Places the workspace's one cursor at the end of the composer's last visible line.
@@ -276,16 +390,21 @@ mod tests {
         buffer::Buffer,
         layout::Rect,
         style::{Color, Modifier, Style},
+        widgets::{Paragraph, Wrap},
     };
 
+    use super::{block, transcript_title};
+
     use crate::{
-        ViewState,
+        TranscriptMetrics, ViewState,
         intent::{Direction, ScrollDirection, TextIntent},
         layout,
         layout::WorkspaceInput,
         render,
         surface::{SurfaceId, SurfaceTree},
-        test_support::{canonical_state, degraded_state, draw, draw_frame, draw_with, region_text},
+        test_support::{
+            Session, canonical_state, degraded_state, draw, draw_frame, draw_with, region_text,
+        },
         theme::{Palette, Role},
     };
 
@@ -317,24 +436,78 @@ mod tests {
         ink(palette.style(role))
     }
 
+    /// TR-2: virtualizing changed what a frame builds, not what reaches the screen.
+    ///
+    /// The reference is the whole conversation in one `Paragraph` scrolled by the same offset —
+    /// exactly what this panel did before it was virtualized. Differential rather than a snapshot
+    /// on purpose: a snapshot proves the screen is stable, this proves it is unchanged, and it
+    /// keeps proving it as the content grows.
+    #[test]
+    fn a_virtualized_conversation_paints_what_the_whole_one_did() {
+        for (width, height) in [(48_u16, 12_u16), (120, 24), (72, 30)] {
+            let mut session = Session::canonical(width, height);
+            session.conversation.extend(6);
+            session.draw();
+
+            for notches in 0..4 {
+                let viewport = session.viewport(SurfaceId::Transcript);
+                assert!(
+                    viewport.is_scrollable(),
+                    "the fixture has to overflow at {width}x{height} or this proves nothing"
+                );
+                assert_eq!(
+                    session.region(SurfaceId::Transcript),
+                    whole_conversation(
+                        &session.conversation.state,
+                        &Palette::default(),
+                        session.bounds(SurfaceId::Transcript),
+                        viewport,
+                        height,
+                    ),
+                    "virtualized and whole disagreed at {width}x{height}, {notches} notches up"
+                );
+                session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
+            }
+        }
+    }
+
+    /// Draws the whole conversation the pre-virtualization way, for the test above to compare with.
+    fn whole_conversation(
+        state: &ViewState,
+        palette: &Palette,
+        bounds: Rect,
+        viewport: crate::Viewport,
+        height: u16,
+    ) -> String {
+        let lines: Vec<_> = state
+            .selected_agent()
+            .unwrap_or_else(|| panic!("the canonical timeline selects an agent"))
+            .transcript()
+            .flat_map(|item| crate::content::transcript_item(item, palette))
+            .collect();
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .block(block(palette, transcript_title(state), Role::Muted, false))
+            .scroll((viewport.offset, 0));
+
+        let mut terminal =
+            Terminal::new(TestBackend::new(bounds.right().max(bounds.width), height))
+                .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        terminal
+            .draw(|frame| frame.render_widget(paragraph, bounds))
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+        region_text(terminal.backend().buffer(), bounds)
+    }
+
     /// A conversation opens at its newest line, and the wheel moves it from there.
     ///
     /// Measured through the same `Paragraph` that paints, so what the viewport believes about its
     /// content and what reaches the screen are one computation.
     #[test]
     fn the_transcript_opens_at_its_tail_and_the_wheel_moves_it() {
-        let palette = Palette::default();
-        let mut state = canonical_state();
-
         // Narrow enough that the conversation wraps past the rows it is given.
-        let (surfaces, buffer) = draw_frame(&state, &palette, 48, 12);
-        let bounds = surfaces
-            .get(SurfaceId::Transcript)
-            .unwrap_or_else(|| panic!("the conversation is always registered"))
-            .bounds;
-        let viewport = surfaces
-            .viewport(SurfaceId::Transcript)
-            .unwrap_or_else(|| panic!("a drawn surface has been measured"));
+        let mut session = Session::canonical(48, 12);
+        let viewport = session.viewport(SurfaceId::Transcript);
 
         assert!(
             viewport.is_scrollable(),
@@ -345,44 +518,144 @@ mod tests {
             viewport.max_offset(),
             "an untouched conversation opens at its newest line, not its oldest"
         );
-        let at_the_tail = region_text(&buffer, bounds);
+        let at_the_tail = session.region(SurfaceId::Transcript);
 
-        state.scroll(&surfaces, SurfaceId::Transcript, ScrollDirection::Up);
-        let (scrolled, buffer) = draw_frame(&state, &palette, 48, 12);
-
-        let moved = scrolled
-            .viewport(SurfaceId::Transcript)
-            .unwrap_or_else(|| panic!("still measured"));
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
         assert!(
-            moved.offset < viewport.offset,
+            session.viewport(SurfaceId::Transcript).offset < viewport.offset,
             "the wheel moved the viewport"
         );
         assert_ne!(
-            region_text(&buffer, bounds),
+            session.region(SurfaceId::Transcript),
             at_the_tail,
             "and the rows that reached the screen changed with it"
         );
     }
 
-    /// SURF-5, scroll half: the offset belongs to the surface, not to the frame that drew it.
+    /// TR-3, and SURF-5's scroll half: a resize keeps the reader on the same message.
+    ///
+    /// This replaces a step-4 test that asserted the stored *offset* survived a resize. The number
+    /// surviving is not the property anyone wants — at a new width the same row number names
+    /// different text, so preserving it moves the reader while looking like it did not.
     #[test]
-    fn a_scrolled_surface_is_where_the_user_left_it_after_a_resize() {
-        let palette = Palette::default();
-        let mut state = canonical_state();
-        let (surfaces, _) = draw_frame(&state, &palette, 48, 12);
+    fn a_resized_conversation_keeps_the_reader_on_the_same_message() {
+        let mut session = Session::canonical(60, 20);
+        session.conversation.extend(10);
+        session.draw();
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
 
-        state.scroll(&surfaces, SurfaceId::Transcript, ScrollDirection::Up);
-        let parked = state
-            .scroll_offset(SurfaceId::Transcript)
-            .unwrap_or_else(|| panic!("the wheel stored an offset"));
+        let narrow = session.viewport(SurfaceId::Transcript);
+        let reading = markers(&session.region(SurfaceId::Transcript));
+        assert!(
+            !reading.is_empty(),
+            "the reader has to be somewhere in the filler or this proves nothing"
+        );
 
-        // A different terminal size relays out every rectangle and re-measures every viewport.
-        let (wide, _) = draw_frame(&state, &palette, 120, 24);
-        assert!(wide.viewport(SurfaceId::Transcript).is_some());
+        session.resize(160, 20);
+        let wide = session.viewport(SurfaceId::Transcript);
+        assert_ne!(
+            narrow.content_rows, wide.content_rows,
+            "the resize has to rewrap the conversation, or a stored row would have survived too"
+        );
         assert_eq!(
-            state.scroll_offset(SurfaceId::Transcript),
-            Some(parked),
-            "re-laying out the workspace must not reset where the user was reading"
+            markers(&session.region(SurfaceId::Transcript)).first(),
+            reading.first(),
+            "the topmost message on screen changed when only the width did"
+        );
+    }
+
+    /// TR-5: each conversation keeps its own reading position (canonical journey, step 4).
+    #[test]
+    fn each_conversation_keeps_its_own_reading_position() {
+        let agent_b = plexmaton_core::AgentId::new("agent-b")
+            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let mut session = Session::canonical(60, 20);
+        session.conversation.extend(10);
+        session.conversation.extend_agent(&agent_b, 10);
+        session.draw();
+
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 3);
+        let reading_a = session.region(SurfaceId::Transcript);
+
+        session.select(&agent_b);
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 9);
+        let reading_b = session.region(SurfaceId::Transcript);
+        assert_ne!(
+            markers(&reading_a),
+            markers(&reading_b),
+            "the two conversations have to be left in different places to tell them apart"
+        );
+
+        let primary = session
+            .conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
+        session.select(&primary);
+        assert_eq!(
+            session.region(SurfaceId::Transcript),
+            reading_a,
+            "returning to a conversation must restore where its reader was, not where the other \
+             conversation was left"
+        );
+
+        session.select(&agent_b);
+        assert_eq!(
+            session.region(SurfaceId::Transcript),
+            reading_b,
+            "and going back the other way restores the other one"
+        );
+    }
+
+    /// The filler message numbers visible in a region, in the order they appear.
+    fn markers(text: &str) -> Vec<u32> {
+        text.match_indices("Filler message ")
+            .filter_map(|(at, marker)| {
+                text.get(at.saturating_add(marker.len())..)?
+                    .split_whitespace()
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+            .collect()
+    }
+
+    /// TR-4 through a real frame: a reader who scrolled back to the end is carried on by the
+    /// stream, and one who stopped short is not moved under.
+    ///
+    /// The scroll away and back is the point. Reading a conversation that was never touched only
+    /// exercises "untouched surfaces open at the tail", which is a different rule and would keep
+    /// passing if following were dropped entirely.
+    #[test]
+    fn a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put() {
+        let mut session = Session::canonical(60, 20);
+        session.conversation.extend(8);
+        session.draw();
+
+        // Away from the end and back again, which is what leaves a stored position behind.
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Down, 4);
+
+        session.conversation.extend(1);
+        let text = session.draw().region(SurfaceId::Transcript);
+        assert!(
+            text.contains("Filler message 9"),
+            "a reader who returned to the end is carried on by the stream:\n{text}"
+        );
+
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
+        let parked = session.region(SurfaceId::Transcript);
+        assert!(
+            !parked.contains("Filler message 9"),
+            "the reader really did leave the end, or the rest of this proves nothing"
+        );
+
+        session.conversation.extend(1);
+        assert_eq!(
+            session.draw().region(SurfaceId::Transcript),
+            parked,
+            "content arriving below a parked reader must not move what they are reading"
         );
     }
 
@@ -399,7 +672,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test terminal: {error}"));
             terminal
                 .draw(|frame| {
-                    render(frame, state, &palette);
+                    render(frame, state, &palette, &mut TranscriptMetrics::default());
                 })
                 .unwrap_or_else(|error| panic!("test render: {error}"));
             let backend = terminal.backend();
