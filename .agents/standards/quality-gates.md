@@ -25,6 +25,7 @@ any single edit:
 | `cargo machete` | Dependencies that are declared but unused |
 | `typos` | Prose and identifier spelling |
 | `./scripts/check-file-length.sh` | Module sprawl in `crates/**/*.rs` |
+| `./scripts/check-citations.sh` | An `INV-4` or `D-017` in code that resolves to nothing |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
 

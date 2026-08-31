@@ -29,6 +29,13 @@ because the structure has a slot for it. Carry the contract inline in the plan, 
 `specs/` only when it proves durable — when a second caller depends on it, or when the invariants
 outlive the slices that introduced them.
 
+**An identifier the code cites must outlive the code.** This is where the two rules collide: a plan
+may carry numbered invariants, and "cite, don't restate" invites a test or a comment to reference
+one. Deleting the plan then orphans every citation. Phase 00 did exactly this — nine `COM-N`
+citations survived the plan that defined them. So a plan's identifiers stay inside the plan until
+the contract is promoted; the moment code cites one, the contract has proven durable and belongs in
+`specs/`.
+
 Where a spec already exists, the plan cites it rather than restating it.
 
 ## Required shape

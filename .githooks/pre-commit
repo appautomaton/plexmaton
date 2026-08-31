@@ -24,6 +24,7 @@ run() {
 
 run cargo fmt --all --check
 run ./scripts/check-file-length.sh
+run ./scripts/check-citations.sh
 # Reports only. A document over budget is a signal that content sits at the wrong load-time, which
 # is a design question for the author rather than a reason to block a commit.
 run ./scripts/check-doc-budget.sh

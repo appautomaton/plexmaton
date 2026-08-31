@@ -11,7 +11,8 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | When you are about to… | Read |
 | --- | --- |
 | decide something that feels already settled | [`.agents/DECISIONS.md`](./.agents/DECISIONS.md) — an index; follow its links |
-| start or resume work on this phase | the active phase file named by [`roadmap/plexmaton.md`](./.agents/roadmap/plexmaton.md) |
+| start or resume work on the active phase | [`roadmap/phase-00-experience-skeleton.md`](./.agents/roadmap/phase-00-experience-skeleton.md) — named here so the common path skips the roadmap |
+| ask what the product is, or plan beyond this phase | [`roadmap/plexmaton.md`](./.agents/roadmap/plexmaton.md) |
 | implement or review a named mechanism | [`.agents/specs/<mechanism>.md`](./.agents/specs/README.md) — cite its invariant in the test that proves it |
 | start a step big enough to have an order | [`.agents/plans/`](./.agents/plans/README.md) — slice it before writing code; delete the plan when consumed |
 | change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md) |
@@ -89,10 +90,4 @@ Do not claim a check passed unless it was actually run in this workspace. Do not
 
 ## Documenting work
 
-Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and contradictory defaults are defects. Link to one source of truth instead of copying a rule into several files, and expand a document just in time rather than to look complete.
-
-- Durable product and architecture direction → `roadmap/plexmaton.md`, which must stay short.
-- Cross-cutting interaction rules → `roadmap/ui-ux.md`.
-- The precise, testable definition of one mechanism → `specs/`, following `specs/README.md`. An invariant with no test is marked unproven, never left reading as fact.
-- Implementation scope, evidence, and exit criteria → the active phase file. Promote a finding upward only when it changes a durable invariant or system boundary.
-- A decision, plus the alternative that was seriously considered and rejected → a row in `DECISIONS.md`, which never becomes the only statement of a rule.
+Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and contradictory defaults are defects. Link to one source of truth instead of copying a rule into several files, and expand a document just in time rather than to look complete. Which file owns what is a table in [`.agents/README.md`](./.agents/README.md); the two rules worth carrying without looking are that an invariant with no test is marked unproven rather than left reading as fact, and that a finding is promoted upward only when it changes a durable invariant or a system boundary.
