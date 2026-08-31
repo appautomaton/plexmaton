@@ -2,12 +2,14 @@ use plexmaton_core::{AgentStatus, ToolActivityStatus, TranscriptRole};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
-use crate::{NoticeView, ViewState};
+use crate::{
+    NoticeView, ViewState,
+    theme::{Palette, Role, agent_role, tool_role},
+};
 
 /// Rows reserved for the notice strip when it has something to report.
 const NOTICE_HEIGHT: u16 = 4;
@@ -15,7 +17,7 @@ const NOTICE_HEIGHT: u16 = 4;
 /// Responsive composition selected from terminal width.
 ///
 /// The thresholds are Phase 00 provisional values derived from the current panes. The UI/UX
-/// contract locks them only after the prototype demonstrates all three under realistic content.
+/// contract locks them only after the prototype demonstrates each one under realistic content.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutClass {
     /// Agent rail, transcript, and activity coexist as columns.
@@ -49,23 +51,23 @@ struct Regions {
 }
 
 /// Projects the current view state into a Ratatui frame without mutating it.
-pub fn render(frame: &mut Frame<'_>, state: &ViewState) {
+pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) {
     let has_notices = state.notices().next().is_some();
     let regions = regions(frame.area(), has_notices);
 
-    render_agents(frame, state, regions.agents);
-    render_transcript(frame, state, regions.transcript);
-    render_activity(frame, state, regions.activity);
+    render_agents(frame, state, palette, regions.agents);
+    render_transcript(frame, state, palette, regions.transcript);
+    render_activity(frame, state, palette, regions.activity);
     if let Some(area) = regions.notices {
-        render_notices(frame, state, area);
+        render_notices(frame, state, palette, area);
     }
 
     let footer = Line::from(vec![
+        Span::styled(" q / Esc ", palette.style(Role::KeyHint)),
         Span::styled(
-            " q / Esc ",
-            Style::default().fg(Color::Black).bg(Color::Cyan),
+            " quit  ·  deterministic Phase 00 timeline",
+            palette.style(Role::Muted),
         ),
-        Span::raw(" quit  ·  deterministic Phase 00 timeline"),
     ]);
     frame.render_widget(Paragraph::new(footer), regions.footer);
 }
@@ -116,36 +118,54 @@ fn regions(area: Rect, has_notices: bool) -> Regions {
     }
 }
 
-fn render_agents(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
+fn panel(palette: &Palette, title: impl Into<String>) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(palette.style(Role::Border))
+        .title(Span::styled(title.into(), palette.style(Role::Muted)))
+}
+
+fn render_agents(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
     let selected = state.selected_agent().map(|agent| agent.id.clone());
     let items = state.agents().map(|agent| {
-        let marker = if selected.as_ref() == Some(&agent.id) {
-            "●"
+        let (marker, marker_role) = if selected.as_ref() == Some(&agent.id) {
+            ("●", Role::Accent)
         } else {
-            "○"
+            ("○", Role::Muted)
         };
         ListItem::new(Line::from(vec![
-            Span::styled(format!("{marker} "), Style::default().fg(Color::Cyan)),
-            Span::raw(agent.label.clone()),
+            Span::styled(format!("{marker} "), palette.style(marker_role)),
+            Span::styled(agent.label.clone(), palette.style(Role::Body)),
             Span::styled(
                 format!("  {}", agent_status_label(agent.status)),
-                Style::default().fg(Color::DarkGray),
+                palette.style(agent_role(agent.status)),
             ),
         ]))
     });
 
-    let title = format!(" Agents · attention {} ", state.attention_count());
-    frame.render_widget(
-        List::new(items).block(Block::default().borders(Borders::ALL).title(title)),
-        area,
-    );
+    let attention = state.attention_count();
+    let title = format!(" Agents · attention {attention} ");
+    let block = if attention == 0 {
+        panel(palette, title)
+    } else {
+        // An unanswered request must read as action required, not as ambient decoration.
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(palette.style(Role::Border))
+            .title(Span::styled(title, palette.style(Role::ActionRequired)))
+    };
+
+    frame.render_widget(List::new(items).block(block), area);
 }
 
-fn render_transcript(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
+fn render_transcript(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
     let Some(agent) = state.selected_agent() else {
         frame.render_widget(
-            Paragraph::new("Waiting for the first semantic event…")
-                .block(Block::default().borders(Borders::ALL).title(" Transcript ")),
+            Paragraph::new(Line::styled(
+                "Waiting for the first semantic event…",
+                palette.style(Role::Muted),
+            ))
+            .block(panel(palette, " Transcript ")),
             area,
         );
         return;
@@ -153,83 +173,97 @@ fn render_transcript(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
 
     let mut lines = Vec::new();
     for item in agent.transcript() {
-        let role = match item.role {
+        let author = match item.role {
             TranscriptRole::User => "you",
             TranscriptRole::Assistant => "assistant",
             TranscriptRole::System => "system",
         };
-        lines.push(Line::from(Span::styled(
-            role,
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::raw(item.source.clone()));
+        lines.push(Line::styled(author, palette.style(Role::SectionHeading)));
+        lines.push(Line::styled(item.source.clone(), palette.style(Role::Body)));
         lines.push(Line::raw(""));
     }
 
     if lines.is_empty() {
-        lines.push(hint("Agent is active; no transcript item has started yet."));
+        lines.push(Line::styled(
+            "Agent is active; no transcript item has started yet.",
+            palette.style(Role::Muted),
+        ));
     }
 
     let title = format!(" {} · {} ", agent.label, agent_status_label(agent.status));
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title(title)),
+            .block(panel(palette, title)),
         area,
     );
 }
 
-fn render_activity(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
-    let block = Block::default().borders(Borders::ALL).title(" Activity ");
+fn render_activity(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+    let block = panel(palette, " Activity ");
     let Some(agent) = state.selected_agent() else {
-        frame.render_widget(Paragraph::new("No agent selected.").block(block), area);
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                "No agent selected.",
+                palette.style(Role::Muted),
+            ))
+            .block(block),
+            area,
+        );
         return;
     };
 
-    let mut lines = vec![section("Tools")];
+    let mut lines = vec![Line::styled("Tools", palette.style(Role::SectionHeading))];
     let mut tools = 0_usize;
     for tool in agent.tool_activity() {
         tools += 1;
         lines.push(Line::from(vec![
             Span::styled(
                 format!("{} ", tool_marker(tool.status)),
-                Style::default().fg(tool_color(tool.status)),
+                palette.style(tool_role(tool.status)),
             ),
-            Span::raw(tool.label.clone()),
+            Span::styled(tool.label.clone(), palette.style(Role::Body)),
         ]));
     }
     if tools == 0 {
-        lines.push(hint("  none"));
+        lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
 
-    lines.push(section("Artifacts"));
+    lines.push(Line::styled(
+        "Artifacts",
+        palette.style(Role::SectionHeading),
+    ));
     let mut artifacts = 0_usize;
     for artifact in agent.artifacts() {
         artifacts += 1;
         lines.push(Line::from(vec![
-            Span::styled("@ ", Style::default().fg(Color::Magenta)),
-            Span::raw(artifact.label.clone()),
+            Span::styled("@ ", palette.style(Role::NewInformation)),
+            Span::styled(artifact.label.clone(), palette.style(Role::Body)),
         ]));
-        lines.push(hint(format!("  {}", artifact.pointer)));
+        lines.push(Line::styled(
+            format!("  {}", artifact.pointer),
+            palette.style(Role::Muted),
+        ));
     }
     if artifacts == 0 {
-        lines.push(hint("  none"));
+        lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
 
-    lines.push(section("Mail"));
+    lines.push(Line::styled("Mail", palette.style(Role::SectionHeading)));
     let mut mail = 0_usize;
     for item in agent.inbox() {
         mail += 1;
         lines.push(Line::from(vec![
-            Span::styled("<- ", Style::default().fg(Color::Green)),
-            Span::raw(item.from.to_string()),
+            Span::styled("<- ", palette.style(Role::NewInformation)),
+            Span::styled(item.from.to_string(), palette.style(Role::Body)),
         ]));
-        lines.push(hint(format!("  {}", item.summary)));
+        lines.push(Line::styled(
+            format!("  {}", item.summary),
+            palette.style(Role::Muted),
+        ));
     }
     if mail == 0 {
-        lines.push(hint("  none"));
+        lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
 
     frame.render_widget(
@@ -240,7 +274,7 @@ fn render_activity(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
     );
 }
 
-fn render_notices(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
+fn render_notices(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
     // The strip is a bounded tail view: older entries stay in the log but the workspace must not
     // give unbounded screen space to producer defects.
     let visible = usize::from(area.height.saturating_sub(2));
@@ -250,7 +284,7 @@ fn render_notices(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
         .rev()
         .take(visible)
         .rev()
-        .map(|notice| notice_line(notice))
+        .map(|notice| notice_line(notice, palette))
         .collect();
 
     let dropped = state.notices_dropped();
@@ -263,42 +297,32 @@ fn render_notices(frame: &mut Frame<'_>, state: &ViewState, area: Rect) {
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title(title)),
+            .block(panel(palette, title)),
         area,
     );
 }
 
-fn notice_line(notice: &NoticeView) -> Line<'static> {
-    match notice {
-        NoticeView::RuntimeWarning { message } => Line::from(vec![
-            Span::styled("[warn] ", Style::default().fg(Color::Yellow)),
-            Span::raw(message.clone()),
-        ]),
-        NoticeView::SequenceGap { expected, received } => Line::from(vec![
-            Span::styled("[gap]  ", Style::default().fg(Color::Yellow)),
-            Span::raw(format!("resynchronized from {expected} to {received}")),
-        ]),
-        NoticeView::Rejected { sequence, error } => Line::from(vec![
-            Span::styled("[drop] ", Style::default().fg(Color::Red)),
-            Span::raw(format!("sequence {}: {error}", sequence.get())),
-        ]),
-    }
-}
+fn notice_line(notice: &NoticeView, palette: &Palette) -> Line<'static> {
+    let (marker, role, text) = match notice {
+        NoticeView::RuntimeWarning { message } => {
+            ("[warn] ", Role::ActionRequired, message.clone())
+        }
+        NoticeView::SequenceGap { expected, received } => (
+            "[gap]  ",
+            Role::ActionRequired,
+            format!("resynchronized from {expected} to {received}"),
+        ),
+        NoticeView::Rejected { sequence, error } => (
+            "[drop] ",
+            Role::Failure,
+            format!("sequence {}: {error}", sequence.get()),
+        ),
+    };
 
-fn section(title: &str) -> Line<'static> {
-    Line::from(Span::styled(
-        title.to_owned(),
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    ))
-}
-
-fn hint(text: impl Into<String>) -> Line<'static> {
-    Line::from(Span::styled(
-        text.into(),
-        Style::default().fg(Color::DarkGray),
-    ))
+    Line::from(vec![
+        Span::styled(marker, palette.style(role)),
+        Span::styled(text, palette.style(Role::Body)),
+    ])
 }
 
 const fn agent_status_label(status: AgentStatus) -> &'static str {
@@ -312,7 +336,7 @@ const fn agent_status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-/// Tool markers stay legible without color so monochrome terminals keep the same status grammar.
+/// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
 const fn tool_marker(status: ToolActivityStatus) -> &'static str {
     match status {
         ToolActivityStatus::Queued => "[ ]",
@@ -323,16 +347,6 @@ const fn tool_marker(status: ToolActivityStatus) -> &'static str {
     }
 }
 
-const fn tool_color(status: ToolActivityStatus) -> Color {
-    match status {
-        ToolActivityStatus::Queued => Color::DarkGray,
-        ToolActivityStatus::Running => Color::Yellow,
-        ToolActivityStatus::Succeeded => Color::Green,
-        ToolActivityStatus::Failed => Color::Red,
-        ToolActivityStatus::Cancelled => Color::DarkGray,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{EventSequence, PrototypeEvent, PrototypeEventEnvelope};
@@ -340,7 +354,7 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     use super::LayoutClass;
-    use crate::{ViewState, render};
+    use crate::{ViewState, render, theme::Palette};
 
     fn canonical_state() -> ViewState {
         let scenario =
@@ -352,13 +366,17 @@ mod tests {
         state
     }
 
-    fn draw(state: &ViewState, width: u16, height: u16) -> String {
+    fn draw_with(state: &ViewState, palette: &Palette, width: u16, height: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(width, height))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         terminal
-            .draw(|frame| render(frame, state))
+            .draw(|frame| render(frame, state, palette))
             .unwrap_or_else(|error| panic!("test render: {error}"));
         terminal.backend().to_string()
+    }
+
+    fn draw(state: &ViewState, width: u16, height: u16) -> String {
+        draw_with(state, &Palette::default(), width, height)
     }
 
     #[test]
@@ -424,5 +442,18 @@ mod tests {
         let rendered = draw(&degraded, 120, 24);
         assert!(rendered.contains("Notices"));
         assert!(rendered.contains("[drop]"));
+    }
+
+    #[test]
+    fn every_palette_paints_the_same_text() {
+        // Swapping the palette must change styling only. A palette that alters which characters
+        // reach the buffer would mean colour is carrying meaning that the glyphs do not.
+        let state = canonical_state();
+        let ansi = draw_with(&state, &Palette::ansi(), 120, 24);
+        let truecolor = draw_with(&state, &Palette::truecolor(), 120, 24);
+        let monochrome = draw_with(&state, &Palette::monochrome(), 120, 24);
+
+        assert_eq!(ansi, truecolor);
+        assert_eq!(ansi, monochrome);
     }
 }

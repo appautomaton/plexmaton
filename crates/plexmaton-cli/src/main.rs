@@ -4,7 +4,7 @@ use anyhow::Context;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures_util::StreamExt;
 use plexmaton_sim::{Scenario, ScenarioStep};
-use plexmaton_tui::{ViewRevision, ViewState};
+use plexmaton_tui::{Palette, ViewRevision, ViewState};
 use ratatui::DefaultTerminal;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(180);
@@ -32,6 +32,8 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     let mut terminal_events = EventStream::new();
     let mut painted: Option<ViewRevision> = None;
+    // Named colour roles resolve through the user's own terminal theme by default.
+    let palette = Palette::default();
 
     apply_ready(&mut state, &mut timeline, tick);
 
@@ -40,7 +42,7 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
         // input that the workspace ignores must not cost a full-screen redraw.
         if painted != Some(state.revision()) {
             terminal
-                .draw(|frame| plexmaton_tui::render(frame, &state))
+                .draw(|frame| plexmaton_tui::render(frame, &state, &palette))
                 .context("draw TUI frame")?;
             painted = Some(state.revision());
         }
