@@ -116,8 +116,8 @@ Two consequences worth stating plainly:
   typos. Enable it once per clone: `git config core.hooksPath .githooks`.
 
 Gates are listed in [`standards/quality-gates.md`](../standards/quality-gates.md). 49 tests today.
-`./scripts/check-doc-budget.sh` reports and never fails — it currently flags only the phase file,
-whose remaining excess is the dependency audit block, not the evidence log.
+`./scripts/check-doc-budget.sh` reports and never fails; it is quiet at the moment. When it speaks
+up, read the escape hatch for that path in `.agents/README.md` before touching the number.
 
 ## Step 2, concretely
 

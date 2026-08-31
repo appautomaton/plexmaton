@@ -72,39 +72,12 @@ crates/
 
 `plexmaton-core` must not depend on Ratatui, Crossterm, Tokio, or a math renderer. `plexmaton-tui` may depend on core but never the reverse. `plexmaton-sim` produces the same semantic boundary expected from the future runtime; the TUI may not call simulator objects directly. The CLI owns terminal initialization/restoration and task startup.
 
-### Dependency policy
+Dependency admission and the audited foundation live in
+[standards/rust.md](../standards/rust.md); evidence tooling lives in
+[standards/testing.md](../standards/testing.md). Both are triggered by the work, not by the phase,
+so this section records only what stops being true when Phase 00 closes.
 
-- Rust 2024 on project-local toolchain `1.98.0` (current stable at scaffold planning time). Install/select it through `rust-toolchain.toml`; nightly is not a foundation requirement and no global rustup default is required.
-- Declare shared versions in root `[workspace.dependencies]` and inherit them from member crates.
-- Commit `Cargo.lock`; this workspace ships binaries.
-- Treat the versions below as audited manifest baselines, not floating `latest` aliases. Cargo's normal compatible ranges remain useful; the committed lockfile records the exact resolved graph. Never use wildcard (`*`) requirements.
-- Disable default features where they introduce unused backends, native libraries, formats, or runtimes.
-- Keep core error types on `thiserror`; use `anyhow` only at application/composition boundaries.
-- Add one dependency only for a current phase capability or measurement. Future provider/storage/plugin crates do not enter Phase 00.
-- Experimental math, image, editor, and clipboard integrations sit behind narrow features/adapters and cannot leak their types into core contracts.
-- Record license, Minimum Supported Rust Version (MSRV), transitive native dependencies, and terminal/backend compatibility before promoting a candidate to locked.
-
-### Locked Phase 00 foundation
-
-Dependency audit snapshot: 2026-08-30. Re-run resolution and compatibility checks when generating the first `Cargo.lock`; a newer release is adopted only after its changelog, features, resolved graph, and checks are reviewed.
-
-| Crate | Audited baseline | Role | Feature/version decision |
-| --- | --- | --- | --- |
-| `ratatui` | `0.30.2` | Cell buffer, layout, text, widgets, test backend | Use the current modular Ratatui generation; do not downgrade for an experiment |
-| `crossterm` | `0.29.0` | Terminal lifecycle and input events | Enable `event-stream`; add optional `osc52` only when that clipboard adapter is implemented; use one event-reader path |
-| `tokio` | `1.53.1` | Async task/event runtime | No `full`; the current skeleton activates only `rt`, `macros`, and `time`. Add `sync` or `signal` only with their first real owner. This is the current line, not a fixed minor; `Cargo.lock` pins the resolved patch |
-| `tokio-util` | `0.7.19` | Hierarchical cancellation | Defaults are empty; enable only `rt` for `CancellationToken`/child tokens |
-| `futures-util` | `0.3.34` | Stream combinators | Prefer the focused utility crate over the `futures` umbrella; enable only features required by `StreamExt` and synthetic streams |
-| `serde` / `serde_json` | `1.0.229` / `1.0.151` | Deterministic scenario and snapshot data | Enable Serde `derive`; serialization is not itself the final durable-session schema |
-| `thiserror` | `2.0.20` | Library error types | No `anyhow::Error` in core contracts |
-| `anyhow` | `1.0.104` | CLI/composition errors | Binary boundary only |
-| `tracing` / `tracing-subscriber` | `0.1.44` / `0.3.23` | Structured diagnostics | Enable only required formatting/filtering layers; logs must be redirected away from the owned TUI screen |
-| `unicode-width` | `0.2.2` | Terminal-cell measurement | Keep the CJK behavior explicit and test it; required for layout and hit-test correctness |
-| `unicode-segmentation` | `1.13.3` | Grapheme-aware editing/selection | Unicode 17 line with MSRV 1.85; never index visible text by byte offset |
-
-Prefer the umbrella `ratatui` application crate initially. Direct adoption of split `ratatui-core`, `ratatui-widgets`, and `ratatui-crossterm` is justified only by a measured compile-time or dependency-boundary benefit.
-
-### Phase 00 candidates behind adapters/features
+### Candidates behind adapters and features
 
 | Candidate | Status | Constraint |
 | --- | --- | --- |
@@ -115,20 +88,9 @@ Composer state and commands are product contracts; no textarea crate may become 
 
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
-### Dev-only evidence dependencies
-
-| Crate | Role |
-| --- | --- |
-| `insta 1.48.0` | Ratatui buffer and serialized-state snapshots |
-| `pretty_assertions 1.4.1` | Readable state/interaction diffs; never snapshot its human-oriented output |
-| `proptest 1.11.0` | Geometry, clipping, scroll-anchor, resize, and routing invariants |
-| `criterion 0.8.2` | Repeatable transcript-layout and interaction workloads when wall-time measurement is appropriate |
-
-None of these are in a manifest yet, and that is deliberate: a dependency enters when the step that
-needs it starts, not when it is planned. `insta` and `proptest` arrive with the surface and viewport
-work; `criterion` arrives with the measurement harness.
-
-Use Ratatui's `TestBackend` before adding a virtual-terminal dependency. Add PTY/VT emulation only when a test requires terminal escape-sequence behavior that the cell buffer cannot represent.
+Of the evidence tooling in [standards/testing.md](../standards/testing.md), `insta` and `proptest`
+arrive with the surface and viewport steps and `criterion` with the measurement harness. None are
+in a manifest yet.
 
 ### Explicitly absent in Phase 00
 

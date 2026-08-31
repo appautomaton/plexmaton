@@ -123,3 +123,20 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 - Pair important snapshots with structural assertions so an empty or truncated snapshot cannot pass
   unnoticed.
 - Review snapshot updates as behavior changes; never bulk-accept them without inspection.
+
+## Evidence tooling
+
+A test dependency enters a manifest when the test that needs it is written, not when it is planned.
+Versions are audited at that moment and are not recorded here: a version audited months before its
+first use is a stale answer wearing a precise number.
+
+| Crate | Role |
+| --- | --- |
+| `insta` | Ratatui buffer and serialized-state snapshots |
+| `pretty_assertions` | Readable state and interaction diffs; never snapshot its human-oriented output |
+| `proptest` | Geometry, clipping, scroll-anchor, resize, and routing invariants |
+| `criterion` | Repeatable layout and interaction workloads, where wall-time measurement is appropriate |
+
+Use Ratatui's `TestBackend` before adding a virtual-terminal dependency. Add pseudo-terminal or
+virtual-terminal emulation only when a test needs escape-sequence behavior the cell buffer cannot
+represent.

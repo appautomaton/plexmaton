@@ -65,6 +65,29 @@
 - Do not downgrade a locked foundational dependency to accommodate an experiment.
 - Remove unused dependencies as part of the change that makes them unused.
 
+## Audited foundation
+
+Versions and features are declared once, in `[workspace.dependencies]`. This table owns only what a
+manifest cannot express: why each crate is here and what its feature set is allowed to become. Do
+not restate a version here — the second copy is wrong the first time one is bumped.
+
+Audited 2026-08-30 against the graph committed in `Cargo.lock`. A numerically newer release is
+adopted only after its changelog, features, and resolved graph are reviewed.
+
+| Crate | Role | Feature and version decision |
+| --- | --- | --- |
+| `ratatui` | Cell buffer, layout, text, widgets, test backend | Use the current modular generation; never downgrade it for an experiment. Prefer the umbrella crate — splitting into `ratatui-core`, `ratatui-widgets`, and `ratatui-crossterm` needs a measured compile-time or boundary benefit |
+| `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. Add `osc52` only when the clipboard adapter is implemented |
+| `tokio` | Async task and event runtime | Never `full`. Today `rt`, `macros`, `time`; `sync` and `signal` arrive with their first real owner |
+| `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
+| `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
+| `serde` / `serde_json` | Deterministic scenario and snapshot data | `derive` enabled. This is not the durable-session schema |
+| `thiserror` | Library error types | No `anyhow::Error` in core contracts |
+| `anyhow` | Composition-root errors | Binary boundary only |
+| `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |
+| `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
+| `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
+
 ## Maintenance
 
 - Keep one supported path for each behavior. Migrations must have a bounded start, cutover
