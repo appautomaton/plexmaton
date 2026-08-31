@@ -1,11 +1,17 @@
-use std::collections::{BTreeMap, VecDeque};
+mod agent;
+mod ordered;
+
+use std::collections::VecDeque;
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, EventSequence, MailId,
-    PrototypeEvent, PrototypeEventEnvelope, ToolActivityId, ToolActivityStatus, TranscriptItemId,
-    TranscriptRole,
+    AgentId, AttentionId, AttentionKind, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
+    TranscriptItemId,
 };
 use thiserror::Error;
+
+pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptItemView};
+
+use ordered::OrderedById;
 
 /// Upper bound on retained runtime notices.
 ///
@@ -61,136 +67,6 @@ impl ViewRevision {
     #[must_use]
     pub const fn get(self) -> u64 {
         self.0
-    }
-}
-
-/// Identity-keyed collection that iterates in first-insertion order.
-///
-/// Display order must follow arrival, not identifier collation, so the order vector is the
-/// authority and the map exists only to update an entry in place by identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct OrderedById<K, V> {
-    order: Vec<K>,
-    entries: BTreeMap<K, V>,
-}
-
-impl<K: Clone + Ord, V> OrderedById<K, V> {
-    fn contains(&self, key: &K) -> bool {
-        self.entries.contains_key(key)
-    }
-
-    /// Appends a new entry, or replaces an existing one without moving its position.
-    fn upsert(&mut self, key: K, value: V) {
-        if self.entries.insert(key.clone(), value).is_none() {
-            self.order.push(key);
-        }
-    }
-
-    fn get(&self, key: &K) -> Option<&V> {
-        self.entries.get(key)
-    }
-
-    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.entries.get_mut(key)
-    }
-
-    fn len(&self) -> usize {
-        self.order.len()
-    }
-
-    fn iter(&self) -> impl Iterator<Item = &V> {
-        self.order.iter().filter_map(|key| self.entries.get(key))
-    }
-}
-
-impl<K, V> Default for OrderedById<K, V> {
-    fn default() -> Self {
-        Self {
-            order: Vec::new(),
-            entries: BTreeMap::new(),
-        }
-    }
-}
-
-/// Projected transcript content. Semantic source is retained separately from terminal cells.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TranscriptItemView {
-    pub id: TranscriptItemId,
-    pub role: TranscriptRole,
-    pub source: String,
-    pub revision: u64,
-    pub finalized: bool,
-}
-
-/// One visible tool activity and its current lifecycle state.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolActivityView {
-    pub id: ToolActivityId,
-    pub label: String,
-    pub status: ToolActivityStatus,
-}
-
-/// Durable work product announced by an agent, referenced by pointer rather than copied inline.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArtifactView {
-    pub id: ArtifactId,
-    pub label: String,
-    pub pointer: String,
-}
-
-/// Typed mail delivered between sessions.
-///
-/// Sender identity is part of the product contract, so it is retained rather than reduced away.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct MailView {
-    pub id: MailId,
-    pub from: AgentId,
-    pub summary: String,
-}
-
-/// Per-agent projection consumed by the renderer.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AgentView {
-    pub id: AgentId,
-    pub label: String,
-    pub status: AgentStatus,
-    items: OrderedById<TranscriptItemId, TranscriptItemView>,
-    tools: OrderedById<ToolActivityId, ToolActivityView>,
-    artifacts: OrderedById<ArtifactId, ArtifactView>,
-    inbox: OrderedById<MailId, MailView>,
-}
-
-impl AgentView {
-    fn new(id: AgentId, label: String, status: AgentStatus) -> Self {
-        Self {
-            id,
-            label,
-            status,
-            items: OrderedById::default(),
-            tools: OrderedById::default(),
-            artifacts: OrderedById::default(),
-            inbox: OrderedById::default(),
-        }
-    }
-
-    /// Iterates transcript items in arrival order.
-    pub fn transcript(&self) -> impl Iterator<Item = &TranscriptItemView> {
-        self.items.iter()
-    }
-
-    /// Iterates tool activity in arrival order.
-    pub fn tool_activity(&self) -> impl Iterator<Item = &ToolActivityView> {
-        self.tools.iter()
-    }
-
-    /// Iterates announced artifacts in arrival order.
-    pub fn artifacts(&self) -> impl Iterator<Item = &ArtifactView> {
-        self.artifacts.iter()
-    }
-
-    /// Iterates delivered mail in arrival order.
-    pub fn inbox(&self) -> impl Iterator<Item = &MailView> {
-        self.inbox.iter()
     }
 }
 
@@ -347,56 +223,30 @@ impl ViewState {
                 agent_id,
                 item_id,
                 role,
-            } => {
-                let agent = self.agent_mut(&agent_id)?;
-                if agent.items.contains(&item_id) {
-                    return Err(ReduceError::DuplicateTranscriptItem(item_id));
-                }
-                agent.items.upsert(
-                    item_id.clone(),
-                    TranscriptItemView {
-                        id: item_id,
-                        role,
-                        source: String::new(),
-                        revision: 0,
-                        finalized: false,
-                    },
-                );
-            }
+            } => self.agent_mut(&agent_id)?.start_item(item_id, role)?,
             PrototypeEvent::TranscriptDelta {
                 agent_id,
                 item_id,
                 item_revision,
                 text,
-            } => {
-                let item = self.item_mut(&agent_id, &item_id)?;
-                Self::advance_item_revision(item, item_revision)?;
-                item.source.push_str(&text);
-            }
+            } => self
+                .agent_mut(&agent_id)?
+                .append_delta(&item_id, item_revision, &text)?,
             PrototypeEvent::TranscriptItemFinalized {
                 agent_id,
                 item_id,
                 item_revision,
-            } => {
-                let item = self.item_mut(&agent_id, &item_id)?;
-                Self::advance_item_revision(item, item_revision)?;
-                item.finalized = true;
-            }
+            } => self
+                .agent_mut(&agent_id)?
+                .finalize_item(&item_id, item_revision)?,
             PrototypeEvent::ToolActivityChanged {
                 agent_id,
                 activity_id,
                 label,
                 status,
-            } => {
-                self.agent_mut(&agent_id)?.tools.upsert(
-                    activity_id.clone(),
-                    ToolActivityView {
-                        id: activity_id,
-                        label,
-                        status,
-                    },
-                );
-            }
+            } => self
+                .agent_mut(&agent_id)?
+                .set_tool_activity(activity_id, label, status),
             PrototypeEvent::AttentionRequested {
                 agent_id,
                 attention_id,
@@ -421,31 +271,15 @@ impl ViewState {
                 from,
                 to,
                 summary,
-            } => {
-                self.agent_mut(&to)?.inbox.upsert(
-                    mail_id.clone(),
-                    MailView {
-                        id: mail_id,
-                        from,
-                        summary,
-                    },
-                );
-            }
+            } => self.agent_mut(&to)?.deliver_mail(mail_id, from, summary),
             PrototypeEvent::ArtifactAnnounced {
                 agent_id,
                 artifact_id,
                 label,
                 pointer,
-            } => {
-                self.agent_mut(&agent_id)?.artifacts.upsert(
-                    artifact_id.clone(),
-                    ArtifactView {
-                        id: artifact_id,
-                        label,
-                        pointer,
-                    },
-                );
-            }
+            } => self
+                .agent_mut(&agent_id)?
+                .announce_artifact(artifact_id, label, pointer),
             PrototypeEvent::RuntimeWarning { message } => {
                 self.push_notice(NoticeView::RuntimeWarning { message });
             }
@@ -471,40 +305,12 @@ impl ViewState {
             .get_mut(agent_id)
             .ok_or_else(|| ReduceError::UnknownAgent(agent_id.clone()))
     }
-
-    fn item_mut(
-        &mut self,
-        agent_id: &AgentId,
-        item_id: &TranscriptItemId,
-    ) -> Result<&mut TranscriptItemView, ReduceError> {
-        self.agent_mut(agent_id)?
-            .items
-            .get_mut(item_id)
-            .ok_or_else(|| ReduceError::UnknownTranscriptItem(item_id.clone()))
-    }
-
-    fn advance_item_revision(
-        item: &mut TranscriptItemView,
-        received: u64,
-    ) -> Result<(), ReduceError> {
-        let expected = item.revision + 1;
-        if received != expected {
-            return Err(ReduceError::ItemRevisionGap {
-                item_id: item.id.clone(),
-                expected,
-                received,
-            });
-        }
-        item.revision = received;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
-        ToolActivityId, ToolActivityStatus,
     };
     use plexmaton_sim::Scenario;
 
@@ -512,10 +318,6 @@ mod tests {
 
     fn agent_id(value: &str) -> AgentId {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
-    }
-
-    fn tool_id(value: &str) -> ToolActivityId {
-        ToolActivityId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
     }
 
     fn envelope(sequence: u64, event: PrototypeEvent) -> PrototypeEventEnvelope {
@@ -671,71 +473,6 @@ mod tests {
         state.apply(envelope(2, created("agent-a")));
 
         assert!(state.revision() > before);
-    }
-
-    #[test]
-    fn tool_activity_iterates_in_arrival_order_not_identifier_order() {
-        let mut state = ViewState::default();
-        state.apply(envelope(1, created("agent-a")));
-        for (sequence, tool) in ["tool-z", "tool-a"].into_iter().enumerate() {
-            state.apply(envelope(
-                sequence as u64 + 2,
-                PrototypeEvent::ToolActivityChanged {
-                    agent_id: agent_id("agent-a"),
-                    activity_id: tool_id(tool),
-                    label: tool.to_owned(),
-                    status: ToolActivityStatus::Running,
-                },
-            ));
-        }
-
-        let labels: Vec<_> = state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("agent-a is selected"))
-            .tool_activity()
-            .map(|tool| tool.label.as_str())
-            .collect();
-
-        assert_eq!(labels, ["tool-z", "tool-a"]);
-    }
-
-    #[test]
-    fn updating_a_tool_keeps_its_position_and_replaces_its_status() {
-        let mut state = ViewState::default();
-        state.apply(envelope(1, created("agent-a")));
-        for (sequence, (tool, status)) in [
-            ("tool-z", ToolActivityStatus::Running),
-            ("tool-a", ToolActivityStatus::Running),
-            ("tool-z", ToolActivityStatus::Succeeded),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            state.apply(envelope(
-                sequence as u64 + 2,
-                PrototypeEvent::ToolActivityChanged {
-                    agent_id: agent_id("agent-a"),
-                    activity_id: tool_id(tool),
-                    label: tool.to_owned(),
-                    status,
-                },
-            ));
-        }
-
-        let tools: Vec<_> = state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("agent-a is selected"))
-            .tool_activity()
-            .map(|tool| (tool.label.as_str(), tool.status))
-            .collect();
-
-        assert_eq!(
-            tools,
-            [
-                ("tool-z", ToolActivityStatus::Succeeded),
-                ("tool-a", ToolActivityStatus::Running),
-            ]
-        );
     }
 
     #[test]
