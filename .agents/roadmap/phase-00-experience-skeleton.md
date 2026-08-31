@@ -202,6 +202,23 @@ per-agent invariants — transcript item identity and per-item revision continui
 `ViewState` into `AgentView`. The reducer is now left owning only what is genuinely cross-agent:
 stream ordering, selection, and the notice log. Tests went from 21 to 26.
 
+### Screen anatomy decisions landed — 2026-08-31
+
+Seven interaction decisions were taken and recorded in [DECISIONS.md](../DECISIONS.md) (D-022
+through D-028). Two of them are already implemented and tested:
+
+- `LayoutClass::for_size` now selects five compositions rather than three. Ultrawide starts at 132,
+  where two 52-cell conversations plus the agent column fit.
+- A terminal below 48 × 12 renders one explicit notice. A test asserts that no workspace content
+  leaks through, because a half-drawn rail is exactly the failure the notice exists to prevent.
+
+The remaining five decisions — shelf geometry, the ten-row guarantee, focus on open, the collapsed
+composer row, and the reduced drag scope — are recorded in [ui-ux.md](./ui-ux.md) and are
+unimplemented until the interaction spine exists. Tests: 26 to 34.
+
+The design artifact for this work is published separately and is currently behind these documents;
+`ui-ux.md` and `DECISIONS.md` are authoritative.
+
 This is implementation evidence for the skeleton only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope

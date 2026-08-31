@@ -14,25 +14,36 @@ use crate::{
 /// Rows reserved for the notice strip when it has something to report.
 const NOTICE_HEIGHT: u16 = 4;
 
-/// Responsive composition selected from terminal width.
+/// Smallest terminal that can still express the canonical journey.
 ///
-/// The thresholds are Phase 00 provisional values derived from the current panes. The UI/UX
-/// contract locks them only after the prototype demonstrates each one under realistic content.
+/// Below this the honest response is one explicit notice, not a layout clipped until it lies.
+const MIN_WIDTH: u16 = 48;
+const MIN_HEIGHT: u16 = 12;
+
+/// Responsive composition selected from terminal size.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayoutClass {
-    /// Agent rail, transcript, and activity coexist as columns.
-    Wide,
-    /// Agent rail plus transcript; activity collapses beneath the transcript.
-    Medium,
+    /// Below the supported minimum; render a notice rather than a broken workspace.
+    TooSmall,
     /// One column; every region becomes a stacked band.
     Narrow,
+    /// Agent column plus conversation; activity compresses to markers.
+    Medium,
+    /// Agent column and conversation; a second agent arrives as a shelf over the conversation.
+    Wide,
+    /// Two conversations side by side; a second agent earns a column of its own.
+    Ultrawide,
 }
 
 impl LayoutClass {
-    /// Chooses the composition for a terminal width in cells.
+    /// Chooses the composition for a terminal size in cells.
     #[must_use]
-    pub const fn for_width(width: u16) -> Self {
-        if width >= 96 {
+    pub const fn for_size(width: u16, height: u16) -> Self {
+        if width < MIN_WIDTH || height < MIN_HEIGHT {
+            Self::TooSmall
+        } else if width >= 132 {
+            Self::Ultrawide
+        } else if width >= 96 {
             Self::Wide
         } else if width >= 72 {
             Self::Medium
@@ -52,8 +63,14 @@ struct Regions {
 
 /// Projects the current view state into a Ratatui frame without mutating it.
 pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) {
+    let area = frame.area();
+    if LayoutClass::for_size(area.width, area.height) == LayoutClass::TooSmall {
+        render_too_small(frame, palette, area);
+        return;
+    }
+
     let has_notices = state.notices().next().is_some();
-    let regions = regions(frame.area(), has_notices);
+    let regions = regions(area, has_notices);
 
     render_agents(frame, state, palette, regions.agents);
     render_transcript(frame, state, palette, regions.transcript);
@@ -81,7 +98,19 @@ fn regions(area: Rect, has_notices: bool) -> Regions {
     ])
     .areas(area);
 
-    let (agents, transcript, activity) = match LayoutClass::for_width(area.width) {
+    let (agents, transcript, activity) = match LayoutClass::for_size(area.width, area.height) {
+        // The second conversation column arrives with the inspector surface. Until then ultrawide
+        // spends its extra width on the activity column rather than pretending to hold an agent
+        // that does not exist yet.
+        LayoutClass::Ultrawide => {
+            let [agents, transcript, activity] = Layout::horizontal([
+                Constraint::Length(28),
+                Constraint::Min(52),
+                Constraint::Length(34),
+            ])
+            .areas(body);
+            (agents, transcript, activity)
+        }
         LayoutClass::Wide => {
             let [agents, transcript, activity] = Layout::horizontal([
                 Constraint::Length(26),
@@ -98,7 +127,8 @@ fn regions(area: Rect, has_notices: bool) -> Regions {
                 Layout::vertical([Constraint::Min(6), Constraint::Length(8)]).areas(main);
             (agents, transcript, activity)
         }
-        LayoutClass::Narrow => {
+        // `TooSmall` returned before layout began, so it cannot reach here.
+        LayoutClass::Narrow | LayoutClass::TooSmall => {
             let [agents, transcript, activity] = Layout::vertical([
                 Constraint::Length(5),
                 Constraint::Min(6),
@@ -116,6 +146,24 @@ fn regions(area: Rect, has_notices: bool) -> Regions {
         notices: has_notices.then_some(notices),
         footer,
     }
+}
+
+fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
+    // One honest notice. Clipping the workspace instead would show a layout that misrepresents
+    // both the agents and the controls.
+    let lines = vec![
+        Line::styled("Terminal too small", palette.style(Role::ActionRequired)),
+        Line::raw(""),
+        Line::styled(
+            format!("Need at least {MIN_WIDTH} x {MIN_HEIGHT}."),
+            palette.style(Role::Body),
+        ),
+        Line::styled(
+            format!("This one is {} x {}.", area.width, area.height),
+            palette.style(Role::Muted),
+        ),
+    ];
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
 fn panel(palette: &Palette, title: impl Into<String>) -> Block<'static> {
@@ -380,12 +428,49 @@ mod tests {
     }
 
     #[test]
-    fn layout_class_covers_three_widths() {
-        assert_eq!(LayoutClass::for_width(120), LayoutClass::Wide);
-        assert_eq!(LayoutClass::for_width(96), LayoutClass::Wide);
-        assert_eq!(LayoutClass::for_width(95), LayoutClass::Medium);
-        assert_eq!(LayoutClass::for_width(72), LayoutClass::Medium);
-        assert_eq!(LayoutClass::for_width(71), LayoutClass::Narrow);
+    fn layout_class_covers_every_threshold() {
+        assert_eq!(LayoutClass::for_size(132, 40), LayoutClass::Ultrawide);
+        assert_eq!(LayoutClass::for_size(131, 40), LayoutClass::Wide);
+        assert_eq!(LayoutClass::for_size(96, 40), LayoutClass::Wide);
+        assert_eq!(LayoutClass::for_size(95, 40), LayoutClass::Medium);
+        assert_eq!(LayoutClass::for_size(72, 40), LayoutClass::Medium);
+        assert_eq!(LayoutClass::for_size(71, 40), LayoutClass::Narrow);
+        assert_eq!(LayoutClass::for_size(48, 12), LayoutClass::Narrow);
+    }
+
+    #[test]
+    fn either_dimension_below_the_minimum_is_too_small() {
+        assert_eq!(LayoutClass::for_size(47, 40), LayoutClass::TooSmall);
+        assert_eq!(LayoutClass::for_size(200, 11), LayoutClass::TooSmall);
+        assert_eq!(LayoutClass::for_size(47, 11), LayoutClass::TooSmall);
+    }
+
+    #[test]
+    fn a_too_small_terminal_gets_a_notice_instead_of_a_clipped_workspace() {
+        let rendered = draw(&canonical_state(), 40, 10);
+
+        assert!(rendered.contains("Terminal too small"));
+        assert!(rendered.contains("48 x 12"), "states the requirement");
+        assert!(rendered.contains("40 x 10"), "states what it got");
+        // Nothing from the workspace may leak through; a half-drawn rail is the failure this
+        // notice exists to prevent.
+        assert!(!rendered.contains("Agent A"));
+        assert!(!rendered.contains("Activity"));
+    }
+
+    #[test]
+    fn ultrawide_gives_the_conversation_more_room_than_wide() {
+        let state = canonical_state();
+        let wide = draw(&state, 120, 30);
+        let ultrawide = draw(&state, 140, 30);
+
+        assert!(wide.contains("Agent A · primary"));
+        assert!(ultrawide.contains("Agent A · primary"));
+        assert_ne!(
+            wide.lines().next(),
+            ultrawide.lines().next(),
+            "ultrawide must compose differently, not merely be a wider wide"
+        );
     }
 
     #[test]

@@ -19,6 +19,13 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-027 | 2026-08-31 | An unfocused primary composer collapses to one row rather than hiding or staying full height | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-026 | 2026-08-31 | Opening a sub-agent focuses it, so its input is usable immediately | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-025 | 2026-08-31 | Minimum terminal is 48 × 12; below it one explicit notice and no workspace content | Accepted | `LayoutClass::for_size` |
+| D-024 | 2026-08-31 | Ultrawide starts at 132 and holds exactly one secondary column, replaced on selection | Accepted | `LayoutClass::for_size`, [ui-ux](./roadmap/ui-ux.md) |
+| D-023 | 2026-08-31 | A shelf guarantees ten readable rows of the primary conversation | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-022 | 2026-08-31 | A sub-agent's input takes rows from its own budget, never from the primary conversation's guarantee | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-021 | 2026-08-31 | `specs/` holds mechanism definitions; every invariant names the test that proves it | Accepted | [specs/README.md](./specs/README.md) |
 | D-020 | 2026-08-31 | Inbox and Attention queue are projections over one item log, never separate stores | Accepted | [mailbox-delivery](./specs/mailbox-delivery.md) INV-1, INV-7 |
 | D-019 | 2026-08-31 | A delegation is one authoritative record with two writers; the user's steer is an amendment, not a bypass | Accepted | [delegation-and-steering](./specs/delegation-and-steering.md) |
@@ -67,6 +74,25 @@ The cheapest option and the worst. The delegator's model of the task goes stale 
 is the "multiple sources of truth with synchronisation code between them" anti-pattern in its
 textbook form. It also produces a failure the user cannot diagnose: the delegator reports one
 thing while the worker does another.
+
+### D-027 · Hiding the unfocused composer entirely — rejected
+
+Hiding recovers three rows instead of one, which matters at 48 × 12 where the composer is a quarter
+of the screen. It was rejected for two reasons, and performance was not one of them: painting three
+dim rows costs nothing a terminal can measure.
+
+A vanished composer moves the transcript's bottom edge, and because the transcript follows its
+tail, the line the user is actually reading jumps three rows on every focus change. It also removes
+the affordance — someone working inside a sub-agent has no visible evidence they can still address
+the primary one. Collapsing to a single row keeps both the evidence and two of the three rows.
+
+### D-028 · Full floating-window drag in Phase 00 — rejected for now
+
+Free two-axis movement with eight-way resize needs pointer capture on both axes, boundary clamping,
+resize recovery, and keyboard equivalents for every gesture — roughly three to four times the work
+of a vertical resize handle. A shelf is docked by definition, so its position is not a user choice;
+only its height is. Nothing in the canonical journey needs a panel moved to an arbitrary corner
+yet, so the gesture waits until a pinned or maximized surface gives it a reason.
 
 ### D-010 · `missing_docs` across the whole workspace — rejected
 

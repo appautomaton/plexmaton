@@ -76,11 +76,18 @@ other rule about input follows from this one.
   goes.
 - A sub-agent's steer input **does not render at all** unless that agent's surface holds keyboard
   focus. There is nothing to mistarget because there is nothing there.
-- When a sub-agent's input is active, the primary composer stays in place but becomes visibly
-  inert: unfocused border, no cursor. It does not hide, because a composer that appears and
-  disappears on every focus change trades one ambiguity for a layout that will not hold still.
-- A sub-agent's input takes its rows from its own surface budget. It may never consume the rows
-  guaranteed to the primary conversation.
+- **Opening a sub-agent focuses it.** Opening one is an explicit user action, so its input appears
+  immediately and is usable without a second step. This does not conflict with "background agents
+  never steal focus": that rule constrains what agents do on their own, not what the user asks for.
+  `Escape` closes the surface and returns focus to the primary conversation.
+- When a sub-agent's input is active, the primary composer **collapses to a single row** reading
+  `Message Agent A · ⇥ to return`. It does not disappear: a composer that vanishes costs the user
+  the affordance and jumps the tail of the transcript they are reading. One row of jump is
+  acceptable; three is not, and zero costs too much screen on a small terminal.
+- The collapsed row stays clickable and stays a focus stop.
+- A sub-agent's input takes its rows from its **own** surface budget — its content area shrinks and
+  it scrolls slightly more. It may never consume the rows guaranteed to the primary conversation.
+  Focusing a worker must never squeeze the primary conversation off the screen.
 
 Rationale: the alternative — one composer whose target follows selection — is a mode-error
 generator. The target is invisible state, and a misdirected instruction to a running worker is not
@@ -220,9 +227,20 @@ Presentation and persistence are separate axes. **Pinned** is whether a surface 
 working elsewhere; **shelf, column, or maximized** is geometry chosen by terminal width. Changing
 presentation must never change a surface's identity, scroll position, or focus.
 
-Free drag, resize, z-order promotion, boundary clamping, and responsive recovery apply to pinned
-and maximized surfaces. A shelf needs only a vertical resize handle, clamped so the ten-row
-guarantee holds.
+### Drag scope
+
+The only direct manipulation in the first slice is **dragging a shelf's bottom edge to change its
+height**, clamped so the ten-row guarantee holds, with `Ctrl-Shift-↑/↓` as the keyboard equivalent.
+
+Moving a panel freely around the terminal, like a desktop window, is deliberately **not** in the
+first slice. A shelf is docked to the top of its conversation, so its position is determined and
+only its height is a user choice. Free two-axis movement and eight-way resize would add pointer
+capture on both axes, boundary clamping, resize recovery, and keyboard equivalents for each — for
+a gesture nothing in the canonical journey needs yet.
+
+This is a reduction from the first anatomy proposal, which asked for full floating-window
+behaviour in Phase 00. Free drag returns when a pinned or maximized surface has a reason to be
+somewhere other than where the layout puts it.
 
 ## Input and event-routing contract
 
@@ -260,15 +278,23 @@ Every responsive layout must preserve the meaning of this journey even when it c
 
 The exact thresholds are a prototype output, not a locked constant.
 
-| Class | Product expectation | Provisional threshold |
+| Class | Product expectation | Threshold |
 | --- | --- | --- |
-| Wide | Primary conversation plus agent navigation and an optional pinned inspector can coexist | width ≥ 96 |
-| Medium | Primary conversation remains dominant; secondary areas collapse, overlay, or replace a side region | 72 ≤ width < 96 |
-| Narrow | One major surface at a time; agent switching and inspection become explicit full-region transitions | width < 72 |
+| Ultrawide | Two conversations sit side by side; a second agent earns a column rather than an overlay | width ≥ 132 |
+| Wide | Agent column plus one conversation; a second agent arrives as a shelf | 96 ≤ width < 132 |
+| Medium | Primary conversation remains dominant; activity compresses to markers | 72 ≤ width < 96 |
+| Narrow | One major surface at a time; agent switching and inspection become full-region transitions | width < 72 |
+| Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-The thresholds are implemented in `LayoutClass::for_width` and covered by a test. They are derived
-from the skeleton's current panes, so they must be revisited once the composer, inspector, and
-transcript carry realistic content.
+Implemented in `LayoutClass::for_size` and covered by tests, including that a too-small terminal
+leaks no workspace content.
+
+Ultrawide is 132 because two 52-cell conversations plus a 28-cell agent column need it, and 52
+cells is roughly where prose stops wrapping awkwardly. Below it the shelf already handles a second
+agent well, so there is no reason to force a cramped split.
+
+At ultrawide there is **exactly one secondary column**, replaced when a different agent is selected.
+Three live transcripts streaming at once is a monitoring product, not a working one.
 
 Resize acceptance rules:
 
