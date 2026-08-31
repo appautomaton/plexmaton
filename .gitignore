@@ -8,13 +8,11 @@
 .references/
 
 # --- Parallel checkouts ---------------------------------------------------
-# Worktrees live inside the repository but are never part of it. `.worktrees/`
-# is this project's convention; `.claude/worktrees/` is where one agent harness
-# puts them by default, and both are ignored so no tool has to be configured to
-# keep the main checkout clean. Without these lines a nested worktree doubles
-# every corpus search hit, which is a worse failure than the disk it costs.
+# Worktrees live inside the repository but are never part of it. One location,
+# named for what it holds and belonging to no vendor. Without this line a
+# nested worktree doubles every corpus search hit, which is a worse failure
+# than the disk it costs.
 /.worktrees/
-/.claude/worktrees/
 
 # --- Rust build artifacts -------------------------------------------------
 # Cargo's default output directory (and any CARGO_TARGET_DIR under the tree).

@@ -19,7 +19,7 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
-| D-035 | 2026-08-31 | Worktrees live in ignored directories inside the repository, each with its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
+| D-035 | 2026-08-31 | `.worktrees/` is the single ignored location for parallel checkouts, and each one keeps its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
 | D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
 | D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
 | D-032 | 2026-08-31 | Documents are layered by load-time; only `AGENTS.md` is always-on, and every layer has a warn-only budget | Accepted | [.agents/README.md](./README.md), `scripts/check-doc-budget.sh` |
@@ -106,6 +106,10 @@ Mechanically it works: a nested worktree there is invisible to `check-file-lengt
 files. A worktree is its opposite — untracked, disposable, and 245 MB of build output each. A
 directory that holds both stops being a directory anyone can describe. `.worktrees/` at the root
 carries the same vendor neutrality, which was the real point, without that cost.
+
+A second ignored path for whatever an agent harness defaults to was rejected with it. Two locations
+is not a convention, and the manual `git worktree add` path is supported by every tool, so the
+convention costs nothing to honour.
 
 ### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
 

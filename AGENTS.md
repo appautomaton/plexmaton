@@ -17,7 +17,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md) |
 | write, change, or delete a test | [`standards/testing.md`](./.agents/standards/testing.md) |
 | organize a module, or add/upgrade/remove a dependency | [`standards/rust.md`](./.agents/standards/rust.md) |
-| run a gate, fix a failing one, or set up a clone | [`standards/quality-gates.md`](./.agents/standards/quality-gates.md) |
+| run a gate, fix a failing one, or set up a clone or parallel checkout | [`standards/quality-gates.md`](./.agents/standards/quality-gates.md) |
 | write or reorganize a document | [`.agents/README.md`](./.agents/README.md) |
 | compare against a third-party implementation | `.references/`, which is gitignored and absent in a fresh clone. Treat its absence as normal |
 

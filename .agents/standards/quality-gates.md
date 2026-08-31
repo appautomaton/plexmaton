@@ -70,9 +70,16 @@ knowing before you touch it:
 
 ## Parallel checkouts
 
-Worktrees go in `.worktrees/<name>/`, or `.claude/worktrees/` when a harness puts them there
-itself. Both are ignored. Never put one in `.agents/`, which is the tracked corpus, and never
-delete one with `rm -rf` — `git worktree remove` takes the ignored `target/` directory with it.
+`.worktrees/<name>/` is the only place a worktree goes. It is the one ignored path, it belongs to
+no vendor, and an agent harness that would default somewhere else is pointed here rather than
+followed:
+
+```console
+git worktree add .worktrees/surfaces -b feat/surfaces   # then start the agent inside it
+git worktree remove .worktrees/surfaces                 # never rm -rf; this takes target/ with it
+```
+
+Never put a worktree in `.agents/`, which is the tracked corpus (D-035).
 
 **Never share `CARGO_TARGET_DIR` between worktrees.** It looks free — the checkouts differ by four
 crates out of seventy-six — and it silently runs the wrong code. Two checkouts of this workspace
