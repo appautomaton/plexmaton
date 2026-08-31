@@ -1,0 +1,18 @@
+[package]
+name = "plexmaton-tui"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+plexmaton-core = { path = "../plexmaton-core" }
+ratatui.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+plexmaton-sim = { path = "../plexmaton-sim" }
+
+[lints]
+workspace = true
+

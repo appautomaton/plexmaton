@@ -1,0 +1,9 @@
+# Pinned so formatting does not drift when the toolchain moves. Only stable options appear
+# here; nightly-only keys would emit warnings on the project-local stable toolchain.
+edition = "2024"
+max_width = 100
+newline_style = "Unix"
+reorder_imports = true
+reorder_modules = true
+use_field_init_shorthand = true
+use_try_shorthand = true

@@ -1,0 +1,7 @@
+# Guard rails, not style rules. A function past these thresholds is usually several
+# responsibilities that were never separated, which AGENTS.md asks us to split by
+# responsibility rather than by an arbitrary line count. The thresholds are generous so they
+# fire on genuine sprawl instead of on a coherent dispatcher.
+too-many-lines-threshold = 150
+cognitive-complexity-threshold = 25
+type-complexity-threshold = 250

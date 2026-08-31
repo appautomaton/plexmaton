@@ -1,0 +1,13 @@
+[package]
+name = "plexmaton-sim"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+plexmaton-core = { path = "../plexmaton-core" }
+
+[lints]
+workspace = true
+
