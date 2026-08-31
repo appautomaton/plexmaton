@@ -142,83 +142,39 @@ Use Ratatui's `TestBackend` before adding a virtual-terminal dependency. Add PTY
 
 Their boundaries may be represented by semantic test doubles, but their dependencies arrive only with the phase that owns them.
 
-### Verified skeleton evidence — 2026-08-30
+Entries age: once a later step lands, an earlier one keeps only what a future reader still needs —
+corrections to claims made here, and findings that changed an invariant. The narration goes.
 
-- The four-crate workspace now exists with Rust 2024 and project-local Rust `1.98.0`: semantic contracts in `plexmaton-core`, deterministic timelines in `plexmaton-sim`, view/reducer/surface/rendering in `plexmaton-tui`, and terminal lifecycle plus the async loop in `plexmaton-cli`.
-- The runnable `plexmaton` binary consumes the simulator only through ordered `PrototypeEventEnvelope` values and the TUI consumes only those semantic events; no TUI-to-simulator call path exists.
-- The first `Cargo.lock` resolves 98 external packages compatible with Rust 1.98.0 (102 lock entries including the four workspace packages). There is one Ratatui 0.30 generation and one Crossterm 0.29 generation. `cargo tree -d` reports only transitive implementation generations (`hashbrown` and `syn`), not duplicate terminal foundations.
-- Feature inspection removed unused Tokio `sync` and `signal` activation. The executable currently activates `macros`, `rt`, and `time`; audited workspace dependencies that are not yet inherited by a member do not enter the resolved graph.
-- Eight deterministic tests cover identifier validation, scenario repeatability/order, reducer selection and sequence failure, z-ordered hit testing/promotion, structural TestBackend rendering, and explicit quit keys.
-- `cargo fmt --all --check`, `cargo check --workspace --all-targets`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` pass on the initial skeleton.
+### Skeleton and tooling — 2026-08-30 to 2026-08-31 — compressed
 
-### Skeleton tightening — 2026-08-31
+- The four-crate workspace exists on Rust 2024 and project-local `1.98.0`, with the semantic
+  boundary enforced by construction: no TUI-to-simulator call path exists. One Ratatui 0.30 and one
+  Crossterm 0.29 generation, now machine-checked by `deny.toml` rather than by prose.
+- **Correction.** The first PTY smoke claim was not reproducible as written and was retracted.
+  `scripts/smoke-tui.py` replaced it with a repeatable command; the three properties that made the
+  original wrong are recorded in
+  [standards/quality-gates.md](../standards/quality-gates.md).
+- Three documented behaviours had no implementation behind them and were corrected: the projection
+  is genuinely revisioned and gates repaints on it; ordering defects degrade into a bounded typed
+  notice log instead of terminating the workspace; and reduced-but-unrendered domain data — mail's
+  sender among it — reaches the screen.
+- Collections iterate in arrival order, not identifier order. A mutation check confirmed exactly
+  two ordering tests fail when that is reverted.
+- Splitting `state.rs` moved the per-agent invariants into `AgentView`, leaving the reducer owning
+  only what is genuinely cross-agent: stream ordering, selection, and the notice log.
+- `missing_docs` is denied in `plexmaton-core` only (D-010); workspace-wide it invited the restated
+  signatures `AGENTS.md` rejects.
 
-Three documented behaviors had no implementation behind them and were corrected.
+### Screen anatomy decisions landed — 2026-08-31 — compressed
 
-- **The projection is now genuinely revisioned.** `ViewState::revision` advances on every visible
-  change and holds on a no-op, and the executable repaints only when it advances. A PTY run shows
-  14 painted frames for 14 events instead of a repaint per loop iteration. Covered by
-  `revision_advances_on_visible_change_and_holds_on_a_no_op` and
-  `only_resize_invalidates_the_painted_frame`.
-- **Ordering defects no longer terminate the workspace.** `ViewState::apply` returns
-  `ApplyOutcome` and records a typed `NoticeView`. A forward gap resynchronizes, a stale sequence
-  is dropped without rewinding, and a contract violation drops one event without blocking the
-  stream. The notice log is bounded at 32 entries and reports how many it discarded. Covered by
-  four reducer tests.
-- **Reduced-but-unrendered domain data is now rendered.** Mail retains its sender, which the
-  reducer previously discarded; tool activity, artifacts, mail, and notices have render paths and
-  tests. Collections iterate in arrival order rather than identifier order; a mutation check
-  confirmed the two ordering tests fail when that is reverted, and no others do.
+Seven decisions, D-022 through D-028, worked out against ASCII compositions rather than a visual
+mock; `ui-ux.md` and [DECISIONS.md](../DECISIONS.md) are the record and no external design document
+is authoritative.
 
-Twenty-one tests pass. Three layout classes are implemented in `LayoutClass::for_width` with
-provisional thresholds recorded in the UI/UX contract.
-
-**Correction to the previous entry.** The earlier PTY smoke claim above could not be reproduced as
-written: `script` allocates a pseudo-terminal with no window size, the frame renders into a 0x0
-viewport, and nothing is painted. `scripts/smoke-tui.py` replaces the claim with a repeatable
-command that sets the window size explicitly, asserts the painted frame, forces a full repaint
-through a real `SIGWINCH` resize, and checks that the alternate screen is released. It requires a
-controlling terminal for the child, without which the resize is silently ignored.
-
-Lint and format policy was tightened at the same time: `rustfmt.toml` and `clippy.toml` are pinned,
-and the workspace now denies `print_stdout`, `print_stderr`, `unwrap_used`, `too_many_lines`, and
-`cognitive_complexity`. `missing_docs` is denied in `plexmaton-core` only, because that crate is the
-semantic contract; enforcing it workspace-wide invited restated signatures, which AGENTS.md rejects.
-
-### Tooling lanes — 2026-08-31
-
-- `deny.toml` makes the dependency rules machine-checked. The ban on duplicate `ratatui` and
-  `crossterm` generations was previously prose plus a manual `cargo tree -d`; it now fails a build.
-  The licence allow-list is exactly the five licences present in the resolved graph rather than a
-  wishlist, so a new dependency carrying anything else stops for review.
-- `cargo machete` reports declared-but-unused dependencies; the workspace is currently clean.
-- `typos` covers prose and identifiers, with `_typos.toml` holding proper nouns.
-- `scripts/check-file-length.sh` adds a 400-line file-level sentinel measured above the first
-  `#[cfg(test)]` module. It was verified to fire by running it at a lowered threshold.
-- `.githooks/pre-commit` runs the fast gates locally; `.github/workflows/ci.yml` runs everything
-  including the pseudo-terminal smoke.
-
-`state.rs` was split into `state/{mod,agent,ordered}.rs` as part of adopting the sentinel, and the
-per-agent invariants — transcript item identity and per-item revision continuity — moved from
-`ViewState` into `AgentView`. The reducer is now left owning only what is genuinely cross-agent:
-stream ordering, selection, and the notice log. Tests went from 21 to 26.
-
-### Screen anatomy decisions landed — 2026-08-31
-
-Seven interaction decisions were taken and recorded in [DECISIONS.md](../DECISIONS.md) (D-022
-through D-028). Two of them are already implemented and tested:
-
-- `LayoutClass::for_size` now selects five compositions rather than three. Ultrawide starts at 132,
-  where two 52-cell conversations plus the agent column fit.
-- A terminal below 48 × 12 renders one explicit notice. A test asserts that no workspace content
-  leaks through, because a half-drawn rail is exactly the failure the notice exists to prevent.
-
-The remaining five decisions — shelf geometry, the ten-row guarantee, focus on open, the collapsed
-composer row, and the reduced drag scope — are recorded in [ui-ux.md](./ui-ux.md) and are
-unimplemented until the interaction spine exists. Tests: 26 to 34.
-
-These were worked out against ASCII compositions rather than a visual mock. `ui-ux.md` and
-[DECISIONS.md](../DECISIONS.md) are the record; no external design document is authoritative.
+Two are implemented: `LayoutClass::for_size` selects five compositions with ultrawide at 132, and a
+terminal below 48 × 12 renders one notice with a test asserting no workspace content leaks through.
+The other five — shelf geometry, the ten-row guarantee, focus on open, the collapsed composer row,
+and the reduced drag scope — remain unimplemented until the interaction spine reaches them.
 
 ### Delivery step 1 — intents and interaction router — 2026-08-31
 

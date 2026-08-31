@@ -22,6 +22,8 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --all --check
       - run: ./scripts/check-file-length.sh
+      # Reports documents that outgrew their layer. Never fails; read the log when it speaks up.
+      - run: ./scripts/check-doc-budget.sh
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 

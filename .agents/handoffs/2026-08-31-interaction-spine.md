@@ -13,8 +13,10 @@ cost me an afternoon so they do not cost you one.
 
 ## Read in this order, and stop when you have enough
 
-1. `AGENTS.md` — engineering rules. Non-negotiable, and stricter than your defaults.
-2. `.agents/DECISIONS.md` — 31 rows. An index. Read the **Rejected alternatives** section before
+1. `AGENTS.md` — the always-on rules and the trigger table that routes you everywhere else.
+   `.agents/README.md` explains the layering; `.agents/standards/` holds testing, Rust, and gate
+   policy, loaded when the trigger table says so.
+2. `.agents/DECISIONS.md` — 34 rows. An index. Read the **Rejected alternatives** section before
    proposing anything that feels obvious; several obvious things were considered and killed with a
    reason you would otherwise rediscover the slow way.
 3. `.agents/roadmap/phase-00-experience-skeleton.md` — scope, the 7-step delivery sequence, and the
@@ -113,17 +115,19 @@ Two consequences worth stating plainly:
 - **Conventional Commits**, and the pre-commit hook runs fmt, the sentinel, clippy, tests, and
   typos. Enable it once per clone: `git config core.hooksPath .githooks`.
 
-Gates: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-`cargo test --workspace` (49 tests), plus `cargo deny check`, `cargo machete`, `typos`,
-`./scripts/check-file-length.sh`, and `./scripts/smoke-tui.py`.
+Gates are listed in [`standards/quality-gates.md`](../standards/quality-gates.md). 49 tests today.
+`./scripts/check-doc-budget.sh` reports and never fails — it currently flags only the phase file,
+whose remaining excess is the dependency audit block, not the evidence log.
 
 ## Step 2, concretely
 
-Give `SurfaceTree` what the router already assumes it will have, and put it on the application
-path. Write `.agents/specs/surface-model.md` first — the router spec was written before the router
-and that was the right call.
+Sliced already: [`plans/phase-00-step-02-surfaces.md`](../plans/phase-00-step-02-surfaces.md).
+Read that rather than re-deriving it, and delete it when its last slice lands.
 
-The questions step 2 has to answer, in the order they constrain each other:
+The short version — give `SurfaceTree` what the router already assumes it will have, and put it on
+the application path. The plan takes the registration seam first, deliberately, so no slice repeats
+step 1's tested-but-unconsumed shape. The four questions it answers, in the order they constrain
+each other:
 
 1. **Clipping.** A surface has bounds and a clip rectangle; `hit_test` must respect the clip, not
    the bounds. A child clipped by a scrolled parent is the case that breaks naive implementations.

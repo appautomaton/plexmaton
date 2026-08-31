@@ -5,12 +5,8 @@ you read before writing the code, and the thing a reviewer checks the code again
 
 ## What belongs here, and what does not
 
-| Document | Answers | Lifetime |
-| --- | --- | --- |
-| [`roadmap/plexmaton.md`](../roadmap/plexmaton.md) | What we are building and why | Permanent; must stay short |
-| [`roadmap/ui-ux.md`](../roadmap/ui-ux.md) | Cross-phase interaction rules | Permanent |
-| `roadmap/phase-NN-*.md` | Scope, evidence, and exit gate for one stretch of work | Time-boxed |
-| **`specs/*.md`** | **How one mechanism actually works** | **Outlives the phase that introduced it** |
+Where every other document sits is in [`.agents/README.md`](../README.md). A spec's own place in
+that table is: **how one mechanism actually works, outliving the phase that introduced it.**
 
 Write a spec when all three are true:
 
@@ -22,6 +18,10 @@ Write a spec when all three are true:
 Do **not** write a spec to make the folder look complete. Expand one just in time, the same rule
 the roadmap applies to phases. A mechanism whose design is still an open question stays an open
 question in the roadmap until it is decided.
+
+A spec is earned; a [plan](../plans/README.md) is cheap. When the mechanism is small enough that
+numbered invariants would be ceremony, keep its contract inline in the plan and promote it here
+only if it turns out to be durable.
 
 Do not restate a rule that already lives in `ui-ux.md` or `plexmaton.md`. Link to it. The spec
 adds the mechanism — the state machine, the arithmetic, the failure modes — not a second copy of

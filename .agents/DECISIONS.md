@@ -19,6 +19,9 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
+| D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
+| D-032 | 2026-08-31 | Documents are layered by load-time; only `AGENTS.md` is always-on, and every layer has a warn-only budget | Accepted | [.agents/README.md](./README.md), `scripts/check-doc-budget.sh` |
 | D-031 | 2026-08-31 | `Escape` resolves one interaction layer per press and never quits; `Ctrl-C` always quits and `q` quits only from a navigation surface | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7 |
 | D-030 | 2026-08-31 | The intent vocabulary lives in `plexmaton-tui`; `plexmaton-core` stays the runtime-to-projection semantic boundary | Accepted | `plexmaton-tui::intent` |
 | D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
@@ -77,6 +80,32 @@ The cheapest option and the worst. The delegator's model of the task goes stale 
 is the "multiple sources of truth with synchronisation code between them" anti-pattern in its
 textbook form. It also produces a failure the user cannot diagnose: the delegator reports one
 thing while the worker does another.
+
+### D-032 · Claude Code skills as the trigger layer — rejected
+
+Skills are natively the shape this needed: a one-line description always in context, a body loaded
+on invocation. They were rejected because Plexmaton is itself an agentic harness, and locking its
+engineering standards into one vendor's format contradicts the product. Portable markdown plus a
+trigger table works for any agent. A skill may still be added later as an accelerator whose body
+does nothing but point at the file that owns the content.
+
+### D-032 · A blocking document-budget gate — rejected
+
+The code sentinel blocks, so symmetry argued for blocking here too. It was rejected because a
+document over budget is a design question — which layer does this belong in — and a blocking gate
+converts that question into pressure to delete a sentence. The escape hatches in
+[`.agents/README.md`](./README.md) are the actual mechanism; the number only starts the
+conversation.
+
+### D-034 · Folding specs into the plans folder — rejected
+
+Merging them was considered, on the argument that most mechanisms do not need their own file. The
+merge was rejected because the two have opposite lifetimes: a spec outlives its phase because the
+code is checked against it forever, and a plan stops being true the day the work lands. One folder
+would mean either keeping dead plans or deleting live contracts.
+
+The useful half of the idea was kept: a spec is no longer written by default. A small mechanism
+carries its contract inline in the plan and is promoted to `specs/` only once it proves durable.
 
 ### D-031 · `Escape` as the quit key — rejected
 
