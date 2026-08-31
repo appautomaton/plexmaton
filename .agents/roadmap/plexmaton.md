@@ -9,6 +9,8 @@
 | TUI foundation | Ratatui + Crossterm |
 | Active phase | [Phase 00 — Experience Skeleton](./phase-00-experience-skeleton.md) |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
+| Decision index | [DECISIONS.md](../DECISIONS.md) |
+| Mechanism specs | [specs/](../specs/README.md) |
 
 This document records product and architecture direction. It is intentionally not a feature checklist or an implementation promise. Decisions marked **Locked** are the current foundation; items marked **Research gate** require a focused prototype or measurement before selection.
 
@@ -67,6 +69,25 @@ The product should feel immediate under load, preserve completed work durably, a
 - Agent inspectors are independently scrollable and may be opened as a floating window, pinned pane, or maximized view without changing the underlying session.
 - Agent-to-agent communication is typed mail between sessions, not a fake user message and not a blocking tool result.
 - Bulk findings remain in artifacts or the delegated session; mail carries a bounded summary and durable pointers.
+
+### Delegation has two writers and one record
+
+A delegated task is the one place in this system where two parties write to the same thing: the
+agent that created the task, and the user who can steer the worker directly. Treating either as
+the owner produces divergence — the delegator reports the task it believes it assigned while the
+worker does something else.
+
+- A delegation is an append-only record owned by the runtime. The delegator's prompt and the
+  user's steer are inputs to it, never parallel copies of the task.
+- Every amendment is attributed and is delivered to the delegating agent before its next turn.
+- The user's amendment wins on conflict, and the delegating agent may object but may not silently
+  revert it.
+- Everything that moves between sessions travels through one item log. The inbox and the Attention
+  queue are projections over it, so they cannot drift apart.
+
+This extends "one authoritative representation" from session state to delegation records.
+Mechanism detail: [delegation and steering](../specs/delegation-and-steering.md) and
+[mailbox delivery](../specs/mailbox-delivery.md).
 
 ## Readability-first math rendering
 
@@ -164,10 +185,15 @@ Detailed plan: [Phase 00 — Experience Skeleton](./phase-00-experience-skeleton
 ### Phase 03: durable multi-agent mailbox
 
 - Add session-owned agents, parent/child lineage, hop lifecycle, cancellation, and resource budgets.
-- Implement durable inbox/outbox delivery with idempotent acknowledgement in the same storage boundary as session events.
+- Implement the one item log and its delivery states, with idempotent acknowledgement in the same storage boundary as session events. See [mailbox delivery](../specs/mailbox-delivery.md).
+- Implement the delegation record, its amendments, undeliverable steering, and the objection path. See [delegation and steering](../specs/delegation-and-steering.md).
 - Keep the user-facing agent responsive while workers run.
 - Add agent list, status indicators, mailbox activity, independently scrollable inspectors, artifact navigation, and explicit steering/abort controls.
 - Begin with one mutating agent per workspace; make mutation ownership a runtime lease rather than a prompt convention.
+
+This phase grew on 2026-08-31. The delegation record, amendment events, undeliverable payloads, and
+the objection flow were not in the original summary; they arrived from the two-writers finding
+above. Recording the growth now is cheaper than meeting it as a surprise when the phase opens.
 
 ### Phase 04: product polish and extensibility
 

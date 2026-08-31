@@ -66,6 +66,31 @@ Consequences that are now requirements, not options:
 - Restoration must survive panic and signal paths, because a leaked alternate screen destroys the
   user's scrollback.
 
+### Input: exactly one cursor
+
+At any moment the workspace shows exactly one text cursor, and typed text can only reach it. Every
+other rule about input follows from this one.
+
+- The composer is bound to the **primary agent** and is never retargeted by selection. Its title
+  names its target. Selecting, inspecting, or scrolling another agent does not change where typing
+  goes.
+- A sub-agent's steer input **does not render at all** unless that agent's surface holds keyboard
+  focus. There is nothing to mistarget because there is nothing there.
+- When a sub-agent's input is active, the primary composer stays in place but becomes visibly
+  inert: unfocused border, no cursor. It does not hide, because a composer that appears and
+  disappears on every focus change trades one ambiguity for a layout that will not hold still.
+- A sub-agent's input takes its rows from its own surface budget. It may never consume the rows
+  guaranteed to the primary conversation.
+
+Rationale: the alternative — one composer whose target follows selection — is a mode-error
+generator. The target is invisible state, and a misdirected instruction to a running worker is not
+undone by sending another one. Making the input physically live inside the surface it addresses
+turns "where does this keystroke go" into a fact on screen rather than something to remember.
+
+Steering by explicit address (`@agent-b …`) from the primary composer remains available as a
+keyboard path. It produces the same typed steering intent, with the target recorded in the message
+itself, so it introduces no hidden state either.
+
 ### Nested scrolling: no propagation from an exhausted child
 
 A wheel event routes to the topmost eligible viewport under the pointer and is consumed there.
@@ -96,6 +121,7 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Action-required items enter a visible, ordered Attention queue. The user chooses when to focus the requesting agent unless an already-focused action blocks the current command.
 - Repeated updates from one agent coalesce into one attention item instead of producing notification storms.
 - Acknowledging a notification is distinct from resolving the underlying mail, approval, or failure.
+- The Attention queue carries both directions of the user/agent relationship: an agent asking the user for something, and a delegating agent objecting to something the user changed. Neither may open a modal or take focus.
 
 ### Stable spatial memory
 
@@ -175,7 +201,28 @@ Surface categories:
 | Tooltip | Informational only; never owns keyboard focus |
 | Attention queue | Ordered action-required items; opening one is explicit and never caused by background focus theft |
 
-Floating inspectors support free drag, resize, z-order promotion, boundary clamping, and responsive recovery. This is part of the defining workspace experience, not deferred polish.
+### Shelf: overlay without occlusion
+
+A peeked sub-agent renders as a **shelf** docked to the top edge of the conversation region, not as
+a centred floating window.
+
+The reason is that transcripts follow their tail, so the newest content sits at the bottom.
+Covering the top hides what has already been read; covering the middle or bottom hides what the
+user is reading now.
+
+- Shelf height is `min(⌊0.55 × region⌋, region − 10)`, which guarantees at least ten rows of the
+  primary conversation stay visible.
+- The composer is never covered, at any size.
+- When the region is shorter than 18 rows the guarantee cannot hold. The shelf then falls back to
+  the maximized presentation rather than shrinking to a useless sliver.
+
+Presentation and persistence are separate axes. **Pinned** is whether a surface survives the user
+working elsewhere; **shelf, column, or maximized** is geometry chosen by terminal width. Changing
+presentation must never change a surface's identity, scroll position, or focus.
+
+Free drag, resize, z-order promotion, boundary clamping, and responsive recovery apply to pinned
+and maximized surfaces. A shelf needs only a vertical resize handle, clamped so the ten-row
+guarantee holds.
 
 ## Input and event-routing contract
 
@@ -241,6 +288,9 @@ The prototype must establish reusable visual treatments for:
 - Tool call: queued, running, succeeded, failed, cancelled, approval required
 - Diff and artifact
 - Agent mail
+- Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the user and the delegating agent read the same story
+- Agent objection: the delegating agent disputes an amendment, shown as action required rather than as a normal message
+- Undelivered steering: a message that never reached its worker, with its original text intact
 - System/runtime notice
 - Warning and error
 - Typeset display math and source reveal
@@ -263,6 +313,10 @@ Each applicable surface needs an intentional representation for:
 - Disconnected/reconnecting
 - Stale or unavailable persisted content
 - Capability-degraded terminal
+- Delegation amended by the user, delegating agent not yet informed
+- Delegating agent objecting to an amendment
+- Steering queued for a worker's next turn boundary
+- Steering undeliverable, payload retained
 
 Phase work should add states to this matrix when they become real; it should not defer all non-happy paths to product polish.
 
@@ -301,6 +355,8 @@ Initial measurements should distinguish target, observed value, workload, termin
 - Pin/maximize interaction and keyboard bindings
 - How much tool activity remains visible in collapsed transcript blocks
 - Notification treatment for mail that arrives while its sender inspector is open
+- Whether the ultrawide second column is replaced on selection or can be pinned per agent
+- The exact ultrawide threshold, and whether ten rows is the right primary-conversation guarantee
 - Interaction between application selection, terminal-native selection, mouse capture, and tmux
 - Whether selection may span virtualized off-screen transcript items in the first product slice
 - Clipboard backend behavior across local desktop, SSH, tmux, OSC 52, and unavailable-clipboard environments
