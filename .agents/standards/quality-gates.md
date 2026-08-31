@@ -54,9 +54,14 @@ git config core.hooksPath .githooks
 
 ## The terminal smoke
 
-`./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, and the quit key in front
-of a real pseudo-terminal. Run it locally when changing the event loop, terminal setup, layout
-classes, or the quit binding. It runs in CI.
+`./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, the quit key, and mouse
+reporting in front of a real pseudo-terminal. Run it locally when changing the event loop, terminal
+setup, layout classes, the quit binding, or surface kinds. It runs in CI.
+
+Mouse reporting is checked here because neither half fits a cell buffer: enabling and releasing it
+are byte sequences, and the click is sent as a real SGR report so crossterm's parser is on the path.
+Release is asserted to happen *before* the alternate screen is handed back — the other order
+switches the modes off on the terminal the user is now looking at.
 
 Three properties of that boundary have already produced wrong evidence once, so they are worth
 knowing before you touch it:
@@ -67,6 +72,9 @@ knowing before you touch it:
   resize is silently ignored.
 - Ratatui emits only changed cells, so an incremental frame carries `1` rather than `attention 1`.
   The script forces one full repaint through a resize and asserts against that frame.
+- An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
+  defect; run the smoke outside it. `q` is the key it quits with, so a change to that binding
+  changes this script in the same commit.
 
 ## Parallel checkouts
 

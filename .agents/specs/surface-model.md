@@ -118,5 +118,5 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | SURF-2 | Unproven — delivery step 8, the first step with a surface that outgrows its parent |
 | SURF-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_is_the_three_panels_at_every_layout_class`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
-| SURF-4 | Unproven — delivery step 2 slice 3 |
+| SURF-4 | Unproven, and unowned inside Phase 00. Nothing in the canonical journey blocks: the Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with the phase that owns real tools |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` proves it for focus; scroll state arrives with the viewports in step 4 |

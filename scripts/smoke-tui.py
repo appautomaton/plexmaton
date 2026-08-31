@@ -15,6 +15,12 @@ Two properties of the byte stream shape the assertions:
   characters. The run therefore resizes the terminal to force one full repaint and asserts
   against that frame, ignoring whitespace on both sides.
 
+Mouse reporting is checked here rather than in a unit test for two reasons. Enabling and releasing
+it are byte sequences no cell buffer contains, and a leaked capture is the failure that outlives the
+process: the user's shell keeps reporting movement with nothing on screen to explain it. The click
+itself is sent as a real SGR sequence, so it exercises crossterm's parser rather than a constructed
+event.
+
 Promoting this to a `cargo test` target requires choosing a PTY crate, which Phase 00 has not
 audited; until then it stays an out-of-band evidence command.
 """
@@ -49,6 +55,15 @@ EXPECTED_ON_FULL_FRAME = (
     "agent-b",
 )
 ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
+# SGR extended mouse mode. Crossterm enables several tracking modes; this is the one that decides
+# how a report is encoded, so it is the one worth pinning.
+MOUSE_ON = b"\x1b[?1006h"
+MOUSE_OFF = b"\x1b[?1006l"
+# Cells inside the resized Wide layout: the transcript column, and the key-hint strip on the last
+# row. The strip is chrome, so a press there must route to nothing and repaint nothing.
+CLICK_IN_TRANSCRIPT = (40, 10)
+CLICK_IN_FOOTER = (5, RESIZED[0] - 1)
+CLICK_SETTLE_SECONDS = 0.8
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 WHITESPACE = re.compile(r"\s+")
 
@@ -56,6 +71,19 @@ WHITESPACE = re.compile(r"\s+")
 def set_size(fd: int, size: tuple[int, int]) -> None:
     rows, columns = size
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+
+
+def sgr_press(column: int, row: int) -> bytes:
+    """One left-button press, in the SGR encoding crossterm asks the terminal for."""
+    return f"\x1b[<0;{column + 1};{row + 1}M".encode()
+
+
+def click(master: int, at: tuple[int, int], sink: bytearray) -> bytes:
+    """Sends a press and returns only the bytes the prototype emitted in response."""
+    before = len(sink)
+    os.write(master, sgr_press(*at))
+    drain(master, CLICK_SETTLE_SECONDS, sink)
+    return bytes(sink[before:])
 
 
 def drain(master: int, seconds: float, sink: bytearray) -> None:
@@ -111,6 +139,11 @@ def main() -> int:
         drain(master, REPAINT_SECONDS, captured)
         full_frame = bytes(captured[full_frame_start:])
 
+        # The timeline is drained by now and the projection is static, so any repaint from here on
+        # was caused by the click and nothing else.
+        on_chrome = click(master, CLICK_IN_FOOTER, captured)
+        on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
+
         os.write(master, b"q")
         drain(master, SHUTDOWN_SECONDS, captured)
         exit_code = process.wait(timeout=5)
@@ -136,9 +169,31 @@ def main() -> int:
             print(f"smoke: repainted frame is missing {text!r}", file=sys.stderr)
             failures.append(text)
 
+    if MOUSE_ON not in captured:
+        print("smoke: mouse reporting was never enabled", file=sys.stderr)
+        failures.append("mouse on")
+    if on_chrome:
+        print(
+            "smoke: a press on the key-hint strip repainted; chrome must route to nothing",
+            file=sys.stderr,
+        )
+        failures.append("chrome click")
+    if not on_transcript:
+        print("smoke: a press on the transcript did not reach the workspace", file=sys.stderr)
+        failures.append("transcript click")
+
     if ALTERNATE_SCREEN_EXIT not in captured:
         print("smoke: alternate screen was not restored", file=sys.stderr)
         failures.append("alternate screen")
+    elif MOUSE_OFF not in captured:
+        print("smoke: mouse reporting was left on for the user's shell", file=sys.stderr)
+        failures.append("mouse off")
+    elif captured.index(MOUSE_OFF) > captured.index(ALTERNATE_SCREEN_EXIT):
+        # Releasing capture after handing the screen back means the modes are switched off on the
+        # terminal the user is looking at, which is the thing this ordering exists to prevent.
+        print("smoke: mouse reporting was released after the alternate screen", file=sys.stderr)
+        failures.append("mouse off ordering")
+
     if exit_code != 0:
         print(f"smoke: prototype exited with {exit_code}", file=sys.stderr)
         failures.append("exit code")
@@ -148,8 +203,9 @@ def main() -> int:
 
     print(
         f"smoke: painted the canonical timeline at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
-        f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, accepted the quit key, "
-        "and restored the alternate screen"
+        f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
+        "transcript and none to the hint strip, accepted the quit key, and released mouse "
+        "reporting before the alternate screen"
     )
     return 0
 

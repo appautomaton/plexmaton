@@ -1,7 +1,10 @@
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, io, time::Duration};
 
 use anyhow::Context;
-use crossterm::event::{Event, EventStream};
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream},
+    execute,
+};
 use futures_util::StreamExt;
 use plexmaton_sim::{Scenario, ScenarioStep};
 use plexmaton_tui::{
@@ -19,10 +22,19 @@ enum Flow {
     Quit,
 }
 
+/// Returns the terminal to the user on every exit path, including error and panic.
+///
+/// Mouse capture is not part of `ratatui::restore`, and a leaked one is worse than a leaked
+/// alternate screen: the terminal keeps reporting movement into the user's shell after the process
+/// is gone, and nothing on screen explains why. Releasing it here rather than at the end of `run`
+/// is what makes that true for the panic path as well.
 struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
     fn drop(&mut self) {
+        // Best effort, and deliberately unreported: the process is leaving, and writing a
+        // diagnostic to a screen mid-restoration is how a corrupted terminal gets handed back.
+        let _ = execute!(io::stdout(), DisableMouseCapture);
         ratatui::restore();
     }
 }
@@ -30,8 +42,10 @@ impl Drop for RestoreTerminal {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     let scenario = Scenario::canonical().context("build the canonical synthetic scenario")?;
+    // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
+    execute!(io::stdout(), EnableMouseCapture).context("enable mouse reporting")?;
     run(terminal, scenario.into_steps()).await
 }
 

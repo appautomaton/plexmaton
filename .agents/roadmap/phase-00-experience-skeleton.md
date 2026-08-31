@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine started; step 1 of 8 complete, step 2 at slice 2 of 4 |
+| Status | In progress — interaction spine started; steps 1 and 2 of 8 complete |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 2 slice 3 — modality; see [the plan](../plans/phase-00-step-02-surfaces.md) |
+| Next step | Step 3 — the composer and the single cursor (D-037) |
 
 ## Phase outcome
 
@@ -44,7 +44,7 @@ order means building against a boundary that has not been decided yet.
 1. **Intents and interaction router.** *Done 2026-08-31.* A typed `TuiIntent`, and one router that
    owns terminal event translation. Specified in
    [interaction-routing](../specs/interaction-routing.md).
-2. **Surfaces with clipping, focus, and modality.** Put `SurfaceTree` on the application path.
+2. **Surfaces on the application path.** Registration, surface kind, focus, and mouse capture.
    Specified in [surface-model](../specs/surface-model.md).
 3. **The composer and the single cursor.** The one text input, its grapheme-aware editing model, and
    the collapsed row (D-017, D-018, D-027). Added to this sequence on 2026-08-31 (D-037).
@@ -55,7 +55,8 @@ order means building against a boundary that has not been decided yet.
 6. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads
    below can produce numbers worth recording.
 7. **Inspectors as shelves.** Shelf geometry and the ten-row guarantee, vertical resize with pointer
-   capture, z-order promotion, pin and maximize, boundary clamping (D-016, D-023, D-028).
+   capture, z-order promotion, pin and maximize, boundary clamping (D-016, D-023, D-028). The shelf
+   is the phase's one dismissible surface, so `Dismiss` and the `Escape` ladder land here.
 8. **Attention queue and selection/copy.** Both depend on surfaces and viewports already existing.
 
 Steps 1 to 5 are the interaction spine. A finding at any step that changes a durable invariant is
@@ -224,6 +225,34 @@ stored preference discarded (5), every panel painted focused (1), the ring clamp
 testing ignoring kind (1).
 
 Tests: 57 to 68. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
+### Delivery step 2, slice 3 — the mouse is on — 2026-08-31
+
+The router had translated pointer events since step 1 against a terminal that was never asked to
+send any. The executable now enables mouse reporting and releases it from the same guard that
+restores the screen, so the release also covers the error and panic paths.
+
+Releasing capture is ordered *before* the alternate screen is handed back. The other order switches
+the modes off on the terminal the user is already looking at, and a leaked capture is worse than a
+leaked screen: the shell keeps reporting movement with nothing left to explain why.
+
+`scripts/smoke-tui.py` grew the part `TestBackend` cannot hold. It sends a real SGR press so
+crossterm's parser is on the path, and asserts by *contrast*: a press on the transcript repaints,
+and a press on the key-hint strip repaints nothing. The negative half is what makes it a routing
+test rather than an "input causes redraw" test, and it is only meaningful because the deterministic
+timeline has drained by then, so nothing else can repaint. Three mutations each fail it: capture
+never released, capture never enabled, and chrome made interactive.
+
+**Step 2 is complete at three slices, not five.** Clipping and modality were both planned here and
+both cut, for one reason — this is the step where `SurfaceTree` gains real callers, so a field or a
+variant with no caller belongs to the step that earns it. Clipping moves to step 8, where a
+transcript item scrolled past its viewport edge is the first surface that outgrows its parent.
+Modality has no owner in Phase 00 at all: the canonical journey never opens a modal, because the
+Attention queue exists so that a background request does not, and the shelf overlays without
+blocking. `Dismiss` and the `Escape` ladder therefore land in step 7 with the shelf, and SURF-4 says
+in its evidence row that nothing in this phase proves it.
+
+Tests: 68, unchanged — this slice's proof is a command, not a unit test.
 
 This is implementation evidence for the skeleton and steps 1 to 2 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
