@@ -1,5 +1,6 @@
 //! Phase 00 view state, interaction surfaces, and Ratatui projection.
 
+mod content;
 mod intent;
 mod layout;
 mod render;
@@ -19,6 +20,6 @@ pub use state::{
     ReduceError, ToolActivityView, TranscriptItemView, ViewRevision, ViewState,
 };
 pub use surface::{
-    KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError,
+    KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
 };
 pub use theme::{Palette, Role, agent_role, tool_role};

@@ -80,15 +80,48 @@ pub enum SurfaceId {
     Transcript,
     /// Tools, artifacts, and mail belonging to the selected agent.
     Activity,
+    /// Bounded tail of producer-defect notices. Registered only while one exists.
+    Notices,
     /// The one text input, bound to the primary agent (D-017).
     ///
     /// Declared last among the focus stops because it is drawn last, at the bottom of the
     /// workspace: the ring then runs down the screen rather than jumping back up it.
     Composer,
-    /// Bounded tail of producer-defect notices. Registered only while one exists.
-    Notices,
     /// The key-hint strip.
     Footer,
+}
+
+/// How much content a surface has, and how far through it the user is.
+///
+/// Filled in by the renderer, which is the only place that knows how tall content wraps to. Layout
+/// registers the rectangle; measurement needs the text.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Viewport {
+    /// Rows the content occupies once wrapped to this surface's width.
+    pub content_rows: u16,
+    /// Rows of the surface that show content, borders excluded.
+    pub visible_rows: u16,
+    /// Rows scrolled past the top. Always within `0..=max_offset`.
+    pub offset: u16,
+}
+
+impl Viewport {
+    /// The furthest the viewport can travel and still show content.
+    #[must_use]
+    pub const fn max_offset(self) -> u16 {
+        self.content_rows.saturating_sub(self.visible_rows)
+    }
+
+    /// Whether this viewport can move at all.
+    ///
+    /// A viewport that cannot is **not an eligible wheel target**, so the event reaches whatever is
+    /// beneath it. "Cannot scroll" and "scrolled to the end" are deliberately different: the second
+    /// consumes the event and stops, because a gesture whose target changes with scroll position is
+    /// the spatial-memory failure the UI/UX contract exists to prevent (D-006).
+    #[must_use]
+    pub const fn is_scrollable(self) -> bool {
+        self.max_offset() > 0
+    }
 }
 
 /// Geometry and interaction metadata for one surface.
@@ -98,6 +131,8 @@ pub struct Surface {
     pub bounds: Rect,
     pub z_index: u32,
     pub kind: SurfaceKind,
+    /// Present once the renderer has measured this surface's content. Chrome never has one.
+    pub viewport: Option<Viewport>,
 }
 
 /// Invalid mutation of the interaction tree.
@@ -135,6 +170,39 @@ impl SurfaceTree {
             .filter(|surface| surface.kind.accepts_pointer() && contains(surface.bounds, point))
             .max_by_key(|surface| (surface.z_index, surface.id))
             .map(|surface| surface.id)
+    }
+
+    /// Returns the surface a wheel event over `point` should scroll.
+    ///
+    /// Not `hit_test`: eligibility is whether a viewport can actually move, so the wheel falls
+    /// through a surface with nothing to scroll and reaches the one beneath it. A surface that is
+    /// merely *at* its boundary is still eligible and still consumes the event (D-006).
+    #[must_use]
+    pub fn wheel_target(&self, point: Point) -> Option<SurfaceId> {
+        self.surfaces
+            .values()
+            .filter(|surface| {
+                surface.kind.accepts_pointer()
+                    && contains(surface.bounds, point)
+                    && surface.viewport.is_some_and(Viewport::is_scrollable)
+            })
+            .max_by_key(|surface| (surface.z_index, surface.id))
+            .map(|surface| surface.id)
+    }
+
+    /// Records what the renderer measured for one surface.
+    pub fn set_viewport(&mut self, surface_id: SurfaceId, viewport: Viewport) {
+        if let Some(surface) = self.surfaces.get_mut(&surface_id) {
+            surface.viewport = Some(viewport);
+        }
+    }
+
+    /// Returns one surface's measured viewport, if it has been drawn.
+    #[must_use]
+    pub fn viewport(&self, surface_id: SurfaceId) -> Option<Viewport> {
+        self.surfaces
+            .get(&surface_id)
+            .and_then(|surface| surface.viewport)
     }
 
     /// Iterates the focus ring: the registered focus stops, in a deterministic order.
@@ -241,6 +309,7 @@ mod tests {
             bounds: Rect::new(0, 0, 20, 10),
             z_index: 0,
             kind,
+            viewport: None,
         })
         .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
     }
@@ -253,6 +322,7 @@ mod tests {
             bounds: Rect::new(0, 0, 20, 10),
             z_index: 1,
             kind: SurfaceKind::Panel,
+            viewport: None,
         })
         .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
         tree.insert(Surface {
@@ -260,6 +330,7 @@ mod tests {
             bounds: Rect::new(5, 2, 10, 6),
             z_index: 2,
             kind: SurfaceKind::Panel,
+            viewport: None,
         })
         .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
 

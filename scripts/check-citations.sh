@@ -36,6 +36,18 @@ for id in $cited_decisions; do
     fi
 done
 
+# The other direction: an evidence table names the test that proves an invariant, and a renamed test
+# leaves the spec asserting something no longer checked. Only Evidence rows are scanned, because
+# prose legitimately names functions that are not tests.
+evidence=$(awk '/^## Evidence/{inside=1; next} /^## /{inside=0} inside && /^\| [A-Z]+-[0-9]+ \|/' \
+    .agents/specs/*.md | grep -ohE '`[a-z][a-z0-9_]+`' | tr -d '`' | sort -u || true)
+for name in $evidence; do
+    if ! grep -rqE "fn ${name}\\(" --include='*.rs' crates/; then
+        printf 'evidence: %s is named as proof but no such test exists\n' "$name" >&2
+        fail=1
+    fi
+done
+
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'
 
@@ -47,4 +59,5 @@ HINT
 fi
 
 count=$(printf '%s\n%s\n' "$cited_invariants" "$cited_decisions" | grep -c . || true)
-echo "citations: all ${count} identifiers cited in code resolve"
+evidence_count=$(printf '%s\n' "$evidence" | grep -c . || true)
+echo "citations: ${count} identifiers cited in code and ${evidence_count} named proofs all resolve"

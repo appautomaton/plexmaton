@@ -171,8 +171,10 @@ fn apply_intent(
         // A resize leaves the projection unchanged, so the revision gate has to be told that the
         // painted frame is no longer valid.
         TuiIntent::TerminalResized { .. } => *painted = None,
+        // Hover routing: the wheel moves the viewport under the pointer and never touches focus
+        // (INV-3). Which surface that is was already decided by viewport eligibility.
+        TuiIntent::Scroll { surface, direction } => state.scroll(surfaces, surface, direction),
         TuiIntent::Dismiss
-        | TuiIntent::Scroll { .. }
         | TuiIntent::Pointer(
             PointerIntent::Drag { .. }
             | PointerIntent::Release { .. }
@@ -213,7 +215,7 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use plexmaton_sim::{Runtime, Scenario};
-    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState, WorkspaceInput};
+    use plexmaton_tui::{Router, SurfaceId, SurfaceTree, ViewState, Viewport, WorkspaceInput};
     use ratatui::layout::Rect;
 
     use super::{Flow, Outcome, emit, route, send};
@@ -308,6 +310,51 @@ mod tests {
             state.focused(&surfaces),
             Some(SurfaceId::Activity),
             "a press focuses the surface it hit"
+        );
+    }
+
+    /// The wheel has a consumer, and before the first frame it resolves to nothing.
+    ///
+    /// A tree with no measured viewport is what the loop holds until the first paint. Guessing a
+    /// target there would scroll a surface whose size nothing has established.
+    #[test]
+    fn the_wheel_moves_a_measured_viewport_and_nothing_before_one_exists() {
+        let mut router = Router::default();
+        let mut surfaces = workspace();
+        let mut state = ViewState::default();
+        let mut painted = None;
+        let bounds = surfaces
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the conversation is always registered"))
+            .bounds;
+        let wheel = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: bounds.x.saturating_add(1),
+            row: bounds.y.saturating_add(1),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        route(&mut router, &surfaces, &wheel, &mut state, &mut painted);
+        assert_eq!(
+            state.scroll_offset(SurfaceId::Transcript),
+            None,
+            "an unmeasured workspace has no viewport to move"
+        );
+
+        surfaces.set_viewport(
+            SurfaceId::Transcript,
+            Viewport {
+                content_rows: 100,
+                visible_rows: 10,
+                offset: 0,
+            },
+        );
+        route(&mut router, &surfaces, &wheel, &mut state, &mut painted);
+        assert!(
+            state
+                .scroll_offset(SurfaceId::Transcript)
+                .is_some_and(|offset| offset > 0),
+            "a measured viewport moves"
         );
     }
 

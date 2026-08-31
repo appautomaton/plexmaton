@@ -4,6 +4,8 @@ mod composer;
 mod focus;
 mod notices;
 mod ordered;
+mod roster;
+mod scroll;
 
 use plexmaton_core::{
     AgentId, EventSequence, PrototypeEvent, PrototypeEventEnvelope, TranscriptItemId,
@@ -16,13 +18,14 @@ pub use composer::Composer;
 pub use notices::NoticeView;
 
 use crate::{
-    intent::{Direction, TextIntent},
+    intent::{Direction, ScrollDirection, TextIntent},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
 };
 use attention::AttentionQueue;
 use focus::Focus;
 use notices::NoticeLog;
-use ordered::OrderedById;
+use roster::Roster;
+use scroll::ScrollState;
 
 /// Why the projection rejected one semantic event.
 ///
@@ -80,11 +83,11 @@ impl ViewRevision {
 pub struct ViewState {
     revision: ViewRevision,
     last_sequence: Option<EventSequence>,
-    agents: OrderedById<AgentId, AgentView>,
-    selected_agent: Option<AgentId>,
+    agents: Roster,
     attention: AttentionQueue,
     notices: NoticeLog,
     focus: Focus,
+    scroll: ScrollState,
     composer: Composer,
 }
 
@@ -142,14 +145,10 @@ impl ViewState {
         self.agents.iter()
     }
 
-    /// Returns the agent the composer addresses.
-    ///
-    /// The first agent to appear, and never the selected one (D-017). A composer whose target
-    /// follows the selection makes "where does this keystroke go" invisible state, and a
-    /// misdirected instruction to a running worker is not undone by sending another.
+    /// Returns the agent the composer addresses: the first to appear, never the selected one.
     #[must_use]
     pub fn primary_agent(&self) -> Option<&AgentView> {
-        self.agents.iter().next()
+        self.agents.primary()
     }
 
     /// Returns the draft the user is typing.
@@ -194,9 +193,7 @@ impl ViewState {
     /// Returns the selected agent projection, when one exists.
     #[must_use]
     pub fn selected_agent(&self) -> Option<&AgentView> {
-        self.selected_agent
-            .as_ref()
-            .and_then(|id| self.agents.get(id))
+        self.agents.selected()
     }
 
     /// Number of background requests awaiting attention.
@@ -223,43 +220,15 @@ impl ViewState {
 
     /// Selects an existing agent without changing semantic runtime state.
     pub fn select_agent(&mut self, agent_id: &AgentId) -> Result<(), ReduceError> {
-        if !self.agents.contains(agent_id) {
-            return Err(ReduceError::UnknownAgent(agent_id.clone()));
+        if self.agents.select(agent_id)? {
+            self.touch();
         }
-        if self.selected_agent.as_ref() == Some(agent_id) {
-            return Ok(());
-        }
-        self.selected_agent = Some(agent_id.clone());
-        self.touch();
         Ok(())
     }
 
     /// Moves the agent selection one step in arrival order, clamped at both ends.
-    ///
-    /// Clamping rather than wrapping keeps a held key idempotent at the boundary: a list that
-    /// wraps sends the user back to the first agent at the moment they stop reading the keys.
     pub fn move_selection(&mut self, direction: Direction) {
-        let Some(current) = self.selected_agent.clone() else {
-            // Nothing is selected yet, so either arrow lands on the first agent.
-            let first = self.agents.iter().next().map(|agent| agent.id.clone());
-            if let Some(first) = first {
-                self.selected_agent = Some(first);
-                self.touch();
-            }
-            return;
-        };
-        let Some(index) = self.agents.iter().position(|agent| agent.id == current) else {
-            return;
-        };
-        let target = match direction {
-            Direction::Forward => index.saturating_add(1),
-            Direction::Backward => index.saturating_sub(1),
-        };
-        let Some(next) = self.agents.iter().nth(target).map(|agent| agent.id.clone()) else {
-            return;
-        };
-        if next != current {
-            self.selected_agent = Some(next);
+        if self.agents.move_selection(direction) {
             self.touch();
         }
     }
@@ -274,6 +243,34 @@ impl ViewState {
     #[must_use]
     pub fn keyboard_focus(&self, surfaces: &SurfaceTree) -> KeyboardFocus {
         self.focus.keyboard(surfaces)
+    }
+
+    /// Returns where the user last put this surface, if they ever moved it.
+    ///
+    /// `None` means untouched, which is not the same as zero: the renderer then anchors the
+    /// surface to its own kind of content, so a conversation opens at its newest line.
+    #[must_use]
+    pub fn scroll_offset(&self, surface_id: SurfaceId) -> Option<u16> {
+        self.scroll.offset(surface_id)
+    }
+
+    /// Scrolls one surface's viewport by a wheel notch.
+    ///
+    /// The event is consumed here whether or not anything moved. An exhausted viewport stops the
+    /// wheel rather than passing it to what is beneath (D-006); only a viewport that cannot move at
+    /// all is skipped, and that decision was already made when the target was resolved.
+    pub fn scroll(
+        &mut self,
+        surfaces: &SurfaceTree,
+        surface_id: SurfaceId,
+        direction: ScrollDirection,
+    ) {
+        let Some(viewport) = surfaces.viewport(surface_id) else {
+            return;
+        };
+        if self.scroll.scroll(surface_id, viewport, direction) {
+            self.touch();
+        }
     }
 
     /// Moves focus one stop around the ring.
@@ -296,14 +293,7 @@ impl ViewState {
                 agent_id,
                 label,
                 status,
-            } => {
-                if self.agents.contains(&agent_id) {
-                    return Err(ReduceError::DuplicateAgent(agent_id));
-                }
-                self.selected_agent.get_or_insert_with(|| agent_id.clone());
-                self.agents
-                    .upsert(agent_id.clone(), AgentView::new(agent_id, label, status));
-            }
+            } => self.agents.add(agent_id, label, status)?,
             PrototypeEvent::AgentStatusChanged { agent_id, status } => {
                 self.agent_mut(&agent_id)?.status = status;
             }
@@ -383,9 +373,7 @@ impl ViewState {
     }
 
     fn agent_mut(&mut self, agent_id: &AgentId) -> Result<&mut AgentView, ReduceError> {
-        self.agents
-            .get_mut(agent_id)
-            .ok_or_else(|| ReduceError::UnknownAgent(agent_id.clone()))
+        self.agents.get_mut(agent_id)
     }
 }
 

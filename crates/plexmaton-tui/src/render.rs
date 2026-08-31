@@ -1,25 +1,26 @@
-use plexmaton_core::{AgentStatus, ToolActivityStatus, TranscriptRole};
 use ratatui::{
     Frame,
     layout::Rect,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
-
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    NoticeView, ViewState,
+    ViewState, content,
     layout::{self, LayoutClass, MIN_HEIGHT, MIN_WIDTH, WorkspaceInput},
-    surface::{SurfaceId, SurfaceTree},
-    theme::{Palette, Role, agent_role, tool_role},
+    surface::{SurfaceId, SurfaceKind, SurfaceTree, Viewport},
+    theme::{Palette, Role},
 };
+
+/// Rows a bordered block spends on its own frame.
+const BORDER_ROWS: u16 = 2;
 
 /// Projects the current view state into a Ratatui frame without mutating it.
 ///
-/// Returns the surfaces this frame actually drew, which is what the router must hit-test against.
-/// Handing the registry back rather than recomputing it elsewhere is what keeps SURF-1 true: routing
-/// cannot be given geometry the renderer did not use.
+/// Returns the surfaces this frame actually drew, with each one's measured viewport, which is what
+/// the router hit-tests and scrolls against. Handing the registry back rather than recomputing it
+/// elsewhere is what keeps SURF-1 true: routing cannot be given geometry the renderer did not use.
 pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> SurfaceTree {
     let area = frame.area();
     if LayoutClass::for_size(area.width, area.height) == LayoutClass::TooSmall {
@@ -27,7 +28,7 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
         return SurfaceTree::default();
     }
 
-    let surfaces = layout::workspace(
+    let mut surfaces = layout::workspace(
         area,
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
@@ -35,22 +36,189 @@ pub fn render(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette) -> Su
         },
     );
     let focused = state.focused(&surfaces);
-    // Drawing walks the registry, so a region that layout computed without registering has no
-    // rectangle to be drawn into, and a new surface identity will not compile until it has an arm.
-    for surface in surfaces.iter() {
-        let bounds = surface.bounds;
-        let has_focus = focused == Some(surface.id);
-        match surface.id {
-            SurfaceId::Agents => render_agents(frame, state, palette, bounds, has_focus),
-            SurfaceId::Transcript => render_transcript(frame, state, palette, bounds, has_focus),
-            SurfaceId::Activity => render_activity(frame, state, palette, bounds, has_focus),
-            SurfaceId::Composer => render_composer(frame, state, palette, bounds, has_focus),
-            SurfaceId::Notices => render_notices(frame, state, palette, bounds),
-            SurfaceId::Footer => render_footer(frame, palette, bounds),
+    // Identities first, so each surface's viewport can be recorded as it is measured.
+    let drawn: Vec<(SurfaceId, Rect, SurfaceKind)> = surfaces
+        .iter()
+        .map(|surface| (surface.id, surface.bounds, surface.kind))
+        .collect();
+
+    for (id, bounds, kind) in drawn {
+        let has_focus = focused == Some(id);
+        // An exhaustive match, so a new surface identity cannot be added without stating how it is
+        // drawn and whether it scrolls.
+        let panel = match id {
+            SurfaceId::Agents => Some(Panel {
+                lines: content::agents(state, palette),
+                title: agents_title(state),
+                title_role: attention_role(state),
+                follows_tail: false,
+            }),
+            SurfaceId::Transcript => Some(Panel {
+                lines: content::transcript(state, palette),
+                title: transcript_title(state),
+                title_role: Role::Muted,
+                // A conversation opens at its newest line; that is where the reader is.
+                follows_tail: true,
+            }),
+            SurfaceId::Activity => Some(Panel {
+                lines: content::activity(state, palette),
+                title: " Activity ".to_owned(),
+                title_role: Role::Muted,
+                follows_tail: false,
+            }),
+            SurfaceId::Notices => Some(Panel {
+                lines: content::notices(state, palette),
+                title: notices_title(state),
+                title_role: Role::Muted,
+                // A bounded tail view: the newest defect is the one worth showing.
+                follows_tail: true,
+            }),
+            SurfaceId::Composer => Some(Panel {
+                lines: content::composer(state, palette, has_focus),
+                title: composer_title(state),
+                title_role: Role::Muted,
+                follows_tail: true,
+            }),
+            SurfaceId::Footer => {
+                render_footer(frame, palette, bounds);
+                None
+            }
+        };
+
+        let Some(panel) = panel else { continue };
+        let viewport = draw_panel(
+            frame,
+            palette,
+            bounds,
+            has_focus,
+            &panel,
+            state.scroll_offset(id),
+        );
+        // Measurement is what the wheel resolves against, so it goes back into the registry the
+        // router will be handed. Only the hint strip has nothing to measure.
+        surfaces.set_viewport(id, viewport);
+
+        if kind == SurfaceKind::Composer && has_focus {
+            place_cursor(frame, bounds, &panel.lines);
         }
     }
 
     surfaces
+}
+
+/// One bordered, scrollable region, ready to draw.
+struct Panel {
+    lines: Vec<Line<'static>>,
+    title: String,
+    title_role: Role,
+    /// Whether an untouched viewport opens at the end of its content rather than the start.
+    follows_tail: bool,
+}
+
+/// Draws a panel through its viewport and returns what it measured.
+///
+/// The measurement comes from the same `Paragraph` that paints, so the wrap that decides how tall
+/// the content is and the wrap that puts it on screen are the same computation.
+fn draw_panel(
+    frame: &mut Frame<'_>,
+    palette: &Palette,
+    area: Rect,
+    focused: bool,
+    panel: &Panel,
+    stored_offset: Option<u16>,
+) -> Viewport {
+    let block = block(palette, panel.title.clone(), panel.title_role, focused);
+    let paragraph = Paragraph::new(panel.lines.clone())
+        .wrap(Wrap { trim: false })
+        .block(block);
+
+    // `line_count` wraps at exactly the width it is given and then adds the block's border rows, so
+    // it is asked for the inner width and those rows are taken back off.
+    let inner_width = area.width.saturating_sub(BORDER_ROWS);
+    let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
+    let mut viewport = Viewport {
+        content_rows: measured.saturating_sub(BORDER_ROWS),
+        visible_rows: area.height.saturating_sub(BORDER_ROWS),
+        offset: 0,
+    };
+    // An untouched surface takes its anchor from its content, not from zero.
+    viewport.offset = stored_offset
+        .unwrap_or(if panel.follows_tail {
+            viewport.max_offset()
+        } else {
+            0
+        })
+        .min(viewport.max_offset());
+
+    frame.render_widget(paragraph.scroll((viewport.offset, 0)), area);
+    viewport
+}
+
+/// Places the workspace's one cursor at the end of the composer's last visible line.
+///
+/// The only `set_cursor_position` call site in the workspace. Ratatui hides the cursor unless a
+/// frame asks for it, so "exactly one cursor" (COM-1) is a property of there being one caller.
+fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>]) {
+    let last = lines.last();
+    // Display width, not character count: a wide glyph occupies two cells and the caret has to
+    // land after both.
+    let column = last.map_or(0, |line| {
+        u16::try_from(UnicodeWidthStr::width(line.to_string().as_str())).unwrap_or(u16::MAX)
+    });
+    let rows = u16::try_from(lines.len()).unwrap_or(1).max(1);
+    let inside_width = area.width.saturating_sub(BORDER_ROWS);
+    let inside_height = area.height.saturating_sub(BORDER_ROWS);
+    frame.set_cursor_position((
+        area.x
+            .saturating_add(1)
+            .saturating_add(column.min(inside_width)),
+        area.y.saturating_add(rows.min(inside_height)),
+    ));
+}
+
+fn agents_title(state: &ViewState) -> String {
+    format!(" Agents · attention {} ", state.attention_count())
+}
+
+/// An unanswered request must read as action required, not as ambient decoration.
+fn attention_role(state: &ViewState) -> Role {
+    if state.attention_count() == 0 {
+        Role::Muted
+    } else {
+        Role::ActionRequired
+    }
+}
+
+fn transcript_title(state: &ViewState) -> String {
+    state.selected_agent().map_or_else(
+        || " Transcript ".to_owned(),
+        |agent| {
+            format!(
+                " {} · {} ",
+                agent.label,
+                content::agent_status_label(agent.status)
+            )
+        },
+    )
+}
+
+fn notices_title(state: &ViewState) -> String {
+    let retained = state.notices().count();
+    let dropped = state.notices_dropped();
+    if dropped == 0 {
+        format!(" Notices · {retained} ")
+    } else {
+        format!(" Notices · {retained} · {dropped} discarded ")
+    }
+}
+
+/// The title names the target, which keeps the binding visible rather than remembered when the
+/// selection is on a different agent (COM-4).
+fn composer_title(state: &ViewState) -> String {
+    state.primary_agent().map_or_else(
+        || " Message ".to_owned(),
+        |agent| format!(" Message {} ", agent.label),
+    )
 }
 
 fn render_footer(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
@@ -88,12 +256,7 @@ fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
 ///
 /// The border carries focus and the title carries attention, so the two never compete for the same
 /// pixels and a focused panel with a pending request still reads as both.
-fn panel(
-    palette: &Palette,
-    title: impl Into<String>,
-    title_role: Role,
-    focused: bool,
-) -> Block<'static> {
+fn block(palette: &Palette, title: String, title_role: Role, focused: bool) -> Block<'static> {
     let border = if focused {
         Role::BorderFocused
     } else {
@@ -102,300 +265,7 @@ fn panel(
     Block::default()
         .borders(Borders::ALL)
         .border_style(palette.style(border))
-        .title(Span::styled(title.into(), palette.style(title_role)))
-}
-
-fn render_agents(
-    frame: &mut Frame<'_>,
-    state: &ViewState,
-    palette: &Palette,
-    area: Rect,
-    focused: bool,
-) {
-    let selected = state.selected_agent().map(|agent| agent.id.clone());
-    let items = state.agents().map(|agent| {
-        let (marker, marker_role) = if selected.as_ref() == Some(&agent.id) {
-            ("●", Role::Accent)
-        } else {
-            ("○", Role::Muted)
-        };
-        ListItem::new(Line::from(vec![
-            Span::styled(format!("{marker} "), palette.style(marker_role)),
-            Span::styled(agent.label.clone(), palette.style(Role::Body)),
-            Span::styled(
-                format!("  {}", agent_status_label(agent.status)),
-                palette.style(agent_role(agent.status)),
-            ),
-        ]))
-    });
-
-    let attention = state.attention_count();
-    // An unanswered request must read as action required, not as ambient decoration.
-    let title_role = if attention == 0 {
-        Role::Muted
-    } else {
-        Role::ActionRequired
-    };
-    let title = format!(" Agents · attention {attention} ");
-
-    frame.render_widget(
-        List::new(items).block(panel(palette, title, title_role, focused)),
-        area,
-    );
-}
-
-fn render_transcript(
-    frame: &mut Frame<'_>,
-    state: &ViewState,
-    palette: &Palette,
-    area: Rect,
-    focused: bool,
-) {
-    let Some(agent) = state.selected_agent() else {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                "Waiting for the first semantic event…",
-                palette.style(Role::Muted),
-            ))
-            .block(panel(palette, " Transcript ", Role::Muted, focused)),
-            area,
-        );
-        return;
-    };
-
-    let mut lines = Vec::new();
-    for item in agent.transcript() {
-        let author = match item.role {
-            TranscriptRole::User => "you",
-            TranscriptRole::Assistant => "assistant",
-            TranscriptRole::System => "system",
-        };
-        lines.push(Line::styled(author, palette.style(Role::SectionHeading)));
-        lines.push(Line::styled(item.source.clone(), palette.style(Role::Body)));
-        lines.push(Line::raw(""));
-    }
-
-    if lines.is_empty() {
-        lines.push(Line::styled(
-            "Agent is active; no transcript item has started yet.",
-            palette.style(Role::Muted),
-        ));
-    }
-
-    let title = format!(" {} · {} ", agent.label, agent_status_label(agent.status));
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(panel(palette, title, Role::Muted, focused)),
-        area,
-    );
-}
-
-fn render_activity(
-    frame: &mut Frame<'_>,
-    state: &ViewState,
-    palette: &Palette,
-    area: Rect,
-    focused: bool,
-) {
-    let block = panel(palette, " Activity ", Role::Muted, focused);
-    let Some(agent) = state.selected_agent() else {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                "No agent selected.",
-                palette.style(Role::Muted),
-            ))
-            .block(block),
-            area,
-        );
-        return;
-    };
-
-    let mut lines = vec![Line::styled("Tools", palette.style(Role::SectionHeading))];
-    let mut tools = 0_usize;
-    for tool in agent.tool_activity() {
-        tools += 1;
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{} ", tool_marker(tool.status)),
-                palette.style(tool_role(tool.status)),
-            ),
-            Span::styled(tool.label.clone(), palette.style(Role::Body)),
-        ]));
-    }
-    if tools == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-
-    lines.push(Line::styled(
-        "Artifacts",
-        palette.style(Role::SectionHeading),
-    ));
-    let mut artifacts = 0_usize;
-    for artifact in agent.artifacts() {
-        artifacts += 1;
-        lines.push(Line::from(vec![
-            Span::styled("@ ", palette.style(Role::NewInformation)),
-            Span::styled(artifact.label.clone(), palette.style(Role::Body)),
-        ]));
-        lines.push(Line::styled(
-            format!("  {}", artifact.pointer),
-            palette.style(Role::Muted),
-        ));
-    }
-    if artifacts == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-
-    lines.push(Line::styled("Mail", palette.style(Role::SectionHeading)));
-    let mut mail = 0_usize;
-    for item in agent.inbox() {
-        mail += 1;
-        lines.push(Line::from(vec![
-            Span::styled("<- ", palette.style(Role::NewInformation)),
-            Span::styled(item.from.to_string(), palette.style(Role::Body)),
-        ]));
-        lines.push(Line::styled(
-            format!("  {}", item.summary),
-            palette.style(Role::Muted),
-        ));
-    }
-    if mail == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            .block(block),
-        area,
-    );
-}
-
-/// Draws the draft, and places the workspace's one cursor when the composer holds focus.
-///
-/// The cursor is set here and nowhere else. Ratatui hides it unless a frame asks for it, so
-/// "exactly one cursor" (D-018) is a property of there being one call site, not of a rule anyone
-/// has to remember.
-fn render_composer(
-    frame: &mut Frame<'_>,
-    state: &ViewState,
-    palette: &Palette,
-    area: Rect,
-    focused: bool,
-) {
-    let composer = state.composer();
-    // The title names the target, which is what keeps the binding visible rather than remembered
-    // when the selection is on a different agent (COM-4).
-    let title = state.primary_agent().map_or_else(
-        || " Message ".to_owned(),
-        |agent| format!(" Message {} ", agent.label),
-    );
-
-    let lines: Vec<Line<'_>> = if composer.draft().is_empty() && !focused {
-        vec![Line::styled(
-            "Type a message · ⇥ to focus",
-            palette.style(Role::Muted),
-        )]
-    } else {
-        composer
-            .visible_lines()
-            .map(|line| Line::styled(line.to_owned(), palette.style(Role::Body)))
-            .collect()
-    };
-    let rows = u16::try_from(lines.len()).unwrap_or(1);
-
-    frame.render_widget(
-        Paragraph::new(lines).block(panel(palette, title, Role::Muted, focused)),
-        area,
-    );
-
-    if focused {
-        let last = composer.visible_lines().last().unwrap_or_default();
-        // The cursor sits at the display width of the line, not its byte or character count: a
-        // wide glyph occupies two cells and the caret has to land after both.
-        let column = u16::try_from(UnicodeWidthStr::width(last)).unwrap_or(u16::MAX);
-        let inside = area.width.saturating_sub(2);
-        frame.set_cursor_position((
-            area.x.saturating_add(1).saturating_add(column.min(inside)),
-            area.y
-                .saturating_add(rows.min(area.height.saturating_sub(2))),
-        ));
-    }
-}
-
-fn render_notices(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
-    // The strip is a bounded tail view: older entries stay in the log but the workspace must not
-    // give unbounded screen space to producer defects.
-    let visible = usize::from(area.height.saturating_sub(2));
-    let notices: Vec<_> = state.notices().collect();
-    let lines: Vec<_> = notices
-        .iter()
-        .rev()
-        .take(visible)
-        .rev()
-        .map(|notice| notice_line(notice, palette))
-        .collect();
-
-    let dropped = state.notices_dropped();
-    let title = if dropped == 0 {
-        format!(" Notices · {} ", notices.len())
-    } else {
-        format!(" Notices · {} · {dropped} discarded ", notices.len())
-    };
-
-    frame.render_widget(
-        Paragraph::new(lines)
-            .wrap(Wrap { trim: false })
-            // Chrome, so it never carries focus (SURF-3).
-            .block(panel(palette, title, Role::Muted, false)),
-        area,
-    );
-}
-
-fn notice_line(notice: &NoticeView, palette: &Palette) -> Line<'static> {
-    let (marker, role, text) = match notice {
-        NoticeView::RuntimeWarning { message } => {
-            ("[warn] ", Role::ActionRequired, message.clone())
-        }
-        NoticeView::SequenceGap { expected, received } => (
-            "[gap]  ",
-            Role::ActionRequired,
-            format!("resynchronized from {expected} to {received}"),
-        ),
-        NoticeView::Rejected { sequence, error } => (
-            "[drop] ",
-            Role::Failure,
-            format!("sequence {}: {error}", sequence.get()),
-        ),
-    };
-
-    Line::from(vec![
-        Span::styled(marker, palette.style(role)),
-        Span::styled(text, palette.style(Role::Body)),
-    ])
-}
-
-const fn agent_status_label(status: AgentStatus) -> &'static str {
-    match status {
-        AgentStatus::Idle => "idle",
-        AgentStatus::Running => "running",
-        AgentStatus::Waiting => "waiting",
-        AgentStatus::Completed => "done",
-        AgentStatus::Failed => "failed",
-        AgentStatus::Cancelled => "cancelled",
-    }
-}
-
-/// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
-const fn tool_marker(status: ToolActivityStatus) -> &'static str {
-    match status {
-        ToolActivityStatus::Queued => "[ ]",
-        ToolActivityStatus::Running => "[~]",
-        ToolActivityStatus::Succeeded => "[+]",
-        ToolActivityStatus::Failed => "[!]",
-        ToolActivityStatus::Cancelled => "[-]",
-    }
+        .title(Span::styled(title, palette.style(title_role)))
 }
 
 #[cfg(test)]
@@ -410,7 +280,7 @@ mod tests {
 
     use crate::{
         ViewState,
-        intent::{Direction, TextIntent},
+        intent::{Direction, ScrollDirection, TextIntent},
         layout,
         layout::WorkspaceInput,
         render,
@@ -445,6 +315,75 @@ mod tests {
 
     fn role_ink(palette: &Palette, role: Role) -> Ink {
         ink(palette.style(role))
+    }
+
+    /// A conversation opens at its newest line, and the wheel moves it from there.
+    ///
+    /// Measured through the same `Paragraph` that paints, so what the viewport believes about its
+    /// content and what reaches the screen are one computation.
+    #[test]
+    fn the_transcript_opens_at_its_tail_and_the_wheel_moves_it() {
+        let palette = Palette::default();
+        let mut state = canonical_state();
+
+        // Narrow enough that the conversation wraps past the rows it is given.
+        let (surfaces, buffer) = draw_frame(&state, &palette, 48, 12);
+        let bounds = surfaces
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the conversation is always registered"))
+            .bounds;
+        let viewport = surfaces
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("a drawn surface has been measured"));
+
+        assert!(
+            viewport.is_scrollable(),
+            "the fixture has to overflow or this test proves nothing: {viewport:?}"
+        );
+        assert_eq!(
+            viewport.offset,
+            viewport.max_offset(),
+            "an untouched conversation opens at its newest line, not its oldest"
+        );
+        let at_the_tail = region_text(&buffer, bounds);
+
+        state.scroll(&surfaces, SurfaceId::Transcript, ScrollDirection::Up);
+        let (scrolled, buffer) = draw_frame(&state, &palette, 48, 12);
+
+        let moved = scrolled
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("still measured"));
+        assert!(
+            moved.offset < viewport.offset,
+            "the wheel moved the viewport"
+        );
+        assert_ne!(
+            region_text(&buffer, bounds),
+            at_the_tail,
+            "and the rows that reached the screen changed with it"
+        );
+    }
+
+    /// SURF-5, scroll half: the offset belongs to the surface, not to the frame that drew it.
+    #[test]
+    fn a_scrolled_surface_is_where_the_user_left_it_after_a_resize() {
+        let palette = Palette::default();
+        let mut state = canonical_state();
+        let (surfaces, _) = draw_frame(&state, &palette, 48, 12);
+
+        state.scroll(&surfaces, SurfaceId::Transcript, ScrollDirection::Up);
+        let parked = state
+            .scroll_offset(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the wheel stored an offset"));
+
+        // A different terminal size relays out every rectangle and re-measures every viewport.
+        let (wide, _) = draw_frame(&state, &palette, 120, 24);
+        assert!(wide.viewport(SurfaceId::Transcript).is_some());
+        assert_eq!(
+            state.scroll_offset(SurfaceId::Transcript),
+            Some(parked),
+            "re-laying out the workspace must not reset where the user was reading"
+        );
     }
 
     /// COM-1: a cursor is on screen exactly when the composer holds focus.

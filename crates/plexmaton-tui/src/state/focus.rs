@@ -86,6 +86,7 @@ mod tests {
                 bounds: Rect::new(0, 0, 10, 10),
                 z_index: 0,
                 kind: SurfaceKind::Panel,
+                viewport: None,
             })
             .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
         }
@@ -125,6 +126,7 @@ mod tests {
             bounds: Rect::new(0, 10, 10, 1),
             z_index: 0,
             kind: SurfaceKind::Chrome,
+            viewport: None,
         })
         .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
         let mut focus = Focus::default();

@@ -28,8 +28,12 @@ branch that discards an event without saying so.
 a text input holds keyboard focus. Under navigation focus the same key is a command or unbound.
 There is no third case, because there is never more than one cursor.
 
-**INV-3 — Wheel events never change focus.** A wheel event resolves against the surface under the
-pointer and produces a scroll intent. It can never produce a focus- or selection-changing intent.
+**INV-3 — Wheel events never change focus, and resolve by eligibility.** A wheel event produces a
+scroll intent and can never produce a focus- or selection-changing one. Its target is the topmost
+surface under the pointer whose viewport *can move*: a surface with nothing to scroll is transparent
+and the event reaches what is beneath it, while a surface merely at its boundary is still the target
+and consumes it (D-006). "Cannot scroll" and "scrolled to the end" are deliberately different, because
+a gesture whose target changes with scroll position destroys the spatial memory it depends on.
 
 **INV-4 — Capture wins for the drag gesture.** While pointer capture is held, button and motion
 events route to the capturing surface regardless of position, and hit testing is not consulted.
@@ -106,16 +110,16 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | Pointer press outside every registered surface | `Ignored::OutsideWorkspace`; capture is not taken |
 | Drag or release with no capture held | `Ignored::NoCapture` |
 | `Escape` with no drag and nothing dismissible | `Ignored::NothingToDismiss`, not a quit |
+| Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, which is a different fact from being outside it |
 | Wheel over no surface | `Ignored::OutsideWorkspace` |
 | Pointer event with `Shift` held | `Ignored::TerminalSelection` per INV-8 |
 | Key release or repeat frames | Release ignored; repeat treated as a press |
 
 ## Out of scope
 
-- **Which viewport a scroll intent moves, and boundary behaviour.** The no-propagation rule is
-  locked in [`ui-ux.md`](../roadmap/ui-ux.md); the mechanism arrives with per-surface viewports.
-- **Clipping, modality, and focusability on `SurfaceTree`.** Delivery step 2. The router already
-  reads the tree, so it inherits those rules when they land.
+- **What a viewport does once it has the intent** — how far it moves, and where it stops. The
+  router resolves the target; [`surface-model`](./surface-model.md) owns the viewport.
+- **Clipping and modality on `SurfaceTree`.** SURF-2 and SURF-4, neither owned by this phase.
 - **Cursor movement inside a text input.** It arrives with the composer, which owns its own editing
   model.
 - **Shelf resize and inspector bindings.** `Ctrl-Shift-↑/↓` is locked in `ui-ux.md`, but an intent
@@ -128,7 +132,7 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | --- | --- |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor` |
-| INV-3 | `wheel_routes_by_hover_and_never_changes_focus` |
+| INV-3 | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press` |
@@ -136,8 +140,6 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 
-Consumers are a separate question from the grammar. `Quit`, `MoveSelection`, and `TerminalResized`
-are consumed by the executable today; `CycleFocus`, `Dismiss`, `Scroll`, `Pointer`, and `Text` are
-produced and tested but have no reducer until steps 2 to 4 of the phase delivery sequence. That gap
-is deliberate and recorded in
+Every intent now has a consumer in the executable except `Dismiss`, which waits for the phase's one
+dismissible surface — the shelf, in delivery step 7. That gap is recorded in
 [phase 00](../roadmap/phase-00-experience-skeleton.md) rather than hidden.

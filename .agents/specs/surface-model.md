@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Partially implemented; SURF-1 and SURF-3 proven, SURF-5 proven for focus |
+| Status | Partially implemented; SURF-1, SURF-3 and SURF-5 proven. SURF-2 and SURF-4 are unowned in this phase |
 | Owns | What a surface is, how one is registered, and which surface an event may reach |
 | Depends on | The surface categories and routing rules in [`ui-ux.md`](../roadmap/ui-ux.md) |
 | Proven by | `plexmaton-tui::layout`, `::surface`, and `::render` tests; see the evidence table |
@@ -58,6 +58,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | `clip` | The rectangle it is confined to, normally its parent's visible rectangle. Not a field yet; it arrives with SURF-2's first caller |
 | `z_index` | Draw and hit order among siblings |
 | `kind` | What the surface *is*; every behavioural answer below is derived from it |
+| `viewport` | How tall its content is and how far through it the user is. Filled in by the renderer, because measuring needs the text; `None` until a frame has drawn it |
 
 `visible()` is `bounds ∩ clip` and is what both painting and hit testing use (SURF-2). Until a
 surface exists that does not fit inside its parent, `bounds` is that rectangle and there is no clip
@@ -74,15 +75,25 @@ does not block. Deriving all five from `kind` makes those states unrepresentable
 | --- | --- | --- | --- | --- | --- |
 | `Panel` | yes | yes | no | no | no |
 | `Chrome` | no | no | no | no | no |
+| `Composer` | yes | yes | **yes** | no | no |
 
-Later kinds join this table in the step that earns them: `Composer` with the composer, `Shelf` and
-`Modal` with inspectors. A kind with no surface using it is not added in advance.
+`Shelf` and `Modal` join in delivery step 7. A kind with no surface using it is not added in advance.
 
 ### Hit testing
 
 Among surfaces whose `kind` takes the pointer and whose `visible()` contains the point, the one with
 the greatest `(z_index, id)` wins. A blocking surface truncates the search rather than being merely
 topmost, so a hole in a modal is not a hole in its modality.
+
+### Viewports
+
+A surface's viewport is measured by the renderer, because how tall content is depends on the text
+and the width it wraps to. The offset the user chose lives in the projection and outlives the frame
+(SURF-5); absence of a stored offset is meaningful, and each surface then anchors to its own kind of
+content — a conversation opens at its newest line, a list at its first.
+
+Eligibility for the wheel is whether a viewport *can move*, which
+[`interaction-routing`](./interaction-routing.md) INV-3 turns into routing.
 
 ### Focus
 
@@ -105,8 +116,6 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 
 - **Terminal-event translation, capture, and the `Escape` ladder.**
   [`interaction-routing`](./interaction-routing.md) owns them.
-- **What a viewport does with a scroll intent**, including the no-propagation rule (D-006). Delivery
-  step 4 owns the mechanism; the rule is locked in `ui-ux.md`.
 - **Shelf geometry and the ten-row guarantee** (D-016, D-023). Stated in `ui-ux.md`; implemented in
   delivery step 7.
 - **Which surfaces exist.** That is layout's decision, and it changes with the layout class.
@@ -117,6 +126,6 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | --- | --- |
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | SURF-2 | Unproven — delivery step 8, the first step with a surface that outgrows its parent |
-| SURF-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_is_the_three_panels_at_every_layout_class`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
+| SURF-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
 | SURF-4 | Unproven, and unowned inside Phase 00. Nothing in the canonical journey blocks: the Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with the phase that owns real tools |
-| SURF-5 | `focus_returns_to_a_surface_that_comes_back` proves it for focus; scroll state arrives with the viewports in step 4 |
+| SURF-5 | `focus_returns_to_a_surface_that_comes_back` for focus; `a_scrolled_surface_is_where_the_user_left_it_after_a_resize` and `an_untouched_surface_has_no_stored_offset` for scroll |

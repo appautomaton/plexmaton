@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine half built; steps 1 to 3 of 8 complete |
+| Status | In progress — interaction spine four steps in; steps 1 to 4 of 8 complete |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 4 — viewports and scroll ownership |
+| Next step | Step 5 — transcript virtualization |
 
 ## Phase outcome
 
@@ -50,8 +50,8 @@ order means building against a boundary that has not been decided yet.
    editing model, and a submitted message as a runtime command (D-017, D-018, D-038). Added to this
    sequence on 2026-08-31 (D-037); the collapsed row (D-027) belongs to step 7 with the sub-agent
    input that triggers it.
-4. **Viewports and scroll ownership.** Per-surface scroll state and the locked hover-routing and
-   no-propagation rules from the UI/UX contract.
+4. **Viewports and scroll ownership.** *Done 2026-08-31.* Per-surface scroll state and the locked
+   hover-routing and no-propagation rules from the UI/UX contract.
 5. **Transcript virtualization.** Visible-range layout, width-and-revision keyed wrapping cache,
    semantic anchors, and tail-follow separate from scroll offset.
 6. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads

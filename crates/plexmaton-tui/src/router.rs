@@ -44,6 +44,8 @@ pub enum Ignored {
     NoCapture,
     /// `Escape` with no drag to cancel and nothing dismissible.
     NothingToDismiss,
+    /// The wheel was over the workspace, but nothing under it had anywhere to scroll.
+    NothingScrollable,
     /// The modifier escape hatch: this event belongs to the terminal's own selection.
     TerminalSelection,
 }
@@ -162,13 +164,21 @@ impl Router {
     }
 }
 
+/// Resolves a wheel event against viewports rather than against geometry.
+///
+/// Eligibility is whether a viewport can move, so the wheel falls through a surface with nothing to
+/// scroll and reaches the one beneath it. A viewport that is merely at its boundary is still
+/// eligible and still consumes the event: a gesture whose target changes with scroll position is
+/// the spatial-memory failure the contract exists to prevent (D-006).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
-    context
-        .surfaces
-        .hit_test(at)
-        .map_or(Routed::Ignored(Ignored::OutsideWorkspace), |surface| {
-            Routed::Intent(TuiIntent::Scroll { surface, direction })
-        })
+    if let Some(surface) = context.surfaces.wheel_target(at) {
+        return Routed::Intent(TuiIntent::Scroll { surface, direction });
+    }
+    // Two different facts, and a test should be able to tell them apart.
+    if context.surfaces.hit_test(at).is_none() {
+        return Routed::Ignored(Ignored::OutsideWorkspace);
+    }
+    Routed::Ignored(Ignored::NothingScrollable)
 }
 
 /// Keys addressed to the one visible cursor.
@@ -227,7 +237,7 @@ mod tests {
     use super::{Ignored, KeyboardFocus, Routed, Router, RouterContext};
     use crate::{
         intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
-        surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree},
+        surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     };
 
     // Two real identities in a covering arrangement. The router's grammar does not depend on which
@@ -246,6 +256,13 @@ mod tests {
                 bounds,
                 z_index,
                 kind: SurfaceKind::Panel,
+                // Content taller than the region, so the wheel has somewhere to go. A viewport
+                // that cannot move is a separate case with its own test below.
+                viewport: Some(Viewport {
+                    content_rows: 100,
+                    visible_rows: bounds.height,
+                    offset: 0,
+                }),
             })
             .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
         }
@@ -368,6 +385,89 @@ mod tests {
             Routed::Ignored(Ignored::OutsideWorkspace)
         );
         assert_eq!(router.capture(), None, "hover must not take capture");
+    }
+
+    /// INV-3 and D-006: eligibility is whether a viewport can move, not what is on top.
+    ///
+    /// The two halves are deliberately different. A surface with nothing to scroll is transparent
+    /// to the wheel, so the event reaches what is beneath it; a surface that is merely *at* its
+    /// boundary still consumes it, because a gesture whose target changes with scroll position is
+    /// the spatial-memory failure the contract exists to prevent.
+    #[test]
+    fn the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted() {
+        let mut surfaces = tree();
+        let mut router = Router::default();
+        let over_the_overlay = mouse(MouseEventKind::ScrollDown, 12, 4);
+
+        // Nothing to scroll: the topmost surface is transparent to the wheel.
+        surfaces.set_viewport(
+            OVERLAY,
+            Viewport {
+                content_rows: 2,
+                visible_rows: 6,
+                offset: 0,
+            },
+        );
+        assert_eq!(
+            router.translate(
+                &over_the_overlay,
+                &context(&surfaces, KeyboardFocus::Navigation, false)
+            ),
+            Routed::Intent(TuiIntent::Scroll {
+                surface: PANEL,
+                direction: ScrollDirection::Down,
+            }),
+            "the wheel reached the panel underneath"
+        );
+
+        // Scrollable but already at the end: still the target, and the event stops here.
+        surfaces.set_viewport(
+            OVERLAY,
+            Viewport {
+                content_rows: 40,
+                visible_rows: 6,
+                offset: 34,
+            },
+        );
+        assert_eq!(
+            router.translate(
+                &over_the_overlay,
+                &context(&surfaces, KeyboardFocus::Navigation, false)
+            ),
+            Routed::Intent(TuiIntent::Scroll {
+                surface: OVERLAY,
+                direction: ScrollDirection::Down,
+            }),
+            "an exhausted viewport consumes the wheel rather than passing it down"
+        );
+    }
+
+    #[test]
+    fn a_wheel_over_the_workspace_with_nothing_to_scroll_says_so() {
+        let mut surfaces = tree();
+        for id in [PANEL, OVERLAY] {
+            surfaces.set_viewport(
+                id,
+                Viewport {
+                    content_rows: 1,
+                    visible_rows: 6,
+                    offset: 0,
+                },
+            );
+        }
+        let context = context(&surfaces, KeyboardFocus::Navigation, false);
+        let mut router = Router::default();
+
+        assert_eq!(
+            router.translate(&mouse(MouseEventKind::ScrollDown, 12, 4), &context),
+            Routed::Ignored(Ignored::NothingScrollable),
+            "over the workspace, but nothing had anywhere to go"
+        );
+        assert_eq!(
+            router.translate(&mouse(MouseEventKind::ScrollDown, 99, 99), &context),
+            Routed::Ignored(Ignored::OutsideWorkspace),
+            "and that is a different fact from being outside it"
+        );
     }
 
     /// INV-4: a drag stays on its surface even when the pointer leaves it.

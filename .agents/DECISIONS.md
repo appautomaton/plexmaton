@@ -24,6 +24,7 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
 | D-038 | 2026-08-31 | The composer is first-party; `ratatui-textarea` is not adopted, and a submitted message is a runtime command rather than a write | Accepted | [ui-ux](./roadmap/ui-ux.md) §input, `plexmaton-sim::Runtime` |
 | D-037 | 2026-08-31 | The composer is delivery step 3 of Phase 00, so the sequence grows from seven steps to eight | Accepted | [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery sequence |
 | D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [surface-model](./specs/surface-model.md) SURF-1 |
@@ -99,6 +100,16 @@ does nothing but point at the file that owns the content.
 Aged: [`.agents/README.md`](./README.md) §budgets now owns the reasoning. The verdict is that a
 document over budget is a design question, and a blocking gate turns it into pressure to delete a
 sentence.
+
+### D-039 · Owning the text wrapping instead — rejected for now
+
+Writing our own wrap would avoid an unstable feature, and delivery step 5 may still need it for
+per-item virtualization. It was rejected here because the objection that made it attractive does not
+hold: `line_count` runs the same `WordWrapper` the renderer runs, so it is ratatui measuring its own
+wrapping rather than a second derivation that could drift. Owning it now would have meant roughly
+eighty lines of subtle grapheme-and-width logic to reach the same answer, with our own bugs instead
+of ratatui's. The version is pinned exactly and the lockfile committed, so an unstable API change
+surfaces at a reviewed bump rather than silently.
 
 ### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
 

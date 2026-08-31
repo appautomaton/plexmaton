@@ -154,9 +154,9 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         Some(composer),
         SurfaceKind::Composer,
     );
-    // A bounded tail with no viewport of its own yet, so there is nothing for a pointer or a focus
-    // stop to do in it. It becomes a panel when it gains scroll state in step 4.
-    register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Chrome);
+    // A panel, not chrome: its tail can outgrow the strip, and a region the wheel can move must
+    // also be reachable by keyboard -- every mouse interaction has a keyboard equivalent.
+    register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Panel);
     register(
         &mut tree,
         SurfaceId::Footer,
@@ -263,6 +263,8 @@ fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Option<Rect>, kind: S
         // Every workspace region is a sibling. Shelves and modals introduce depth in later slices.
         z_index: 0,
         kind,
+        // Layout owns rectangles, not content. The renderer measures and fills this in.
+        viewport: None,
     })
     .expect("each workspace region is registered exactly once, under a distinct identity");
 }
@@ -395,24 +397,28 @@ mod tests {
         assert!(workspace(Rect::new(0, 0, 40, 10), input(true)).is_empty());
     }
 
+    /// Anything the wheel can reach must also be reachable by keyboard, so pointer eligibility and
+    /// the focus ring are one decision made by `SurfaceKind` rather than two that could disagree.
     #[test]
-    fn the_wheel_cannot_reach_a_region_that_has_no_viewport() {
+    fn only_the_hint_strip_is_beyond_the_pointer() {
         let tree = workspace(Rect::new(0, 0, 120, 24), input(true));
         let pointer_eligible = |id| {
             tree.get(id)
                 .is_some_and(|surface| surface.kind.accepts_pointer())
         };
 
-        assert!(pointer_eligible(SurfaceId::Transcript));
-        assert!(pointer_eligible(SurfaceId::Agents));
-        assert!(pointer_eligible(SurfaceId::Activity));
+        for id in [
+            SurfaceId::Agents,
+            SurfaceId::Transcript,
+            SurfaceId::Activity,
+            SurfaceId::Notices,
+            SurfaceId::Composer,
+        ] {
+            assert!(pointer_eligible(id), "{id:?} must be reachable");
+        }
         assert!(
             !pointer_eligible(SurfaceId::Footer),
-            "a hint strip is not a target"
-        );
-        assert!(
-            !pointer_eligible(SurfaceId::Notices),
-            "no viewport until step 4"
+            "a hint strip shows keys; there is nothing in it to point at"
         );
     }
 
@@ -422,10 +428,11 @@ mod tests {
     /// the part the user builds muscle memory on, so that is the part held fixed.
     #[test]
     fn the_focus_ring_loses_stops_without_ever_reordering() {
-        const CANONICAL: [SurfaceId; 4] = [
+        const CANONICAL: [SurfaceId; 5] = [
             SurfaceId::Agents,
             SurfaceId::Transcript,
             SurfaceId::Activity,
+            SurfaceId::Notices,
             SurfaceId::Composer,
         ];
 
