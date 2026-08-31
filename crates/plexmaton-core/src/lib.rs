@@ -256,13 +256,117 @@ pub struct PrototypeEventEnvelope {
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentId, IdError};
+    use super::{
+        AgentId, AgentStatus, AttentionId, AttentionKind, EventSequence, IdError, MailId,
+        PrototypeEvent, PrototypeEventEnvelope, ToolActivityId, ToolActivityStatus,
+        TranscriptItemId, TranscriptRole,
+    };
+
+    fn agent(value: &str) -> AgentId {
+        AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
+    }
 
     #[test]
     fn stable_id_rejects_whitespace() {
         assert_eq!(
             AgentId::new("  \t"),
             Err(IdError::Empty { kind: "agent id" })
+        );
+    }
+
+    /// This crate is the contract a future real runtime has to produce, so its wire form has to
+    /// survive a round trip. A renamed variant or a field that stops serializing would otherwise
+    /// only surface when a producer outside this workspace fails to be understood.
+    #[test]
+    fn every_event_variant_survives_a_json_round_trip() {
+        let item = TranscriptItemId::new("item-1")
+            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let events = [
+            PrototypeEvent::AgentCreated {
+                agent_id: agent("agent-a"),
+                label: "Agent A".into(),
+                status: AgentStatus::Running,
+            },
+            PrototypeEvent::AgentStatusChanged {
+                agent_id: agent("agent-a"),
+                status: AgentStatus::Cancelled,
+            },
+            PrototypeEvent::TranscriptItemStarted {
+                agent_id: agent("agent-a"),
+                item_id: item.clone(),
+                role: TranscriptRole::Assistant,
+            },
+            PrototypeEvent::TranscriptDelta {
+                agent_id: agent("agent-a"),
+                item_id: item.clone(),
+                item_revision: 1,
+                // Multi-byte and combining text, because transcripts carry both.
+                text: "δ 汉字 e\u{301}\n".into(),
+            },
+            PrototypeEvent::TranscriptItemFinalized {
+                agent_id: agent("agent-a"),
+                item_id: item,
+                item_revision: 2,
+            },
+            PrototypeEvent::ToolActivityChanged {
+                agent_id: agent("agent-a"),
+                activity_id: ToolActivityId::new("tool-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                label: "read".into(),
+                status: ToolActivityStatus::Queued,
+            },
+            PrototypeEvent::AttentionRequested {
+                agent_id: agent("agent-b"),
+                attention_id: AttentionId::new("attention-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                kind: AttentionKind::Approval,
+                summary: "approve the write".into(),
+            },
+            PrototypeEvent::MailDelivered {
+                mail_id: MailId::new("mail-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                from: agent("agent-b"),
+                to: agent("agent-a"),
+                summary: "findings".into(),
+            },
+            PrototypeEvent::ArtifactAnnounced {
+                agent_id: agent("agent-b"),
+                artifact_id: super::ArtifactId::new("artifact-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                label: "findings".into(),
+                pointer: "artifact://agent-b/findings".into(),
+            },
+            PrototypeEvent::RuntimeWarning {
+                message: "degraded".into(),
+            },
+        ];
+
+        for (index, event) in events.into_iter().enumerate() {
+            let envelope = PrototypeEventEnvelope {
+                sequence: EventSequence::new(index as u64 + 1),
+                event,
+            };
+            let encoded = serde_json::to_string(&envelope)
+                .unwrap_or_else(|error| panic!("serialize {envelope:?}: {error}"));
+            let decoded: PrototypeEventEnvelope = serde_json::from_str(&encoded)
+                .unwrap_or_else(|error| panic!("deserialize {encoded}: {error}"));
+
+            assert_eq!(decoded, envelope);
+        }
+    }
+
+    #[test]
+    fn the_event_tag_is_the_stable_external_name() {
+        // The tag is what an out-of-process producer writes. Renaming a variant without noticing
+        // would be a silent wire break, so one tag is pinned here as the canary for the scheme.
+        let encoded = serde_json::to_string(&PrototypeEvent::RuntimeWarning {
+            message: "degraded".into(),
+        })
+        .unwrap_or_else(|error| panic!("serialize: {error}"));
+
+        assert_eq!(
+            encoded,
+            r#"{"type":"runtime_warning","message":"degraded"}"#
         );
     }
 }

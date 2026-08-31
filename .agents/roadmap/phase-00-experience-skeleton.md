@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — interaction spine started; step 1 of 7 complete |
+| Status | In progress — interaction spine started; step 1 of 7 complete, step 2 at slice 1 of 5 |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Delivery sequence step 2 — surfaces with clipping, focus, and modality |
+| Next step | Step 2 slice 2 — clipping; see [the plan](../plans/phase-00-step-02-surfaces.md) |
 
 ## Phase outcome
 
@@ -138,38 +138,56 @@ terminal below 48 × 12 renders one notice with a test asserting no workspace co
 The other five — shelf geometry, the ten-row guarantee, focus on open, the collapsed composer row,
 and the reduced drag scope — remain unimplemented until the interaction spine reaches them.
 
-### Delivery step 1 — intents and interaction router — 2026-08-31
+### Delivery step 1 — intents and interaction router — 2026-08-31 — compressed
 
-The interaction spine now has its first vertebra. `plexmaton-tui::intent` holds the typed
-vocabulary and `plexmaton-tui::router` is the only place in the workspace that accepts a terminal
-event. [`specs/interaction-routing.md`](../specs/interaction-routing.md) carries INV-1 to INV-9 and
-maps each one to the test that proves it.
+`plexmaton-tui::router` is the only place in the workspace that accepts a terminal event;
+[`specs/interaction-routing.md`](../specs/interaction-routing.md) carries INV-1 to INV-9 and names
+the test proving each. Three facts corrected earlier claims:
 
-Three facts about this step are worth recording because they change earlier claims:
+- **`Escape` no longer quits** (D-031). `Ctrl-C` is the unconditional exit; `q` quits only from a
+  navigation surface, so it stays a letter while a text input holds the cursor.
+- **Intents live in `plexmaton-tui`, not `plexmaton-core`** (D-030). The crate sketch above was
+  corrected.
+- **Declining an event is a named outcome.** `Routed::Ignored` carries a reason, so a key that does
+  nothing is distinguishable in a test from a routing defect.
 
-- **`Escape` no longer quits.** It resolves one interaction layer per press. `Ctrl-C` is the
-  unconditional exit and `q` quits only from a navigation surface, so it stays a letter while a
-  text input holds the cursor. Recorded as D-031; the footer hint and `smoke-tui.py` were corrected
-  with it.
-- **Intents live in `plexmaton-tui`, not `plexmaton-core`.** The crate sketch above previously
-  listed them under core and has been corrected. D-030 records why.
-- **Declining an event is a named outcome.** `Routed::Ignored` carries a reason, so a key that
-  does nothing is distinguishable in a test from a routing defect.
+`Text` still has no consumer, and the delivery sequence names no composer step. That is a gap in
+the sequence; it needs an owner before step 4 closes.
 
-The grammar is complete for every binding already locked in `ui-ux.md`; the consumers are not.
-`Quit`, `MoveSelection`, and `TerminalResized` reach the workspace today. `CycleFocus`, `Dismiss`,
-`Scroll`, `Pointer`, and `Text` are produced and tested but have no reducer until steps 2 to 4, and
-the executable lists them explicitly rather than swallowing them in a wildcard. The surface tree
-the router hit-tests against is still empty on the application path, so pointer events resolve to
-`OutsideWorkspace` in the running binary; step 2 registers the regions.
+### Delivery step 2, slice 1 — the registration seam — 2026-08-31
 
-Mutation checks confirm the new tests have teeth. Reordering the Escape ladder, re-hit-testing
-during a drag instead of honouring capture, and letting `q` quit past a dismissible layer each fail
-exactly the test that names the invariant, and reordering the ladder fails nothing else.
+Layout is now the only place that computes a workspace rectangle, and every rectangle it computes
+is registered. `plexmaton-tui::layout::workspace` returns a `SurfaceTree`; `render` draws by walking
+that tree and returns it; the executable routes against the tree the last frame actually drew. The
+`SurfaceTree` is no longer a tested-but-unused structure, and pointer events in the running binary
+now resolve to a real region instead of `OutsideWorkspace`.
 
-Tests: 34 to 49. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+Two facts worth recording:
 
-This is implementation evidence for the skeleton and step 1 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
+- **Surface identities are named, not numbered** (D-036). `SurfaceId` became an enum, so the draw
+  loop is an exhaustive match: a new surface cannot be added without stating how it is drawn.
+- **Routing geometry is the geometry that was painted.** `render` hands its registry back rather
+  than letting the caller recompute one. A second layout computed for hit testing is how a click
+  lands one panel over, and this removes the possibility rather than testing for it.
+
+C-1 has two proofs. `every_registered_surface_is_drawn_inside_its_own_bounds` reads the painted
+cells back through each registered rectangle and asserts that surface's signature is inside it;
+`registered_surfaces_tile_the_terminal_without_gaps_or_overlap` fails on a region that was laid out
+but never registered. Mutation checks: drawing the agent rail into the transcript's rectangle fails
+the first, and computing the activity region without registering it fails the second.
+
+The test scaffolding changed with it. `canonical_state()` had been copied into two files and now has
+one home in `test_support`, alongside `region_text`, which is what makes "drawn equals registered"
+readable back out of a cell buffer. `plexmaton-core` gained a round-trip test over every event
+variant plus one pinned wire tag; a renamed variant fails only the tag test, which is the point,
+since a round trip cannot see a rename. `serde_json` entered as a dev-dependency with that test.
+
+Not in this slice: clipping, focus, modality, and mouse capture. `render.rs` fell from 400 code
+lines — at the sentinel — to 304.
+
+Tests: 49 to 57. All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
+This is implementation evidence for the skeleton and steps 1 to 2 only. It does not satisfy the Phase 00 canonical demonstration or exit gate.
 
 ## Scope
 

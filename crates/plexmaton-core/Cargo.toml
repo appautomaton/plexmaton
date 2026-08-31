@@ -9,6 +9,11 @@ publish.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+# The wire form is part of this crate's contract, so proving the round trip needs a concrete
+# format. It stays a dev-dependency: nothing here chooses a serialization for its callers.
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
 

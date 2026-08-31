@@ -43,9 +43,10 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
     let mut terminal_events = EventStream::new();
     let mut painted: Option<ViewRevision> = None;
     let mut router = Router::default();
-    // Regions reach the surface tree in delivery step 2. Until they do, a pointer event resolves
-    // to nothing rather than to a guessed region.
-    let surfaces = SurfaceTree::default();
+    // The router hit-tests against the surfaces the last frame actually drew, never against a
+    // second layout computed on the side. Before the first frame nothing is registered, so a
+    // pointer event resolves to nothing rather than to a guessed region.
+    let mut surfaces = SurfaceTree::default();
     // Named colour roles resolve through the user's own terminal theme by default.
     let palette = Palette::default();
 
@@ -55,9 +56,11 @@ async fn run(mut terminal: DefaultTerminal, steps: Vec<ScenarioStep>) -> anyhow:
         // Repaint only when the projection actually changed. Ambient background activity and
         // input that the workspace ignores must not cost a full-screen redraw.
         if painted != Some(state.revision()) {
+            let mut drawn = SurfaceTree::default();
             terminal
-                .draw(|frame| plexmaton_tui::render(frame, &state, &palette))
+                .draw(|frame| drawn = plexmaton_tui::render(frame, &state, &palette))
                 .context("draw TUI frame")?;
+            surfaces = drawn;
             painted = Some(state.revision());
         }
 

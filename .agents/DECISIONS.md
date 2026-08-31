@@ -19,6 +19,7 @@ rule. Superseded rows are struck through in the Status column, never deleted.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [plans/phase-00-step-02-surfaces.md](./plans/phase-00-step-02-surfaces.md) C-1 |
 | D-035 | 2026-08-31 | `.worktrees/` is the single ignored location for parallel checkouts, and each one keeps its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
 | D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
 | D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
@@ -98,6 +99,19 @@ converts that question into pressure to delete a sentence. The escape hatches in
 [`.agents/README.md`](./README.md) are the actual mechanism; the number only starts the
 conversation.
 
+### D-036 · Numeric identities and a second layout for hit testing — rejected
+
+Both alternatives were already available and needed no new code. `SurfaceId(u64)` with constants in
+layout was rejected because the number is agreed by convention, and a convention is what silently
+breaks when a region is added; a named enum makes the draw loop exhaustive, so a surface with no
+way to be drawn does not compile. Inspectors and shelves arrive as variants carrying their own
+identity rather than as allocated numbers.
+
+Letting the router recompute the same rectangles was rejected as the "multiple sources of truth
+with synchronization code between them" anti-pattern, whose failure mode here is the click that
+lands one panel over — visible only to whoever is clicking. Returning the registry from `render`
+makes the geometry that routes the geometry that was painted, by construction rather than by test.
+
 ### D-035 · Worktrees under `.agents/worktrees/` — rejected
 
 Mechanically it works: a nested worktree there is invisible to `check-file-length.sh`, which walks
@@ -105,11 +119,9 @@ Mechanically it works: a nested worktree there is invisible to `check-file-lengt
 `.agents/` is declared the project's durable memory and holds eighteen tracked, budgeted markdown
 files. A worktree is its opposite — untracked, disposable, and 245 MB of build output each. A
 directory that holds both stops being a directory anyone can describe. `.worktrees/` at the root
-carries the same vendor neutrality, which was the real point, without that cost.
-
-A second ignored path for whatever an agent harness defaults to was rejected with it. Two locations
-is not a convention, and the manual `git worktree add` path is supported by every tool, so the
-convention costs nothing to honour.
+carries the same vendor neutrality, which was the real point, without that cost. A second ignored
+path for whatever a harness defaults to was rejected with it: two locations is not a convention,
+and `git worktree add` is supported everywhere, so honouring one costs nothing.
 
 ### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
 
@@ -170,20 +182,12 @@ of a vertical resize handle. A shelf is docked by definition, so its position is
 only its height is. Nothing in the canonical journey needs a panel moved to an arbitrary corner
 yet, so the gesture waits until a pinned or maximized surface gives it a reason.
 
-### D-010 · `missing_docs` across the whole workspace — rejected
+### D-010, D-011 · Workspace-wide `missing_docs`, and a file-length limit as the primary guard — rejected
 
-Enabling it workspace-wide produced 61 findings, nearly all on view-struct fields whose contract is
-already obvious. `AGENTS.md` asks documentation to carry invariants rather than restate signatures,
-so a workspace-wide deny would have pushed exactly the filler it forbids. Scoping it to the
-semantic contract crate keeps the enforcement where field invariants genuinely exist.
-
-### D-011 · A hard file-length limit as the primary guard — rejected
-
-`AGENTS.md` says to split by responsibility and invariant, "not by arbitrary line counts", and
-Rust has no file-length convention to borrow. Function-level thresholds are the real guard, because
-a large file of small functions is usually fine while a long function never is. The file sentinel
-is a secondary signal for a module that accumulated responsibilities without any single function
-growing.
+Aged: the reasoning is now owned by [standards/rust.md](./standards/rust.md) and
+[standards/quality-gates.md](./standards/quality-gates.md), so only the fact that cannot be
+reconstructed from them survives. Enabling `missing_docs` across the workspace produced 61
+findings, nearly all restated signatures — the filler `AGENTS.md` forbids.
 
 ## Superseded
 

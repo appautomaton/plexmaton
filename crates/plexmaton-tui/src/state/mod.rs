@@ -346,7 +346,7 @@ mod tests {
     use plexmaton_sim::Scenario;
 
     use super::{ApplyOutcome, NoticeView, ReduceError, ViewState};
-    use crate::intent::Direction;
+    use crate::{intent::Direction, test_support::canonical_state};
 
     fn agent_id(value: &str) -> AgentId {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
@@ -367,14 +367,18 @@ mod tests {
         }
     }
 
-    fn canonical_state() -> ViewState {
+    #[test]
+    fn every_step_of_the_canonical_scenario_is_accepted() {
+        // The shared fixture ignores the outcome so a degraded projection is still constructible.
+        // Somebody has to assert that the canonical timeline itself has no producer defect in it,
+        // or every test built on it would be testing against a silently broken baseline.
         let scenario =
             Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let mut state = ViewState::default();
         for step in scenario.into_steps() {
             assert_eq!(state.apply(step.envelope), ApplyOutcome::Accepted);
         }
-        state
+        assert_eq!(state.notices().count(), 0);
     }
 
     #[test]

@@ -243,8 +243,10 @@ mod tests {
         surface::{Point, Surface, SurfaceId, SurfaceTree},
     };
 
-    const PANEL: SurfaceId = SurfaceId(1);
-    const OVERLAY: SurfaceId = SurfaceId(2);
+    // Two real identities in a covering arrangement. The router's grammar does not depend on which
+    // regions these are, only that one sits above the other.
+    const PANEL: SurfaceId = SurfaceId::Transcript;
+    const OVERLAY: SurfaceId = SurfaceId::Notices;
 
     fn tree() -> SurfaceTree {
         let mut tree = SurfaceTree::default();

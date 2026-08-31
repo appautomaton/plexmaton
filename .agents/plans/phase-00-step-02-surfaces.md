@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 00](../roadmap/phase-00-experience-skeleton.md), delivery sequence step 2 |
 | Contract | [interaction-routing](../specs/interaction-routing.md) for routing; the surface model is inline below until it earns a spec |
-| Status | Not started — 0 of 5 slices |
+| Status | Slice 1 landed 2026-08-31 — 1 of 5 slices |
 
 ## Outcome
 
@@ -32,12 +32,10 @@ Promote to `specs/surface-model.md` only if these outlive the slices.
 
 ## Slices
 
-**Slice 1 — the registration seam.** Layout produces named surfaces and registers them in a
-`SurfaceTree` the renderer then draws from, replacing the bare `Rect`s `render.rs` computes per
-frame. No routing behaviour changes yet.
-*Proves C-1:* a test walks every registered surface and asserts the drawn region matches, so a
-region that is laid out but not registered fails.
-*Unblocks:* everything. Without it each later slice is tested against a tree nothing populates.
+**Slice 1 — the registration seam.** *Done 2026-08-31.* `layout::workspace` registers every region;
+`render` draws by walking the tree and returns it; the executable routes against the tree the last
+frame drew. C-1 proven twice — signatures read back through each registered rectangle, and a tiling
+check that fails on a region laid out but never registered. `SurfaceId` became a named enum (D-036).
 
 **Slice 2 — clipping.** `Surface` gains a clip rectangle; `hit_test` intersects bounds with clip.
 *Proves C-2:* a child extending past its parent is hit inside the overlap and missed outside it.
