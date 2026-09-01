@@ -90,6 +90,15 @@ pub struct Submission {
 /// Borrowed when an agent has never been typed to, so a caller never has to handle absence.
 static NO_DRAFT: Composer = Composer::new();
 
+/// The text width inside a bordered panel that spans `width` cells.
+///
+/// One definition, because the height a draft asks for and the rows it is drawn into have to be
+/// measured at the same width or the panel is the wrong size for what goes in it.
+#[must_use]
+pub const fn inner_width(width: u16) -> u16 {
+    width.saturating_sub(2)
+}
+
 impl ViewState {
     /// Returns the current projection revision.
     #[must_use]
@@ -144,14 +153,17 @@ impl ViewState {
     ///
     /// Read from the stored preference rather than from resolved focus, because laying out the
     /// workspace is what needs the answer and there is no tree yet when it asks.
+    ///
+    /// `width` is the terminal's, which the composer band spans; the draft wraps inside its
+    /// borders. A height asked for without a width is a height for a draft nobody wrapped.
     #[must_use]
-    pub fn composer_rows(&self) -> u16 {
+    pub fn composer_rows(&self, width: u16) -> u16 {
         if self.inspector.open().is_some() && self.focus.prefers(SurfaceId::Inspector) {
             // One row, not none. A composer that vanishes costs the affordance and jumps the tail
             // of the transcript by three rows; one row of jump is what D-027 accepts.
             1
         } else {
-            self.composer().requested_rows()
+            self.composer().requested_rows(inner_width(width))
         }
     }
 
@@ -278,10 +290,15 @@ impl ViewState {
     }
 
     /// Points an unpinned inspector at whatever the user is now looking at.
+    ///
+    /// Pruning happens after the inspector has followed, not before: both the conversation and an
+    /// unpinned inspector change agent here, so a selection has to be judged against where the two
+    /// of them end up rather than against a state neither is in yet.
     fn follow_selection(&mut self) {
         if let Some(agent_id) = self.agents.selected().map(|agent| agent.id.clone()) {
             self.inspector.follow(agent_id);
         }
+        let _pruned = self.prune_selection();
     }
 
     /// Resolves which surface holds keyboard focus for the frame `surfaces` describes.

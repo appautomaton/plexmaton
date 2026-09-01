@@ -117,16 +117,26 @@ impl ViewState {
         let Some(last) = count.checked_sub(1) else {
             return;
         };
-        match self.selection.as_mut() {
+        // A selection clamped at either end of the list does not move, and an unchanged highlight
+        // must not cost a frame — the same rule `move_selection` follows on the agent rail (FR-1).
+        let changed = match self.selection.as_mut() {
             Some(selection) if selection.surface == surface && selection.agent == agent_id => {
-                selection.focus = match direction {
+                let next = match direction {
                     Direction::Forward => selection.focus.saturating_add(1).min(last),
                     Direction::Backward => selection.focus.saturating_sub(1),
                 };
+                let moved = next != selection.focus;
+                selection.focus = next;
+                moved
             }
-            _ => self.selection = Some(Selection::at(surface, agent_id, last)),
+            _ => {
+                self.selection = Some(Selection::at(surface, agent_id, last));
+                true
+            }
+        };
+        if changed {
+            self.touch();
         }
-        self.touch();
     }
 
     /// Drops the selection, reporting whether there was one. A rung on the `Escape` ladder (INV-6).
@@ -136,6 +146,41 @@ impl ViewState {
             self.touch();
         }
         had
+    }
+
+    /// Drops a selection whose surface has stopped showing the agent it indexes (SEL-3).
+    ///
+    /// A selection names an agent so that it cannot be read against a different one, and
+    /// [`Self::selected_in`] honours that by not highlighting it — but a highlight that has quietly
+    /// gone is not the same as a selection that has gone, and [`Self::copy`] reads through the
+    /// stored agent. Left alone, moving the agent selection and pressing the copy key returns the
+    /// text of a conversation that is no longer on the screen.
+    ///
+    /// Dropped rather than rebound onto the new agent: index three of A's messages is a different
+    /// message in B's, so carrying the range across would silently select something the user never
+    /// pointed at. Losing the selection is visible; the alternative is not.
+    pub(super) fn prune_selection(&mut self) -> bool {
+        let stale = self.selection.as_ref().is_some_and(|selection| {
+            self.agent_shown_by(selection.surface).as_ref() != Some(&selection.agent)
+        });
+        if stale {
+            self.selection = None;
+        }
+        stale
+    }
+
+    /// Whose content a surface is currently drawing, for the surfaces that draw one agent's.
+    ///
+    /// The single answer to "what is this panel showing", so that what a key selects, what a frame
+    /// highlights, and what a copy returns cannot come to three different conclusions.
+    fn agent_shown_by(&self, surface: SurfaceId) -> Option<AgentId> {
+        match surface {
+            SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone()),
+            SurfaceId::Transcript | SurfaceId::Activity => {
+                self.agents.selected().map(|agent| agent.id.clone())
+            }
+            _ => None,
+        }
     }
 
     /// The semantic source of everything selected, ready for a clipboard.
@@ -166,14 +211,7 @@ impl ViewState {
     /// answers to "what am I acting on" is how a copy returns the wrong agent's conversation.
     fn content_target(&self, surfaces: &SurfaceTree) -> Option<(SurfaceId, AgentId)> {
         let surface = self.focus.resolve(surfaces)?;
-        let agent = match surface {
-            SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone())?,
-            SurfaceId::Transcript | SurfaceId::Activity => {
-                self.agents.selected().map(|agent| agent.id.clone())?
-            }
-            _ => return None,
-        };
-        Some((surface, agent))
+        Some((surface, self.agent_shown_by(surface)?))
     }
 
     /// How many entries a surface offers, without building any of their text.
@@ -249,7 +287,93 @@ mod tests {
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use crate::{Workspace, surface::SurfaceId};
+    use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_runtime};
+
+    /// SEL-3: a selection cannot outlive the surface having stopped showing its agent.
+    ///
+    /// The failure this pins is invisible rather than loud. `selected_in` stops matching, so the
+    /// highlight disappears and the workspace looks as though nothing is selected — while `copy`
+    /// still reads through the stored agent and hands out the text of a conversation that is no
+    /// longer on the screen.
+    #[test]
+    fn a_selection_does_not_survive_the_surface_changing_agents() {
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 30))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(canonical_runtime().ready(u64::MAX));
+
+        let mut step = |workspace: &mut Workspace, event: Option<&Event>| {
+            if let Some(event) = event {
+                workspace.handle(event);
+            }
+            let _frame = workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+        };
+        step(&mut workspace, None);
+        step(&mut workspace, Some(&key(KeyCode::Tab, KeyModifiers::NONE)));
+        step(&mut workspace, Some(&key(KeyCode::Up, KeyModifiers::SHIFT)));
+
+        let selected = workspace
+            .state()
+            .copy()
+            .unwrap_or_else(|| panic!("shift-up in the conversation must select something"));
+        assert!(!selected.text.is_empty());
+
+        // Back to the rail, and on to the next agent. The conversation now draws somebody else.
+        step(
+            &mut workspace,
+            Some(&key(KeyCode::BackTab, KeyModifiers::NONE)),
+        );
+        let before = workspace.state().revision();
+        step(
+            &mut workspace,
+            Some(&key(KeyCode::Down, KeyModifiers::NONE)),
+        );
+
+        assert_eq!(
+            workspace
+                .state()
+                .selected_agent()
+                .map(|agent| agent.id.as_str()),
+            Some("agent-b"),
+            "the fixture must actually have moved the roster, or this proves nothing"
+        );
+        assert!(workspace.state().selection().is_none());
+        assert_eq!(
+            workspace.state().copy(),
+            None,
+            "the copy key must not reach a conversation the user cannot see"
+        );
+        assert!(
+            workspace.state().revision() > before,
+            "the highlight has to be repainted away, so the change is a visible one"
+        );
+    }
+
+    /// FR-1: a selection already at the end of the list does not move, so it costs no frame.
+    ///
+    /// The agent rail has had this rule and a test for it since step 2; the selection did not, and
+    /// held `Shift-↑` at the oldest message repaints for as long as the key is down.
+    #[test]
+    fn extending_a_clamped_selection_costs_no_frame() {
+        let messages: Vec<String> = ["one", "two"]
+            .iter()
+            .map(|text| (*text).to_owned())
+            .collect();
+        let mut workspace = selecting(&messages, 100, messages.len());
+        let clamped = workspace.state().revision();
+
+        assert_eq!(
+            workspace.state().selection().map(Selection::bounds),
+            Some((0, 1)),
+            "the fixture must already be at the oldest message, or this proves nothing"
+        );
+
+        workspace.handle(&key(KeyCode::Up, KeyModifiers::SHIFT));
+
+        assert_eq!(workspace.state().revision(), clamped);
+    }
 
     /// One assistant message per string, on one agent, as the producer would send them.
     fn timeline(messages: &[String]) -> Vec<PrototypeEventEnvelope> {

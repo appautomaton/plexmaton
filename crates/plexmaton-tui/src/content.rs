@@ -101,7 +101,12 @@ pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static
 /// The same detail the activity column shows, for a *different* agent. That is the whole point of
 /// the surface: with one agent selected and another inspected there are two on screen, and neither
 /// is a copy of the other.
-pub(crate) fn inspector(state: &ViewState, palette: &Palette, focused: bool) -> Vec<Line<'static>> {
+pub(crate) fn inspector(
+    state: &ViewState,
+    palette: &Palette,
+    focused: bool,
+    width: u16,
+) -> Vec<Line<'static>> {
     let Some(agent) = state.inspector().and_then(|open| state.agent(&open.agent)) else {
         return vec![Line::styled(
             "That agent is no longer in the roster.",
@@ -137,8 +142,9 @@ pub(crate) fn inspector(state: &ViewState, palette: &Palette, focused: bool) -> 
         lines.extend(
             state
                 .draft(&agent.id)
-                .visible_lines()
-                .map(|line| Line::styled(line.to_owned(), palette.style(Role::Body))),
+                .visible_rows(width)
+                .into_iter()
+                .map(|row| Line::styled(row, palette.style(Role::Body))),
         );
     }
     lines
@@ -304,7 +310,15 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
 }
 
 /// The draft, or the hint that stands in for it when nobody is typing.
-pub(crate) fn composer(state: &ViewState, palette: &Palette, focused: bool) -> Vec<Line<'static>> {
+///
+/// `width` is the panel's inner width, because the rows returned are the wrapped ones the caret is
+/// placed against (COM-1).
+pub(crate) fn composer(
+    state: &ViewState,
+    palette: &Palette,
+    focused: bool,
+    width: u16,
+) -> Vec<Line<'static>> {
     let composer = state.composer();
     if composer.draft().is_empty() && !focused {
         return vec![Line::styled(
@@ -313,8 +327,9 @@ pub(crate) fn composer(state: &ViewState, palette: &Palette, focused: bool) -> V
         )];
     }
     composer
-        .visible_lines()
-        .map(|line| Line::styled(line.to_owned(), palette.style(Role::Body)))
+        .visible_rows(width)
+        .into_iter()
+        .map(|row| Line::styled(row, palette.style(Role::Body)))
         .collect()
 }
 

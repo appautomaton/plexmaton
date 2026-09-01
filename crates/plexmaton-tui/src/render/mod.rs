@@ -16,7 +16,7 @@ use chrome::{
 use crate::{
     ViewState, content,
     layout::{self, LayoutClass, WorkspaceInput},
-    state::ScrollPosition,
+    state::{ScrollPosition, inner_width},
     surface::{KeyboardFocus, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     theme::{Palette, Role},
     transcript::TranscriptMetrics,
@@ -51,7 +51,7 @@ pub fn render(
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
             attention: state.attention_count(),
-            composer_rows: state.composer_rows(),
+            composer_rows: state.composer_rows(area.width),
             inspector: state.inspector_request(),
         },
     );
@@ -84,7 +84,7 @@ pub fn render(
             }),
             SurfaceId::Inspector => Some(Panel {
                 body: Body::Whole {
-                    lines: content::inspector(state, palette, has_focus),
+                    lines: content::inspector(state, palette, has_focus, inner_width(bounds.width)),
                     // The steer input is the newest thing in it, so an untouched inspector shows
                     // the end of its content rather than the top.
                     follows_tail: has_focus,
@@ -133,7 +133,7 @@ pub fn render(
             }),
             SurfaceId::Composer => Some(Panel {
                 body: Body::Whole {
-                    lines: content::composer(state, palette, has_focus),
+                    lines: content::composer(state, palette, has_focus, inner_width(bounds.width)),
                     follows_tail: true,
                 },
                 title: composer_title(state),

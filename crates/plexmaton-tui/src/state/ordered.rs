@@ -10,15 +10,28 @@ pub(super) struct OrderedById<K, V> {
     entries: BTreeMap<K, V>,
 }
 
-impl<K: Clone + Ord, V> OrderedById<K, V> {
+impl<K: Clone + Ord, V: PartialEq> OrderedById<K, V> {
     pub(super) fn contains(&self, key: &K) -> bool {
         self.entries.contains_key(key)
     }
 
     /// Appends a new entry, or replaces an existing one without moving its position.
-    pub(super) fn upsert(&mut self, key: K, value: V) {
-        if self.entries.insert(key.clone(), value).is_none() {
-            self.order.push(key);
+    ///
+    /// Returns whether the collection now says anything different. A producer that repeats an
+    /// entry's current state is reporting rather than changing, and FR-1 makes that distinction the
+    /// renderer's: an event that alters nothing visible must not cost a frame.
+    pub(super) fn upsert(&mut self, key: K, value: V) -> bool {
+        match self.entries.get_mut(&key) {
+            Some(existing) if *existing == value => false,
+            Some(existing) => {
+                *existing = value;
+                true
+            }
+            None => {
+                self.entries.insert(key.clone(), value);
+                self.order.push(key);
+                true
+            }
         }
     }
 
@@ -69,11 +82,15 @@ mod tests {
     #[test]
     fn upsert_replaces_in_place_without_moving_or_duplicating() {
         let mut collection = OrderedById::default();
-        collection.upsert("z", 1);
-        collection.upsert("a", 2);
-        collection.upsert("z", 3);
+        assert!(collection.upsert("z", 1));
+        assert!(collection.upsert("a", 2));
+        assert!(collection.upsert("z", 3));
 
         assert_eq!(collection.iter().copied().collect::<Vec<_>>(), [3, 2]);
         assert_eq!(collection.len(), 2);
+        assert!(
+            !collection.upsert("z", 3),
+            "repeating an entry's current state changes nothing, and must say so (FR-1)"
+        );
     }
 }

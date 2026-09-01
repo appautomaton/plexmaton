@@ -26,7 +26,11 @@ pub enum IdError {
 macro_rules! stable_id {
     ($name:ident, $kind:literal) => {
         #[doc = concat!("Stable identity for a ", $kind, ".")]
-        #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+        ///
+        /// The constructor is the only way in, deserialization included. A derived `Deserialize`
+        /// would have let `""` through the inner string while `new` still refused it, which is an
+        /// invariant that holds only on the paths that happen to use the constructor.
+        #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
         #[serde(transparent)]
         pub struct $name(String);
 
@@ -44,6 +48,27 @@ macro_rules! stable_id {
             #[must_use]
             pub fn as_str(&self) -> &str {
                 &self.0
+            }
+        }
+
+        impl TryFrom<String> for $name {
+            type Error = IdError;
+
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                Self::new(value)
+            }
+        }
+
+        // Written out rather than derived, because `serde(transparent)` and `serde(try_from)`
+        // cannot both describe the same type: the wire form is a bare string either way, and only
+        // this spelling puts the constructor on the decoding path.
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = String::deserialize(deserializer)?;
+                Self::new(value).map_err(serde::de::Error::custom)
             }
         }
 
@@ -271,6 +296,25 @@ mod tests {
         assert_eq!(
             AgentId::new("  \t"),
             Err(IdError::Empty { kind: "agent id" })
+        );
+    }
+
+    /// An invariant that only holds on the paths that use the constructor is not an invariant.
+    ///
+    /// This crate is the contract an out-of-process producer writes to, so decoding is one of those
+    /// paths. Asserted through a whole event as well as a bare identity, because the event is the
+    /// shape a producer actually sends and a nested field is where a bypass would go unnoticed.
+    #[test]
+    fn an_identity_cannot_be_deserialized_past_its_constructor() {
+        assert!(serde_json::from_str::<AgentId>(r#""agent-a""#).is_ok());
+        assert!(serde_json::from_str::<AgentId>(r#""""#).is_err());
+        assert!(serde_json::from_str::<AgentId>(r#""   ""#).is_err());
+        assert!(
+            serde_json::from_str::<PrototypeEventEnvelope>(
+                r#"{"sequence":1,"event":{"type":"agent_created","agent_id":"","label":"x","status":"idle"}}"#
+            )
+            .is_err(),
+            "and the same holds for an identity nested in the event a producer sends"
         );
     }
 

@@ -634,6 +634,52 @@ mod tests {
     /// carries the inspected agent's steer input and focus is the only thing deciding which of the
     /// two has the caret.
     ///
+    /// COM-1: the one cursor is where the text ends, at a width that made the draft wrap.
+    ///
+    /// Driven through the real frame rather than through the composer, because the defect this
+    /// pins lived in the join: the composer measured itself in newlines, the panel wrapped what it
+    /// was given, and the caret was placed against the unwrapped last line. At 60 columns a long
+    /// draft painted its tail ending at column 34 while the caret sat at column 59 — on the right
+    /// border, which is not a cell any character can be typed into.
+    #[test]
+    fn a_wrapped_draft_puts_the_caret_at_the_end_of_the_text_not_on_the_border() {
+        let (mut workspace, mut terminal) = drawn(60, 24);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        // No spaces, so the wrap point is arithmetic rather than a word boundary, and the row the
+        // caret must land on is one this test can compute rather than guess.
+        for character in "x".repeat(150).chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        let cursor = terminal
+            .get_cursor_position()
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        let inside = composer.width.saturating_sub(2);
+        // 150 characters at 58 columns is two full rows and a third holding the remainder.
+        let tail = 150_u16 % inside;
+
+        assert_eq!(composer.height, 5, "three wrapped rows and two borders");
+        assert_eq!(
+            cursor.x,
+            composer.x + 1 + tail,
+            "the caret sits after the last character, not against the border"
+        );
+        assert!(
+            cursor.x < composer.right() - 1,
+            "and the border is not a cell the caret may occupy"
+        );
+        assert_eq!(
+            cursor.y,
+            composer.bottom() - 2,
+            "on the last of the three wrapped rows, which is the one being typed into"
+        );
+    }
+
     /// Every event is followed by a frame, the way the loop runs them. Focus cycles against the
     /// tree the last frame drew (FR-3), so batching two focus changes without a frame between
     /// would be asking the ring about a surface that had not been registered yet.

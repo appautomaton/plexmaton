@@ -40,8 +40,12 @@ impl AttentionQueue {
     /// Records a request, coalescing onto an existing one with the same identity.
     ///
     /// A repeated request arrives unacknowledged, because an agent that asks again is asking again.
-    pub(super) fn request(&mut self, item: AttentionView) {
-        self.items.upsert(item.id.clone(), item);
+    ///
+    /// Reports whether the queue now reads differently. Re-sending a request the user has not been
+    /// to yet says nothing new, and re-sending one they had seen un-acknowledges it — which is a
+    /// change, and the one that makes ATT-3 visible.
+    pub(super) fn request(&mut self, item: AttentionView) -> bool {
+        self.items.upsert(item.id.clone(), item)
     }
 
     /// Iterates queued requests in arrival order.

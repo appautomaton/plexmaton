@@ -115,7 +115,7 @@ impl AgentView {
         if self.items.contains(&item_id) {
             return Err(ReduceError::DuplicateTranscriptItem(item_id));
         }
-        self.items.upsert(
+        let _added = self.items.upsert(
             item_id.clone(),
             TranscriptItemView {
                 id: item_id,
@@ -129,6 +129,13 @@ impl AgentView {
     }
 
     /// Appends streamed text to an open transcript item.
+    ///
+    /// `finalized` is checked before the revision, and it is checked at all because
+    /// `TranscriptItemFinalized` is specified as "will receive no further deltas" — a claim the
+    /// projection was recording and not enforcing. A producer that streams after finalizing had its
+    /// text land silently, which is the one contract violation the notice log could not report.
+    /// Refused first because "this item is closed" is the useful answer even when the revision is
+    /// also wrong.
     pub(super) fn append_delta(
         &mut self,
         item_id: &TranscriptItemId,
@@ -136,44 +143,63 @@ impl AgentView {
         text: &str,
     ) -> Result<(), ReduceError> {
         let item = self.item_mut(item_id)?;
+        if item.finalized {
+            return Err(ReduceError::ItemAlreadyFinalized(item.id.clone()));
+        }
         item.advance_revision(item_revision)?;
         item.source.push_str(text);
         Ok(())
     }
 
     /// Closes a transcript item to further deltas.
+    ///
+    /// Closing a closed item is refused rather than absorbed. It is not harmless: a second
+    /// finalization consumes a revision, so every later event for the item is judged against a
+    /// number the producer did not intend, and what the user would see is an unexplained gap.
     pub(super) fn finalize_item(
         &mut self,
         item_id: &TranscriptItemId,
         item_revision: u64,
     ) -> Result<(), ReduceError> {
         let item = self.item_mut(item_id)?;
+        if item.finalized {
+            return Err(ReduceError::ItemAlreadyFinalized(item.id.clone()));
+        }
         item.advance_revision(item_revision)?;
         item.finalized = true;
         Ok(())
     }
 
     /// Creates or updates one tool activity, keeping its arrival position.
+    ///
+    /// These three all report whether the collection now says anything different, because a
+    /// producer polling a tool's state re-sends the state it last sent and FR-1 says that costs no
+    /// frame.
     pub(super) fn set_tool_activity(
         &mut self,
         id: ToolActivityId,
         label: String,
         status: ToolActivityStatus,
-    ) {
+    ) -> bool {
         self.tools
-            .upsert(id.clone(), ToolActivityView { id, label, status });
+            .upsert(id.clone(), ToolActivityView { id, label, status })
     }
 
     /// Records a published artifact.
-    pub(super) fn announce_artifact(&mut self, id: ArtifactId, label: String, pointer: String) {
+    pub(super) fn announce_artifact(
+        &mut self,
+        id: ArtifactId,
+        label: String,
+        pointer: String,
+    ) -> bool {
         self.artifacts
-            .upsert(id.clone(), ArtifactView { id, label, pointer });
+            .upsert(id.clone(), ArtifactView { id, label, pointer })
     }
 
     /// Adds one mail item to this agent's inbox.
-    pub(super) fn deliver_mail(&mut self, id: MailId, from: AgentId, summary: String) {
+    pub(super) fn deliver_mail(&mut self, id: MailId, from: AgentId, summary: String) -> bool {
         self.inbox
-            .upsert(id.clone(), MailView { id, from, summary });
+            .upsert(id.clone(), MailView { id, from, summary })
     }
 
     fn item_mut(
@@ -235,6 +261,36 @@ mod tests {
         // The rejected delta must not have appended its text.
         let sources: Vec<_> = agent.transcript().map(|i| i.source.as_str()).collect();
         assert_eq!(sources, ["one "]);
+    }
+
+    /// The event contract says a finalized item receives no further deltas. Now the projection does.
+    #[test]
+    fn a_delta_after_finalization_is_refused_and_the_text_does_not_land() {
+        let mut agent = agent();
+        agent
+            .start_item(item("i1"), TranscriptRole::Assistant)
+            .unwrap_or_else(|error| panic!("start: {error}"));
+        agent
+            .append_delta(&item("i1"), 1, "hello")
+            .unwrap_or_else(|error| panic!("delta: {error}"));
+        agent
+            .finalize_item(&item("i1"), 2)
+            .unwrap_or_else(|error| panic!("finalize: {error}"));
+
+        assert!(matches!(
+            agent.append_delta(&item("i1"), 3, " and more"),
+            Err(ReduceError::ItemAlreadyFinalized(_))
+        ));
+        assert!(
+            matches!(
+                agent.finalize_item(&item("i1"), 3),
+                Err(ReduceError::ItemAlreadyFinalized(_))
+            ),
+            "and a second finalization is refused too, rather than consuming a revision"
+        );
+
+        let sources: Vec<_> = agent.transcript().map(|i| i.source.as_str()).collect();
+        assert_eq!(sources, ["hello"], "the refused text must not have landed");
     }
 
     #[test]

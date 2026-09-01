@@ -45,6 +45,10 @@ impl ViewState {
             if held_focus {
                 self.focus.prefer(SurfaceId::Transcript);
             }
+            // Unreachable through this ladder, whose first rung already took any selection. Kept so
+            // that SEL-3 is guaranteed by every path that changes what a surface shows, rather than
+            // by the order of the rungs above it.
+            let _pruned = self.prune_selection();
             self.touch();
         }
         dismissed
@@ -60,8 +64,12 @@ impl ViewState {
             // surface arrives with the next frame; a focus preference is resolved then, not now.
             InspectorIntent::Open => match self.agents.selected().map(|agent| agent.id.clone()) {
                 Some(agent_id) => {
+                    // Re-pointing an open inspector at another agent is the second way the surface
+                    // under a selection changes what it is showing, alongside the roster moving
+                    // (SEL-3).
                     let opened = self.inspector.show(agent_id);
-                    self.focus.prefer(SurfaceId::Inspector) || opened
+                    let pruned = opened && self.prune_selection();
+                    self.focus.prefer(SurfaceId::Inspector) || opened || pruned
                 }
                 None => false,
             },

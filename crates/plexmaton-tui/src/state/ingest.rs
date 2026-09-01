@@ -26,6 +26,8 @@ pub enum ReduceError {
     DuplicateTranscriptItem(TranscriptItemId),
     #[error("unknown transcript item: {0}")]
     UnknownTranscriptItem(TranscriptItemId),
+    #[error("transcript item already finalized: {0}")]
+    ItemAlreadyFinalized(TranscriptItemId),
     #[error("item revision gap for {item_id}: expected {expected}, received {received}")]
     ItemRevisionGap {
         item_id: TranscriptItemId,
@@ -73,8 +75,13 @@ impl ViewState {
         }
 
         let outcome = match self.apply_event(envelope.event) {
-            Ok(()) => {
-                self.touch();
+            Ok(changed) => {
+                // Accepted is not the same as changed. A producer that re-sends an agent's current
+                // status or a tool's current state is reporting rather than transitioning, and
+                // FR-1 says traffic that alters nothing visible costs no frame at all.
+                if changed {
+                    self.touch();
+                }
                 ApplyOutcome::Accepted
             }
             Err(error) => {
@@ -89,36 +96,56 @@ impl ViewState {
         outcome
     }
 
-    fn apply_event(&mut self, event: PrototypeEvent) -> Result<(), ReduceError> {
-        match event {
+    /// Applies one accepted event, reporting whether it changed anything the user can see.
+    ///
+    /// Three arms always report a change even though the change may be invisible in the frame that
+    /// follows. A transcript delta bumps the item's revision, which is the wrapping cache's key, so
+    /// even an empty one invalidates a measured height; finalizing closes the item to further
+    /// deltas; and starting one adds an item. Each is state a later frame reads, which is the test
+    /// FR-1 actually asks — not whether a glyph moved.
+    fn apply_event(&mut self, event: PrototypeEvent) -> Result<bool, ReduceError> {
+        let changed = match event {
             PrototypeEvent::AgentCreated {
                 agent_id,
                 label,
                 status,
-            } => self.agents.add(agent_id, label, status)?,
+            } => {
+                self.agents.add(agent_id, label, status)?;
+                true
+            }
             PrototypeEvent::AgentStatusChanged { agent_id, status } => {
-                self.agent_mut(&agent_id)?.status = status;
+                let agent = self.agent_mut(&agent_id)?;
+                let moved = agent.status != status;
+                agent.status = status;
+                moved
             }
             PrototypeEvent::TranscriptItemStarted {
                 agent_id,
                 item_id,
                 role,
-            } => self.agent_mut(&agent_id)?.start_item(item_id, role)?,
+            } => {
+                self.agent_mut(&agent_id)?.start_item(item_id, role)?;
+                true
+            }
             PrototypeEvent::TranscriptDelta {
                 agent_id,
                 item_id,
                 item_revision,
                 text,
-            } => self
-                .agent_mut(&agent_id)?
-                .append_delta(&item_id, item_revision, &text)?,
+            } => {
+                self.agent_mut(&agent_id)?
+                    .append_delta(&item_id, item_revision, &text)?;
+                true
+            }
             PrototypeEvent::TranscriptItemFinalized {
                 agent_id,
                 item_id,
                 item_revision,
-            } => self
-                .agent_mut(&agent_id)?
-                .finalize_item(&item_id, item_revision)?,
+            } => {
+                self.agent_mut(&agent_id)?
+                    .finalize_item(&item_id, item_revision)?;
+                true
+            }
             PrototypeEvent::ToolActivityChanged {
                 agent_id,
                 activity_id,
@@ -144,7 +171,7 @@ impl ViewState {
                     // A producer cannot deliver an already-seen request, and a repeat of one the
                     // user had seen is a fresh ask (ATT-3).
                     acknowledged: false,
-                });
+                })
             }
             PrototypeEvent::MailDelivered {
                 mail_id,
@@ -161,10 +188,12 @@ impl ViewState {
                 .agent_mut(&agent_id)?
                 .announce_artifact(artifact_id, label, pointer),
             PrototypeEvent::RuntimeWarning { message } => {
+                // A notice is visible, and pushing one repaints on its own account.
                 self.push_notice(NoticeView::RuntimeWarning { message });
+                false
             }
-        }
-        Ok(())
+        };
+        Ok(changed)
     }
 
     fn push_notice(&mut self, notice: NoticeView) {
@@ -182,6 +211,7 @@ impl ViewState {
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
+        ToolActivityId, ToolActivityStatus,
     };
 
     use super::{ApplyOutcome, ReduceError};
@@ -318,6 +348,53 @@ mod tests {
             .select_agent(&agent_id("agent-b"))
             .unwrap_or_else(|error| panic!("agent exists: {error}"));
         assert!(state.revision() > after_apply);
+    }
+
+    /// FR-1: producer traffic that alters nothing visible costs no frame at all.
+    ///
+    /// A real runtime polls. It re-reports an agent that is still running and a tool that is still
+    /// executing, and until now every one of those forced a repaint — so a workspace watching four
+    /// busy agents redrew continuously while saying exactly the same thing.
+    #[test]
+    fn a_repeated_status_or_tool_state_costs_no_frame() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        let tool = |status| PrototypeEvent::ToolActivityChanged {
+            agent_id: agent_id("agent-a"),
+            activity_id: ToolActivityId::new("tool-1")
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+            label: "read".to_owned(),
+            status,
+        };
+        state.apply(envelope(2, tool(ToolActivityStatus::Running)));
+        let quiet = state.revision();
+
+        assert_eq!(
+            state.apply(envelope(
+                3,
+                PrototypeEvent::AgentStatusChanged {
+                    agent_id: agent_id("agent-a"),
+                    status: AgentStatus::Running,
+                }
+            )),
+            ApplyOutcome::Accepted,
+            "the event is well formed, so it is accepted; what it is not is a change"
+        );
+        state.apply(envelope(4, tool(ToolActivityStatus::Running)));
+        assert_eq!(state.revision(), quiet);
+
+        // The same two events carrying an actual transition must still repaint.
+        state.apply(envelope(
+            5,
+            PrototypeEvent::AgentStatusChanged {
+                agent_id: agent_id("agent-a"),
+                status: AgentStatus::Waiting,
+            },
+        ));
+        assert!(state.revision() > quiet);
+        let waiting = state.revision();
+        state.apply(envelope(6, tool(ToolActivityStatus::Succeeded)));
+        assert!(state.revision() > waiting);
     }
 
     #[test]
