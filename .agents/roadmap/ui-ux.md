@@ -355,7 +355,7 @@ Reproduce with `cargo run --release -p plexmaton-cli --bin plexmaton-measure`. T
 these numbers is [`specs/frame-loop.md`](../specs/frame-loop.md); the split between what is asserted
 and what is merely observed is FR-3 there, and it is the reason this table has two kinds of column.
 
-Observed on an Apple M-series laptop, release profile, 120 × 40, over a 5,000-message conversation —
+Observed on an `arm64` macOS machine, release profile, 120 × 40, over a 5,000-message conversation —
 the worst of the two scales the command runs. Targets are chosen against a 16 ms frame, so a
 budget spent is a frame the user waits for.
 
