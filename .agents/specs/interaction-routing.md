@@ -56,6 +56,12 @@ is not routed to any surface, so the terminal's own selection keeps working over
 **INV-9 — Geometry is an intent.** A terminal resize produces an intent like any other event, so no
 other component needs to observe raw terminal events to stay correct.
 
+**INV-10 — A navigation key means "move inside what holds focus".** Which list an arrow moves is a
+fact about the focused surface, not a global binding: it chooses an agent only in the rail, moves the
+queue's cursor only in the queue, and everywhere else scrolls the surface the user is in. That last
+case is also what gives the wheel the keyboard equivalent `ui-ux.md` §user control requires of every
+mouse gesture.
+
 ## Model
 
 ```text
@@ -72,6 +78,8 @@ crossterm::Event ──▶ Router::translate(event, RouterContext) ──▶ Rou
 | Keyboard focus | View state, passed in as `RouterContext::focus` | A second copy in the router is a second source of truth |
 | Surface geometry and z-order | `SurfaceTree`, borrowed by `RouterContext` | Hit testing must read the same tree the renderer laid out |
 | Whether a dismissible layer is open | View state, passed in as `RouterContext::dismissible` | Same reason as focus |
+| Which surface holds focus | View state, passed in as `RouterContext::focused` | `focus` says whether a cursor exists; this says where the user is, and INV-10 needs both |
+| Which layer `Escape` resolves next | View state | The router asks only whether *anything* is there (`dismissible`, `selecting`); ranking the rungs in two places is how the two drift |
 
 `RouterContext` is a read-only snapshot. The router mutates only its own capture.
 
@@ -149,6 +157,7 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
+| INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection` |
 
-Every intent has a consumer in the executable. `Dismiss` was the last one without, and delivery
-step 7 gave it the phase's one dismissible surface.
+Every intent has a consumer in the executable, and every one is reachable from a keyboard alone —
+which the canonical journey exercises end to end in `plexmaton-tui::journey`.

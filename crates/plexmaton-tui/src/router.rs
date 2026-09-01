@@ -10,8 +10,11 @@ use ratatui::crossterm::event::{
 };
 
 use crate::{
-    intent::{Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
-    surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree},
+    intent::{
+        AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
+        SelectionIntent, TextIntent, TuiIntent,
+    },
+    surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
 };
 
 /// Read-only view facts the router reads but does not own.
@@ -24,8 +27,15 @@ pub struct RouterContext<'a> {
     pub surfaces: &'a SurfaceTree,
     /// Where typed text would go right now.
     pub focus: KeyboardFocus,
+    /// Which surface holds keyboard focus, resolved against the frame that was drawn.
+    ///
+    /// `focus` says whether a cursor exists; this says where the user is. Both are needed because a
+    /// navigation key means "move within the thing I am in", and there is more than one thing.
+    pub focused: Option<SurfaceId>,
     /// Whether a dismissible layer is open above the workspace.
     pub dismissible: bool,
+    /// Whether the user has a selection, which is a rung of the `Escape` ladder above that layer.
+    pub selecting: bool,
 }
 
 /// Why a terminal event produced no intent.
@@ -44,7 +54,7 @@ pub enum Ignored {
     NoCapture,
     /// `Escape` with no drag to cancel and nothing dismissible.
     NothingToDismiss,
-    /// The wheel was over the workspace, but nothing under it had anywhere to scroll.
+    /// The surface addressed by the wheel or by an arrow had nowhere to scroll.
     NothingScrollable,
     /// The modifier escape hatch: this event belongs to the terminal's own selection.
     TerminalSelection,
@@ -95,7 +105,7 @@ impl Router {
             return Routed::Intent(TuiIntent::Quit);
         }
 
-        if let Some(intent) = inspector_chord(key) {
+        if let Some(intent) = inspector_chord(key).or_else(|| selection_chord(key)) {
             return Routed::Intent(intent);
         }
 
@@ -121,7 +131,9 @@ impl Router {
         if let Some(surface) = self.capture.take() {
             return Routed::Intent(TuiIntent::Pointer(PointerIntent::Cancel { surface }));
         }
-        if context.dismissible {
+        // One intent for both remaining rungs: which of them is innermost is a fact about the
+        // projection, and the router owning a second opinion about it is how the two drift.
+        if context.selecting || context.dismissible {
             return Routed::Intent(TuiIntent::Dismiss);
         }
         Routed::Ignored(Ignored::NothingToDismiss)
@@ -229,6 +241,28 @@ fn inspector_chord(key: KeyEvent) -> Option<TuiIntent> {
     Some(TuiIntent::Inspector(intent))
 }
 
+/// Selection chords, which resolve before keyboard focus is consulted.
+///
+/// Before the split for the same reason the inspector's are: the inspector holds a text input while
+/// it is focused, and its artifacts and mail would otherwise be the one content in the workspace
+/// that cannot be selected by keyboard. `Shift` with an arrow produces no character, so nothing here
+/// can be text.
+///
+/// Copy is `Ctrl-Y` and not `Ctrl-C`, because `Ctrl-C` is the unconditional exit (INV-7) and a key
+/// that sometimes copies and sometimes ends the session is worse than an unfamiliar one. The cost is
+/// real, and the `Shift` escape hatch to the terminal's own copy is what covers the habit.
+fn selection_chord(key: KeyEvent) -> Option<TuiIntent> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let intent = match key.code {
+        KeyCode::Down if shift && !control => SelectionIntent::Extend(Direction::Forward),
+        KeyCode::Up if shift && !control => SelectionIntent::Extend(Direction::Backward),
+        KeyCode::Char('y') if control && !shift => SelectionIntent::Copy,
+        _ => return None,
+    };
+    Some(TuiIntent::Selection(intent))
+}
+
 /// Keys addressed to a navigational surface, where no cursor exists.
 fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
     if !key.modifiers.is_empty() {
@@ -237,16 +271,52 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
     match key.code {
         // Quitting must not be the way a dismissible layer gets closed.
         KeyCode::Char('q') if !context.dismissible => Routed::Intent(TuiIntent::Quit),
+        // `Enter` means "open what I am on". In the queue that is a request, and going to it is
+        // the user choosing to, which is the only way a background request ever moves anything.
+        KeyCode::Enter if context.focused == Some(SurfaceId::Attention) => {
+            Routed::Intent(TuiIntent::Attention(AttentionIntent::GoTo))
+        }
         // Opening is explicit and never a side effect of moving around (D-026). It does not move
         // the selection: inspection is its own axis, which is what puts two agents on screen.
         KeyCode::Enter => Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open)),
         KeyCode::Down | KeyCode::Char('j') => {
-            Routed::Intent(TuiIntent::MoveSelection(Direction::Forward))
+            step(Direction::Forward, ScrollDirection::Down, context)
         }
-        KeyCode::Up | KeyCode::Char('k') => {
-            Routed::Intent(TuiIntent::MoveSelection(Direction::Backward))
-        }
+        KeyCode::Up | KeyCode::Char('k') => step(Direction::Backward, ScrollDirection::Up, context),
         _ => Routed::Ignored(Ignored::Unbound),
+    }
+}
+
+/// One step down or up, meaning whatever "down" means inside the surface that holds focus.
+///
+/// The rail is the only navigational surface made of choices, so it is the only one where an arrow
+/// moves a selection; everywhere else the content is longer than the region and an arrow is the
+/// keyboard equivalent of the wheel, which `ui-ux.md` §user control requires every gesture to have.
+///
+/// Before this, arrows moved the agent selection from any navigational surface. That was defensible
+/// with one list on screen and stops being so with two, and it left the wheel as the workspace's
+/// only interaction with no keyboard equivalent.
+fn step(list: Direction, wheel: ScrollDirection, context: &RouterContext<'_>) -> Routed {
+    match context.focused {
+        Some(SurfaceId::Agents) => Routed::Intent(TuiIntent::MoveSelection(list)),
+        Some(SurfaceId::Attention) => {
+            Routed::Intent(TuiIntent::Attention(AttentionIntent::Move(list)))
+        }
+        Some(surface) => {
+            if context
+                .surfaces
+                .viewport(surface)
+                .is_some_and(Viewport::is_scrollable)
+            {
+                Routed::Intent(TuiIntent::Scroll {
+                    surface,
+                    direction: wheel,
+                })
+            } else {
+                Routed::Ignored(Ignored::NothingScrollable)
+            }
+        }
+        None => Routed::Ignored(Ignored::Unbound),
     }
 }
 
@@ -297,7 +367,17 @@ mod tests {
         tree
     }
 
+    /// Focus on the agent rail, which is where an arrow means "another agent".
     fn context(
+        surfaces: &SurfaceTree,
+        focus: KeyboardFocus,
+        dismissible: bool,
+    ) -> RouterContext<'_> {
+        focused_on(SurfaceId::Agents, surfaces, focus, dismissible)
+    }
+
+    fn focused_on(
+        focused: SurfaceId,
         surfaces: &SurfaceTree,
         focus: KeyboardFocus,
         dismissible: bool,
@@ -305,7 +385,9 @@ mod tests {
         RouterContext {
             surfaces,
             focus,
+            focused: Some(focused),
             dismissible,
+            selecting: false,
         }
     }
 
@@ -384,6 +466,57 @@ mod tests {
                 &context(&surfaces, KeyboardFocus::TextInput, false)
             ),
             Routed::Intent(TuiIntent::Text(TextIntent::Insert('J')))
+        );
+    }
+
+    /// INV-10: an arrow moves within whatever holds focus, and the wheel finally has a keyboard
+    /// equivalent.
+    #[test]
+    fn an_arrow_moves_the_rail_and_scrolls_everything_else() {
+        let surfaces = tree();
+        let mut router = Router::default();
+        let down = key(KeyCode::Down, KeyModifiers::NONE);
+
+        assert_eq!(
+            router.translate(&down, &context(&surfaces, KeyboardFocus::Navigation, false)),
+            Routed::Intent(TuiIntent::MoveSelection(Direction::Forward)),
+            "the rail is the one navigational surface made of choices"
+        );
+        assert_eq!(
+            router.translate(
+                &down,
+                &focused_on(PANEL, &surfaces, KeyboardFocus::Navigation, false)
+            ),
+            Routed::Intent(TuiIntent::Scroll {
+                surface: PANEL,
+                direction: ScrollDirection::Down,
+            }),
+            "elsewhere an arrow is the wheel, addressed to where the user is"
+        );
+        assert_eq!(
+            router.translate(
+                &key(KeyCode::Char('k'), KeyModifiers::NONE),
+                &focused_on(OVERLAY, &surfaces, KeyboardFocus::Navigation, false)
+            ),
+            Routed::Intent(TuiIntent::Scroll {
+                surface: OVERLAY,
+                direction: ScrollDirection::Up,
+            }),
+            "the vim keys mean exactly what the arrows mean, or they are a second grammar"
+        );
+        assert_eq!(
+            router.translate(
+                &down,
+                // Registered by no frame, so it has no viewport and nowhere to go.
+                &focused_on(
+                    SurfaceId::Composer,
+                    &surfaces,
+                    KeyboardFocus::Navigation,
+                    false
+                )
+            ),
+            Routed::Ignored(Ignored::NothingScrollable),
+            "a surface with nowhere to scroll declines by name rather than moving the rail"
         );
     }
 

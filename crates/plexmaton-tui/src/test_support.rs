@@ -123,7 +123,12 @@ impl Conversation {
         self
     }
 
-    fn emit(&mut self, event: PrototypeEvent) {
+    /// Emits one event at the next sequence number, and insists the projection accepted it.
+    ///
+    /// Public because the counter is the reason this fixture exists: a test that builds its own
+    /// envelope has to guess the sequence, and a guess produces a notice log rather than a
+    /// transcript, with an assertion failure that says nothing about why.
+    pub fn emit(&mut self, event: PrototypeEvent) {
         self.sequence = self.sequence.saturating_add(1);
         let envelope = PrototypeEventEnvelope {
             sequence: EventSequence::new(self.sequence),

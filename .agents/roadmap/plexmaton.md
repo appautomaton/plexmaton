@@ -7,7 +7,7 @@
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
 | Primary language | Rust |
 | TUI foundation | Ratatui + Crossterm |
-| Active phase | [Phase 00 — Experience Skeleton](./phase-00-experience-skeleton.md) |
+| Active phase | Phase 01 — Session and Provider Core; [Phase 00](./phase-00-experience-skeleton.md) passed its exit gate on 2026-08-31 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Decision index | [DECISIONS.md](../DECISIONS.md) |
 | Mechanism specs | [specs/](../specs/README.md) |
@@ -22,7 +22,7 @@ Phases are named with two digits everywhere — `Phase 00`, not `Phase 0` — so
 
 | Phase | Purpose | Detail status |
 | --- | --- | --- |
-| 00 | Validate the experience and architectural event boundaries with synthetic agents | [Active and expanded](./phase-00-experience-skeleton.md) |
+| 00 | Validate the experience and architectural event boundaries with synthetic agents | [Complete](./phase-00-experience-skeleton.md); the handoff is its last section |
 | 01 | Canonical session state and the three provider transports | Summary only |
 | 02 | Tools, context projection, persistence, and MCP | Summary only |
 | 03 | Durable multi-agent mailbox and runtime ownership | Summary only |
@@ -35,7 +35,7 @@ comparisons rather than delivered capability:
 
 | Track | Purpose | Status |
 | --- | --- | --- |
-| [Math rendering](./track-math-rendering.md) | Select the math layout engine and both display transports | Not started; blocked on the Phase 00 viewport |
+| [Math rendering](./track-math-rendering.md) | Select the math layout engine and both display transports | Not started; **unblocked** on 2026-08-31 by the Phase 00 viewport |
 
 ## Product thesis
 
@@ -110,8 +110,10 @@ Mathematical content has one semantic source and one typeset layout. We do **not
 
 The invariants above are locked. Engine and transport selection is delegated to the
 [math rendering track](./track-math-rendering.md), which owns the comparison corpus, the
-candidates, and the decision criteria. It is blocked on the Phase 00 viewport, because clipping,
-partial scrolling, and source copy are the properties that actually decide the engine.
+candidates, and the decision criteria. It was blocked on the Phase 00 viewport, because partial
+scrolling and source copy are the properties that actually decide the engine; both now exist, and
+what the track has to design first is an item kind that can report a provisional height and revise
+it, which is the shape a pending render has and nothing in Phase 00 needed.
 
 ## Proposed system boundaries
 

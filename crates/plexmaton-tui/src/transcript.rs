@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::{AgentView, TranscriptItemView, content, theme::Palette};
+use crate::{AgentView, TranscriptItemView, content, state::Selected, theme::Palette};
 
 /// Where a reader is parked in one conversation.
 ///
@@ -183,12 +183,18 @@ impl TranscriptMetrics {
         agent: &AgentView,
         palette: &Palette,
         window: &Window,
+        selected: Selected,
     ) -> Vec<Line<'static>> {
         let lines: Vec<_> = agent
             .transcript()
+            .enumerate()
             .skip(window.items.start)
             .take(window.items.len())
-            .flat_map(|item| content::transcript_item(item, palette))
+            // The index is the item's position in the whole conversation, not in this window: a
+            // selection names entries, and a window is only which of them this frame paints.
+            .flat_map(|(index, item)| {
+                content::transcript_item(item, palette, selected.contains(index))
+            })
             .collect();
         self.built = self.built.saturating_add(lines.len());
         lines
@@ -267,8 +273,10 @@ fn wrap_rows(item: &TranscriptItemView, palette: &Palette, width: u16) -> u16 {
     if width == 0 {
         return 0;
     }
+    // Measured unselected, deliberately: selection changes a style and never a character, so a
+    // height that depended on it would invalidate the cache on every arrow press for no reason.
     let paragraph =
-        Paragraph::new(content::transcript_item(item, palette)).wrap(Wrap { trim: false });
+        Paragraph::new(content::transcript_item(item, palette, false)).wrap(Wrap { trim: false });
     u16::try_from(paragraph.line_count(width)).unwrap_or(u16::MAX)
 }
 
@@ -364,7 +372,7 @@ mod tests {
             metrics.measure(agent(state), &palette, width);
             let whole: Vec<_> = agent(state)
                 .transcript()
-                .flat_map(|item| content::transcript_item(item, &palette))
+                .flat_map(|item| content::transcript_item(item, &palette, false))
                 .collect();
             let together = Paragraph::new(whole)
                 .wrap(Wrap { trim: false })

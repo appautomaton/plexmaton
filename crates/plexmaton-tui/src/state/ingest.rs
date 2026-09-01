@@ -141,6 +141,9 @@ impl ViewState {
                     agent_id,
                     kind,
                     summary,
+                    // A producer cannot deliver an already-seen request, and a repeat of one the
+                    // user had seen is a fresh ask (ATT-3).
+                    acknowledged: false,
                 });
             }
             PrototypeEvent::MailDelivered {

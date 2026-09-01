@@ -9,8 +9,8 @@ use unicode_width::UnicodeWidthStr;
 mod chrome;
 
 use chrome::{
-    agents_title, attention_role, block, composer_title, inspector_title, notices_title,
-    render_footer, render_too_small, transcript_title,
+    agents_title, attention_role, attention_title, block, composer_title, inspector_title,
+    notices_title, render_footer, render_too_small, transcript_title,
 };
 
 use crate::{
@@ -50,6 +50,7 @@ pub fn render(
         area,
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
+            attention: state.attention_count(),
             composer_rows: state.composer_rows(),
             inspector: state.inspector_request(),
         },
@@ -108,6 +109,17 @@ pub fn render(
                 },
                 title: notices_title(state),
                 title_role: Role::Muted,
+                bordered: true,
+            }),
+            SurfaceId::Attention => Some(Panel {
+                body: Body::Whole {
+                    lines: content::attention(state, palette),
+                    // Oldest first, and the oldest unanswered request is the one that has been
+                    // waiting longest: this band opens at its head, not at its tail.
+                    follows_tail: false,
+                },
+                title: attention_title(state),
+                title_role: attention_role(state),
                 bordered: true,
             }),
             SurfaceId::Composer if bounds.height <= 1 => Some(Panel {
@@ -233,7 +245,12 @@ fn transcript_body(
     let window = metrics.window(&agent.id, viewport.offset, visible_rows);
 
     Body::Window {
-        lines: metrics.build(agent, palette, &window),
+        lines: metrics.build(
+            agent,
+            palette,
+            &window,
+            state.selected_in(SurfaceId::Transcript, &agent.id),
+        ),
         skip_rows: window.skip_rows,
         viewport,
     }
@@ -430,7 +447,7 @@ mod tests {
             .selected_agent()
             .unwrap_or_else(|| panic!("the canonical timeline selects an agent"))
             .transcript()
-            .flat_map(|item| crate::content::transcript_item(item, palette))
+            .flat_map(|item| crate::content::transcript_item(item, palette, false))
             .collect();
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -736,7 +753,11 @@ mod tests {
     fn every_registered_surface_is_drawn_inside_its_own_bounds() {
         let (surfaces, buffer) = draw_frame(&degraded_state(), &Palette::default(), 120, 24);
 
-        assert_eq!(surfaces.len(), 6, "a degraded workspace registers all six");
+        assert_eq!(
+            surfaces.len(),
+            7,
+            "a degraded workspace registers all seven"
+        );
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
             // proves it was drawn.
@@ -746,6 +767,7 @@ mod tests {
                 SurfaceId::Activity => "Artifacts",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
+                SurfaceId::Attention => "Attention",
                 SurfaceId::Inspector => "Inspector",
                 SurfaceId::Footer => "quit",
             };

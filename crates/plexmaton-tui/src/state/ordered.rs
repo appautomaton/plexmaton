@@ -34,6 +34,11 @@ impl<K: Clone + Ord, V> OrderedById<K, V> {
         self.order.len()
     }
 
+    /// The identity at one arrival position, for a caller holding a cursor rather than a key.
+    pub(super) fn key_at(&self, index: usize) -> Option<&K> {
+        self.order.get(index)
+    }
+
     pub(super) fn iter(&self) -> impl Iterator<Item = &V> {
         self.order.iter().filter_map(|key| self.entries.get(key))
     }

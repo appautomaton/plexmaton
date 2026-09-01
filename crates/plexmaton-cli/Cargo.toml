@@ -13,7 +13,7 @@ path = "src/main.rs"
 # interactive binary must not grow argument parsing to reach a lane that never draws to a screen.
 [[bin]]
 name = "plexmaton-measure"
-path = "src/measure.rs"
+path = "src/measure/main.rs"
 
 [dependencies]
 anyhow.workspace = true

@@ -166,6 +166,16 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Copying a rendered equation returns its exact source. Copying an artifact/path returns the stable underlying value rather than a visually truncated label.
 - Selection across virtualized content must either extend semantically beyond the current viewport or communicate a clear viewport boundary; it must not silently omit hidden text.
 
+**Resolved by the prototype (D-043).** A selection is a range over a surface's *entries* — messages
+in a conversation; tools, artifacts and mail in a detail panel — and never a rectangle of cells. It
+therefore extends past the viewport by construction rather than by a mechanism that has to remember
+to, and copying is unaffected by width, scroll position, and decoration. Copy is `Ctrl-Y`, because
+`Ctrl-C` is the unconditional exit. Application selection is keyboard-driven; the mouse reaches the
+*terminal's* own selection through the `Shift` escape hatch, which is the one this contract already
+required. Delivery is OSC 52, so the clipboard filled is the one at the user's terminal rather than
+the one on the machine the process happens to run on. The mechanism is
+[`specs/selection-and-copy.md`](../specs/selection-and-copy.md).
+
 ## Information architecture to validate
 
 The experience skeleton must determine the durable arrangement of these product areas without assuming they are all permanently visible:
@@ -370,25 +380,26 @@ spent is a frame the user waits for.
 
 | Budget | Target | Observed | Workload |
 | --- | --- | --- | --- |
-| Input event to visible frame | 5 ms | 2.3 ms p50, 2.9 ms max | `streaming delta` |
-| Wheel event to visible scroll | 5 ms | 2.3 ms p50, 2.8 ms max | `wheel` |
-| Surface open and close latency | 5 ms | 2.7 ms p50, 4.4 ms max, and **zero** re-wrapping | `open inspector` |
+| Input event to visible frame | 5 ms | 0.9 ms p50, 1.2 ms max | `streaming delta` |
+| Wheel event to visible scroll | 5 ms | 0.9 ms p50, 1.0 ms max | `wheel` |
+| Surface open and close latency | 5 ms | 1.3 ms p50, 1.7 ms max, and **zero** re-wrapping | `open inspector` |
+| Extending a selection | 5 ms | 1.2 ms p50, 1.5 ms max, and **zero** re-wrapping | `extend selection` |
 | Streaming redraw frequency | one frame per changed projection, never per event | holds; ambient traffic that changes nothing costs no frame | FR-1 |
 | Layout work per updated transcript block | 1 item wrapped | 1 wrapped, 27 lines built, at any history length | `streaming delta` |
-| Opening an unmeasured conversation | 20 ms | 30 ms — **over** | `cold open`, and the first frame of `switch reader` |
-| Resize recovery | 20 ms | 27 ms p50, 43 ms max — **over** | `resize` |
+| Opening an unmeasured conversation | 20 ms | 12.8 ms p50, 13.2 ms max | `cold open`, and the first frame of `switch reader` |
+| Resize recovery | 20 ms | 12.7 ms p50, 14.5 ms max | `resize` |
 | Memory retained per hidden conversation | one cache entry per message | 5,000 entries for 5,000 messages; nothing else is retained | `switch reader` |
 
-**Read the observed column as an order of magnitude, not a baseline.** The same binary measured
-roughly half these figures on an idle machine and these figures on a busy one, and re-running the
-*previous commit* under today's load reproduced today's numbers — so the spread is the machine.
-That is the evidence behind D-041: a wall-clock assertion here would be a flaky test, and the number
-worth keeping is the shape rather than the digit.
+**Read the observed column as an order of magnitude, not a baseline.** These are the quiet-machine
+figures. The same binary, on the same laptop hours earlier under compile load, measured roughly
+double every one of them — and re-running the *previous commit* under that load reproduced the
+loaded numbers, so the spread is the machine and not the code. That is the evidence behind D-041: a
+wall-clock assertion here would be a flaky test, and the number worth keeping is the shape.
 
-The two rows over budget are the same row twice: measuring a conversation's height means wrapping
-every item once, and both a first frame and a new width pay it. It stays over on a loaded machine
-and comes in under on a quiet one, which is thin enough to be worth naming rather than rounding
-away. The fix, when something needs it, is a retention limit or a lazily measured tail — not a
+Two rows are one row twice. Measuring a conversation's height means wrapping every item once, and
+both a first frame and a new width pay it; they are the only figures that scale with history. They
+come in around 13 ms quiet and go over 20 ms loaded, which is close enough to name rather than to
+round away. The fix, when something needs it, is a retention limit or a lazily measured tail — not a
 faster wrap.
 
 Two findings the numbers carry and a target alone would not:
@@ -398,10 +409,11 @@ Two findings the numbers carry and a target alone would not:
   a 5,000-message frame an order of magnitude above a 500-message one. Linear in cheap operations,
   so the walks become the budget somewhere around 50,000 messages — which is where to look first,
   and not before.
-- **Opening an inspector costs no measurement at all.** A shelf splits the conversation region
-  vertically, so the conversation keeps its width and every cached height stays valid. Only a change
-  of *width* invalidates them, which is why resize is the expensive interaction and opening a
-  surface is not.
+- **Opening an inspector and selecting cost no measurement at all.** A shelf splits the conversation
+  region vertically, so the conversation keeps its width and every cached height stays valid; a
+  selection changes a style and never a character, so the heights it paints over were measured
+  unselected and stay valid too. Only a change of *width* invalidates them, which is why resize is
+  the expensive interaction and nothing else in the grammar is.
 
 ## Phase 00 outputs
 
@@ -420,18 +432,20 @@ Two findings the numbers carry and a target alone would not:
 
 - Persistent agent rail versus command-driven agent switcher at medium widths
 - Floating-window placement, snapping, minimum sizes, and drag/resize bindings
-- Pin/maximize interaction and keyboard bindings
 - How much tool activity remains visible in collapsed transcript blocks
 - Notification treatment for mail that arrives while its sender inspector is open
 - Whether ten rows is the right primary-conversation guarantee under real transcripts
-- Interaction between application selection, terminal-native selection, mouse capture, and tmux
-- Whether selection may span virtualized off-screen transcript items in the first product slice
-- Clipboard backend behavior across local desktop, SSH, tmux, OSC 52, and unavailable-clipboard environments
 
 These questions should be resolved by the Phase 00 prototype and recorded here as durable interaction rules.
 
-Five earlier questions have been answered and moved out of this list: the ultrawide threshold and
-whether its second column is replaced on selection (D-024), the minimum supported terminal size
-(D-025), low-colour behaviour (D-013), and whether the composer keeps `ratatui-textarea` (D-038 —
-it is first-party, because the crate consumes terminal events and only one component may). Each is
-stated in the section that owns it.
+Earlier questions answered and moved out of this list: the ultrawide threshold and whether its
+second column is replaced on selection (D-024), the minimum supported terminal size (D-025),
+low-colour behaviour (D-013), whether the composer keeps `ratatui-textarea` (D-038 — it is
+first-party, because the crate consumes terminal events and only one component may), and the three
+selection and clipboard questions (D-043 — a selection over entries, keyboard-driven, delivered by
+OSC 52). Each is stated in the section that owns it.
+
+One question is answered here rather than in a section, because it turned out to have no section:
+**pin and maximize bindings** are `Ctrl-P` and `Ctrl-F`, resolved before keyboard focus so they work
+while the inspector's own input holds the cursor. The full grammar is in
+[`specs/inspector.md`](../specs/inspector.md).

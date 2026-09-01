@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — steps 1 to 7 of 8 done; only the Attention queue and copy remain |
+| Status | Delivery complete — all 8 steps done; the exit gate is assessed below |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 8 — Attention queue and selection/copy |
+| Next step | Phase 01, planned against the handoff below |
 
 ## Phase outcome
 
@@ -62,7 +62,10 @@ order means building against a boundary that has not been decided yet.
    resize with pointer capture, pin and maximize, boundary clamping (D-016, D-023, D-028), and the
    phase's one dismissible surface, so `Dismiss` and the `Escape` ladder landed here. Specified in
    [inspector](../specs/inspector.md).
-8. **Attention queue and selection/copy.** Both depend on surfaces and viewports already existing.
+8. **Attention queue and selection/copy.** *Done 2026-08-31.* A visible, ordered band that takes
+   nothing; a selection over content rather than cells; copy through a seam the workspace owns.
+   Specified in [attention](../specs/attention.md) and
+   [selection-and-copy](../specs/selection-and-copy.md).
 
 Steps 1 to 5 are the interaction spine. A finding at any step that changes a durable invariant is
 promoted to the parent roadmap or the UI/UX contract rather than recorded only here.
@@ -90,23 +93,25 @@ so this section records only what stops being true when Phase 00 closes.
 
 | Candidate | Status | Constraint |
 | --- | --- | --- |
-| `arboard 3.6.1` | Local clipboard candidate | Evaluate Linux X11/Wayland feature and lifecycle behavior. It cannot be the only copy path because SSH/tmux/remote sessions may need OSC 52 or terminal-native selection |
+| `arboard 3.6.1` | **Not adopted** (D-043) | The constraint recorded here answered the question: a local clipboard cannot be the only copy path, and OSC 52 — which Crossterm already has behind a feature — covers the remote case a native crate cannot. It waits for a user whose terminal refuses OSC 52 |
 
 `ratatui-textarea` left this table on 2026-08-31, rejected rather than deferred: it consumes
-`crossterm::event::Event`, and exactly one component in this workspace may (D-038). Clipboard access
-is an adapter (`ClipboardSink`), so semantic copy tests do not depend on the host desktop. That seam
-does not exist yet; it is written before the crate is added, not after.
+`crossterm::event::Event`, and exactly one component in this workspace may (D-038). The clipboard
+seam was written before any crate was added, and turned out to make one unnecessary: copy leaves the
+workspace as a value on `Outcome`, so `plexmaton-tui` cannot reach a host clipboard even by mistake,
+and `plexmaton-cli::clipboard::ClipboardSink` is what delivers it.
 
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
-Of the evidence tooling in [standards/testing.md](../standards/testing.md), `proptest` arrives with
-clipping. Two scheduled tools reached their step and did not enter it, each because a stronger
-instrument was available: `insta` at the viewport and virtualization steps, where a viewport
-measured through the widget that paints it and a virtualized panel compared cell for cell against
-the whole one both prove more than a snapshot; and `criterion` at the measurement harness, where the
-load-bearing evidence is work counts it cannot see and the interesting statistic is a tail rather
-than a mean (D-041). Each tool enters a manifest with the first test that needs it, never before,
-and a schedule is a prediction rather than a commitment.
+Of the evidence tooling in [standards/testing.md](../standards/testing.md), `proptest` entered at
+step 8 — with **selection**, not with clipping, which never found a caller. Two scheduled tools
+reached their step and did not enter, each because a stronger instrument was available: `insta` at
+the viewport and virtualization steps, where a viewport measured through the widget that paints it
+and a virtualized panel compared cell for cell against the whole one both prove more than a
+snapshot; and `criterion` at the measurement harness, where the load-bearing evidence is work counts
+it cannot see and the interesting statistic is a tail rather than a mean (D-041). Each tool enters a
+manifest with the first test that needs it, and a schedule is a prediction rather than a
+commitment.
 
 ### Explicitly absent in Phase 00
 
@@ -370,6 +375,52 @@ Tests: 49 at the start of step 2, 129 now. Eight mutations were each caught by t
 All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
 
+### Delivery step 8 — Attention queue and selection/copy — 2026-08-31
+
+A background agent can ask for something without interrupting anyone, and the user can take evidence
+out of the workspace. [`specs/attention.md`](../specs/attention.md) carries ATT-1 to ATT-3 and
+[`specs/selection-and-copy.md`](../specs/selection-and-copy.md) carries SEL-1 to SEL-5. D-043, D-044
+and D-045 record the three decisions that shaped it, and `ui-ux.md` lost its last three open
+questions about selection and clipboards.
+
+- **Arrows had to stop being a global binding first** (D-044, INV-10). They moved the agent
+  selection from any navigational surface, which was defensible with one list on screen and stops
+  being so with three. Now an arrow means "move inside what holds focus" — and that turned out to
+  close a gap nobody had named: **nothing scrolled by keyboard at all**, so the wheel was the one
+  interaction with no keyboard equivalent, which `ui-ux.md` §user control forbids.
+- **A selection is a range over entries, never over cells** (D-043). Because it names content,
+  scrolling, resizing and re-wrapping cannot change what it copies — which is not a mechanism that
+  has to remember to extend past the viewport, but the absence of one. `proptest` entered here and
+  is what makes that claim a statement about every width rather than about three of them.
+- **The clipboard seam made the clipboard crate unnecessary.** Copy leaves as a value on `Outcome`,
+  exactly as a submission does, so `plexmaton-tui` cannot reach a host clipboard even by mistake.
+  What delivers it is OSC 52, which reaches the terminal the *user* is at rather than the desktop the
+  *process* is on — the case `arboard` explicitly could not serve. Its honest cost: the terminal
+  never acknowledges the sequence, so the workspace claims nothing about a copy having landed, and
+  the selection staying visible is the whole of the feedback.
+- **Correction: SURF-2's clipping has no owner in Phase 00 either.** Step 2 predicted this step would
+  own it, because a transcript item scrolled past its viewport edge looked like a surface outgrowing
+  its parent. It is not one — an item is content inside a surface, and TR-2 already owns which of its
+  rows a frame builds. Layout tiles the terminal, so nothing overlaps and nothing overflows. That is
+  now the third predicted mechanism to close the phase without a caller, alongside SURF-4's modality
+  and z-order promotion, and all three for the same underlying reason.
+- **The hint strip was silently losing `quit` on narrow terminals.** A one-row `Paragraph` clips its
+  end, and the end is where `quit` was. It now sheds hints by rank until the rest fit, which is the
+  same all-or-nothing discipline the row budget uses. Found by the existing narrow render test the
+  moment two hints were added.
+- **The measurement harness hit the 400-line sentinel and was split rather than raised**: what a
+  measurement *is* — a frame, its work, a run's percentiles — from which situations are worth
+  measuring, which is a reading of the responsiveness workloads rather than a mechanism.
+
+Measured: extending a selection re-wraps **nothing**, because a selection changes a style and never a
+character, so the heights the cache holds were measured unselected and stay valid. The full table is
+in [`ui-ux.md`](./ui-ux.md); this run was on a quiet machine and every row is inside its budget,
+including the two that read over on a loaded one at step 7. Both readings are kept, because the
+spread between them is the point (D-041).
+
+Tests: 49 at the start of step 2, 146 now. Eleven mutations were each caught by the intended tests.
+All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
 ## Scope
 
 ### Workspace skeleton
@@ -515,33 +566,93 @@ Phase 00 may use interfaces shaped for later replacement, but it must not implem
 
 ## Exit gate
 
-Phase 00 completes only when all of the following are demonstrated:
+Assessed 2026-08-31, with the test or command that reproduces each claim. `plexmaton-tui::journey`
+is the scripted canonical demonstration; everything it names runs under `cargo test --workspace`.
 
-- The canonical A-to-B journey runs deterministically in the real TUI event loop.
-- The user can continue interacting with A while B streams.
-- Opening, scrolling, freely dragging/resizing, changing z-order, pinning/maximizing, closing, and reopening B preserve independent state.
-- Mouse routing selects the correct topmost viewport in overlapping and nested cases; hover-scroll does not change keyboard focus.
-- Drag and resize retain pointer capture, respect minimum sizes/bounds, and recover coherently across terminal resize.
-- Background action-required events enter the Attention queue without stealing focus or opening a modal.
-- Semantic copy returns underlying transcript, path, artifact, and equation source rather than decorated or truncated display cells.
-- Keyboard-only navigation can perform the canonical journey.
-- Wide, medium, and narrow layouts preserve the journey's meaning and viewport anchors.
-- Large synthetic transcripts do not require full-history rendering for a frame.
-- Snapshot and interaction tests cover the principal states and non-happy paths.
-- Responsiveness measurements exist for the declared workloads, with initial budgets recorded in `ui-ux.md`.
-- Durable UI/UX decisions discovered during the prototype have been promoted to `ui-ux.md`.
+| Criterion | Evidence | Verdict |
+| --- | --- | --- |
+| The canonical A-to-B journey runs deterministically in the real TUI event loop | `journey::*`, driving the same `Workspace` the executable drives | Met |
+| The user can continue interacting with A while B streams | `the_journey_reaches_two_agents_without_losing_the_first` | Met |
+| Opening, scrolling, dragging/resizing, z-order, pinning/maximizing, closing and reopening B preserve independent state | `the_journey_pins_an_agent_and_takes_a_request_without_being_interrupted`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` | Met **except z-order**, which was cut because nothing overlaps |
+| Mouse routing selects the correct topmost viewport; hover-scroll does not change keyboard focus | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted` | Met |
+| Drag and resize retain pointer capture, respect bounds, and recover across resize | `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle`, `a_dragged_height_is_clamped_rather_than_obeyed` | Met |
+| Background action-required events enter the queue without stealing focus or opening a modal | `a_background_request_takes_no_focus_no_selection_and_no_cursor` | Met |
+| Semantic copy returns underlying transcript, path, artifact and equation source | `copying_returns_the_source_between_the_endpoints`, `copying_an_artifact_returns_its_pointer_rather_than_its_label` | Met for transcript, artifact and mail; **equations are out of the phase** (D-007) |
+| Keyboard-only navigation can perform the canonical journey | `journey::*` presses nothing but keys except one deliberate wheel event | Met |
+| Wide, medium and narrow layouts preserve the journey's meaning and viewport anchors | `the_journey_survives_wide_medium_and_narrow`, `a_resized_conversation_keeps_the_reader_on_the_same_message` | Met |
+| Large synthetic transcripts do not require full-history rendering for a frame | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`; the harness reports 1 wrap and 27 lines at 5,000 messages | Met |
+| Snapshot and interaction tests cover the principal states and non-happy paths | 146 tests; `a_virtualized_conversation_paints_what_the_whole_one_did` is the differential that replaced snapshots | Met, without `insta` |
+| Responsiveness measurements exist for the declared workloads, with budgets in `ui-ux.md` | `cargo run --release -p plexmaton-cli --bin plexmaton-measure`, eight workloads at two scales | Met |
+| Durable UI/UX decisions have been promoted to `ui-ux.md` | D-013 to D-028 and D-041 to D-045 | Met |
 
-Passing compilation or showing a single polished screenshot does not satisfy the exit gate.
+Two criteria are met with a named reduction rather than in full, and both reductions are recorded
+where the mechanism would have lived. **Z-order** has no caller because layout tiles the terminal, so
+no two surfaces ever compete for a cell; the same fact retired SURF-2's clipping and SURF-4's
+modality. **Equation source** left this phase with the math track on 2026-08-31 (D-007), and the copy
+model that would carry it — a selection over entries, each answering with its own semantic source —
+is in place and needs one more entry kind rather than a new mechanism.
+
+One workload from §responsiveness workloads was not run: **a pending and then completed math
+render**, for the same reason. Every other declared workload has a row in the budget table.
 
 ## Handoff to Phase 01
 
-Before expanding Phase 01, record:
+### The semantic event and intent boundary
 
-- The final semantic event/intent boundary expected from the runtime
-- Which prototype event types remain and which were provisional
-- The accepted responsive layouts and interaction grammar
-- Transcript virtualization/cache invariants
-- Initial performance budgets
-- Whether the viewport is ready to unblock the [math rendering track](./track-math-rendering.md)
+`plexmaton-core::PrototypeEvent` is what a runtime must produce, and `plexmaton-tui::TuiIntent` is
+what the user produces. **They never merge**, and nothing in the TUI may call a runtime object
+(D-030). Every variant survives a JSON round trip, and the tag is the stable external name — a
+renamed variant is a wire break, and `the_event_tag_is_the_stable_external_name` is the canary.
 
-Phase 01 is then planned against evidence from this handoff rather than assumptions made before the TUI exists.
+The two things a real runtime must get right, both learned the hard way here:
+
+- **One monotonic sequence, numbered by the producer.** The projection rejects any gap or repeat, so
+  two sources feeding one stream cannot both number it — that is why numbering moved out of the
+  scenario data and into `Runtime`.
+- **Per-item revisions, continuous.** A delta must carry exactly the previous revision plus one, so
+  a lost or duplicated update is detectable without comparing text.
+
+### Which prototype events remain, and which were provisional
+
+| Event | Status entering Phase 01 |
+| --- | --- |
+| `AgentCreated`, `AgentStatusChanged` | Durable |
+| `TranscriptItemStarted`, `TranscriptDelta`, `TranscriptItemFinalized` | Durable; this is the shape the cache and the anchors are built on |
+| `ToolActivityChanged` | Durable, and deliberately thin: no arguments, no output, no expand state |
+| `AttentionRequested` | Durable one way only. It has no resolution counterpart, and Phase 01 owns inventing one (D-045) |
+| `MailDelivered`, `ArtifactAnnounced` | Provisional. Both carry a bounded summary and a pointer, and neither has a body: [mailbox-delivery](../specs/mailbox-delivery.md) is written and unimplemented |
+| `RuntimeWarning` | Durable as the degradation path (D-003) |
+
+### Accepted layouts and interaction grammar
+
+Five layout classes with ultrawide at 132, wide at 96, medium at 72, and a hard floor of 48 × 12
+(D-024, D-025). The full key grammar is in [interaction-routing](../specs/interaction-routing.md),
+[inspector](../specs/inspector.md) and [selection-and-copy](../specs/selection-and-copy.md); the two
+rules a new binding must not break are that exactly one component accepts a terminal event, and that
+`Escape` resolves exactly one layer per press.
+
+### Transcript virtualization and cache invariants
+
+[transcript-layout](../specs/transcript-layout.md) TR-1 to TR-5. The one a new producer can break
+without noticing: **heights are keyed by item revision and panel width**, so an event that changes an
+item's text without advancing its revision paints stale rows.
+
+### Initial performance budgets
+
+[`ui-ux.md`](./ui-ux.md) §UX performance budgets, reproduced by one command. Read the work columns as
+contracts and the timings as a shape (D-041).
+
+### The math rendering track
+
+**Unblocked.** The viewport it was waiting for exists: a conversation is measured item by item and
+built only where the viewport reaches, so an item whose height is not yet known — which is what a
+pending render is — has a place to live. What it needs and does not have is an item kind that can
+report a *provisional* height and invalidate it later; today a height changes only when a revision
+does. That is the first thing [track-math-rendering](./track-math-rendering.md) has to design.
+
+### What Phase 01 should not inherit uncritically
+
+- `plexmaton-sim` is a stand-in with a scripted timeline. Its `RuntimeCommand` vocabulary has exactly
+  one verb, and it is not a design for a real runtime's command surface.
+- The Attention queue has no eviction. Nothing removes an entry, because nothing can resolve one.
+- Nothing removes a transcript item, so cache pruning has never run (D-040).

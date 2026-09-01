@@ -26,12 +26,19 @@ impl ViewState {
         self.inspector.request()
     }
 
-    /// Closes the topmost dismissible layer. Returns whether anything was open to close.
+    /// Resolves exactly one layer, innermost first. Returns whether anything was there to resolve.
+    ///
+    /// The order is transience: a selection is the most recent thing the user made and the cheapest
+    /// to remake, so it goes before the surface it was made in. One layer per press is the whole of
+    /// INV-6 — `Escape` is the key people press to back out of one mistake at a time.
     ///
     /// Focus returns to the conversation, but only when the inspector was holding it. Moving focus
     /// unconditionally would take the cursor out of the composer for a user who pressed `Escape`
     /// while typing, which is not what closing an overlay somewhere else asked for.
     pub fn dismiss(&mut self, surfaces: &SurfaceTree) -> bool {
+        if self.clear_selection() {
+            return true;
+        }
         let held_focus = self.focus.resolve(surfaces) == Some(SurfaceId::Inspector);
         let dismissed = self.inspector.dismiss();
         if dismissed {

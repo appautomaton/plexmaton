@@ -10,6 +10,10 @@ use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
 use plexmaton_tui::{Flow, Submission, Workspace};
 use ratatui::DefaultTerminal;
 
+mod clipboard;
+
+use clipboard::{ClipboardSink, TerminalClipboard};
+
 const TICK_INTERVAL: Duration = Duration::from_millis(180);
 
 /// Returns the terminal to the user on every exit path, including error and panic.
@@ -36,14 +40,25 @@ async fn main() -> anyhow::Result<()> {
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
     execute!(io::stdout(), EnableMouseCapture).context("enable mouse reporting")?;
-    run(terminal, Runtime::new(scenario)).await
+    // The terminal on the other end of stdout is the one holding the user's clipboard, which over
+    // SSH or inside tmux is not the machine this process runs on.
+    run(
+        terminal,
+        Runtime::new(scenario),
+        &mut TerminalClipboard::new(io::stdout()),
+    )
+    .await
 }
 
 /// The event loop: producer events, terminal events, and the frames they justify.
 ///
 /// Everything the loop decides lives in `Workspace`, so what this function owns is the two things
 /// only a real process can: the terminal, and the async wait on two sources at once.
-async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Result<()> {
+async fn run(
+    mut terminal: DefaultTerminal,
+    mut runtime: Runtime,
+    clipboard: &mut impl ClipboardSink,
+) -> anyhow::Result<()> {
     let mut workspace = Workspace::default();
     let mut tick = 0_u64;
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
@@ -65,6 +80,9 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
                         let outcome = workspace.handle(&event);
                         if let Some(submission) = outcome.submitted {
                             send(&mut runtime, &mut workspace, submission)?;
+                        }
+                        if let Some(request) = outcome.copied {
+                            clipboard.copy(&request.text).context("copy to the clipboard")?;
                         }
                         if outcome.flow == Flow::Quit {
                             break;
@@ -106,7 +124,7 @@ fn send(
 mod tests {
     use plexmaton_core::TranscriptRole;
     use plexmaton_sim::{Runtime, Scenario};
-    use plexmaton_tui::Workspace;
+    use plexmaton_tui::{SurfaceId, Workspace};
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -139,9 +157,16 @@ mod tests {
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
         // The composer is the ring's last stop, and walking there is how a keyboard-only user
-        // reaches it.
-        for _ in 0..3 {
+        // reaches it. Walked rather than counted: the ring gains and loses stops with the terminal
+        // and with what is queued, and what this needs is that the composer is reachable.
+        for _ in 0..workspace.surfaces().len() {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Composer) {
+                break;
+            }
             workspace.handle(&press(KeyCode::Tab));
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
         }
         for character in "hello".chars() {
             workspace.handle(&press(KeyCode::Char(character)));

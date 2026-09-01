@@ -32,11 +32,13 @@ pub enum Role {
     ActionRequired,
     /// A failed agent, or a producer that broke the event contract.
     Failure,
+    /// Content the user has selected for copying.
+    Selection,
 }
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Body,
         Self::Muted,
         Self::Border,
@@ -48,6 +50,7 @@ impl Role {
         Self::NewInformation,
         Self::ActionRequired,
         Self::Failure,
+        Self::Selection,
     ];
 
     /// The attention hierarchy, which must stay mutually distinguishable in every palette.
@@ -84,6 +87,13 @@ pub const fn agent_role(status: AgentStatus) -> Role {
     }
 }
 
+/// The one style every palette shares.
+///
+/// Selection is reversal in all three, because reversal is what a terminal user reads as "selected"
+/// regardless of theme, and because it carries the distinction through a modifier rather than a
+/// colour — which is what the monochrome palette would have forced anyway.
+const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
+
 /// Resolved styles for every [`Role`].
 ///
 /// Fields are private on purpose. Reaching past `style` to a concrete colour is how a design
@@ -101,6 +111,7 @@ pub struct Palette {
     new_information: Style,
     action_required: Style,
     failure: Style,
+    selection: Style,
 }
 
 impl Palette {
@@ -123,6 +134,7 @@ impl Palette {
             new_information: Style::new().fg(Color::Green),
             action_required: Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+            selection: SELECTION,
         }
     }
 
@@ -154,6 +166,7 @@ impl Palette {
             new_information: Style::new().fg(INFO),
             action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(FAILURE).add_modifier(Modifier::BOLD),
+            selection: SELECTION,
         }
     }
 
@@ -176,6 +189,7 @@ impl Palette {
             new_information: Style::new(),
             action_required: Style::new().add_modifier(Modifier::BOLD),
             failure: Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            selection: SELECTION,
         }
     }
 
@@ -194,6 +208,7 @@ impl Palette {
             Role::NewInformation => self.new_information,
             Role::ActionRequired => self.action_required,
             Role::Failure => self.failure,
+            Role::Selection => self.selection,
         }
     }
 }

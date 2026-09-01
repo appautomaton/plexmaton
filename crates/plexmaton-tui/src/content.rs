@@ -5,11 +5,13 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam the wrapping cache attaches to in delivery step 5.
 
-use plexmaton_core::{AgentStatus, ToolActivityStatus, TranscriptRole};
+use plexmaton_core::{AgentStatus, AttentionKind, ToolActivityStatus, TranscriptRole};
 use ratatui::text::{Line, Span};
 
 use crate::{
     NoticeView, TranscriptItemView, ViewState,
+    state::Selected,
+    surface::SurfaceId,
     theme::{Palette, Role, agent_role, tool_role},
 };
 
@@ -41,15 +43,27 @@ pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>>
 /// Per item rather than per conversation, because both the height cache and the visible range are
 /// expressed in items: a frame that asks for one item's rows must get exactly the rows that item
 /// contributes to the whole (TR-1).
-pub(crate) fn transcript_item(item: &TranscriptItemView, palette: &Palette) -> Vec<Line<'static>> {
+pub(crate) fn transcript_item(
+    item: &TranscriptItemView,
+    palette: &Palette,
+    selected: bool,
+) -> Vec<Line<'static>> {
     let author = match item.role {
         TranscriptRole::User => "you",
         TranscriptRole::Assistant => "assistant",
         TranscriptRole::System => "system",
     };
+    // Selection replaces the body role rather than adding to it: what is selected has to be
+    // legible as one block, and a message whose text kept its own colour while the heading did not
+    // reads as two things.
+    let (heading, body) = if selected {
+        (Role::Selection, Role::Selection)
+    } else {
+        (Role::SectionHeading, Role::Body)
+    };
     vec![
-        Line::styled(author, palette.style(Role::SectionHeading)),
-        Line::styled(item.source.clone(), palette.style(Role::Body)),
+        Line::styled(author, palette.style(heading)),
+        Line::styled(item.source.clone(), palette.style(body)),
         Line::raw(""),
     ]
 }
@@ -75,7 +89,11 @@ pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static
             palette.style(Role::Muted),
         )];
     };
-    detail(agent, palette)
+    detail(
+        agent,
+        palette,
+        state.selected_in(SurfaceId::Activity, &agent.id),
+    )
 }
 
 /// The inspected agent's detail: who it is, and everything it has produced.
@@ -101,7 +119,11 @@ pub(crate) fn inspector(state: &ViewState, palette: &Palette, focused: bool) -> 
         ]),
         Line::raw(""),
     ];
-    lines.extend(detail(agent, palette));
+    lines.extend(detail(
+        agent,
+        palette,
+        state.selected_in(SurfaceId::Inspector, &agent.id),
+    ));
 
     // The steer input exists only while this surface holds focus (D-018). There is nothing here to
     // mistarget when it is not focused, because there is nothing here. Its rows come out of this
@@ -138,18 +160,39 @@ pub(crate) fn composer_collapsed(state: &ViewState, palette: &Palette) -> Vec<Li
     ])]
 }
 
-fn detail(agent: &crate::AgentView, palette: &Palette) -> Vec<Line<'static>> {
+/// Tools, then artifacts, then mail — the order a selection index means.
+///
+/// `selected` is consulted against a running entry counter, and that counter walks the three groups
+/// in exactly the order [`ViewState::sources`](crate::ViewState) builds them. Two orders here would
+/// select one thing and copy another, which is the failure the shared order exists to prevent.
+fn detail(agent: &crate::AgentView, palette: &Palette, selected: Selected) -> Vec<Line<'static>> {
+    let mut entry = 0_usize;
+    let mut next = |lines: &mut Vec<Line<'static>>, rows: Vec<Line<'static>>| {
+        let mark = selected.contains(entry);
+        entry = entry.saturating_add(1);
+        for row in rows {
+            lines.push(if mark {
+                Line::styled(row.to_string(), palette.style(Role::Selection))
+            } else {
+                row
+            });
+        }
+    };
+
     let mut lines = vec![Line::styled("Tools", palette.style(Role::SectionHeading))];
     let mut tools = 0_usize;
     for tool in agent.tool_activity() {
         tools = tools.saturating_add(1);
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{} ", tool_marker(tool.status)),
-                palette.style(tool_role(tool.status)),
-            ),
-            Span::styled(tool.label.clone(), palette.style(Role::Body)),
-        ]));
+        next(
+            &mut lines,
+            vec![Line::from(vec![
+                Span::styled(
+                    format!("{} ", tool_marker(tool.status)),
+                    palette.style(tool_role(tool.status)),
+                ),
+                Span::styled(tool.label.clone(), palette.style(Role::Body)),
+            ])],
+        );
     }
     if tools == 0 {
         lines.push(Line::styled("  none", palette.style(Role::Muted)));
@@ -162,14 +205,19 @@ fn detail(agent: &crate::AgentView, palette: &Palette) -> Vec<Line<'static>> {
     let mut artifacts = 0_usize;
     for artifact in agent.artifacts() {
         artifacts = artifacts.saturating_add(1);
-        lines.push(Line::from(vec![
-            Span::styled("@ ", palette.style(Role::NewInformation)),
-            Span::styled(artifact.label.clone(), palette.style(Role::Body)),
-        ]));
-        lines.push(Line::styled(
-            format!("  {}", artifact.pointer),
-            palette.style(Role::Muted),
-        ));
+        next(
+            &mut lines,
+            vec![
+                Line::from(vec![
+                    Span::styled("@ ", palette.style(Role::NewInformation)),
+                    Span::styled(artifact.label.clone(), palette.style(Role::Body)),
+                ]),
+                Line::styled(
+                    format!("  {}", artifact.pointer),
+                    palette.style(Role::Muted),
+                ),
+            ],
+        );
     }
     if artifacts == 0 {
         lines.push(Line::styled("  none", palette.style(Role::Muted)));
@@ -179,19 +227,52 @@ fn detail(agent: &crate::AgentView, palette: &Palette) -> Vec<Line<'static>> {
     let mut mail = 0_usize;
     for item in agent.inbox() {
         mail = mail.saturating_add(1);
-        lines.push(Line::from(vec![
-            Span::styled("<- ", palette.style(Role::NewInformation)),
-            Span::styled(item.from.to_string(), palette.style(Role::Body)),
-        ]));
-        lines.push(Line::styled(
-            format!("  {}", item.summary),
-            palette.style(Role::Muted),
-        ));
+        next(
+            &mut lines,
+            vec![
+                Line::from(vec![
+                    Span::styled("<- ", palette.style(Role::NewInformation)),
+                    Span::styled(item.from.to_string(), palette.style(Role::Body)),
+                ]),
+                Line::styled(format!("  {}", item.summary), palette.style(Role::Muted)),
+            ],
+        );
     }
     if mail == 0 {
         lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
     lines
+}
+
+/// Queued background requests, oldest first, with the cursor on the one `Enter` would go to.
+///
+/// Approval and clarification are drawn apart because `ui-ux.md` §attention management refuses one
+/// generic notification treatment: one is an agent that cannot proceed, the other is an agent that
+/// can. Seen requests stay listed and stop shouting — acknowledging is not resolving (ATT-3).
+pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
+    let cursor = state.attention_cursor();
+    state
+        .attention()
+        .enumerate()
+        .map(|(index, item)| {
+            let (marker, role) = match (item.acknowledged, item.kind) {
+                (true, _) => ("seen  ", Role::Muted),
+                (false, AttentionKind::Approval) => ("block ", Role::ActionRequired),
+                (false, AttentionKind::Clarification) => ("ask   ", Role::NewInformation),
+            };
+            let (caret, caret_role) = if index == cursor {
+                ("> ", Role::Accent)
+            } else {
+                ("  ", Role::Muted)
+            };
+            Line::from(vec![
+                Span::styled(caret, palette.style(caret_role)),
+                Span::styled(marker, palette.style(role)),
+                Span::styled(format!("{} · ", item.agent_id), palette.style(Role::Muted)),
+                Span::styled(item.summary.clone(), palette.style(Role::Body)),
+            ])
+        })
+        .collect()
 }
 
 /// Producer defects, oldest first. The strip opens at its newest entry.

@@ -10,10 +10,10 @@ use plexmaton_core::PrototypeEventEnvelope;
 use ratatui::{Terminal, backend::Backend, crossterm::event::Event};
 
 use crate::{
-    intent::{PointerIntent, TuiIntent},
+    intent::{PointerIntent, SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{Submission, ViewRevision, ViewState},
+    state::{CopyRequest, Submission, ViewRevision, ViewState},
     surface::SurfaceTree,
     theme::Palette,
     transcript::TranscriptMetrics,
@@ -37,6 +37,9 @@ pub struct Outcome {
     /// What the user submitted, and who to. Only the runtime may turn it into transcript events,
     /// so it leaves the workspace as a value rather than being written anywhere (COM-3).
     pub submitted: Option<Submission>,
+    /// What the user asked to copy. Leaves as a value for the same reason: the clipboard is the
+    /// host's, and nothing in this crate may reach for it (SEL-4).
+    pub copied: Option<CopyRequest>,
 }
 
 impl Outcome {
@@ -44,6 +47,7 @@ impl Outcome {
         Self {
             flow: Flow::Quit,
             submitted: None,
+            copied: None,
         }
     }
 }
@@ -127,9 +131,11 @@ impl Workspace {
             surfaces,
             // Derived from whichever surface holds focus, never asserted here (SURF-3).
             focus: state.keyboard_focus(surfaces),
+            focused: state.focused(surfaces),
             // A fact about the frame that was drawn, not about intent: `Escape` resolves the
             // layer the user can see (FR-3).
             dismissible: surfaces.has_dismissible(),
+            selecting: state.selection().is_some(),
         };
         match router.translate(event, &context) {
             Routed::Intent(intent) => self.apply(intent),
@@ -179,8 +185,17 @@ impl Workspace {
             TuiIntent::Quit => return Outcome::quit(),
             TuiIntent::Text(edit) => {
                 return Outcome {
-                    flow: Flow::Continue,
                     submitted: self.state.edit(&self.surfaces, edit),
+                    ..Outcome::default()
+                };
+            }
+            TuiIntent::Selection(SelectionIntent::Extend(direction)) => {
+                self.state.select(&self.surfaces, direction);
+            }
+            TuiIntent::Selection(SelectionIntent::Copy) => {
+                return Outcome {
+                    copied: self.state.copy(),
+                    ..Outcome::default()
                 };
             }
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
@@ -194,6 +209,7 @@ impl Workspace {
                 self.state.drag(&self.surfaces, pointer);
             }
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
+            TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             // The phase's one dismissible layer. `Escape` reaches here only when the router found
             // nothing closer to resolve, which is the ladder's last rung before nothing (INV-6).
             TuiIntent::Dismiss => {
@@ -223,6 +239,8 @@ mod tests {
         },
         layout::Rect,
     };
+
+    use plexmaton_core::{AgentId, AttentionId, AttentionKind, PrototypeEvent};
 
     use super::{Flow, Outcome, Workspace};
     use crate::{
@@ -316,7 +334,6 @@ mod tests {
     #[test]
     fn tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in() {
         let (mut workspace, _terminal) = drawn(120, 24);
-        let focused = |workspace: &Workspace| workspace.state.focused(&workspace.surfaces);
 
         assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
 
@@ -485,6 +502,39 @@ mod tests {
         crate::test_support::region_text(terminal.backend().buffer(), bounds(workspace, surface_id))
     }
 
+    /// Resolved against the frame that was drawn, which is the only focus a key can act on (FR-3).
+    fn focused(workspace: &Workspace) -> Option<SurfaceId> {
+        workspace.state.focused(&workspace.surfaces)
+    }
+
+    /// One event and the frame that follows it, the way the loop runs them.
+    ///
+    /// Batching events without a frame between them is a different thing to test: focus and hit
+    /// testing resolve against the registry the *last frame* drew, so two events in a row would
+    /// have the second one reading geometry the user never saw (FR-3).
+    fn step(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>, event: &Event) {
+        workspace.handle(event);
+        let _frame = workspace
+            .draw(terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+    }
+
+    /// Walks the focus ring to one surface rather than counting presses.
+    ///
+    /// Counting `Tab`s encodes the ring's current membership into every test that walks it, and the
+    /// ring legitimately gains and loses stops. What is being asserted is that the surface is
+    /// reachable by keyboard, which is what this asks.
+    fn tab_to(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>, target: SurfaceId) {
+        let tab = press(KeyCode::Tab, KeyModifiers::NONE);
+        for _ in 0..=workspace.surfaces.len() {
+            if focused(workspace) == Some(target) {
+                return;
+            }
+            step(workspace, terminal, &tab);
+        }
+        panic!("{target:?} is not a stop on this frame's focus ring");
+    }
+
     fn cursor(terminal: &Terminal<TestBackend>) -> Option<ratatui::layout::Position> {
         let backend = terminal.backend();
         backend.cursor_visible().then(|| backend.cursor_position())
@@ -506,7 +556,6 @@ mod tests {
     #[test]
     fn enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        let focused = |workspace: &Workspace| workspace.state.focused(&workspace.surfaces);
 
         assert!(
             workspace.surfaces.get(SurfaceId::Inspector).is_none(),
@@ -547,10 +596,13 @@ mod tests {
         frame(&mut workspace, &mut terminal);
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
 
-        // Stepping out of it is what gives the arrows back: while the inspector holds focus it
-        // holds the cursor, and an arrow under a cursor is not a list movement (INV-2). This is
-        // the return the collapsed composer row advertises.
-        workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
+        // Returning to the rail is what gives the arrows back their meaning. While the inspector
+        // holds focus it holds the cursor, and an arrow under a cursor is not a list movement
+        // (INV-2); anywhere else an arrow scrolls the surface it is in (INV-10). Only in the rail
+        // does it choose an agent, which is what the collapsed composer row's `⇥` leads back to.
+        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
+        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
         workspace.handle(&press(KeyCode::Up, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
         assert!(
@@ -588,19 +640,10 @@ mod tests {
     #[test]
     fn the_inspector_takes_the_cursor_and_the_composer_keeps_one_row() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        /// One event and the frame that follows it, the way the loop runs them.
-        fn step(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>, event: &Event) {
-            workspace.handle(event);
-            let _ = workspace
-                .draw(terminal)
-                .unwrap_or_else(|error| panic!("test render: {error}"));
-        }
         let tab = press(KeyCode::Tab, KeyModifiers::NONE);
 
         // Walk to the composer and leave a draft there.
-        for _ in 0..3 {
-            step(&mut workspace, &mut terminal, &tab);
-        }
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
         for character in "to the primary".chars() {
             step(
                 &mut workspace,
@@ -615,7 +658,7 @@ mod tests {
         // inspector is not something typing can do by accident (INV-2). Then peek a *different*
         // agent — a draft is keyed by who it addresses, so an inspector pointed at the primary
         // agent would correctly be showing the very same draft as the composer.
-        step(&mut workspace, &mut terminal, &tab);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
         step(
             &mut workspace,
             &mut terminal,
@@ -685,6 +728,233 @@ mod tests {
             "the conversation is not a text input, so no caret is on screen"
         );
         assert_eq!(bounds(&workspace, SurfaceId::Composer).height, expanded);
+    }
+
+    fn selected(workspace: &Workspace) -> String {
+        workspace
+            .state
+            .selected_agent()
+            .map_or_else(|| "none".to_owned(), |agent| agent.id.to_string())
+    }
+
+    /// ATT-1: a request arrives and the workspace carries on.
+    ///
+    /// This is the exit gate's "background action-required events enter the Attention queue without
+    /// stealing focus or opening a modal", asserted against a user who is mid-sentence rather than
+    /// against an idle screen — which is the only state in which the claim is worth anything.
+    #[test]
+    fn a_background_request_takes_no_focus_no_selection_and_no_cursor() {
+        let mut runtime = canonical_runtime();
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        // Stop the timeline one tick before agent B asks for a decision.
+        workspace.emit(runtime.ready(11));
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(workspace.state.attention_count(), 0, "nothing queued yet");
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in "half a thought".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        let was_focused = focused(&workspace);
+        let was_selected = selected(&workspace);
+        let caret = cursor(&terminal);
+        assert!(caret.is_some(), "the user is typing");
+
+        workspace.emit(runtime.ready(12));
+        frame(&mut workspace, &mut terminal);
+
+        assert_eq!(workspace.state.attention_pending(), 1, "it did queue");
+        assert!(
+            workspace.surfaces.get(SurfaceId::Attention).is_some(),
+            "and queueing is visible, or the user has no way to choose when to answer"
+        );
+        assert_eq!(focused(&workspace), was_focused, "focus did not move");
+        assert_eq!(selected(&workspace), was_selected, "nor did the selection");
+        assert_eq!(cursor(&terminal), caret, "nor did the cursor");
+        assert_eq!(
+            workspace.state.composer().draft(),
+            "half a thought",
+            "and the half-written sentence is still there"
+        );
+        assert!(
+            !workspace.surfaces.has_dismissible(),
+            "nothing opened over the user's work"
+        );
+    }
+
+    /// ATT-2 and ATT-3: going to a request is a keypress, and being seen is not being answered.
+    #[test]
+    fn going_to_a_request_is_the_users_move_and_marks_it_seen() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        assert_eq!(selected(&workspace), "agent-a");
+        assert_eq!(workspace.state.attention_pending(), 1);
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            selected(&workspace),
+            "agent-b",
+            "the user chose to go to the agent that asked"
+        );
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Transcript),
+            "and the keyboard went with them"
+        );
+        assert_eq!(workspace.state.attention_pending(), 0);
+        assert_eq!(
+            workspace.state.attention_count(),
+            1,
+            "the request is still outstanding: the user saw it, nothing granted it"
+        );
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Agents).contains("attention 0"),
+            "and the rail counts what is unanswered, not what is queued"
+        );
+    }
+
+    /// INV-10 inside the queue: its cursor is its own, and arrows there are not agent selection.
+    #[test]
+    fn the_queues_cursor_moves_without_touching_the_agent_selection() {
+        let mut conversation = Conversation::canonical();
+        conversation.emit(PrototypeEvent::AttentionRequested {
+            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: AttentionId::new("attention-a-1")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            kind: AttentionKind::Approval,
+            summary: "Approve writing the findings file.".into(),
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(workspace.state.attention_count(), 2);
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        let was_selected = selected(&workspace);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+
+        assert_eq!(workspace.state.attention_cursor(), 1);
+        assert_eq!(
+            selected(&workspace),
+            was_selected,
+            "an arrow in the queue moves the queue, not the rail"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            selected(&workspace),
+            "agent-a",
+            "and Enter goes to whichever request the cursor is on"
+        );
+    }
+
+    /// SEL-3: copying a detail entry returns the value, not the label that was painted.
+    ///
+    /// The artifact is the case worth pinning: the panel shows a human label on one row and an
+    /// indented pointer on the next, and the pointer is what a paste has to contain.
+    #[test]
+    fn copying_an_artifact_returns_its_pointer_rather_than_its_label() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        // Agent B is the one with a tool and an artifact.
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Activity);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+
+        let copied = workspace
+            .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+            .copied
+            .unwrap_or_else(|| panic!("a selection must copy to something"));
+        assert_eq!(copied.text, "artifact://agent-b/interaction-findings");
+        assert_eq!(copied.entries, 1);
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Activity).contains("interaction findings"),
+            "while the panel is still showing the label, which is the point"
+        );
+
+        // One more entry back takes in the tool above it, in list order rather than in the order
+        // the two ends were chosen.
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        let copied = workspace
+            .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+            .copied
+            .unwrap_or_else(|| panic!("a selection must copy to something"));
+        assert_eq!(
+            copied.text,
+            "inspect interaction fixtures\nartifact://agent-b/interaction-findings"
+        );
+    }
+
+    /// INV-6 with three rungs: `Escape` resolves the selection before the surface holding it.
+    #[test]
+    fn escape_clears_the_selection_before_it_closes_the_inspector() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_some());
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        assert!(
+            workspace.state.selection().is_some(),
+            "the inspector's own detail is selectable, even though it holds a cursor"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(workspace.state.selection().is_none());
+        assert!(
+            workspace.surfaces.get(SurfaceId::Inspector).is_some(),
+            "one layer per press: the surface the selection was made in survives it"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
     }
 
     /// D-028 and INV-4: the bottom edge follows the pointer, even out of the rectangle.

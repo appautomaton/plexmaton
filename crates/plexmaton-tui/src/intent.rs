@@ -90,6 +90,30 @@ pub enum InspectorIntent {
     Shrink,
 }
 
+/// One thing the user asked of the Attention queue.
+///
+/// Every verb here is user-initiated. Nothing a background agent does reaches this enum, which is
+/// the structural half of "a request never takes focus": there is no producer path to these.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AttentionIntent {
+    /// Move the queue's own cursor.
+    Move(Direction),
+    /// Go to the agent whose request is under the cursor, marking it seen.
+    GoTo,
+}
+
+/// One thing the user asked of the selection.
+///
+/// There is no `Clear` here: clearing arrives as `Dismiss`, because the `Escape` ladder resolves
+/// exactly one layer per press and a selection is one of its rungs (INV-6).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SelectionIntent {
+    /// Extend the selection one entry, starting one if there is none.
+    Extend(Direction),
+    /// Put the selected content on the clipboard.
+    Copy,
+}
+
 /// One thing the user asked the workspace to do.
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
@@ -106,6 +130,10 @@ pub enum TuiIntent {
     Dismiss,
     /// Act on the inspector.
     Inspector(InspectorIntent),
+    /// Act on the Attention queue.
+    Attention(AttentionIntent),
+    /// Act on the selection.
+    Selection(SelectionIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.
     Scroll {
         /// Surface resolved from the pointer position.

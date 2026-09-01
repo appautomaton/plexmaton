@@ -24,6 +24,9 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-045 | 2026-08-31 | An action-required event joins a visible, ordered band and takes nothing; going to one is the user's keypress, and acknowledging it is not resolving it | Accepted | [attention](./specs/attention.md) ATT-1 to ATT-3 |
+| D-044 | 2026-08-31 | A navigation key means "move inside what holds focus": it chooses an agent only in the rail and scrolls everywhere else, which is how the wheel finally has a keyboard equivalent | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-10 |
+| D-043 | 2026-08-31 | A selection is a range over a surface's entries, never over cells; copy returns the producer's source, is bound to `Ctrl-Y`, and is delivered by OSC 52 | Accepted | [selection-and-copy](./specs/selection-and-copy.md) SEL-1 to SEL-5 |
 | D-042 | 2026-08-31 | Inspection is an axis of its own: opening does not move the selection, an unpinned inspector follows it, and a pinned one is what puts two agents on screen | Accepted | [inspector](./specs/inspector.md) INS-1 |
 | D-041 | 2026-08-31 | The event loop is one `Workspace` the executable and the harness both drive; frame work is asserted and frame time is only reported | Accepted | [frame-loop](./specs/frame-loop.md) FR-1 to FR-3 |
 | D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
@@ -53,7 +56,7 @@ again the same way — age first, then move the number.
 | D-016 | 2026-08-31 | A peek renders as a shelf docked to the top of the conversation, guaranteeing ten readable rows below | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-015 | 2026-08-31 | Four layout classes; at ultrawide two conversations sit side by side | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-014 | 2026-08-31 | The agent column sits on the left and carries agents, attention, and activity as three surfaces in one box | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-013 | 2026-08-31 | Colour is eleven semantic roles over three palettes; `ansi` is the default so the user's terminal theme wins | Accepted | `plexmaton-tui::theme` |
+| D-013 | 2026-08-31 | Colour is twelve semantic roles over three palettes; `ansi` is the default so the user's terminal theme wins | Accepted | `plexmaton-tui::theme` |
 | D-012 | 2026-08-31 | Commit messages follow Conventional Commits | Accepted | [AGENTS.md](../AGENTS.md) |
 | D-011 | 2026-08-31 | Sprawl guards are function-level first; a 400-line file sentinel excludes inline tests | Accepted | [AGENTS.md](../AGENTS.md), `clippy.toml` |
 | D-010 | 2026-08-31 | `missing_docs` is denied in `plexmaton-core` only | Accepted | `crates/plexmaton-core/src/lib.rs` |
@@ -68,6 +71,35 @@ again the same way — age first, then move the number.
 | D-001 | 2026-08-30 | Rust with Ratatui and Crossterm; unidirectional state flow with rendering as pure projection | Accepted | [plexmaton](./roadmap/plexmaton.md) |
 
 ## Rejected alternatives
+
+### D-043 · Character-granular selection inside a message — rejected
+
+It needs an inverse map from painted cells back through the wrapping cache to byte offsets, and that
+is not merely more work: it makes SEL-1 false. A sub-item range is expressed in wrapped rows, so the
+same selection would copy different text at a different width — the exact property the entry-based
+model exists to guarantee. Nothing in the journey copies half a message.
+
+### D-043 · `arboard` for clipboard access — rejected for now
+
+It reaches the desktop the *process* runs on, which over SSH or inside tmux is the wrong machine —
+and the phase file already recorded that a local clipboard cannot be the only path. OSC 52 reaches
+the terminal the *user* is at, needs no crate at all (Crossterm has the feature), and covers the
+harder case. It has a real cost: the terminal never acknowledges it, and many decline it unless
+configured. That cost is stated rather than hidden, which is why the workspace claims nothing about
+a copy having landed. A native path waits for a user whose terminal refuses OSC 52.
+
+### D-043 · `Ctrl-C` as the copy binding — rejected
+
+The familiar one, and unavailable: `Ctrl-C` is the unconditional exit (INV-7), and a key that both
+copies and ends sessions is worse than an unfamiliar one. `Ctrl-Y` is the binding, and the `Shift`
+escape hatch to the terminal's own copy covers the habit.
+
+### D-045 · Resolving an attention item from inside the queue — rejected for now
+
+Approving in place needs a reply channel the Phase 00 runtime does not have, and an
+`AttentionResolved` event with no producer would be a mechanism pretending to be a contract. So the
+queue has one transition, and it is acknowledgement: a seen request stays queued, because it is
+still outstanding.
 
 Only where a serious alternative was considered. The reason matters more than the verdict.
 
@@ -87,18 +119,15 @@ The contract sentence still holds; it just does not mean the unpinned one dies.
 
 ### D-041 · `criterion` as the measurement lane — rejected
 
-Scheduled since the phase opened, and rejected on arrival for fit rather than cost: it times a
-closure and reports central tendency, so it cannot see the work counts that are the load-bearing
-half of the evidence, and a latency budget is about the tail. Percentiles over a scripted workload
-are thirty lines. It returns if something here ever needs statistical throughput.
+Scheduled for this step and did not enter. Its statistics are for a mean, and the interesting
+figure here is a tail; more decisively, the load-bearing evidence is work counts — items wrapped,
+lines built, entries retained — which a benchmark harness cannot see and an ordinary test asserts.
 
 ### D-041 · Asserting wall-clock budgets in the test suite — rejected
 
-It would make a budget a gate, which is what a budget looks like it should be. Rejected because a
-timing assertion on a developer laptop is a flaky test wearing a budget's clothes, and the cure for
-flakiness is a threshold loose enough to catch nothing. Work counts gate instead: exact, identical
-everywhere, and failing for the same defects a timing bound was meant to catch. Step 7 supplied the
-proof — the same binary measured 13 ms and 30 ms on one laptop, hours apart.
+Aged: [frame-loop](./specs/frame-loop.md) and [ui-ux](./roadmap/ui-ux.md) §budgets own it, with the
+measurement that settled it — the same binary, the same laptop, hours apart, roughly double. A
+threshold loose enough not to flake catches nothing; work counts are exact everywhere.
 
 ### D-017 · One composer that retargets on selection — rejected
 
@@ -121,11 +150,9 @@ thing while the worker does another.
 
 ### D-032 · Claude Code skills as the trigger layer — rejected
 
-Skills are natively the shape this needed: a one-line description always in context, a body loaded
-on invocation. They were rejected because Plexmaton is itself an agentic harness, and locking its
-engineering standards into one vendor's format contradicts the product. Portable markdown plus a
-trigger table works for any agent. A skill may still be added later as an accelerator whose body
-does nothing but point at the file that owns the content.
+Aged: [.agents/README.md](./README.md) owns the trigger layer. A skill is one vendor's mechanism,
+and the corpus has to be readable by a person and by any agent, so triggers are prose in a document
+rather than a directory only one tool loads.
 
 ### D-032 · A blocking document-budget gate — rejected
 
@@ -135,38 +162,29 @@ sentence.
 
 ### D-039 · Owning the text wrapping instead — rejected
 
-Writing our own wrap would avoid an unstable feature. It was rejected because the objection that
-made it attractive does not hold: `line_count` runs the same `WordWrapper` the renderer runs, so it
-is ratatui measuring its own wrapping rather than a second derivation that could drift. Owning it
-would have meant roughly eighty lines of subtle grapheme-and-width logic to reach the same answer,
-with our own bugs instead of ratatui's. The version is pinned exactly and the lockfile committed, so
-an unstable API change surfaces at a reviewed bump rather than silently. Step 5 was the step
-expected to force the issue and did not: per-item virtualization calls the same function per item.
+Aged: the mechanism is in [surface-model](./specs/surface-model.md) §viewports. The objection that
+made owning it attractive does not hold: `line_count` runs the same `WordWrapper` the renderer runs,
+so it is ratatui measuring its own wrapping rather than a second derivation that could drift. Owning
+it meant roughly eighty lines of grapheme-and-width logic reaching the same answer with our own bugs
+instead of ratatui's. The exact pin plus a committed lockfile is what makes an unstable API change
+surface at a reviewed bump.
 
 ### D-040 · A row offset, a per-surface reading position, and bounded overscan — all rejected
 
-**A row offset preserved across a resize** is what step 4 shipped, and its test asserted the number
-survived. The number surviving is not the property anyone wants: at a new width the same row names
-different text, so preserving it moves the reader while looking like it did not. An item identity is
-the durable half of a position, which is why the anchor stores one and clamps the row inside it.
-
-**Keying the conversation's position by surface**, like every other panel, is one line simpler and
-breaks step 4 of the canonical journey: selecting another agent and returning would drop the reader
-wherever the other conversation had been left. The position belongs to the conversation.
-
-**Bounded overscan** is named in the phase's scope and was not built. A frame here is synchronous and
-exact, so rendering extra items off screen costs extra wraps and prevents nothing — there is no
-asynchronous fill for it to hide. It arrives with a renderer that can be behind, not before.
+Aged: [transcript-layout](./specs/transcript-layout.md) TR-3 and TR-5 own the two positions.
+Three verdicts. A **row offset** survives a resize as a number while naming different text, so it
+moves the reader while looking like it did not; an item identity is the durable half. Keying a
+conversation's position **by surface** breaks step 4 of the journey — leave A, come back, land where
+B was. **Bounded overscan** was in the phase's scope and was not built: a synchronous renderer has
+no asynchronous fill for it to hide, so it costs wraps and prevents nothing.
 
 ### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
 
 Aged: [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery step 3 and
-[composer](./specs/composer.md) COM-3 own the reasoning. Two verdicts worth keeping. The crate takes
-a `crossterm::event::Event`, and exactly one component in this workspace may (D-029); driving it
-below that API instead would have used a few per cent of it for an editing model that is four verbs.
-And a submitted message is a command rather than a write, which cost real work — sequence numbering
-had to move into the runtime, because two sources feeding one monotonic stream cannot both number
-it — and bought one writer for the transcript.
+[composer](./specs/composer.md) COM-3 own the reasoning. The crate takes a
+`crossterm::event::Event`, and exactly one component here may (D-029). And a submitted message being
+a command rather than a write cost real work — sequence numbering had to move into the runtime,
+because two sources feeding one monotonic stream cannot both number it — and bought one writer.
 
 ### D-037 · Leaving the composer to Phase 01, and folding it into the surfaces step — both rejected
 
@@ -177,70 +195,52 @@ inside a step already about something else.
 
 ### D-036 · Numeric identities and a second layout for hit testing — rejected
 
-Aged: [surface-model](./specs/surface-model.md) owns both mechanisms. The verdicts are that a
-numbered identity is a convention, and a convention is exactly what breaks silently when a region is
-added; and that a second layout computed for hit testing is the multiple-sources-of-truth
-anti-pattern, whose failure mode here is the click that lands one panel over — visible only to
-whoever is clicking.
+Aged: [surface-model](./specs/surface-model.md) owns both. A numbered identity is a convention, and
+a convention breaks silently when a region is added; a second layout computed for hit testing is the
+multiple-sources-of-truth anti-pattern, whose failure here is a click landing one panel over.
 
-### D-035 · Worktrees under `.agents/worktrees/` — rejected
+### D-035 · `.agents/worktrees/`, and one shared `CARGO_TARGET_DIR` — both rejected
 
-Aged: [standards/quality-gates.md](./standards/quality-gates.md) owns the location. It works
-mechanically and was rejected on meaning — `.agents/` is tracked, budgeted markdown, and a directory
-holding that plus 245 MB of disposable build output per checkout stops being one anyone can
-describe. A second ignored path for whatever a harness defaults to was rejected with it: two
-locations is not a convention.
-
-### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
-
-The standard advice, and it silently runs the wrong code here; the fingerprint collision and its
-one-minute reproduction are owned by [standards/quality-gates.md](./standards/quality-gates.md).
-What that file does not record: sharing saves four crate builds out of seventy-six, and `sccache`
-does not reach it either — absolute paths enter its cache key, and `SCCACHE_BASEDIRS` needs
-statically configured directories, the opposite of a worktree per task.
+Aged: [standards/quality-gates.md](./standards/quality-gates.md) owns the location and the
+fingerprint collision. Two facts it does not record. `.agents/` is tracked, budgeted markdown, and a
+directory holding that plus 245 MB of build output per checkout stops being one anyone can describe.
+And sharing a target directory — the standard advice, which silently runs the wrong code here —
+saves four crate builds out of seventy-six; `sccache` does not reach it either, because absolute
+paths enter its cache key.
 
 ### D-034 · Folding specs into the plans folder — rejected
 
-Aged: [plans/README.md](./plans/README.md) now owns the comparison. The verdict is that the two have
-opposite lifetimes, so one folder would mean either keeping dead plans or deleting live contracts.
-The useful half was kept — a spec is earned, not written by default.
+Aged: [plans/README.md](./plans/README.md) owns the comparison. The two have opposite lifetimes, so
+one folder means keeping dead plans or deleting live contracts.
 
 ### D-031 · `Escape` as the quit key — rejected
 
-The fact worth keeping is that the prototype shipped this way and it was changed: `Esc` quit while
-there was nothing to dismiss, and the moment a shelf or a draft exists the same reflex that closes
-an overlay would end the session one press later. The rules that replaced it are
-[interaction-routing](./specs/interaction-routing.md) INV-6 and INV-7.
+The prototype shipped this way and it was changed: `Esc` quit while there was nothing to dismiss,
+and the moment a shelf or a draft exists the same reflex that closes an overlay ends the session one
+press later. [interaction-routing](./specs/interaction-routing.md) INV-6 and INV-7 replaced it.
 
 ### D-030 · Putting `TuiIntent` in `plexmaton-core` — rejected
 
-Aged: the crate boundary is stated in [plexmaton](./roadmap/plexmaton.md) and the module's own
-documentation. The verdict is that scroll, focus cycling and pointer capture are none of a runtime's
-business, and a user action that does need to reach one becomes a command in core's vocabulary at
-the composition boundary rather than widening the intent enum across both worlds.
+Aged: the crate boundary is in [plexmaton](./roadmap/plexmaton.md). Scroll, focus cycling and
+pointer capture are none of a runtime's business; a user action that does need to reach one becomes
+a command in core's vocabulary at the composition boundary.
 
 ### D-027 · Hiding the unfocused composer entirely — rejected
 
-Hiding recovers three rows instead of one, which matters at 48 × 12 where the composer is a quarter
-of the screen. Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rule and its reasoning — a vanished
-composer jumps the tail the user is reading, and removes the evidence that the primary agent is
-still addressable. Worth keeping here: performance was not a reason. Painting three dim rows costs
-nothing a terminal can measure.
+Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rule. Hiding recovers three rows instead of one,
+which matters at 48 × 12. Worth keeping: performance was never a reason — painting three dim rows
+costs nothing a terminal can measure.
 
 ### D-028 · Full floating-window drag in Phase 00 — rejected for now
 
-Aged: [ui-ux](./roadmap/ui-ux.md) §drag scope owns it. The verdict is that a shelf is docked by
-definition, so only its height is a user choice, and nothing in the canonical journey yet needs a
-panel moved to an arbitrary corner.
+Aged: [ui-ux](./roadmap/ui-ux.md) §drag scope owns it. A shelf is docked by definition, so only its
+height is a user choice.
 
 ### D-010, D-011 · Workspace-wide `missing_docs`, and a file-length limit as the primary guard — rejected
 
-Aged: the reasoning is now owned by [standards/rust.md](./standards/rust.md) and
-[standards/quality-gates.md](./standards/quality-gates.md), so only the fact that cannot be
-reconstructed from them survives. Enabling `missing_docs` across the workspace produced 61
-findings, nearly all restated signatures — the filler `AGENTS.md` forbids.
-
-## Superseded
+Aged: [standards/rust.md](./standards/rust.md) and
+[standards/quality-gates.md](./standards/quality-gates.md) own the reasoning. The fact that survives
+them: `missing_docs` across the workspace produced 61 findings, nearly all restated signatures.
 
 ### D-016 supersedes part of the revision-1 floating-window proposal
 

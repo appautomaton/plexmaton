@@ -8,6 +8,8 @@
 
 mod content;
 mod intent;
+#[cfg(test)]
+mod journey;
 mod layout;
 mod render;
 mod router;
@@ -19,13 +21,16 @@ mod theme;
 mod transcript;
 mod workspace;
 
-pub use intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent};
+pub use intent::{
+    AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection, SelectionIntent,
+    TextIntent, TuiIntent,
+};
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
-    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, InspectorView, MailView,
-    NoticeView, ReduceError, ScrollPosition, Submission, ToolActivityView, TranscriptItemView,
-    ViewRevision, ViewState,
+    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, CopyRequest, InspectorView,
+    MailView, NoticeView, ReduceError, ScrollPosition, Selection, Submission, ToolActivityView,
+    TranscriptItemView, ViewRevision, ViewState,
 };
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,

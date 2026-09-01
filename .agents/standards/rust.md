@@ -77,7 +77,7 @@ adopted only after its changelog, features, and resolved graph are reviewed.
 | Crate | Role | Feature and version decision |
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Use the current modular generation; never downgrade it for an experiment. Prefer the umbrella crate — splitting into `ratatui-core`, `ratatui-widgets`, and `ratatui-crossterm` needs a measured compile-time or boundary benefit |
-| `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. Add `osc52` only when the clipboard adapter is implemented |
+| `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
 | `tokio` | Async task and event runtime | Never `full`. Today `rt`, `macros`, `time`; `sync` and `signal` arrive with their first real owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
@@ -87,6 +87,7 @@ adopted only after its changelog, features, and resolved graph are reviewed.
 | `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
+| `proptest` | Property tests, `dev-dependencies` only | Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which pulls `rusty-fork` and `tempfile` for nothing these properties need |
 
 ## Maintenance
 

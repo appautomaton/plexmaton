@@ -109,6 +109,11 @@ pub enum SurfaceId {
     Activity,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
+    /// Requests background agents have made of the user. Registered only while one is queued.
+    ///
+    /// Declared between the defect strip and the composer because that is where it is drawn: the
+    /// thing the user has to act on sits next to where they act.
+    Attention,
     /// The one text input, bound to the primary agent (D-017).
     ///
     /// Declared last among the focus stops because it is drawn last, at the bottom of the

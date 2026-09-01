@@ -29,6 +29,12 @@ const RAIL_HEIGHT: u16 = 5;
 const ACTIVITY_HEIGHT: u16 = 8;
 const NOTICE_HEIGHT: u16 = 4;
 
+/// Requests the band shows before it starts scrolling instead of growing.
+///
+/// The queue is unbounded and the conversation is not negotiable, so past this the band keeps its
+/// height and the rest of the queue arrives by scrolling it.
+const ATTENTION_LISTED: usize = 3;
+
 /// Smallest terminal that can still express the canonical journey.
 ///
 /// Below this the honest response is one explicit notice, not a layout clipped until it lies.
@@ -76,6 +82,8 @@ impl LayoutClass {
 pub struct WorkspaceInput {
     /// Whether the notice strip has anything to report.
     pub has_notices: bool,
+    /// How many background requests are queued. Zero registers no band at all.
+    pub attention: usize,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
     /// The open inspector, if one is open.
@@ -86,6 +94,7 @@ impl Default for WorkspaceInput {
     fn default() -> Self {
         Self {
             has_notices: false,
+            attention: 0,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
@@ -128,11 +137,19 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     };
     budget = budget.saturating_sub(notice_height);
 
+    // Served after the notice strip for the same reason the strip outranks the agent rail: a
+    // silently wrong projection has no other signal, while a blocked agent also shows as `Waiting`
+    // in the rail and its request survives until the rows come back.
+    let attention_height = attention_rows(input.attention, budget);
+    budget = budget.saturating_sub(attention_height);
+
     let body = Rect::new(area.x, area.y, area.width, budget);
     let notices = band(area, body.bottom(), notice_height);
+    let attention_top = body.bottom().saturating_add(notice_height);
+    let attention = band(area, attention_top, attention_height);
     let composer = Rect::new(
         area.x,
-        body.bottom().saturating_add(notice_height),
+        attention_top.saturating_add(attention_height),
         area.width,
         composer_height,
     );
@@ -174,6 +191,12 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Panel);
     register(
         &mut tree,
+        SurfaceId::Attention,
+        attention,
+        SurfaceKind::Panel,
+    );
+    register(
+        &mut tree,
         SurfaceId::Footer,
         Some(footer),
         SurfaceKind::Chrome,
@@ -189,6 +212,25 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 /// missing rail is visible in itself and recovered by resizing.
 fn notice_rows(available: u16) -> u16 {
     NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
+}
+
+/// Rows for the Attention band: two borders plus up to three requests, and none at all below that.
+///
+/// All or nothing for the same reason `reserve` is: a band that cannot show one request is a focus
+/// stop and a pointer target advertising a queue the user cannot read. The queue survives without
+/// it — the rail carries the count, and the band returns when the rows do.
+fn attention_rows(queued: usize, available: u16) -> u16 {
+    if queued == 0 {
+        return 0;
+    }
+    let listed = u16::try_from(queued.clamp(1, ATTENTION_LISTED)).unwrap_or(1);
+    let want = listed.saturating_add(2);
+    let room = available.saturating_sub(TRANSCRIPT_COMFORT);
+    if room >= MIN_PANEL_HEIGHT {
+        want.min(room)
+    } else {
+        0
+    }
 }
 
 /// What one frame's body is divided into.
@@ -324,7 +366,13 @@ mod tests {
             [false, true].into_iter().flat_map(move |has_notices| {
                 [input(has_notices), inspecting(has_notices)]
                     .into_iter()
-                    .map(move |input| (width, height, input))
+                    .flat_map(move |base| {
+                        // Zero, one, and more than the band lists: the three cases its height
+                        // function distinguishes.
+                        [0, 1, 9].into_iter().map(move |attention| {
+                            (width, height, WorkspaceInput { attention, ..base })
+                        })
+                    })
             })
         })
     }
@@ -482,19 +530,21 @@ mod tests {
     /// the part the user builds muscle memory on, so that is the part held fixed.
     #[test]
     fn the_focus_ring_loses_stops_without_ever_reordering() {
-        const CANONICAL: [SurfaceId; 5] = [
+        const CANONICAL: [SurfaceId; 7] = [
             SurfaceId::Agents,
             SurfaceId::Transcript,
+            SurfaceId::Inspector,
             SurfaceId::Activity,
             SurfaceId::Notices,
+            SurfaceId::Attention,
             SurfaceId::Composer,
         ];
 
-        for (width, height) in SIZES {
-            for has_notices in [false, true] {
-                let tree = workspace(Rect::new(0, 0, width, height), input(has_notices));
+        for (width, height, input) in shapes() {
+            {
+                let tree = workspace(Rect::new(0, 0, width, height), input);
                 let ring: Vec<_> = tree.focus_ring().collect();
-                let context = format!("{width}x{height} notices={has_notices}");
+                let context = format!("{width}x{height} {input:?}");
 
                 let mut canonical = CANONICAL.iter();
                 for stop in &ring {
@@ -503,9 +553,12 @@ mod tests {
                         "{context}: ring {ring:?} is not in canonical order"
                     );
                 }
+                // Not "the conversation is always a stop": a maximized inspector takes the region
+                // outright (INS-2), and then *it* is the conversation on screen. Widening this
+                // test to every shape is what showed the older claim was stated too strongly.
                 assert!(
-                    ring.contains(&SurfaceId::Transcript),
-                    "{context}: the conversation must always be a stop"
+                    ring.contains(&SurfaceId::Transcript) || ring.contains(&SurfaceId::Inspector),
+                    "{context}: some conversation must be reachable"
                 );
                 assert!(
                     ring.contains(&SurfaceId::Composer),

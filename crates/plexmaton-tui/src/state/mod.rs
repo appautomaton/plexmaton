@@ -9,6 +9,7 @@ mod notices;
 mod ordered;
 mod roster;
 mod scroll;
+mod selection;
 
 use std::collections::BTreeMap;
 
@@ -21,9 +22,11 @@ pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::NoticeView;
 pub use scroll::ScrollPosition;
+pub(crate) use selection::Selected;
+pub use selection::{CopyRequest, Selection};
 
 use crate::{
-    intent::{Direction, ScrollDirection, TextIntent},
+    intent::{AttentionIntent, Direction, ScrollDirection, TextIntent},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
     transcript::{TranscriptMetrics, TranscriptPosition},
 };
@@ -67,6 +70,8 @@ pub struct ViewState {
     /// which of them has the cursor (COM-1).
     composers: BTreeMap<AgentId, Composer>,
     inspector: Inspector,
+    /// What the user has selected for copying, expressed in entries rather than in cells.
+    selection: Option<Selection>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -203,9 +208,45 @@ impl ViewState {
         self.attention.len()
     }
 
+    /// Number the user has not been to yet, which is what reads as action required.
+    #[must_use]
+    pub fn attention_pending(&self) -> usize {
+        self.attention.pending()
+    }
+
+    /// Which queued request the user is on.
+    #[must_use]
+    pub fn attention_cursor(&self) -> usize {
+        self.attention.cursor()
+    }
+
     /// Returns queued attention items in arrival order.
     pub fn attention(&self) -> impl Iterator<Item = &AttentionView> {
         self.attention.iter()
+    }
+
+    /// Applies one user action to the Attention queue.
+    ///
+    /// Going to a request is the *only* thing in the workspace that lets a background agent change
+    /// what the user is looking at, and it happens because the user pressed a key on it. Nothing on
+    /// the producer path reaches here (ATT-1).
+    pub fn attend(&mut self, surfaces: &SurfaceTree, intent: AttentionIntent) {
+        let changed = match intent {
+            AttentionIntent::Move(direction) => self.attention.move_cursor(direction),
+            AttentionIntent::GoTo => {
+                let Some(agent_id) = self.attention.acknowledge() else {
+                    return;
+                };
+                // The agent may have left the roster; the acknowledgement still stands, because
+                // the user did see it.
+                let _selected = self.select_agent(&agent_id);
+                self.focus.point_at(surfaces, SurfaceId::Transcript);
+                true
+            }
+        };
+        if changed {
+            self.touch();
+        }
     }
 
     /// Returns retained notices from oldest to newest.
