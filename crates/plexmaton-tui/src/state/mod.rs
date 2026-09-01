@@ -323,9 +323,12 @@ impl ViewState {
         self.scroll.panel(surface_id)
     }
 
-    /// Returns where the reader of the selected conversation is, if they have ever moved.
-    pub(crate) fn conversation_position(&self) -> Option<&TranscriptPosition> {
-        self.scroll.conversation(&self.agents.selected()?.id)
+    /// Returns where the reader of one conversation is, if they have ever moved.
+    ///
+    /// By agent rather than by surface, because two surfaces now draw conversations and the
+    /// position belongs to the conversation rather than to the panel showing it (TR-5).
+    pub(crate) fn conversation_position(&self, agent_id: &AgentId) -> Option<&TranscriptPosition> {
+        self.scroll.conversation(agent_id)
     }
 
     /// Scrolls one surface's viewport by a wheel notch.
@@ -334,8 +337,10 @@ impl ViewState {
     /// wheel rather than passing it to what is beneath (D-006); only a viewport that cannot move at
     /// all is skipped, and that decision was already made when the target was resolved.
     ///
-    /// The conversation takes a different path from every other surface because it is the one made
-    /// of items: it parks against the message being read rather than against a row number.
+    /// A conversation takes a different path from every other surface because it is the one made
+    /// of items: it parks against the message being read rather than against a row number. Two
+    /// surfaces draw one, and each parks its own agent's reader — which is what "independently
+    /// scrolling" means (TR-5, INS-1).
     pub fn scroll(
         &mut self,
         surfaces: &SurfaceTree,
@@ -346,14 +351,15 @@ impl ViewState {
         let Some(viewport) = surfaces.viewport(surface_id) else {
             return;
         };
-        let moved = if surface_id == SurfaceId::Transcript {
-            let Some(agent_id) = self.agents.selected().map(|agent| agent.id.clone()) else {
-                return;
-            };
-            self.scroll
-                .scroll_conversation(&agent_id, viewport, direction, metrics)
-        } else {
-            self.scroll.scroll_panel(surface_id, viewport, direction)
+        let moved = match surface_id {
+            SurfaceId::Transcript | SurfaceId::Inspector => {
+                let Some(agent_id) = self.agent_shown_by(surface_id) else {
+                    return;
+                };
+                self.scroll
+                    .scroll_conversation(&agent_id, viewport, direction, metrics)
+            }
+            _ => self.scroll.scroll_panel(surface_id, viewport, direction),
         };
         if moved {
             self.touch();

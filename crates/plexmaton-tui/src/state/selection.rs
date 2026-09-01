@@ -172,8 +172,10 @@ impl ViewState {
     /// Whose content a surface is currently drawing, for the surfaces that draw one agent's.
     ///
     /// The single answer to "what is this panel showing", so that what a key selects, what a frame
-    /// highlights, and what a copy returns cannot come to three different conclusions.
-    fn agent_shown_by(&self, surface: SurfaceId) -> Option<AgentId> {
+    /// highlights, what a wheel scrolls, and what a copy returns cannot come to four different
+    /// conclusions. Two surfaces draw a conversation and each has its own agent, which is the whole
+    /// of what an inspector is for (INS-1).
+    pub(crate) fn agent_shown_by(&self, surface: SurfaceId) -> Option<AgentId> {
         match surface {
             SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone()),
             SurfaceId::Transcript | SurfaceId::Activity => {
@@ -220,8 +222,8 @@ impl ViewState {
             return 0;
         };
         match surface {
-            SurfaceId::Transcript => agent.transcript().count(),
-            SurfaceId::Activity | SurfaceId::Inspector => agent
+            SurfaceId::Transcript | SurfaceId::Inspector => agent.transcript().count(),
+            SurfaceId::Activity => agent
                 .tool_activity()
                 .count()
                 .saturating_add(agent.artifacts().count())
@@ -248,13 +250,13 @@ impl ViewState {
         count: usize,
     ) -> Vec<String> {
         match surface {
-            SurfaceId::Transcript => agent
+            SurfaceId::Transcript | SurfaceId::Inspector => agent
                 .transcript()
                 .skip(first)
                 .take(count)
                 .map(|item| item.source.clone())
                 .collect(),
-            SurfaceId::Activity | SurfaceId::Inspector => agent
+            SurfaceId::Activity => agent
                 .tool_activity()
                 .map(|tool| tool.label.clone())
                 // The stable reference, not the label: the label is what got truncated on screen.

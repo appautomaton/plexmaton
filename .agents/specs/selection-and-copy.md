@@ -27,7 +27,11 @@ stable pointer, and a message copies as the text of its deltas.
 
 **SEL-3 — One selection, in one surface, for one agent.** A selection carries the surface and the
 agent it indexes, so it cannot survive onto a different list. Extending in a different surface
-replaces it rather than spanning both.
+replaces it rather than spanning both, and a selection whose surface stops showing its agent is
+**dropped**, not carried across: index three of one agent's messages is a different message in
+another's. Carrying the agent was originally enough to stop a *frame* highlighting the wrong list;
+it was not enough to stop a *copy* reading one, and the failure was invisible because the highlight
+had already gone. Corrected 2026-09-01.
 
 **SEL-4 — The workspace produces copied text and never delivers it.** A copy leaves as a value on
 `Outcome`, exactly as a submission does (COM-3). Nothing in `plexmaton-tui` may reach a clipboard,
@@ -52,8 +56,8 @@ focused surface + its agent ──▶ entries ──▶ Selection { surface, age
 
 | Surface | Entries, in order | What one copies as |
 | --- | --- | --- |
-| Conversation | Transcript items | The item's source text |
-| Activity, Inspector | Tool activity, then artifacts, then mail | A tool's label; an **artifact's pointer**; a mail's sender and summary |
+| Conversation, Inspector | Transcript items | The item's source text |
+| Activity | Tool activity, then artifacts, then mail | A tool's label; an **artifact's pointer**; a mail's sender and summary |
 
 The order here is the order the content functions draw, and it has to be: an index meaning different
 entries in the two places would select one thing and copy another.
@@ -109,6 +113,6 @@ panel, and everything in this workspace is append-ordered.
 | --- | --- |
 | SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints` |
 | SEL-2 | `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
-| SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints` |
+| SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents` |
 | SEL-4 | `copying_writes_a_terminated_osc_52_sequence_carrying_the_encoded_text`, `multi_byte_text_survives_the_encoding` |
-| SEL-5 | `escape_clears_the_selection_before_it_closes_the_inspector` |
+| SEL-5 | `escape_clears_the_selection_before_it_closes_the_inspector`, `a_selection_does_not_survive_the_surface_changing_agents` |

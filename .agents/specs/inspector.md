@@ -40,9 +40,22 @@ conversation, but only when the inspector was holding focus: closing an overlay 
 take the cursor out of the composer.
 
 **INS-5 — The steer input exists only while the inspector holds focus.** There is nothing to
-mistarget because there is nothing there (D-018). Its rows come out of the inspector's own budget,
-never the conversation's guarantee (D-022), and while it is active the primary composer collapses to
-a single row that stays clickable and stays a focus stop (D-027).
+mistarget because there is nothing there (D-018). It takes a strip off the bottom of the inspector's
+own rectangle, never off the conversation's guarantee (D-022), and while it is active the primary
+composer collapses to a single row that stays clickable and stays a focus stop (D-027). A rectangle
+with no room for both keeps the conversation and shows no input, which is the same all-or-nothing
+rule the row budget uses.
+
+**INS-6 — What an inspector shows is a conversation.** The inspected agent's, virtualized through
+the same cache and the same reading position the main conversation uses (TR-1, TR-3, TR-5) — so two
+of them on screen scroll independently because their readers are keyed by agent, not because a
+second mechanism was added. It is not a second copy of the activity column: that column already
+shows the selected agent's tools, artifacts and mail, and reaching another agent's is what selecting
+it is for.
+
+The first implementation drew the detail rather than the conversation, which left canonical step 5 —
+two agents streaming into independent virtualized transcripts — never exercised, and the surface's
+own measurement measuring a small detail panel. Corrected 2026-09-01.
 
 ## Model
 
@@ -102,6 +115,7 @@ is what makes them reachable while the inspector's own input holds the cursor.
 | --- | --- |
 | An inspector command with nothing open | A no-op that does not advance the revision. The router says what was pressed; whether there is anything to act on is the reducer's question |
 | The inspected agent leaves the roster | The panel says so rather than painting an empty box. Nothing removes an agent in Phase 00; this is the prepared answer |
+| An unpinned inspector open on the selected agent | Shows that conversation twice, once in each panel, sharing one reader because the position belongs to the conversation (TR-5). The user leaves this state by pinning, which is what pinning is for. Made visible by INS-6 and left as specified: following is what stops a peek ending the moment it becomes useful, and whether opening should pin by default is a question for real use rather than for this phase |
 | A drag that began on the body, not the edge | Moves nothing. A grab is recorded at press time or not at all |
 | A press on another surface while a grab is held | Clears the grab rather than leaving a stale one for the next drag |
 | A height dragged past the guarantee | Clamped to it. Dragging is a choice inside the contract, never a way out |
@@ -130,3 +144,4 @@ is what makes them reachable while the inspector's own input holds the cursor.
 | INS-3 | `presentation_follows_the_terminal_and_the_users_maximize`, `the_composer_survives_every_presentation`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | INS-4 | `enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter` |
 | INS-5 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `only_a_press_on_the_bottom_edge_starts_a_resize`, `the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does` |
+| INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first` |

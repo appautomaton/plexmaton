@@ -187,18 +187,36 @@ mod tests {
             "the reader is above the newest message, or this proves nothing"
         );
 
-        // 4 and 5. Select B, open its inspector, then come back to A.
+        // 4 and 5. Open B in an inspector, pin it, and come back to A — which is the arrangement
+        // that puts two agents on screen, because an unpinned inspector follows the selection and
+        // would show the same conversation the panel beside it does (INS-1).
+        //
+        // The earlier version of this assertion claimed "two conversations are on screen, and they
+        // are different conversations" while both panels were showing agent B, and while the
+        // inspector held a detail panel rather than a conversation at all. It is asserted here by
+        // comparing the two, which is the only form of the claim that could fail.
         journey.focus(SurfaceId::Agents).key(KeyCode::Down);
         assert_eq!(journey.selected(), "agent-b");
         journey.key(KeyCode::Enter);
         assert_eq!(journey.focused(), Some(SurfaceId::Inspector));
-        assert!(journey.painted(SurfaceId::Inspector).contains("Agent B"));
+        journey.press(KeyCode::Char('p'), KeyModifiers::CONTROL);
+        journey.focus(SurfaceId::Agents).key(KeyCode::Up);
+        assert_eq!(journey.selected(), "agent-a");
+
+        let inspected = journey.painted(SurfaceId::Inspector);
+        let conversation = journey.painted(SurfaceId::Transcript);
+        assert!(inspected.contains("Agent B"));
+        assert!(conversation.contains("Agent A"));
         assert!(
-            journey.painted(SurfaceId::Transcript).contains("surface"),
+            inspected.contains("surface-routing boundary"),
+            "the inspector holds B's conversation, not a second copy of the activity column"
+        );
+        assert!(
+            !conversation.contains("surface-routing boundary"),
             "two conversations are on screen, and they are different conversations"
         );
 
-        journey.key(KeyCode::Esc);
+        journey.focus(SurfaceId::Inspector).key(KeyCode::Esc);
         journey.focus(SurfaceId::Agents).key(KeyCode::Up);
         assert_eq!(journey.selected(), "agent-a");
         assert_eq!(

@@ -1,22 +1,19 @@
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::Line,
-    widgets::{Paragraph, Wrap},
-};
-use unicode_width::UnicodeWidthStr;
+use ratatui::{Frame, layout::Rect};
 
 mod chrome;
+mod panel;
+
+use panel::{Body, Panel, draw_panel, place_cursor, render_steer, steer_split};
 
 use chrome::{
-    agents_title, attention_role, attention_title, block, composer_title, inspector_title,
-    notices_title, render_footer, render_too_small, transcript_title,
+    agents_title, attention_role, attention_title, composer_title, inspector_title, notices_title,
+    render_footer, render_too_small, transcript_title,
 };
 
 use crate::{
     ViewState, content,
     layout::{self, LayoutClass, WorkspaceInput},
-    state::{ScrollPosition, inner_width},
+    state::inner_width,
     surface::{KeyboardFocus, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     theme::{Palette, Role},
     transcript::TranscriptMetrics,
@@ -64,6 +61,10 @@ pub fn render(
 
     for (id, bounds, kind) in drawn {
         let has_focus = focused == Some(id);
+        // The inspector's own input takes a strip out of the inspector's rectangle, never out of
+        // the conversation's ten-row guarantee (D-022, INS-5). What is left is what its
+        // conversation is drawn into, so the two are laid out before either is built.
+        let (bounds, steer) = steer_split(state, id, bounds, has_focus);
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.
         let panel = match id {
@@ -77,18 +78,15 @@ pub fn render(
                 bordered: true,
             }),
             SurfaceId::Transcript => Some(Panel {
-                body: transcript_body(state, palette, metrics, bounds),
+                body: conversation_body(state, palette, metrics, bounds, id),
                 title: transcript_title(state),
                 title_role: Role::Muted,
                 bordered: true,
             }),
+            // The inspected agent's conversation, not a second copy of the activity column: the
+            // workspace shows one conversation, and the canonical journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
-                body: Body::Whole {
-                    lines: content::inspector(state, palette, has_focus, inner_width(bounds.width)),
-                    // The steer input is the newest thing in it, so an untouched inspector shows
-                    // the end of its content rather than the top.
-                    follows_tail: has_focus,
-                },
+                body: conversation_body(state, palette, metrics, bounds, id),
                 title: inspector_title(state),
                 title_role: Role::Accent,
                 bordered: true,
@@ -161,72 +159,51 @@ pub fn render(
 
         // The cursor belongs to whichever focused surface is a text input, which is one answer
         // derived from one kind rather than a list of identities to keep in step (SURF-3, COM-1).
+        // An inspector's input is the strip below its conversation, so the cursor follows the
+        // rectangle the text was drawn into rather than the surface's.
         if has_focus && kind.keyboard_focus() == KeyboardFocus::TextInput && panel.bordered {
-            place_cursor(frame, bounds, panel.body.lines());
+            match steer {
+                Some((steer_area, ref agent_id)) => {
+                    render_steer(frame, palette, state, agent_id, steer_area);
+                }
+                None => place_cursor(frame, bounds, panel.body.lines()),
+            }
         }
     }
 
     surfaces
 }
 
-/// One bordered, scrollable region, ready to draw.
-struct Panel {
-    body: Body,
-    title: String,
-    title_role: Role,
-    /// Whether the region spends two rows on its own frame. A single-row region cannot.
-    bordered: bool,
-}
-
-/// What a panel has to draw, and how much of it the frame had to build.
-///
-/// `follows_tail` belongs to the whole-body arm alone: a windowed body arrives with its offset
-/// already resolved through the reader's anchor, so a second answer here could only disagree.
-enum Body {
-    /// Content short enough that building all of it costs nothing, measured as one paragraph.
-    Whole {
-        lines: Vec<Line<'static>>,
-        /// Whether an untouched viewport opens at the end of its content rather than the start.
-        follows_tail: bool,
-    },
-    /// A conversation, measured item by item and built only where the viewport reaches (TR-2).
-    Window {
-        lines: Vec<Line<'static>>,
-        /// Rows to skip inside the first built item.
-        skip_rows: u16,
-        viewport: Viewport,
-    },
-}
-
-impl Body {
-    fn lines(&self) -> &[Line<'static>] {
-        match self {
-            Self::Whole { lines, .. } | Self::Window { lines, .. } => lines,
-        }
-    }
-}
-
-/// Builds the part of the selected conversation this frame will draw.
+/// Builds the part of one surface's conversation this frame will draw.
 ///
 /// The whole history is measured, from the cache; only the items the viewport reaches are turned
 /// into lines. A conversation with no items falls back to a whole body, because a placeholder has
 /// nothing to virtualize.
-fn transcript_body(
+///
+/// Two surfaces call this — the conversation for the selected agent, an inspector for the one being
+/// checked on — and each carries its own agent, its own reader and its own selection through it.
+/// One function rather than two, because a second conversation renderer is a second set of TR
+/// invariants to keep in step, and the cache is already keyed by agent.
+fn conversation_body(
     state: &ViewState,
     palette: &Palette,
     metrics: &mut TranscriptMetrics,
     area: Rect,
+    surface: SurfaceId,
 ) -> Body {
-    let Some(agent) = state.selected_agent() else {
+    let Some(agent) = state
+        .agent_shown_by(surface)
+        .and_then(|agent_id| state.agent(&agent_id))
+    else {
         return Body::Whole {
-            lines: content::transcript_placeholder(palette, false),
+            lines: content::conversation_placeholder(palette, surface, false),
             follows_tail: false,
         };
     };
     let visible_rows = area.height.saturating_sub(BORDER_ROWS);
     if metrics.measure(agent, palette, area.width.saturating_sub(BORDER_ROWS)) == 0 {
         return Body::Whole {
-            lines: content::transcript_placeholder(palette, true),
+            lines: content::conversation_placeholder(palette, surface, true),
             follows_tail: false,
         };
     }
@@ -238,7 +215,7 @@ fn transcript_body(
     };
     // An untouched conversation opens at its newest line; a parked one resolves through the item
     // its reader stopped at, so this width's rows are recomputed rather than remembered (TR-3).
-    viewport.offset = state.conversation_position().map_or_else(
+    viewport.offset = state.conversation_position(&agent.id).map_or_else(
         || viewport.max_offset(),
         |position| metrics.offset_of(&agent.id, position, viewport.max_offset()),
     );
@@ -249,101 +226,11 @@ fn transcript_body(
             agent,
             palette,
             &window,
-            state.selected_in(SurfaceId::Transcript, &agent.id),
+            state.selected_in(surface, &agent.id),
         ),
         skip_rows: window.skip_rows,
         viewport,
     }
-}
-
-/// Draws a panel through its viewport and returns what it measured.
-///
-/// A whole body is measured by the same `Paragraph` that paints it, so the wrap deciding how tall
-/// the content is and the wrap putting it on screen are one computation. A windowed body arrives
-/// already measured, and scrolls by the rows into its first item rather than by rows into a history
-/// it never built.
-fn draw_panel(
-    frame: &mut Frame<'_>,
-    palette: &Palette,
-    area: Rect,
-    focused: bool,
-    panel: &Panel,
-    parked: Option<ScrollPosition>,
-) -> Viewport {
-    // An unbordered region spends no rows on a frame, so none of the arithmetic below may take
-    // them off. A collapsed composer is the only one, and it is one row tall (D-027).
-    let frame_rows = if panel.bordered { BORDER_ROWS } else { 0 };
-    let mut paragraph = Paragraph::new(panel.body.lines().to_vec()).wrap(Wrap { trim: false });
-    if panel.bordered {
-        paragraph = paragraph.block(block(
-            palette,
-            panel.title.clone(),
-            panel.title_role,
-            focused,
-        ));
-    }
-
-    let (viewport, scroll) = match &panel.body {
-        Body::Whole { follows_tail, .. } => {
-            // `line_count` wraps at exactly the width it is given and then adds the block's border
-            // rows, so it is asked for the inner width and those rows are taken back off.
-            let inner_width = area.width.saturating_sub(frame_rows);
-            let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
-            let mut viewport = Viewport {
-                content_rows: measured.saturating_sub(frame_rows),
-                visible_rows: area.height.saturating_sub(frame_rows),
-                offset: 0,
-            };
-            viewport.offset = resolve_offset(parked, *follows_tail, viewport.max_offset());
-            (viewport, viewport.offset)
-        }
-        Body::Window {
-            skip_rows,
-            viewport,
-            ..
-        } => (*viewport, *skip_rows),
-    };
-
-    frame.render_widget(paragraph.scroll((scroll, 0)), area);
-    viewport
-}
-
-/// Turns a stored scroll position into a row offset for a viewport this deep.
-///
-/// An untouched surface has no stored position at all, and takes its anchor from its own kind of
-/// content: a conversation opens at its newest line, a list at its first (TR-4).
-const fn resolve_offset(
-    parked: Option<ScrollPosition>,
-    follows_tail: bool,
-    max_offset: u16,
-) -> u16 {
-    match parked {
-        Some(position) => position.offset(max_offset),
-        None if follows_tail => max_offset,
-        None => 0,
-    }
-}
-
-/// Places the workspace's one cursor at the end of the composer's last visible line.
-///
-/// The only `set_cursor_position` call site in the workspace. Ratatui hides the cursor unless a
-/// frame asks for it, so "exactly one cursor" (COM-1) is a property of there being one caller.
-fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>]) {
-    let last = lines.last();
-    // Display width, not character count: a wide glyph occupies two cells and the caret has to
-    // land after both.
-    let column = last.map_or(0, |line| {
-        u16::try_from(UnicodeWidthStr::width(line.to_string().as_str())).unwrap_or(u16::MAX)
-    });
-    let rows = u16::try_from(lines.len()).unwrap_or(1).max(1);
-    let inside_width = area.width.saturating_sub(BORDER_ROWS);
-    let inside_height = area.height.saturating_sub(BORDER_ROWS);
-    frame.set_cursor_position((
-        area.x
-            .saturating_add(1)
-            .saturating_add(column.min(inside_width)),
-        area.y.saturating_add(rows.min(inside_height)),
-    ));
 }
 
 #[cfg(test)]
@@ -357,7 +244,7 @@ mod tests {
         widgets::{Paragraph, Wrap},
     };
 
-    use super::{block, transcript_title};
+    use super::{chrome::block, transcript_title};
 
     use crate::{
         TranscriptMetrics, ViewState,

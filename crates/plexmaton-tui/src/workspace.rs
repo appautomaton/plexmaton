@@ -776,6 +776,182 @@ mod tests {
         assert_eq!(bounds(&workspace, SurfaceId::Composer).height, expanded);
     }
 
+    /// Two agents, plenty of history each, with B pinned into an inspector and A in the
+    /// conversation. The arrangement INS-1 says pinning exists to produce.
+    fn two_conversations() -> (Workspace, Terminal<TestBackend>) {
+        let mut conversation = Conversation::canonical();
+        let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.extend(20).extend_agent(&agent_b, 20);
+
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(100, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+
+        // Point the inspector at B and pin it, then take the conversation back to A. An unpinned
+        // inspector would follow, and both panels would be showing the same conversation.
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('p'), KeyModifiers::CONTROL),
+        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::NONE),
+        );
+        assert_eq!(selected(&workspace), "agent-a");
+        (workspace, terminal)
+    }
+
+    /// The canonical journey's step 5: two agents streaming into independent conversations.
+    ///
+    /// This is the phase's hardest declared requirement and it had never been exercised — the
+    /// inspector drew the same tools, artifacts and mail the activity column already showed for the
+    /// selected agent, so there was only ever one conversation on screen. Independence is the part
+    /// worth asserting: the reading position belongs to the conversation rather than to the panel
+    /// (TR-5), and with two panels that stops being a distinction without a difference.
+    #[test]
+    fn two_conversations_scroll_independently_and_neither_moves_the_other() {
+        let (mut workspace, mut terminal) = two_conversations();
+
+        let conversation = painted(&terminal, &workspace, SurfaceId::Transcript);
+        let inspected = painted(&terminal, &workspace, SurfaceId::Inspector);
+        assert_ne!(
+            conversation, inspected,
+            "two panels showing the same text would prove nothing about independence"
+        );
+
+        // Scroll the inspector only. Hover routing puts the wheel where the pointer is, without
+        // touching focus, so this is one reader moving and the other staying put (D-006).
+        let over_inspector = bounds(&workspace, SurfaceId::Inspector);
+        for _ in 0..3 {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &mouse(
+                    MouseEventKind::ScrollUp,
+                    over_inspector.x + 2,
+                    over_inspector.y + 2,
+                ),
+            );
+        }
+
+        assert_ne!(
+            painted(&terminal, &workspace, SurfaceId::Inspector),
+            inspected,
+            "the inspected conversation moved"
+        );
+        assert_eq!(
+            painted(&terminal, &workspace, SurfaceId::Transcript),
+            conversation,
+            "and the one beside it did not"
+        );
+
+        // Now the other way round, from where each of them is standing.
+        let inspected = painted(&terminal, &workspace, SurfaceId::Inspector);
+        let over_conversation = bounds(&workspace, SurfaceId::Transcript);
+        for _ in 0..3 {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &mouse(
+                    MouseEventKind::ScrollUp,
+                    over_conversation.x + 2,
+                    over_conversation.y + 2,
+                ),
+            );
+        }
+
+        assert_ne!(
+            painted(&terminal, &workspace, SurfaceId::Transcript),
+            conversation
+        );
+        assert_eq!(
+            painted(&terminal, &workspace, SurfaceId::Inspector),
+            inspected,
+            "the reader the user was not moving stayed exactly where it was"
+        );
+    }
+
+    /// TR-5 and SURF-5 together: a conversation remembers its reader, and a surface that comes back
+    /// comes back where it was left.
+    #[test]
+    fn an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen() {
+        let (mut workspace, mut terminal) = two_conversations();
+        let over_inspector = bounds(&workspace, SurfaceId::Inspector);
+        for _ in 0..4 {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &mouse(
+                    MouseEventKind::ScrollUp,
+                    over_inspector.x + 2,
+                    over_inspector.y + 2,
+                ),
+            );
+        }
+        // The first content row is the anchor: which message the reader is on and how far into it
+        // (TR-3). The whole region is the wrong comparison — reopening arrives unpinned and holding
+        // focus, so the title and the input strip both differ for reasons that are not the reader.
+        let anchor = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
+            painted(terminal, workspace, SurfaceId::Inspector)
+                .lines()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let parked = anchor(&terminal, &workspace);
+        assert!(
+            parked.contains("wrap across"),
+            "the reader must be parked inside a message, not at a boundary: {parked}"
+        );
+
+        // Close it from the conversation, so the Escape ladder resolves the inspector rather than a
+        // selection, then reopen B the way it was opened the first time.
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(
+            workspace.surfaces.get(SurfaceId::Inspector).is_none(),
+            "it must actually have closed, or this proves nothing"
+        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            anchor(&terminal, &workspace),
+            parked,
+            "the inspected conversation came back on the message its reader had stopped at"
+        );
+    }
+
     fn selected(workspace: &Workspace) -> String {
         workspace
             .state

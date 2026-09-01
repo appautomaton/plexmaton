@@ -68,15 +68,19 @@ pub(crate) fn transcript_item(
     ]
 }
 
-/// What the conversation says when it has no items to show.
+/// What a conversation says when it has no items to show.
 ///
-/// An empty panel and a panel waiting for its first event look the same and mean different things,
-/// so neither is left to be inferred from blank rows.
-pub(crate) fn transcript_placeholder(palette: &Palette, has_agent: bool) -> Vec<Line<'static>> {
-    let message = if has_agent {
-        "Agent is active; no transcript item has started yet."
-    } else {
-        "Waiting for the first semantic event…"
+/// An empty panel, a panel waiting for its first event, and a panel whose agent has gone all look
+/// the same and mean different things, so none of them is left to be inferred from blank rows.
+pub(crate) fn conversation_placeholder(
+    palette: &Palette,
+    surface: SurfaceId,
+    has_agent: bool,
+) -> Vec<Line<'static>> {
+    let message = match (surface, has_agent) {
+        (_, true) => "Agent is active; no transcript item has started yet.",
+        (SurfaceId::Inspector, false) => "That agent is no longer in the roster.",
+        (_, false) => "Waiting for the first semantic event…",
     };
     vec![Line::styled(message, palette.style(Role::Muted))]
 }
@@ -94,60 +98,6 @@ pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static
         palette,
         state.selected_in(SurfaceId::Activity, &agent.id),
     )
-}
-
-/// The inspected agent's detail: who it is, and everything it has produced.
-///
-/// The same detail the activity column shows, for a *different* agent. That is the whole point of
-/// the surface: with one agent selected and another inspected there are two on screen, and neither
-/// is a copy of the other.
-pub(crate) fn inspector(
-    state: &ViewState,
-    palette: &Palette,
-    focused: bool,
-    width: u16,
-) -> Vec<Line<'static>> {
-    let Some(agent) = state.inspector().and_then(|open| state.agent(&open.agent)) else {
-        return vec![Line::styled(
-            "That agent is no longer in the roster.",
-            palette.style(Role::Muted),
-        )];
-    };
-
-    let mut lines = vec![
-        Line::from(vec![
-            Span::styled(agent.label.clone(), palette.style(Role::Body)),
-            Span::styled(
-                format!("  {}", agent_status_label(agent.status)),
-                palette.style(agent_role(agent.status)),
-            ),
-        ]),
-        Line::raw(""),
-    ];
-    lines.extend(detail(
-        agent,
-        palette,
-        state.selected_in(SurfaceId::Inspector, &agent.id),
-    ));
-
-    // The steer input exists only while this surface holds focus (D-018). There is nothing here to
-    // mistarget when it is not focused, because there is nothing here. Its rows come out of this
-    // surface's own budget, never the conversation's guarantee (D-022).
-    if focused {
-        lines.push(Line::raw(""));
-        lines.push(Line::styled(
-            format!("Steer {}", agent.label),
-            palette.style(Role::SectionHeading),
-        ));
-        lines.extend(
-            state
-                .draft(&agent.id)
-                .visible_rows(width)
-                .into_iter()
-                .map(|row| Line::styled(row, palette.style(Role::Body))),
-        );
-    }
-    lines
 }
 
 /// The one row the primary composer keeps while a sub-agent's input is active (D-027).
