@@ -24,7 +24,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Press `q`, `Esc`, or `Ctrl-C` to leave the synthetic TUI.
+Press `Ctrl-C` to leave the synthetic TUI from anywhere, or `q` from a navigation surface. `Esc`
+backs out one layer at a time — a selection, then an open inspector — and does not quit (D-031).
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 

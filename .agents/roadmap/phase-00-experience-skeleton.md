@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Delivery complete — all 8 steps done; the exit gate is assessed below |
+| Status | Delivery complete — 8 steps and one closure slice; the exit gate is assessed below |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
@@ -421,6 +421,55 @@ spread between them is the point (D-041).
 Tests: 49 at the start of step 2, 147 now. Eleven mutations were each caught by the intended tests.
 All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
+### Closure slice — corrections from an external review — 2026-09-01
+
+An independent review of the delivered phase reported six defects. All six reproduced, four of them
+against behaviour the workspace's own specs already forbade, and one against the phase's hardest
+declared requirement. They are recorded here rather than folded into the steps that introduced
+them, because what a future reader needs is not the fix but the class of thing eight steps of gates
+did not catch.
+
+- **The inspector never held a conversation.** `specs/inspector.md` opens by saying it must; what
+  was built drew the inspected agent's tools, artifacts and mail — the same content the activity
+  column already draws for the selected agent. So canonical step 5 had never run, neither had the
+  two workloads §responsiveness workloads declares for it, and the surface-open budget was
+  measuring a small detail panel. INS-6 now carries the contract. Making it a conversation was
+  mostly plumbing, because heights were already keyed by agent and readers already belonged to
+  conversations rather than to panels — but that is the point: **the cheap mechanism was in place
+  and the surface that needed it was pointed somewhere else, and nothing failed.**
+- **A hidden selection could copy the wrong agent's text.** The selection carried its agent, which
+  was enough to stop a frame *highlighting* the wrong list and not enough to stop a copy *reading*
+  one. The highlight disappearing is what made it invisible. Every path that changes what a surface
+  shows now drops the selection rather than rebinding it (SEL-3).
+- **Two documented boundary claims were unenforced.** A finalized transcript item still accepted
+  deltas, and identities derived `Deserialize` straight onto the inner string, so `""` decoded into
+  an `AgentId` the constructor refuses. Both are now refused the way every other producer defect is.
+- **`touch()` was called on acceptance rather than on change**, so a runtime re-reporting a running
+  agent or an executing tool repainted continuously — which FR-1 says explicitly must not happen.
+  `select` had the same defect at the ends of a list, beside a `move_selection` that did not.
+- **The composer measured itself in newlines while every panel wraps.** At 60 columns a
+  150-character draft painted its tail ending at column 34 with the caret at column 59, on the
+  border. It now wraps its own draft at the width it is drawn at, so the rows it asks for, the rows
+  it paints and the row the caret lands on are one answer.
+- **Three claims in this file and the README were wrong** and are corrected above: `Esc` had not
+  quit since D-031, the journey's step-5 assertion claimed two different conversations while both
+  panels showed agent B, and the exit gate said one declared workload had not run when three had
+  not.
+
+The common thread is worth more than the six fixes: **every one of these passed every gate.** Tests,
+clippy, the sentinels, the citation checker and a PTY smoke test all held while the inspector showed
+the wrong thing entirely. What caught them was somebody reading the code against the contract, which
+is the one instrument this project does not own — and the second-order finding is that four of the
+six were already written down as invariants, so the gates were not weak, they were simply not
+pointed at the claims.
+
+One consequence was recorded rather than fixed: an unpinned inspector open on the selected agent now
+visibly shows that conversation twice. Pinning is the documented way out (INS-1), and whether
+opening should pin by default is a question for real use.
+
+Tests: 147 at the close of step 8, 158 now. Four mutations were each caught by the intended tests.
+All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+
 ## Scope
 
 ### Workspace skeleton
@@ -577,13 +626,15 @@ is the scripted canonical demonstration; everything it names runs under `cargo t
 | Mouse routing selects the correct topmost viewport; hover-scroll does not change keyboard focus | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted` | Met — but the **overlapping** case is proven against a fixture, because no real workspace surface overlaps another |
 | Drag and resize retain pointer capture, respect bounds, and recover across resize | `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle`, `a_dragged_height_is_clamped_rather_than_obeyed`, `a_drag_in_flight_survives_the_terminal_changing_size` | Met |
 | Background action-required events enter the queue without stealing focus or opening a modal | `a_background_request_takes_no_focus_no_selection_and_no_cursor` | Met |
-| Semantic copy returns underlying transcript, path, artifact and equation source | `copying_returns_the_source_between_the_endpoints`, `copying_an_artifact_returns_its_pointer_rather_than_its_label` | Met for transcript, artifact and mail; **equations are out of the phase** (D-007) |
+| Semantic copy returns underlying transcript, path, artifact and equation source | `copying_returns_the_source_between_the_endpoints`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `a_selection_does_not_survive_the_surface_changing_agents` | Met for transcript, artifact and mail; **equations are out of the phase** (D-007) |
 | Keyboard-only navigation can perform the canonical journey | `journey::*` presses nothing but keys except one deliberate wheel event | Met |
 | Wide, medium and narrow layouts preserve the journey's meaning and viewport anchors | `the_journey_survives_wide_medium_and_narrow`, `a_resized_conversation_keeps_the_reader_on_the_same_message` | Met |
-| Large synthetic transcripts do not require full-history rendering for a frame | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`; the harness reports 1 wrap and 27 lines at 5,000 messages | Met |
-| Snapshot and interaction tests cover the principal states and non-happy paths | 147 tests; `a_virtualized_conversation_paints_what_the_whole_one_did` is the differential that replaced snapshots | Met, without `insta` |
-| Responsiveness measurements exist for the declared workloads, with budgets in `ui-ux.md` | `cargo run --release -p plexmaton-cli --bin plexmaton-measure`, eight workloads at two scales | Met |
+| Large synthetic transcripts do not require full-history rendering for a frame | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_either_of_two_conversations_costs_no_measurement`; the harness reports 1 wrap and 27 lines at 5,000 messages, and 0 wraps with two conversations on screen | Met |
+| Two agents stream concurrently into independent virtualized conversations | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first` | Met — after the closure slice; the delivered step 7 inspector held a detail panel and this had never run |
+| Snapshot and interaction tests cover the principal states and non-happy paths | 158 tests; `a_virtualized_conversation_paints_what_the_whole_one_did` is the differential that replaced snapshots | Met, without `insta` |
+| Responsiveness measurements exist for the declared workloads, with budgets in `ui-ux.md` | `cargo run --release -p plexmaton-cli --bin plexmaton-measure`, ten workloads at two scales | Met |
 | Durable UI/UX decisions have been promoted to `ui-ux.md` | D-013 to D-028 and D-041 to D-045 | Met |
+| The producer boundary refuses what its own contract forbids | `a_delta_after_finalization_is_refused_and_the_text_does_not_land`, `an_identity_cannot_be_deserialized_past_its_constructor`, `a_repeated_status_or_tool_state_costs_no_frame` | Met — after the closure slice |
 
 Two criteria are met with a named reduction rather than in full, and both reductions are recorded
 where the mechanism would have lived. **Z-order** has no caller because layout tiles the terminal, so
@@ -592,8 +643,12 @@ modality. **Equation source** left this phase with the math track on 2026-08-31 
 model that would carry it — a selection over entries, each answering with its own semantic source —
 is in place and needs one more entry kind rather than a new mechanism.
 
-One workload from §responsiveness workloads was not run: **a pending and then completed math
-render**, for the same reason. Every other declared workload has a row in the budget table.
+**Correction.** This section previously said one declared workload had not been run. Three had not:
+a pending and then completed math render, which left with the math track (D-007); *a large hidden
+transcript opened into an inspector*; and *two visible independently scrolling transcripts*. The
+last two had no way to run, because the inspector held a detail panel rather than a conversation.
+Both now have a workload and a row in the budget table, and the math render is the only one
+outstanding.
 
 ## Handoff to Phase 01
 

@@ -40,7 +40,8 @@ pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
 mod workloads;
 
 use workloads::{
-    cold_open, inspector, interleaved, resize, select, streaming, switch_reader, wheel,
+    cold_open, hidden_conversation, inspector, interleaved, resize, select, streaming,
+    switch_reader, two_conversations, wheel,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -53,6 +54,8 @@ fn main() -> anyhow::Result<()> {
         runs.push(switch_reader(items)?);
         runs.push(resize(items)?);
         runs.push(inspector(items)?);
+        runs.push(hidden_conversation(items)?);
+        runs.push(two_conversations(items)?);
         runs.push(select(items)?);
     }
     report(&runs);
@@ -203,16 +206,16 @@ fn report(runs: &[Run]) {
     println!("  timings   this machine only; work columns are the same everywhere");
     println!();
     println!(
-        "| {:<16} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
+        "| {:<24} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
         "workload", "items", "samples", "wraps", "lines", "retained", "p50", "p95", "max"
     );
     println!(
-        "| {:-<16} | {:->6} | {:->7} | {:->6} | {:->6} | {:->8} | {:->8} | {:->8} | {:->8} |",
+        "| {:-<24} | {:->6} | {:->7} | {:->6} | {:->6} | {:->8} | {:->8} | {:->8} | {:->8} |",
         "", "", "", "", "", "", "", "", ""
     );
     for run in runs {
         println!(
-            "| {:<16} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
+            "| {:<24} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
             run.workload,
             run.items,
             run.latencies.len(),
