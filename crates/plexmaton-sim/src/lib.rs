@@ -1,6 +1,7 @@
 //! Deterministic semantic timelines for Phase 00.
 
 mod runtime;
+mod workload;
 
 use plexmaton_core::{
     AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, IdError, MailId, PrototypeEvent,

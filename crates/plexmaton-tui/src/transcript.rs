@@ -10,7 +10,10 @@
 use std::{collections::BTreeMap, ops::Range};
 
 use plexmaton_core::{AgentId, TranscriptItemId};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::{
+    text::Line,
+    widgets::{Paragraph, Wrap},
+};
 
 use crate::{AgentView, TranscriptItemView, content, theme::Palette};
 
@@ -56,6 +59,7 @@ struct Measured {
 pub struct TranscriptMetrics {
     by_agent: BTreeMap<AgentId, Vec<Measured>>,
     wrapped: usize,
+    built: usize,
 }
 
 impl TranscriptMetrics {
@@ -169,13 +173,52 @@ impl TranscriptMetrics {
         max_offset
     }
 
+    /// Builds the lines for the items a window names.
+    ///
+    /// Building lives here rather than in the renderer so that measuring and building a
+    /// conversation are one module's job, and so the count below cannot be forgotten at a call
+    /// site. `&mut self` buys nothing but the counter, which is the point of it.
+    pub(crate) fn build(
+        &mut self,
+        agent: &AgentView,
+        palette: &Palette,
+        window: &Window,
+    ) -> Vec<Line<'static>> {
+        let lines: Vec<_> = agent
+            .transcript()
+            .skip(window.items.start)
+            .take(window.items.len())
+            .flat_map(|item| content::transcript_item(item, palette))
+            .collect();
+        self.built = self.built.saturating_add(lines.len());
+        lines
+    }
+
     /// How many items have been wrapped since this cache was created.
     ///
     /// Instrumentation, not bookkeeping: TR-1 is a claim about work done, and a claim about work
-    /// can only be tested by something that counts it.
+    /// can only be tested by something that counts it. [`Self::lines_built`] is the same idea for
+    /// TR-2, and the two answer different questions — a cold frame must wrap every item to know how
+    /// tall the conversation is, and must still build only the lines its viewport reaches.
     #[must_use]
     pub fn wrapped(&self) -> usize {
         self.wrapped
+    }
+
+    /// How many conversation lines have been built since this cache was created.
+    #[must_use]
+    pub fn lines_built(&self) -> usize {
+        self.built
+    }
+
+    /// Cached item heights held across every conversation, whether or not one is on screen.
+    ///
+    /// This is what the renderer retains per hidden conversation. The transcript itself belongs to
+    /// the projection and is there regardless, so counting entries here is the honest answer to
+    /// what virtualization costs in memory rather than a figure for the whole workspace.
+    #[must_use]
+    pub fn retained(&self) -> usize {
+        self.by_agent.values().map(Vec::len).sum()
     }
 
     /// The item index containing row `offset`, and how far into that item the row is.

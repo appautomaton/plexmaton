@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — the interaction spine is complete; steps 1 to 5 of 8 done |
+| Status | In progress — the spine is complete and measured; steps 1 to 6 of 8 done |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 6 — measurement harness |
+| Next step | Step 7 — inspectors as shelves |
 
 ## Phase outcome
 
@@ -55,8 +55,9 @@ order means building against a boundary that has not been decided yet.
 5. **Transcript virtualization.** *Done 2026-08-31.* Visible-range layout, a width-and-revision
    keyed wrapping cache, and semantic anchors. Specified in
    [transcript-layout](../specs/transcript-layout.md).
-6. **Measurement harness.** Input-to-frame, scroll-to-frame, and layout work, before the workloads
-   below can produce numbers worth recording.
+6. **Measurement harness.** *Done 2026-08-31.* Input-to-frame, scroll-to-frame, and layout work,
+   before the workloads below can produce numbers worth recording. Specified in
+   [frame-loop](../specs/frame-loop.md).
 7. **Inspectors as shelves.** Shelf geometry and the ten-row guarantee, vertical resize with pointer
    capture, z-order promotion, pin and maximize, boundary clamping (D-016, D-023, D-028). The shelf
    is the phase's one dismissible surface, so `Dismiss` and the `Escape` ladder land here.
@@ -98,10 +99,13 @@ does not exist yet; it is written before the crate is added, not after.
 Math and image transport candidates moved to the [math rendering track](./track-math-rendering.md) on 2026-08-31.
 
 Of the evidence tooling in [standards/testing.md](../standards/testing.md), `proptest` arrives with
-clipping and `criterion` with the measurement harness. `insta` was scheduled for the viewport and
-virtualization steps and did not enter either: both had a stronger test available than a snapshot —
-a viewport measured through the widget that paints it, and a virtualized panel compared against the
-whole one. Each tool enters a manifest with the first test that needs it, never before.
+clipping. Two scheduled tools reached their step and did not enter it, each because a stronger
+instrument was available: `insta` at the viewport and virtualization steps, where a viewport
+measured through the widget that paints it and a virtualized panel compared cell for cell against
+the whole one both prove more than a snapshot; and `criterion` at the measurement harness, where the
+load-bearing evidence is work counts it cannot see and the interesting statistic is a tail rather
+than a mean (D-041). Each tool enters a manifest with the first test that needs it, never before,
+and a schedule is a prediction rather than a commitment.
 
 ### Explicitly absent in Phase 00
 
@@ -269,7 +273,42 @@ prune until something drops a transcript item.
 the producer contract — stream ordering, the typed refusals, and event dispatch — leaving the rest
 owning what the user is looking at.
 
-Tests: 49 at the start of step 2, 104 now. All workspace gates, the supply-chain lane, and
+### Delivery step 6 — measurement harness — 2026-08-31
+
+`cargo run --release -p plexmaton-cli --bin plexmaton-measure` runs six workloads at two scales and
+prints what each frame cost. [`specs/frame-loop.md`](../specs/frame-loop.md) carries FR-1 to FR-3,
+and the budgets it produced are in [`ui-ux.md`](./ui-ux.md) §UX performance budgets — a table with
+numbers in it, where the section had been a list of things to measure since the phase opened.
+
+- **The loop became an object, and that is what made it measurable.** Redraw count is decided in the
+  composition root, so while the loop was an `async fn` wrapped around a real terminal there was
+  nothing to count. `plexmaton-tui::Workspace` now owns the projection, the router, the last frame's
+  registry, the wrapping cache, and the painted revision; the executable keeps only what a process
+  has, which is a terminal and an asynchronous wait. The harness substitutes a cell buffer and a
+  scripted timeline and drives the same methods, so a measured frame is the frame the user gets.
+- **Work is asserted; time is only reported** (D-041). Items wrapped, lines built, frames painted,
+  and entries retained are the same on every machine and are ordinary tests, so a regression fails a
+  build rather than a reading. Timings are recorded beside the machine and profile that produced
+  them. A wall-clock assertion on a developer laptop is a flaky test wearing a budget's clothes, and
+  the cure for the flakiness is a threshold that catches nothing.
+- **Layout work is flat in history; total frame cost is not.** A steady frame wraps one item and
+  builds twenty-seven lines whether the conversation holds five hundred messages or five thousand —
+  which is the exit gate's full-history-rendering criterion, counted rather than argued. But the
+  same frame still walks the item list five times to validate, sum, and locate, and that is what
+  separates ~0.2 ms at five hundred from ~1 ms at five thousand. Linear in cheap operations, so it
+  becomes the budget around fifty thousand messages. Recorded and deliberately not optimized: the
+  measurement exists to say where to look first, and this is not yet it.
+- **Resize is the expensive interaction.** Every height is width-dependent, so a new width
+  re-measures every item once by design (TR-1) — 13 ms at five thousand messages, and 130 ms at
+  fifty thousand. It is the first thing a retention limit or a lazily measured tail would be for.
+- **Correction.** `transcript-layout` said the wrapping cache is held by the composition root. It is
+  held by the frame loop, which the composition root owns; the row now points at the spec that has
+  it.
+
+Seven of the eight budget rows are filled. The eighth — surface open and close latency — needs a
+surface that opens, and stays in the table naming delivery step 7 rather than being dropped.
+
+Tests: 49 at the start of step 2, 113 now. All workspace gates, the supply-chain lane, and
 `scripts/smoke-tui.py` pass.
 
 

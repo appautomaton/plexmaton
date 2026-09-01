@@ -24,6 +24,7 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-041 | 2026-08-31 | The event loop is one `Workspace` the executable and the harness both drive; frame work is asserted and frame time is only reported | Accepted | [frame-loop](./specs/frame-loop.md) FR-1 to FR-3 |
 | D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
 | D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
 | D-038 | 2026-08-31 | The composer is first-party; `ratatui-textarea` is not adopted, and a submitted message is a runtime command rather than a write | Accepted | [ui-ux](./roadmap/ui-ux.md) §input, `plexmaton-sim::Runtime` |
@@ -68,6 +69,21 @@ again the same way — age first, then move the number.
 ## Rejected alternatives
 
 Only where a serious alternative was considered. The reason matters more than the verdict.
+
+### D-041 · `criterion` as the measurement lane — rejected
+
+Scheduled for this step since the phase opened, and rejected on arrival for two reasons rather than
+cost. It times a closure and reports central tendency, so it cannot see the work counts that are the
+load-bearing half of the evidence; and what a latency budget is about is the tail, not the mean.
+Percentiles over a scripted workload are thirty lines and the right instrument. The rejection is of
+the fit, not of the crate — it returns if something here ever needs statistical throughput.
+
+### D-041 · Asserting wall-clock budgets in the test suite — rejected
+
+It would make a budget a gate, which is what a budget looks like it should be. Rejected because a
+timing assertion on a developer laptop is a flaky test wearing a budget's clothes, and the cure for
+flakiness is a threshold loose enough to catch nothing. Work counts gate instead; they are exact,
+identical on every machine, and fail for the same defects a timing bound was meant to catch.
 
 ### D-017 · One composer that retargets on selection — rejected
 

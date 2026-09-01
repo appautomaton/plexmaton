@@ -9,6 +9,12 @@ publish.workspace = true
 name = "plexmaton"
 path = "src/main.rs"
 
+# The measurement harness. A second binary rather than a subcommand: it owns no terminal, and the
+# interactive binary must not grow argument parsing to reach a lane that never draws to a screen.
+[[bin]]
+name = "plexmaton-measure"
+path = "src/measure.rs"
+
 [dependencies]
 anyhow.workspace = true
 crossterm.workspace = true

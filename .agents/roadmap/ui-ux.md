@@ -349,20 +349,36 @@ Each applicable surface needs an intentional representation for:
 
 Phase work should add states to this matrix when they become real; it should not defer all non-happy paths to product polish.
 
-## UX performance budgets to establish in Phase 00
+## UX performance budgets
 
-The experience skeleton must measure and choose budgets for:
+Reproduce with `cargo run --release -p plexmaton-cli --bin plexmaton-measure`. The mechanism behind
+these numbers is [`specs/frame-loop.md`](../specs/frame-loop.md); the split between what is asserted
+and what is merely observed is FR-3 there, and it is the reason this table has two kinds of column.
 
-- Input event to visible frame
-- Wheel event to visible scroll
-- Surface open/close latency
-- Streaming redraw frequency
-- Layout work per updated transcript block
-- Inspector open latency for a large synthetic transcript
-- Resize recovery time
-- Memory retained per hidden agent viewport
+Observed on an Apple M-series laptop, release profile, 120 × 40, over a 5,000-message conversation —
+the worst of the two scales the command runs. Targets are chosen against a 16 ms frame, so a
+budget spent is a frame the user waits for.
 
-Initial measurements should distinguish target, observed value, workload, terminal size, and build profile. A single idle demo is not evidence.
+| Budget | Target | Observed | Workload |
+| --- | --- | --- | --- |
+| Input event to visible frame | 5 ms | 0.97 ms p50, 1.2 ms max | `streaming delta` |
+| Wheel event to visible scroll | 5 ms | 0.92 ms p50, 1.4 ms max | `wheel` |
+| Streaming redraw frequency | one frame per changed projection, never per event | holds; ambient traffic that changes nothing costs no frame | FR-1 |
+| Layout work per updated transcript block | 1 item wrapped | 1 wrapped, 27 lines built, at any history length | `streaming delta` |
+| Opening an unmeasured conversation | 20 ms | 14 ms | `cold open`, and the first frame of `switch reader` |
+| Resize recovery | 20 ms | 13 ms p50, 17 ms max | `resize` |
+| Memory retained per hidden conversation | one cache entry per message | 5,000 entries for 5,000 messages; nothing else is retained | `switch reader` |
+| Surface open/close latency | — | not yet measurable | Needs the shelf, delivery step 7 |
+
+Two findings the numbers carry and a target alone would not:
+
+- **Layout work is flat in history; total frame cost is not.** A steady frame wraps one item at any
+  length, but still walks the item list five times to validate, sum, and locate. That is what puts
+  a 5,000-message frame at ~1 ms against ~0.2 ms at 500. Linear in cheap operations, so the walks
+  become the budget somewhere around 50,000 messages — which is where to look first, and not before.
+- **Resize is the expensive interaction, because every height is width-dependent.** It re-measures
+  each item exactly once, by design (TR-1), and that is 13 ms at 5,000 messages and would be 130 ms
+  at 50,000. It is the first thing a retention limit or a lazily measured tail would be for.
 
 ## Phase 00 outputs
 

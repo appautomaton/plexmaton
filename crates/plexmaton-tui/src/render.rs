@@ -195,14 +195,8 @@ fn transcript_body(
     );
     let window = metrics.window(&agent.id, viewport.offset, visible_rows);
 
-    let lines = agent
-        .transcript()
-        .skip(window.items.start)
-        .take(window.items.len())
-        .flat_map(|item| content::transcript_item(item, palette))
-        .collect();
     Body::Window {
-        lines,
+        lines: metrics.build(agent, palette, &window),
         skip_rows: window.skip_rows,
         viewport,
     }

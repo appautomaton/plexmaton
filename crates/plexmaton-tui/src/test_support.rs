@@ -41,6 +41,7 @@ pub struct Conversation {
     sequence: u64,
     items: usize,
     newest: Option<(AgentId, TranscriptItemId, u64)>,
+    pending: Vec<PrototypeEventEnvelope>,
 }
 
 impl Conversation {
@@ -48,9 +49,11 @@ impl Conversation {
     pub fn canonical() -> Self {
         let mut state = ViewState::default();
         let mut sequence = 0;
+        let mut pending = Vec::new();
         // A tick past the end of the timeline, so everything scheduled has been emitted.
         for envelope in canonical_runtime().ready(u64::MAX) {
             sequence = envelope.sequence.get();
+            pending.push(envelope.clone());
             state.apply(envelope);
         }
         let agent = state
@@ -63,7 +66,17 @@ impl Conversation {
             sequence,
             items: 0,
             newest: None,
+            pending,
         }
+    }
+
+    /// Takes the envelopes emitted since the last call, for a caller with its own projection.
+    ///
+    /// A [`Workspace`](crate::Workspace) reduces the stream itself, so a test driving one has to be
+    /// handed the events rather than the finished state. Both projections then see the same stream
+    /// in the same order, which is the only way their revisions stay comparable.
+    pub fn drain(&mut self) -> Vec<PrototypeEventEnvelope> {
+        std::mem::take(&mut self.pending)
     }
 
     /// Streams `count` further assistant items into the primary agent.
@@ -112,10 +125,12 @@ impl Conversation {
 
     fn emit(&mut self, event: PrototypeEvent) {
         self.sequence = self.sequence.saturating_add(1);
-        let outcome = self.state.apply(PrototypeEventEnvelope {
+        let envelope = PrototypeEventEnvelope {
             sequence: EventSequence::new(self.sequence),
             event,
-        });
+        };
+        self.pending.push(envelope.clone());
+        let outcome = self.state.apply(envelope);
         assert!(
             matches!(outcome, crate::ApplyOutcome::Accepted),
             "the fixture emitted an event the projection rejected: {outcome:?}"

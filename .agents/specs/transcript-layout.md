@@ -53,7 +53,7 @@ ViewState (immutable to the renderer)        TranscriptMetrics (outlives the fra
 
 | Fact | Owner | Why not elsewhere |
 | --- | --- | --- |
-| Wrapped item heights | `TranscriptMetrics`, held by the composition root | The renderer takes the projection by shared reference, and a cache that dies with the frame is not one |
+| Wrapped item heights | `TranscriptMetrics`, held by the [frame loop](./frame-loop.md) | The renderer takes the projection by shared reference, and a cache that dies with the frame is not one |
 | Where each reader is | `state::scroll::ScrollState`, keyed by agent | It is user intent, and it has to survive frames and agent switches |
 | Turning a row into an item and back | `TranscriptMetrics` | Both directions need the same heights; two implementations would disagree at exactly one width |
 | What an item's lines are | `content::transcript_item` | Measuring and painting must be given identical input or the height is a guess |
@@ -78,9 +78,11 @@ is the least surprising place to land.
 | A resize | every item, once |
 | Anything else, including scrolling | 0 |
 
-Summing measured heights still visits every item each frame. That is arithmetic over a `Vec`, not
-layout; the claim is about wrapping, and `TranscriptMetrics::wrapped` is what makes it testable
-rather than asserted.
+Summing measured heights still visits every item each frame, as does checking that each cached
+height is still valid. That is arithmetic over a `Vec`, not layout; the claim is about wrapping, and
+`TranscriptMetrics::wrapped` and `::lines_built` are what make it testable rather than asserted.
+What those walks cost, and the length at which they would start to matter, is measured in
+[`frame-loop`](./frame-loop.md) §cost.
 
 ## Failure modes
 
@@ -108,8 +110,8 @@ rather than asserted.
 
 | Invariant | Proven by |
 | --- | --- |
-| TR-1 | `measurement_is_proportional_to_what_changed`, `item_heights_sum_to_the_height_of_the_whole_conversation` |
-| TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor` |
+| TR-1 | `measurement_is_proportional_to_what_changed`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `the_resize_workload_re_measures_every_item_exactly_once` |
+| TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history` |
 | TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |
