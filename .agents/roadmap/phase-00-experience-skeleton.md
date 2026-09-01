@@ -418,7 +418,7 @@ in [`ui-ux.md`](./ui-ux.md); this run was on a quiet machine and every row is in
 including the two that read over on a loaded one at step 7. Both readings are kept, because the
 spread between them is the point (D-041).
 
-Tests: 49 at the start of step 2, 146 now. Eleven mutations were each caught by the intended tests.
+Tests: 49 at the start of step 2, 147 now. Eleven mutations were each caught by the intended tests.
 All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
 ## Scope
@@ -574,14 +574,14 @@ is the scripted canonical demonstration; everything it names runs under `cargo t
 | The canonical A-to-B journey runs deterministically in the real TUI event loop | `journey::*`, driving the same `Workspace` the executable drives | Met |
 | The user can continue interacting with A while B streams | `the_journey_reaches_two_agents_without_losing_the_first` | Met |
 | Opening, scrolling, dragging/resizing, z-order, pinning/maximizing, closing and reopening B preserve independent state | `the_journey_pins_an_agent_and_takes_a_request_without_being_interrupted`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` | Met **except z-order**, which was cut because nothing overlaps |
-| Mouse routing selects the correct topmost viewport; hover-scroll does not change keyboard focus | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted` | Met |
-| Drag and resize retain pointer capture, respect bounds, and recover across resize | `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle`, `a_dragged_height_is_clamped_rather_than_obeyed` | Met |
+| Mouse routing selects the correct topmost viewport; hover-scroll does not change keyboard focus | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted` | Met — but the **overlapping** case is proven against a fixture, because no real workspace surface overlaps another |
+| Drag and resize retain pointer capture, respect bounds, and recover across resize | `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle`, `a_dragged_height_is_clamped_rather_than_obeyed`, `a_drag_in_flight_survives_the_terminal_changing_size` | Met |
 | Background action-required events enter the queue without stealing focus or opening a modal | `a_background_request_takes_no_focus_no_selection_and_no_cursor` | Met |
 | Semantic copy returns underlying transcript, path, artifact and equation source | `copying_returns_the_source_between_the_endpoints`, `copying_an_artifact_returns_its_pointer_rather_than_its_label` | Met for transcript, artifact and mail; **equations are out of the phase** (D-007) |
 | Keyboard-only navigation can perform the canonical journey | `journey::*` presses nothing but keys except one deliberate wheel event | Met |
 | Wide, medium and narrow layouts preserve the journey's meaning and viewport anchors | `the_journey_survives_wide_medium_and_narrow`, `a_resized_conversation_keeps_the_reader_on_the_same_message` | Met |
 | Large synthetic transcripts do not require full-history rendering for a frame | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`; the harness reports 1 wrap and 27 lines at 5,000 messages | Met |
-| Snapshot and interaction tests cover the principal states and non-happy paths | 146 tests; `a_virtualized_conversation_paints_what_the_whole_one_did` is the differential that replaced snapshots | Met, without `insta` |
+| Snapshot and interaction tests cover the principal states and non-happy paths | 147 tests; `a_virtualized_conversation_paints_what_the_whole_one_did` is the differential that replaced snapshots | Met, without `insta` |
 | Responsiveness measurements exist for the declared workloads, with budgets in `ui-ux.md` | `cargo run --release -p plexmaton-cli --bin plexmaton-measure`, eight workloads at two scales | Met |
 | Durable UI/UX decisions have been promoted to `ui-ux.md` | D-013 to D-028 and D-041 to D-045 | Met |
 

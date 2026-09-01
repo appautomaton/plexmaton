@@ -957,6 +957,57 @@ mod tests {
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
     }
 
+    /// INV-4 across a resize: a gesture in flight when the terminal changes size stays coherent.
+    ///
+    /// The exit gate asks for this by name, and it is the case where the two owners of a drag can
+    /// disagree: the router holds capture across the resize because capture is about the button,
+    /// while the surface the gesture is resizing has been relaid out underneath it. The next drag
+    /// therefore has to be measured against where the edge *is*, not where it was grabbed.
+    #[test]
+    fn a_drag_in_flight_survives_the_terminal_changing_size() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+
+        let shelf = bounds(&workspace, SurfaceId::Inspector);
+        let column = shelf.x.saturating_add(2);
+        workspace.handle(&mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            column,
+            shelf.bottom().saturating_sub(1),
+        ));
+
+        // Narrower and much shorter, but still roomy enough for a shelf: the interesting case is
+        // the edge being relaid out under a held button, not the inspector taking the region.
+        terminal.backend_mut().resize(100, 30);
+        workspace.handle(&Event::Resize(100, 30));
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            workspace.router.capture(),
+            Some(SurfaceId::Inspector),
+            "capture is about the button, which the user is still holding"
+        );
+
+        let after_resize = bounds(&workspace, SurfaceId::Inspector);
+        workspace.handle(&mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            column,
+            after_resize.bottom(),
+        ));
+        frame(&mut workspace, &mut terminal);
+        assert!(
+            bounds(&workspace, SurfaceId::Transcript).height >= 10,
+            "the ten-row guarantee holds at the new size, measured against the new geometry"
+        );
+
+        workspace.handle(&mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            column,
+            after_resize.bottom(),
+        ));
+        assert_eq!(workspace.router.capture(), None, "and the gesture ended");
+    }
+
     /// D-028 and INV-4: the bottom edge follows the pointer, even out of the rectangle.
     ///
     /// Capture is the whole reason a drag is usable: the edge the user grabbed keeps moving after
