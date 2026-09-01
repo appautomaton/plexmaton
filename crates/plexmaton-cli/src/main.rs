@@ -7,7 +7,7 @@ use crossterm::{
 };
 use futures_util::StreamExt;
 use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
-use plexmaton_tui::{Flow, Workspace};
+use plexmaton_tui::{Flow, Submission, Workspace};
 use ratatui::DefaultTerminal;
 
 const TICK_INTERVAL: Duration = Duration::from_millis(180);
@@ -63,8 +63,8 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
                 match terminal_event {
                     Some(Ok(event)) => {
                         let outcome = workspace.handle(&event);
-                        if let Some(text) = outcome.submitted {
-                            send(&mut runtime, &mut workspace, text)?;
+                        if let Some(submission) = outcome.submitted {
+                            send(&mut runtime, &mut workspace, submission)?;
                         }
                         if outcome.flow == Flow::Quit {
                             break;
@@ -84,18 +84,19 @@ async fn run(mut terminal: DefaultTerminal, mut runtime: Runtime) -> anyhow::Res
 ///
 /// The projection is never written directly here. A message reaches the screen as the runtime's
 /// own events or not at all, which is what keeps the transcript to one writer (COM-3).
-fn send(runtime: &mut Runtime, workspace: &mut Workspace, text: String) -> anyhow::Result<()> {
-    let Some(to) = workspace
-        .state()
-        .primary_agent()
-        .map(|agent| agent.id.clone())
-    else {
-        // Nothing has been delegated to yet, so there is no session to deliver into. Dropping the
-        // text here would lose it silently; it stays in the draft until an agent exists.
-        return Ok(());
-    };
+///
+/// The target rides along with the text. With two inputs on screen, a composition root that picked
+/// the recipient itself would be a second answer to a question focus has already settled.
+fn send(
+    runtime: &mut Runtime,
+    workspace: &mut Workspace,
+    submission: Submission,
+) -> anyhow::Result<()> {
     let emitted = runtime
-        .submit(RuntimeCommand::SendMessage { to, text })
+        .submit(RuntimeCommand::SendMessage {
+            to: submission.to,
+            text: submission.text,
+        })
         .context("submit the composed message")?;
     workspace.emit(emitted);
     Ok(())
@@ -145,11 +146,16 @@ mod tests {
         for character in "hello".chars() {
             workspace.handle(&press(KeyCode::Char(character)));
         }
-        let text = workspace
+        let submission = workspace
             .handle(&press(KeyCode::Enter))
             .submitted
             .unwrap_or_else(|| panic!("Enter must submit the draft"));
-        assert_eq!(text, "hello");
+        assert_eq!(submission.text, "hello");
+        assert_eq!(
+            submission.to.as_str(),
+            "agent-a",
+            "the composer is bound to the primary agent and says so (D-017)"
+        );
 
         let roles: Vec<_> = workspace
             .state()
@@ -161,7 +167,7 @@ mod tests {
             "nothing may appear in the transcript until the runtime emits it"
         );
 
-        send(&mut runtime, &mut workspace, text)
+        send(&mut runtime, &mut workspace, submission)
             .unwrap_or_else(|error| panic!("the runtime accepts the message: {error}"));
 
         let user_items: Vec<_> = workspace
@@ -180,21 +186,33 @@ mod tests {
         );
     }
 
-    /// A draft submitted before any agent exists is kept rather than delivered nowhere.
+    /// With no agent there is no cursor, so there is nothing to submit in the first place.
+    ///
+    /// This replaces a test that submitted into an empty roster and checked the text was not lost.
+    /// That case stopped being reachable when a submission started carrying its target: the target
+    /// comes from focus, and an empty workspace has no text input to focus.
     #[test]
-    fn submitting_with_no_agent_is_not_a_producer_defect() {
-        let mut runtime =
-            Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")));
+    fn an_empty_workspace_has_no_cursor_to_type_into() {
+        let mut terminal = Terminal::new(TestBackend::new(120, 24))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
         let mut workspace = Workspace::default();
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
 
-        send(&mut runtime, &mut workspace, "into the void".to_owned())
-            .unwrap_or_else(|error| panic!("an empty roster is not an error: {error}"));
+        for _ in 0..4 {
+            workspace.handle(&press(KeyCode::Tab));
+        }
+        for character in "hello".chars() {
+            workspace.handle(&press(KeyCode::Char(character)));
+        }
 
+        assert_eq!(workspace.handle(&press(KeyCode::Enter)).submitted, None);
         assert_eq!(workspace.state().agents().count(), 0);
         assert_eq!(
             workspace.state().notices().count(),
             0,
-            "there was no session to deliver into, and that is not a defect to report"
+            "and nothing about that is a producer defect to report"
         );
     }
 }

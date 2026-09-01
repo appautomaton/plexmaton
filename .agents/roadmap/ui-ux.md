@@ -220,8 +220,13 @@ user is reading now.
 - Shelf height is `min(⌊0.55 × region⌋, region − 10)`, which guarantees at least ten rows of the
   primary conversation stay visible.
 - The composer is never covered, at any size.
-- When the region is shorter than 18 rows the guarantee cannot hold. The shelf then falls back to
-  the maximized presentation rather than shrinking to a useless sliver.
+- When the region is shorter than 18 rows the shelf falls back to the maximized presentation rather
+  than shrinking to a useless sliver. **Correction:** this said the ten-row guarantee cannot hold
+  below 18 rows. It holds — below 18 the guarantee simply binds instead of the share, and the shelf
+  shrinks while the conversation keeps its ten. What stops being true is that the shelf is worth
+  being one. The number is unchanged; the reason is.
+- The mechanism, the bindings, and what pinning means are in
+  [`specs/inspector.md`](../specs/inspector.md).
 
 Presentation and persistence are separate axes. **Pinned** is whether a surface survives the user
 working elsewhere; **shelf, column, or maximized** is geometry chosen by terminal width. Changing
@@ -290,7 +295,11 @@ The exact thresholds are a prototype output, not a locked constant.
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
 Implemented in `LayoutClass::for_size` and covered by tests, including that a too-small terminal
-leaks no workspace content.
+leaks no workspace content. Narrow's "one major surface at a time" is the inspector's **maximized**
+presentation: at this width inspection is a full-region transition rather than a second thing
+sharing the screen. That resolves a contradiction recorded at delivery step 2, where this table said
+one surface and the implementation stacked bands — the bands remain, and what changed is that
+opening an inspector replaces the conversation instead of squeezing it.
 
 Ultrawide is 132 because two 52-cell conversations plus a 28-cell agent column need it, and 52
 cells is roughly where prose stops wrapping awkwardly. Below it the shelf already handles a second
@@ -356,29 +365,43 @@ these numbers is [`specs/frame-loop.md`](../specs/frame-loop.md); the split betw
 and what is merely observed is FR-3 there, and it is the reason this table has two kinds of column.
 
 Observed on an `arm64` macOS machine, release profile, 120 × 40, over a 5,000-message conversation —
-the worst of the two scales the command runs. Targets are chosen against a 16 ms frame, so a
-budget spent is a frame the user waits for.
+the worst of the two scales the command runs. Targets are chosen against a 16 ms frame, so a budget
+spent is a frame the user waits for.
 
 | Budget | Target | Observed | Workload |
 | --- | --- | --- | --- |
-| Input event to visible frame | 5 ms | 0.97 ms p50, 1.2 ms max | `streaming delta` |
-| Wheel event to visible scroll | 5 ms | 0.92 ms p50, 1.4 ms max | `wheel` |
+| Input event to visible frame | 5 ms | 2.3 ms p50, 2.9 ms max | `streaming delta` |
+| Wheel event to visible scroll | 5 ms | 2.3 ms p50, 2.8 ms max | `wheel` |
+| Surface open and close latency | 5 ms | 2.7 ms p50, 4.4 ms max, and **zero** re-wrapping | `open inspector` |
 | Streaming redraw frequency | one frame per changed projection, never per event | holds; ambient traffic that changes nothing costs no frame | FR-1 |
 | Layout work per updated transcript block | 1 item wrapped | 1 wrapped, 27 lines built, at any history length | `streaming delta` |
-| Opening an unmeasured conversation | 20 ms | 14 ms | `cold open`, and the first frame of `switch reader` |
-| Resize recovery | 20 ms | 13 ms p50, 17 ms max | `resize` |
+| Opening an unmeasured conversation | 20 ms | 30 ms — **over** | `cold open`, and the first frame of `switch reader` |
+| Resize recovery | 20 ms | 27 ms p50, 43 ms max — **over** | `resize` |
 | Memory retained per hidden conversation | one cache entry per message | 5,000 entries for 5,000 messages; nothing else is retained | `switch reader` |
-| Surface open/close latency | — | not yet measurable | Needs the shelf, delivery step 7 |
+
+**Read the observed column as an order of magnitude, not a baseline.** The same binary measured
+roughly half these figures on an idle machine and these figures on a busy one, and re-running the
+*previous commit* under today's load reproduced today's numbers — so the spread is the machine.
+That is the evidence behind D-041: a wall-clock assertion here would be a flaky test, and the number
+worth keeping is the shape rather than the digit.
+
+The two rows over budget are the same row twice: measuring a conversation's height means wrapping
+every item once, and both a first frame and a new width pay it. It stays over on a loaded machine
+and comes in under on a quiet one, which is thin enough to be worth naming rather than rounding
+away. The fix, when something needs it, is a retention limit or a lazily measured tail — not a
+faster wrap.
 
 Two findings the numbers carry and a target alone would not:
 
 - **Layout work is flat in history; total frame cost is not.** A steady frame wraps one item at any
   length, but still walks the item list five times to validate, sum, and locate. That is what puts
-  a 5,000-message frame at ~1 ms against ~0.2 ms at 500. Linear in cheap operations, so the walks
-  become the budget somewhere around 50,000 messages — which is where to look first, and not before.
-- **Resize is the expensive interaction, because every height is width-dependent.** It re-measures
-  each item exactly once, by design (TR-1), and that is 13 ms at 5,000 messages and would be 130 ms
-  at 50,000. It is the first thing a retention limit or a lazily measured tail would be for.
+  a 5,000-message frame an order of magnitude above a 500-message one. Linear in cheap operations,
+  so the walks become the budget somewhere around 50,000 messages — which is where to look first,
+  and not before.
+- **Opening an inspector costs no measurement at all.** A shelf splits the conversation region
+  vertically, so the conversation keeps its width and every cached height stays valid. Only a change
+  of *width* invalidates them, which is why resize is the expensive interaction and opening a
+  surface is not.
 
 ## Phase 00 outputs
 

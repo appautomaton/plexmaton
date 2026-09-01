@@ -75,7 +75,70 @@ pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static
             palette.style(Role::Muted),
         )];
     };
+    detail(agent, palette)
+}
 
+/// The inspected agent's detail: who it is, and everything it has produced.
+///
+/// The same detail the activity column shows, for a *different* agent. That is the whole point of
+/// the surface: with one agent selected and another inspected there are two on screen, and neither
+/// is a copy of the other.
+pub(crate) fn inspector(state: &ViewState, palette: &Palette, focused: bool) -> Vec<Line<'static>> {
+    let Some(agent) = state.inspector().and_then(|open| state.agent(&open.agent)) else {
+        return vec![Line::styled(
+            "That agent is no longer in the roster.",
+            palette.style(Role::Muted),
+        )];
+    };
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled(agent.label.clone(), palette.style(Role::Body)),
+            Span::styled(
+                format!("  {}", agent_status_label(agent.status)),
+                palette.style(agent_role(agent.status)),
+            ),
+        ]),
+        Line::raw(""),
+    ];
+    lines.extend(detail(agent, palette));
+
+    // The steer input exists only while this surface holds focus (D-018). There is nothing here to
+    // mistarget when it is not focused, because there is nothing here. Its rows come out of this
+    // surface's own budget, never the conversation's guarantee (D-022).
+    if focused {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            format!("Steer {}", agent.label),
+            palette.style(Role::SectionHeading),
+        ));
+        lines.extend(
+            state
+                .draft(&agent.id)
+                .visible_lines()
+                .map(|line| Line::styled(line.to_owned(), palette.style(Role::Body))),
+        );
+    }
+    lines
+}
+
+/// The one row the primary composer keeps while a sub-agent's input is active (D-027).
+///
+/// It does not disappear. A composer that vanishes costs the user the affordance and jumps the tail
+/// of the transcript they are reading by three rows; one row of jump is what this accepts, and the
+/// row stays clickable and stays a focus stop.
+pub(crate) fn composer_collapsed(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
+    let target = state.primary_agent().map_or_else(
+        || "the primary agent".to_owned(),
+        |agent| agent.label.clone(),
+    );
+    vec![Line::from(vec![
+        Span::styled(format!("Message {target}"), palette.style(Role::Muted)),
+        Span::styled("  ·  ⇥ to return", palette.style(Role::KeyHint)),
+    ])]
+}
+
+fn detail(agent: &crate::AgentView, palette: &Palette) -> Vec<Line<'static>> {
     let mut lines = vec![Line::styled("Tools", palette.style(Role::SectionHeading))];
     let mut tools = 0_usize;
     for tool in agent.tool_activity() {

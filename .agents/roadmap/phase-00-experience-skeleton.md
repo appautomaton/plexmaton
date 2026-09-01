@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | In progress — the spine is complete and measured; steps 1 to 6 of 8 done |
+| Status | In progress — steps 1 to 7 of 8 done; only the Attention queue and copy remain |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
 | Unlocks | Phase 01 — Session and Provider Core; [math rendering track](./track-math-rendering.md) |
-| Next step | Step 7 — inspectors as shelves |
+| Next step | Step 8 — Attention queue and selection/copy |
 
 ## Phase outcome
 
@@ -58,9 +58,10 @@ order means building against a boundary that has not been decided yet.
 6. **Measurement harness.** *Done 2026-08-31.* Input-to-frame, scroll-to-frame, and layout work,
    before the workloads below can produce numbers worth recording. Specified in
    [frame-loop](../specs/frame-loop.md).
-7. **Inspectors as shelves.** Shelf geometry and the ten-row guarantee, vertical resize with pointer
-   capture, z-order promotion, pin and maximize, boundary clamping (D-016, D-023, D-028). The shelf
-   is the phase's one dismissible surface, so `Dismiss` and the `Escape` ladder land here.
+7. **Inspectors as shelves.** *Done 2026-08-31.* Shelf geometry and the ten-row guarantee, vertical
+   resize with pointer capture, pin and maximize, boundary clamping (D-016, D-023, D-028), and the
+   phase's one dismissible surface, so `Dismiss` and the `Escape` ladder landed here. Specified in
+   [inspector](../specs/inspector.md).
 8. **Attention queue and selection/copy.** Both depend on surfaces and viewports already existing.
 
 Steps 1 to 5 are the interaction spine. A finding at any step that changes a durable invariant is
@@ -201,8 +202,9 @@ restores it. Five facts a future reader still needs:
   so a background request does not, and a shelf overlays without blocking. `Dismiss` and the
   `Escape` ladder therefore land in step 7.
 
-Still unimplemented and now recorded: `ui-ux.md` calls Narrow "one major surface at a time" while
-the implementation stacks bands. Owned by step 7, where inspection becomes a full-region transition.
+Recorded here and resolved in step 7: `ui-ux.md` calls Narrow "one major surface at a time" while
+the implementation stacks bands. The bands stayed; what changed is that opening an inspector at
+Narrow replaces the conversation rather than squeezing it.
 
 ### Delivery step 3 — the composer and the single cursor — 2026-08-31
 
@@ -310,6 +312,62 @@ surface that opens, and stays in the table naming delivery step 7 rather than be
 
 Tests: 49 at the start of step 2, 113 now. All workspace gates, the supply-chain lane, and
 `scripts/smoke-tui.py` pass.
+
+### Delivery step 7 — inspectors as shelves — 2026-08-31
+
+The workspace shows two agents at once and has its one dismissible layer.
+[`specs/inspector.md`](../specs/inspector.md) carries INS-1 to INS-5, and `Dismiss` — the last
+intent without a consumer since step 1 — has one. D-016, D-018, D-022, D-023, D-026, D-027 and
+D-028 stop being decisions with no implementation.
+
+Two questions `ui-ux.md` left open had to be answered before anything could be built, and both
+changed what got built:
+
+- **Inspection is an axis of its own** (D-042). Opening does not move the selection, so with one
+  agent selected and another inspected there are two on screen — the only arrangement in which a
+  shelf shows something the workspace does not already. It is also what gives **pinned** a meaning:
+  an unpinned inspector *follows* the selection, and pinning is it declining to. The first
+  implementation closed an unpinned inspector when the selection moved, which read correctly from
+  the contract and was wrong in use — the peek ended at the moment it became useful.
+- **The surface kind is `Inspector`, not `Shelf`.** `surface-model.md` predicted `Shelf`; a shelf is
+  one of three presentations the same surface takes by terminal size, and a kind named after one
+  geometry is the wrong name at the other two. `Modal` never arrived at all, for the reason SURF-4
+  is still unproven: nothing in this phase blocks.
+
+Findings and corrections:
+
+- **Z-order promotion was cut, and the reason is that nothing overlaps.** A docked shelf splits the
+  conversation region rather than covering it, so no two surfaces compete for a cell and no
+  `z_index` above zero has a caller. That is the third Phase 00 mechanism to have no owner for the
+  same reason, alongside SURF-2's clipping and SURF-4's modality.
+- **Correction to `ui-ux.md`.** It gives the reason for the eighteen-row shelf cutoff as the ten-row
+  guarantee failing. It does not fail — below eighteen the guarantee binds instead of the share, and
+  the shelf shrinks while the conversation keeps its ten. What stops being true is that the shelf is
+  worth being one. The number is unchanged; the reason is corrected in both files.
+- **Two inputs made "exactly one cursor" a claim that could fail.** Until now the workspace had one
+  text input, so COM-1 held by construction. Which agent a keystroke addresses is now derived from
+  the focused surface, and a submission carries its target rather than being handed to whoever
+  receives it — so the composition root stopped guessing the recipient.
+- **A draft belongs to the conversation, not the surface.** Drafts are keyed by agent, which means
+  peeking elsewhere and returning finds the half-written steer, and two inputs pointed at the same
+  agent correctly show one draft.
+- **Opening an inspector takes the arrows away from the agent rail**, because the inspector holds
+  the cursor and an arrow under a cursor is not a list movement (INV-2). `Tab` gives them back,
+  which is what the collapsed composer row advertises. Consistent, and worth knowing before using
+  the binding.
+- **Two files hit the 400-line sentinel and were split rather than raised**: `layout` into the
+  workspace's row budget and where an inspector goes inside it, and `render` into what a surface
+  draws and what it says about itself in its border.
+
+Measured through step 6's harness: opening an inspector costs **zero** re-wrapping, because a shelf
+splits the region vertically and the conversation keeps its width. That fills the eighth and last
+`ui-ux.md` budget row. The same run showed the lane's own limit — every figure roughly doubled
+against step 6's, and re-measuring the *previous commit* under the same load reproduced it, so the
+spread is the machine. Both O(n) rows now read over budget on a loaded laptop and under it on a
+quiet one; that is recorded rather than rounded away.
+
+Tests: 49 at the start of step 2, 129 now. Eight mutations were each caught by the intended tests.
+All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
 
 ## Scope

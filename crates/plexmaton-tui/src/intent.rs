@@ -71,6 +71,25 @@ pub enum PointerIntent {
     },
 }
 
+/// One thing the user asked of the open inspector.
+///
+/// Opening is here rather than beside `MoveSelection` because inspection and selection are separate
+/// axes: opening an inspector does not move the conversation underneath it, which is what lets two
+/// agents be on screen at once.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InspectorIntent {
+    /// Open the selected agent's inspector, or re-point an open one at it.
+    Open,
+    /// Toggle whether the inspector survives the selection moving on.
+    TogglePin,
+    /// Toggle the full-region presentation.
+    ToggleMaximize,
+    /// Take one more row from the conversation, within its guarantee.
+    Grow,
+    /// Give one row back.
+    Shrink,
+}
+
 /// One thing the user asked the workspace to do.
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
@@ -85,6 +104,8 @@ pub enum TuiIntent {
     MoveSelection(Direction),
     /// Resolve the topmost dismissible layer.
     Dismiss,
+    /// Act on the inspector.
+    Inspector(InspectorIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.
     Scroll {
         /// Surface resolved from the pointer position.

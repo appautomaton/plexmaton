@@ -1,16 +1,23 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    text::Line,
+    widgets::{Paragraph, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
+mod chrome;
+
+use chrome::{
+    agents_title, attention_role, block, composer_title, inspector_title, notices_title,
+    render_footer, render_too_small, transcript_title,
+};
+
 use crate::{
     ViewState, content,
-    layout::{self, LayoutClass, MIN_HEIGHT, MIN_WIDTH, WorkspaceInput},
+    layout::{self, LayoutClass, WorkspaceInput},
     state::ScrollPosition,
-    surface::{SurfaceId, SurfaceKind, SurfaceTree, Viewport},
+    surface::{KeyboardFocus, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     theme::{Palette, Role},
     transcript::TranscriptMetrics,
 };
@@ -43,7 +50,8 @@ pub fn render(
         area,
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
-            composer_rows: state.composer().requested_rows(),
+            composer_rows: state.composer_rows(),
+            inspector: state.inspector_request(),
         },
     );
     let focused = state.focused(&surfaces);
@@ -65,11 +73,24 @@ pub fn render(
                 },
                 title: agents_title(state),
                 title_role: attention_role(state),
+                bordered: true,
             }),
             SurfaceId::Transcript => Some(Panel {
                 body: transcript_body(state, palette, metrics, bounds),
                 title: transcript_title(state),
                 title_role: Role::Muted,
+                bordered: true,
+            }),
+            SurfaceId::Inspector => Some(Panel {
+                body: Body::Whole {
+                    lines: content::inspector(state, palette, has_focus),
+                    // The steer input is the newest thing in it, so an untouched inspector shows
+                    // the end of its content rather than the top.
+                    follows_tail: has_focus,
+                },
+                title: inspector_title(state),
+                title_role: Role::Accent,
+                bordered: true,
             }),
             SurfaceId::Activity => Some(Panel {
                 body: Body::Whole {
@@ -78,6 +99,7 @@ pub fn render(
                 },
                 title: " Activity ".to_owned(),
                 title_role: Role::Muted,
+                bordered: true,
             }),
             SurfaceId::Notices => Some(Panel {
                 body: Body::Whole {
@@ -86,6 +108,16 @@ pub fn render(
                 },
                 title: notices_title(state),
                 title_role: Role::Muted,
+                bordered: true,
+            }),
+            SurfaceId::Composer if bounds.height <= 1 => Some(Panel {
+                body: Body::Whole {
+                    lines: content::composer_collapsed(state, palette),
+                    follows_tail: false,
+                },
+                title: String::new(),
+                title_role: Role::Muted,
+                bordered: false,
             }),
             SurfaceId::Composer => Some(Panel {
                 body: Body::Whole {
@@ -94,6 +126,7 @@ pub fn render(
                 },
                 title: composer_title(state),
                 title_role: Role::Muted,
+                bordered: true,
             }),
             SurfaceId::Footer => {
                 render_footer(frame, palette, bounds);
@@ -114,7 +147,9 @@ pub fn render(
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
 
-        if kind == SurfaceKind::Composer && has_focus {
+        // The cursor belongs to whichever focused surface is a text input, which is one answer
+        // derived from one kind rather than a list of identities to keep in step (SURF-3, COM-1).
+        if has_focus && kind.keyboard_focus() == KeyboardFocus::TextInput && panel.bordered {
             place_cursor(frame, bounds, panel.body.lines());
         }
     }
@@ -127,6 +162,8 @@ struct Panel {
     body: Body,
     title: String,
     title_role: Role,
+    /// Whether the region spends two rows on its own frame. A single-row region cannot.
+    bordered: bool,
 }
 
 /// What a panel has to draw, and how much of it the frame had to build.
@@ -216,20 +253,28 @@ fn draw_panel(
     panel: &Panel,
     parked: Option<ScrollPosition>,
 ) -> Viewport {
-    let block = block(palette, panel.title.clone(), panel.title_role, focused);
-    let paragraph = Paragraph::new(panel.body.lines().to_vec())
-        .wrap(Wrap { trim: false })
-        .block(block);
+    // An unbordered region spends no rows on a frame, so none of the arithmetic below may take
+    // them off. A collapsed composer is the only one, and it is one row tall (D-027).
+    let frame_rows = if panel.bordered { BORDER_ROWS } else { 0 };
+    let mut paragraph = Paragraph::new(panel.body.lines().to_vec()).wrap(Wrap { trim: false });
+    if panel.bordered {
+        paragraph = paragraph.block(block(
+            palette,
+            panel.title.clone(),
+            panel.title_role,
+            focused,
+        ));
+    }
 
     let (viewport, scroll) = match &panel.body {
         Body::Whole { follows_tail, .. } => {
             // `line_count` wraps at exactly the width it is given and then adds the block's border
             // rows, so it is asked for the inner width and those rows are taken back off.
-            let inner_width = area.width.saturating_sub(BORDER_ROWS);
+            let inner_width = area.width.saturating_sub(frame_rows);
             let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
             let mut viewport = Viewport {
-                content_rows: measured.saturating_sub(BORDER_ROWS),
-                visible_rows: area.height.saturating_sub(BORDER_ROWS),
+                content_rows: measured.saturating_sub(frame_rows),
+                visible_rows: area.height.saturating_sub(frame_rows),
                 offset: 0,
             };
             viewport.offset = resolve_offset(parked, *follows_tail, viewport.max_offset());
@@ -282,98 +327,6 @@ fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>]) {
             .saturating_add(column.min(inside_width)),
         area.y.saturating_add(rows.min(inside_height)),
     ));
-}
-
-fn agents_title(state: &ViewState) -> String {
-    format!(" Agents · attention {} ", state.attention_count())
-}
-
-/// An unanswered request must read as action required, not as ambient decoration.
-fn attention_role(state: &ViewState) -> Role {
-    if state.attention_count() == 0 {
-        Role::Muted
-    } else {
-        Role::ActionRequired
-    }
-}
-
-fn transcript_title(state: &ViewState) -> String {
-    state.selected_agent().map_or_else(
-        || " Transcript ".to_owned(),
-        |agent| {
-            format!(
-                " {} · {} ",
-                agent.label,
-                content::agent_status_label(agent.status)
-            )
-        },
-    )
-}
-
-fn notices_title(state: &ViewState) -> String {
-    let retained = state.notices().count();
-    let dropped = state.notices_dropped();
-    if dropped == 0 {
-        format!(" Notices · {retained} ")
-    } else {
-        format!(" Notices · {retained} · {dropped} discarded ")
-    }
-}
-
-/// The title names the target, which keeps the binding visible rather than remembered when the
-/// selection is on a different agent (COM-4).
-fn composer_title(state: &ViewState) -> String {
-    state.primary_agent().map_or_else(
-        || " Message ".to_owned(),
-        |agent| format!(" Message {} ", agent.label),
-    )
-}
-
-fn render_footer(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
-    // Escape resolves the topmost layer and never quits, so the hint must not offer it as an exit.
-    let footer = Line::from(vec![
-        Span::styled(" ↑↓ ", palette.style(Role::KeyHint)),
-        Span::styled(" select  ·  ", palette.style(Role::Muted)),
-        Span::styled(" ⇥ ", palette.style(Role::KeyHint)),
-        Span::styled(" focus  ·  ", palette.style(Role::Muted)),
-        Span::styled(" q ", palette.style(Role::KeyHint)),
-        Span::styled(" quit", palette.style(Role::Muted)),
-    ]);
-    frame.render_widget(Paragraph::new(footer), area);
-}
-
-fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
-    // One honest notice. Clipping the workspace instead would show a layout that misrepresents
-    // both the agents and the controls.
-    let lines = vec![
-        Line::styled("Terminal too small", palette.style(Role::ActionRequired)),
-        Line::raw(""),
-        Line::styled(
-            format!("Need at least {MIN_WIDTH} x {MIN_HEIGHT}."),
-            palette.style(Role::Body),
-        ),
-        Line::styled(
-            format!("This one is {} x {}.", area.width, area.height),
-            palette.style(Role::Muted),
-        ),
-    ];
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
-}
-
-/// A bordered region.
-///
-/// The border carries focus and the title carries attention, so the two never compete for the same
-/// pixels and a focused panel with a pending request still reads as both.
-fn block(palette: &Palette, title: String, title_role: Role, focused: bool) -> Block<'static> {
-    let border = if focused {
-        Role::BorderFocused
-    } else {
-        Role::Border
-    };
-    Block::default()
-        .borders(Borders::ALL)
-        .border_style(palette.style(border))
-        .title(Span::styled(title, palette.style(title_role)))
 }
 
 #[cfg(test)]
@@ -653,14 +606,19 @@ mod tests {
         );
     }
 
-    /// COM-1: a cursor is on screen exactly when the composer holds focus.
+    /// COM-1: a cursor is on screen exactly while a text input holds focus.
     ///
     /// Read from the backend rather than from state, because the question is what the terminal was
     /// told. A focus model the renderer ignores would leave the user typing with no caret.
+    ///
+    /// Typing now requires focus — a text intent exists only while a cursor does (INV-2) — so the
+    /// unfocused case is reached by typing and then walking away, which is also the case that
+    /// matters: the draft has to survive, and the caret has to not.
     #[test]
-    fn the_cursor_exists_only_while_the_composer_holds_focus() {
+    fn the_cursor_exists_only_while_a_text_input_holds_focus() {
         let palette = Palette::default();
         let mut state = canonical_state();
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
         let cursor = |state: &ViewState| {
             let mut terminal = Terminal::new(TestBackend::new(120, 24))
                 .unwrap_or_else(|error| panic!("test terminal: {error}"));
@@ -674,25 +632,29 @@ mod tests {
         };
 
         assert_eq!(cursor(&state), None, "focus starts on the agent rail");
-        // Type first, so a hidden cursor cannot be mistaken for an empty composer.
-        state.edit(TextIntent::Insert('h'));
-        assert_eq!(
-            cursor(&state),
-            None,
-            "a draft nobody is focused on still shows no cursor"
-        );
 
-        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
         state.focus_surface(&surfaces, SurfaceId::Composer);
+        state.edit(&surfaces, TextIntent::Insert('h'));
         let bounds = surfaces
             .get(SurfaceId::Composer)
             .unwrap_or_else(|| panic!("the composer is always registered"))
             .bounds;
         let at = cursor(&state).unwrap_or_else(|| panic!("a focused composer owns the cursor"));
-
         assert!(
             bounds.contains(at),
             "the cursor landed at {at:?}, outside the composer at {bounds:?}"
+        );
+
+        state.focus_surface(&surfaces, SurfaceId::Transcript);
+        assert_eq!(
+            cursor(&state),
+            None,
+            "a draft nobody is focused on still shows no cursor"
+        );
+        assert_eq!(
+            state.composer().draft(),
+            "h",
+            "and walking away must not discard what was typed"
         );
     }
 
@@ -784,6 +746,7 @@ mod tests {
                 SurfaceId::Activity => "Artifacts",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
+                SurfaceId::Inspector => "Inspector",
                 SurfaceId::Footer => "quit",
             };
             let painted = region_text(&buffer, surface.bounds);

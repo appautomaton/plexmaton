@@ -3,10 +3,14 @@ mod attention;
 mod composer;
 mod focus;
 mod ingest;
+mod inspect;
+mod inspector;
 mod notices;
 mod ordered;
 mod roster;
 mod scroll;
+
+use std::collections::BTreeMap;
 
 use plexmaton_core::{AgentId, EventSequence};
 
@@ -14,6 +18,7 @@ pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptI
 pub use attention::AttentionView;
 pub use composer::Composer;
 pub use ingest::{ApplyOutcome, ReduceError};
+pub use inspector::InspectorView;
 pub use notices::NoticeView;
 pub use scroll::ScrollPosition;
 
@@ -24,6 +29,7 @@ use crate::{
 };
 use attention::AttentionQueue;
 use focus::Focus;
+use inspector::Inspector;
 use notices::NoticeLog;
 use roster::Roster;
 use scroll::ScrollState;
@@ -53,8 +59,31 @@ pub struct ViewState {
     notices: NoticeLog,
     focus: Focus,
     scroll: ScrollState,
-    composer: Composer,
+    /// One draft per agent, keyed by who it is addressed to.
+    ///
+    /// A draft belongs to the conversation, not to the surface showing it: peeking another agent
+    /// and coming back must find the half-written steer where it was left. This is also what makes
+    /// "exactly one cursor" a claim that could fail — two inputs exist, and focus is what decides
+    /// which of them has the cursor (COM-1).
+    composers: BTreeMap<AgentId, Composer>,
+    inspector: Inspector,
 }
+
+/// A message the user submitted, and the agent it is addressed to.
+///
+/// The target travels with the text rather than being guessed by whoever receives it. With two
+/// inputs on screen, a submission that did not name its target would be a mode error waiting to
+/// happen — which is the failure D-017 exists to prevent.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Submission {
+    /// Agent whose session receives the message.
+    pub to: AgentId,
+    /// Exactly what the user typed.
+    pub text: String,
+}
+
+/// Borrowed when an agent has never been typed to, so a caller never has to handle absence.
+static NO_DRAFT: Composer = Composer::new();
 
 impl ViewState {
     /// Returns the current projection revision.
@@ -74,37 +103,80 @@ impl ViewState {
         self.agents.primary()
     }
 
-    /// Returns the draft the user is typing.
+    /// Returns the primary agent's draft, which is what the composer shows (D-017).
     #[must_use]
-    pub const fn composer(&self) -> &Composer {
-        &self.composer
+    pub fn composer(&self) -> &Composer {
+        self.draft_for(self.agents.primary().map(|agent| &agent.id))
     }
 
-    /// Applies one edit, returning the text when the user asked to send it.
+    /// Returns the draft addressed to one agent.
+    #[must_use]
+    pub fn draft(&self, agent_id: &AgentId) -> &Composer {
+        self.draft_for(Some(agent_id))
+    }
+
+    fn draft_for(&self, agent_id: Option<&AgentId>) -> &Composer {
+        agent_id
+            .and_then(|id| self.composers.get(id))
+            .unwrap_or(&NO_DRAFT)
+    }
+
+    /// Which agent the workspace's one cursor is addressing, if any.
     ///
-    /// The returned string is a *command* for the runtime, never something to write into the
+    /// Derived from the focused surface rather than stored, for the same reason `KeyboardFocus` is
+    /// (SURF-3): two answers to "where does this keystroke go" is how a workspace ends up
+    /// delivering a steer to the wrong worker.
+    #[must_use]
+    pub fn text_target(&self, surfaces: &SurfaceTree) -> Option<AgentId> {
+        match self.focus.resolve(surfaces)? {
+            SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone()),
+            SurfaceId::Composer => self.agents.primary().map(|agent| agent.id.clone()),
+            _ => None,
+        }
+    }
+
+    /// Whether the primary composer is collapsed to its single row (D-027).
+    ///
+    /// Read from the stored preference rather than from resolved focus, because laying out the
+    /// workspace is what needs the answer and there is no tree yet when it asks.
+    #[must_use]
+    pub fn composer_rows(&self) -> u16 {
+        if self.inspector.open().is_some() && self.focus.prefers(SurfaceId::Inspector) {
+            // One row, not none. A composer that vanishes costs the affordance and jumps the tail
+            // of the transcript by three rows; one row of jump is what D-027 accepts.
+            1
+        } else {
+            self.composer().requested_rows()
+        }
+    }
+
+    /// Applies one edit to whichever input holds the cursor.
+    ///
+    /// The returned submission is a *command* for the runtime, never something to write into the
     /// transcript here: the projection has one writer, and it is the event stream (COM-3).
     ///
-    /// This trusts INV-2 rather than re-checking focus. The router only produces a text intent
-    /// while a text input holds the cursor, and it reads that from this same state, so a second
-    /// check here would be a second source of truth for the same fact.
-    pub fn edit(&mut self, intent: TextIntent) -> Option<String> {
+    /// The target comes from focus rather than from the intent. The router only produces a text
+    /// intent while a text input holds the cursor, and it reads that from this same state, so the
+    /// two cannot disagree about which of the two inputs is being typed into (INV-2).
+    pub fn edit(&mut self, surfaces: &SurfaceTree, intent: TextIntent) -> Option<Submission> {
+        let to = self.text_target(surfaces)?;
+        let composer = self.composers.entry(to.clone()).or_default();
         let changed = match intent {
             TextIntent::Insert(character) => {
-                self.composer.insert(character);
+                composer.insert(character);
                 true
             }
             TextIntent::Newline => {
-                self.composer.newline();
+                composer.newline();
                 true
             }
-            TextIntent::DeleteBackward => self.composer.delete_backward(),
+            TextIntent::DeleteBackward => composer.delete_backward(),
             TextIntent::Submit => {
-                let submitted = self.composer.take_draft();
+                let submitted = composer.take_draft();
                 if submitted.is_some() {
                     self.touch();
                 }
-                return submitted;
+                return submitted.map(|text| Submission { to, text });
             }
         };
         if changed {
@@ -117,6 +189,12 @@ impl ViewState {
     #[must_use]
     pub fn selected_agent(&self) -> Option<&AgentView> {
         self.agents.selected()
+    }
+
+    /// Returns one agent by identity, for a surface showing an agent that is not selected.
+    #[must_use]
+    pub fn agent(&self, agent_id: &AgentId) -> Option<&AgentView> {
+        self.agents.get(agent_id)
     }
 
     /// Number of background requests awaiting attention.
@@ -144,6 +222,7 @@ impl ViewState {
     /// Selects an existing agent without changing semantic runtime state.
     pub fn select_agent(&mut self, agent_id: &AgentId) -> Result<(), ReduceError> {
         if self.agents.select(agent_id)? {
+            self.follow_selection();
             self.touch();
         }
         Ok(())
@@ -152,7 +231,15 @@ impl ViewState {
     /// Moves the agent selection one step in arrival order, clamped at both ends.
     pub fn move_selection(&mut self, direction: Direction) {
         if self.agents.move_selection(direction) {
+            self.follow_selection();
             self.touch();
+        }
+    }
+
+    /// Points an unpinned inspector at whatever the user is now looking at.
+    fn follow_selection(&mut self) {
+        if let Some(agent_id) = self.agents.selected().map(|agent| agent.id.clone()) {
+            self.inspector.follow(agent_id);
         }
     }
 

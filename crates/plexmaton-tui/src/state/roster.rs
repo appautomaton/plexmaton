@@ -31,6 +31,10 @@ impl Roster {
         self.selected.as_ref().and_then(|id| self.agents.get(id))
     }
 
+    pub(super) fn get(&self, agent_id: &AgentId) -> Option<&AgentView> {
+        self.agents.get(agent_id)
+    }
+
     pub(super) fn contains(&self, agent_id: &AgentId) -> bool {
         self.agents.contains(agent_id)
     }

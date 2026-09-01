@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
         runs.push(wheel(items)?);
         runs.push(switch_reader(items)?);
         runs.push(resize(items)?);
+        runs.push(inspector(items)?);
     }
     report(&runs);
     Ok(())
@@ -299,6 +300,31 @@ fn resize(items: usize) -> anyhow::Result<Run> {
         let size = RESIZES.get(sample % RESIZES.len()).copied().unwrap_or(SIZE);
         let started = Instant::now();
         harness.resize(size);
+        let work = harness.draw()?;
+        run.record(started.elapsed(), work);
+    }
+    Ok(run.finish(&harness))
+}
+
+/// Opening and closing the inspector, which is the surface open and close budget.
+///
+/// A shelf splits the conversation region vertically, so the conversation keeps its width and every
+/// cached height stays valid. Opening therefore costs a relayout and a repaint and no wrapping at
+/// all, which is what the wraps column is here to show rather than assert in prose.
+fn inspector(items: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
+    harness.warm(usize::MAX)?;
+
+    let mut run = Run::new("open inspector");
+    for sample in 0..SAMPLES {
+        let code = if sample.is_multiple_of(2) {
+            KeyCode::Enter
+        } else {
+            KeyCode::Esc
+        };
+        let event = Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
+        let started = Instant::now();
+        harness.workspace.handle(&event);
         let work = harness.draw()?;
         run.record(started.elapsed(), work);
     }

@@ -4,7 +4,11 @@
 //! is registered here. The renderer then draws from the registry rather than recomputing, so
 //! painting and hit testing cannot disagree about where a region is.
 
+mod inspector;
+
 use ratatui::layout::{Constraint, Layout, Rect};
+
+pub use inspector::InspectorRequest;
 
 use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 
@@ -74,6 +78,8 @@ pub struct WorkspaceInput {
     pub has_notices: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
+    /// The open inspector, if one is open.
+    pub inspector: Option<InspectorRequest>,
 }
 
 impl Default for WorkspaceInput {
@@ -82,6 +88,7 @@ impl Default for WorkspaceInput {
             has_notices: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
+            inspector: None,
         }
     }
 }
@@ -107,9 +114,11 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 
     // Typing is the one thing a workspace this small still has to allow, so the composer is served
     // before the notice strip and before the body, and only clamped to keep the conversation.
+    // The floor is one row, not three: a collapsed composer is a single unbordered row (D-027),
+    // and the projection is what decides it is collapsed.
     let composer_height = input
         .composer_rows
-        .clamp(MIN_PANEL_HEIGHT, budget.saturating_sub(MIN_PANEL_HEIGHT));
+        .clamp(1, budget.saturating_sub(MIN_PANEL_HEIGHT).max(1));
     budget = budget.saturating_sub(composer_height);
 
     let notice_height = if input.has_notices {
@@ -128,7 +137,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         composer_height,
     );
 
-    let regions = body_regions(area, body);
+    let regions = body_regions(area, body, input.inspector);
 
     register(
         &mut tree,
@@ -139,8 +148,14 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     register(
         &mut tree,
         SurfaceId::Transcript,
-        Some(regions.transcript),
+        regions.transcript,
         SurfaceKind::Panel,
+    );
+    register(
+        &mut tree,
+        SurfaceId::Inspector,
+        regions.inspector,
+        SurfaceKind::Inspector,
     );
     register(
         &mut tree,
@@ -176,18 +191,21 @@ fn notice_rows(available: u16) -> u16 {
     NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
 }
 
-/// What one frame's body is divided into. The conversation is the only region that always exists.
-struct BodyRegions {
+/// What one frame's body is divided into.
+///
+/// Every region is optional now, including the conversation: a maximized inspector is a full-region
+/// transition, and registering a conversation with no rows to draw would leave a focus stop and a
+/// pointer target showing nothing.
+pub(super) struct BodyRegions {
     agents: Option<Rect>,
-    transcript: Rect,
-    activity: Option<Rect>,
+    pub(super) transcript: Option<Rect>,
+    pub(super) inspector: Option<Rect>,
+    pub(super) activity: Option<Rect>,
 }
 
-fn body_regions(area: Rect, body: Rect) -> BodyRegions {
-    match LayoutClass::for_size(area.width, area.height) {
-        // The second conversation column arrives with the inspector surface. Until then ultrawide
-        // spends its extra width on the activity column rather than pretending to hold an agent
-        // that does not exist yet.
+fn body_regions(area: Rect, body: Rect, inspector: Option<InspectorRequest>) -> BodyRegions {
+    let class = LayoutClass::for_size(area.width, area.height);
+    let base = match class {
         LayoutClass::Ultrawide => columns(body, 28, 52, 34),
         LayoutClass::Wide => columns(body, 26, 30, 30),
         LayoutClass::Medium => {
@@ -198,7 +216,8 @@ fn body_regions(area: Rect, body: Rect) -> BodyRegions {
             let transcript = Rect::new(main.x, main.y, main.width, rows);
             BodyRegions {
                 agents: Some(agents),
-                transcript,
+                transcript: Some(transcript),
+                inspector: None,
                 activity: band(main, transcript.bottom(), activity_height),
             }
         }
@@ -213,10 +232,16 @@ fn body_regions(area: Rect, body: Rect) -> BodyRegions {
                 Rect::new(body.x, body.y.saturating_add(rail_height), body.width, rows);
             BodyRegions {
                 agents: band(body, body.y, rail_height),
-                transcript,
+                transcript: Some(transcript),
+                inspector: None,
                 activity: band(body, transcript.bottom(), activity_height),
             }
         }
+    };
+
+    match inspector {
+        Some(request) => inspector::place_inspector(base, request, class),
+        None => base,
     }
 }
 
@@ -230,7 +255,8 @@ fn columns(body: Rect, rail: u16, conversation: u16, activity: u16) -> BodyRegio
     .areas(body);
     BodyRegions {
         agents: Some(agents),
-        transcript,
+        transcript: Some(transcript),
+        inspector: None,
         activity: Some(activity),
     }
 }
@@ -273,7 +299,7 @@ fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Option<Rect>, kind: S
 mod tests {
     use ratatui::layout::Rect;
 
-    use super::{LayoutClass, WorkspaceInput, workspace};
+    use super::{InspectorRequest, LayoutClass, MIN_PANEL_HEIGHT, WorkspaceInput, workspace};
     use crate::surface::SurfaceId;
 
     /// The default composer, which is the shape every one of these sizes is checked against.
@@ -284,9 +310,40 @@ mod tests {
         }
     }
 
+    /// The same, with an inspector open in its default presentation.
+    fn inspecting(has_notices: bool) -> WorkspaceInput {
+        WorkspaceInput {
+            inspector: Some(InspectorRequest::default()),
+            ..input(has_notices)
+        }
+    }
+
+    /// Every shape the workspace can be in, so a rule is checked against all of them or none.
+    fn shapes() -> impl Iterator<Item = (u16, u16, WorkspaceInput)> {
+        SIZES.into_iter().flat_map(|(width, height)| {
+            [false, true].into_iter().flat_map(move |has_notices| {
+                [input(has_notices), inspecting(has_notices)]
+                    .into_iter()
+                    .map(move |input| (width, height, input))
+            })
+        })
+    }
+
+    /// The composer is never covered, at any size (`ui-ux.md` §shelf).
+    #[test]
+    fn the_composer_survives_every_presentation() {
+        for (width, height, input) in shapes() {
+            let tree = workspace(Rect::new(0, 0, width, height), input);
+            assert!(
+                tree.get(SurfaceId::Composer).is_some(),
+                "{width}x{height}: a workspace you cannot type into is not one of the shapes"
+            );
+        }
+    }
+
     /// Both sides of every layout-class threshold, the supported minimum, and short-but-wide
     /// shapes where only the height is under pressure.
-    const SIZES: [(u16, u16); 8] = [
+    pub(super) const SIZES: [(u16, u16); 8] = [
         (140, 40),
         (140, 12),
         (120, 24),
@@ -318,27 +375,24 @@ mod tests {
     /// SURF-1: a rectangle that layout computed but did not register would leave a hole here.
     #[test]
     fn registered_surfaces_tile_the_terminal_without_gaps_or_overlap() {
-        for (width, height) in SIZES {
-            for has_notices in [false, true] {
-                let area = Rect::new(0, 0, width, height);
-                let tree = workspace(area, input(has_notices));
-                let registered: Vec<_> = tree.iter().map(|surface| surface.bounds).collect();
+        for (width, height, input) in shapes() {
+            let area = Rect::new(0, 0, width, height);
+            let tree = workspace(area, input);
+            let registered: Vec<_> = tree.iter().map(|surface| surface.bounds).collect();
 
-                let covered: u32 = registered.iter().map(|bounds| bounds.area()).sum();
-                assert_eq!(
-                    covered,
-                    area.area(),
-                    "{width}x{height} notices={has_notices}: registered regions must cover the \
-                     terminal"
-                );
+            let covered: u32 = registered.iter().map(|bounds| bounds.area()).sum();
+            assert_eq!(
+                covered,
+                area.area(),
+                "{width}x{height} {input:?}: registered regions must cover the terminal"
+            );
 
-                for (index, first) in registered.iter().enumerate() {
-                    for second in &registered[index.saturating_add(1)..] {
-                        assert!(
-                            first.intersection(*second).is_empty(),
-                            "{width}x{height}: {first:?} and {second:?} overlap"
-                        );
-                    }
+            for (index, first) in registered.iter().enumerate() {
+                for second in &registered[index.saturating_add(1)..] {
+                    assert!(
+                        first.intersection(*second).is_empty(),
+                        "{width}x{height} {input:?}: {first:?} and {second:?} overlap"
+                    );
                 }
             }
         }
@@ -351,25 +405,25 @@ mod tests {
     /// that keeps the workspace honest about what it can actually display.
     #[test]
     fn no_registered_region_is_too_small_to_draw() {
-        for (width, height) in SIZES {
-            for has_notices in [false, true] {
-                let tree = workspace(Rect::new(0, 0, width, height), input(has_notices));
+        for (width, height, input) in shapes() {
+            let tree = workspace(Rect::new(0, 0, width, height), input);
 
-                for surface in tree.iter() {
-                    // The hint strip is one unbordered row by design; a bordered region needs two
-                    // borders and a line of content before the rectangle is worth registering.
-                    let floor = if surface.id == SurfaceId::Footer {
-                        1
-                    } else {
-                        super::MIN_PANEL_HEIGHT
-                    };
-                    assert!(
-                        surface.bounds.height >= floor,
-                        "{width}x{height} notices={has_notices}: {:?} got {} rows",
-                        surface.id,
-                        surface.bounds.height
-                    );
-                }
+            for surface in tree.iter() {
+                // The hint strip is one unbordered row by design; a bordered region needs two
+                // borders and a line of content before the rectangle is worth registering.
+                // The hint strip and a collapsed composer are single unbordered rows by design;
+                // every bordered region needs two borders and a line before it is worth drawing.
+                let floor = if surface.id == SurfaceId::Footer {
+                    1
+                } else {
+                    MIN_PANEL_HEIGHT
+                };
+                assert!(
+                    surface.bounds.height >= floor,
+                    "{width}x{height} {input:?}: {:?} got {} rows",
+                    surface.id,
+                    surface.bounds.height
+                );
             }
         }
     }

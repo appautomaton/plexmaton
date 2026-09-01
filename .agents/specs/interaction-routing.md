@@ -95,10 +95,20 @@ Idle ─────────────────────────
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Quit when nothing is dismissible | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move selection | Unbound for now |
+| `Enter` (see below) | Open the inspector | Submit |
+| `Ctrl-P`, `Ctrl-F` | Pin, maximize the inspector | Pin, maximize the inspector |
+| `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the inspector | Shrink, grow the inspector |
 | Printable character | Unbound unless bound above | Insert |
 | `Backspace` | Unbound | Delete backward |
 | `Enter` | Unbound | Submit |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
+
+The inspector chords resolve *before* keyboard focus is consulted, which is what makes them
+reachable while the inspector's own input holds the cursor — a control chord is never text (INV-2).
+`Enter` is the deliberate exception and the reason the others are chords: under a cursor it submits,
+so opening cannot live there. They are translated whether or not an inspector is open; the router
+says what was pressed, and whether there is anything to act on is the reducer's question.
+[`inspector`](./inspector.md) owns what each one does.
 
 Key *release* events are ignored, so a terminal reporting press and release does not act twice.
 
@@ -122,8 +132,8 @@ Key *release* events are ignored, so a terminal reporting press and release does
 - **Clipping and modality on `SurfaceTree`.** SURF-2 and SURF-4, neither owned by this phase.
 - **Cursor movement inside a text input.** It arrives with the composer, which owns its own editing
   model.
-- **Shelf resize and inspector bindings.** `Ctrl-Shift-↑/↓` is locked in `ui-ux.md`, but an intent
-  for a surface that does not exist yet would be a claim without a consumer.
+- **What an inspector command does.** The bindings are above because translation is this file's
+  job; the behaviour behind them is [`inspector`](./inspector.md).
 - **What an intent does.** The reducer owns that.
 
 ## Evidence
@@ -131,15 +141,14 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | Invariant | Proven by |
 | --- | --- |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
-| INV-2 | `printable_keys_follow_the_cursor` |
+| INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter` |
 | INV-3 | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
-| INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag` |
+| INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
-| INV-6 | `escape_resolves_one_layer_per_press` |
+| INV-6 | `escape_resolves_one_layer_per_press`, `enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation` |
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 
-Every intent now has a consumer in the executable except `Dismiss`, which waits for the phase's one
-dismissible surface — the shelf, in delivery step 7. That gap is recorded in
-[phase 00](../roadmap/phase-00-experience-skeleton.md) rather than hidden.
+Every intent has a consumer in the executable. `Dismiss` was the last one without, and delivery
+step 7 gave it the phase's one dismissible surface.

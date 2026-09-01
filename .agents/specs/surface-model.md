@@ -56,7 +56,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | `id` | `SurfaceId`, a named variant. Never a number agreed by convention (D-036) |
 | `bounds` | The rectangle the surface occupies, whether or not all of it is visible |
 | `clip` | The rectangle it is confined to, normally its parent's visible rectangle. Not a field yet; it arrives with SURF-2's first caller |
-| `z_index` | Draw and hit order among siblings |
+| `z_index` | Draw and hit order among siblings. No Phase 00 surface overlaps another, so nothing has yet needed a value other than zero |
 | `kind` | What the surface *is*; every behavioural answer below is derived from it |
 | `viewport` | How tall its content is and how far through it the user is. Filled in by the renderer, because measuring needs the text; `None` until a frame has drawn it |
 
@@ -76,8 +76,15 @@ does not block. Deriving all five from `kind` makes those states unrepresentable
 | `Panel` | yes | yes | no | no | no |
 | `Chrome` | no | no | no | no | no |
 | `Composer` | yes | yes | **yes** | no | no |
+| `Inspector` | yes | yes | **yes** | no | **yes** |
 
-`Shelf` and `Modal` join in delivery step 7. A kind with no surface using it is not added in advance.
+`Inspector` joined in delivery step 7, named for what it is rather than for how it looks: this table
+predicted `Shelf`, but a shelf is one of three presentations the same surface takes depending on
+terminal size, and a kind named after one geometry would be the wrong name at the other two.
+[`inspector`](./inspector.md) owns it.
+
+`Modal` never joined. Nothing in Phase 00 blocks, so there is no surface to give the kind — the same
+reason SURF-4 is unproven below. A kind with no surface using it is not added in advance.
 
 ### Hit testing
 
@@ -120,8 +127,8 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 
 - **Terminal-event translation, capture, and the `Escape` ladder.**
   [`interaction-routing`](./interaction-routing.md) owns them.
-- **Shelf geometry and the ten-row guarantee** (D-016, D-023). Stated in `ui-ux.md`; implemented in
-  delivery step 7.
+- **Shelf geometry and the ten-row guarantee** (D-016, D-023). [`inspector`](./inspector.md) owns
+  them.
 - **Which surfaces exist.** That is layout's decision, and it changes with the layout class.
 
 ## Evidence
@@ -130,6 +137,6 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | --- | --- |
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | SURF-2 | Unproven — delivery step 8, the first step with a surface that outgrows its parent |
-| SURF-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
+| SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
 | SURF-4 | Unproven, and unowned inside Phase 00. Nothing in the canonical journey blocks: the Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with the phase that owns real tools |
-| SURF-5 | `focus_returns_to_a_surface_that_comes_back` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |
+| SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

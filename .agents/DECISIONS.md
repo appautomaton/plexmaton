@@ -24,6 +24,7 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-042 | 2026-08-31 | Inspection is an axis of its own: opening does not move the selection, an unpinned inspector follows it, and a pinned one is what puts two agents on screen | Accepted | [inspector](./specs/inspector.md) INS-1 |
 | D-041 | 2026-08-31 | The event loop is one `Workspace` the executable and the harness both drive; frame work is asserted and frame time is only reported | Accepted | [frame-loop](./specs/frame-loop.md) FR-1 to FR-3 |
 | D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
 | D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
@@ -70,20 +71,34 @@ again the same way — age first, then move the number.
 
 Only where a serious alternative was considered. The reason matters more than the verdict.
 
+### D-042 · An inspector that replaces the conversation it was opened from — rejected
+
+The simpler model: `Enter` selects and opens, so the inspector shows what the conversation already
+shows. Then the shelf displays a second copy of the surface beneath it and "overlay without
+occlusion" protects rows nobody needed. Separating the axes is what makes the geometry worth having,
+and it is what gives pinning a meaning — a pin is the inspector declining to follow.
+
+### D-042 · Closing an unpinned inspector when the selection moves — rejected
+
+The first implementation, read correctly from `ui-ux.md`'s "pinned is whether a surface survives the
+user working elsewhere", and wrong in use: the peek ended at the moment it became useful, which is
+when the user returns to the conversation they were reading. An unpinned inspector follows instead.
+The contract sentence still holds; it just does not mean the unpinned one dies.
+
 ### D-041 · `criterion` as the measurement lane — rejected
 
-Scheduled for this step since the phase opened, and rejected on arrival for two reasons rather than
-cost. It times a closure and reports central tendency, so it cannot see the work counts that are the
-load-bearing half of the evidence; and what a latency budget is about is the tail, not the mean.
-Percentiles over a scripted workload are thirty lines and the right instrument. The rejection is of
-the fit, not of the crate — it returns if something here ever needs statistical throughput.
+Scheduled since the phase opened, and rejected on arrival for fit rather than cost: it times a
+closure and reports central tendency, so it cannot see the work counts that are the load-bearing
+half of the evidence, and a latency budget is about the tail. Percentiles over a scripted workload
+are thirty lines. It returns if something here ever needs statistical throughput.
 
 ### D-041 · Asserting wall-clock budgets in the test suite — rejected
 
 It would make a budget a gate, which is what a budget looks like it should be. Rejected because a
 timing assertion on a developer laptop is a flaky test wearing a budget's clothes, and the cure for
-flakiness is a threshold loose enough to catch nothing. Work counts gate instead; they are exact,
-identical on every machine, and fail for the same defects a timing bound was meant to catch.
+flakiness is a threshold loose enough to catch nothing. Work counts gate instead: exact, identical
+everywhere, and failing for the same defects a timing bound was meant to catch. Step 7 supplied the
+proof — the same binary measured 13 ms and 30 ms on one laptop, hours apart.
 
 ### D-017 · One composer that retargets on selection — rejected
 
@@ -145,33 +160,20 @@ asynchronous fill for it to hide. It arrives with a renderer that can be behind,
 
 ### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
 
-The crate was in the candidate table for a composer spike, and its own API decided the question:
-it takes a `crossterm::event::Event`. Feeding it one would put a second terminal-event consumer in
-a workspace where exactly one component may have that (D-029, INV-1), and driving it through its
-lower-level editing calls instead would leave us using a few per cent of it for a model that is
-four verbs — insert, delete, newline, submit — with no cursor movement in the key grammar to need
-anything more. `unicode-segmentation` and `unicode-width` were already audited into the foundation
-and are what the four verbs actually require.
-
-Letting `Submit` append to the transcript directly was the shorter path and would have made the
-projection a second writer over state the event stream owns — the divergence this project already
-rejected for delegation records. A submitted message is a command; it reaches the screen as the
-runtime's own events or not at all. The cost is real and was accepted: sequence numbering had to
-move out of the scenario fixture into the runtime, because two sources feeding one monotonic stream
-cannot both be numbering it.
+Aged: [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery step 3 and
+[composer](./specs/composer.md) COM-3 own the reasoning. Two verdicts worth keeping. The crate takes
+a `crossterm::event::Event`, and exactly one component in this workspace may (D-029); driving it
+below that API instead would have used a few per cent of it for an editing model that is four verbs.
+And a submitted message is a command rather than a write, which cost real work — sequence numbering
+had to move into the runtime, because two sources feeding one monotonic stream cannot both number
+it — and bought one writer for the transcript.
 
 ### D-037 · Leaving the composer to Phase 01, and folding it into the surfaces step — both rejected
 
-Deferring it was rejected on the exit gate, not on taste. Three of its criteria need a real text
-input: continuing to interact with A while B streams, performing the canonical journey by keyboard
-alone, and copying from semantic source. INV-2 also stays proven only against fixtures while
-`KeyboardFocus::TextInput` is unreachable in the running binary, which is precisely the "documented
-behaviour with no implementation behind it" this phase already had to correct once.
-
-Folding it into step 2 was the tempting option, since focus is where the cursor question lives. It
-was rejected because that step would then own five slices of geometry plus an editing model, and a
-step whose plan needs a phase-sized document is a step that was not cut. Its own step also gives the
-`ratatui-textarea` question a place to be answered with evidence rather than by default.
+Aged: the outcome is the delivery sequence itself. The verdict is that a phase whose exit gate says
+the user can converse cannot defer the one place they type, and that folding it into the surfaces
+step would have hidden a whole invariant set — the single cursor, and a submission as a command —
+inside a step already about something else.
 
 ### D-036 · Numeric identities and a second layout for hit testing — rejected
 
@@ -183,21 +185,19 @@ whoever is clicking.
 
 ### D-035 · Worktrees under `.agents/worktrees/` — rejected
 
-Mechanically it works — a nested worktree there is invisible to both corpus scripts — and it was
-rejected on meaning. `.agents/` is the project's declared durable memory of tracked, budgeted
-markdown; a worktree is untracked, disposable, and 245 MB of build output each, and a directory
-holding both stops being one anyone can describe. `.worktrees/` at the root carries the same vendor
-neutrality, which was the real point. A second ignored path for whatever a harness defaults to was
-rejected with it: two locations is not a convention.
+Aged: [standards/quality-gates.md](./standards/quality-gates.md) owns the location. It works
+mechanically and was rejected on meaning — `.agents/` is tracked, budgeted markdown, and a directory
+holding that plus 245 MB of disposable build output per checkout stops being one anyone can
+describe. A second ignored path for whatever a harness defaults to was rejected with it: two
+locations is not a convention.
 
 ### D-035 · One `CARGO_TARGET_DIR` shared across worktrees — rejected
 
 The standard advice, and it silently runs the wrong code here; the fingerprint collision and its
 one-minute reproduction are owned by [standards/quality-gates.md](./standards/quality-gates.md).
 What that file does not record: sharing saves four crate builds out of seventy-six, and `sccache`
-was considered as the cross-checkout answer and does not reach it either — absolute paths enter its
-cache key, and the `SCCACHE_BASEDIRS` escape hatch needs statically configured directories, which is
-the opposite of a worktree per task.
+does not reach it either — absolute paths enter its cache key, and `SCCACHE_BASEDIRS` needs
+statically configured directories, the opposite of a worktree per task.
 
 ### D-034 · Folding specs into the plans folder — rejected
 

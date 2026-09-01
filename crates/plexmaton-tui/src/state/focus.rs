@@ -61,6 +61,25 @@ impl Focus {
         false
     }
 
+    /// Whether the user's stored preference names this surface.
+    ///
+    /// The resolved focus needs a tree, and laying the tree out needs to know whether the composer
+    /// is collapsed — so the collapse reads the preference instead. The two agree whenever the
+    /// preferred surface is registered, which is the only case where the answer matters.
+    pub(super) fn prefers(self, surface_id: SurfaceId) -> bool {
+        self.preferred == Some(surface_id)
+    }
+
+    /// Prefers a surface that the *next* frame will register.
+    ///
+    /// Unlike [`Self::point_at`], this does not check the current tree, because opening a surface
+    /// and drawing it are different frames. A preference resolved per frame is exactly what makes
+    /// that safe: if the surface never appears, resolution falls back to the first ring stop and the
+    /// preference costs nothing.
+    pub(super) fn prefer(&mut self, surface_id: SurfaceId) -> bool {
+        self.set(Some(surface_id))
+    }
+
     fn set(&mut self, next: Option<SurfaceId>) -> bool {
         if next.is_none() || next == self.preferred {
             return false;

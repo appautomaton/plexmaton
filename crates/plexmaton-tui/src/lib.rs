@@ -23,8 +23,9 @@ pub use intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiInten
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
-    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, MailView, NoticeView,
-    ReduceError, ScrollPosition, ToolActivityView, TranscriptItemView, ViewRevision, ViewState,
+    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, InspectorView, MailView,
+    NoticeView, ReduceError, ScrollPosition, Submission, ToolActivityView, TranscriptItemView,
+    ViewRevision, ViewState,
 };
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,

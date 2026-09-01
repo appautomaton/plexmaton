@@ -41,19 +41,36 @@ pub enum SurfaceKind {
     Chrome,
     /// A text input. While it holds focus it owns the workspace's one cursor.
     Composer,
+    /// One agent's detail, opened explicitly and dismissed with `Escape`.
+    ///
+    /// Named for what it is rather than for how it looks. `surface-model.md` predicted `Shelf`, but
+    /// a shelf is one of three presentations this surface takes depending on terminal size, and
+    /// changing presentation must not change identity — so a kind named after one geometry would be
+    /// the wrong name at the other two.
+    Inspector,
 }
 
 impl SurfaceKind {
     /// Whether a pointer event may resolve to a surface of this kind.
     #[must_use]
     pub const fn accepts_pointer(self) -> bool {
-        matches!(self, Self::Panel | Self::Composer)
+        matches!(self, Self::Panel | Self::Composer | Self::Inspector)
     }
 
     /// Whether a surface of this kind is a stop on the focus ring.
     #[must_use]
     pub const fn is_focusable(self) -> bool {
-        matches!(self, Self::Panel | Self::Composer)
+        matches!(self, Self::Panel | Self::Composer | Self::Inspector)
+    }
+
+    /// Whether `Escape` closes a surface of this kind.
+    ///
+    /// The inspector is the workspace's one dismissible layer, which is what gives INV-6's ladder
+    /// something to resolve. Deriving this from the kind rather than storing it keeps it in the same
+    /// place as every other behavioural answer (SURF-3).
+    #[must_use]
+    pub const fn is_dismissible(self) -> bool {
+        matches!(self, Self::Inspector)
     }
 
     /// What typing does while a surface of this kind holds focus.
@@ -61,7 +78,10 @@ impl SurfaceKind {
     pub const fn keyboard_focus(self) -> KeyboardFocus {
         match self {
             Self::Panel | Self::Chrome => KeyboardFocus::Navigation,
-            Self::Composer => KeyboardFocus::TextInput,
+            // The inspector carries the inspected agent's steer input, which renders only while it
+            // holds focus (D-018). There is still exactly one cursor: focus decides which surface
+            // has it, and no surface has one without focus.
+            Self::Composer | Self::Inspector => KeyboardFocus::TextInput,
         }
     }
 }
@@ -78,6 +98,13 @@ pub enum SurfaceId {
     Agents,
     /// The selected agent's conversation.
     Transcript,
+    /// One agent's detail, opened explicitly. Registered only while it is open.
+    ///
+    /// Declared next to the conversation because that is where it lives in every presentation: over
+    /// the conversation as a shelf, in place of it when maximized, and beside it as the secondary
+    /// column. No fixed position matches reading order at all three — a surface that moves cannot —
+    /// and SURF-3 prefers a ring that never reorders over one that reads correctly at one size.
+    Inspector,
     /// Tools, artifacts, and mail belonging to the selected agent.
     Activity,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
@@ -203,6 +230,17 @@ impl SurfaceTree {
         self.surfaces
             .get(&surface_id)
             .and_then(|surface| surface.viewport)
+    }
+
+    /// Whether any registered surface is one `Escape` would close.
+    ///
+    /// Read from the tree rather than stored beside it, so the ladder cannot believe a layer is open
+    /// after the frame that drew it stopped registering it.
+    #[must_use]
+    pub fn has_dismissible(&self) -> bool {
+        self.surfaces
+            .values()
+            .any(|surface| surface.kind.is_dismissible())
     }
 
     /// Iterates the focus ring: the registered focus stops, in a deterministic order.

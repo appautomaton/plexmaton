@@ -20,6 +20,14 @@ pub struct Composer {
 }
 
 impl Composer {
+    /// An empty draft, for an agent nobody has typed to yet.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            draft: String::new(),
+        }
+    }
+
     /// Appends one character at the insertion point.
     pub fn insert(&mut self, character: char) {
         self.draft.push(character);

@@ -10,7 +10,7 @@ use ratatui::crossterm::event::{
 };
 
 use crate::{
-    intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
+    intent::{Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree},
 };
 
@@ -93,6 +93,10 @@ impl Router {
         }
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Routed::Intent(TuiIntent::Quit);
+        }
+
+        if let Some(intent) = inspector_chord(key) {
+            return Routed::Intent(intent);
         }
 
         match key.code {
@@ -206,6 +210,25 @@ fn text_key(key: KeyEvent) -> Routed {
     }
 }
 
+/// Inspector chords, which resolve before keyboard focus is consulted.
+///
+/// Before the split because the inspector holds a text input while it is focused, and a control
+/// chord is never text (INV-2). Translated whether or not anything is open: the router says what
+/// the user pressed, and whether there is something to act on is the reducer's question.
+fn inspector_chord(key: KeyEvent) -> Option<TuiIntent> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let intent = match key.code {
+        KeyCode::Char('p') if control && !shift => InspectorIntent::TogglePin,
+        KeyCode::Char('f') if control && !shift => InspectorIntent::ToggleMaximize,
+        // Locked in `ui-ux.md` as the keyboard equivalent of dragging the bottom edge (D-028).
+        KeyCode::Down if control && shift => InspectorIntent::Grow,
+        KeyCode::Up if control && shift => InspectorIntent::Shrink,
+        _ => return None,
+    };
+    Some(TuiIntent::Inspector(intent))
+}
+
 /// Keys addressed to a navigational surface, where no cursor exists.
 fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
     if !key.modifiers.is_empty() {
@@ -214,6 +237,9 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
     match key.code {
         // Quitting must not be the way a dismissible layer gets closed.
         KeyCode::Char('q') if !context.dismissible => Routed::Intent(TuiIntent::Quit),
+        // Opening is explicit and never a side effect of moving around (D-026). It does not move
+        // the selection: inspection is its own axis, which is what puts two agents on screen.
+        KeyCode::Enter => Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open)),
         KeyCode::Down | KeyCode::Char('j') => {
             Routed::Intent(TuiIntent::MoveSelection(Direction::Forward))
         }
@@ -236,7 +262,9 @@ mod tests {
 
     use super::{Ignored, KeyboardFocus, Routed, Router, RouterContext};
     use crate::{
-        intent::{Direction, PointerIntent, ScrollDirection, TextIntent, TuiIntent},
+        intent::{
+            Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent, TuiIntent,
+        },
         surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     };
 
@@ -572,6 +600,65 @@ mod tests {
         assert_eq!(
             router.translate(&escape, &bare),
             Routed::Ignored(Ignored::NothingToDismiss)
+        );
+    }
+
+    /// The inspector grammar, tested as one grammar rather than key by key.
+    ///
+    /// Every chord resolves the same way under both focus modes, which is what makes them reachable
+    /// while the inspector's own input holds the cursor. `Enter` is the deliberate exception and the
+    /// reason the chords are chords: under text focus it submits, so opening cannot live there.
+    #[test]
+    fn the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter() {
+        let surfaces = tree();
+        let mut router = Router::default();
+        let chords = [
+            (
+                key(KeyCode::Char('p'), KeyModifiers::CONTROL),
+                InspectorIntent::TogglePin,
+            ),
+            (
+                key(KeyCode::Char('f'), KeyModifiers::CONTROL),
+                InspectorIntent::ToggleMaximize,
+            ),
+            (
+                key(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+                InspectorIntent::Grow,
+            ),
+            (
+                key(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+                InspectorIntent::Shrink,
+            ),
+        ];
+
+        for focus in [KeyboardFocus::Navigation, KeyboardFocus::TextInput] {
+            let context = context(&surfaces, focus, true);
+            for (event, expected) in &chords {
+                assert_eq!(
+                    router.translate(event, &context),
+                    Routed::Intent(TuiIntent::Inspector(*expected)),
+                    "{event:?} must mean the same thing under {focus:?}"
+                );
+            }
+        }
+
+        let navigation = context(&surfaces, KeyboardFocus::Navigation, false);
+        let typing = context(&surfaces, KeyboardFocus::TextInput, false);
+        let enter = key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            router.translate(&enter, &navigation),
+            Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open)),
+            "opening is explicit, and there is no cursor to submit to"
+        );
+        assert_eq!(
+            router.translate(&enter, &typing),
+            Routed::Intent(TuiIntent::Text(TextIntent::Submit)),
+            "the same key submits where a cursor exists (INV-2)"
+        );
+        // Plain arrows keep moving the selection; only the chord reaches the inspector.
+        assert_eq!(
+            router.translate(&key(KeyCode::Down, KeyModifiers::NONE), &navigation),
+            Routed::Intent(TuiIntent::MoveSelection(Direction::Forward))
         );
     }
 

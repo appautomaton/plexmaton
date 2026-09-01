@@ -13,7 +13,7 @@ use crate::{
     intent::{PointerIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{ViewRevision, ViewState},
+    state::{Submission, ViewRevision, ViewState},
     surface::SurfaceTree,
     theme::Palette,
     transcript::TranscriptMetrics,
@@ -34,9 +34,9 @@ pub enum Flow {
 pub struct Outcome {
     /// Whether the loop continues.
     pub flow: Flow,
-    /// Text the user submitted. Only the runtime may turn it into transcript events, so it leaves
-    /// the workspace as a value rather than being written anywhere (COM-3).
-    pub submitted: Option<String>,
+    /// What the user submitted, and who to. Only the runtime may turn it into transcript events,
+    /// so it leaves the workspace as a value rather than being written anywhere (COM-3).
+    pub submitted: Option<Submission>,
 }
 
 impl Outcome {
@@ -127,7 +127,9 @@ impl Workspace {
             surfaces,
             // Derived from whichever surface holds focus, never asserted here (SURF-3).
             focus: state.keyboard_focus(surfaces),
-            dismissible: false,
+            // A fact about the frame that was drawn, not about intent: `Escape` resolves the
+            // layer the user can see (FR-3).
+            dismissible: surfaces.has_dismissible(),
         };
         match router.translate(event, &context) {
             Routed::Intent(intent) => self.apply(intent),
@@ -178,15 +180,24 @@ impl Workspace {
             TuiIntent::Text(edit) => {
                 return Outcome {
                     flow: Flow::Continue,
-                    submitted: self.state.edit(edit),
+                    submitted: self.state.edit(&self.surfaces, edit),
                 };
             }
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
-            // A press focuses what it hit; the rest of the gesture is a drag, which has no consumer
-            // until a surface has an edge worth dragging.
-            TuiIntent::Pointer(PointerIntent::Press { surface, .. }) => {
-                self.state.focus_surface(&self.surfaces, surface);
+            // A press focuses what it hit; every step of the gesture then reaches the reducer,
+            // which is where an edge drag becomes a height.
+            TuiIntent::Pointer(pointer) => {
+                if let PointerIntent::Press { surface, .. } = pointer {
+                    self.state.focus_surface(&self.surfaces, surface);
+                }
+                self.state.drag(&self.surfaces, pointer);
+            }
+            TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
+            // The phase's one dismissible layer. `Escape` reaches here only when the router found
+            // nothing closer to resolve, which is the ladder's last rung before nothing (INV-6).
+            TuiIntent::Dismiss => {
+                self.state.dismiss(&self.surfaces);
             }
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
@@ -197,12 +208,6 @@ impl Workspace {
                 self.state
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
-            TuiIntent::Dismiss
-            | TuiIntent::Pointer(
-                PointerIntent::Drag { .. }
-                | PointerIntent::Release { .. }
-                | PointerIntent::Cancel { .. },
-            ) => {}
         }
         Outcome::default()
     }
@@ -239,6 +244,15 @@ mod tests {
 
     fn press(code: KeyCode, modifiers: KeyModifiers) -> Event {
         Event::Key(KeyEvent::new(code, modifiers))
+    }
+
+    fn mouse(kind: MouseEventKind, column: u16, row: u16) -> Event {
+        Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
     }
 
     fn bounds(workspace: &Workspace, surface_id: SurfaceId) -> Rect {
@@ -463,12 +477,310 @@ mod tests {
         }
     }
 
+    fn painted(
+        terminal: &Terminal<TestBackend>,
+        workspace: &Workspace,
+        surface_id: SurfaceId,
+    ) -> String {
+        crate::test_support::region_text(terminal.backend().buffer(), bounds(workspace, surface_id))
+    }
+
+    fn cursor(terminal: &Terminal<TestBackend>) -> Option<ratatui::layout::Position> {
+        let backend = terminal.backend();
+        backend.cursor_visible().then(|| backend.cursor_position())
+    }
+
     /// Draws and insists the frame happened, for tests whose subject is what one cost.
     fn frame(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>) -> super::FrameWork {
         workspace
             .draw(terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"))
             .unwrap_or_else(|| panic!("this frame was expected to paint"))
+    }
+
+    /// D-026 and INV-6 through the executable: opening focuses, and `Escape` gives focus back.
+    ///
+    /// The ladder has had no consumer since step 1, so this is the first time `Dismiss` resolves
+    /// anything. `Escape` with nothing open must still not quit, which is the other half of INV-6
+    /// and the reason the ladder exists at all.
+    #[test]
+    fn enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        let focused = |workspace: &Workspace| workspace.state.focused(&workspace.surfaces);
+
+        assert!(
+            workspace.surfaces.get(SurfaceId::Inspector).is_none(),
+            "nothing is open until the user asks"
+        );
+        assert_eq!(
+            workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE)),
+            Outcome::default(),
+            "and Escape with nothing to dismiss is not a quit"
+        );
+
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_some());
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Inspector),
+            "opening one is an explicit action, so it is usable without a second step"
+        );
+
+        workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Transcript),
+            "closing returns the keyboard to the conversation, not to the top of the ring"
+        );
+    }
+
+    /// A pin is what puts two different agents on the screen at once.
+    #[test]
+    fn a_pinned_inspector_keeps_its_agent_while_the_conversation_moves_on() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        // Look at agent B and peek it.
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
+
+        // Stepping out of it is what gives the arrows back: while the inspector holds focus it
+        // holds the cursor, and an arrow under a cursor is not a list movement (INV-2). This is
+        // the return the collapsed composer row advertises.
+        workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Up, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent A"),
+            "an unpinned peek follows the user rather than ending when they look away"
+        );
+
+        // Pin it, then move on: the inspector keeps B while the conversation shows A.
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        workspace.handle(&press(KeyCode::Up, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"),
+            "a pinned inspector keeps the agent the user pinned"
+        );
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Transcript).contains("Agent A"),
+            "while the conversation underneath is the one they went back to"
+        );
+    }
+
+    /// COM-1, D-018, D-022 and D-027: two inputs exist, one cursor does, and neither costs the
+    /// conversation its rows.
+    ///
+    /// This is the first time "exactly one cursor" is a claim that could fail. Until now there was
+    /// one text input in the workspace, so the invariant held by construction; now the inspector
+    /// carries the inspected agent's steer input and focus is the only thing deciding which of the
+    /// two has the caret.
+    ///
+    /// Every event is followed by a frame, the way the loop runs them. Focus cycles against the
+    /// tree the last frame drew (FR-3), so batching two focus changes without a frame between
+    /// would be asking the ring about a surface that had not been registered yet.
+    #[test]
+    fn the_inspector_takes_the_cursor_and_the_composer_keeps_one_row() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        /// One event and the frame that follows it, the way the loop runs them.
+        fn step(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>, event: &Event) {
+            workspace.handle(event);
+            let _ = workspace
+                .draw(terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+        }
+        let tab = press(KeyCode::Tab, KeyModifiers::NONE);
+
+        // Walk to the composer and leave a draft there.
+        for _ in 0..3 {
+            step(&mut workspace, &mut terminal, &tab);
+        }
+        for character in "to the primary".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        let expanded = bounds(&workspace, SurfaceId::Composer).height;
+        assert!(expanded > 1, "an uncollapsed composer is a bordered region");
+
+        // Step off it before opening anything: under a cursor `Enter` submits, and opening an
+        // inspector is not something typing can do by accident (INV-2). Then peek a *different*
+        // agent — a draft is keyed by who it addresses, so an inspector pointed at the primary
+        // agent would correctly be showing the very same draft as the composer.
+        step(&mut workspace, &mut terminal, &tab);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Composer).height,
+            1,
+            "one row of jump, not three (D-027)"
+        );
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("to return"),
+            "the collapsed row still says where typing would go and how to get back"
+        );
+        let caret = cursor(&terminal).unwrap_or_else(|| panic!("a focused input owns the cursor"));
+        assert!(
+            bounds(&workspace, SurfaceId::Inspector).contains(caret),
+            "the caret is at {caret:?}, and it belongs to the input that has focus"
+        );
+        let focused_conversation = bounds(&workspace, SurfaceId::Transcript).height;
+
+        // Step out of the inspector: its input stops existing, and so does the caret (D-018).
+        step(&mut workspace, &mut terminal, &tab);
+        assert_eq!(cursor(&terminal), None);
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Composer).height,
+            expanded,
+            "and the primary composer comes back to full size"
+        );
+        assert!(
+            focused_conversation >= bounds(&workspace, SurfaceId::Transcript).height,
+            "the steer input costs the conversation nothing: its rows come out of the inspector's \
+             own budget (D-022), and the collapsing composer gives two more back"
+        );
+
+        // Back in, and type: the primary draft is untouched, because a draft belongs to the
+        // conversation it addresses rather than to whichever input has focus.
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::BackTab, KeyModifiers::SHIFT),
+        );
+        for character in "hold on".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(workspace.state.composer().draft(), "to the primary");
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("hold on"));
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            cursor(&terminal),
+            None,
+            "the conversation is not a text input, so no caret is on screen"
+        );
+        assert_eq!(bounds(&workspace, SurfaceId::Composer).height, expanded);
+    }
+
+    /// D-028 and INV-4: the bottom edge follows the pointer, even out of the rectangle.
+    ///
+    /// Capture is the whole reason a drag is usable: the edge the user grabbed keeps moving after
+    /// the pointer has left the surface, which is where a resize gesture spends most of its time.
+    /// The clamp is the other half — a drag is a choice inside the ten-row guarantee, never a way
+    /// out of it (D-023).
+    #[test]
+    fn dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+
+        let shelf = bounds(&workspace, SurfaceId::Inspector);
+        let edge = shelf.bottom().saturating_sub(1);
+        let column = shelf.x.saturating_add(2);
+        workspace.handle(&mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            column,
+            edge,
+        ));
+
+        // Well past the bottom of the surface, which is where capture starts mattering.
+        workspace.handle(&mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            column,
+            edge.saturating_add(4),
+        ));
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Inspector).height,
+            shelf.height.saturating_add(4),
+            "the edge followed the pointer out of the rectangle"
+        );
+
+        // Off the bottom of the terminal entirely: it stops where the guarantee does.
+        workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), column, 200));
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Transcript).height,
+            10,
+            "the conversation keeps its ten rows however far the pointer goes"
+        );
+
+        let settled = bounds(&workspace, SurfaceId::Inspector).height;
+        workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), column, 200));
+        workspace.handle(&mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            column,
+            shelf.y.saturating_add(4),
+        ));
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Inspector).height,
+            settled,
+            "a drag after release has no capture and must move nothing (INV-5)"
+        );
+    }
+
+    /// Every mouse interaction has a keyboard equivalent, and both land in the same place.
+    #[test]
+    fn the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let rows = |workspace: &Workspace| bounds(workspace, SurfaceId::Inspector).height;
+
+        let opened = rows(&workspace);
+        workspace.handle(&grow);
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(rows(&workspace), opened.saturating_add(1));
+
+        workspace.handle(&shrink);
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(rows(&workspace), opened, "and back again");
+
+        // A held key at the boundary is idempotent, because each step is measured from the
+        // rectangle that was actually drawn rather than from an unclamped running total.
+        for _ in 0..40 {
+            workspace.handle(&grow);
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+        }
+        let pinned_at_the_guarantee = rows(&workspace);
+        assert_eq!(bounds(&workspace, SurfaceId::Transcript).height, 10);
+
+        workspace.handle(&shrink);
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            rows(&workspace),
+            pinned_at_the_guarantee.saturating_sub(1),
+            "the first press back off the boundary must move it, not undo forty of them"
+        );
     }
 
     /// COM-2 and INV-7 through the loop: `q` is a letter while the cursor is in the composer.
@@ -491,7 +803,13 @@ mod tests {
         assert_eq!(workspace.state.composer().draft(), "hi q");
 
         let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(outcome.submitted.as_deref(), Some("hi q"));
+        assert_eq!(
+            outcome
+                .submitted
+                .map(|submission| submission.text)
+                .as_deref(),
+            Some("hi q")
+        );
         assert_eq!(
             workspace.state.composer().draft(),
             "",
