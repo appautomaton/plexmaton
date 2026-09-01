@@ -467,7 +467,7 @@ One consequence was recorded rather than fixed: an unpinned inspector open on th
 visibly shows that conversation twice. Pinning is the documented way out (INS-1), and whether
 opening should pin by default is a question for real use.
 
-Tests: 147 at the close of step 8, 158 now. Four mutations were each caught by the intended tests.
+Tests: 147 at the close of step 8, 158 now. Eight mutations were each caught by the intended tests.
 All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
 ## Scope
