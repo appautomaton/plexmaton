@@ -5,6 +5,8 @@
 //! its own side of the boundary. A shared event type carrying one dialect's concerns leaves every
 //! other adapter fabricating fields it does not have.
 
+use std::fmt;
+
 use plexmaton_core::ToolCallId;
 
 use crate::tools::{ToolCall, ToolOutcome};
@@ -18,6 +20,88 @@ use crate::tools::{ToolCall, ToolOutcome};
 pub struct ModelRequest {
     /// The conversation so far, oldest first.
     pub items: Vec<RequestItem>,
+}
+
+/// Maximum opaque provider replay bytes retained for one item.
+pub const MAX_PROVIDER_REPLAY_BYTES: usize = 256 * 1024;
+
+/// Stable identity of the codec that can interpret an opaque replay item.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ProviderCodecId(String);
+
+impl ProviderCodecId {
+    /// Creates a non-empty codec identity.
+    pub fn new(value: impl Into<String>) -> Result<Self, ProviderReplayError> {
+        let value = value.into();
+        if value.trim().is_empty() {
+            return Err(ProviderReplayError::EmptyCodec);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the codec's stable external name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for ProviderCodecId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+/// Why an opaque replay item was refused before entering turn state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderReplayError {
+    /// A replay item without its codec cannot be interpreted later.
+    EmptyCodec,
+    /// The exact payload exceeded the hard retained-state bound.
+    PayloadTooLarge,
+}
+
+/// Exact provider data required to reconstruct a later request.
+///
+/// The loop retains and orders this value but never interprets `payload`. Only the named codec may
+/// decode it, which keeps encrypted reasoning out of semantic text while leaving replay state
+/// inspectable (LOOP-4, PRV-3).
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProviderReplay {
+    codec: ProviderCodecId,
+    payload: String,
+}
+
+impl fmt::Debug for ProviderReplay {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderReplay")
+            .field("codec", &self.codec)
+            .field("payload_bytes", &self.payload.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProviderReplay {
+    /// Builds one bounded opaque replay item.
+    pub fn new(codec: ProviderCodecId, payload: String) -> Result<Self, ProviderReplayError> {
+        if payload.len() > MAX_PROVIDER_REPLAY_BYTES {
+            return Err(ProviderReplayError::PayloadTooLarge);
+        }
+        Ok(Self { codec, payload })
+    }
+
+    /// Codec that owns the payload's wire meaning.
+    #[must_use]
+    pub const fn codec(&self) -> &ProviderCodecId {
+        &self.codec
+    }
+
+    /// Exact bounded payload. Presentation code must never render or log it.
+    #[must_use]
+    pub fn payload(&self) -> &str {
+        &self.payload
+    }
 }
 
 /// One entry of the conversation as the model is shown it.
@@ -38,6 +122,13 @@ pub enum RequestItem {
         /// The finished text of one assistant message.
         text: String,
     },
+    /// Plain reasoning content the provider explicitly returned.
+    Reasoning {
+        /// Exact bounded text, kept separate from the final answer.
+        text: String,
+    },
+    /// Opaque provider data, such as encrypted reasoning, required for exact stateless replay.
+    ProviderReplay(ProviderReplay),
     /// Something the model asked to have run.
     ToolCall(ToolCall),
     /// The answer to one such call. Every recorded call has exactly one of these after it.
@@ -54,6 +145,10 @@ pub enum RequestItem {
 pub enum ModelEvent {
     /// Text appended to the message being streamed.
     TextDelta(String),
+    /// Plain reasoning text appended separately from the final answer.
+    ReasoningDelta(String),
+    /// One complete opaque replay item. Incomplete encrypted material is never retained.
+    Replay(ProviderReplay),
     /// The model finished asking for one tool call.
     ///
     /// Arrives whole. Accumulating argument fragments across wire deltas and deciding when a call
@@ -131,7 +226,10 @@ impl ModelError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ModelError, StopReason};
+    use super::{
+        MAX_PROVIDER_REPLAY_BYTES, ModelError, ProviderCodecId, ProviderReplay,
+        ProviderReplayError, StopReason,
+    };
 
     /// `Unspecified` exists so that "the dialect did not say" is a value rather than a guess.
     ///
@@ -150,5 +248,25 @@ mod tests {
 
         assert!(rate_limited.message().contains("30s"));
         assert!(!ModelError::ContextTooLong.message().is_empty());
+    }
+
+    /// PRV-3: opaque replay is all-or-nothing, because truncating ciphertext corrupts authority.
+    #[test]
+    fn provider_replay_is_named_and_bounded_before_turn_state_can_retain_it() {
+        assert_eq!(
+            ProviderCodecId::new("  "),
+            Err(ProviderReplayError::EmptyCodec)
+        );
+        let codec = ProviderCodecId::new("openai_responses")
+            .unwrap_or_else(|error| panic!("fixture codec: {error:?}"));
+        let replay = ProviderReplay::new(codec.clone(), "ciphertext".to_owned())
+            .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+        let debug = format!("{replay:?}");
+        assert!(!debug.contains("ciphertext"));
+        assert!(debug.contains("payload_bytes"));
+        assert_eq!(
+            ProviderReplay::new(codec, "x".repeat(MAX_PROVIDER_REPLAY_BYTES + 1)),
+            Err(ProviderReplayError::PayloadTooLarge)
+        );
     }
 }

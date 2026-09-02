@@ -94,6 +94,7 @@ pub(crate) fn transcript_item(
     let author = match item.role {
         TranscriptRole::User => "you",
         TranscriptRole::Assistant => "assistant",
+        TranscriptRole::Reasoning => "reasoning",
         TranscriptRole::System => "system",
     };
     // Selection replaces the body role rather than adding to it: what is selected has to be

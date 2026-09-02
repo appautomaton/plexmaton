@@ -19,12 +19,15 @@ mod turn;
 
 pub use admission::{
     AdmissionOutcome, AdmissionRefusal, AdmittedCallError, AdmittedToolCall, ApprovalPolicy,
-    CapabilitySet, PolicyDecision, ToolDefinitionRevision,
+    CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
 };
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, Reaction, UndeliveredInput, UndeliveredReason,
     UnresolvedApprovalDecision,
 };
-pub use model::{ModelError, ModelEvent, ModelRequest, RequestItem, StopReason};
+pub use model::{
+    MAX_PROVIDER_REPLAY_BYTES, ModelError, ModelEvent, ModelRequest, ProviderCodecId,
+    ProviderReplay, ProviderReplayError, RequestItem, StopReason,
+};
 pub use tools::{PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome};
 pub use turn::{Agent, TurnBudget};

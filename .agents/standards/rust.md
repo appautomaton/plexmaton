@@ -78,10 +78,12 @@ adopted only after its changelog, features, and resolved graph are reviewed.
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Use the current modular generation; never downgrade it for an experiment. Prefer the umbrella crate — splitting into `ratatui-core`, `ratatui-widgets`, and `ratatui-crossterm` needs a measured compile-time or boundary benefit |
 | `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
+| `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
 | `tokio` | Async task and event runtime | Never `full`. Today `rt`, `macros`, `time`; `sync` and `signal` arrive with their first real owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
 | `serde` / `serde_json` | Deterministic scenario and snapshot data | `derive` enabled. This is not the durable-session schema |
+| `toml` | Typed user configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
 | `thiserror` | Library error types | No `anyhow::Error` in core contracts |
 | `anyhow` | Composition-root errors | Binary boundary only |
 | `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |

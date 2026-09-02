@@ -65,13 +65,19 @@ only plexmaton-agent "plexmaton-core"
 
 # The shared vocabulary answers to both sides, so it may not carry either side's machinery.
 forbid plexmaton-core "either side's machinery" \
-    'tokio|reqwest|hyper|crossterm|ratatui|plexmaton-agent|plexmaton-sim|plexmaton-tui'
+    'tokio|reqwest|hyper|crossterm|ratatui|plexmaton-agent|plexmaton-provider|plexmaton-runtime|plexmaton-sim|plexmaton-tui'
 
 # The projection consumes events and emits intents. It calls no producer, and the phase's exit
 # gate says so; this is where that sentence is enforced rather than asserted.
 forbid plexmaton-tui "a producer, a runtime, or a network client" \
-    'tokio|reqwest|hyper|plexmaton-agent|plexmaton-sim'
+    'tokio|reqwest|hyper|plexmaton-agent|plexmaton-provider|plexmaton-runtime|plexmaton-sim'
 only plexmaton-tui "plexmaton-core"
+
+# Wire codecs parse and encode. The live runtime owns HTTP, TLS, cancellation and task lifecycle;
+# putting a client here would turn an adapter into an unobservable second runtime.
+forbid plexmaton-provider "an HTTP client, runtime, or terminal" \
+    'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui'
+only plexmaton-provider "plexmaton-agent plexmaton-core"
 
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'

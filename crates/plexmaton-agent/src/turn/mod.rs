@@ -273,6 +273,17 @@ impl Agent {
                     step.append(&mut self.record, reaction, delta);
                 }
             }
+            ModelEvent::ReasoningDelta(delta) if delta.is_empty() => {}
+            ModelEvent::ReasoningDelta(delta) => {
+                if let Turn::Streaming { step, .. } = &mut self.turn {
+                    step.append_reasoning(&mut self.record, reaction, delta);
+                }
+            }
+            ModelEvent::Replay(replay) => {
+                if let Turn::Streaming { step, .. } = &mut self.turn {
+                    step.retain_replay(replay);
+                }
+            }
             ModelEvent::Called(call) => {
                 if let Turn::Streaming { step, .. } = &mut self.turn {
                     step.collect(call);
@@ -329,7 +340,9 @@ mod tests {
 
     use super::{Agent, Effect, Input, Reaction, TurnBudget};
     use crate::interface::UndeliveredReason;
-    use crate::model::{ModelError, ModelEvent, RequestItem, StopReason};
+    use crate::model::{
+        ModelError, ModelEvent, ProviderCodecId, ProviderReplay, RequestItem, StopReason,
+    };
     use crate::tools::{ToolCall, ToolCancellationReason, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
@@ -954,6 +967,59 @@ mod tests {
             agent.handle(Input::Interrupted),
             Reaction::default(),
             "and interrupting an idle agent is not an event"
+        );
+    }
+
+    /// PRV-3: plaintext reasoning is projected as its own semantic item, while opaque replay is
+    /// retained only in the authoritative request record. Both survive an abnormal step boundary.
+    #[test]
+    fn reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation() {
+        let mut agent = agent();
+        submit(&mut agent, "hello");
+        let reasoning = agent.handle(Input::Streamed(ModelEvent::ReasoningDelta(
+            "bounded thought".to_owned(),
+        )));
+        let replay = ProviderReplay::new(
+            ProviderCodecId::new("openai_responses")
+                .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
+            r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#.to_owned(),
+        )
+        .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+        let replay_reaction = agent.handle(Input::Streamed(ModelEvent::Replay(replay.clone())));
+        delta(&mut agent, "partial answer");
+
+        let interrupted = agent.handle(Input::Interrupted);
+
+        assert!(events(&reasoning).iter().any(|event| matches!(
+            event,
+            SessionEvent::TranscriptItemStarted {
+                role: TranscriptRole::Reasoning,
+                ..
+            }
+        )));
+        assert_eq!(
+            replay_reaction,
+            Reaction::default(),
+            "opaque replay is record state, never a transcript or notice"
+        );
+        assert_eq!(
+            &agent.record()[1..],
+            [
+                RequestItem::Reasoning {
+                    text: "bounded thought".to_owned(),
+                },
+                RequestItem::ProviderReplay(replay),
+                RequestItem::Assistant {
+                    text: "partial answer".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(
+            events(&interrupted)
+                .iter()
+                .filter(|event| matches!(event, SessionEvent::TranscriptItemFinalized { .. }))
+                .count(),
+            2
         );
     }
 

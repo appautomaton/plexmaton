@@ -135,6 +135,8 @@ pub enum TranscriptRole {
     User,
     /// Authored by the agent that owns this transcript.
     Assistant,
+    /// Provider-returned reasoning kept distinct from the final answer.
+    Reasoning,
     /// Runtime-authored notice that belongs in the transcript rather than in the notice log.
     System,
 }

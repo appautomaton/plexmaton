@@ -1,0 +1,13 @@
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Need "},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"README."},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_read_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":"}}]},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"README.md\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+: fixture eof

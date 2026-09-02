@@ -7,32 +7,92 @@
 use plexmaton_core::{SessionEvent, TranscriptItemId, TranscriptRole};
 
 use crate::interface::Reaction;
-use crate::model::RequestItem;
+use crate::model::{ProviderReplay, RequestItem};
 use crate::record::Record;
 use crate::tools::ToolCall;
 
 /// What one step has assembled so far.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Step {
-    /// The transcript item, once a delta has opened it.
-    item: Option<TranscriptItemId>,
-    /// Revisions issued for that item so far.
-    revision: u64,
-    /// Text assembled from the deltas, which is what the record keeps.
-    text: String,
+    answer: StreamedText,
+    reasoning: StreamedText,
+    replay: Vec<ProviderReplay>,
     /// Calls this step has asked for, held until it ends so they dispatch as one batch.
     calls: Vec<ToolCall>,
     /// Which step of the turn this is, counting from one.
     index: u16,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StreamedText {
+    role: TranscriptRole,
+    item: Option<TranscriptItemId>,
+    revision: u64,
+    text: String,
+}
+
+impl StreamedText {
+    const fn new(role: TranscriptRole) -> Self {
+        Self {
+            role,
+            item: None,
+            revision: 0,
+            text: String::new(),
+        }
+    }
+
+    fn append(&mut self, record: &mut Record, reaction: &mut Reaction, delta: String) {
+        let item_id = match &self.item {
+            Some(open) => open.clone(),
+            None => {
+                let opened = record.next_item_id();
+                self.item = Some(opened.clone());
+                record.emit(
+                    reaction,
+                    SessionEvent::TranscriptItemStarted {
+                        agent_id: record.agent_id().clone(),
+                        item_id: opened.clone(),
+                        role: self.role,
+                    },
+                );
+                opened
+            }
+        };
+        self.text.push_str(&delta);
+        self.revision = self.revision.saturating_add(1);
+        record.emit(
+            reaction,
+            SessionEvent::TranscriptDelta {
+                agent_id: record.agent_id().clone(),
+                item_id,
+                item_revision: self.revision,
+                text: delta,
+            },
+        );
+    }
+
+    fn close(self, record: &mut Record, reaction: &mut Reaction) -> Option<String> {
+        if let Some(item_id) = self.item {
+            record.emit(
+                reaction,
+                SessionEvent::TranscriptItemFinalized {
+                    agent_id: record.agent_id().clone(),
+                    item_id,
+                    item_revision: self.revision.saturating_add(1),
+                },
+            );
+        }
+        (!self.text.is_empty()).then_some(self.text)
+    }
+}
+
 impl Step {
     /// Opens the `index`th step of a turn.
     pub(crate) fn new(index: u16) -> Self {
         Self {
-            item: None,
-            revision: 0,
-            text: String::new(),
+            answer: StreamedText::new(TranscriptRole::Assistant),
+            reasoning: StreamedText::new(TranscriptRole::Reasoning),
+            replay: Vec::new(),
             calls: Vec::new(),
             index,
         }
@@ -49,32 +109,22 @@ impl Step {
     /// counts every delta, so a projection can detect a lost or repeated one without comparing
     /// text.
     pub(crate) fn append(&mut self, record: &mut Record, reaction: &mut Reaction, delta: String) {
-        let item_id = match &self.item {
-            Some(open) => open.clone(),
-            None => {
-                let opened = record.next_item_id();
-                self.item = Some(opened.clone());
-                let started = SessionEvent::TranscriptItemStarted {
-                    agent_id: record.agent_id().clone(),
-                    item_id: opened.clone(),
-                    role: TranscriptRole::Assistant,
-                };
-                record.emit(reaction, started);
-                opened
-            }
-        };
-        self.text.push_str(&delta);
-        self.revision = self.revision.saturating_add(1);
-        let item_revision = self.revision;
-        record.emit(
-            reaction,
-            SessionEvent::TranscriptDelta {
-                agent_id: record.agent_id().clone(),
-                item_id,
-                item_revision,
-                text: delta,
-            },
-        );
+        self.answer.append(record, reaction, delta);
+    }
+
+    /// Appends provider-returned plaintext reasoning to its own transcript item (PRV-3).
+    pub(crate) fn append_reasoning(
+        &mut self,
+        record: &mut Record,
+        reaction: &mut Reaction,
+        delta: String,
+    ) {
+        self.reasoning.append(record, reaction, delta);
+    }
+
+    /// Retains one already-bounded opaque item for exact provider replay (PRV-3).
+    pub(crate) fn retain_replay(&mut self, replay: ProviderReplay) {
+        self.replay.push(replay);
     }
 
     /// Holds a call until the step ends, because a step's calls dispatch as one batch.
@@ -84,22 +134,18 @@ impl Step {
 
     /// Ends the step: finalizes the message, records what it said, hands back what it asked for.
     ///
-    /// A step that produced no text finalizes nothing and records nothing. An empty assistant
-    /// message is a blank row on screen and an empty turn in the next request, which is worse than
-    /// the absence it would be recording.
+    /// Reasoning and replay are recorded even when the assistant answer is empty. Only an empty
+    /// assistant item is omitted: it would paint a blank row and add an empty message to the next
+    /// request without preserving any model output.
     pub(crate) fn close(self, record: &mut Record, reaction: &mut Reaction) -> Vec<ToolCall> {
-        if let Some(item_id) = self.item {
-            record.emit(
-                reaction,
-                SessionEvent::TranscriptItemFinalized {
-                    agent_id: record.agent_id().clone(),
-                    item_id,
-                    item_revision: self.revision.saturating_add(1),
-                },
-            );
+        if let Some(text) = self.reasoning.close(record, reaction) {
+            record.push(RequestItem::Reasoning { text });
         }
-        if !self.text.is_empty() {
-            record.push(RequestItem::Assistant { text: self.text });
+        for replay in self.replay {
+            record.push(RequestItem::ProviderReplay(replay));
+        }
+        if let Some(text) = self.answer.close(record, reaction) {
+            record.push(RequestItem::Assistant { text });
         }
         self.calls
     }

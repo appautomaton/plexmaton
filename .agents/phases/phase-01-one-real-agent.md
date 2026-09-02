@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 done; stage 2 slices 1–4 done 2026-09-02; slice 5 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
+| Status | Active; stage 1 done; stage 2 slices 1–5 done 2026-09-02; slice 6 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |

@@ -31,7 +31,7 @@ table in `AGENTS.md` allows.
 | Phase | Purpose | Status |
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
-| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | [Active](./phases/phase-01-one-real-agent.md) |
+| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Active; stage 2 slices 1–5 landed 2026-09-02 |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Not opened; expected to split when it is |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Not opened |
@@ -50,6 +50,10 @@ Product invariants no phase may trade away, and no other document owns:
   projections over it.
 - Mathematical content has one semantic source and one typeset layout. Raw LaTeX is never the
   routine presentation, on any terminal; the invariants are the math track's.
+- Project repositories never need or implicitly load a `.plexmaton/` directory. `.agents/` is the
+  project-owned instruction and skill corpus; `~/.plexmaton/` is user-owned configuration and
+  runtime state. Claude Code is the compatibility north star for external project/skill formats,
+  consumed through explicit adapters without inheriting its internal ownership or implicit trust.
 
 ## Research
 
@@ -58,7 +62,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | Track | Purpose | Status |
 | --- | --- | --- |
 | [Math rendering](./research/math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
-| [Native tool surface](./research/native-tool-surface.md) | Select the file-mutation codec over one trusted filesystem core | Comparison complete; provider-specific trial pending |
+| [Native tool surface](./research/native-tool-surface.md) | Select the file-mutation codec over one trusted filesystem core | Comparison complete; model trial is slice 8 |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:

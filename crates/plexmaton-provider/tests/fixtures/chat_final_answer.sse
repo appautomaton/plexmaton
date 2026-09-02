@@ -1,0 +1,11 @@
+data: {"id":"chat_fixture_answer","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"The file names the project. "},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_answer","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Plex"},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_answer","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"maton."},"finish_reason":null}]}
+
+data: {"id":"chat_fixture_answer","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+: fixture eof

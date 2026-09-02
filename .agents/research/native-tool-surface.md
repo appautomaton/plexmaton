@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Comparison complete; edit-codec trial waits on the Phase 01 provider choice |
+| Status | Comparison complete; local OpenAI-compatible provider and `gpt-5.6-luna` selected, model trial is slice 8 |
 | Unlocks | The dedicated file-mutation scope and model-facing codec for Phase 01 stage 2 tools |
 | Corpus | Local Grok Build, Codex, DeepSeek Harness, Kimi, Pi and Hermes; official Claude, Gemini, OpenAI, Aider, Cline and Hashline contracts |
 

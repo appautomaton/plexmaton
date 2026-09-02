@@ -3,6 +3,7 @@ members = [
     "crates/plexmaton-agent",
     "crates/plexmaton-cli",
     "crates/plexmaton-core",
+    "crates/plexmaton-provider",
     "crates/plexmaton-sim",
     "crates/plexmaton-tui",
 ]
@@ -18,6 +19,7 @@ anyhow = "1.0.104"
 # `osc52` is the clipboard path, and the only one that survives SSH and tmux. It arrives with the
 # adapter that uses it (`plexmaton-cli::clipboard`), never in advance.
 crossterm = { version = "0.29.0", features = ["event-stream", "osc52"] }
+eventsource-stream2 = { version = "0.4.0", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
 # Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which these properties
 # do not need, and they pull `rusty-fork` and `tempfile` into a workspace that has neither.
@@ -30,6 +32,7 @@ ratatui = { version = "0.30.2", default-features = false, features = ["crossterm
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"
+toml = { version = "1.1.5", default-features = false, features = ["parse", "serde", "std"] }
 tokio = { version = "1.53.1", features = ["macros", "rt", "time"] }
 tokio-util = { version = "0.7.19", features = ["rt"] }
 tracing = "0.1.44"

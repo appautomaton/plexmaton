@@ -190,7 +190,7 @@ fn route_approval(approval: ApprovalSubmission) -> AddressedInput {
 ///
 /// The adapter deliberately matches every user-facing [`Input`] variant. The simulator has no turn
 /// machine, so it renders steering as user-authored text and reports an interrupt as unsupported;
-/// slice 7 replaces only this adapter, not the mapping above.
+/// slice 6 replaces only this adapter, not the mapping above.
 fn dispatch(
     runtime: &mut ScriptedRuntime,
     workspace: &mut Workspace,
