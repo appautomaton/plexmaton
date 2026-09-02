@@ -132,10 +132,7 @@ first use is a stale answer wearing a precise number.
 
 | Crate | Role |
 | --- | --- |
-| `insta` | Ratatui buffer and serialized-state snapshots |
-| `pretty_assertions` | Readable state and interaction diffs; never snapshot its human-oriented output |
 | `proptest` | Invariants stated over generated inputs. Entered with selection, not clipping: what earned it is that copying must return the same characters at every width and scroll position, which is a claim over a space rather than over cases anyone would enumerate |
-| `criterion` | Repeatable layout and interaction workloads, where wall-time measurement is appropriate |
 
 Use Ratatui's `TestBackend` before adding a virtual-terminal dependency. Add pseudo-terminal or
 virtual-terminal emulation only when a test needs escape-sequence behavior the cell buffer cannot

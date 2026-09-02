@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(
             submission.to.as_str(),
             "agent-a",
-            "the composer is bound to the primary agent and says so (D-017)"
+            "the composer is bound to the primary agent and says so (COM-4)"
         );
 
         let roles: Vec<_> = workspace

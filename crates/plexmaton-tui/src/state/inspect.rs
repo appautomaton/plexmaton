@@ -29,7 +29,7 @@ impl ViewState {
     /// The inspector's steer input and who it addresses, if it has one on screen right now.
     ///
     /// `None` in three cases that mean the same thing to everyone downstream: nothing is open,
-    /// something else holds focus (INS-5, D-018), or the rectangle the user dragged to is too short
+    /// something else holds focus (INS-5), or the rectangle the user dragged to is too short
     /// to hold a conversation and an input at once (INS-7). The renderer draws from this, the caret
     /// follows it, and [`Self::text_target`] refuses without it, so a draft can never be typed into
     /// somewhere the user cannot see.
@@ -85,7 +85,7 @@ impl ViewState {
             return;
         }
         let changed = match intent {
-            // Entering focuses it, so its input is usable without a second step (D-026). The
+            // Entering focuses it, so its input is usable without a second step (INS-4). The
             // surface is already registered, but a preference is what focus keeps across frames.
             InspectorIntent::Open => self.focus.prefer(SurfaceId::Inspector),
             InspectorIntent::ToggleMaximize => {

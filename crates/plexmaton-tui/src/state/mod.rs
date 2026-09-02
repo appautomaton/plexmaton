@@ -78,7 +78,7 @@ pub struct ViewState {
 ///
 /// The target travels with the text rather than being guessed by whoever receives it. With two
 /// inputs on screen, a submission that did not name its target would be a mode error waiting to
-/// happen — which is the failure D-017 exists to prevent.
+/// happen — which is the failure COM-4 exists to prevent.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Submission {
     /// Agent whose session receives the message.
@@ -117,7 +117,7 @@ impl ViewState {
         self.agents.primary()
     }
 
-    /// Returns the primary agent's draft, which is what the composer shows (D-017).
+    /// Returns the primary agent's draft, which is what the composer shows (COM-4).
     #[must_use]
     pub fn composer(&self) -> &Composer {
         self.draft_for(self.agents.primary().map(|agent| &agent.id))
@@ -151,7 +151,7 @@ impl ViewState {
         }
     }
 
-    /// Whether the primary composer is collapsed to its single row (D-027).
+    /// Whether the primary composer is collapsed to its single row (INS-5).
     ///
     /// Read from the stored preference rather than from resolved focus, because laying out the
     /// workspace is what needs the answer and there is no tree yet when it asks.
@@ -162,7 +162,7 @@ impl ViewState {
     pub fn composer_rows(&self, width: u16) -> u16 {
         if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {
             // One row, not none. A composer that vanishes costs the affordance and jumps the tail
-            // of the transcript by three rows; one row of jump is what D-027 accepts.
+            // of the transcript by three rows; one row of jump is what INS-5 accepts.
             1
         } else {
             self.composer().requested_rows(inner_width(width))
@@ -327,7 +327,8 @@ impl ViewState {
     /// Scrolls one surface's viewport by a wheel notch.
     ///
     /// The event is consumed here whether or not anything moved. An exhausted viewport stops the
-    /// wheel rather than passing it to what is beneath (D-006); only a viewport that cannot move at
+    /// wheel rather than passing it to what is beneath (ui-ux §nested scrolling); only a viewport
+    /// that cannot move at
     /// all is skipped, and that decision was already made when the target was resolved.
     ///
     /// A conversation takes a different path from every other surface because it is the one made

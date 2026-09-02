@@ -35,7 +35,8 @@ pub(super) struct Panel {
 
 /// Which sides of a region carry a frame.
 ///
-/// Two surfaces stacked in one box (D-014) share one outline: the upper one has no bottom edge and
+/// Two surfaces stacked in one box (ui-ux §layout classes) share one outline: the upper one has no
+/// bottom edge and
 /// the lower one's top edge is drawn as a divider joined to the sides, so together they read as one
 /// box with two sections rather than as two boxes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,7 +50,7 @@ pub(super) enum Edges {
     /// A divider on top, then sides and bottom: the lower section of a shared box.
     Lower,
     /// Sides and bottom only: the last line of a shared box, with no divider above it. The
-    /// collapsed composer is this — one row reading where typing would go, not a box (D-027).
+    /// collapsed composer is this — one row reading where typing would go, not a box (INS-5).
     Closing,
 }
 
@@ -141,7 +142,7 @@ pub(super) fn draw_panel(
     parked: Option<ScrollPosition>,
 ) -> Viewport {
     // An unbordered region spends no rows on a frame, so none of the arithmetic below may take
-    // them off. A collapsed composer is the only one, and it is one row tall (D-027).
+    // them off. A collapsed composer is the only one, and it is one row tall (INS-5).
     let frame_rows = panel.edges.rows();
     let mut lines = panel.body.lines().to_vec();
     // A conversation shorter than its panel sits at the bottom, the way one that overflows does:

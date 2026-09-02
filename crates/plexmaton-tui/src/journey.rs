@@ -260,7 +260,7 @@ mod tests {
         journey.press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         assert!(
             journey.bounds(SurfaceId::Inspector).height > shelf,
-            "the keyboard moves the edge the pointer would drag (D-028)"
+            "the keyboard moves the edge the pointer would drag (ui-ux §drag scope)"
         );
 
         journey.press(KeyCode::Char('f'), KeyModifiers::CONTROL);

@@ -34,8 +34,8 @@ Use these terms consistently in product copy, architecture, and tests:
 | Artifact | Durable work product or evidence referenced by identity/path rather than copied into mail |
 | Surface | A rendered interactive region participating in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
-| Inspector | The second window: one agent's conversation, shown above or beside the primary's while the user looks at that agent. Until Phase 03 it is the conversation alone, and tools, mail, artifacts and state are the activity column's (D-046). `Inspector` is the code's name; user-facing copy says which agent it is |
-| Peek | Looking at a sub-agent in the list, which is what opens the second window; `Escape` closes it (D-049). The primary is not in the list: its conversation is the screen |
+| Inspector | The second window: one agent's conversation, shown above or beside the primary's while the user looks at that agent. `Inspector` is the code's name; user-facing copy says which agent it is |
+| Peek | Looking at a sub-agent in the list, which is what opens the second window; `Escape` closes it. The primary is not in the list: its conversation is the screen |
 
 An alias such as `B` or `reviewer` is a routing/display label, not durable agent identity. A pane is a layout presentation, not a session.
 
@@ -78,7 +78,7 @@ other rule about input follows from this one.
 - **Entering a sub-agent's window focuses it; looking at one does not.** Selecting a sub-agent in
   the list opens its window and leaves the keyboard in the list, so the arrows keep moving through
   the list. `Enter`, or a click in the window, moves the keyboard into it, and its input appears
-  then and is usable without a further step (amended 2026-09-02, D-026). This does not conflict
+  then and is usable without a further step . This does not conflict
   with "background agents never steal focus": that rule constrains what agents do on their own, not
   what the user asks for. `Escape` closes the window and returns focus to the primary conversation.
 - **Every input lives inside the box of the conversation it addresses.** The primary composer is
@@ -161,8 +161,8 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Visual hierarchy comes from spacing, alignment, restrained color, and consistent component grammar before decorative borders.
 - Agent, mail, tool, reasoning, artifact, warning, and error content are visually distinguishable without relying on color alone.
 - Typeset math is the primary presentation; source is an interaction layer for inspect/copy and a clear failure representation.
-- Colour is twelve semantic tokens (D-013). Widgets name a role — body, muted, border, focus, heading, accent, key hint, and the four attention levels plus selection — never a terminal colour.
-- A palette is a complete assignment of those tokens. The three shipped palettes are presets; a new colourway is a new assignment, not a fourth constructor and not a widget edit (D-013). Default remains `ansi` so the user's terminal theme wins.
+- Colour is twelve semantic tokens. Widgets name a role — body, muted, border, focus, heading, accent, key hint, and the four attention levels plus selection — never a terminal colour.
+- A palette is a complete assignment of those tokens. The three shipped palettes are presets; a new colourway is a new assignment, not a fourth constructor and not a widget edit. Default remains `ansi` so the user's terminal theme wins.
 
 ### Selection and copy
 
@@ -173,7 +173,7 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Copying a rendered equation returns its exact source. Copying an artifact/path returns the stable underlying value rather than a visually truncated label.
 - Selection across virtualized content must either extend semantically beyond the current viewport or communicate a clear viewport boundary; it must not silently omit hidden text.
 
-**Resolved by the prototype (D-043).** A selection is a range over a surface's *entries* — messages
+**Resolved by the prototype.** A selection is a range over a surface's *entries* — messages
 in a conversation; tools, artifacts and mail in a detail panel — and never a rectangle of cells. It
 therefore extends past the viewport by construction rather than by a mechanism that has to remember
 to, and copying is unaffected by width, scroll position, and decoration. Copy is `Ctrl-Y`, because
@@ -196,10 +196,11 @@ The durable arrangement of these product areas, decided without assuming they ar
 - Command palette and help
 - Permission, approval, and confirmation surfaces
 
-The third row is decided: the inspector is the inspected agent's **conversation**, and its tool
-activity, mail, artifacts and metadata are the activity column's, for the selected agent.
-Composing them into one surface is Phase 03's, with the reasoning and the cost in D-046. The
-other rows are placed provisionally until the phase that builds them.
+The third row is decided: the inspector is the inspected agent's **conversation**. Tool activity,
+mail and artifacts are entries in the conversation of the agent that produced them (§progressive
+disclosure, §transcript grammar); until that grammar lands, the activity column is their interim
+home. A composed surface beside a conversation, with status and an artifact index, is Phase 03's.
+The other rows are placed provisionally until the phase that builds them.
 
 ## Surface model
 
@@ -251,7 +252,7 @@ user is reading now.
 
 Which agent is shown is the selection (INS-1); **shelf, column, or maximized** is geometry chosen
 by terminal width and the user's maximize. Changing presentation must never change a surface's
-identity, scroll position, or focus. There is no pin: the window stays until `Escape` (D-049).
+identity, scroll position, or focus. There is no pin: the window stays until `Escape`.
 
 ### Drag scope
 
@@ -405,7 +406,7 @@ spent is a frame the user waits for.
 **Read the observed column as an order of magnitude, not a baseline.** These are the quiet-machine
 figures. The same binary, on the same laptop hours earlier under compile load, measured roughly
 double every one of them — and re-running the *previous commit* under that load reproduced the
-loaded numbers, so the spread is the machine and not the code. That is the evidence behind D-041: a
+loaded numbers, so the spread is the machine and not the code. That is why work is asserted and time only reported (FR-3): a
 wall-clock assertion here would be a flaky test, and the number worth keeping is the shape.
 
 Three rows are one row three times. Measuring a conversation's height means wrapping every item
@@ -439,15 +440,3 @@ Two findings the numbers carry and a target alone would not:
 - Whether ten rows is the right primary-conversation guarantee under real transcripts
 
 Each is resolved by the prototype and recorded in the section that owns it.
-
-Earlier questions answered and moved out of this list: the ultrawide threshold and whether its
-second column is replaced on selection (D-024), the minimum supported terminal size,
-low-colour behaviour (D-013), whether the composer keeps `ratatui-textarea` (D-038 — it is
-first-party, because the crate consumes terminal events and only one component may), and the three
-selection and clipboard questions (D-043 — a selection over entries, keyboard-driven, delivered by
-OSC 52). Each is stated in the section that owns it.
-
-One question is answered here rather than in a section, because it turned out to have no section:
-**the maximize binding** is `Ctrl-F`, resolved before keyboard focus so it works while the second
-window's own input holds the cursor. There is no pin binding, because there is no pin (D-049). The
-full grammar is in [`specs/inspector.md`](../specs/inspector.md).

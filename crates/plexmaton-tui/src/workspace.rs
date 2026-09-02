@@ -86,7 +86,7 @@ impl Workspace {
     /// Builds a workspace that paints with `palette`.
     ///
     /// The default workspace uses [`Palette::ansi`]. A colourway is a palette, so swapping one is
-    /// construction, not a later rewrite of the widgets (D-013).
+    /// construction, not a later rewrite of the widgets (`theme`).
     #[must_use]
     pub fn with_palette(palette: Palette) -> Self {
         Self {
@@ -125,7 +125,8 @@ impl Workspace {
     /// Applies producer events to the projection.
     ///
     /// A producer contract violation is a visible, typed notice inside the projection rather than a
-    /// reason to tear down the user's terminal (D-003), so nothing is returned to check here.
+    /// reason to tear down the user's terminal (`state::notices`), so nothing is returned to check
+    /// here.
     pub fn emit(&mut self, events: Vec<PrototypeEventEnvelope>) {
         for envelope in events {
             let _outcome = self.state.apply(envelope);
@@ -640,7 +641,7 @@ mod tests {
             .unwrap_or_else(|| panic!("this frame was expected to paint"))
     }
 
-    /// D-026 and INV-6 through the executable: opening focuses, and `Escape` gives focus back.
+    /// INS-4 and INV-6 through the executable: opening focuses, and `Escape` gives focus back.
     ///
     /// The ladder has had no consumer since step 1, so this is the first time `Dismiss` resolves
     /// anything. `Escape` with nothing open must still not quit, which is the other half of INV-6
@@ -813,7 +814,7 @@ mod tests {
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
     }
 
-    /// COM-1, D-018, INS-5 and D-027: two inputs exist, one cursor does, and neither costs the
+    /// COM-1 and INS-5: two inputs exist, one cursor does, and neither costs the
     /// conversation its rows.
     ///
     /// This is the first time "exactly one cursor" is a claim that could fail. Until now there was
@@ -906,7 +907,7 @@ mod tests {
         assert_eq!(
             bounds(&workspace, SurfaceId::Composer).height,
             2,
-            "one row and the edge it closes the box with: one row of jump, not three (D-027)"
+            "one row and the edge it closes the box with: one row of jump, not three (INS-5)"
         );
         assert!(
             painted(&terminal, &workspace, SurfaceId::Composer).contains("to return"),
@@ -920,7 +921,7 @@ mod tests {
         let focused_conversation = bounds(&workspace, SurfaceId::Transcript).height;
 
         // Step out of the window: `Tab` lands on the primary composer, which is what the collapsed
-        // row promised, so the window's input stops existing (D-018) and the caret is now the
+        // row promised, so the window's input stops existing (INS-5) and the caret is now the
         // composer's.
         step(&mut workspace, &mut terminal, &tab);
         assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
@@ -1097,7 +1098,8 @@ mod tests {
 
         let (mut inspecting, mut inspecting_terminal, _events) =
             with_the_second_agent_beside_the_conversation();
-        // The second column comes out of the conversation's width (D-024), so the conversation is
+        // The second column comes out of the conversation's width (ui-ux §layout classes), so
+        // the conversation is
         // narrower with it open; a notch must still move the reader the same number of rows.
         assert!(
             measured(&inspecting, SurfaceId::Transcript).content_width
@@ -1267,7 +1269,8 @@ mod tests {
         );
 
         // Scroll the inspector only. Hover routing puts the wheel where the pointer is, without
-        // touching focus, so this is one reader moving and the other staying put (D-006).
+        // touching focus, so this is one reader moving and the other staying put (ui-ux §nested
+        // scrolling).
         let over_inspector = bounds(&workspace, SurfaceId::Inspector);
         for _ in 0..3 {
             step(
@@ -1657,7 +1660,7 @@ mod tests {
         assert_eq!(workspace.router.capture(), None, "and the gesture ended");
     }
 
-    /// D-028 and INV-4: the bottom edge follows the pointer, even out of the rectangle.
+    /// INV-4: the bottom edge follows the pointer, even out of the rectangle.
     ///
     /// Capture is the whole reason a drag is usable: the edge the user grabbed keeps moving after
     /// the pointer has left the surface, which is where a resize gesture spends most of its time.

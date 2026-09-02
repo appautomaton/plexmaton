@@ -27,7 +27,7 @@ const TRANSCRIPT_COMFORT: u16 = 8;
 
 /// Preferred heights of the regions that yield on a short terminal.
 const RAIL_HEIGHT: u16 = 5;
-/// One row of text and the bottom edge of the box it closes (D-027).
+/// One row of text and the bottom edge of the box it closes (INS-5).
 const COLLAPSED_COMPOSER_HEIGHT: u16 = 2;
 const NOTICE_HEIGHT: u16 = 4;
 
@@ -132,7 +132,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     // before the notice strip and before the body, and only clamped to keep the conversation. It
     // lives inside the conversation's box (`ui-ux.md` §input), so its rows come out of that
     // column rather than off the bottom of the terminal; collapsed, it is still one framed line
-    // (D-027).
+    // (INS-5).
     // Collapsed is one row plus the box's bottom edge; anything else is lines plus a divider and
     // that edge.
     let wanted = if input.composer_rows <= 1 {
@@ -233,7 +233,8 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
 ///
 /// It outranks the agent rail and loses to the conversation. A projection that is silently wrong
-/// is the failure D-003 exists to prevent and the user has no other way to detect it, whereas a
+/// is the failure the notice log exists to prevent and the user has no other way to detect it,
+/// whereas a
 /// missing rail is visible in itself and recovered by resizing.
 fn notice_rows(available: u16) -> u16 {
     NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
@@ -659,7 +660,8 @@ mod tests {
     ///
     /// Twelve rows cannot hold a hint strip, a composer, a conversation, a notice strip and an
     /// agent rail at once, so this pins which of them goes. Typing and the conversation are the
-    /// workspace. A producer defect the user cannot see is the failure D-003 exists to prevent, and
+    /// workspace. A producer defect the user cannot see is the failure the notice log exists to
+    /// prevent, and
     /// nothing else signals it. A missing agent rail is visible in itself and returns on resize, so
     /// the rail is what yields.
     ///

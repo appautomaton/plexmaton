@@ -79,7 +79,7 @@ impl SurfaceKind {
         match self {
             Self::Panel | Self::Chrome => KeyboardFocus::Navigation,
             // The inspector carries the inspected agent's steer input, which renders only while it
-            // holds focus (D-018). There is still exactly one cursor: focus decides which surface
+            // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
             Self::Composer | Self::Inspector => KeyboardFocus::TextInput,
         }
@@ -97,7 +97,7 @@ pub enum SurfaceId {
     /// The list of sub-agents, carrying the attention count.
     Agents,
     /// Tools, artifacts, and mail belonging to the agent being looked at, stacked under the list
-    /// in the same box (D-014).
+    /// in the same box (ui-ux §layout classes).
     Activity,
     /// The primary agent's conversation.
     Transcript,
@@ -108,7 +108,7 @@ pub enum SurfaceId {
     /// column. No fixed position matches reading order at all three — a surface that moves cannot —
     /// and SURF-3 prefers a ring that never reorders over one that reads correctly at one size.
     Inspector,
-    /// The one text input, bound to the primary agent (D-017), inside its conversation's box.
+    /// The one text input, bound to the primary agent (COM-4), inside its conversation's box.
     ///
     /// Declared right after the second window so that `Tab` from the window's input lands here:
     /// the collapsed composer says `⇥ to return`, and the ring is what makes that true.
@@ -157,7 +157,7 @@ impl Viewport {
     /// A viewport that cannot is **not an eligible wheel target**, so the event reaches whatever is
     /// beneath it. "Cannot scroll" and "scrolled to the end" are deliberately different: the second
     /// consumes the event and stops, because a gesture whose target changes with scroll position is
-    /// the spatial-memory failure the UI/UX contract exists to prevent (D-006).
+    /// the spatial-memory failure the UI/UX contract exists to prevent (ui-ux §nested scrolling).
     #[must_use]
     pub const fn is_scrollable(self) -> bool {
         self.max_offset() > 0
@@ -216,7 +216,8 @@ impl SurfaceTree {
     ///
     /// Not `hit_test`: eligibility is whether a viewport can actually move, so the wheel falls
     /// through a surface with nothing to scroll and reaches the one beneath it. A surface that is
-    /// merely *at* its boundary is still eligible and still consumes the event (D-006).
+    /// merely *at* its boundary is still eligible and still consumes the event (ui-ux §nested
+    /// scrolling).
     #[must_use]
     pub fn wheel_target(&self, point: Point) -> Option<SurfaceId> {
         self.surfaces

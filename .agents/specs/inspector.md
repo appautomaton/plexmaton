@@ -27,7 +27,9 @@ list holds only the sub-agents. Selecting one — by arrow, by click in the list
 request — opens its conversation over or beside the primary's; `Escape` clears the selection and
 closes it. Nothing stores "which agent is open" separately from the selection, so the two cannot
 disagree and no conversation is ever on screen twice. There is no pin and no follow: the window
-stays while the user types to the primary, until they press `Escape` (D-049).
+stays while the user types to the primary, until they press `Escape`. Rejected: storing the open
+window beside the selection, with pin and follow to keep them aligned; the default path put one
+conversation on screen twice.
 
 **INS-2 — The conversation keeps ten readable rows beneath the window, or the window takes the
 region outright.** The rule is about what the window *covers*: on a terminal with fewer than ten
@@ -41,27 +43,26 @@ same surface at a different size.
 
 **INS-4 — Entering is explicit; closing gives focus back.** Looking at an agent does not move the
 keyboard: the arrows keep working in the list. `Enter` moves the keyboard into the window, so its
-input is usable without a second step (D-026). Closing returns focus to the conversation, but only
+input is usable without a second step. Rejected: focusing on look, which stops the arrows
+moving through the list. Closing returns focus to the conversation, but only
 when the window was holding it: closing an overlay elsewhere must not take the cursor out of the
 composer.
 
 **INS-5 — The window's input exists only while the window holds focus.** There is nothing to
-mistarget because there is nothing there (D-018). It takes a strip off the bottom of the window's
+mistarget because there is nothing there (ui-ux §input). It takes a strip off the bottom of the window's
 own rectangle, never off the conversation's guarantee, and while it is active the primary
-composer collapses to a single row that stays clickable and stays a focus stop (D-027). A rectangle
+composer collapses to a single row that stays clickable and stays a focus stop (ui-ux §input). A rectangle
 with no room for both keeps the conversation and shows no input, which is the same all-or-nothing
 rule the row budget uses.
 
-**INS-6 — What the window shows is a conversation, and until Phase 03 that is all it shows.** The
-looked-at agent's, virtualized through the same cache and the same reading position the main
-conversation uses (TR-1, TR-3, TR-5) — so the two scroll independently because their readers are
-keyed by agent, not because a second mechanism was added. It is not a second copy of the activity
-column: that column already shows the selected agent's tools, artifacts and mail.
-
-The composed surface `ui-ux.md` and `plexmaton.md` describe — conversation, tools, mail, artifacts
-and status in one place — is **deferred to Phase 03, not weakened** (D-046). The activity lives in
-the agent column, stacked under the list (D-014), so it stays on screen beside the second window at
-every width that has a column at all.
+**INS-6 — What the window shows is a conversation.** The looked-at agent's, virtualized through
+the same cache and the same reading position the main conversation uses (TR-1, TR-3, TR-5), so the
+two scroll independently because their readers are keyed by agent, not because a second mechanism
+was added. Tool activity, mail and artifacts are entries in that conversation once the transcript
+grammar lands (Phase 01); until then the activity column, stacked under the list in the agent
+column (ui-ux §layout classes), shows them for the selected agent beside the window. Rejected:
+composing status and an artifact index into the window now, which needs sub-region scroll
+ownership and an expand model the transcript lacks; that surface is Phase 03's.
 
 **INS-7 — A window with no room for its input is a navigation surface.** INS-5 says a rectangle
 that cannot hold both keeps the conversation and shows no input; this is the other half of that
@@ -85,7 +86,7 @@ state::inspector                         ├─ Column     the secondary column,
 | Fact | Owner | Why not elsewhere |
 | --- | --- | --- |
 | Which agent is in the window, and whether one is open | `state::roster::Roster::peeked`, derived from the selection | A stored copy is a second source of truth; the first implementation had one and showed a conversation twice |
-| Where the second column goes at ultrawide | `layout::inspector`, out of the conversation's width | The agent column is one box holding the list and the activity (D-014), and it is not what a second conversation takes rows or columns from |
+| Where the second column goes at ultrawide | `layout::inspector`, out of the conversation's width | The agent column is one box holding the list and the activity (ui-ux §layout classes), and it is not what a second conversation takes rows or columns from |
 | How the user asked for it to be shown | `state::inspector::Inspector` | Maximize and a dragged height belong to the window, not to the agent it happens to show |
 | Which presentation is used | `layout::inspector`, per frame | Derived from size; storing it would let a stored value disagree with the terminal |
 | Whether a press began a resize | `state::inspector::Inspector` | The router owns *that* a gesture is in progress (INV-4); what the gesture means is not its business |
@@ -149,12 +150,11 @@ what makes them reachable while the window's own input holds the cursor.
   ever needs to be raised past a sibling. The mechanism arrives with a second floating surface;
   until then `SurfaceTreeError::ZOrderExhausted` stays unreachable, the same way SURF-2's clipping
   and SURF-4's modality do.
-- **Free two-axis drag.** Cut by D-028 before this step: a shelf is docked, so only its height is a
+- **Free two-axis drag.** Cut by ui-ux §drag scope: a shelf is docked, so only its height is a
   user choice.
 - **Expand and collapse for tool activity.** A transcript-item behaviour, not a window one.
-- **Tools, mail, artifacts and status inside the window.** Phase 03's, with the reasoning in
-  D-046. The activity column owns them for the selected agent.
-- **A third live conversation at ultrawide.** The window becomes the secondary column, and D-024
+- **Status and an artifact index inside the window.** Phase 03's; INS-6 says why.
+- **A third live conversation at ultrawide.** The window becomes the secondary column, and ui-ux §layout classes
   allows exactly one; three live transcripts is the monitoring layout it already declined.
 
 ## Evidence

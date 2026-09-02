@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Every identifier the code cites must resolve to a document that outlives the code.
 #
-# "Cite, don't restate" makes a bare `SURF-3` or `D-017` in a comment or a test name carry real
+# "Cite, don't restate" makes a bare `SURF-3` or `INS-5` in a comment or a test name carry real
 # weight: it is a pointer, read far from the file that defines it. A pointer to nothing is worse
 # than the paraphrase it replaced, because it looks authoritative.
 #
@@ -27,14 +27,17 @@ for id in $cited_invariants; do
     fi
 done
 
-# Decisions are entries in DECISIONS.md, one per bold heading.
-cited_decisions=$(grep -rhoE '\bD-[0-9]{3}\b' --include='*.rs' crates/ 2>/dev/null | sort -u || true)
-for id in $cited_decisions; do
-    if ! grep -qE "^\*\*${id} " .agents/DECISIONS.md; then
-        printf 'citation: %s is cited in code but has no entry in DECISIONS.md\n' "$id" >&2
+# A contract section cited as `ui-ux §name` must be a heading in ui-ux.md.
+# Only a cite closed by punctuation is checked, so prose that runs on past the name is left alone.
+cited_sections=$(grep -rhoE 'ui-ux(\.md)?`? §[a-z][a-z -]*[a-z][).,;:]' --include='*.rs' --include='*.md' crates/ .agents/ AGENTS.md README.md 2>/dev/null |
+    sed -E 's/.*§//; s/[).,;:]$//' | sort -u || true)
+while IFS= read -r section; do
+    [[ -z "$section" ]] && continue
+    if ! grep -qiE "^#+ .*${section}" .agents/roadmap/ui-ux.md; then
+        printf 'citation: ui-ux §%s is cited but no such heading exists\n' "$section" >&2
         fail=1
     fi
-done
+done <<< "$cited_sections"
 
 # The other direction: an evidence table names the test that proves an invariant, and a renamed test
 # leaves the spec asserting something no longer checked. Only Evidence rows are scanned, because
@@ -58,6 +61,7 @@ HINT
     exit 1
 fi
 
-count=$(printf '%s\n%s\n' "$cited_invariants" "$cited_decisions" | grep -c . || true)
+count=$(printf '%s\n' "$cited_invariants" | grep -c . || true)
 evidence_count=$(printf '%s\n' "$evidence" | grep -c . || true)
-echo "citations: ${count} identifiers cited in code and ${evidence_count} named proofs all resolve"
+sections=$(printf '%s\n' "$cited_sections" | grep -c . || true)
+echo "citations: ${count} invariants and ${sections} contract sections cited, ${evidence_count} named proofs; all resolve"

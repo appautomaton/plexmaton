@@ -10,7 +10,6 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 
 | When you are about to… | Read |
 | --- | --- |
-| decide something that feels already settled | [`.agents/DECISIONS.md`](./.agents/DECISIONS.md) — what was chosen over what, and where the rule lives |
 | start or resume work on the active phase | [`roadmap/phase-01-one-real-agent.md`](./.agents/roadmap/phase-01-one-real-agent.md) — named here so the common path skips the roadmap |
 | ask what the product is, or plan beyond this phase | [`roadmap/plexmaton.md`](./.agents/roadmap/plexmaton.md) |
 | implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
@@ -22,7 +21,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | write or reorganize a document | [`.agents/README.md`](./.agents/README.md) |
 | compare against a third-party implementation | `.references/`, which is gitignored and absent in a fresh clone. Treat its absence as normal |
 
-**Cite, don't restate.** Reference `D-027`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
+**Cite, don't restate.** Reference `INS-5`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
 
 ## Explicit state and ownership
 
@@ -94,6 +93,6 @@ Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and 
 
 - **Rewrite in place.** When a fact changes, rewrite the sentence that stated it. Nothing is appended beside it: no correction note, no superseded marker, no compressed account of what the section used to say. Git holds the history.
 - **One name per thing.** The product vocabulary in `roadmap/ui-ux.md` is the code's vocabulary and the screen's. A rename lands in all three in one change.
-- **A decision is recorded once it has survived use**, not when it is proposed, and only when it was contested or is expensive to reverse. Everything else is a commit.
+- **A contested rule carries what it rejected.** Once the choice has survived use, a sentence beside the rule starts `Rejected:` and says what was turned down and why. An uncontested choice is a commit.
 - **An invariant with no test is marked unproven**, never left reading as fact.
 - **Link to one source of truth** instead of copying a rule into several files, and expand a document just in time rather than to look complete. A finding is promoted upward only when it changes a durable invariant or a system boundary.

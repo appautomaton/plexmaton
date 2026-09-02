@@ -25,7 +25,7 @@ any single edit:
 | `cargo machete` | Dependencies that are declared but unused |
 | `typos` | Prose and identifier spelling |
 | `./scripts/check-file-length.sh` | Module sprawl in `crates/**/*.rs` |
-| `./scripts/check-citations.sh` | An `INV-4` or `D-017` in code that resolves to nothing, and a spec naming a test that no longer exists |
+| `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-3) |

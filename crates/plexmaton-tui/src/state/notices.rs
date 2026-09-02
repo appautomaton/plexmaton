@@ -29,7 +29,7 @@ pub enum NoticeView {
 /// A bounded log that reports what it had to throw away.
 ///
 /// Dropping silently would turn a flood of producer defects into the appearance of a healthy
-/// workspace, which is the opposite of the visible degradation D-003 requires.
+/// workspace, which is the opposite of the visible degradation this log exists to give.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct NoticeLog {
     entries: VecDeque<NoticeView>,

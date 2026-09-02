@@ -3,6 +3,10 @@
 //! An intent says what the user asked for, never what should change. Keeping the two apart is what
 //! lets one router own terminal-event translation while the reducer stays testable without a
 //! terminal. The numbered invariants live in `.agents/specs/interaction-routing.md`.
+//!
+//! Rejected: putting this vocabulary in `plexmaton-core`. Scroll, focus and pointer capture are no
+//! runtime's business; a user action that must reach one becomes a core command at the
+//! composition boundary.
 
 use crate::surface::{Point, SurfaceId};
 

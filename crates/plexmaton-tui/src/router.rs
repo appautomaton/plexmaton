@@ -185,7 +185,7 @@ impl Router {
 /// Eligibility is whether a viewport can move, so the wheel falls through a surface with nothing to
 /// scroll and reaches the one beneath it. A viewport that is merely at its boundary is still
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
-/// the spatial-memory failure the contract exists to prevent (D-006).
+/// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
     if let Some(surface) = context.surfaces.wheel_target(at) {
         return Routed::Intent(TuiIntent::Scroll { surface, direction });
@@ -232,7 +232,8 @@ fn inspector_chord(key: KeyEvent) -> Option<TuiIntent> {
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     let intent = match key.code {
         KeyCode::Char('f') if control && !shift => InspectorIntent::ToggleMaximize,
-        // Locked in `ui-ux.md` as the keyboard equivalent of dragging the bottom edge (D-028).
+        // Locked in `ui-ux.md` as the keyboard equivalent of dragging the bottom edge (ui-ux §drag
+        // scope).
         KeyCode::Down if control && shift => InspectorIntent::Grow,
         KeyCode::Up if control && shift => InspectorIntent::Shrink,
         _ => return None,
@@ -273,7 +274,7 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
         KeyCode::Enter if context.focused == Some(SurfaceId::Attention) => {
             Routed::Intent(TuiIntent::Attention(AttentionIntent::GoTo))
         }
-        // Opening is explicit and never a side effect of moving around (D-026). It does not move
+        // Opening is explicit and never a side effect of moving around (INS-4). It does not move
         // the selection: inspection is its own axis, which is what puts two agents on screen.
         KeyCode::Enter => Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open)),
         KeyCode::Down | KeyCode::Char('j') => {
@@ -288,7 +289,7 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
 ///
 /// The rail is the only navigational surface made of choices, so it is the only one where an arrow
 /// moves a selection; everywhere else the content is longer than the region and an arrow is the
-/// keyboard equivalent of the wheel, which `ui-ux.md` §user control requires every gesture to have.
+/// keyboard equivalent of the wheel, which every gesture must have (`ui-ux.md` §user control).
 ///
 /// Before this, arrows moved the agent selection from any navigational surface. That was defensible
 /// with one list on screen and stops being so with two, and it left the wheel as the workspace's
@@ -546,7 +547,7 @@ mod tests {
         assert_eq!(router.capture(), None, "hover must not take capture");
     }
 
-    /// INV-3 and D-006: eligibility is whether a viewport can move, not what is on top.
+    /// INV-3: eligibility is whether a viewport can move, not what is on top.
     ///
     /// The two halves are deliberately different. A surface with nothing to scroll is transparent
     /// to the wheel, so the event reaches what is beneath it; a surface that is merely *at* its

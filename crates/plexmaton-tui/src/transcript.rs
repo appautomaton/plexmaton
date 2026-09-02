@@ -331,7 +331,7 @@ impl Window {
 ///
 /// No block is attached: `Paragraph::line_count` adds a block's border rows when one is set, and an
 /// item's height is the item alone. It is still the renderer's own wrapper, so measuring and
-/// painting stay one computation (D-039).
+/// painting stay one computation (surface-model §viewports).
 fn wrap_rows(item: &TranscriptItemView, palette: &Palette, width: u16) -> u16 {
     if width == 0 {
         return 0;

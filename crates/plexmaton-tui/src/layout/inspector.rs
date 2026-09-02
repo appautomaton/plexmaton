@@ -15,7 +15,7 @@ use super::{BodyRegions, LayoutClass, MIN_PANEL_HEIGHT, band};
 /// Rows of the primary conversation an open inspector must leave readable (INS-2).
 const CONVERSATION_GUARANTEE: u16 = 10;
 
-/// Share of the conversation region a shelf takes by default, in hundredths (D-016).
+/// Share of the conversation region a shelf takes by default, in hundredths (ui-ux §shelf).
 const SHELF_SHARE: u32 = 55;
 
 /// Conversation region below which the shelf presentation is abandoned for maximized.
@@ -65,11 +65,13 @@ pub(super) fn place_inspector(
         return base;
     };
     match presentation(class, request.maximized, conversation.height) {
-        // The secondary column, in place of activity rather than beside it: D-024 allows exactly
+        // The secondary column, in place of activity rather than beside it (ui-ux §layout classes):
+        // exactly
         // one. The inspector does not carry what that column was showing — it is a conversation
-        // (INS-6, D-046) — so the selected agent's tools, artifacts and mail are off screen until
+        // (INS-6) — so the selected agent's tools, artifacts and mail are off screen until
         // this closes. Recorded as a Phase 00 limitation rather than worked around here.
-        // The second conversation earns a column of its own beside the first (D-024), and the two
+        // The second conversation earns a column of its own beside the first (ui-ux §layout
+        // classes), and the two
         // are equals: ultrawide is sized for two conversations of the same width, and the agent
         // column and its activity are untouched.
         Presentation::Column => {
@@ -135,7 +137,7 @@ const fn presentation(class: LayoutClass, maximized: bool, region_rows: u16) -> 
     }
 }
 
-/// Rows a shelf takes, leaving the conversation its guarantee (D-016, INS-2).
+/// Rows a shelf takes, leaving the conversation its guarantee (INS-2).
 ///
 /// The default is a share of the region; a height the user dragged to replaces it. Both are clamped
 /// by the guarantee, so dragging is a choice within the contract rather than a way out of it.
@@ -350,8 +352,9 @@ mod tests {
         assert!(narrow.get(SurfaceId::Transcript).is_none());
         assert!(narrow.get(SurfaceId::Inspector).is_some());
 
-        // Ultrawide gives the second agent a column of its own beside the conversation (D-024);
-        // the agent column, list and activity stacked, is untouched (D-014).
+        // Ultrawide gives the second agent a column of its own beside the conversation (ui-ux
+        // §layout classes);
+        // the agent column, list and activity stacked, is untouched (ui-ux §layout classes).
         let ultrawide = open(140, 40, InspectorRequest::default());
         let conversation = ultrawide
             .get(SurfaceId::Transcript)

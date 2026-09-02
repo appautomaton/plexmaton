@@ -153,7 +153,7 @@ pub fn render(
                 edges: Edges::All,
             }),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
-            // would go and how to get back — not a box (D-027). The row closes the conversation's
+            // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
             SurfaceId::Composer if steer.is_some() => Some(Panel {
                 body: Body::Whole {
@@ -223,7 +223,8 @@ pub fn render(
 /// Which surfaces share one outline this frame.
 ///
 /// Two surfaces stacked in one column share a box instead of each drawing one: the list over the
-/// activity (D-014), and a conversation over the composer that addresses it (`ui-ux.md` §input —
+/// activity (ui-ux §layout classes), and a conversation over the composer that addresses it
+/// (`ui-ux.md` §input —
 /// the input lives inside the surface it addresses). Read from geometry rather than from layout
 /// class, so the painter and the layout cannot disagree about what is stacked.
 struct Stacking {
@@ -665,7 +666,7 @@ mod tests {
         );
     }
 
-    /// COM-4: the composer's target is on screen and does not follow the selection (D-017).
+    /// COM-4: the composer's target is on screen and does not follow the selection.
     #[test]
     fn the_composer_names_its_target_while_another_agent_is_selected() {
         let mut state = canonical_state();

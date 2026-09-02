@@ -1,11 +1,11 @@
 //! The agent column: the list of sub-agents over the activity of the agent being looked at, in
-//! one box on the left (D-014), with the conversation beside it.
+//! one box on the left (ui-ux §layout classes), with the conversation beside it.
 
 use ratatui::layout::{Constraint, Layout, Rect};
 
 use super::{BodyRegions, MIN_PANEL_HEIGHT};
 
-/// The agent column on the left and the conversation beside it (D-014).
+/// The agent column on the left and the conversation beside it (ui-ux §layout classes).
 ///
 /// The column is one box holding the list of sub-agents above the activity — tools, artifacts and
 /// mail — of the agent being looked at. The list takes the rows its agents need and the activity

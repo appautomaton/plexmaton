@@ -20,7 +20,7 @@ consumed, and the code cites these identifiers, so it was promoted rather than l
 
 **COM-1 — One cursor, derived.** A text cursor is on screen exactly when the focused surface's kind
 holds one. Nothing else may place one, so "how many cursors are there" is answered by the focus ring
-rather than by counting call sites (D-018).
+rather than by counting call sites (ui-ux §input).
 
 **COM-2 — Edits are graphemes.** Insert and delete operate on grapheme clusters. `Backspace` after
 an `e` and a combining acute removes both, and no operation can leave the draft split mid-cluster.
@@ -29,9 +29,11 @@ an `e` and a combining acute removes both, and no operation can leave the draft 
 draft. The message reaches the screen only as the events the runtime emits back. The projection
 never writes its own transcript, because a second writer is how a transcript and its runtime begin
 to disagree. A draft that is only whitespace submits nothing and is left alone.
+Rejected: `ratatui-textarea`, which consumes terminal events when only the router may (INV-1);
+and the projection appending its own transcript, which puts two writers on one numbered stream.
 
 **COM-4 — The target is on screen.** The composer's title names the agent it addresses, and that
-agent does not change when the selection does (D-017).
+agent does not change when the selection does (ui-ux §input).
 
 ## Model
 
@@ -69,7 +71,7 @@ into is not one of the supported shapes.
 
 While a sub-agent's input holds the cursor the composer is **one row** closing the box — `Message
 Agent A · ⇥ to return`, no divider, no title — so the conversation gains one row and nothing else
-moves (D-027). The row is still a focus stop and a pointer target, and `Tab` from the sub-agent's
+moves (ui-ux §input). The row is still a focus stop and a pointer target, and `Tab` from the sub-agent's
 input lands on it because the composer follows the second window in the focus ring.
 
 ## Failure modes
@@ -88,8 +90,8 @@ input lands on it because the composer follows the second window in the focus ri
   that need them; the key grammar in [`interaction-routing`](./interaction-routing.md) is the gate.
 - **Steering by explicit address** (`@agent-b …`). Locked in `ui-ux.md`; its consumer is the
   delegation record in Phase 03.
-- **What the runtime does with a message.** [`delegation-and-steering`](./delegation-and-steering.md)
-  owns that once a real runtime exists.
+- **What the runtime does with a message.** The runtime's; the composer hands over text and a
+  target.
 
 ## Evidence
 

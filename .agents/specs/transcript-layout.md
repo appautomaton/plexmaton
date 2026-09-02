@@ -20,7 +20,7 @@ next resize, because how many rows precede a message depends on how wide the pan
 ## Invariants
 
 **TR-1 — A height is measured once per item, revision, and width.** An item's height comes from the
-same wrapper that paints it (D-039), and is recomputed only when that item's revision or the panel's
+same wrapper that paints it (surface-model §viewports), and is recomputed only when that item's revision or the panel's
 width changes. A streaming delta re-measures one item; a resize re-measures each item once; an
 unchanged frame re-measures none.
 
@@ -37,6 +37,9 @@ nothing else.
 **TR-3 — A reading position is an item, not a row.** A parked conversation is anchored to a
 transcript item and a row inside it. The same text stays on screen across a resize, and content
 arriving elsewhere in the conversation does not move it.
+Rejected: a row offset, which survives a resize as a number while naming different text; a
+per-surface position, which loses A's place on returning from B (TR-5); and bounded overscan,
+which a synchronous renderer cannot use.
 
 Turning a row into an item and back is width-dependent, so both directions resolve at the width that
 produced the viewport being scrolled — carried out of the frame on the viewport itself, never read

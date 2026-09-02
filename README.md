@@ -25,7 +25,7 @@ cargo test --workspace
 ```
 
 Press `Ctrl-C` to leave the synthetic TUI from anywhere; it is the only quit. `Esc` backs out one
-layer at a time — a selection, then an open second window — and does not quit (D-031).
+layer at a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 

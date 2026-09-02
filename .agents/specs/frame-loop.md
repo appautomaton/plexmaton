@@ -32,7 +32,7 @@ Both are what every cheap frame afterwards is paying for.
 **FR-3 — An event resolves against the frame that was drawn.** Hit testing, wheel targeting, and
 scroll anchoring all read the registry and the item heights the last frame produced. Before the
 first frame nothing is registered, so a pointer event resolves to nothing rather than to a guessed
-region (D-036).
+region (SURF-1).
 
 ## Model
 

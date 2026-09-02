@@ -19,7 +19,7 @@ from a scripted timeline to a model, and the projection did not notice.
 
 The boundary is the code's own documentation. `plexmaton-core::PrototypeEvent` is what a runtime
 emits and `plexmaton-tui::TuiIntent` is what the user emits; they never merge, nothing in the TUI
-calls a runtime object (D-030), every variant survives a JSON round trip, and the tag is the wire
+calls a runtime object (the `intent` module's doc says why), every variant survives a JSON round trip, and the tag is the wire
 name. A producer numbers one monotonic sequence and advances each item's revision by exactly one;
 the projection refuses a gap or a repeat.
 
@@ -30,7 +30,7 @@ the projection refuses a gap or a repeat.
 | `ToolActivityChanged` | Durable and thin: no arguments, no output, no expand state. Step 2 grows it |
 | `AttentionRequested` | Durable, one way. Its resolution counterpart arrives with step 2 |
 | `MailDelivered`, `ArtifactAnnounced` | Provisional: a bounded summary and a pointer, no body |
-| `RuntimeWarning` | Durable; the degradation path (D-003) |
+| `RuntimeWarning` | Durable; the degradation path |
 
 Known limits carried in: `plexmaton-sim` is a scripted timeline with a one-verb command
 vocabulary and is not a design for a runtime's command surface; the Attention queue has no
@@ -49,7 +49,7 @@ eviction; nothing removes a transcript item, so cache pruning has never run.
    growing the vocabulary only where it must: a reasoning role, a typed tool detail (text or diff,
    bounded), an awaiting-approval tool state, a resolution for an attention item. The executable
    runs it; the simulator stays the test producer. The provider is chosen at the start of this
-   step, and the choice becomes an entry in `DECISIONS.md` once it has survived use.
+   step, and the choice is recorded beside the adapter's spec with what it rejected, once it has survived use.
 3. **The transcript grammar, against real output.** Tool activity, mail and artifacts as entries
    in the owning agent's conversation, in arrival order, which retires the Activity panel and
    moves its counts to the agent row; a tool entry one compact row with a state marker, opening
@@ -64,7 +64,7 @@ the user.
 ## Not in this phase
 
 A second real agent, delegation, mail between sessions, the mailbox, pause and abort, and the
-composed inspector: Phase 03 (D-046). Persistence, context projection, MCP, a second provider,
+a composed status-and-artifact surface beside a conversation: Phase 03. Persistence, context projection, MCP, a second provider,
 and a session reducer beyond what the loop needs: Phase 02. Math rendering: its track. Themes
 and animation: Phase 04.
 

@@ -152,7 +152,7 @@ pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static
     )
 }
 
-/// The one row the primary composer keeps while a sub-agent's input is active (D-027).
+/// The one row the primary composer keeps while a sub-agent's input is active (INS-5).
 ///
 /// It does not disappear. A composer that vanishes costs the user the affordance and jumps the tail
 /// of the transcript they are reading by three rows; one row of jump is what this accepts, and the

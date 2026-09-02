@@ -13,7 +13,7 @@ known; everything else is pushed down until pushing further would hurt.
 | --- | --- | --- |
 | Always | Every turn | `AGENTS.md` |
 | On trigger | When the trigger table names it | `standards/*.md` |
-| On demand | When the work touches the subject | `roadmap/*`, `specs/*`, `plans/*`, `DECISIONS.md` |
+| On demand | When the work touches the subject | `roadmap/*`, `specs/*`, `plans/*` |
 
 ## Documents
 
@@ -26,7 +26,6 @@ known; everything else is pushed down until pushing further would hurt.
 | `roadmap/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
 | `plans/phase-NN-step-MM-*.md` | One step's slices | Every slice | Consumed. Deleted |
 | `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
-| `DECISIONS.md` | Choices that were contested or are expensive to reverse | An entry is rewritten when replaced, added when a new one survives use | Never |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
 
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
@@ -98,7 +97,6 @@ long-format, and their ceiling only catches runaway growth.
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 12 KB | One spec defines one mechanism; split by mechanism |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the step it plans is too big |
-| `.agents/DECISIONS.md` | 12 KB | An entry that was never contested is a commit, not a decision |
 | `.agents/roadmap/plexmaton.md` | 16 KB | Promote detail into a phase file or a spec |
 | `.agents/roadmap/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
 | `.agents/roadmap/phase-*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |

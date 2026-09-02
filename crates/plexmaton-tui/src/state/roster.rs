@@ -21,7 +21,7 @@ impl Roster {
         self.agents.iter()
     }
 
-    /// The agent the composer addresses: the first one to appear, never the selected one (D-017).
+    /// The agent the composer addresses: the first one to appear, never the selected one (COM-4).
     pub(super) fn primary(&self) -> Option<&AgentView> {
         self.agents.iter().next()
     }

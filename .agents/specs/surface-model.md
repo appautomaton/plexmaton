@@ -53,7 +53,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 
 | Field | Meaning |
 | --- | --- |
-| `id` | `SurfaceId`, a named variant. Never a number agreed by convention (D-036) |
+| `id` | `SurfaceId`, a named variant. Never a number agreed by convention. Rejected: numeric identities, which break silently when a region is added; and a second layout computed for hit testing, whose failure is a click landing one panel over |
 | `bounds` | The rectangle the surface occupies, whether or not all of it is visible |
 | `clip` | The rectangle it is confined to. Not a field: nothing has needed a clip distinct from `bounds`, which is that rectangle |
 | `z_index` | Draw and hit order among siblings. Zero for every tiled region; the second window as a shelf is one, floating inside the conversation, painted last and hit first, with the cells beneath it cleared before it paints |
@@ -99,6 +99,10 @@ and the width it wraps to. Where the user put it lives in the projection and out
 (SURF-5); absence of a stored position is meaningful, and each surface then anchors to its own kind
 of content — a conversation opens at its newest line, a list at its first.
 
+Rejected: owning the wrapping. Roughly eighty lines of grapheme-and-width logic reaching the same
+answer with our own bugs; `Paragraph::line_count` runs the same `WordWrapper` the renderer runs, and
+the exact pin plus the committed lockfile make an unstable-API change a reviewed bump.
+
 Eligibility for the wheel is whether a viewport *can move*, which
 [`interaction-routing`](./interaction-routing.md) INV-3 turns into routing.
 
@@ -127,7 +131,7 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 
 - **Terminal-event translation, capture, and the `Escape` ladder.**
   [`interaction-routing`](./interaction-routing.md) owns them.
-- **Shelf geometry and the ten-row guarantee** (D-016). [`inspector`](./inspector.md) owns
+- **Shelf geometry and the ten-row guarantee** (ui-ux §shelf). [`inspector`](./inspector.md) owns
   them.
 - **Which surfaces exist.** That is layout's decision, and it changes with the layout class.
 

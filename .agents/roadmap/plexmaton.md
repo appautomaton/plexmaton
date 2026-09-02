@@ -9,7 +9,6 @@
 | TUI foundation | Ratatui + Crossterm |
 | Active phase | [Phase 01 — One real agent](./phase-01-one-real-agent.md), opened 2026-09-02 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
-| Decision index | [DECISIONS.md](../DECISIONS.md) |
 | Mechanism specs | [specs/](../specs/) |
 
 This document records product and architecture direction. It is intentionally not a feature checklist or an implementation promise. Decisions marked **Locked** are the current foundation; items marked **Research gate** require a focused prototype or measurement before selection.
@@ -65,7 +64,7 @@ The product should feel immediate under load, preserve completed work durably, a
 
 - A delegated agent is a real session with its own identity, transcript, lifecycle, context, tools, and durable history.
 - Delegation is asynchronous. Starting agent B returns control to agent A and the user-facing TUI immediately.
-- Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts. Until Phase 03 the inspector is the conversation alone, and the other four are the activity column's (D-046).
+- Selecting an agent opens its conversation over or beside the primary's. Tool activity, mail and artifacts are entries in that conversation; a composed surface with status and an artifact index beside it is Phase 03's.
 - Agent inspectors are independently scrollable and may be shown as a window floating over the primary conversation, a column beside it, or a maximized view without changing the underlying session.
 - Agent-to-agent communication is typed mail between sessions, not a fake user message and not a blocking tool result.
 - Bulk findings remain in artifacts or the delegated session; mail carries a bounded summary and durable pointers.
@@ -86,8 +85,10 @@ worker does something else.
   queue are projections over it, so they cannot drift apart.
 
 This extends "one authoritative representation" from session state to delegation records.
-Mechanism detail: [delegation and steering](../specs/delegation-and-steering.md) and
-[mailbox delivery](../specs/mailbox-delivery.md).
+Rejected: routing every steer through the delegator, a game of telephone that contradicts direct
+steering; steering the delegator never sees, which makes its model of the task stale invisibly;
+and separate inbox and attention stores with synchronization between them. The mechanism is
+specified when Phase 03 opens.
 
 ## Readability-first math rendering
 
@@ -185,8 +186,8 @@ Expected to split when it opens; Phase 01's closure decides where.
 ### Phase 03: durable multi-agent mailbox
 
 - Add session-owned agents, parent/child lineage, hop lifecycle, cancellation, and resource budgets.
-- Implement the one item log and its delivery states, with idempotent acknowledgement in the same storage boundary as session events. See [mailbox delivery](../specs/mailbox-delivery.md).
-- Implement the delegation record, its amendments, undeliverable steering, and the objection path. See [delegation and steering](../specs/delegation-and-steering.md).
+- Implement the one item log and its delivery states, with idempotent acknowledgement in the same storage boundary as session events.
+- Implement the delegation record, its amendments, undeliverable steering, and the objection path.
 - Keep the user-facing agent responsive while workers run.
 - Add agent list, status indicators, mailbox activity, independently scrollable inspectors, artifact navigation, and explicit steering/abort controls.
 - Begin with one mutating agent per workspace; make mutation ownership a runtime lease rather than a prompt convention.

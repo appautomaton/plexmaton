@@ -24,6 +24,9 @@ the reducer.
 either exactly one `TuiIntent`, or an `Ignored` value naming why nothing happened. There is no
 branch that discards an event without saying so.
 
+Rejected: per-widget event handling, and a silent fallthrough that makes a dead key
+indistinguishable from a routing defect.
+
 **INV-2 — Printable keys follow the cursor.** A printable key produces a text intent if and only if
 a text input holds keyboard focus. Under navigation focus the same key is a command or unbound.
 There is no third case, because there is never more than one cursor.
@@ -32,7 +35,7 @@ There is no third case, because there is never more than one cursor.
 scroll intent and can never produce a focus- or selection-changing one. Its target is the topmost
 surface under the pointer whose viewport *can move*: a surface with nothing to scroll is transparent
 and the event reaches what is beneath it, while a surface merely at its boundary is still the target
-and consumes it (D-006). "Cannot scroll" and "scrolled to the end" are deliberately different, because
+and consumes it (ui-ux §nested scrolling). "Cannot scroll" and "scrolled to the end" are deliberately different, because
 a gesture whose target changes with scroll position destroys the spatial memory it depends on.
 
 **INV-4 — Capture wins for the drag gesture.** While pointer capture is held, button and motion
@@ -47,9 +50,10 @@ release produces `Ignored::NoCapture`, never a second drag intent.
 dismiss the topmost dismissible layer, then nothing. `Escape` never quits.
 
 **INV-7 — Quit is explicit and unreachable while typing.** `Ctrl-C` quits from any focus, and no
-bare key quits from any. A printable `q` is text under a cursor and unbound elsewhere: it quit under
-navigation focus until 2026-09-01, when real use showed that focus starts on a navigation surface
-and moves without the screen saying so, so a message typed one `Tab` too early ended the session.
+bare key quits from any. A printable `q` is text under a cursor and unbound elsewhere. Rejected: `Escape` as quit, which
+the reflex that closes an overlay would trigger one press later; and a bare `q`, which ended the
+session the first time a message was typed one `Tab` too early, because focus starts on a
+navigation surface and moves without the screen saying so.
 
 **INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
 is not routed to any surface, so the terminal's own selection keeps working over an owned screen.

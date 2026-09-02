@@ -89,6 +89,14 @@ adopted only after its changelog, features, and resolved graph are reviewed.
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, `dev-dependencies` only | Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which pulls `rusty-fork` and `tempfile` for nothing these properties need |
 
+### Considered and not adopted
+
+| Crate | Why not |
+| --- | --- |
+| `ratatui-textarea` | Consumes `crossterm::event::Event`, and exactly one component may (INV-1) |
+| `arboard` | A local clipboard reaches the wrong machine over SSH; OSC 52 reaches the user's terminal |
+| `criterion` | Cannot see work counts, which are the evidence; timings are reported, never asserted (FR-3) |
+
 ## Maintenance
 
 - Keep one supported path for each behavior. Migrations must have a bounded start, cutover
