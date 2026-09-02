@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented |
 | Owns | What happens when a background agent needs the user, and what the user can do about it |
-| Depends on | The attention rules in [`ui-ux.md`](../roadmap/ui-ux.md) §attention management; the focused-surface grammar in [interaction-routing](./interaction-routing.md) INV-10 |
+| Depends on | The attention rules in [`ui-ux.md`](../ui-ux.md) §attention management; the focused-surface grammar in [interaction-routing](./interaction-routing.md) INV-10 |
 | Proven by | `plexmaton-tui::state::attention` and `::workspace` tests; see the evidence table |
 
 ## Purpose

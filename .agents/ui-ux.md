@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Applies to | Every delivery phase |
-| Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
+| Parent roadmap | [Plexmaton Roadmap](./roadmap.md) |
 
 This document is the product experience, stated as rules. It is the destination: which of it
 exists today is the active phase's business, and nothing here tracks that. A rule's mechanism, its
@@ -183,7 +183,7 @@ scroll without moving the transcript behind it.
 - Rejected: character selection, which changes what is copied at a second width; a local clipboard
   crate, which reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the exit.
 
-The mechanism and the bindings are [`specs/selection-and-copy.md`](../specs/selection-and-copy.md).
+The mechanism and the bindings are [`specs/selection-and-copy.md`](./specs/selection-and-copy.md).
 
 ## Information architecture
 
@@ -236,7 +236,7 @@ window, and splitting the region, which moved the conversation under it.
   width and the user's maximize, and changing it changes no identity, scroll position, or focus.
   There is no pin: the window stays until `Escape`.
 
-The geometry, the bindings, and what opening means are [`specs/inspector.md`](../specs/inspector.md).
+The geometry, the bindings, and what opening means are [`specs/inspector.md`](./specs/inspector.md).
 
 ### Drag scope
 
@@ -260,7 +260,7 @@ surface has a reason to be somewhere other than where the layout puts it.
 - Focus order and command availability are inspectable for keyboard-only use.
 
 The translation, the capture state machine, the key grammar, and the invariants are
-[`specs/interaction-routing.md`](../specs/interaction-routing.md). Bindings are tested as one
+[`specs/interaction-routing.md`](./specs/interaction-routing.md). Bindings are tested as one
 grammar, never assigned widget by widget.
 
 ## The canonical journey
@@ -336,7 +336,7 @@ payload retained.
 
 Targets are chosen against a 16 ms frame, so a budget spent is a frame the user waits for. Work
 counts are asserted by tests; wall-clock time is only reported, beside the machine that produced
-it (FR-3). The observed figures are in [`specs/frame-loop.md`](../specs/frame-loop.md) §cost.
+it (FR-3). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loop.md) §cost.
 
 | Budget | Target | Workload |
 | --- | --- | --- |

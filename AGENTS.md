@@ -10,11 +10,11 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 
 | When you are about to… | Read |
 | --- | --- |
-| start or resume work on the active phase | [`roadmap/phase-01-one-real-agent.md`](./.agents/roadmap/phase-01-one-real-agent.md) — named here so the common path skips the roadmap |
-| ask what the product is, or plan beyond this phase | [`roadmap/plexmaton.md`](./.agents/roadmap/plexmaton.md) |
+| start or resume work on the active phase | [`phases/phase-01-one-real-agent.md`](./.agents/phases/phase-01-one-real-agent.md) — named here so the common path skips the roadmap |
+| ask what the product is, or plan beyond this phase | [`roadmap.md`](./.agents/roadmap.md) |
 | implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
 | start a step big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
-| change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md) |
+| change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`ui-ux.md`](./.agents/ui-ux.md) |
 | write, change, or delete a test | [`standards/testing.md`](./.agents/standards/testing.md) |
 | organize a module, or add/upgrade/remove a dependency | [`standards/rust.md`](./.agents/standards/rust.md) |
 | run a gate, fix a failing one, or set up a clone or parallel checkout | [`standards/quality-gates.md`](./.agents/standards/quality-gates.md) |
@@ -26,7 +26,7 @@ A change is not done until the documents it invalidates are rewritten in the sam
 | When you change… | Update |
 | --- | --- |
 | a mechanism's behaviour | its spec: the invariant, and the evidence table |
-| a rule the contract states | [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md), and only with the user's agreement: the contract is theirs, and an agent proposes a change with a rendered frame they have seen |
+| a rule the contract states | [`ui-ux.md`](./.agents/ui-ux.md), and only with the user's agreement: the contract is theirs, and an agent proposes a change with a rendered frame they have seen |
 | a key binding, or what the executable does or how it runs | the spec's grammar, `scripts/smoke-tui.py` where it drives the key, and the root `README.md` |
 | a phase's or a plan's status | the roadmap's active-phase cell, the phase file's status, the plan's status; three cells, one fact each |
 | a dependency | [`standards/rust.md`](./.agents/standards/rust.md) §audited foundation |
@@ -95,7 +95,7 @@ Do not claim a check passed unless it was actually run in this workspace. Do not
 Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and contradictory defaults are defects. Which file owns what is a table in [`.agents/README.md`](./.agents/README.md). The rules worth carrying without looking:
 
 - **Rewrite in place.** When a fact changes, rewrite the sentence that stated it. Nothing is appended beside it: no correction note, no superseded marker, no compressed account of what the section used to say. Git holds the history.
-- **One name per thing.** The product vocabulary in `roadmap/ui-ux.md` is the code's vocabulary and the screen's. A rename lands in all three in one change.
+- **One name per thing.** The product vocabulary in `ui-ux.md` is the code's vocabulary and the screen's. A rename lands in all three in one change.
 - **A contested rule carries what it rejected.** Once the choice has survived use, a sentence beside the rule starts `Rejected:` and says what was turned down and why. An uncontested choice is a commit.
 - **An invariant with no test is marked unproven**, never left reading as fact.
 - **Link to one source of truth** instead of copying a rule into several files, and expand a document just in time rather than to look complete. A finding is promoted upward only when it changes a durable invariant or a system boundary.

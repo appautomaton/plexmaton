@@ -4,8 +4,8 @@
 | --- | --- |
 | Status | Not started |
 | Kind | Research track, not a delivery phase |
-| Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
-| Product contract | [UI/UX](./ui-ux.md) |
+| Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
+| Product contract | [UI/UX](../ui-ux.md) |
 | Entry condition | Met; see below |
 | Blocks | Productionizing math in Phase 04 |
 

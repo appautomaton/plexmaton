@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented |
 | Owns | The one text input: its editing model, where its cursor comes from, and what submitting does |
-| Depends on | The locked input decisions in [`ui-ux.md`](../roadmap/ui-ux.md) §input; focus from [surface-model](./surface-model.md) SURF-3 |
+| Depends on | The locked input decisions in [`ui-ux.md`](../ui-ux.md) §input; focus from [surface-model](./surface-model.md) SURF-3 |
 | Proven by | `plexmaton-tui::state::composer`, `::render`, and the executable's tests; see the evidence table |
 
 ## Purpose

@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented |
 | Owns | What the second window shows, where it goes, and what opening, entering, resizing, and closing it do |
-| Depends on | [surface-model](./surface-model.md) SURF-3 and SURF-5; the Escape ladder in [interaction-routing](./interaction-routing.md) INV-6; the shelf rules in [`ui-ux.md`](../roadmap/ui-ux.md) |
+| Depends on | [surface-model](./surface-model.md) SURF-3 and SURF-5; the Escape ladder in [interaction-routing](./interaction-routing.md) INV-6; the shelf rules in [`ui-ux.md`](../ui-ux.md) |
 | Proven by | `plexmaton-tui::layout::inspector`, `::state::inspector`, and `::workspace` tests; see the evidence table |
 
 The code calls this surface `Inspector`, which is the name `ui-ux.md` gave it. On screen and in
@@ -27,8 +27,8 @@ request — opens its conversation over or beside the primary's; `Escape` clears
 closes it. Nothing stores "which agent is open" separately from the selection, so the two cannot
 disagree and no conversation is ever on screen twice. There is no pin and no follow: the window
 stays while the user types to the primary, until they press `Escape`. Rejected: storing the open
-window beside the selection, with pin and follow to keep them aligned; the default path put one
-conversation on screen twice.
+window beside the selection, with pin and follow; the default path put one conversation on screen
+twice.
 
 **INS-2 — The conversation keeps ten readable rows beneath the window, or the window takes the
 region outright.** The rule is about what the window *covers*: on a terminal with fewer than ten
@@ -37,8 +37,7 @@ shelf and a squeezed conversation share a region too small for both.
 
 **INS-3 — Presentation is derived from size, never stored.** Shelf, column, and maximized are
 chosen per frame from the layout class and the user's maximize. Changing presentation changes no
-identity, no scroll position, and no focus, because there is nothing to change — the surface is the
-same surface at a different size.
+identity, scroll position, or focus: it is the same surface at a different size.
 
 **INS-4 — Entering is explicit; closing gives focus back.** Looking at an agent does not move the
 keyboard: the arrows keep working in the list. `Enter` moves the keyboard into the window, so its

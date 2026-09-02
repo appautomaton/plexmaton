@@ -33,7 +33,7 @@ cited_sections=$(grep -rhoE 'ui-ux(\.md)?`? §[a-z][a-z -]*[a-z][).,;:]' --inclu
     sed -E 's/.*§//; s/[).,;:]$//' | sort -u || true)
 while IFS= read -r section; do
     [[ -z "$section" ]] && continue
-    if ! grep -qiE "^#+ .*${section}" .agents/roadmap/ui-ux.md; then
+    if ! grep -qiE "^#+ .*${section}" .agents/ui-ux.md; then
         printf 'citation: ui-ux §%s is cited but no such heading exists\n' "$section" >&2
         fail=1
     fi
@@ -50,6 +50,18 @@ for name in $evidence; do
         fail=1
     fi
 done
+
+# Every relative link in the corpus must resolve. A moved file leaves a pointer to nothing otherwise.
+while IFS=: read -r file link; do
+    [[ -z "$file" ]] && continue
+    target="${link%%#*}"
+    [[ -z "$target" || "$target" =~ ^[a-z]+: ]] && continue
+    if [[ ! -e "$(dirname "$file")/$target" ]]; then
+        printf 'link: %s points at %s, which does not exist\n' "$file" "$link" >&2
+        fail=1
+    fi
+done < <(grep -rnoE '\]\([^)]+\)' --include='*.md' AGENTS.md README.md .agents 2>/dev/null |
+    sed -E 's/^([^:]+):[0-9]+:\]\((.*)\)$/\1:\2/')
 
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'

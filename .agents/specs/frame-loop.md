@@ -74,7 +74,7 @@ not before.
 
 Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
 machine, release profile, 120 × 40, over a 5,000-message conversation. The targets are the
-contract's ([`ui-ux.md`](../roadmap/ui-ux.md) §performance budgets).
+contract's ([`ui-ux.md`](../ui-ux.md) §performance budgets).
 
 | Workload | Observed | Work |
 | --- | --- | --- |
@@ -121,7 +121,7 @@ clothes; and `criterion`, which cannot see work counts.
 - **Which surfaces exist, and what each one draws.** Layout and the renderer;
   [`surface-model`](./surface-model.md).
 - **Which surface an event reaches.** [`interaction-routing`](./interaction-routing.md).
-- **The targets.** [`ui-ux.md`](../roadmap/ui-ux.md) §performance budgets owns them; this file
+- **The targets.** [`ui-ux.md`](../ui-ux.md) §performance budgets owns them; this file
   owns what was observed against them.
 - **Continuous performance regression checking.** Numbers from a shared runner would set budgets
   nobody can reproduce. The command is the citation and the machine is named beside the number.

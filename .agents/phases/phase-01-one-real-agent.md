@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Status | Active; opened 2026-09-02; step 1 next |
-| Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
-| Product contract | [UI/UX](./ui-ux.md) |
+| Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
+| Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the composition Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
 | Unlocks | Phase 02 — session core, transports, tools, persistence |
 

@@ -13,7 +13,7 @@ known; everything else is pushed down until pushing further would hurt.
 | --- | --- | --- |
 | Always | Every turn | `AGENTS.md` |
 | On trigger | When the trigger table names it | `standards/*.md` |
-| On demand | When the work touches the subject | `roadmap/*`, `specs/*`, `plans/*` |
+| On demand | When the work touches the subject | `roadmap.md`, `ui-ux.md`, `phases/*`, `plans/*`, `specs/*`, `research/*` |
 
 ## Documents
 
@@ -22,11 +22,12 @@ known; everything else is pushed down until pushing further would hurt.
 | `AGENTS.md` | How to work here | A rule that shapes every task changes | Never. Growing for a feature means the feature needed a spec |
 | `README.md` at the root | What the executable does today, and how to run and gate it | The executable changes | Never |
 | `standards/*.md` | How to work in one kind of task | The practice changes | Never |
-| `roadmap/plexmaton.md` | Thesis, locked invariants, the phase table, research gates, non-goals | Understanding changes, or a phase opens or closes | Never, and it stays the same size |
-| `roadmap/ui-ux.md` | The experience contract, free of mechanism | A rule changes, or a mechanism moves to a spec | Never |
-| `roadmap/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
+| `roadmap.md` | Thesis, locked invariants, the phase table, research gates, non-goals | Understanding changes, or a phase opens or closes | Never, and it stays the same size |
+| `ui-ux.md` | The experience contract, free of mechanism | A rule changes, or a mechanism moves to a spec | Never |
+| `phases/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
 | `plans/phase-NN-step-MM-*.md` | One step's slices | Every slice | Consumed. Deleted |
 | `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
+| `research/*.md` | A research gate: its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
 
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
@@ -42,7 +43,7 @@ plan's status. Phase, step, slice.
 A spec defines one mechanism precisely enough to implement and test it: the last thing read before
 writing the code, and what a reviewer checks the code against. Write one when a contract is shared
 by an implementation and its tests, outlives the current phase, and is too detailed for
-`plexmaton.md` yet not a cross-cutting rule for `ui-ux.md`. Where documented types already carry
+`roadmap.md` yet not a cross-cutting rule for `ui-ux.md`. Where documented types already carry
 the contract, the code is the spec.
 
 A spec carries the front matter `Status`, `Owns`, `Depends on`, `Proven by`, and the sections
@@ -99,7 +100,8 @@ long-format, and their ceiling only catches runaway growth.
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 12 KB | One spec defines one mechanism; split by mechanism |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the step it plans is too big |
-| `.agents/roadmap/plexmaton.md` | 16 KB | Promote detail into a phase file or a spec |
-| `.agents/roadmap/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
-| `.agents/roadmap/phase-*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |
+| `.agents/roadmap.md` | 16 KB | Promote detail into a phase file or a spec |
+| `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
+| `.agents/phases/*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |
+| `.agents/research/*.md` | 8 KB | A track this long has started building; give it a phase |
 | `.agents/handoffs/*.md` | 8 KB | Delete the stale letter instead of trimming it |

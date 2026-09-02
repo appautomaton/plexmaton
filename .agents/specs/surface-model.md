@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented; SURF-2 and SURF-4 are unproven, having no caller yet |
 | Owns | What a surface is, how one is registered, and which surface an event may reach |
-| Depends on | The surface categories and routing rules in [`ui-ux.md`](../roadmap/ui-ux.md) |
+| Depends on | The surface categories and routing rules in [`ui-ux.md`](../ui-ux.md) |
 | Proven by | `plexmaton-tui::layout`, `::surface`, and `::render` tests; see the evidence table |
 
 ## Purpose

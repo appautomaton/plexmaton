@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented |
 | Owns | What a selection is, what copying it returns, and where copied text goes |
-| Depends on | The selection and copy rules in [`ui-ux.md`](../roadmap/ui-ux.md); the `Escape` ladder in [interaction-routing](./interaction-routing.md) INV-6; the virtualization contract in [transcript-layout](./transcript-layout.md) TR-2 |
+| Depends on | The selection and copy rules in [`ui-ux.md`](../ui-ux.md); the `Escape` ladder in [interaction-routing](./interaction-routing.md) INV-6; the virtualization contract in [transcript-layout](./transcript-layout.md) TR-2 |
 | Proven by | `plexmaton-tui::state::selection` and `::workspace` tests, `plexmaton-cli::clipboard` tests; see the evidence table |
 
 ## Purpose

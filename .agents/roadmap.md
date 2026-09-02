@@ -7,9 +7,9 @@
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
 | Primary language | Rust |
 | TUI foundation | Ratatui + Crossterm |
-| Active phase | [Phase 01 — One real agent](./phase-01-one-real-agent.md), opened 2026-09-02 |
+| Active phase | [Phase 01 — One real agent](./phases/phase-01-one-real-agent.md), opened 2026-09-02 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
-| Mechanism specs | [specs/](../specs/) |
+| Mechanism specs | [specs/](./specs/) |
 
 This document records product and architecture direction. It is intentionally not a feature checklist or an implementation promise. Decisions marked **Locked** are the current foundation; items marked **Research gate** require a focused prototype or measurement before selection.
 
@@ -22,7 +22,7 @@ Phases are named with two digits everywhere — `Phase 00`, not `Phase 0` — so
 | Phase | Purpose | Detail status |
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
-| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | [Active](./phase-01-one-real-agent.md) |
+| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | [Active](./phases/phase-01-one-real-agent.md) |
 | 02 | Canonical session state, the remaining provider transports, tools, context projection, persistence, and MCP | Summary only; expected to split when opened |
 | 03 | Durable multi-agent mailbox and runtime ownership | Summary only |
 | 04 | Product polish, performance hardening, and extensibility | Summary only |
@@ -34,7 +34,7 @@ comparisons rather than delivered capability:
 
 | Track | Purpose | Status |
 | --- | --- | --- |
-| [Math rendering](./track-math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
+| [Math rendering](./research/math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
 
 ## Product thesis
 
@@ -110,7 +110,7 @@ Mathematical content has one semantic source and one typeset layout. We do **not
 ### Research gate: math engine and transports
 
 The invariants above are locked. Engine and transport selection is delegated to the
-[math rendering track](./track-math-rendering.md), which owns the comparison corpus, the
+[math rendering track](./research/math-rendering.md), which owns the comparison corpus, the
 candidates, and the decision criteria. Its entry condition is met: partial scrolling and source
 copy, the properties that decide the engine, exist. The first thing it has to design is an item
 kind that can report a provisional height and revise it, which is the shape a pending render has.
@@ -141,11 +141,11 @@ The runtime emits semantic events. The TUI decides how those events are presente
 
 ### Phase 00: experience skeleton
 
-Closed 2026-09-02 by scoping rather than by its gate. It delivered the interaction mechanisms, each with a spec in [`specs/`](../specs/), and the contract's layout, against a scripted producer. The rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01.
+Closed 2026-09-02 by scoping rather than by its gate. It delivered the interaction mechanisms, each with a spec in [`specs/`](./specs/), and the contract's layout, against a scripted producer. The rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01.
 
 ### Phase 01: one real agent
 
-Detailed plan: [Phase 01 — One real agent](./phase-01-one-real-agent.md).
+Detailed plan: [Phase 01 — One real agent](./phases/phase-01-one-real-agent.md).
 
 - Finish the composition and freeze it in checked-in frames at three widths.
 - Put one provider behind the semantic boundary: streaming, a bounded tool set, the loop, approval before a mutating call. The executable runs it; the simulator stays the test producer.
@@ -193,7 +193,7 @@ Expected to split when it opens; Phase 01's closure decides where.
 
 ## Open research gates
 
-- Exact math layout engine and the minimum acceptable Unicode cell-graphics quality, owned by the [math rendering track](./track-math-rendering.md).
+- Exact math layout engine and the minimum acceptable Unicode cell-graphics quality, owned by the [math rendering track](./research/math-rendering.md).
 - Storage engine and transaction model for session events plus mailbox delivery.
 - Initial terminal support matrix, especially tmux, SSH, Kitty graphics, Sixel, and terminals with no graphics protocol.
 - Transcript layout cache structure and memory budget across many live agents.

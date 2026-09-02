@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented |
 | Owns | Translation from terminal events to typed intents, pointer capture, and the Escape ladder |
-| Depends on | The locked input decisions in [`ui-ux.md`](../roadmap/ui-ux.md) |
+| Depends on | The locked input decisions in [`ui-ux.md`](../ui-ux.md) |
 | Proven by | `plexmaton-tui::router` tests; see the evidence table |
 
 ## Purpose
