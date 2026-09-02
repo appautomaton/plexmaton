@@ -5,10 +5,9 @@
 //! payer.
 
 use plexmaton_core::{
-    AgentId, EventSequence, PrototypeEvent, PrototypeEventEnvelope, TranscriptItemId,
-    TranscriptRole,
+    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId, TranscriptRole,
 };
-use plexmaton_sim::{Runtime, Scenario};
+use plexmaton_sim::{Scenario, ScriptedRuntime};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 
 use crate::{
@@ -20,8 +19,10 @@ use crate::{
 };
 
 /// A runtime holding the canonical A-delegates-to-B timeline, with nothing emitted yet.
-pub fn canonical_runtime() -> Runtime {
-    Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}")))
+pub fn canonical_runtime() -> ScriptedRuntime {
+    ScriptedRuntime::new(
+        Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+    )
 }
 
 /// The canonical timeline, fully replayed into a projection.
@@ -43,7 +44,7 @@ pub struct Conversation {
     sequence: u64,
     items: usize,
     newest: Option<(AgentId, TranscriptItemId, u64)>,
-    pending: Vec<PrototypeEventEnvelope>,
+    pending: Vec<SessionEventEnvelope>,
 }
 
 impl Conversation {
@@ -77,7 +78,7 @@ impl Conversation {
     /// A [`Workspace`](crate::Workspace) reduces the stream itself, so a test driving one has to be
     /// handed the events rather than the finished state. Both projections then see the same stream
     /// in the same order, which is the only way their revisions stay comparable.
-    pub fn drain(&mut self) -> Vec<PrototypeEventEnvelope> {
+    pub fn drain(&mut self) -> Vec<SessionEventEnvelope> {
         std::mem::take(&mut self.pending)
     }
 
@@ -93,7 +94,7 @@ impl Conversation {
             self.items = self.items.saturating_add(1);
             let item_id = TranscriptItemId::new(format!("filler-{}", self.items))
                 .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
-            self.emit(PrototypeEvent::TranscriptItemStarted {
+            self.emit(SessionEvent::TranscriptItemStarted {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 role: TranscriptRole::Assistant,
@@ -115,7 +116,7 @@ impl Conversation {
             .clone()
             .unwrap_or_else(|| panic!("nothing has been streamed to append to"));
         let item_revision = revision.saturating_add(1);
-        self.emit(PrototypeEvent::TranscriptDelta {
+        self.emit(SessionEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision,
@@ -130,9 +131,9 @@ impl Conversation {
     /// Public because the counter is the reason this fixture exists: a test that builds its own
     /// envelope has to guess the sequence, and a guess produces a notice log rather than a
     /// transcript, with an assertion failure that says nothing about why.
-    pub fn emit(&mut self, event: PrototypeEvent) {
+    pub fn emit(&mut self, event: SessionEvent) {
         self.sequence = self.sequence.saturating_add(1);
-        let envelope = PrototypeEventEnvelope {
+        let envelope = SessionEventEnvelope {
             sequence: EventSequence::new(self.sequence),
             event,
         };
@@ -249,10 +250,10 @@ impl Session {
 /// The canonical timeline plus one producer defect, so the notice strip exists.
 pub fn degraded_state() -> ViewState {
     let mut state = canonical_state();
-    state.apply(PrototypeEventEnvelope {
+    state.apply(SessionEventEnvelope {
         // A stale sequence: the canonical scenario has already advanced well past 1.
         sequence: EventSequence::new(1),
-        event: PrototypeEvent::RuntimeWarning {
+        event: SessionEvent::RuntimeWarning {
             message: "producer replayed an old event".into(),
         },
     });

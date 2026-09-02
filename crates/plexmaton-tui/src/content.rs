@@ -5,7 +5,7 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam the wrapping cache attaches to in delivery step 5.
 
-use plexmaton_core::{AgentId, AgentStatus, AttentionKind, ToolActivityStatus, TranscriptRole};
+use plexmaton_core::{AgentId, AgentStatus, AttentionKind, ToolCallStatus, TranscriptRole};
 use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -349,12 +349,12 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
 }
 
 /// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
-const fn tool_marker(status: ToolActivityStatus) -> &'static str {
+const fn tool_marker(status: ToolCallStatus) -> &'static str {
     match status {
-        ToolActivityStatus::Queued => "[ ]",
-        ToolActivityStatus::Running => "[~]",
-        ToolActivityStatus::Succeeded => "[+]",
-        ToolActivityStatus::Failed => "[!]",
-        ToolActivityStatus::Cancelled => "[-]",
+        ToolCallStatus::Queued => "[ ]",
+        ToolCallStatus::Running => "[~]",
+        ToolCallStatus::Succeeded => "[+]",
+        ToolCallStatus::Failed => "[!]",
+        ToolCallStatus::Cancelled => "[-]",
     }
 }

@@ -12,7 +12,7 @@
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
+    use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -27,7 +27,7 @@ mod tests {
     struct Journey {
         workspace: Workspace,
         terminal: Terminal<TestBackend>,
-        runtime: Runtime,
+        runtime: ScriptedRuntime,
         tick: u64,
     }
 
@@ -37,7 +37,7 @@ mod tests {
                 workspace: Workspace::default(),
                 terminal: Terminal::new(TestBackend::new(width, height))
                     .unwrap_or_else(|error| panic!("test terminal: {error}")),
-                runtime: Runtime::new(
+                runtime: ScriptedRuntime::new(
                     Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")),
                 ),
                 tick: 0,

@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use anyhow::Context;
-use plexmaton_sim::{Runtime, Scenario};
+use plexmaton_sim::{Scenario, ScriptedRuntime};
 use plexmaton_tui::{FrameWork, SurfaceId, Workspace};
 use ratatui::{Terminal, backend::TestBackend, crossterm::event::Event, layout::Rect};
 
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
 pub(crate) struct Harness {
     pub(crate) workspace: Workspace,
     terminal: Terminal<TestBackend>,
-    runtime: Runtime,
+    runtime: ScriptedRuntime,
     tick: u64,
 }
 
@@ -76,7 +76,7 @@ impl Harness {
             workspace: Workspace::default(),
             terminal: Terminal::new(TestBackend::new(width, height))
                 .context("build the measurement terminal")?,
-            runtime: Runtime::new(scenario),
+            runtime: ScriptedRuntime::new(scenario),
             tick: 0,
         })
     }

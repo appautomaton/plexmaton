@@ -84,7 +84,7 @@ stable_id!(AgentId, "agent id");
 stable_id!(ArtifactId, "artifact id");
 stable_id!(AttentionId, "attention id");
 stable_id!(MailId, "mail id");
-stable_id!(ToolActivityId, "tool activity id");
+stable_id!(ToolCallId, "tool call id");
 stable_id!(TranscriptItemId, "transcript item id");
 
 /// Monotonic sequence assigned by one semantic event producer.
@@ -112,7 +112,7 @@ impl EventSequence {
 pub enum AgentStatus {
     /// Admitted no work and is waiting for input.
     Idle,
-    /// Producing model or tool activity right now.
+    /// Producing model output or running a tool right now.
     Running,
     /// Blocked on a tool, a descendant agent, or a pending user decision.
     Waiting,
@@ -136,10 +136,10 @@ pub enum TranscriptRole {
     System,
 }
 
-/// Lifecycle of one visible tool activity.
+/// Lifecycle of one visible tool call.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ToolActivityStatus {
+pub enum ToolCallStatus {
     /// Admitted by the scheduler but not started.
     Queued,
     /// Executing now.
@@ -168,7 +168,7 @@ pub enum AttentionKind {
 /// terminal input, persistence records, and animation ticks.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum PrototypeEvent {
+pub enum SessionEvent {
     /// A new agent became visible to the workspace.
     AgentCreated {
         /// Identity the agent keeps for its whole lifetime.
@@ -215,18 +215,18 @@ pub enum PrototypeEvent {
         /// Per-item revision, continuing the same sequence the deltas used.
         item_revision: u64,
     },
-    /// A tool activity was created or moved to a new lifecycle state.
+    /// A tool call was created or moved to a new lifecycle state.
     ///
-    /// Repeating an `activity_id` updates that activity in place rather than adding a second one.
-    ToolActivityChanged {
+    /// Repeating a `call_id` updates that tool call in place rather than adding a second one.
+    ToolCallChanged {
         /// Agent running the tool.
         agent_id: AgentId,
-        /// Identity of the activity being created or updated.
-        activity_id: ToolActivityId,
-        /// Display label for the activity.
+        /// Identity of the tool call being created or updated.
+        call_id: ToolCallId,
+        /// Display label for the tool call.
         label: String,
-        /// Lifecycle state the activity moved to.
-        status: ToolActivityStatus,
+        /// Lifecycle state the tool call moved to.
+        status: ToolCallStatus,
     },
     /// A background agent needs a user decision.
     ///
@@ -272,19 +272,19 @@ pub enum PrototypeEvent {
 
 /// An ordered event at the runtime-to-projection boundary.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct PrototypeEventEnvelope {
+pub struct SessionEventEnvelope {
     /// Position in the producer's monotonic stream, used to detect loss and duplication.
     pub sequence: EventSequence,
     /// The semantic transition being reported.
-    pub event: PrototypeEvent,
+    pub event: SessionEvent,
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         AgentId, AgentStatus, AttentionId, AttentionKind, EventSequence, IdError, MailId,
-        PrototypeEvent, PrototypeEventEnvelope, ToolActivityId, ToolActivityStatus,
-        TranscriptItemId, TranscriptRole,
+        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
+        TranscriptRole,
     };
 
     fn agent(value: &str) -> AgentId {
@@ -310,7 +310,7 @@ mod tests {
         assert!(serde_json::from_str::<AgentId>(r#""""#).is_err());
         assert!(serde_json::from_str::<AgentId>(r#""   ""#).is_err());
         assert!(
-            serde_json::from_str::<PrototypeEventEnvelope>(
+            serde_json::from_str::<SessionEventEnvelope>(
                 r#"{"sequence":1,"event":{"type":"agent_created","agent_id":"","label":"x","status":"idle"}}"#
             )
             .is_err(),
@@ -326,73 +326,73 @@ mod tests {
         let item = TranscriptItemId::new("item-1")
             .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let events = [
-            PrototypeEvent::AgentCreated {
+            SessionEvent::AgentCreated {
                 agent_id: agent("agent-a"),
                 label: "Agent A".into(),
                 status: AgentStatus::Running,
             },
-            PrototypeEvent::AgentStatusChanged {
+            SessionEvent::AgentStatusChanged {
                 agent_id: agent("agent-a"),
                 status: AgentStatus::Cancelled,
             },
-            PrototypeEvent::TranscriptItemStarted {
+            SessionEvent::TranscriptItemStarted {
                 agent_id: agent("agent-a"),
                 item_id: item.clone(),
                 role: TranscriptRole::Assistant,
             },
-            PrototypeEvent::TranscriptDelta {
+            SessionEvent::TranscriptDelta {
                 agent_id: agent("agent-a"),
                 item_id: item.clone(),
                 item_revision: 1,
                 // Multi-byte and combining text, because transcripts carry both.
                 text: "δ 汉字 e\u{301}\n".into(),
             },
-            PrototypeEvent::TranscriptItemFinalized {
+            SessionEvent::TranscriptItemFinalized {
                 agent_id: agent("agent-a"),
                 item_id: item,
                 item_revision: 2,
             },
-            PrototypeEvent::ToolActivityChanged {
+            SessionEvent::ToolCallChanged {
                 agent_id: agent("agent-a"),
-                activity_id: ToolActivityId::new("tool-1")
+                call_id: ToolCallId::new("tool-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 label: "read".into(),
-                status: ToolActivityStatus::Queued,
+                status: ToolCallStatus::Queued,
             },
-            PrototypeEvent::AttentionRequested {
+            SessionEvent::AttentionRequested {
                 agent_id: agent("agent-b"),
                 attention_id: AttentionId::new("attention-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 kind: AttentionKind::Approval,
                 summary: "approve the write".into(),
             },
-            PrototypeEvent::MailDelivered {
+            SessionEvent::MailDelivered {
                 mail_id: MailId::new("mail-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 from: agent("agent-b"),
                 to: agent("agent-a"),
                 summary: "findings".into(),
             },
-            PrototypeEvent::ArtifactAnnounced {
+            SessionEvent::ArtifactAnnounced {
                 agent_id: agent("agent-b"),
                 artifact_id: super::ArtifactId::new("artifact-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 label: "findings".into(),
                 pointer: "artifact://agent-b/findings".into(),
             },
-            PrototypeEvent::RuntimeWarning {
+            SessionEvent::RuntimeWarning {
                 message: "degraded".into(),
             },
         ];
 
         for (index, event) in events.into_iter().enumerate() {
-            let envelope = PrototypeEventEnvelope {
+            let envelope = SessionEventEnvelope {
                 sequence: EventSequence::new(index as u64 + 1),
                 event,
             };
             let encoded = serde_json::to_string(&envelope)
                 .unwrap_or_else(|error| panic!("serialize {envelope:?}: {error}"));
-            let decoded: PrototypeEventEnvelope = serde_json::from_str(&encoded)
+            let decoded: SessionEventEnvelope = serde_json::from_str(&encoded)
                 .unwrap_or_else(|error| panic!("deserialize {encoded}: {error}"));
 
             assert_eq!(decoded, envelope);
@@ -403,7 +403,7 @@ mod tests {
     fn the_event_tag_is_the_stable_external_name() {
         // The tag is what an out-of-process producer writes. Renaming a variant without noticing
         // would be a silent wire break, so one tag is pinned here as the canary for the scheme.
-        let encoded = serde_json::to_string(&PrototypeEvent::RuntimeWarning {
+        let encoded = serde_json::to_string(&SessionEvent::RuntimeWarning {
             message: "degraded".into(),
         })
         .unwrap_or_else(|error| panic!("serialize: {error}"));

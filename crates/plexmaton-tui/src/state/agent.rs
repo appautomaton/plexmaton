@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, MailId, ToolActivityId, ToolActivityStatus, TranscriptItemId,
+    AgentId, AgentStatus, ArtifactId, MailId, ToolCallId, ToolCallStatus, TranscriptItemId,
     TranscriptRole,
 };
 
@@ -31,12 +31,12 @@ impl TranscriptItemView {
     }
 }
 
-/// One visible tool activity and its current lifecycle state.
+/// One visible tool call and its current lifecycle state.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ToolActivityView {
-    pub id: ToolActivityId,
+pub struct ToolCallView {
+    pub id: ToolCallId,
     pub label: String,
-    pub status: ToolActivityStatus,
+    pub status: ToolCallStatus,
 }
 
 /// Durable work product announced by an agent, referenced by pointer rather than copied inline.
@@ -68,7 +68,7 @@ pub struct AgentView {
     pub label: String,
     pub status: AgentStatus,
     items: OrderedById<TranscriptItemId, TranscriptItemView>,
-    tools: OrderedById<ToolActivityId, ToolActivityView>,
+    tools: OrderedById<ToolCallId, ToolCallView>,
     artifacts: OrderedById<ArtifactId, ArtifactView>,
     inbox: OrderedById<MailId, MailView>,
 }
@@ -91,8 +91,8 @@ impl AgentView {
         self.items.iter()
     }
 
-    /// Iterates tool activity in arrival order.
-    pub fn tool_activity(&self) -> impl Iterator<Item = &ToolActivityView> {
+    /// Iterates tool calls in arrival order.
+    pub fn tool_activity(&self) -> impl Iterator<Item = &ToolCallView> {
         self.tools.iter()
     }
 
@@ -170,19 +170,19 @@ impl AgentView {
         Ok(())
     }
 
-    /// Creates or updates one tool activity, keeping its arrival position.
+    /// Creates or updates one tool call, keeping its arrival position.
     ///
     /// These three all report whether the collection now says anything different, because a
     /// producer polling a tool's state re-sends the state it last sent and FR-1 says that costs no
     /// frame.
     pub(super) fn set_tool_activity(
         &mut self,
-        id: ToolActivityId,
+        id: ToolCallId,
         label: String,
-        status: ToolActivityStatus,
+        status: ToolCallStatus,
     ) -> bool {
         self.tools
-            .upsert(id.clone(), ToolActivityView { id, label, status })
+            .upsert(id.clone(), ToolCallView { id, label, status })
     }
 
     /// Records a published artifact.
@@ -215,7 +215,7 @@ impl AgentView {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ToolActivityId, ToolActivityStatus, TranscriptItemId, TranscriptRole,
+        AgentId, AgentStatus, ToolCallId, ToolCallStatus, TranscriptItemId, TranscriptRole,
     };
 
     use super::{AgentView, ReduceError};
@@ -229,8 +229,8 @@ mod tests {
         TranscriptItemId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
     }
 
-    fn tool(value: &str) -> ToolActivityId {
-        ToolActivityId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
+    fn tool(value: &str) -> ToolCallId {
+        ToolCallId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
     }
 
     #[test]
@@ -306,8 +306,8 @@ mod tests {
     #[test]
     fn tool_activity_iterates_in_arrival_order_not_identifier_order() {
         let mut agent = agent();
-        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolActivityStatus::Running);
-        agent.set_tool_activity(tool("tool-a"), "a".into(), ToolActivityStatus::Running);
+        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolCallStatus::Running);
+        agent.set_tool_activity(tool("tool-a"), "a".into(), ToolCallStatus::Running);
 
         let labels: Vec<_> = agent.tool_activity().map(|t| t.label.as_str()).collect();
         assert_eq!(labels, ["z", "a"]);
@@ -316,9 +316,9 @@ mod tests {
     #[test]
     fn updating_a_tool_keeps_its_position_and_replaces_its_status() {
         let mut agent = agent();
-        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolActivityStatus::Running);
-        agent.set_tool_activity(tool("tool-a"), "a".into(), ToolActivityStatus::Running);
-        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolActivityStatus::Succeeded);
+        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolCallStatus::Running);
+        agent.set_tool_activity(tool("tool-a"), "a".into(), ToolCallStatus::Running);
+        agent.set_tool_activity(tool("tool-z"), "z".into(), ToolCallStatus::Succeeded);
 
         let tools: Vec<_> = agent
             .tool_activity()
@@ -327,8 +327,8 @@ mod tests {
         assert_eq!(
             tools,
             [
-                ("z", ToolActivityStatus::Succeeded),
-                ("a", ToolActivityStatus::Running),
+                ("z", ToolCallStatus::Succeeded),
+                ("a", ToolCallStatus::Running),
             ]
         );
     }

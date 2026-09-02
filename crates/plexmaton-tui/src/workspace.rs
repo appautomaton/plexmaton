@@ -6,7 +6,7 @@
 //! the user gets. The contract is
 //! [`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md).
 
-use plexmaton_core::PrototypeEventEnvelope;
+use plexmaton_core::SessionEventEnvelope;
 use ratatui::{
     Terminal,
     backend::Backend,
@@ -131,7 +131,7 @@ impl Workspace {
     /// A producer contract violation is a visible, typed notice inside the projection rather than a
     /// reason to tear down the user's terminal (`state::notices`), so nothing is returned to check
     /// here.
-    pub fn emit(&mut self, events: Vec<PrototypeEventEnvelope>) {
+    pub fn emit(&mut self, events: Vec<SessionEventEnvelope>) {
         for envelope in events {
             let _outcome = self.state.apply(envelope);
         }
@@ -316,7 +316,7 @@ mod tests {
         style::{Color, Style},
     };
 
-    use plexmaton_core::{AgentId, AttentionId, AttentionKind, PrototypeEvent};
+    use plexmaton_core::{AgentId, AttentionId, AttentionKind, SessionEvent};
 
     use super::{Flow, Outcome, Workspace};
     use crate::{
@@ -1583,7 +1583,7 @@ mod tests {
     #[test]
     fn the_queues_cursor_moves_without_touching_the_agent_selection() {
         let mut conversation = Conversation::canonical();
-        conversation.emit(PrototypeEvent::AttentionRequested {
+        conversation.emit(SessionEvent::AttentionRequested {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: AttentionId::new("attention-a-1")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),

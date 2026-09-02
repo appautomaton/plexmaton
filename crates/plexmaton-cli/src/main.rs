@@ -6,7 +6,7 @@ use crossterm::{
     execute,
 };
 use futures_util::StreamExt;
-use plexmaton_sim::{Runtime, RuntimeCommand, Scenario};
+use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
 use plexmaton_tui::{Flow, Submission, Workspace};
 use ratatui::DefaultTerminal;
 
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     // SSH or inside tmux is not the machine this process runs on.
     run(
         terminal,
-        Runtime::new(scenario),
+        ScriptedRuntime::new(scenario),
         &mut TerminalClipboard::new(io::stdout()),
         working_directory(),
     )
@@ -75,7 +75,7 @@ fn working_directory() -> Option<String> {
 /// only a real process can: the terminal, and the async wait on two sources at once.
 async fn run(
     mut terminal: DefaultTerminal,
-    mut runtime: Runtime,
+    mut runtime: ScriptedRuntime,
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
 ) -> anyhow::Result<()> {
@@ -129,7 +129,7 @@ async fn run(
 /// The target rides along with the text. With two inputs on screen, a composition root that picked
 /// the recipient itself would be a second answer to a question focus has already settled.
 fn send(
-    runtime: &mut Runtime,
+    runtime: &mut ScriptedRuntime,
     workspace: &mut Workspace,
     submission: Submission,
 ) -> anyhow::Result<()> {
@@ -146,7 +146,7 @@ fn send(
 #[cfg(test)]
 mod tests {
     use plexmaton_core::TranscriptRole;
-    use plexmaton_sim::{Runtime, Scenario};
+    use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{SurfaceId, Workspace};
     use ratatui::{
         Terminal,
@@ -169,8 +169,9 @@ mod tests {
     /// boundary a real runtime will occupy.
     #[test]
     fn a_typed_message_reaches_the_transcript_by_way_of_the_runtime() {
-        let mut runtime =
-            Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")));
+        let mut runtime = ScriptedRuntime::new(
+            Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")),
+        );
         let mut terminal = Terminal::new(TestBackend::new(120, 24))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         let mut workspace = Workspace::default();

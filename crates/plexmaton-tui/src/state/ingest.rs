@@ -5,7 +5,7 @@
 //! the collection that holds it. Keeping them apart is what stops "is this event well formed" and
 //! "where is the reader" from sharing one file and one set of reasons to change.
 
-use plexmaton_core::{AgentId, PrototypeEvent, PrototypeEventEnvelope, TranscriptItemId};
+use plexmaton_core::{AgentId, SessionEvent, SessionEventEnvelope, TranscriptItemId};
 use thiserror::Error;
 
 use super::{AgentView, AttentionView, NoticeView, ViewState};
@@ -57,7 +57,7 @@ impl ViewState {
     /// is rejected, so one defective event cannot make every later event look like a gap. This
     /// keeps the workspace interactive when a producer misbehaves, which returning an error to a
     /// caller that exits would not.
-    pub fn apply(&mut self, envelope: PrototypeEventEnvelope) -> ApplyOutcome {
+    pub fn apply(&mut self, envelope: SessionEventEnvelope) -> ApplyOutcome {
         let sequence = envelope.sequence;
         let expected = self.last_sequence.map_or(1, |last| last.get() + 1);
         let received = sequence.get();
@@ -103,9 +103,9 @@ impl ViewState {
     /// even an empty one invalidates a measured height; finalizing closes the item to further
     /// deltas; and starting one adds an item. Each is state a later frame reads, which is the test
     /// FR-1 actually asks — not whether a glyph moved.
-    fn apply_event(&mut self, event: PrototypeEvent) -> Result<bool, ReduceError> {
+    fn apply_event(&mut self, event: SessionEvent) -> Result<bool, ReduceError> {
         let changed = match event {
-            PrototypeEvent::AgentCreated {
+            SessionEvent::AgentCreated {
                 agent_id,
                 label,
                 status,
@@ -113,13 +113,13 @@ impl ViewState {
                 self.agents.add(agent_id, label, status)?;
                 true
             }
-            PrototypeEvent::AgentStatusChanged { agent_id, status } => {
+            SessionEvent::AgentStatusChanged { agent_id, status } => {
                 let agent = self.agent_mut(&agent_id)?;
                 let moved = agent.status != status;
                 agent.status = status;
                 moved
             }
-            PrototypeEvent::TranscriptItemStarted {
+            SessionEvent::TranscriptItemStarted {
                 agent_id,
                 item_id,
                 role,
@@ -127,7 +127,7 @@ impl ViewState {
                 self.agent_mut(&agent_id)?.start_item(item_id, role)?;
                 true
             }
-            PrototypeEvent::TranscriptDelta {
+            SessionEvent::TranscriptDelta {
                 agent_id,
                 item_id,
                 item_revision,
@@ -137,7 +137,7 @@ impl ViewState {
                     .append_delta(&item_id, item_revision, &text)?;
                 true
             }
-            PrototypeEvent::TranscriptItemFinalized {
+            SessionEvent::TranscriptItemFinalized {
                 agent_id,
                 item_id,
                 item_revision,
@@ -146,15 +146,15 @@ impl ViewState {
                     .finalize_item(&item_id, item_revision)?;
                 true
             }
-            PrototypeEvent::ToolActivityChanged {
+            SessionEvent::ToolCallChanged {
                 agent_id,
-                activity_id,
+                call_id,
                 label,
                 status,
             } => self
                 .agent_mut(&agent_id)?
-                .set_tool_activity(activity_id, label, status),
-            PrototypeEvent::AttentionRequested {
+                .set_tool_activity(call_id, label, status),
+            SessionEvent::AttentionRequested {
                 agent_id,
                 attention_id,
                 kind,
@@ -173,13 +173,13 @@ impl ViewState {
                     acknowledged: false,
                 })
             }
-            PrototypeEvent::MailDelivered {
+            SessionEvent::MailDelivered {
                 mail_id,
                 from,
                 to,
                 summary,
             } => self.agent_mut(&to)?.deliver_mail(mail_id, from, summary),
-            PrototypeEvent::ArtifactAnnounced {
+            SessionEvent::ArtifactAnnounced {
                 agent_id,
                 artifact_id,
                 label,
@@ -187,7 +187,7 @@ impl ViewState {
             } => self
                 .agent_mut(&agent_id)?
                 .announce_artifact(artifact_id, label, pointer),
-            PrototypeEvent::RuntimeWarning { message } => {
+            SessionEvent::RuntimeWarning { message } => {
                 // A notice is visible, and pushing one repaints on its own account.
                 self.push_notice(NoticeView::RuntimeWarning { message });
                 false
@@ -210,8 +210,8 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, PrototypeEvent, PrototypeEventEnvelope,
-        ToolActivityId, ToolActivityStatus,
+        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, ToolCallId,
+        ToolCallStatus,
     };
 
     use super::{ApplyOutcome, ReduceError};
@@ -224,15 +224,15 @@ mod tests {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
     }
 
-    fn envelope(sequence: u64, event: PrototypeEvent) -> PrototypeEventEnvelope {
-        PrototypeEventEnvelope {
+    fn envelope(sequence: u64, event: SessionEvent) -> SessionEventEnvelope {
+        SessionEventEnvelope {
             sequence: EventSequence::new(sequence),
             event,
         }
     }
 
-    fn created(id: &str) -> PrototypeEvent {
-        PrototypeEvent::AgentCreated {
+    fn created(id: &str) -> SessionEvent {
+        SessionEvent::AgentCreated {
             agent_id: agent_id(id),
             label: id.to_owned(),
             status: AgentStatus::Running,
@@ -359,20 +359,20 @@ mod tests {
     fn a_repeated_status_or_tool_state_costs_no_frame() {
         let mut state = ViewState::default();
         state.apply(envelope(1, created("agent-a")));
-        let tool = |status| PrototypeEvent::ToolActivityChanged {
+        let tool = |status| SessionEvent::ToolCallChanged {
             agent_id: agent_id("agent-a"),
-            activity_id: ToolActivityId::new("tool-1")
+            call_id: ToolCallId::new("tool-1")
                 .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             label: "read".to_owned(),
             status,
         };
-        state.apply(envelope(2, tool(ToolActivityStatus::Running)));
+        state.apply(envelope(2, tool(ToolCallStatus::Running)));
         let quiet = state.revision();
 
         assert_eq!(
             state.apply(envelope(
                 3,
-                PrototypeEvent::AgentStatusChanged {
+                SessionEvent::AgentStatusChanged {
                     agent_id: agent_id("agent-a"),
                     status: AgentStatus::Running,
                 }
@@ -380,20 +380,20 @@ mod tests {
             ApplyOutcome::Accepted,
             "the event is well formed, so it is accepted; what it is not is a change"
         );
-        state.apply(envelope(4, tool(ToolActivityStatus::Running)));
+        state.apply(envelope(4, tool(ToolCallStatus::Running)));
         assert_eq!(state.revision(), quiet);
 
         // The same two events carrying an actual transition must still repaint.
         state.apply(envelope(
             5,
-            PrototypeEvent::AgentStatusChanged {
+            SessionEvent::AgentStatusChanged {
                 agent_id: agent_id("agent-a"),
                 status: AgentStatus::Waiting,
             },
         ));
         assert!(state.revision() > quiet);
         let waiting = state.revision();
-        state.apply(envelope(6, tool(ToolActivityStatus::Succeeded)));
+        state.apply(envelope(6, tool(ToolCallStatus::Succeeded)));
         assert!(state.revision() > waiting);
     }
 

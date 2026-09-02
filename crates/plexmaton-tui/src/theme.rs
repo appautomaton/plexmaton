@@ -5,7 +5,7 @@
 //! [`Palette::monochrome`] are shipped presets, not a closed set. A new colourway is a
 //! new assignment, not a change to a widget.
 
-use plexmaton_core::{AgentStatus, ToolActivityStatus};
+use plexmaton_core::{AgentStatus, ToolCallStatus};
 use ratatui::style::{Color, Modifier, Style};
 
 /// A semantic colour token.
@@ -74,12 +74,12 @@ impl Role {
 /// Tool state is not its own colour vocabulary: a running tool is ambient background work and a
 /// failed one is a failure, exactly like any other source of those levels.
 #[must_use]
-pub const fn tool_role(status: ToolActivityStatus) -> Role {
+pub const fn tool_role(status: ToolCallStatus) -> Role {
     match status {
-        ToolActivityStatus::Queued | ToolActivityStatus::Cancelled => Role::Muted,
-        ToolActivityStatus::Running => Role::Ambient,
-        ToolActivityStatus::Succeeded => Role::NewInformation,
-        ToolActivityStatus::Failed => Role::Failure,
+        ToolCallStatus::Queued | ToolCallStatus::Cancelled => Role::Muted,
+        ToolCallStatus::Running => Role::Ambient,
+        ToolCallStatus::Succeeded => Role::NewInformation,
+        ToolCallStatus::Failed => Role::Failure,
     }
 }
 

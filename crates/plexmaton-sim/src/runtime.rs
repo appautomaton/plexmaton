@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 
 use plexmaton_core::{
-    AgentId, EventSequence, IdError, PrototypeEvent, PrototypeEventEnvelope, TranscriptItemId,
+    AgentId, EventSequence, IdError, SessionEvent, SessionEventEnvelope, TranscriptItemId,
     TranscriptRole,
 };
 
@@ -30,13 +30,13 @@ pub enum RuntimeCommand {
 
 /// Deterministic runtime: a scripted timeline plus whatever the user asks for.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Runtime {
+pub struct ScriptedRuntime {
     scheduled: VecDeque<ScenarioStep>,
     next_sequence: u64,
     submitted: u64,
 }
 
-impl Runtime {
+impl ScriptedRuntime {
     /// Starts a runtime that will replay `scenario` and accept user commands alongside it.
     #[must_use]
     pub fn new(scenario: Scenario) -> Self {
@@ -49,7 +49,7 @@ impl Runtime {
     }
 
     /// Emits every scheduled event whose logical tick has arrived.
-    pub fn ready(&mut self, tick: u64) -> Vec<PrototypeEventEnvelope> {
+    pub fn ready(&mut self, tick: u64) -> Vec<SessionEventEnvelope> {
         let mut emitted = Vec::new();
         while self
             .scheduled
@@ -71,24 +71,24 @@ impl Runtime {
     pub fn submit(
         &mut self,
         command: RuntimeCommand,
-    ) -> Result<Vec<PrototypeEventEnvelope>, IdError> {
+    ) -> Result<Vec<SessionEventEnvelope>, IdError> {
         match command {
             RuntimeCommand::SendMessage { to, text } => {
                 self.submitted = self.submitted.saturating_add(1);
                 let item_id = TranscriptItemId::new(format!("user-{}", self.submitted))?;
                 Ok(vec![
-                    self.envelope(PrototypeEvent::TranscriptItemStarted {
+                    self.envelope(SessionEvent::TranscriptItemStarted {
                         agent_id: to.clone(),
                         item_id: item_id.clone(),
                         role: TranscriptRole::User,
                     }),
-                    self.envelope(PrototypeEvent::TranscriptDelta {
+                    self.envelope(SessionEvent::TranscriptDelta {
                         agent_id: to.clone(),
                         item_id: item_id.clone(),
                         item_revision: 1,
                         text,
                     }),
-                    self.envelope(PrototypeEvent::TranscriptItemFinalized {
+                    self.envelope(SessionEvent::TranscriptItemFinalized {
                         agent_id: to,
                         item_id,
                         item_revision: 2,
@@ -104,29 +104,31 @@ impl Runtime {
         !self.scheduled.is_empty()
     }
 
-    fn envelope(&mut self, event: PrototypeEvent) -> PrototypeEventEnvelope {
+    fn envelope(&mut self, event: SessionEvent) -> SessionEventEnvelope {
         let sequence = EventSequence::new(self.next_sequence);
         self.next_sequence = self.next_sequence.saturating_add(1);
-        PrototypeEventEnvelope { sequence, event }
+        SessionEventEnvelope { sequence, event }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, PrototypeEvent, TranscriptRole};
+    use plexmaton_core::{AgentId, SessionEvent, TranscriptRole};
 
-    use super::{Runtime, RuntimeCommand};
+    use super::{RuntimeCommand, ScriptedRuntime};
     use crate::Scenario;
 
-    fn runtime() -> Runtime {
-        Runtime::new(Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")))
+    fn runtime() -> ScriptedRuntime {
+        ScriptedRuntime::new(
+            Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")),
+        )
     }
 
     fn agent(value: &str) -> AgentId {
         AgentId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
     }
 
-    fn send(runtime: &mut Runtime, text: &str) -> Vec<PrototypeEvent> {
+    fn send(runtime: &mut ScriptedRuntime, text: &str) -> Vec<SessionEvent> {
         runtime
             .submit(RuntimeCommand::SendMessage {
                 to: agent("agent-a"),
@@ -169,9 +171,9 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [
-                PrototypeEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
-                PrototypeEvent::TranscriptDelta { text, item_revision: 1, .. },
-                PrototypeEvent::TranscriptItemFinalized { item_revision: 2, .. },
+                SessionEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
+                SessionEvent::TranscriptDelta { text, item_revision: 1, .. },
+                SessionEvent::TranscriptItemFinalized { item_revision: 2, .. },
             ] if text == "hello"
         ));
     }
@@ -183,8 +185,8 @@ mod tests {
         let first = send(&mut runtime, "one");
         let second = send(&mut runtime, "two");
 
-        let id = |events: &[PrototypeEvent]| match &events[0] {
-            PrototypeEvent::TranscriptItemStarted { item_id, .. } => item_id.to_string(),
+        let id = |events: &[SessionEvent]| match &events[0] {
+            SessionEvent::TranscriptItemStarted { item_id, .. } => item_id.to_string(),
             other => panic!("expected a started item, got {other:?}"),
         };
         assert_ne!(

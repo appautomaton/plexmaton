@@ -5,8 +5,8 @@
 //! scripted story with named moments — and these stay what they are, traffic at a stated volume.
 
 use plexmaton_core::{
-    AgentId, AgentStatus, IdError, PrototypeEvent, ToolActivityId, ToolActivityStatus,
-    TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, IdError, SessionEvent, ToolCallId, ToolCallStatus, TranscriptItemId,
+    TranscriptRole,
 };
 
 use crate::{Scenario, ScenarioStep};
@@ -49,7 +49,7 @@ impl Scenario {
         let mut events = Vec::new();
 
         for (index, agent_id) in ids.iter().enumerate() {
-            events.push(PrototypeEvent::AgentCreated {
+            events.push(SessionEvent::AgentCreated {
                 agent_id: agent_id.clone(),
                 label: format!("Agent {index} · workload"),
                 status: AgentStatus::Running,
@@ -81,31 +81,31 @@ impl Scenario {
 }
 
 /// One assistant message, as the four events a streaming producer actually sends.
-fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<PrototypeEvent>, IdError> {
+fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<SessionEvent>, IdError> {
     let item_id = TranscriptItemId::new(format!("m-{agent}-{item}"))?;
     let body = FRAGMENTS
         .get(item % FRAGMENTS.len())
         .copied()
         .unwrap_or_default();
     Ok(vec![
-        PrototypeEvent::TranscriptItemStarted {
+        SessionEvent::TranscriptItemStarted {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             role: TranscriptRole::Assistant,
         },
-        PrototypeEvent::TranscriptDelta {
+        SessionEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 1,
             text: format!("Message {item}. "),
         },
-        PrototypeEvent::TranscriptDelta {
+        SessionEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 2,
             text: body.to_owned(),
         },
-        PrototypeEvent::TranscriptItemFinalized {
+        SessionEvent::TranscriptItemFinalized {
             agent_id: agent_id.clone(),
             item_id,
             item_revision: 3,
@@ -114,15 +114,15 @@ fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<Prototyp
 }
 
 /// A tool moving between running and succeeded, so the activity column has traffic too.
-fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<PrototypeEvent, IdError> {
-    Ok(PrototypeEvent::ToolActivityChanged {
+fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<SessionEvent, IdError> {
+    Ok(SessionEvent::ToolCallChanged {
         agent_id: agent_id.clone(),
-        activity_id: ToolActivityId::new(format!("tool-{agent}-{item}"))?,
+        call_id: ToolCallId::new(format!("tool-{agent}-{item}"))?,
         label: format!("inspect fixture {item}"),
         status: if item.is_multiple_of(16) {
-            ToolActivityStatus::Running
+            ToolCallStatus::Running
         } else {
-            ToolActivityStatus::Succeeded
+            ToolCallStatus::Succeeded
         },
     })
 }
@@ -131,16 +131,16 @@ fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<Prototyp
 mod tests {
     use std::collections::BTreeMap;
 
-    use plexmaton_core::PrototypeEvent;
+    use plexmaton_core::SessionEvent;
 
-    use crate::{Runtime, Scenario};
+    use crate::{Scenario, ScriptedRuntime};
 
     /// One event per tick, which is what lets a harness advance a workload a single event at a
     /// time and attribute the frame that follows to it.
     #[test]
     fn a_workload_schedules_one_event_per_tick() {
         let scenario = Scenario::streaming(20).unwrap_or_else(|error| panic!("fixture: {error}"));
-        let mut runtime = Runtime::new(scenario.clone());
+        let mut runtime = ScriptedRuntime::new(scenario.clone());
 
         for tick in 0..scenario.steps().len() as u64 {
             assert_eq!(
@@ -162,9 +162,7 @@ mod tests {
             .steps()
             .iter()
             .filter_map(|step| match &step.event {
-                PrototypeEvent::TranscriptItemStarted { agent_id, .. } => {
-                    Some(agent_id.to_string())
-                }
+                SessionEvent::TranscriptItemStarted { agent_id, .. } => Some(agent_id.to_string()),
                 _ => None,
             })
             .take(5)
@@ -189,7 +187,7 @@ mod tests {
         let scenario = Scenario::streaming(8).unwrap_or_else(|error| panic!("fixture: {error}"));
         let mut by_item: BTreeMap<String, usize> = BTreeMap::new();
         for step in scenario.steps() {
-            if let PrototypeEvent::TranscriptDelta { item_id, text, .. } = &step.event {
+            if let SessionEvent::TranscriptDelta { item_id, text, .. } = &step.event {
                 *by_item.entry(item_id.to_string()).or_default() += text.chars().count();
             }
         }

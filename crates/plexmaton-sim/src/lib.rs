@@ -4,11 +4,11 @@ mod runtime;
 mod workload;
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, IdError, MailId, PrototypeEvent,
-    ToolActivityId, ToolActivityStatus, TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, IdError, MailId, SessionEvent,
+    ToolCallId, ToolCallStatus, TranscriptItemId, TranscriptRole,
 };
 
-pub use runtime::{Runtime, RuntimeCommand};
+pub use runtime::{RuntimeCommand, ScriptedRuntime};
 
 /// One event scheduled on a deterministic logical clock.
 ///
@@ -17,7 +17,7 @@ pub use runtime::{Runtime, RuntimeCommand};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioStep {
     pub at_tick: u64,
-    pub event: PrototypeEvent,
+    pub event: SessionEvent,
 }
 
 /// A replayable synthetic scenario.
@@ -37,7 +37,7 @@ impl Scenario {
         let events = vec![
             (
                 0,
-                PrototypeEvent::AgentCreated {
+                SessionEvent::AgentCreated {
                     agent_id: agent_a.clone(),
                     label: "Agent A · primary".into(),
                     status: AgentStatus::Running,
@@ -45,7 +45,7 @@ impl Scenario {
             ),
             (
                 1,
-                PrototypeEvent::TranscriptItemStarted {
+                SessionEvent::TranscriptItemStarted {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     role: TranscriptRole::Assistant,
@@ -53,7 +53,7 @@ impl Scenario {
             ),
             (
                 2,
-                PrototypeEvent::TranscriptDelta {
+                SessionEvent::TranscriptDelta {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 1,
@@ -62,7 +62,7 @@ impl Scenario {
             ),
             (
                 4,
-                PrototypeEvent::AgentCreated {
+                SessionEvent::AgentCreated {
                     agent_id: agent_b.clone(),
                     label: "Agent B · UI study".into(),
                     status: AgentStatus::Running,
@@ -70,7 +70,7 @@ impl Scenario {
             ),
             (
                 5,
-                PrototypeEvent::TranscriptDelta {
+                SessionEvent::TranscriptDelta {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 2,
@@ -80,7 +80,7 @@ impl Scenario {
             ),
             (
                 6,
-                PrototypeEvent::TranscriptItemFinalized {
+                SessionEvent::TranscriptItemFinalized {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 3,
@@ -88,7 +88,7 @@ impl Scenario {
             ),
             (
                 7,
-                PrototypeEvent::TranscriptItemStarted {
+                SessionEvent::TranscriptItemStarted {
                     agent_id: agent_b.clone(),
                     item_id: item_b.clone(),
                     role: TranscriptRole::Assistant,
@@ -96,7 +96,7 @@ impl Scenario {
             ),
             (
                 8,
-                PrototypeEvent::TranscriptDelta {
+                SessionEvent::TranscriptDelta {
                     agent_id: agent_b.clone(),
                     item_id: item_b.clone(),
                     item_revision: 1,
@@ -106,16 +106,16 @@ impl Scenario {
             ),
             (
                 10,
-                PrototypeEvent::ToolActivityChanged {
+                SessionEvent::ToolCallChanged {
                     agent_id: agent_b.clone(),
-                    activity_id: ToolActivityId::new("tool-b-1")?,
+                    call_id: ToolCallId::new("tool-b-1")?,
                     label: "inspect interaction fixtures".into(),
-                    status: ToolActivityStatus::Running,
+                    status: ToolCallStatus::Running,
                 },
             ),
             (
                 12,
-                PrototypeEvent::AttentionRequested {
+                SessionEvent::AttentionRequested {
                     agent_id: agent_b.clone(),
                     attention_id: AttentionId::new("attention-b-1")?,
                     kind: AttentionKind::Clarification,
@@ -124,16 +124,16 @@ impl Scenario {
             ),
             (
                 14,
-                PrototypeEvent::ToolActivityChanged {
+                SessionEvent::ToolCallChanged {
                     agent_id: agent_b.clone(),
-                    activity_id: ToolActivityId::new("tool-b-1")?,
+                    call_id: ToolCallId::new("tool-b-1")?,
                     label: "inspect interaction fixtures".into(),
-                    status: ToolActivityStatus::Succeeded,
+                    status: ToolCallStatus::Succeeded,
                 },
             ),
             (
                 15,
-                PrototypeEvent::ArtifactAnnounced {
+                SessionEvent::ArtifactAnnounced {
                     agent_id: agent_b.clone(),
                     artifact_id: ArtifactId::new("artifact-b-1")?,
                     label: "interaction findings".into(),
@@ -142,7 +142,7 @@ impl Scenario {
             ),
             (
                 16,
-                PrototypeEvent::MailDelivered {
+                SessionEvent::MailDelivered {
                     mail_id: MailId::new("mail-b-a-1")?,
                     from: agent_b.clone(),
                     to: agent_a.clone(),
@@ -151,7 +151,7 @@ impl Scenario {
             ),
             (
                 17,
-                PrototypeEvent::AgentStatusChanged {
+                SessionEvent::AgentStatusChanged {
                     agent_id: agent_b,
                     status: AgentStatus::Completed,
                 },

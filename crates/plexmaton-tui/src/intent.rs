@@ -120,7 +120,7 @@ pub enum SelectionIntent {
 /// One thing the user asked the workspace to do.
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
-/// `plexmaton_core::PrototypeEvent`, and the two vocabularies never merge.
+/// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
     /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves on the second,

@@ -33,7 +33,7 @@ agent does not change when the selection does (ui-ux §input).
 TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ RuntimeCommand::SendMessage
                      │                (a submission)              │
                      └─ draft, in graphemes                       ▼
-                                                     PrototypeEvent stream ──▶ the transcript
+                                                     SessionEvent stream ──▶ the transcript
 ```
 
 | Fact | Value |

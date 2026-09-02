@@ -26,7 +26,7 @@ approval no runtime can yet grant. An agent that asks again arrives unseen.
 ## Model
 
 ```text
-PrototypeEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
+SessionEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
                                             │
    user presses Enter on the queue ─────────┴──▶ acknowledge + select the requesting agent
 ```

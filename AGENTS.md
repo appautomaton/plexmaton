@@ -13,7 +13,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | start or resume work on an open phase | its file in [`phases/`](./.agents/phases/), today [`phase-01-one-real-agent.md`](./.agents/phases/phase-01-one-real-agent.md), named so the common path skips the roadmap |
 | ask what the product is, or plan beyond this phase | [`roadmap.md`](./.agents/roadmap.md) |
 | implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
-| start a step big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
+| start a stage big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
 | change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`ui-ux.md`](./.agents/ui-ux.md) |
 | write, change, or delete a test | [`standards/testing.md`](./.agents/standards/testing.md) |
 | organize a module, or add/upgrade/remove a dependency | [`standards/rust.md`](./.agents/standards/rust.md) |
@@ -86,7 +86,7 @@ While changing code: keep patches scoped to one coherent outcome; add or update 
 
 Before handoff: inspect the diff for accidental dependency, generated-file, snapshot, or formatting churn; report what changed, what was tested, and what remains unverified.
 
-For a change to layout, copy, focus, attention, or interaction, done also means a rendered frame at wide, medium, and narrow was looked at, by the user or attached to the step record. A test that a region contains a string proves the mechanism, not the experience.
+For a change to layout, copy, focus, attention, or interaction, done also means a rendered frame at wide, medium, and narrow was looked at, by the user or attached to the stage record. A test that a region contains a string proves the mechanism, not the experience.
 
 Do not claim a check passed unless it was actually run in this workspace. Do not commit, publish, install globally, or mutate live user configuration unless the user explicitly requests it. Commit messages follow Conventional Commits.
 

@@ -25,7 +25,7 @@ known; everything else is pushed down until pushing further would hurt.
 | `roadmap.md` | Thesis, locked invariants, the phase table, research gates, non-goals | Understanding changes, or a phase opens or closes | Never, and it stays the same size |
 | `ui-ux.md` | The experience contract, free of mechanism | A rule changes, or a mechanism moves to a spec | Never |
 | `phases/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
-| `plans/phase-NN-step-MM-*.md` | One step's slices | Every slice | Consumed. Deleted |
+| `plans/phase-NN-stage-MM-*.md` | One stage's slices | Every slice | Consumed. Deleted |
 | `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
 | `research/*.md` | A research gate: the invariants its result must satisfy, its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
@@ -36,7 +36,7 @@ owns the first.
 ## Where we are
 
 Three cells, each saying one thing: the roadmap's row for the phase, the phase file's status, the
-plan's status. Phase, step, slice.
+plan's status. Phase, stage, slice.
 
 `phases/` holds every open phase, one file each. Phases are cut by what must be true at their gate,
 not by layer, and work is cross-cutting, so more than one can be open; in one worktree one slice is
@@ -68,8 +68,8 @@ essays restating the contract, and would have made forty specs a second, driftin
 
 ## Plans
 
-A plan turns one delivery step into slices: independently landable pieces, ordered by what
-constrains what, each with the test that closes it. Any step big enough to have an order gets one.
+A plan turns one delivery stage into slices: independently landable pieces, ordered by what
+constrains what, each with the test that closes it. Any stage big enough to have an order gets one.
 It carries `Phase`, `Contract`, `Status` (slice N of M), then Outcome, Slices, Order and why, and
 Deliberately not in this plan.
 
@@ -113,7 +113,7 @@ long-format, and their ceiling only catches runaway growth.
 | `.agents/README.md` | 8 KB | Split the corpus rules from the budget table |
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 8 KB | An invariant is two sentences and a rationale is one `Rejected:`; what is left over is a second mechanism, so split |
-| `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the step it plans is too big |
+| `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the stage it plans is too big |
 | `.agents/roadmap.md` | 8 KB | Detail belongs in a phase file, a research track, or a spec |
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
 | `.agents/phases/*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |

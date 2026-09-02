@@ -5,7 +5,7 @@ steering and observing multiple agents.
 
 The executable is still synthetic: it exercises the semantic event
 boundary, deterministic multi-agent timeline, TUI reducer, rendering, and terminal event loop
-without connecting to a model provider or tool runtime. A real producer is Phase 01's second step.
+without connecting to a model provider or tool runtime. A real producer is Phase 01's second stage.
 
 ## Workspace
 

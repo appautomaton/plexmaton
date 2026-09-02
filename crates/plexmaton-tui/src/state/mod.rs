@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use plexmaton_core::{AgentId, EventSequence};
 
-pub use agent::{AgentView, ArtifactView, MailView, ToolActivityView, TranscriptItemView};
+pub use agent::{AgentView, ArtifactView, MailView, ToolCallView, TranscriptItemView};
 pub use attention::AttentionView;
 pub use composer::Composer;
 pub use ingest::{ApplyOutcome, ReduceError};

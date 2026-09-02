@@ -35,7 +35,9 @@ These terms are used identically in product copy, architecture, code, and tests.
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
 | Session | The durable conversation and work record owned by one agent identity |
-| Turn | One admitted unit of model or tool activity within a session |
+| Turn | One admitted unit of work in a session: what the user asked, everything the model and its tools did about it, and the answer that ended it |
+| Step | One request to the model and the tool calls it comes back with. A turn is one or more steps, and a turn's budget is counted in them |
+| Tool call | One invocation the model asked for, with a declared effect, a lifecycle, and bounded output |
 | Mail | A typed, durable message delivered between sessions |
 | Artifact | Durable work product or evidence, referenced by identity or path rather than copied into mail |
 | Surface | A rendered interactive region that participates in z-order and event routing |
