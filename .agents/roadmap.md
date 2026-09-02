@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
-| Active phase | [Phase 01 — One real agent](./phases/phase-01-one-real-agent.md), opened 2026-09-02 |
+| Open phases | [Phase 01 — One real agent](./phases/phase-01-one-real-agent.md), opened 2026-09-02 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Mechanism specs | [specs/](./specs/) |
 
@@ -24,14 +24,15 @@ background.
 
 ## Phases
 
-One phase is open at a time. The contract applies to all of them, and a phase refines it only as
-the write-routing table in `AGENTS.md` allows.
+A phase is open while its file exists in `phases/`, and more than one may be, because work is
+cross-cutting. The contract applies to all of them, and a phase refines it only as the write-routing
+table in `AGENTS.md` allows.
 
 | Phase | Purpose | Status |
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | [Active](./phases/phase-01-one-real-agent.md) |
-| 02 | Canonical session state, the remaining provider transports, tools, context projection, persistence, and MCP | Opens at Phase 01's gate; expected to split when it does |
+| 02 | Canonical session state, the remaining provider transports, tools, context projection, persistence, and MCP | Not opened; expected to split when it is |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Not opened |
 

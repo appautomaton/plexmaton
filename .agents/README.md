@@ -35,13 +35,15 @@ owns the first.
 
 ## Where we are
 
-Three cells, each saying one thing: the roadmap's active phase, the phase file's status, the
+Three cells, each saying one thing: the roadmap's row for the phase, the phase file's status, the
 plan's status. Phase, step, slice.
 
-One phase is open at a time. Its file is created when its predecessor nears its gate, so evidence
-constrains the design; every other phase is a row in the roadmap's table until then. Phases carry
-two digits everywhere, `Phase 00`, so prose, the table and the file names are one greppable
-identifier.
+`phases/` holds every open phase, one file each. Phases are cut by what must be true at their gate,
+not by layer, and work is cross-cutting, so more than one can be open; in one worktree one slice is
+in progress at a time, and the plan is where that shows. A phase file is created when its work
+starts and the evidence to constrain it exists, never earlier to make the roadmap look complete;
+until then the phase is a row in the roadmap's table. Phases carry two digits everywhere,
+`Phase 00`, so prose, the table and the file names are one greppable identifier.
 
 ## Specs
 

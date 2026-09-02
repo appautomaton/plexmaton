@@ -10,7 +10,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 
 | When you are about to… | Read |
 | --- | --- |
-| start or resume work on the active phase | [`phases/phase-01-one-real-agent.md`](./.agents/phases/phase-01-one-real-agent.md) — named here so the common path skips the roadmap |
+| start or resume work on an open phase | its file in [`phases/`](./.agents/phases/), today [`phase-01-one-real-agent.md`](./.agents/phases/phase-01-one-real-agent.md), named so the common path skips the roadmap |
 | ask what the product is, or plan beyond this phase | [`roadmap.md`](./.agents/roadmap.md) |
 | implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
 | start a step big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
@@ -28,7 +28,7 @@ A change is not done until the documents it invalidates are rewritten in the sam
 | a mechanism's behaviour | its spec: the invariant, and the evidence table |
 | a rule the contract states | [`ui-ux.md`](./.agents/ui-ux.md), and only with the user's agreement: the contract is theirs, and an agent proposes a change with a rendered frame they have seen |
 | a key binding, or what the executable does or how it runs | the spec's grammar, `scripts/smoke-tui.py` where it drives the key, and the root `README.md` |
-| a phase's or a plan's status | the roadmap's active-phase cell, the phase file's status, the plan's status; three cells, one fact each |
+| a phase's or a plan's status | the roadmap's row for that phase, the phase file's status, the plan's status; three cells, one fact each |
 | a dependency | [`standards/rust.md`](./.agents/standards/rust.md) §audited foundation |
 
 **Cite, don't restate.** Reference `INS-5`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
