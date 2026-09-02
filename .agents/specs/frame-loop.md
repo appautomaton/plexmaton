@@ -68,8 +68,33 @@ first item it builds. That is pointer arithmetic rather than wrapping, and it is
 about layout work specifically.
 
 The distinction is not academic: it is the difference between a frame that stays under a
-millisecond at five thousand messages and one that would not. The numbers, and the scale at which
-the walks would start to matter, are in [`ui-ux.md`](../roadmap/ui-ux.md) §UX performance budgets.
+millisecond at five thousand messages and one that would not. Linear in cheap operations, the
+walks become the budget somewhere around fifty thousand messages, which is where to look first and
+not before.
+
+Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
+machine, release profile, 120 × 40, over a 5,000-message conversation. The targets are the
+contract's ([`ui-ux.md`](../roadmap/ui-ux.md) §performance budgets).
+
+| Workload | Observed | Work |
+| --- | --- | --- |
+| `streaming delta` | 0.9 ms p50, 1.2 ms max | 1 item wrapped, 27 lines built, at any history length |
+| `wheel` | 0.9 ms p50, 1.0 ms max | 0 wrapped |
+| `open inspector` | 1.3 ms p50, 1.5 ms max | 0 wrapped |
+| `two conversations` | 1.4 ms p50, 1.5 ms max | 0 wrapped |
+| `extend selection` | 1.2 ms p50, 1.5 ms max | 0 wrapped |
+| `cold open`, `open hidden conversation` | 12.6 to 12.9 ms p50, 13.4 ms max | 5,000 wrapped, once |
+| `resize` | 12.4 ms p50, 14.3 ms max | 5,000 wrapped, once per width |
+| retained | 10,000 entries for two 5,000-message conversations; at most two widths per conversation (TR-1) | |
+
+Read the timings as an order of magnitude. The same binary on the same laptop under compile load
+measured roughly double every row, and re-running the previous commit under that load reproduced
+the loaded numbers, so the spread is the machine and not the code. A third machine under its own
+load reported 25.9 ms and 29.1 ms for the two cold rows. The three rows that scale with history
+are one cost paid three times, measuring every item once; when something needs it, the fix is a
+retention limit or a lazily measured tail, not a faster wrap. Opening the window and selecting
+measure nothing, because a shelf keeps the conversation's width and a selection changes a style,
+never a character; only a change of width invalidates a height.
 
 ### Work is asserted; time is reported
 
@@ -77,8 +102,8 @@ Two kinds of number, and conflating them makes a performance lane either noise o
 wrapped, lines built, frames painted, and cache entries retained are identical on every machine, so
 they are ordinary test assertions and a regression in them fails a build. Wall-clock latency belongs
 to whichever machine ran the command, so it is recorded beside that machine and its build profile
-and is never asserted — a timing assertion on a shared machine is a flaky test wearing a budget's
-clothes.
+and is never asserted. Rejected: asserting wall-clock budgets, a flaky test wearing a budget's
+clothes; and `criterion`, which cannot see work counts.
 
 ## Failure modes
 
@@ -96,8 +121,8 @@ clothes.
 - **Which surfaces exist, and what each one draws.** Layout and the renderer;
   [`surface-model`](./surface-model.md).
 - **Which surface an event reaches.** [`interaction-routing`](./interaction-routing.md).
-- **The budget numbers themselves.** [`ui-ux.md`](../roadmap/ui-ux.md) §UX performance budgets, so
-  that a target and the mechanism that meets it do not drift apart in two files.
+- **The targets.** [`ui-ux.md`](../roadmap/ui-ux.md) §performance budgets owns them; this file
+  owns what was observed against them.
 - **Continuous performance regression checking.** Numbers from a shared runner would set budgets
   nobody can reproduce. The command is the citation and the machine is named beside the number.
 
