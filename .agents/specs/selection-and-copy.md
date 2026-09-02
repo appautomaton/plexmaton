@@ -29,9 +29,8 @@ stable pointer, and a message copies as the text of its deltas.
 agent it indexes, so it cannot survive onto a different list. Extending in a different surface
 replaces it rather than spanning both, and a selection whose surface stops showing its agent is
 **dropped**, not carried across: index three of one agent's messages is a different message in
-another's. Carrying the agent was originally enough to stop a *frame* highlighting the wrong list;
-it was not enough to stop a *copy* reading one, and the failure was invisible because the highlight
-had already gone. Corrected 2026-09-01.
+another's. Carrying the agent alone stops a *frame* highlighting the wrong list but not a *copy*
+reading one, and that failure is invisible because the highlight has already gone.
 
 **SEL-4 — The workspace produces copied text and never delivers it.** A copy leaves as a value on
 `Outcome`, exactly as a submission does (COM-3). Nothing in `plexmaton-tui` may reach a clipboard,

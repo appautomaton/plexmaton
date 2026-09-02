@@ -16,9 +16,8 @@ The workspace shows the primary agent's conversation. The canonical journey need
 second one — the agent being checked on — without the first leaving the screen, and without
 becoming a window manager to do it.
 
-This is also the phase's one dismissible layer, so it is what gives the `Escape` ladder something to
-resolve and what makes "exactly one cursor" a claim that could fail: with a second text input on
-screen, focus is the only thing deciding where a keystroke goes.
+It is also the one dismissible layer, which gives the `Escape` ladder something to resolve, and the
+second text input, which makes "exactly one cursor" a claim that can fail.
 
 ## Invariants
 
@@ -85,26 +84,21 @@ state::inspector                         ├─ Column     the secondary column,
 
 | Fact | Owner | Why not elsewhere |
 | --- | --- | --- |
-| Which agent is in the window, and whether one is open | `state::roster::Roster::peeked`, derived from the selection | A stored copy is a second source of truth; the first implementation had one and showed a conversation twice |
-| Where the second column goes at ultrawide | `layout::inspector`, out of the conversation's width | The agent column is one box holding the list and the activity (ui-ux §layout classes), and it is not what a second conversation takes rows or columns from |
+| Which agent is in the window, and whether one is open | `state::roster::Roster::peeked`, derived from the selection | A stored copy is a second source of truth; one shipped and showed a conversation twice |
+| Where the second column goes at ultrawide | `layout::inspector`, out of the conversation's width | The agent column (ui-ux §layout classes) is not what a second conversation takes rows from |
 | How the user asked for it to be shown | `state::inspector::Inspector` | Maximize and a dragged height belong to the window, not to the agent it happens to show |
 | Which presentation is used | `layout::inspector`, per frame | Derived from size; storing it would let a stored value disagree with the terminal |
 | Whether a press began a resize | `state::inspector::Inspector` | The router owns *that* a gesture is in progress (INV-4); what the gesture means is not its business |
-| Which agent a keystroke addresses | Derived from the focused surface, and from whether its input fits | Two answers to "where does this go" is how a message reaches the wrong worker, or a draft nobody can see (INS-7) |
-| Where the window's input goes | `layout::inspector::steer_split`, per frame | Geometry, and a draw call must not be where a surface decides which of two states it is in |
+| Which agent a keystroke addresses | Derived from the focused surface, and from whether its input fits | Two answers to "where does this go" reach the wrong worker, or a draft nobody can see (INS-7) |
+| Where the window's input goes | `layout::inspector::steer_split`, per frame | Geometry; a draw call must not decide which of two states a surface is in |
 | The draft itself | `ViewState`, keyed by agent | A draft belongs to the conversation it addresses, so looking elsewhere and returning finds it |
 
 ### Geometry
 
 A shelf takes `min(⌊0.55 × region⌋, region − 10)` rows from the top of the conversation, or whatever
 height the user dragged to, clamped the same way. Below eighteen rows of conversation region the
-presentation falls back to maximized.
-
-`ui-ux.md` gives the reason for eighteen as the ten-row guarantee failing. It does not fail — below
-eighteen the guarantee simply binds instead of the share, and the shelf shrinks toward nothing while
-the conversation keeps its ten. What stops being true is that the shelf is worth being one: at
-eighteen rows it is already two borders and six lines. The number is kept as locked; the reason is
-corrected here.
+presentation falls back to maximized: the ten-row guarantee still holds there, the share simply
+stops binding, but a shelf of two borders and six lines is not worth being one.
 
 A shelf **floats**: it is the one surface above the base layer, drawn inside the conversation's
 border so the conversation keeps its whole rectangle, its title, and its reading position, and the
@@ -115,8 +109,8 @@ cell, and the cells beneath the shelf are cleared before it paints so nothing sh
 
 ### The grammar
 
-`ui-ux.md` left the bindings to be decided by the prototype and asked for one coherent grammar
-rather than one binding per widget. The chords resolve before keyboard focus is consulted, which is
+One grammar rather than one binding per widget. The chords resolve before keyboard focus is
+consulted, which is
 what makes them reachable while the window's own input holds the cursor.
 
 | Input | Meaning | Available under |
@@ -132,24 +126,23 @@ what makes them reachable while the window's own input holds the cursor.
 
 | Situation | Response |
 | --- | --- |
-| A window command with nothing open | A no-op that does not advance the revision. The router says what was pressed; whether there is anything to act on is the reducer's question |
-| The looked-at agent leaves the roster | The panel says so rather than painting an empty box. Nothing removes an agent yet; this is the prepared answer |
-| Going to a request from the primary itself | No window opens and any open one closes, because the primary is already on screen; the keyboard is pointed at its conversation |
+| A window command with nothing open | A no-op that does not advance the revision; whether there is anything to act on is the reducer's question |
+| The looked-at agent leaves the roster | The panel says so rather than painting an empty box; nothing removes an agent yet |
+| Going to a request from the primary itself | No window opens and any open one closes; the primary is already on screen and the keyboard goes to its conversation |
 | No sub-agents yet | The list says so and the arrows move nothing |
 | A drag that began on the body, not the edge | Moves nothing. A grab is recorded at press time or not at all |
 | A press on another surface while a grab is held | Clears the grab rather than leaving a stale one for the next drag |
 | A height dragged past the guarantee | Clamped to it. Dragging is a choice inside the contract, never a way out |
 | A conversation region too small for two surfaces | Maximized, not a sliver |
-| A window rectangle too short for a conversation and an input | Keeps the conversation and becomes navigation-only: no input, no cursor, no draft (INS-7). It still holds focus, and giving the rows back gives the input back |
+| A window rectangle too short for a conversation and an input | Navigation-only: no input, no cursor, no draft (INS-7). It still holds focus, and giving the rows back gives the input back |
 | Closing while a selection was made in the window | The selection goes with it (SEL-3), and so does the maximize or dragged height; a reopened window is the default one |
 | Focus preferring a window that is not registered | Falls back to the first ring stop, and reclaims focus if it returns (SURF-5) |
 
 ## Out of scope
 
-- **Z-order promotion as a user action.** There is one surface above the base layer, so nothing
-  ever needs to be raised past a sibling. The mechanism arrives with a second floating surface;
-  until then `SurfaceTreeError::ZOrderExhausted` stays unreachable, the same way SURF-2's clipping
-  and SURF-4's modality do.
+- **Z-order promotion as a user action.** One surface sits above the base layer, so nothing is
+  raised past a sibling; `SurfaceTreeError::ZOrderExhausted` stays unreachable until a second
+  floating surface exists, as SURF-2's clipping and SURF-4's modality do.
 - **Free two-axis drag.** Cut by ui-ux §drag scope: a shelf is docked, so only its height is a
   user choice.
 - **Expand and collapse for tool activity.** A transcript-item behaviour, not a window one.

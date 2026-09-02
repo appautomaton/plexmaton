@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 budget_for() {
     case "$1" in
         AGENTS.md) echo 10240 ;;
+        README.md) echo 4096 ;;
         .agents/README.md) echo 8192 ;;
         .agents/standards/*.md) echo 8192 ;;
         .agents/specs/*.md) echo 12288 ;;
@@ -40,7 +41,7 @@ while IFS= read -r file; do
             "$file" "$bytes" "$((bytes - budget))" "$budget" >&2
         over=$((over + 1))
     fi
-done < <(git ls-files AGENTS.md .agents | grep '\.md$' | sort)
+done < <(git ls-files AGENTS.md README.md .agents | grep '\.md$' | sort)
 
 if [[ "$over" -ne 0 ]]; then
     printf '\ndoc budget: %d document(s) over budget. Escape hatches are in .agents/README.md;\n' "$over" >&2

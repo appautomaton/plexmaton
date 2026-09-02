@@ -137,26 +137,6 @@ Commands and user intents
 
 The runtime emits semantic events. The TUI decides how those events are presented. Provider wire events, durable session events, agent mail, and UI animation events must not be represented by one catch-all message type.
 
-## Core representation direction
-
-- Keep one authoritative session representation. An active turn may maintain transient assembly state, but must not own an independent full transcript that later needs reconciliation.
-- Separate semantic conversation items from provider-specific replay metadata.
-- Give every session item, tool call, tool result, mail item, turn, and agent a stable identifier.
-- Derive the active provider context through a `ContextProjector` from session state, context policy, model capabilities, and a versioned tool-catalog snapshot.
-- Implement Chat Completions, Responses, and Messages as independent wire adapters over the same semantic core and streaming event vocabulary.
-- Preserve opaque provider continuation data under a provider/model-qualified envelope rather than overloading generic text or reasoning fields.
-- Represent compaction, branching, retry, cancellation, and recovery as explicit state transitions and durable events.
-
-## Network direction
-
-- Start with one long-lived pooled HTTP client using Rustls through `reqwest` or `hyper`/`hyper-util`.
-- Reuse DNS, TCP, TLS, and HTTP/2 connections where providers permit it.
-- Separate connect/header timeout, stream-idle timeout, and whole-turn deadline.
-- Apply backpressure between network decoding, semantic event assembly, persistence, and UI delivery.
-- Coalesce high-frequency text deltas before TUI redraw while preserving exact transcript bytes in runtime state.
-- Implement a bounded, chunk-safe Server-Sent Events parser with incomplete UTF-8 handling and provider-specific decoder state.
-- Do not build a custom HTTP transport before profiling demonstrates a concrete limitation in the standard stack.
-
 ## Delivery phases
 
 ### Phase 00: experience skeleton
@@ -175,8 +155,8 @@ Detailed plan: [Phase 01 — One real agent](./phase-01-one-real-agent.md).
 
 Expected to split when it opens; Phase 01's closure decides where.
 
-- Define session, item, content block, tool, usage, provider replay, and streaming event types; implement the authoritative session reducer and active-turn state machine.
-- Implement pooled HTTP transport and Server-Sent Events decoding; add the remaining provider adapters with recorded fixtures, and prove cross-adapter round trips without discarding provider continuation metadata.
+- Define session, item, content block, tool, usage, provider replay, and streaming event types; implement the authoritative session reducer and active-turn state machine. One authoritative session representation; semantic items separate from provider replay metadata; the provider context derived by a projector from session state, context policy, model capabilities, and a versioned tool catalogue; opaque continuation data kept under a provider-qualified envelope.
+- Implement pooled HTTP transport and Server-Sent Events decoding; add the remaining provider adapters with recorded fixtures, and prove cross-adapter round trips without discarding provider continuation metadata. One long-lived pooled client over Rustls; connect, stream-idle, and whole-turn deadlines kept separate; backpressure from decoder to UI; a bounded, chunk-safe SSE parser; no custom transport before profiling shows a limit.
 - Add a versioned tool registry and capability-aware scheduler.
 - Implement the initial file, search, edit, and command tools with bounded outputs.
 - Select and implement the durable event store after measuring SQLite Write-Ahead Logging versus an append-only log plus index.
@@ -228,6 +208,4 @@ Prefer the smallest architecture that preserves the locked invariants. New subsy
 - Expand one active phase at a time. Do not create detailed Phase 02–04 files merely to make the roadmap look complete.
 - A phase file is created when its predecessor is approaching the exit gate and current evidence can constrain the next design.
 - Put durable product and architecture invariants here; put cross-cutting interaction rules in `ui-ux.md`; put implementation scope and evidence in the active phase file.
-- Promote a phase finding into this file only when it changes a durable invariant or system boundary.
 - Record unresolved choices as research gates with an explicit prototype, comparison corpus, and decision criterion.
-- Completion means the phase exit gate has evidence. File presence, code volume, or a successful happy-path demo is not completion by itself.

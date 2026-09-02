@@ -20,6 +20,7 @@ known; everything else is pushed down until pushing further would hurt.
 | Document | Holds | Changes when | Ends when |
 | --- | --- | --- | --- |
 | `AGENTS.md` | How to work here | A rule that shapes every task changes | Never. Growing for a feature means the feature needed a spec |
+| `README.md` at the root | What the executable does today, and how to run and gate it | The executable changes | Never |
 | `standards/*.md` | How to work in one kind of task | The practice changes | Never |
 | `roadmap/plexmaton.md` | Thesis, locked invariants, the phase table, research gates, non-goals | Understanding changes, or a phase opens or closes | Never, and it stays the same size |
 | `roadmap/ui-ux.md` | The experience contract, free of mechanism | A rule changes, or a mechanism moves to a spec | Never |
@@ -93,6 +94,7 @@ long-format, and their ceiling only catches runaway growth.
 | Path | Budget | Escape hatch when it fires |
 | --- | --- | --- |
 | `AGENTS.md` | 10 KB | Push the section down to `standards/` and add a trigger row |
+| `README.md` at the root | 4 KB | It says what the executable does and how to run it; anything else belongs in the corpus |
 | `.agents/README.md` | 8 KB | Split the corpus rules from the budget table |
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 12 KB | One spec defines one mechanism; split by mechanism |

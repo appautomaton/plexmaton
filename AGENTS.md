@@ -21,6 +21,16 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | write or reorganize a document | [`.agents/README.md`](./.agents/README.md) |
 | compare against a third-party implementation | `.references/`, which is gitignored and absent in a fresh clone. Treat its absence as normal |
 
+A change is not done until the documents it invalidates are rewritten in the same change:
+
+| When you change… | Update |
+| --- | --- |
+| a mechanism's behaviour | its spec: the invariant, and the evidence table |
+| a rule the contract states | [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md), and only with the user's agreement: the contract is theirs, and an agent proposes a change with a rendered frame they have seen |
+| a key binding, or what the executable does or how it runs | the spec's grammar, `scripts/smoke-tui.py` where it drives the key, and the root `README.md` |
+| a phase's or a plan's status | the roadmap's active-phase cell, the phase file's status, the plan's status; three cells, one fact each |
+| a dependency | [`standards/rust.md`](./.agents/standards/rust.md) §audited foundation |
+
 **Cite, don't restate.** Reference `INS-5`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
 
 ## Explicit state and ownership
@@ -42,18 +52,11 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 - Keep terminal event routing, focus, pointer capture, z-order, clipping, and scroll ownership centralized in the interaction/surface layer.
 - Provider APIs are wire adapters over a shared semantic core; Chat Completions, Responses, and Messages do not get separate agent loops.
 - Tools expose typed schemas, effects/capabilities, and bounded outputs. Tool names or prompt prose are not security boundaries.
-- Agent-to-agent mail is a typed domain concept, not a fake user message or a blocking delegation result.
 - Preserve exact semantic content for selection/copy. Do not reconstruct copied content from decorated or clipped terminal cells.
 
 ## Abstraction discipline
 
-Use enough abstraction to protect a real boundary and enable genuine reuse. Do not optimize for hypothetical reuse.
-
-Create an abstraction when at least one is true: two real callers share the same invariant and behavior; an external boundary needs a replaceable/testable adapter; a type prevents invalid states or enforces ownership/capability rules; a measured hot path needs an isolated implementation strategy.
-
-Do not create one merely because a second implementation might exist someday, a function is long but still coherent, a design pattern has a familiar name, or a wrapper can hide an inconvenient API without improving the domain model.
-
-Prefer a concrete implementation with a narrow seam over a general framework. It is easier to extract a correct abstraction from two working cases than to remove a speculative one embedded throughout the system.
+Use enough abstraction to protect a real boundary and enable genuine reuse, never for hypothetical reuse. Create one when two real callers share an invariant, an external boundary needs a replaceable adapter, a type prevents invalid states or enforces ownership, or a measured hot path needs an isolated strategy. Not because a second implementation might exist someday, a function is long but coherent, a pattern has a familiar name, or a wrapper hides an inconvenient API. Prefer a concrete implementation with a narrow seam: extracting an abstraction from two working cases is easier than removing a speculative one.
 
 ## Anti-patterns to avoid
 

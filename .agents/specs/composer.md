@@ -13,9 +13,6 @@ One place accepts typed text, and one place decides what happens when the user p
 Without that, "where does this keystroke go" becomes invisible state, and a message sent to the
 wrong worker is not undone by sending another one.
 
-This file carried its contract inline in a delivery plan until 2026-08-31. Plans are deleted when
-consumed, and the code cites these identifiers, so it was promoted rather than lost.
-
 ## Invariants
 
 **COM-1 — One cursor, derived.** A text cursor is on screen exactly when the focused surface's kind
