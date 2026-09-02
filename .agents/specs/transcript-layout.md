@@ -5,53 +5,34 @@
 | Status | Implemented |
 | Owns | How tall a conversation is, which part of it a frame builds, and where its reader is |
 | Depends on | [surface-model](./surface-model.md) SURF-5 for retained state; the wheel rules in [interaction-routing](./interaction-routing.md) INV-3 |
-| Proven by | `plexmaton-tui::transcript`, `::render`, and `::state::scroll` tests; see the evidence table |
-
-## Purpose
-
-A conversation is the one surface whose content outgrows its viewport by orders of magnitude and
-keeps changing while somebody reads it. Laid out like the other panels — build every line, wrap the
-lot, show a slice — a frame costs the whole history, and the exit gate rules that out: large
-transcripts must not require full-history rendering for a frame.
-
-The second half of the problem is where the reader is. A row number answers that only until the
-next resize, because how many rows precede a message depends on how wide the panel is.
+| Proven by | `plexmaton-tui::transcript`, `::render`, and `::state::scroll` tests |
 
 ## Invariants
 
 **TR-1 — A height is measured once per item, revision, and width.** An item's height comes from the
-same wrapper that paints it (surface-model §viewports), and is recomputed only when that item's revision or the panel's
-width changes. A streaming delta re-measures one item; a resize re-measures each item once; an
-unchanged frame re-measures none.
-
-The width is part of the *key*, not merely a validity check: a conversation changes width when the
-terminal is resized or when the second window opens beside it at ultrawide, and it comes back to
-the width it had. One set of heights per agent made each change invalidate the other width's, and
-the counts above became one whole history per change. A conversation therefore keeps one set per
-width, bounded at two, evicting the width least recently measured.
+same wrapper that paints it (surface-model §viewports) and is recomputed only when that item's
+revision or the panel's width changes: a delta re-measures one item, a resize re-measures each item
+once, an unchanged frame re-measures none. Width is part of the key, because a conversation changes
+width when the second window opens beside it at ultrawide and comes back; a conversation keeps one
+set of heights per width, bounded at two, evicting the width least recently measured.
 
 **TR-2 — A frame builds only what it draws.** The lines a frame constructs are bounded by the
-viewport, not by the conversation's length. Off-screen items contribute their measured height and
+viewport, not by the conversation's length; off-screen items contribute their measured height and
 nothing else.
 
 **TR-3 — A reading position is an item, not a row.** A parked conversation is anchored to a
-transcript item and a row inside it. The same text stays on screen across a resize, and content
-arriving elsewhere in the conversation does not move it.
+transcript item and a row inside it, so the same text stays on screen across a resize and content
+arriving elsewhere does not move it. Both directions of the row-to-item conversion resolve at the
+width that produced the viewport being scrolled, carried out of the frame on the viewport itself.
 Rejected: a row offset, which survives a resize as a number while naming different text; a
-per-surface position, which loses A's place on returning from B (TR-5); and bounded overscan,
-which a synchronous renderer cannot use.
+per-surface position, which loses A's place on returning from B (TR-5); and bounded overscan, which
+a synchronous renderer cannot use.
 
-Turning a row into an item and back is width-dependent, so both directions resolve at the width that
-produced the viewport being scrolled — carried out of the frame on the viewport itself, never read
-from whichever width the cache measured last. Otherwise a wheel notch in one panel names an item
-from the other panel's layout, and the reader lands on a message they never scrolled to.
-
-**TR-4 — Following the tail is a state.** A viewport at its last row is *following* and stays at the
-newest line as content arrives. Scrolling away parks it; scrolling back to the end resumes
-following. Deriving this from `offset == max_offset` loses it at the first delta, which is the one
-moment it matters. A conversation shorter than its viewport is painted at the bottom of it, so the
-newest line is at the bottom whether or not the history overflows, and a window floating over the
-top covers empty rows or rows already read (`ui-ux.md` §shelf).
+**TR-4 — Following the tail is a state.** A viewport at its last row is following and stays at the
+newest line as content arrives; scrolling away parks it and scrolling back to the end resumes it.
+Deriving this from `offset == max_offset` loses it at the first delta. A conversation shorter than
+its viewport is painted at the bottom of it, so a window floating over the top covers empty rows or
+rows already read (ui-ux §shelf).
 
 **TR-5 — A reading position belongs to the conversation.** Each agent's transcript keeps its own
 position, so selecting another agent and returning restores where its reader was (SURF-5).
@@ -65,28 +46,11 @@ ViewState (immutable to the renderer)        TranscriptMetrics (outlives the fra
    wheel ◀──────────────────────────────────  anchor_at ◀── row
 ```
 
-### Ownership
-
-| Fact | Owner | Why not elsewhere |
-| --- | --- | --- |
-| Wrapped item heights | `TranscriptMetrics`, held by the [frame loop](./frame-loop.md), keyed by agent and width | The renderer takes the projection by shared reference, and a cache that dies with the frame is not one |
-| The width a surface's rows were measured at | `Viewport::content_width`, filled in by the renderer | A row count means nothing without it, and the scroll path is not where the renderer's arithmetic should be repeated |
-| Where each reader is | `state::scroll::ScrollState`, keyed by agent | It is user intent, and it has to survive frames and agent switches |
-| Turning a row into an item and back | `TranscriptMetrics` | Both directions need the same heights; two implementations would disagree at exactly one width |
-| What an item's lines are | `content::transcript_item` | Measuring and painting must be given identical input or the height is a guess |
-
-### Anchors
-
-An anchor is `{ item, rows }`. The item is the durable half. The row inside it is width-dependent
-like every other row count, so resolving clamps it to that item's height at the current width —
-without the clamp, a message that wrapped shorter would be overshot and the *next* message would
-appear at the top.
-
-An anchor whose item no longer exists resolves to the tail. Nothing removes an item yet;
-this is the prepared answer for a future that trims history, where rejoining the live conversation
-is the least surprising place to land.
-
-### Cost
+An anchor is `{ item, rows }`. The item is the durable half; the row inside it is clamped to that
+item's height at the current width when resolved, so a message that wrapped shorter is not
+overshot. An anchor whose item no longer exists resolves to the tail. The heights live in
+`TranscriptMetrics`, held by the [frame loop](./frame-loop.md) and keyed by agent and width; the
+width a surface's rows were measured at travels on `Viewport::content_width`.
 
 | Change | Items wrapped |
 | --- | --- |
@@ -95,33 +59,21 @@ is the least surprising place to land.
 | A resize | every item, once |
 | Anything else, including scrolling | 0 |
 
-Summing measured heights still visits every item each frame, as does checking that each cached
-height is still valid. That is arithmetic over a `Vec`, not layout; the claim is about wrapping, and
-`TranscriptMetrics::wrapped` and `::lines_built` are what make it testable rather than asserted.
-What those walks cost, and the length at which they would start to matter, is measured in
-[`frame-loop`](./frame-loop.md) §cost.
+Summing heights and checking each cached one is still valid visits every item each frame; that is
+arithmetic over a `Vec`, not wrapping, and `TranscriptMetrics::wrapped` and `::lines_built` are
+what make the claim testable. What those walks cost is measured in [frame-loop](./frame-loop.md)
+§cost.
 
 ## Failure modes
 
 | Situation | Response |
 | --- | --- |
 | Panel too narrow to wrap into | An item measures zero rows rather than dividing by a zero width |
-| A conversation with no items | The panel falls back to a placeholder; there is nothing to virtualize |
+| A conversation with no items | A placeholder; there is nothing to virtualize |
 | A conversation nothing has measured | No window and no anchor, so the wheel leaves it alone rather than parking it at a guess |
 | An offset past the end of the content | An empty window. Drawing something arbitrary would hide the clamping error that produced it |
-| Content taller than `u16::MAX` rows | Saturates. A viewport offset is a `u16` because that is what the terminal addresses |
-| An anchored item that no longer exists | Resolves to the tail |
-
-## Out of scope
-
-- **Bounded overscan**, which the phase's scope names. A frame here is synchronous and exact:
-  building `n` extra items costs `n` extra wraps and prevents nothing, because there is no
-  asynchronous fill for it to hide. It arrives with a renderer that can be behind.
-- **Expand and collapse for tool activity and artifacts.** Their surface is the inspector
-  (delivery step 7).
-- **Retention limits and cache pruning.** Nothing drops a transcript item yet, so the cache
-  is bounded by the projection it mirrors. Pruning arrives with whatever first drops one.
-- **Which surface the wheel reaches.** [`interaction-routing`](./interaction-routing.md) INV-3.
+| Content taller than `u16::MAX` rows | Saturates; a viewport offset is a `u16` because that is what the terminal addresses |
+| An anchored item that no longer exists | Resolves to the tail. Nothing removes an item yet, so cache pruning has never run |
 
 ## Evidence
 

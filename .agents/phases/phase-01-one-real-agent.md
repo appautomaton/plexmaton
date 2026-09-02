@@ -78,7 +78,7 @@ Assessed against the screen and the tests, per the corpus README.
 | Every tool state, including failure and awaiting approval, is a compact conversation entry that opens to its detail | A test per state, and a frame per state read by eye |
 | A diff entry paints added and removed distinctly and copies as its source | A test, and a frame |
 | The three frames match the contract at wide, medium and narrow | Checked in, diffed by a test, read by the user |
-| Streaming costs one wrap per delta at any history length, with a real producer | `FrameWork` asserted (FR-1) |
+| Streaming costs one wrap per delta at any history length, with a real producer | `FrameWork` asserted (FR-2) |
 | The projection refused nothing under real traffic | The notice log is empty after a session; a test injects a gap and sees the refusal |
 | No user-facing string says `inspector`, `shelf` or `column` | A test over the rendered strings |
 | Nothing in the TUI calls the adapter or a tool | The crate graph: `plexmaton-tui` depends on `plexmaton-core` only |

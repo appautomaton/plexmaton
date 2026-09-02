@@ -135,6 +135,8 @@ scroll without moving the transcript behind it.
 - Acknowledging a notification is distinct from resolving the underlying mail, approval, or failure.
 - The queue carries both directions of the relationship: an agent asking the user for something, and
   a delegating agent objecting to something the user changed. Neither may open a modal or take focus.
+- The queue is chrome, like the notice strip: it appears when it has something to say, takes no
+  focus, and is never a surface in the sense of §user control.
 
 ### Stable spatial memory
 
@@ -336,7 +338,7 @@ payload retained.
 
 Targets are chosen against a 16 ms frame, so a budget spent is a frame the user waits for. Work
 counts are asserted by tests; wall-clock time is only reported, beside the machine that produced
-it (FR-3). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loop.md) §cost.
+it (FR-4). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loop.md) §cost.
 
 | Budget | Target | Workload |
 | --- | --- | --- |

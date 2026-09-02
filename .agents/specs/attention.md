@@ -5,89 +5,49 @@
 | Status | Implemented |
 | Owns | What happens when a background agent needs the user, and what the user can do about it |
 | Depends on | The attention rules in [`ui-ux.md`](../ui-ux.md) §attention management; the focused-surface grammar in [interaction-routing](./interaction-routing.md) INV-10 |
-| Proven by | `plexmaton-tui::state::attention` and `::workspace` tests; see the evidence table |
-
-## Purpose
-
-A delegating workspace has agents that get stuck. The whole point of delegating is that the user is
-somewhere else when it happens, so the mechanism that tells them has to be one that does not take
-them back.
-
-This is also the reason the workspace has no modal surface at all. The one thing that would have opened
-one is a background approval, and this exists so it does not.
+| Proven by | `plexmaton-tui::state::attention` and `::workspace` tests |
 
 ## Invariants
 
-**ATT-1 — Arriving costs the user nothing.** A queued request does not move keyboard focus, change
-the selected agent, open a dismissible surface, move the text cursor, or disturb a draft. Being
-visible is the whole of what it does.
+**ATT-1 — Arriving costs the user nothing.** A queued request moves no keyboard focus, changes no
+selected agent, opens no dismissible surface, moves no text cursor, and disturbs no draft. The queue
+is chrome like the notice strip (ui-ux §attention management): it appears under the strip when it
+has something to say, and its rows come out of what has already been read, so the newest
+conversation rows and the composer stay where they are.
 
 **ATT-2 — Going to a request is a keypress the user made.** The queue has its own cursor, and
-`Enter` on it selects the requesting agent and moves the keyboard there. Nothing on the producer
-path can reach that verb — the intent enum it lives in has no producer caller — so "the user chose
-to" is structural rather than a rule to be remembered.
+`Enter` on it selects the requesting agent and moves the keyboard there. No producer path reaches
+that verb: the intent enum it lives in has no producer caller.
 
-**ATT-3 — Acknowledging is not resolving.** Going to a request marks it seen, and a seen request
-stays queued, because it is still outstanding. What clears one is the agent being unblocked, which
-needs an approval the runtime cannot yet grant. An agent that asks again arrives unseen.
+**ATT-3 — Acknowledging is not resolving.** Going to a request marks it seen and leaves it queued,
+because it is still outstanding; what clears one is the agent being unblocked, which needs an
+approval no runtime can yet grant. An agent that asks again arrives unseen.
 
 ## Model
 
 ```text
-PrototypeEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by identity)
+PrototypeEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
                                             │
    user presses Enter on the queue ─────────┴──▶ acknowledge + select the requesting agent
 ```
 
-Coalescing is by `AttentionId`: a repeated request replaces its entry in place and keeps its
-position, so an agent that asks twice produces one item rather than a notification storm.
-
-### Where it is, and why that is not "opening a surface"
-
-The band is registered whenever the queue is non-empty and drawn under the notice strip at the top
-of the screen, so its rows come out of what has already been read: the newest conversation rows and
-the composer stay where they are, and a request arriving never moves the cursor (ATT-1). It is a `Panel`: a
-focus stop, a pointer target, and scrollable, because the queue is unbounded and the band lists
-three requests before it starts scrolling instead of growing.
-
-`ui-ux.md` says background agents never "open a surface" and also that action-required items enter a
-"visible, ordered Attention queue". Those meet here: the band is workspace chrome that appears when
-it has something to say, exactly as the notice strip does, and neither has ever been what "opening a
-surface" meant. What is forbidden is a layer over the user's work that takes focus or blocks input,
-and the band is none of those.
-
-Rows come after the notice strip in priority, so on a short terminal the band is what yields. The
-reason is detectability, the same one that puts the strip above the agent list: a silently wrong
-projection has no other signal, while a blocked agent also reads as `Waiting` in the rail and its
-request returns the moment the rows do.
-
-### Counts
-
-The rail counts **unanswered** requests, not queued ones. A queue of five the user has already been
-to is not five things demanding them, and a count that kept shouting after they did what was asked
-would train them to ignore it. The band's own title carries both numbers, because it is the surface
-with room to show the difference.
+| Fact | Value |
+| --- | --- |
+| Coalescing | By `AttentionId`: a repeat replaces its entry in place and keeps its position, so an agent asking twice is one item |
+| Place | A `Panel` under the notice strip, registered while the queue is non-empty: a focus stop, a pointer target, scrollable |
+| Height | Three requests, then it scrolls rather than grows. On a short terminal it yields its rows before the notice strip does, because a blocked agent also reads as `Waiting` in the rail |
+| Counts | The rail counts unanswered requests, not queued ones; the band's title carries both numbers |
 
 ## Failure modes
 
 | Situation | Response |
 | --- | --- |
-| A request from an agent not in the roster | Rejected at ingest as an unknown agent, which is a producer defect and reaches the notice log |
+| A request from an agent not in the roster | Rejected at ingest as an unknown agent, which reaches the notice log |
 | `Enter` on an empty queue | A no-op that does not advance the revision |
-| Going to a request whose agent has since left the roster | The acknowledgement stands and the selection does not move: the user did see it |
+| Going to a request whose agent has since left the roster | The acknowledgement stands and the selection does not move |
 | More requests than the band lists | The band keeps its height and the rest arrive by scrolling it |
-| A terminal too short for both the band and a comfortable conversation | The band is not registered at all; the rail's count is what remains |
-
-## Out of scope
-
-- **Resolving a request.** There is no `AttentionResolved` event, because no producer can yet emit one
-  honestly. It arrives with real tools and real approvals (Phase 01).
-- **The other direction of the relationship.** `ui-ux.md` asks the queue to carry a delegating agent
-  objecting to something the user changed. Same mechanism, no producer yet.
-- **Acting on a request from inside the queue.** Approving or answering in place needs a reply
-  channel the runtime does not have. Going to the agent is what the workspace offers today.
-- **Clicking a row to act on it.** A press focuses the band; the cursor moves by keyboard. The
-  contract requires every mouse gesture to have a keyboard equivalent, not the reverse.
+| A click on a row | Focuses the band; the cursor moves by keyboard |
+| A terminal too short for the band and a comfortable conversation | The band is not registered; the rail's count remains |
 
 ## Evidence
 

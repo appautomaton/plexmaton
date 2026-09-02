@@ -51,12 +51,18 @@ by an implementation and its tests, outlives the current phase, and is too detai
 `roadmap.md` yet not a cross-cutting rule for `ui-ux.md`. Where documented types already carry
 the contract, the code is the spec.
 
-A spec carries the front matter `Status`, `Owns`, `Depends on`, `Proven by`, and the sections
-Purpose, Invariants, Model, Failure modes, Out of scope, Evidence. Invariants are numbered under a
-prefix no other spec uses, because they are cited bare, far from the file that defines them. Each
-is stated so that a violation is recognisable; one nobody can write a failing test for is prose.
-The evidence table maps each invariant to the test that proves it, lists unproven ones as
-unproven, and is updated in the same change as the code.
+A spec is the front matter `Status`, `Owns`, `Depends on`, `Proven by`, then Invariants and
+Evidence. An invariant is numbered under a prefix no other spec uses, because it is cited bare, far
+from the file that defines it, and is stated in one or two sentences a failing test can be written
+for; beside it go the cite into the contract it comes from and at most one `Rejected:` sentence.
+The evidence table maps each invariant to the test that proves it, lists unproven ones as unproven,
+and is updated in the same change as the code. A spec may add a Model, as a diagram, a type, or a
+state machine; a Failure modes table; and a table for what the mechanism owns that a test cannot
+see, such as a formula or a measured cost. It has no purpose section, because `Owns` is the
+purpose; no out-of-scope section, because the phase file routes what is not built; and no ownership
+rationale, because the code owns what owns what and the contract owns why. Rejected: a six-section
+template with Purpose, Model, Failure modes and Out of scope required, which produced eight-kilobyte
+essays restating the contract, and would have made forty specs a second, drifting codebase.
 
 ## Plans
 
@@ -104,7 +110,7 @@ long-format, and their ceiling only catches runaway growth.
 | `README.md` at the root | 4 KB | It says what the executable does and how to run it; anything else belongs in the corpus |
 | `.agents/README.md` | 8 KB | Split the corpus rules from the budget table |
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
-| `.agents/specs/*.md` | 12 KB | One spec defines one mechanism; split by mechanism |
+| `.agents/specs/*.md` | 8 KB | An invariant is two sentences and a rationale is one `Rejected:`; what is left over is a second mechanism, so split |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the step it plans is too big |
 | `.agents/roadmap.md` | 8 KB | Detail belongs in a phase file, a research track, or a spec |
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
