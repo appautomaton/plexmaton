@@ -116,9 +116,10 @@ struct Hint {
     sheds: u8,
 }
 
-/// Escape resolves the topmost layer and never quits, so no hint offers it as an exit. An arrow
-/// means "move inside what holds focus" (INV-10), so the verb is the surface-independent one rather
-/// than "select", which is only what it does in the rail.
+/// Escape resolves the topmost layer and never quits, so no hint offers it as an exit, and the
+/// quit that is offered is the chord: a bare `q` used to be here and ended sessions from the wrong
+/// focus (INV-7). An arrow means "move inside what holds focus" (INV-10), so the verb is the
+/// surface-independent one rather than "select", which is only what it does in the rail.
 const HINTS: [Hint; 6] = [
     Hint {
         key: "↑↓",
@@ -146,7 +147,7 @@ const HINTS: [Hint; 6] = [
         sheds: 5,
     },
     Hint {
-        key: "q",
+        key: "^c",
         label: "quit",
         sheds: 1,
     },

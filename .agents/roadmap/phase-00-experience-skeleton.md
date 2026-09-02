@@ -165,8 +165,8 @@ and the reduced drag scope — remain unimplemented until the interaction spine 
 [`specs/interaction-routing.md`](../specs/interaction-routing.md) carries INV-1 to INV-9 and names
 the test proving each. Three facts corrected earlier claims:
 
-- **`Escape` no longer quits** (D-031). `Ctrl-C` is the unconditional exit; `q` quits only from a
-  navigation surface, so it stays a letter while a text input holds the cursor.
+- **`Escape` no longer quits** (D-031). `Ctrl-C` is the unconditional exit. `q` quit from a
+  navigation surface until 2026-09-01, when use showed that is where focus starts; it is unbound.
 - **Intents live in `plexmaton-tui`, not `plexmaton-core`** (D-030). The crate sketch above was
   corrected.
 - **Declining an event is a named outcome.** `Routed::Ignored` carries a reason, so a key that does

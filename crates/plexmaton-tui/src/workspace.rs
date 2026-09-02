@@ -1041,15 +1041,15 @@ mod tests {
             "typing must not reach a draft the user cannot see"
         );
         // The consequence of becoming a navigation surface, asserted rather than left to be
-        // discovered: with no cursor on screen a letter is a command again. The command `q` maps to
-        // still refuses while a dismissible layer is open, so this transition does not put an exit
-        // under a bare keypress — `Escape` remains the way out (INV-7).
+        // discovered: with no cursor on screen a letter is a command again, and no bare letter is
+        // the quit (INV-7), so this transition does not put an exit under a keypress the user
+        // thought was text — `Escape` remains the way out.
         assert_eq!(
             workspace
                 .handle(&press(KeyCode::Char('q'), KeyModifiers::NONE))
                 .flow,
             Flow::Continue,
-            "quitting is not how an open inspector gets closed"
+            "a bare letter never ends the session"
         );
 
         // Give the rows back, and the input comes back with the draft that was waiting for it.

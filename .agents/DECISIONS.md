@@ -41,7 +41,7 @@ again the same way — age first, then move the number.
 | D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
 | D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
 | D-032 | 2026-08-31 | Documents are layered by load-time; only `AGENTS.md` is always-on, and every layer has a warn-only budget | Accepted | [.agents/README.md](./README.md), `scripts/check-doc-budget.sh` |
-| D-031 | 2026-08-31 | `Escape` resolves one interaction layer per press and never quits; `Ctrl-C` always quits and `q` quits only from a navigation surface | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7 |
+| D-031 | 2026-08-31 | `Escape` resolves one interaction layer per press and never quits; `Ctrl-C` is the only quit, since 2026-09-01 without a bare `q` | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7 |
 | D-030 | 2026-08-31 | The intent vocabulary lives in `plexmaton-tui`; `plexmaton-core` stays the runtime-to-projection semantic boundary | Accepted | `plexmaton-tui::intent` |
 | D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
 | D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
@@ -219,6 +219,8 @@ one folder means keeping dead plans or deleting live contracts.
 The prototype shipped this way and it was changed: `Esc` quit while there was nothing to dismiss,
 and the moment a shelf or a draft exists the same reflex that closes an overlay ends the session one
 press later. [interaction-routing](./specs/interaction-routing.md) INV-6 and INV-7 replaced it.
+A bare `q` went the same way on 2026-09-01: focus starts on a navigation surface, so it ended the
+session the first time a message was typed one `Tab` too early. `Ctrl-C` is the only quit.
 
 ### D-030 · Putting `TuiIntent` in `plexmaton-core` — rejected
 

@@ -269,8 +269,6 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
         return Routed::Ignored(Ignored::Unbound);
     }
     match key.code {
-        // Quitting must not be the way a dismissible layer gets closed.
-        KeyCode::Char('q') if !context.dismissible => Routed::Intent(TuiIntent::Quit),
         // `Enter` means "open what I am on". In the queue that is a request, and going to it is
         // the user choosing to, which is the only way a background request ever moves anything.
         KeyCode::Enter if context.focused == Some(SurfaceId::Attention) => {
@@ -799,7 +797,11 @@ mod tests {
         );
     }
 
-    /// INV-7: quitting is deliberate, and typing `q` is typing.
+    /// INV-7: quitting is deliberate, and a bare letter is never it.
+    ///
+    /// `q` used to quit under navigation focus. Focus starts on a navigation surface and moves
+    /// without the screen saying so, so the first letter of a message typed one `Tab` too early
+    /// ended the session. A chord is the only shape a quit key can have.
     #[test]
     fn quit_is_explicit_and_unreachable_while_typing() {
         let surfaces = tree();
@@ -819,21 +821,16 @@ mod tests {
             ),
             Routed::Intent(TuiIntent::Text(TextIntent::Insert('q')))
         );
-        assert_eq!(
-            router.translate(
-                &key(KeyCode::Char('q'), KeyModifiers::NONE),
-                &context(&surfaces, KeyboardFocus::Navigation, true)
-            ),
-            Routed::Ignored(Ignored::Unbound),
-            "a dismissible layer must be closed, not escaped by quitting"
-        );
-        assert_eq!(
-            router.translate(
-                &key(KeyCode::Char('q'), KeyModifiers::NONE),
-                &context(&surfaces, KeyboardFocus::Navigation, false)
-            ),
-            Routed::Intent(TuiIntent::Quit)
-        );
+        for dismissible in [true, false] {
+            assert_eq!(
+                router.translate(
+                    &key(KeyCode::Char('q'), KeyModifiers::NONE),
+                    &context(&surfaces, KeyboardFocus::Navigation, dismissible)
+                ),
+                Routed::Ignored(Ignored::Unbound),
+                "a bare letter is not a quit key, whatever is open"
+            );
+        }
     }
 
     /// INV-8: `Shift` hands the gesture back to the terminal.

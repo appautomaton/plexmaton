@@ -144,7 +144,7 @@ def main() -> int:
         on_chrome = click(master, CLICK_IN_FOOTER, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
 
-        os.write(master, b"q")
+        os.write(master, b"\x03")  # Ctrl-C, the only quit (INV-7)
         drain(master, SHUTDOWN_SECONDS, captured)
         exit_code = process.wait(timeout=5)
     except subprocess.TimeoutExpired:
