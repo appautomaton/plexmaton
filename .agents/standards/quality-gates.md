@@ -72,7 +72,7 @@ knowing before you touch it:
   sets `TIOCSWINSZ` explicitly.
 - Without its own session and controlling terminal, the child never receives `SIGWINCH`, so a
   resize is silently ignored.
-- Ratatui emits only changed cells, so an incremental frame carries `1` rather than `attention 1`.
+- Ratatui emits only changed cells, so an incremental frame carries `1` rather than `Agents · !1`.
   The script forces one full repaint through a resize and asserts against that frame.
 - An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
   defect; run the smoke outside it. `Ctrl-C` is the key it quits with, so a change to that binding

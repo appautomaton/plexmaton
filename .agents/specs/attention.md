@@ -36,7 +36,7 @@ PrototypeEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coal
 | Coalescing | By `AttentionId`: a repeat replaces its entry in place and keeps its position, so an agent asking twice is one item |
 | Place | A `Panel` under the notice strip, registered while the queue is non-empty: a focus stop, a pointer target, scrollable |
 | Height | Three requests, then it scrolls rather than grows. On a short terminal it yields its rows before the notice strip does, because a blocked agent also reads as `Waiting` in the rail |
-| Counts | The rail counts unanswered requests, not queued ones; the band's title carries both numbers |
+| Counts | The rail's title wears a badge, `!n`, in the action-required role only while `n` requests are unanswered, and nothing otherwise; the word is the band's, whose title carries both numbers |
 
 ## Failure modes
 

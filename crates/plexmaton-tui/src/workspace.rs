@@ -1466,8 +1466,8 @@ mod tests {
             "the request is still outstanding: the user saw it, nothing granted it"
         );
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Agents).contains("attention 0"),
-            "and the rail counts what is unanswered, not what is queued"
+            !painted(&terminal, &workspace, SurfaceId::Agents).contains(" · !"),
+            "and the rail's badge counts what is unanswered, so nothing unanswered is no badge"
         );
     }
 

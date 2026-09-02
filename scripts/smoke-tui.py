@@ -11,7 +11,7 @@ Two properties of the byte stream shape the assertions:
 * The window size is set explicitly with `TIOCSWINSZ`. A pseudo-terminal without one reports 0x0,
   the frame renders no cells, and a content assertion would pass or fail for the wrong reason.
 * Ratatui emits only the cells that differ from the previous frame, so an incremental frame shows
-  `1` rather than `attention 1`, and unchanged spaces arrive as cursor moves rather than
+  `1` rather than `Agents · !1`, and unchanged spaces arrive as cursor moves rather than
   characters. The run therefore resizes the terminal to force one full repaint and asserts
   against that frame, ignoring whitespace on both sides.
 
@@ -49,7 +49,7 @@ SHUTDOWN_SECONDS = 3.0
 EXPECTED_ON_FULL_FRAME = (
     "Agent A · primary",
     "Agent B · UI study",
-    "attention 1",
+    "Agents · !1",
     "Activity",
     "Mail",
     "agent-b",

@@ -31,25 +31,49 @@ pub(super) fn title(
     name_role: Role,
     rest: impl Into<String>,
 ) -> Line<'static> {
+    title_with(palette, name, name_role, rest, Role::Muted)
+}
+
+/// A title whose detail carries a role of its own, for the one detail that is not muted.
+fn title_with(
+    palette: &Palette,
+    name: impl Into<String>,
+    name_role: Role,
+    rest: impl Into<String>,
+    rest_role: Role,
+) -> Line<'static> {
     Line::from(vec![
         Span::raw(" "),
         Span::styled(name.into(), palette.style(name_role)),
-        Span::styled(rest.into(), palette.style(Role::Muted)),
+        Span::styled(rest.into(), palette.style(rest_role)),
         Span::raw(" "),
     ])
 }
 
-/// The rail counts what is still unanswered, because that is the number that means anything.
+/// The rail carries a badge, `!n`, only while `n` requests are unanswered, and nothing otherwise.
 ///
-/// A queue of five the user has been to is not five things demanding them, so counting the total
-/// here would keep the workspace shouting after they had done exactly what was asked (ATT-3).
+/// The word is the band's: it sits under the notice strip whenever the queue has something to
+/// say, so the rail repeating `attention` would say it twice and the number would drown in it.
+/// The badge is the number that means anything, what is still unanswered; a queue of five the
+/// user has been to is not five things demanding them, so counting the total here would keep the
+/// workspace shouting after they had done exactly what was asked (ATT-3). The panel's name keeps
+/// the heading role, so the colour lands on the badge and not on the word beside it.
 pub(super) fn agents_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    title(
+    title_with(
         palette,
         "Agents",
-        attention_role(state),
-        format!(" · attention {}", state.attention_pending()),
+        Role::SectionHeading,
+        attention_badge(state),
+        Role::ActionRequired,
     )
+}
+
+/// `" · !n"` while `n` requests are unanswered; empty otherwise, so the title says nothing.
+pub(super) fn attention_badge(state: &ViewState) -> String {
+    match state.attention_pending() {
+        0 => String::new(),
+        pending => format!(" · !{pending}"),
+    }
 }
 
 /// The band names both numbers, because it is the surface that can show the difference.

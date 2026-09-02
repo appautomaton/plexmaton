@@ -807,7 +807,7 @@ mod tests {
         let rendered = draw(&canonical_state(), 120, 24);
 
         assert!(rendered.contains("Agent A · primary"));
-        assert!(rendered.contains("attention 1"));
+        assert!(rendered.contains("Agents · !1"));
         assert!(rendered.contains("remains interactive"));
         // Mail, artifacts, and tool activity are reduced for agent A's inspector; a projection
         // that silently dropped them would still render a plausible-looking transcript.
@@ -891,5 +891,62 @@ mod tests {
             }
         }
         assert!(found_key, "the footer must paint the focus key");
+    }
+
+    /// The rail's badge is the number that is unanswered, coloured, and nothing when it is zero.
+    ///
+    /// The word `attention` belongs to the band; the rail repeating it would say it twice and
+    /// bury the number. The colour lands on the badge, not on the panel's name, so the name
+    /// reads as every other heading and the badge is what the eye finds.
+    #[test]
+    fn the_rail_wears_a_badge_only_while_something_is_unanswered() {
+        for palette in [Palette::ansi(), Palette::truecolor(), Palette::monochrome()] {
+            let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
+            let bounds = surfaces
+                .get(SurfaceId::Agents)
+                .expect("the rail is registered at wide")
+                .bounds;
+            let top = region_text(
+                &buffer,
+                Rect {
+                    height: 1,
+                    ..bounds
+                },
+            );
+            assert!(top.contains("Agents · !1"), "{top:?}");
+            assert!(
+                !top.contains("attention"),
+                "the word is the band's: {top:?}"
+            );
+            let column = |needle: char| {
+                let at = top
+                    .chars()
+                    .position(|c| c == needle)
+                    .unwrap_or_else(|| panic!("{needle:?} is painted: {top:?}"));
+                bounds.x + u16::try_from(at).unwrap_or_else(|_| panic!("a column fits a u16"))
+            };
+            let name = column('A');
+            let badge = column('!');
+            assert_eq!(
+                ink(buffer[(name, bounds.y)].style()),
+                role_ink(&palette, Role::SectionHeading),
+                "the name keeps the heading role"
+            );
+            assert_eq!(
+                ink(buffer[(badge, bounds.y)].style()),
+                role_ink(&palette, Role::ActionRequired),
+                "the badge carries the action-required role"
+            );
+        }
+
+        let quiet = draw(&ViewState::default(), 120, 24);
+        let top = quiet
+            .lines()
+            .find(|line| line.contains("Agents"))
+            .unwrap_or_else(|| panic!("the rail is painted: {quiet}"));
+        assert!(
+            !top.contains('!'),
+            "nothing unanswered is no badge: {top:?}"
+        );
     }
 }
