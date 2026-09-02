@@ -149,6 +149,17 @@ mod tests {
         fn painted(&self, surface_id: SurfaceId) -> String {
             region_text(self.terminal.backend().buffer(), self.bounds(surface_id))
         }
+
+        /// The conversation's rows beneath the second window: what the user can still read of it.
+        fn beneath(&self) -> String {
+            let conversation = self.bounds(SurfaceId::Transcript);
+            let shelf = self.bounds(SurfaceId::Inspector);
+            self.painted(SurfaceId::Transcript)
+                .lines()
+                .skip(usize::from(shelf.bottom().saturating_sub(conversation.y)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
     }
 
     /// Journey steps 1 to 5: A converses, delegates, and both stream while the user keeps their
@@ -169,12 +180,14 @@ mod tests {
         let before = journey.focused();
         journey.advance(6);
         assert_eq!(journey.workspace.state().agents().count(), 2);
-        assert_eq!(journey.selected(), "agent-a", "B did not steal the screen");
+        assert_eq!(journey.selected(), "none", "B did not steal the screen");
         assert_eq!(journey.focused(), before, "nor the keyboard");
 
         // Enough conversation that A has a reading position worth losing, then park away from the
         // tail so that "where the user was" is a fact and not a coincidence (TR-5).
-        for message in ["one", "two", "three", "four"] {
+        for message in [
+            "one", "two", "three", "four", "five", "six", "seven", "eight",
+        ] {
             journey.focus(SurfaceId::Composer).write(message);
         }
         journey.focus(SurfaceId::Transcript);
@@ -183,30 +196,19 @@ mod tests {
         }
         let parked = journey.painted(SurfaceId::Transcript);
         assert!(
-            !parked.contains("four"),
+            !parked.contains("eight"),
             "the reader is above the newest message, or this proves nothing"
         );
 
-        // 4 and 5. Open B in an inspector, pin it, and come back to A — which is the arrangement
-        // that puts two agents on screen, because an unpinned inspector follows the selection and
-        // would show the same conversation the panel beside it does (INS-1).
-        //
-        // The earlier version of this assertion claimed "two conversations are on screen, and they
-        // are different conversations" while both panels were showing agent B, and while the
-        // inspector held a detail panel rather than a conversation at all. It is asserted here by
-        // comparing the two, which is the only form of the claim that could fail.
+        // 4 and 5. Look at B. That is all opening is: the primary's conversation stays where it
+        // is and B's opens over it (INS-1), so two different agents are on screen at once.
         journey.focus(SurfaceId::Agents).key(KeyCode::Down);
         assert_eq!(journey.selected(), "agent-b");
-        journey.key(KeyCode::Enter);
-        assert_eq!(journey.focused(), Some(SurfaceId::Inspector));
-        journey.press(KeyCode::Char('p'), KeyModifiers::CONTROL);
-        journey.focus(SurfaceId::Agents).key(KeyCode::Up);
-        assert_eq!(journey.selected(), "agent-a");
 
         let inspected = journey.painted(SurfaceId::Inspector);
-        let conversation = journey.painted(SurfaceId::Transcript);
+        let conversation = journey.beneath();
         assert!(inspected.contains("Agent B"));
-        assert!(conversation.contains("Agent A"));
+        assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
         assert!(
             inspected.contains("surface-routing boundary"),
             "the inspector holds B's conversation, not a second copy of the activity column"
@@ -217,8 +219,11 @@ mod tests {
         );
 
         journey.focus(SurfaceId::Inspector).key(KeyCode::Esc);
-        journey.focus(SurfaceId::Agents).key(KeyCode::Up);
-        assert_eq!(journey.selected(), "agent-a");
+        assert_eq!(
+            journey.selected(),
+            "none",
+            "closing is looking at nobody else"
+        );
         assert_eq!(
             journey.painted(SurfaceId::Transcript),
             parked,
@@ -229,7 +234,7 @@ mod tests {
     /// Journey steps 6 to 8: hover scrolling, shelf manipulation, and a request that interrupts
     /// nothing.
     #[test]
-    fn the_journey_pins_an_agent_and_takes_a_request_without_being_interrupted() {
+    fn the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted() {
         let mut journey = Journey::open(120, 40);
         journey.advance(10);
 
@@ -243,12 +248,14 @@ mod tests {
             "hover routing is not a focus change"
         );
 
-        // 7. Open B, resize its shelf, pin it, maximize and restore, then return to A.
+        // 7. Look at B, enter its window, resize it, maximize and restore, then go back to typing
+        // to A with B still on screen.
         //
         // Z-order promotion is not exercised because it does not exist: a docked shelf splits the
         // conversation region rather than covering it, so nothing overlaps and no surface has a
         // z-index above zero to promote. That finding is recorded in the phase file.
         journey.key(KeyCode::Down).key(KeyCode::Enter);
+        assert_eq!(journey.focused(), Some(SurfaceId::Inspector));
         let shelf = journey.bounds(SurfaceId::Inspector).height;
         journey.press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         assert!(
@@ -256,7 +263,6 @@ mod tests {
             "the keyboard moves the edge the pointer would drag (D-028)"
         );
 
-        journey.press(KeyCode::Char('p'), KeyModifiers::CONTROL);
         journey.press(KeyCode::Char('f'), KeyModifiers::CONTROL);
         assert!(
             journey
@@ -268,12 +274,17 @@ mod tests {
         );
         journey.press(KeyCode::Char('f'), KeyModifiers::CONTROL);
 
-        journey.focus(SurfaceId::Agents).key(KeyCode::Up);
-        assert_eq!(journey.selected(), "agent-a");
+        journey.focus(SurfaceId::Composer);
+        assert_eq!(
+            journey.selected(),
+            "agent-b",
+            "working elsewhere does not close the window"
+        );
         assert!(
             journey.painted(SurfaceId::Inspector).contains("Agent B"),
-            "a pinned inspector is what puts two agents on one screen (INS-1)"
+            "B stays on screen while the user types to A (INS-1)"
         );
+        assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
 
         // 8. B asks for a decision. It queues, and it takes nothing.
         let before = journey.focused();
@@ -287,7 +298,7 @@ mod tests {
                 .is_some()
         );
         assert_eq!(journey.focused(), before);
-        assert_eq!(journey.selected(), "agent-a");
+        assert_eq!(journey.selected(), "agent-b");
     }
 
     /// Journey steps 9 and 10: evidence is produced, copied by its underlying value, and the
@@ -334,8 +345,12 @@ mod tests {
         // And back: one Escape drops the selection, and the workspace is where it was.
         journey.key(KeyCode::Esc);
         assert!(journey.workspace.state().selection().is_none());
-        journey.focus(SurfaceId::Agents).key(KeyCode::Up);
-        assert_eq!(journey.selected(), "agent-a");
+        journey.key(KeyCode::Esc);
+        assert_eq!(
+            journey.selected(),
+            "none",
+            "the second Escape closes B's window"
+        );
         assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
     }
 
@@ -345,22 +360,20 @@ mod tests {
         let mut journey = Journey::open(140, 40);
         journey.advance(17);
         journey.focus(SurfaceId::Agents).key(KeyCode::Down);
-        journey.key(KeyCode::Enter);
-        journey.press(KeyCode::Char('p'), KeyModifiers::CONTROL);
 
-        // Ultrawide, wide, medium, narrow, and back — with an inspector open and a request queued
-        // throughout, which is the state that has the most to lose.
+        // Ultrawide, wide, medium, narrow, and back — with the second window open and a request
+        // queued throughout, which is the state that has the most to lose.
         for (width, height) in [(140, 40), (120, 30), (80, 24), (60, 20), (140, 40)] {
             journey.resize(width, height);
             let state = journey.workspace.state();
             assert_eq!(state.attention_count(), 1, "{width}x{height}: still queued");
             assert!(
-                state.inspector().is_some_and(|open| open.pinned),
-                "{width}x{height}: a pin is not a geometry, so no resize may drop it (INS-3)"
+                state.inspector().is_some(),
+                "{width}x{height}: the window is the selection, so no resize may drop it (INS-3)"
             );
             assert!(
                 journey.painted(SurfaceId::Inspector).contains("Agent B"),
-                "{width}x{height}: and it is still showing the agent it was pinned to"
+                "{width}x{height}: and it is still showing the agent the user looked at"
             );
             assert!(
                 journey

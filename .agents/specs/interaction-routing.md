@@ -103,19 +103,19 @@ Idle ─────────────────────────
 | `Esc` | Escape ladder | Escape ladder |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
-| `↑` / `k`, `↓` / `j` | Move selection | Unbound for now |
-| `Enter` (see below) | Open the inspector | Submit |
-| `Ctrl-P`, `Ctrl-F` | Pin, maximize the inspector | Pin, maximize the inspector |
-| `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the inspector | Shrink, grow the inspector |
+| `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | Unbound for now |
+| `Enter` (see below) | Enter the second window | Submit |
+| `Ctrl-F` | Maximize the second window | Maximize the second window |
+| `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the second window | Shrink, grow the second window |
 | Printable character | Unbound unless bound above | Insert |
 | `Backspace` | Unbound | Delete backward |
 | `Enter` | Unbound | Submit |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-The inspector chords resolve *before* keyboard focus is consulted, which is what makes them
-reachable while the inspector's own input holds the cursor — a control chord is never text (INV-2).
+The second-window chords resolve *before* keyboard focus is consulted, which is what makes them
+reachable while the window's own input holds the cursor — a control chord is never text (INV-2).
 `Enter` is the deliberate exception and the reason the others are chords: under a cursor it submits,
-so opening cannot live there. They are translated whether or not an inspector is open; the router
+so entering cannot live there. They are translated whether or not a window is open; the router
 says what was pressed, and whether there is anything to act on is the reducer's question.
 [`inspector`](./inspector.md) owns what each one does.
 
@@ -154,7 +154,7 @@ Key *release* events are ignored, so a terminal reporting press and release does
 | INV-3 | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
-| INV-6 | `escape_resolves_one_layer_per_press`, `enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation` |
+| INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |

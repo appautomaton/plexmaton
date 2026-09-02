@@ -255,8 +255,8 @@ mod tests {
     fn mail_retains_sender_identity() {
         let state = canonical_state();
         let primary = state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("canonical scenario selects a primary agent"));
+            .primary_agent()
+            .unwrap_or_else(|| panic!("canonical scenario creates a primary agent"));
         let mail: Vec<_> = primary.inbox().collect();
 
         assert_eq!(mail.len(), 1);

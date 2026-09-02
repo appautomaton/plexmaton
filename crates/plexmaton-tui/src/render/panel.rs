@@ -14,7 +14,10 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::{BORDER_ROWS, chrome::block};
+use super::{
+    BORDER_ROWS,
+    chrome::{block, title},
+};
 use crate::{
     ViewState,
     state::{ScrollPosition, inner_width},
@@ -25,10 +28,40 @@ use crate::{
 /// One bordered, scrollable region, ready to draw.
 pub(super) struct Panel {
     pub(super) body: Body,
-    pub(super) title: String,
-    pub(super) title_role: Role,
-    /// Whether the region spends two rows on its own frame. A single-row region cannot.
-    pub(super) bordered: bool,
+    pub(super) title: Line<'static>,
+    /// Which sides carry a frame, and so how many rows the content cannot have.
+    pub(super) edges: Edges,
+}
+
+/// Which sides of a region carry a frame.
+///
+/// Two surfaces stacked in one box (D-014) share one outline: the upper one has no bottom edge and
+/// the lower one's top edge is drawn as a divider joined to the sides, so together they read as one
+/// box with two sections rather than as two boxes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Edges {
+    /// No frame at all: a collapsed composer row.
+    None,
+    /// A box of its own.
+    All,
+    /// Top and sides, open at the bottom: the upper section of a shared box.
+    Upper,
+    /// A divider on top, then sides and bottom: the lower section of a shared box.
+    Lower,
+    /// Sides and bottom only: the last line of a shared box, with no divider above it. The
+    /// collapsed composer is this — one row reading where typing would go, not a box (D-027).
+    Closing,
+}
+
+impl Edges {
+    /// Rows the frame spends, which the content cannot have.
+    pub(super) const fn rows(self) -> u16 {
+        match self {
+            Self::None => 0,
+            Self::Upper | Self::Closing => 1,
+            Self::All | Self::Lower => BORDER_ROWS,
+        }
+    }
 }
 
 /// What a panel has to draw, and how much of it the frame had to build.
@@ -80,9 +113,14 @@ pub(super) fn render_steer(
         .wrap(Wrap { trim: false })
         .block(block(
             palette,
-            format!(" Steer {label} "),
-            Role::Accent,
+            title(
+                palette,
+                format!("Message {label}"),
+                Role::SectionHeading,
+                "",
+            ),
             true,
+            Edges::All,
         ));
     frame.render_widget(paragraph, area);
     place_cursor(frame, area, &lines);
@@ -104,15 +142,21 @@ pub(super) fn draw_panel(
 ) -> Viewport {
     // An unbordered region spends no rows on a frame, so none of the arithmetic below may take
     // them off. A collapsed composer is the only one, and it is one row tall (D-027).
-    let frame_rows = if panel.bordered { BORDER_ROWS } else { 0 };
-    let mut paragraph = Paragraph::new(panel.body.lines().to_vec()).wrap(Wrap { trim: false });
-    if panel.bordered {
-        paragraph = paragraph.block(block(
-            palette,
-            panel.title.clone(),
-            panel.title_role,
-            focused,
-        ));
+    let frame_rows = panel.edges.rows();
+    let mut lines = panel.body.lines().to_vec();
+    // A conversation shorter than its panel sits at the bottom, the way one that overflows does:
+    // the newest content is always at the bottom, so what a window floating over the top covers
+    // is empty rows or rows already read, never what the user is reading (`ui-ux.md` §shelf).
+    if let Body::Window { viewport, .. } = &panel.body {
+        let slack = viewport.visible_rows.saturating_sub(viewport.content_rows);
+        lines.splice(
+            0..0,
+            std::iter::repeat_n(Line::default(), usize::from(slack)),
+        );
+    }
+    let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    if panel.edges != Edges::None {
+        paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
     }
 
     let (viewport, scroll) = match &panel.body {

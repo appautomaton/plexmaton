@@ -24,12 +24,11 @@ same wrapper that paints it (D-039), and is recomputed only when that item's rev
 width changes. A streaming delta re-measures one item; a resize re-measures each item once; an
 unchanged frame re-measures none.
 
-The width is part of the *key*, not merely a validity check: two surfaces draw a conversation and an
-unpinned inspector follows the selection (INS-1), so at ultrawide the same history is measured twice
-in one frame at two widths. One set of heights per agent made each panel invalidate the other's, and
-the counts above became one whole history per panel per frame. A conversation therefore keeps one
-set per width, bounded by the two surfaces that can draw one, evicting the width least recently
-measured.
+The width is part of the *key*, not merely a validity check: a conversation changes width when the
+terminal is resized or when the second window opens beside it at ultrawide, and it comes back to
+the width it had. One set of heights per agent made each change invalidate the other width's, and
+the counts above became one whole history per change. A conversation therefore keeps one set per
+width, bounded at two, evicting the width least recently measured.
 
 **TR-2 — A frame builds only what it draws.** The lines a frame constructs are bounded by the
 viewport, not by the conversation's length. Off-screen items contribute their measured height and
@@ -47,7 +46,9 @@ from the other panel's layout, and the reader lands on a message they never scro
 **TR-4 — Following the tail is a state.** A viewport at its last row is *following* and stays at the
 newest line as content arrives. Scrolling away parks it; scrolling back to the end resumes
 following. Deriving this from `offset == max_offset` loses it at the first delta, which is the one
-moment it matters.
+moment it matters. A conversation shorter than its viewport is painted at the bottom of it, so the
+newest line is at the bottom whether or not the history overflows, and a window floating over the
+top covers empty rows or rows already read (`ui-ux.md` §shelf).
 
 **TR-5 — A reading position belongs to the conversation.** Each agent's transcript keeps its own
 position, so selecting another agent and returning restores where its reader was (SURF-5).

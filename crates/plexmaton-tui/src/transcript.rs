@@ -60,12 +60,12 @@ struct AtWidth {
 
 /// Measurement widths one conversation keeps, most recently measured first.
 ///
-/// Two, because two surfaces draw a conversation and both may be showing the same agent: an
-/// unpinned inspector follows the selection (INS-1), and at ultrawide it is the secondary column,
-/// so the same history is measured at two different widths in one frame. One set per agent made
-/// each of those frames invalidate the other's heights, which cost a full re-wrap per surface per
-/// frame and left the scroll path resolving anchors against whichever width happened to be
-/// measured last. A third width cannot arise today, because `render` draws a conversation for
+/// Two, because a conversation is drawn at one width until the terminal or the composition
+/// changes, and the width it had before is the one it comes back to: a resize, or a second window
+/// opening and closing, must not re-wrap a whole history each way. One set per agent made each
+/// measurement invalidate the previous width's heights, which cost a full re-wrap per change and
+/// left the scroll path resolving anchors against whichever width happened to be measured last.
+/// A third width cannot arise in one frame, because `render` draws a conversation for
 /// exactly two surface identities; a third has to move this number with it, and what would say so
 /// is the work count in `two_widths_of_one_conversation_do_not_invalidate_each_other`.
 const MEASURED_WIDTHS: usize = 2;
@@ -355,8 +355,8 @@ mod tests {
 
     fn agent(state: &ViewState) -> &AgentView {
         state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("the canonical timeline selects an agent"))
+            .primary_agent()
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
     }
 
     fn anchored_item(position: &TranscriptPosition) -> &plexmaton_core::TranscriptItemId {
@@ -576,11 +576,10 @@ mod tests {
 
     /// TR-1: one conversation measured at two widths keeps both, and neither costs the other.
     ///
-    /// Two surfaces draw a conversation and an unpinned inspector follows the selection (INS-1), so
-    /// at ultrawide the same history is measured twice per frame at two different widths. With one
-    /// set of heights per agent, each measurement invalidated the other's: every frame re-wrapped
-    /// the whole history once per panel, and every reader was resolved against whichever width had
-    /// been measured last.
+    /// A conversation changes width when the terminal does or when the composition does, and it
+    /// comes back to the width it had. With one set of heights per agent, each measurement
+    /// invalidated the other's: every change re-wrapped the whole history, and every reader was
+    /// resolved against whichever width had been measured last.
     #[test]
     fn two_widths_of_one_conversation_do_not_invalidate_each_other() {
         let palette = Palette::default();

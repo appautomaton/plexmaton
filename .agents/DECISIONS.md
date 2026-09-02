@@ -24,13 +24,14 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-049 | 2026-09-01 | The second window is the selection: the list holds only sub-agents, selecting one floats its conversation over the primary's, which never leaves the screen; there is no pin, no follow, and no open command | Accepted | [inspector](./specs/inspector.md) INS-1 |
 | D-048 | 2026-09-01 | A palette is a complete assignment of the twelve colour roles; the three constructors are presets, not a closed set | Accepted | [ui-ux](./roadmap/ui-ux.md) §readability, `plexmaton-tui::theme` |
 | D-047 | 2026-09-01 | An inspector with no room for its input becomes a navigation surface: no input, no cursor, no draft | Accepted | [inspector](./specs/inspector.md) INS-7 |
 | D-046 | 2026-09-01 | In Phase 00 an inspector is a conversation; tools, mail, artifacts and status stay with the activity column, and the composed inspector the roadmap describes is Phase 03's | Accepted | [inspector](./specs/inspector.md) INS-6 |
 | D-045 | 2026-08-31 | An action-required event joins a visible, ordered band and takes nothing; going to one is the user's keypress, and acknowledging it is not resolving it | Accepted | [attention](./specs/attention.md) ATT-1 to ATT-3 |
 | D-044 | 2026-08-31 | A navigation key means "move inside what holds focus": it chooses an agent only in the rail and scrolls everywhere else, which is how the wheel finally has a keyboard equivalent | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-10 |
 | D-043 | 2026-08-31 | A selection is a range over a surface's entries, never over cells; copy returns the producer's source, is bound to `Ctrl-Y`, and is delivered by OSC 52 | Accepted | [selection-and-copy](./specs/selection-and-copy.md) SEL-1 to SEL-5 |
-| D-042 | 2026-08-31 | Inspection is an axis of its own: opening does not move the selection, an unpinned inspector follows it, and a pinned one is what puts two agents on screen | Accepted | [inspector](./specs/inspector.md) INS-1 |
+| D-042 | 2026-08-31 | Inspection is an axis of its own: opening does not move the selection, an unpinned inspector follows it, and a pinned one is what puts two agents on screen | Superseded by D-049 | [inspector](./specs/inspector.md) INS-1 |
 | D-041 | 2026-08-31 | The event loop is one `Workspace` the executable and the harness both drive; frame work is asserted and frame time is only reported | Accepted | [frame-loop](./specs/frame-loop.md) FR-1 to FR-3 |
 | D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
 | D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
@@ -46,7 +47,7 @@ again the same way — age first, then move the number.
 | D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
 | D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
 | D-027 | 2026-08-31 | While a sub-agent's input is active the primary composer collapses to one row rather than hiding | Accepted | [ui-ux](./roadmap/ui-ux.md) §input |
-| D-026 | 2026-08-31 | Opening a sub-agent focuses it, so its input is usable immediately | Accepted | [ui-ux](./roadmap/ui-ux.md) |
+| D-026 | 2026-08-31 | Entering a sub-agent's window focuses it, so its input is usable immediately; looking at one opens the window without moving the keyboard (amended 2026-09-02) | Accepted | [ui-ux](./roadmap/ui-ux.md) §input |
 | D-025 | 2026-08-31 | Minimum terminal is 48 × 12; below it one explicit notice and no workspace content | Accepted | `LayoutClass::for_size` |
 | D-024 | 2026-08-31 | Ultrawide starts at 132 and holds exactly one secondary column, replaced on selection | Accepted | `LayoutClass::for_size`, [ui-ux](./roadmap/ui-ux.md) |
 | D-023 | 2026-08-31 | A shelf guarantees ten readable rows of the primary conversation | Accepted | [ui-ux](./roadmap/ui-ux.md) |
@@ -75,6 +76,17 @@ again the same way — age first, then move the number.
 
 ## Rejected alternatives
 
+### D-049 · Storing which agent the second window shows — rejected
+
+The window's agent was its own state beside the selection, with pin and follow to keep the two
+aligned, and the default path — select B, press Enter — put B on screen twice, because the main
+panel followed the selection too. The user read the contract the other way: the main panel is the
+primary's, and selecting anyone else is looking at them. Deriving the window from the selection
+makes the duplicate unrepresentable and retires pin, follow and the open command; taking the
+primary out of the list makes "select the primary" unsayable. D-042 is superseded; its first
+rejection — `Enter` selecting *and* opening — was rejecting the symptom. Splitting the region
+instead of floating the shelf went the same day: `ui-ux.md` had said overlay all along.
+
 ### D-046 · A composed five-domain inspector in Phase 00 — rejected for now
 
 Two documents described one and the surface was another, so the gap had to close in one direction.
@@ -84,49 +96,26 @@ column already gives for the selected agent. Composing them needs sub-region scr
 selection index meaning different things in different parts of one surface, and an expand/collapse
 model [transcript-layout](./specs/transcript-layout.md) deliberately lacks — a delivery step, not a
 correction, and Phase 03 already owns the ground it stands on. The cost is
-recorded rather than smoothed over: at ultrawide the inspector *is* the one secondary column
-(D-024), so mail and artifacts stay reachable but not beside a second conversation.
+recorded rather than smoothed over. **Amended 2026-09-01:** the activity moved into the agent
+column where D-014 had put it, so it now stays on screen beside a second conversation.
 
 ### D-047 · Guaranteeing the inspector enough rows for its input — rejected
 
-Tempting, because clamping a focused inspector to a conversation plus an input makes the bad state
-unreachable. Rejected because the clamp depends on focus, so `Tab` would resize a panel — geometry
-moving unasked, which INS-3 forbids. INS-5 was already right; only its other half was missing.
+Aged: [inspector](./specs/inspector.md) INS-7 owns it. A clamp that depends on focus makes `Tab` resize a panel (INS-3).
 
 ### D-043 · Character selection, `arboard`, and `Ctrl-C` as the copy key — all rejected
 
-Aged: [selection-and-copy](./specs/selection-and-copy.md) owns the model and the binding, and
-[phase-00](./roadmap/phase-00-experience-skeleton.md) §candidates owns the clipboard constraint.
-Three verdicts. **Character-granular** selection needs an inverse map from painted cells back to
-byte offsets, and makes SEL-1 false: a range in wrapped rows copies different text at a different
-width. **`arboard`** reaches the desktop the *process* runs on, which over SSH or tmux is the wrong
-machine; OSC 52 reaches the terminal the *user* is at and needs no crate, at the stated cost that
-nothing acknowledges it. **`Ctrl-C`** is the unconditional exit (INV-7), and a key that both copies
-and ends sessions is worse than an unfamiliar one.
+Aged: [selection-and-copy](./specs/selection-and-copy.md) owns the model and the binding. Character
+granularity makes SEL-1 false at a second width; `arboard` reaches the wrong machine over SSH;
+`Ctrl-C` is the exit (INV-7).
 
 ### D-045 · Resolving an attention item from inside the queue — rejected for now
 
-Approving in place needs a reply channel the Phase 00 runtime does not have, and an
-`AttentionResolved` event with no producer would be a mechanism pretending to be a contract. So the
-queue has one transition, and it is acknowledgement: a seen request stays queued, because it is
-still outstanding.
-
-Only where a serious alternative was considered. The reason matters more than the verdict.
-
-### D-042 · An inspector tied to the selection — two shapes, both rejected
-
-Aged: [inspector](./specs/inspector.md) INS-1 owns what pinning means, and its failure-modes table
-owns the state that follows. Two verdicts. Making `Enter` **select and open** leaves the shelf
-showing a second copy of the surface beneath it, so "overlay without occlusion" protects rows nobody
-needed and pinning means nothing. **Closing an unpinned inspector** when the selection moves was the
-first implementation, read correctly from `ui-ux.md` and wrong in use: the peek ended at the moment
-it became useful, which is when the user goes back to the conversation they were reading.
+Aged: [attention](./specs/attention.md) ATT-3 owns it. Acknowledging is not resolving; the runtime that can resolve arrives with Phase 01.
 
 ### D-041 · `criterion` as the measurement lane — rejected
 
-Scheduled for this step and did not enter. Its statistics are for a mean, and the interesting
-figure here is a tail; more decisively, the load-bearing evidence is work counts — items wrapped,
-lines built, entries retained — which a benchmark harness cannot see and an ordinary test asserts.
+Aged: the evidence is work counts an ordinary test asserts, which a benchmark harness cannot see.
 
 ### D-041 · Asserting wall-clock budgets in the test suite — rejected
 

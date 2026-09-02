@@ -41,7 +41,7 @@ mod workloads;
 
 use workloads::{
     cold_open, hidden_conversation, inspector, interleaved, resize, select, streaming,
-    switch_reader, two_conversations, wheel,
+    two_conversations, wheel,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -51,7 +51,6 @@ fn main() -> anyhow::Result<()> {
         runs.push(streaming(items)?);
         runs.push(interleaved(items)?);
         runs.push(wheel(items)?);
-        runs.push(switch_reader(items)?);
         runs.push(resize(items)?);
         runs.push(inspector(items)?);
         runs.push(hidden_conversation(items)?);
@@ -119,11 +118,11 @@ impl Harness {
         )
     }
 
-    /// Items in the conversation on screen, reported rather than assumed.
+    /// Items in the primary's conversation, which is the one always on screen.
     pub(crate) fn items_on_screen(&self) -> usize {
         self.workspace
             .state()
-            .selected_agent()
+            .primary_agent()
             .map_or(0, |agent| agent.transcript().count())
     }
 

@@ -8,7 +8,7 @@
 //! one decides which regions exist; this one decides how one region is shared — the conversation
 //! region with the inspector, and then the inspector's own rectangle with its input.
 
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
 
 use super::{BodyRegions, LayoutClass, MIN_PANEL_HEIGHT, band};
 
@@ -69,25 +69,46 @@ pub(super) fn place_inspector(
         // one. The inspector does not carry what that column was showing — it is a conversation
         // (INS-6, D-046) — so the selected agent's tools, artifacts and mail are off screen until
         // this closes. Recorded as a Phase 00 limitation rather than worked around here.
-        Presentation::Column => BodyRegions {
-            inspector: base.activity,
-            activity: None,
-            ..base
-        },
+        // The second conversation earns a column of its own beside the first (D-024), and the two
+        // are equals: ultrawide is sized for two conversations of the same width, and the agent
+        // column and its activity are untouched.
+        Presentation::Column => {
+            let [transcript, inspector] =
+                Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
+                    .areas(conversation);
+            // The composer belongs to the primary's column alone, and the second column runs
+            // the full height beside it: the composer's rows were carved from the conversation
+            // before the split, so they are given back to the column that has no composer.
+            let inspector = Rect {
+                height: inspector.height.saturating_add(base.composer.height),
+                ..inspector
+            };
+            BodyRegions {
+                transcript: Some(transcript),
+                inspector: Some(inspector),
+                composer: Rect {
+                    width: transcript.width,
+                    ..base.composer
+                },
+                ..base
+            }
+        }
         Presentation::Maximized => BodyRegions {
             transcript: None,
             inspector: Some(conversation),
             ..base
         },
+        // The shelf floats over the conversation rather than splitting it (`ui-ux.md` §shelf):
+        // the conversation keeps its whole rectangle, its title and its reading position, and the
+        // shelf covers the top of its interior — the rows already read — leaving the guarantee
+        // visible beneath. "Region" in the height formula is that interior.
         Presentation::Shelf => {
-            let rows = shelf_rows(conversation.height, request.rows);
+            let interior = conversation.inner(Margin::new(1, 1));
+            let rows = shelf_rows(interior.height, request.rows);
             BodyRegions {
-                inspector: band(conversation, conversation.y, rows),
-                transcript: band(
-                    conversation,
-                    conversation.y.saturating_add(rows),
-                    conversation.height.saturating_sub(rows),
-                ),
+                inspector: band(interior, interior.y, rows),
+                inspector_floats: true,
+                transcript: Some(conversation),
                 ..base
             }
         }
@@ -168,7 +189,7 @@ pub fn steer_split(bounds: Rect, wanted: u16) -> Option<SteerSplit> {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::layout::Rect;
+    use ratatui::layout::{Margin, Rect};
 
     use super::{CONVERSATION_GUARANTEE, InspectorRequest, MIN_PANEL_HEIGHT, steer_split};
     use crate::{
@@ -192,6 +213,17 @@ mod tests {
 
     fn height_of(tree: &SurfaceTree, id: SurfaceId) -> Option<u16> {
         tree.get(id).map(|surface| surface.bounds.height)
+    }
+
+    /// Rows of the conversation's interior left readable beneath a shelf, or the whole interior.
+    fn readable_rows(tree: &SurfaceTree) -> Option<u16> {
+        let conversation = tree.get(SurfaceId::Transcript)?.bounds;
+        let interior = conversation.inner(Margin::new(1, 1));
+        let covered = tree
+            .get(SurfaceId::Inspector)
+            .filter(|shelf| interior.union(shelf.bounds) == interior)
+            .map_or(0, |shelf| shelf.bounds.bottom().saturating_sub(interior.y));
+        Some(interior.height.saturating_sub(covered))
     }
 
     /// INS-5, INS-7: the input and the conversation both fit or the input does not appear.
@@ -253,14 +285,30 @@ mod tests {
                     open.get(SurfaceId::Inspector).is_some(),
                     "{context}: an open inspector must reach the screen at every supported size"
                 );
-                let Some(after) = height_of(&open, SurfaceId::Transcript) else {
+                let Some(after) = readable_rows(&open) else {
                     continue;
                 };
-                let before = height_of(&closed, SurfaceId::Transcript).unwrap_or_default();
+                let before = readable_rows(&closed).unwrap_or_default();
                 assert!(
                     after >= before.min(CONVERSATION_GUARANTEE),
-                    "{context}: the conversation went from {before} rows to {after}"
+                    "{context}: the conversation went from {before} readable rows to {after}"
                 );
+                let shelf = open
+                    .get(SurfaceId::Inspector)
+                    .unwrap_or_else(|| panic!("{context}: asserted open above"));
+                let conversation = open
+                    .get(SurfaceId::Transcript)
+                    .unwrap_or_else(|| {
+                        panic!("{context}: this presentation keeps the conversation")
+                    })
+                    .bounds;
+                if shelf.z_index > 0 {
+                    assert_eq!(
+                        conversation.union(shelf.bounds),
+                        conversation,
+                        "{context}: a shelf floats inside the conversation it covers"
+                    );
+                }
             }
         }
     }
@@ -278,9 +326,19 @@ mod tests {
             )
         };
         let shelf = open(120, 40, InspectorRequest::default());
+        assert_eq!(
+            height_of(&shelf, SurfaceId::Transcript),
+            height_of(
+                &workspace(Rect::new(0, 0, 120, 40), input(false)),
+                SurfaceId::Transcript
+            ),
+            "a shelf floats over the conversation, which keeps its whole rectangle"
+        );
         assert!(
-            height_of(&shelf, SurfaceId::Transcript).is_some_and(|rows| rows > 0),
-            "a shelf shares the region with the conversation"
+            shelf
+                .get(SurfaceId::Inspector)
+                .is_some_and(|surface| surface.z_index > 0),
+            "and it is the one surface above the base layer"
         );
         assert!(
             shelf.get(SurfaceId::Activity).is_some(),
@@ -292,13 +350,26 @@ mod tests {
         assert!(narrow.get(SurfaceId::Transcript).is_none());
         assert!(narrow.get(SurfaceId::Inspector).is_some());
 
-        // Ultrawide spends its width on a second agent rather than on the activity column (D-024).
+        // Ultrawide gives the second agent a column of its own beside the conversation (D-024);
+        // the agent column, list and activity stacked, is untouched (D-014).
         let ultrawide = open(140, 40, InspectorRequest::default());
-        assert!(ultrawide.get(SurfaceId::Transcript).is_some());
+        let conversation = ultrawide
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the conversation stays"))
+            .bounds;
+        let second = ultrawide
+            .get(SurfaceId::Inspector)
+            .unwrap_or_else(|| panic!("the second window is open"));
         assert_eq!(
-            ultrawide.get(SurfaceId::Activity),
-            None,
-            "there is exactly one secondary column, and the inspector is now it"
+            second.bounds.x,
+            conversation.right(),
+            "beside the conversation"
+        );
+        assert_eq!(second.bounds.y, conversation.y);
+        assert_eq!(second.z_index, 0, "a column tiles; only a shelf floats");
+        assert!(
+            ultrawide.get(SurfaceId::Activity).is_some(),
+            "and the activity stays in the agent column"
         );
 
         let maximized = open(
@@ -330,13 +401,12 @@ mod tests {
                 },
             )
         };
-        let default = workspace(Rect::new(0, 0, 120, 40), inspecting(false));
-        let region = height_of(&default, SurfaceId::Inspector).unwrap_or_default()
-            + height_of(&default, SurfaceId::Transcript).unwrap_or_default();
+        let closed = workspace(Rect::new(0, 0, 120, 40), input(false));
+        let region = readable_rows(&closed).unwrap_or_default();
 
         let greedy = with_rows(u16::MAX);
         assert_eq!(
-            height_of(&greedy, SurfaceId::Transcript),
+            readable_rows(&greedy),
             Some(CONVERSATION_GUARANTEE),
             "dragging past the guarantee stops at it rather than through it"
         );

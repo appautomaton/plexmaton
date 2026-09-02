@@ -44,8 +44,9 @@ position, so an agent that asks twice produces one item rather than a notificati
 
 ### Where it is, and why that is not "opening a surface"
 
-The band is registered whenever the queue is non-empty and drawn between the notice strip and the
-composer — the thing that has to be acted on next to the place acting happens. It is a `Panel`: a
+The band is registered whenever the queue is non-empty and drawn under the notice strip at the top
+of the screen, so its rows come out of what has already been read: the newest conversation rows and
+the composer stay where they are, and a request arriving never moves the cursor (ATT-1). It is a `Panel`: a
 focus stop, a pointer target, and scrollable, because the queue is unbounded and the band lists
 three requests before it starts scrolling instead of growing.
 
@@ -56,7 +57,7 @@ surface" meant. What is forbidden is a layer over the user's work that takes foc
 and the band is none of those.
 
 Rows come after the notice strip in priority, so on a short terminal the band is what yields. The
-reason is detectability, the same one that puts the strip above the agent rail: a silently wrong
+reason is detectability, the same one that puts the strip above the agent list: a silently wrong
 projection has no other signal, while a blocked agent also reads as `Waiting` in the rail and its
 request returns the moment the rows do.
 
@@ -92,6 +93,6 @@ with room to show the difference.
 
 | Invariant | Proven by |
 | --- | --- |
-| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_pins_an_agent_and_takes_a_request_without_being_interrupted` |
+| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted` |
 | ATT-2 | `going_to_a_request_is_the_users_move_and_marks_it_seen`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `the_cursor_clamps_at_both_ends_and_survives_an_empty_queue` |
 | ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |

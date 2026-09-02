@@ -173,14 +173,14 @@ impl ViewState {
     ///
     /// The single answer to "what is this panel showing", so that what a key selects, what a frame
     /// highlights, what a wheel scrolls, and what a copy returns cannot come to four different
-    /// conclusions. Two surfaces draw a conversation and each has its own agent, which is the whole
-    /// of what an inspector is for (INS-1).
+    /// conclusions. Two surfaces draw a conversation and they never draw the same agent: the
+    /// conversation is the primary's, and the second window is the selected agent's when that is
+    /// someone else (INS-1).
     pub(crate) fn agent_shown_by(&self, surface: SurfaceId) -> Option<AgentId> {
         match surface {
-            SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone()),
-            SurfaceId::Transcript | SurfaceId::Activity => {
-                self.agents.selected().map(|agent| agent.id.clone())
-            }
+            SurfaceId::Inspector => self.agents.peeked().map(|agent| agent.id.clone()),
+            SurfaceId::Transcript => self.agents.primary().map(|agent| agent.id.clone()),
+            SurfaceId::Activity => self.activity_agent().map(|agent| agent.id.clone()),
             _ => None,
         }
     }
@@ -289,7 +289,7 @@ mod tests {
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_runtime};
+    use crate::{Workspace, state::Selection, surface::SurfaceId};
 
     /// SEL-3: a selection cannot outlive the surface having stopped showing its agent.
     ///
@@ -299,10 +299,21 @@ mod tests {
     /// longer on the screen.
     #[test]
     fn a_selection_does_not_survive_the_surface_changing_agents() {
+        use plexmaton_core::{AgentStatus, PrototypeEvent};
+
+        use crate::test_support::Conversation;
+
+        // Three agents, so the window can change from one sub-agent to another.
+        let mut conversation = Conversation::canonical();
+        conversation.emit(PrototypeEvent::AgentCreated {
+            agent_id: AgentId::new("agent-c").unwrap_or_else(|error| panic!("fixture: {error}")),
+            label: "Agent C · review".into(),
+            status: AgentStatus::Running,
+        });
         let mut workspace = Workspace::default();
         let mut terminal = Terminal::new(TestBackend::new(120, 30))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
-        workspace.emit(canonical_runtime().ready(u64::MAX));
+        workspace.emit(conversation.drain());
 
         let mut step = |workspace: &mut Workspace, event: Option<&Event>| {
             if let Some(event) = event {
@@ -312,20 +323,37 @@ mod tests {
                 .draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
+        // Look at B, enter its window, and select something in it.
         step(&mut workspace, None);
-        step(&mut workspace, Some(&key(KeyCode::Tab, KeyModifiers::NONE)));
+        step(
+            &mut workspace,
+            Some(&key(KeyCode::Down, KeyModifiers::NONE)),
+        );
+        step(
+            &mut workspace,
+            Some(&key(KeyCode::Enter, KeyModifiers::NONE)),
+        );
         step(&mut workspace, Some(&key(KeyCode::Up, KeyModifiers::SHIFT)));
 
         let selected = workspace
             .state()
             .copy()
-            .unwrap_or_else(|| panic!("shift-up in the conversation must select something"));
+            .unwrap_or_else(|| panic!("shift-up in the window must select something"));
         assert!(!selected.text.is_empty());
 
-        // Back to the rail, and on to the next agent. The conversation now draws somebody else.
-        step(
-            &mut workspace,
-            Some(&key(KeyCode::BackTab, KeyModifiers::NONE)),
+        // Back to the list, and on to C. The window now draws somebody else.
+        for _ in 0..workspace.surfaces().len() {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Agents) {
+                break;
+            }
+            step(
+                &mut workspace,
+                Some(&key(KeyCode::BackTab, KeyModifiers::NONE)),
+            );
+        }
+        assert_eq!(
+            workspace.state().focused(workspace.surfaces()),
+            Some(SurfaceId::Agents)
         );
         let before = workspace.state().revision();
         step(
@@ -338,8 +366,8 @@ mod tests {
                 .state()
                 .selected_agent()
                 .map(|agent| agent.id.as_str()),
-            Some("agent-b"),
-            "the fixture must actually have moved the roster, or this proves nothing"
+            Some("agent-c"),
+            "the fixture must actually have moved the window to another agent, or this proves nothing"
         );
         assert!(workspace.state().selection().is_none());
         assert_eq!(
@@ -435,11 +463,17 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
         step(&mut workspace, None);
-        step(&mut workspace, Some(&key(KeyCode::Tab, KeyModifiers::NONE)));
+        // Walk the ring to the conversation; how many stops precede it depends on the width.
+        for _ in 0..workspace.surfaces().len() {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Transcript) {
+                break;
+            }
+            step(&mut workspace, Some(&key(KeyCode::Tab, KeyModifiers::NONE)));
+        }
         assert_eq!(
             workspace.state().focused(workspace.surfaces()),
             Some(SurfaceId::Transcript),
-            "the conversation is the ring's second stop"
+            "the conversation is on the ring at every width"
         );
         for _ in 0..=extend {
             step(&mut workspace, Some(&key(KeyCode::Up, KeyModifiers::SHIFT)));

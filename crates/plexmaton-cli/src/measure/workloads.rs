@@ -96,27 +96,6 @@ pub(super) fn wheel(items: usize) -> anyhow::Result<Run> {
     Ok(run.finish(&harness))
 }
 
-/// Selecting the other conversation and back, which is canonical journey step 4.
-pub(super) fn switch_reader(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
-    harness.warm(usize::MAX)?;
-
-    let mut run = Run::new("switch reader");
-    for sample in 0..SAMPLES {
-        let code = if sample.is_multiple_of(2) {
-            KeyCode::Down
-        } else {
-            KeyCode::Up
-        };
-        let event = Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
-        let started = Instant::now();
-        harness.workspace.handle(&event);
-        let work = harness.draw()?;
-        run.record(started.elapsed(), work);
-    }
-    Ok(run.finish(&harness))
-}
-
 /// Wide, medium, and narrow in turn. Every height is width-dependent, so each one re-measures.
 pub(super) fn resize(items: usize) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::streaming(items)?, SIZE)?;
@@ -133,21 +112,30 @@ pub(super) fn resize(items: usize) -> anyhow::Result<Run> {
     Ok(run.finish(&harness))
 }
 
-/// Opening and closing the inspector, which is the surface open and close budget.
+/// Looking at the other agent and back, which opens and closes the second window (INS-1) and is
+/// both canonical journey step 4 and the surface open and close budget.
 ///
 /// A shelf splits the conversation region vertically, so the conversation keeps its width and every
 /// cached height stays valid. Opening therefore costs a relayout and a repaint and no wrapping at
-/// all, which is what the wraps column is here to show rather than assert in prose.
+/// all, which is what the wraps column is here to show rather than assert in prose. The other
+/// conversation is measured once before timing starts; paying for it cold is `open hidden
+/// conversation`'s job.
 pub(super) fn inspector(items: usize) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
     harness.warm(usize::MAX)?;
+    for code in [KeyCode::Down, KeyCode::Up] {
+        harness
+            .workspace
+            .handle(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
+        harness.draw()?;
+    }
 
     let mut run = Run::new("open inspector");
     for sample in 0..SAMPLES {
         let code = if sample.is_multiple_of(2) {
-            KeyCode::Enter
+            KeyCode::Down
         } else {
-            KeyCode::Esc
+            KeyCode::Up
         };
         let event = Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
         let started = Instant::now();
@@ -172,19 +160,12 @@ pub(super) fn hidden_conversation(items: usize) -> anyhow::Result<Run> {
     for _ in 0..COLD_SAMPLES {
         let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
         harness.warm(usize::MAX)?;
-        // Open the second agent, pin it, and take the rail back to the first — with no frame in
-        // between, so nothing measures the second conversation until the timed draw. A frame here
-        // would warm the cache and leave the measurement with nothing to do.
-        for (code, modifiers) in [
-            (KeyCode::Down, KeyModifiers::NONE),
-            (KeyCode::Enter, KeyModifiers::NONE),
-            (KeyCode::Char('p'), KeyModifiers::CONTROL),
-            (KeyCode::Up, KeyModifiers::NONE),
-        ] {
-            harness
-                .workspace
-                .handle(&Event::Key(KeyEvent::new(code, modifiers)));
-        }
+        // Look at the second agent with no frame in between, so nothing measures its
+        // conversation until the timed draw.
+        harness.workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
         let started = Instant::now();
         let work = harness.draw()?;
         run.record(started.elapsed(), work);
@@ -206,17 +187,12 @@ pub(super) fn hidden_conversation(items: usize) -> anyhow::Result<Run> {
 pub(super) fn two_conversations(items: usize) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
     harness.warm(usize::MAX)?;
-    for code in [KeyCode::Down, KeyCode::Enter, KeyCode::Char('p')] {
-        let modifiers = if code == KeyCode::Char('p') {
-            KeyModifiers::CONTROL
-        } else {
-            KeyModifiers::NONE
-        };
-        harness
-            .workspace
-            .handle(&Event::Key(KeyEvent::new(code, modifiers)));
-        harness.draw()?;
-    }
+    // Looking at the second agent opens its conversation over the first's (INS-1).
+    harness.workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+    )));
+    harness.draw()?;
     let conversation = harness.inside(SurfaceId::Transcript);
     let inspected = harness.inside(SurfaceId::Inspector);
 
@@ -374,20 +350,14 @@ mod tests {
             .warm(usize::MAX)
             .unwrap_or_else(|error| panic!("warm frame: {error}"));
 
-        // Inspect the second agent, pin it, and take the conversation back to the first.
-        for (code, modifiers) in [
-            (KeyCode::Down, KeyModifiers::NONE),
-            (KeyCode::Enter, KeyModifiers::NONE),
-            (KeyCode::Char('p'), KeyModifiers::CONTROL),
-            (KeyCode::Up, KeyModifiers::NONE),
-        ] {
-            harness
-                .workspace
-                .handle(&Event::Key(KeyEvent::new(code, modifiers)));
-            harness
-                .draw()
-                .unwrap_or_else(|error| panic!("measured frame: {error}"));
-        }
+        // Look at the second agent: its conversation opens over the first's (INS-1).
+        harness.workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
+        harness
+            .draw()
+            .unwrap_or_else(|error| panic!("measured frame: {error}"));
 
         let conversation = harness.inside(SurfaceId::Transcript);
         let inspected = harness.inside(SurfaceId::Inspector);
@@ -463,16 +433,8 @@ mod tests {
             .warm(steps.saturating_sub(WINDOW))
             .unwrap_or_else(|error| panic!("warm frame: {error}"));
 
-        // Select the last agent, so most of the remaining traffic belongs to somebody else.
-        for _ in 0..3 {
-            harness.workspace.handle(&Event::Key(KeyEvent::new(
-                KeyCode::Down,
-                KeyModifiers::NONE,
-            )));
-        }
-        harness
-            .draw()
-            .unwrap_or_else(|error| panic!("measured frame: {error}"));
+        // Nothing is looked at, so the primary is on screen alone and three quarters of the
+        // remaining traffic belongs to somebody else.
         let before = harness.items_on_screen();
 
         let mut foreground = 0;
@@ -489,13 +451,13 @@ mod tests {
         let own = harness.items_on_screen().saturating_sub(before);
         assert!(
             own > 0,
-            "the selected conversation has to grow, or this proves nothing"
+            "the primary's conversation has to grow, or this proves nothing"
         );
         // One message of slack, because the window can open and close part-way through one.
         let allowed = own.saturating_add(1).saturating_mul(PER_MESSAGE);
         assert!(
             foreground <= allowed,
-            "{WINDOW} events across four agents grew the selected conversation by {own} messages \
+            "{WINDOW} events across four agents grew the primary's conversation by {own} messages \
              and cost it {foreground} wraps, more than the {allowed} its own traffic can explain"
         );
     }

@@ -1,13 +1,13 @@
-use ratatui::{Frame, layout::Rect};
+use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
 mod chrome;
 mod panel;
 
-use panel::{Body, Panel, draw_panel, place_cursor, render_steer};
+use panel::{Body, Edges, Panel, draw_panel, place_cursor, render_steer};
 
 use chrome::{
-    agents_title, attention_role, attention_title, composer_title, inspector_title, notices_title,
-    render_footer, render_too_small, transcript_title,
+    agents_title, attention_title, composer_title, inspector_title, notices_title, render_footer,
+    render_too_small, title, transcript_title,
 };
 
 use crate::{
@@ -50,8 +50,10 @@ pub fn render(
             attention: state.attention_count(),
             composer_rows: state.composer_rows(area.width),
             inspector: state.inspector_request(),
+            sub_agents: state.sub_agents().count(),
         },
     );
+    let stacking = Stacking::of(&surfaces);
     let focused = state.focused(&surfaces);
     // Both are asked once, before anything is painted, and both come from the projection: whether
     // the inspector has an input is a fact about state and geometry, not a decision a draw call
@@ -60,13 +62,17 @@ pub fn render(
     let cursor_owner = (state.keyboard_focus(&surfaces) == KeyboardFocus::TextInput)
         .then_some(focused)
         .flatten();
-    // Identities first, so each surface's viewport can be recorded as it is measured.
-    let drawn: Vec<(SurfaceId, Rect)> = surfaces
+    // Below wide there is no activity column, so each conversation's title carries its counts.
+    let counts_in_titles = surfaces.get(SurfaceId::Activity).is_none();
+    // Identities first, so each surface's viewport can be recorded as it is measured; painted
+    // bottom layer first, so a surface above another covers it rather than the reverse.
+    let mut drawn: Vec<(u32, SurfaceId, Rect)> = surfaces
         .iter()
-        .map(|surface| (surface.id, surface.bounds))
+        .map(|surface| (surface.z_index, surface.id, surface.bounds))
         .collect();
+    drawn.sort_unstable_by_key(|(z, id, _)| (*z, *id));
 
-    for (id, bounds) in drawn {
+    for (z, id, bounds) in drawn {
         let has_focus = focused == Some(id);
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (D-022, INS-5). What is left is what its
@@ -83,41 +89,58 @@ pub fn render(
                     lines: content::agents(state, palette),
                     follows_tail: false,
                 },
-                title: agents_title(state),
-                title_role: attention_role(state),
-                bordered: true,
+                title: agents_title(state, palette),
+                edges: if stacking.sidebar {
+                    Edges::Upper
+                } else {
+                    Edges::All
+                },
             }),
             SurfaceId::Transcript => Some(Panel {
-                body: conversation_body(state, palette, metrics, bounds, id),
-                title: transcript_title(state),
-                title_role: Role::Muted,
-                bordered: true,
+                body: conversation_body(
+                    state,
+                    palette,
+                    metrics,
+                    bounds,
+                    id,
+                    stacking.over_composer(SurfaceId::Transcript),
+                ),
+                title: transcript_title(state, palette, counts_in_titles),
+                edges: stacking.over_composer(SurfaceId::Transcript),
             }),
             // The inspected agent's conversation, not a second copy of the activity column: the
             // workspace shows one conversation, and the canonical journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
-                body: conversation_body(state, palette, metrics, bounds, id),
-                title: inspector_title(state),
-                title_role: Role::Accent,
-                bordered: true,
+                body: conversation_body(
+                    state,
+                    palette,
+                    metrics,
+                    bounds,
+                    id,
+                    stacking.over_composer(SurfaceId::Inspector),
+                ),
+                title: inspector_title(state, palette, counts_in_titles),
+                edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Activity => Some(Panel {
                 body: Body::Whole {
                     lines: content::activity(state, palette),
                     follows_tail: false,
                 },
-                title: " Activity ".to_owned(),
-                title_role: Role::Muted,
-                bordered: true,
+                title: title(palette, "Activity", Role::SectionHeading, ""),
+                edges: if stacking.sidebar {
+                    Edges::Lower
+                } else {
+                    Edges::All
+                },
             }),
             SurfaceId::Notices => Some(Panel {
                 body: Body::Whole {
                     lines: content::notices(state, palette),
                     follows_tail: true,
                 },
-                title: notices_title(state),
-                title_role: Role::Muted,
-                bordered: true,
+                title: notices_title(state, palette),
+                edges: Edges::All,
             }),
             SurfaceId::Attention => Some(Panel {
                 body: Body::Whole {
@@ -126,27 +149,35 @@ pub fn render(
                     // waiting longest: this band opens at its head, not at its tail.
                     follows_tail: false,
                 },
-                title: attention_title(state),
-                title_role: attention_role(state),
-                bordered: true,
+                title: attention_title(state, palette),
+                edges: Edges::All,
             }),
-            SurfaceId::Composer if bounds.height <= 1 => Some(Panel {
+            // While a sub-agent's input holds the cursor the composer is one row — where typing
+            // would go and how to get back — not a box (D-027). The row closes the conversation's
+            // box, so the only thing that changes is the divider and the empty line going away.
+            SurfaceId::Composer if steer.is_some() => Some(Panel {
                 body: Body::Whole {
                     lines: content::composer_collapsed(state, palette),
                     follows_tail: false,
                 },
-                title: String::new(),
-                title_role: Role::Muted,
-                bordered: false,
+                title: Line::default(),
+                edges: if stacking.composer_under.is_some() {
+                    Edges::Closing
+                } else {
+                    Edges::All
+                },
             }),
             SurfaceId::Composer => Some(Panel {
                 body: Body::Whole {
                     lines: content::composer(state, palette, has_focus, inner_width(bounds.width)),
                     follows_tail: true,
                 },
-                title: composer_title(state),
-                title_role: Role::Muted,
-                bordered: true,
+                title: composer_title(state, palette),
+                edges: if stacking.composer_under.is_some() {
+                    Edges::Lower
+                } else {
+                    Edges::All
+                },
             }),
             SurfaceId::Footer => {
                 render_footer(frame, palette, bounds);
@@ -155,6 +186,11 @@ pub fn render(
         };
 
         let Some(panel) = panel else { continue };
+        // A surface above the base layer paints over whatever is beneath it, so the cells it does
+        // not write must not show through as fragments of the conversation it covers.
+        if z > 0 {
+            frame.render_widget(Clear, bounds);
+        }
         let viewport = draw_panel(
             frame,
             palette,
@@ -171,7 +207,7 @@ pub fn render(
         // answer routing and editing use (SURF-3, COM-1, INS-7) rather than a second one derived
         // here. An inspector's input is the strip below its conversation, so the cursor follows the
         // rectangle the text was drawn into rather than the surface's.
-        if cursor_owner == Some(id) && panel.bordered {
+        if cursor_owner == Some(id) && panel.edges != Edges::None {
             match &steer {
                 Some((split, agent_id)) if id == SurfaceId::Inspector => {
                     render_steer(frame, palette, state, agent_id, split.input);
@@ -182,6 +218,49 @@ pub fn render(
     }
 
     surfaces
+}
+
+/// Which surfaces share one outline this frame.
+///
+/// Two surfaces stacked in one column share a box instead of each drawing one: the list over the
+/// activity (D-014), and a conversation over the composer that addresses it (`ui-ux.md` §input —
+/// the input lives inside the surface it addresses). Read from geometry rather than from layout
+/// class, so the painter and the layout cannot disagree about what is stacked.
+struct Stacking {
+    sidebar: bool,
+    composer_under: Option<SurfaceId>,
+}
+
+impl Stacking {
+    fn of(surfaces: &SurfaceTree) -> Self {
+        let stacked =
+            |upper: SurfaceId, lower: SurfaceId| match (surfaces.get(upper), surfaces.get(lower)) {
+                (Some(upper), Some(lower)) => {
+                    lower.bounds.x == upper.bounds.x && lower.bounds.y == upper.bounds.bottom()
+                }
+                _ => false,
+            };
+        let composer_under = if stacked(SurfaceId::Transcript, SurfaceId::Composer) {
+            Some(SurfaceId::Transcript)
+        } else if stacked(SurfaceId::Inspector, SurfaceId::Composer) {
+            Some(SurfaceId::Inspector)
+        } else {
+            None
+        };
+        Self {
+            sidebar: stacked(SurfaceId::Agents, SurfaceId::Activity),
+            composer_under,
+        }
+    }
+
+    /// The edges of a conversation that may have the composer beneath it.
+    fn over_composer(&self, id: SurfaceId) -> Edges {
+        if self.composer_under == Some(id) {
+            Edges::Upper
+        } else {
+            Edges::All
+        }
+    }
 }
 
 /// Builds the part of one surface's conversation this frame will draw.
@@ -200,6 +279,7 @@ fn conversation_body(
     metrics: &mut TranscriptMetrics,
     area: Rect,
     surface: SurfaceId,
+    edges: Edges,
 ) -> Body {
     let Some(agent) = state
         .agent_shown_by(surface)
@@ -210,7 +290,7 @@ fn conversation_body(
             follows_tail: false,
         };
     };
-    let visible_rows = area.height.saturating_sub(BORDER_ROWS);
+    let visible_rows = area.height.saturating_sub(edges.rows());
     // Every height below belongs to this width, and the viewport carries it out of the frame so the
     // scroll path resolves against the same one rather than against whatever was measured last.
     let width = inner_width(area.width);
@@ -258,7 +338,7 @@ mod tests {
         widgets::{Paragraph, Wrap},
     };
 
-    use super::{chrome::block, transcript_title};
+    use super::{chrome::block, panel::Edges, transcript_title};
 
     use crate::{
         TranscriptMetrics, ViewState,
@@ -328,6 +408,7 @@ mod tests {
                         session.bounds(SurfaceId::Transcript),
                         viewport,
                         height,
+                        !session.is_registered(SurfaceId::Activity),
                     ),
                     "virtualized and whole disagreed at {width}x{height}, {notches} notches up"
                 );
@@ -343,16 +424,24 @@ mod tests {
         bounds: Rect,
         viewport: crate::Viewport,
         height: u16,
+        counts: bool,
     ) -> String {
         let lines: Vec<_> = state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("the canonical timeline selects an agent"))
+            .primary_agent()
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
             .transcript()
             .flat_map(|item| crate::content::transcript_item(item, palette, false))
             .collect();
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .block(block(palette, transcript_title(state), Role::Muted, false))
+            // The composer sits under the conversation in its box, so the reference shares the
+            // same open bottom edge.
+            .block(block(
+                palette,
+                transcript_title(state, palette, counts),
+                false,
+                Edges::Upper,
+            ))
             .scroll((viewport.offset, 0));
 
         let mut terminal =
@@ -442,9 +531,10 @@ mod tests {
         session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 3);
         let reading_a = session.region(SurfaceId::Transcript);
 
+        // B opens in the window — at this size, over the whole region — and is read there.
         session.select(&agent_b);
-        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 9);
-        let reading_b = session.region(SurfaceId::Transcript);
+        session.wheel(SurfaceId::Inspector, ScrollDirection::Up, 9);
+        let reading_b = session.region(SurfaceId::Inspector);
         assert_ne!(
             markers(&reading_a),
             markers(&reading_b),
@@ -461,15 +551,14 @@ mod tests {
         assert_eq!(
             session.region(SurfaceId::Transcript),
             reading_a,
-            "returning to a conversation must restore where its reader was, not where the other \
-             conversation was left"
+            "closing the window must find the conversation where its reader was, not where the \
+             other conversation was left"
         );
-
         session.select(&agent_b);
         assert_eq!(
-            session.region(SurfaceId::Transcript),
+            session.region(SurfaceId::Inspector),
             reading_b,
-            "and going back the other way restores the other one"
+            "and reopening B finds it where its own reader stopped (TR-5)"
         );
     }
 
@@ -509,7 +598,7 @@ mod tests {
             "a reader who returned to the end is carried on by the stream:\n{text}"
         );
 
-        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 2);
         let parked = session.region(SurfaceId::Transcript);
         assert!(
             !parked.contains("Filler message 9"),
@@ -586,7 +675,7 @@ mod tests {
             .select_agent(&agent_b)
             .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
 
-        let (surfaces, buffer) = draw_frame(&state, &Palette::default(), 120, 24);
+        let (surfaces, buffer) = draw_frame(&state, &Palette::default(), 120, 40);
         let region = |id| {
             region_text(
                 &buffer,
@@ -598,7 +687,7 @@ mod tests {
         };
 
         assert!(
-            region(SurfaceId::Transcript).contains("Agent B"),
+            region(SurfaceId::Inspector).contains("Agent B"),
             "the selection really did move, so this is not a test of nothing changing"
         );
         assert!(
@@ -632,6 +721,8 @@ mod tests {
                 role_ink(&palette, Role::Border)
             );
 
+            // Two steps: the activity sits under the list in the same box, then the conversation.
+            state.cycle_focus(&surfaces, Direction::Forward);
             state.cycle_focus(&surfaces, Direction::Forward);
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(
@@ -743,7 +834,10 @@ mod tests {
         let rendered = draw(&canonical_state(), 60, 30);
 
         assert!(rendered.contains("Agents"));
-        assert!(rendered.contains("Activity"));
+        assert!(
+            rendered.contains("1 mail") && !rendered.contains("Activity"),
+            "below wide the activity column is counts in the conversation's title"
+        );
         assert!(rendered.contains("quit"));
     }
 

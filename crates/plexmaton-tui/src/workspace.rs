@@ -10,11 +10,12 @@ use plexmaton_core::PrototypeEventEnvelope;
 use ratatui::{Terminal, backend::Backend, crossterm::event::Event};
 
 use crate::{
+    content,
     intent::{PointerIntent, SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{CopyRequest, Submission, ViewRevision, ViewState},
-    surface::SurfaceTree,
+    state::{CopyRequest, Submission, ViewRevision, ViewState, inner_width},
+    surface::{Point, SurfaceId, SurfaceTree},
     theme::Palette,
     transcript::TranscriptMetrics,
 };
@@ -215,8 +216,13 @@ impl Workspace {
             // A press focuses what it hit; every step of the gesture then reaches the reducer,
             // which is where an edge drag becomes a height.
             TuiIntent::Pointer(pointer) => {
-                if let PointerIntent::Press { surface, .. } = pointer {
+                if let PointerIntent::Press { surface, at } = pointer {
                     self.state.focus_surface(&self.surfaces, surface);
+                    // A click in the list is looking at that agent (INS-1), which is what opens
+                    // the second window. Read against the painted rows, not the roster's index.
+                    if surface == SurfaceId::Agents {
+                        self.click_agent(at);
+                    }
                 }
                 self.state.drag(&self.surfaces, pointer);
             }
@@ -238,6 +244,39 @@ impl Workspace {
             }
         }
         Outcome::default()
+    }
+
+    /// Selects the agent painted under a press in the list, if the press landed on one.
+    fn click_agent(&mut self, at: Point) {
+        let Some(bounds) = self
+            .surfaces
+            .get(SurfaceId::Agents)
+            .map(|surface| surface.bounds)
+        else {
+            return;
+        };
+        // Inside the border, then past whatever the list is scrolled by.
+        let Some(row) = at.y.checked_sub(bounds.y.saturating_add(1)) else {
+            return;
+        };
+        if row >= bounds.height.saturating_sub(2) {
+            return;
+        }
+        let offset = self
+            .surfaces
+            .viewport(SurfaceId::Agents)
+            .map_or(0, |viewport| viewport.offset);
+        let width = inner_width(bounds.width);
+        if let Some(agent) = content::agent_at_row(
+            &self.state,
+            &self.palette,
+            width,
+            row.saturating_add(offset),
+        ) {
+            // The agent came from the roster one line ago, so an unknown one is a race with
+            // nothing, and selecting it again is the no-op the reducer already makes it.
+            let _known = self.state.select_agent(&agent);
+        }
     }
 }
 
@@ -384,8 +423,15 @@ mod tests {
         assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
 
         workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Activity),
+            "the ring runs down the agent column first"
+        );
+        workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(focused(&workspace), Some(SurfaceId::Transcript));
 
+        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
         workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
 
@@ -600,12 +646,12 @@ mod tests {
     /// anything. `Escape` with nothing open must still not quit, which is the other half of INV-6
     /// and the reason the ladder exists at all.
     #[test]
-    fn enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation() {
+    fn selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation() {
         let (mut workspace, mut terminal) = drawn(120, 40);
 
         assert!(
             workspace.surfaces.get(SurfaceId::Inspector).is_none(),
-            "nothing is open until the user asks"
+            "nothing is open until the user looks at someone else"
         );
         assert_eq!(
             workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE)),
@@ -613,18 +659,31 @@ mod tests {
             "and Escape with nothing to dismiss is not a quit"
         );
 
-        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_some());
         assert_eq!(
             focused(&workspace),
+            Some(SurfaceId::Agents),
+            "looking is not entering: the arrows keep working in the list"
+        );
+
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            focused(&workspace),
             Some(SurfaceId::Inspector),
-            "opening one is an explicit action, so it is usable without a second step"
+            "entering is an explicit action, so the window is usable without a second step"
         );
 
         workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
+        assert_eq!(
+            selected(&workspace),
+            "none",
+            "closing is looking at nobody else"
+        );
         assert_eq!(
             focused(&workspace),
             Some(SurfaceId::Transcript),
@@ -632,44 +691,126 @@ mod tests {
         );
     }
 
-    /// A pin is what puts two different agents on the screen at once.
+    /// Rows of the conversation's interior left readable beneath the shelf.
+    fn readable_rows(workspace: &Workspace) -> u16 {
+        let conversation = bounds(workspace, SurfaceId::Transcript);
+        let shelf = bounds(workspace, SurfaceId::Inspector);
+        conversation
+            .bottom()
+            .saturating_sub(1)
+            .saturating_sub(shelf.bottom())
+    }
+
+    /// The conversation's painted rows beneath the shelf: what the user can still read of it.
+    fn painted_beneath(terminal: &Terminal<TestBackend>, workspace: &Workspace) -> String {
+        let conversation = bounds(workspace, SurfaceId::Transcript);
+        let shelf = bounds(workspace, SurfaceId::Inspector);
+        painted(terminal, workspace, SurfaceId::Transcript)
+            .lines()
+            .skip(usize::from(shelf.bottom().saturating_sub(conversation.y)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// INS-1: the window shows the agent the user is looking at, floating over the primary's
+    /// conversation, which keeps its rectangle and its title; `Escape` closes it. Nothing on
+    /// screen is ever shown twice.
     #[test]
-    fn a_pinned_inspector_keeps_its_agent_while_the_conversation_moves_on() {
+    fn the_window_floats_over_the_primary_and_escape_closes_it() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        // Look at agent B and peek it.
+        let before = bounds(&workspace, SurfaceId::Transcript);
+
         workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
-        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
+        let conversation = bounds(&workspace, SurfaceId::Transcript);
+        let shelf = bounds(&workspace, SurfaceId::Inspector);
+        assert_eq!(
+            conversation, before,
+            "the conversation keeps its whole rectangle"
+        );
+        assert_eq!(
+            conversation.union(shelf),
+            conversation,
+            "and the window floats inside it"
+        );
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Transcript)
+                .lines()
+                .next()
+                .is_some_and(|title| title.contains("Agent A")),
+            "the conversation's title stays readable above the window"
+        );
+        assert!(
+            painted_beneath(&terminal, &workspace).contains("assistant"),
+            "and the conversation is still readable beneath it"
+        );
+
+        workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(
+            workspace.surfaces.get(SurfaceId::Inspector).is_none(),
+            "Escape is looking at nobody else"
+        );
+        assert_eq!(selected(&workspace), "none");
+    }
+
+    /// A click in the list is the pointer's way of looking at a sub-agent, and it opens the same
+    /// window the arrows do (INS-1). Rows are the painted ones, so a wrapped label still hits.
+    #[test]
+    fn clicking_an_agent_in_the_list_selects_it_and_opens_its_window() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        let list = bounds(&workspace, SurfaceId::Agents);
+        let row_of = |label: &str, terminal: &Terminal<TestBackend>, workspace: &Workspace| {
+            let index = painted(terminal, workspace, SurfaceId::Agents)
+                .lines()
+                .position(|line| line.contains(label))
+                .unwrap_or_else(|| panic!("{label} is in the list"));
+            list.y
+                .saturating_add(u16::try_from(index).unwrap_or(u16::MAX))
+        };
+        let click = |workspace: &mut Workspace, row: u16| {
+            workspace.handle(&mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                list.x.saturating_add(2),
+                row,
+            ));
+            workspace.handle(&mouse(
+                MouseEventKind::Up(MouseButton::Left),
+                list.x.saturating_add(2),
+                row,
+            ));
+        };
+        assert!(
+            !painted(&terminal, &workspace, SurfaceId::Agents).contains("Agent A"),
+            "the primary is the screen, not a row in the list"
+        );
+
+        let row = row_of("Agent B", &terminal, &workspace);
+        click(&mut workspace, row);
+        frame(&mut workspace, &mut terminal);
+        assert_eq!(selected(&workspace), "agent-b");
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
 
-        // Returning to the rail is what gives the arrows back their meaning. While the inspector
-        // holds focus it holds the cursor, and an arrow under a cursor is not a list movement
-        // (INV-2); anywhere else an arrow scrolls the surface it is in (INV-10). Only in the rail
-        // does it choose an agent, which is what the collapsed composer row's `⇥` leads back to.
-        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
-        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
-        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
-        workspace.handle(&press(KeyCode::Up, KeyModifiers::NONE));
-        frame(&mut workspace, &mut terminal);
-        assert!(
-            painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent A"),
-            "an unpinned peek follows the user rather than ending when they look away"
+        click(&mut workspace, row);
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "clicking the agent already looked at changes nothing, so it costs no frame (FR-1)"
         );
 
-        // Pin it, then move on: the inspector keeps B while the conversation shows A.
-        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
-        workspace.handle(&press(KeyCode::Char('p'), KeyModifiers::CONTROL));
-        workspace.handle(&press(KeyCode::Up, KeyModifiers::NONE));
-        frame(&mut workspace, &mut terminal);
+        click(&mut workspace, list.bottom().saturating_sub(2));
+        assert_eq!(
+            selected(&workspace),
+            "agent-b",
+            "a click on an empty row looks at nobody new"
+        );
 
-        assert!(
-            painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"),
-            "a pinned inspector keeps the agent the user pinned"
-        );
-        assert!(
-            painted(&terminal, &workspace, SurfaceId::Transcript).contains("Agent A"),
-            "while the conversation underneath is the one they went back to"
-        );
+        workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
     }
 
     /// COM-1, D-018, D-022 and D-027: two inputs exist, one cursor does, and neither costs the
@@ -764,8 +905,8 @@ mod tests {
 
         assert_eq!(
             bounds(&workspace, SurfaceId::Composer).height,
-            1,
-            "one row of jump, not three (D-027)"
+            2,
+            "one row and the edge it closes the box with: one row of jump, not three (D-027)"
         );
         assert!(
             painted(&terminal, &workspace, SurfaceId::Composer).contains("to return"),
@@ -778,13 +919,20 @@ mod tests {
         );
         let focused_conversation = bounds(&workspace, SurfaceId::Transcript).height;
 
-        // Step out of the inspector: its input stops existing, and so does the caret (D-018).
+        // Step out of the window: `Tab` lands on the primary composer, which is what the collapsed
+        // row promised, so the window's input stops existing (D-018) and the caret is now the
+        // composer's.
         step(&mut workspace, &mut terminal, &tab);
-        assert_eq!(cursor(&terminal), None);
+        assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
         assert_eq!(
             bounds(&workspace, SurfaceId::Composer).height,
             expanded,
             "and the primary composer comes back to full size"
+        );
+        let caret = cursor(&terminal).unwrap_or_else(|| panic!("the composer owns the cursor now"));
+        assert!(
+            bounds(&workspace, SurfaceId::Composer).contains(caret),
+            "the caret is at {caret:?}, outside the composer"
         );
         assert!(
             focused_conversation >= bounds(&workspace, SurfaceId::Transcript).height,
@@ -822,20 +970,16 @@ mod tests {
         assert_eq!(bounds(&workspace, SurfaceId::Composer).height, expanded);
     }
 
-    /// Two agents, plenty of history each, with B pinned into an inspector and A in the
-    /// conversation. The arrangement INS-1 says pinning exists to produce.
-    /// One conversation on screen twice at ultrawide: the main panel and the secondary column.
-    ///
-    /// The inspector is left unpinned, so it follows the selection (INS-1) and shows the agent the
-    /// conversation is already showing — the state `specs/inspector.md` records as reachable and
-    /// left as specified. At ultrawide the two panels are different widths, which is the whole
-    /// point: the same history is measured twice per frame at two sizes.
-    fn one_conversation_in_two_widths() -> (Workspace, Terminal<TestBackend>, Conversation) {
+    /// The primary with plenty of history, and B beside it at ultrawide. The two columns are
+    /// equals, so the terminal is one cell odd to make them differ by one: two conversations at
+    /// two widths in one frame is what the cache has to get right.
+    fn with_the_second_agent_beside_the_conversation()
+    -> (Workspace, Terminal<TestBackend>, Conversation) {
         let mut conversation = Conversation::canonical();
         conversation.extend(20);
 
         let mut workspace = Workspace::default();
-        let mut terminal = Terminal::new(TestBackend::new(140, 40))
+        let mut terminal = Terminal::new(TestBackend::new(141, 40))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         workspace
@@ -844,7 +988,7 @@ mod tests {
         step(
             &mut workspace,
             &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
+            &press(KeyCode::Down, KeyModifiers::NONE),
         );
         (workspace, terminal, conversation)
     }
@@ -857,12 +1001,12 @@ mod tests {
     }
 
     /// The rows one agent's whole conversation wraps to at `width`, measured the un-virtualized way.
-    fn whole_conversation_rows(workspace: &Workspace, width: u16) -> u16 {
+    fn whole_conversation_rows(workspace: &Workspace, agent: &AgentId, width: u16) -> u16 {
         let palette = Palette::default();
         let agent = workspace
             .state
-            .selected_agent()
-            .unwrap_or_else(|| panic!("the canonical timeline selects an agent"));
+            .agent(agent)
+            .unwrap_or_else(|| panic!("the fixture created {agent}"));
         let lines: Vec<_> = agent
             .transcript()
             .flat_map(|item| crate::content::transcript_item(item, &palette, false))
@@ -876,12 +1020,15 @@ mod tests {
     /// TR-1 through the executable: each panel's rows belong to the width that panel was drawn at.
     ///
     /// Heights were keyed by agent alone, with the width only deciding whether an entry was still
-    /// valid — so the two panels overwrote each other's measurements every frame. What that cost is
-    /// asserted here rather than argued: a steady frame paints nothing, and a streaming delta wraps
-    /// one item per width on screen instead of one whole history per panel.
+    /// valid — so a conversation drawn at a second width threw away the first's measurements. What
+    /// that cost is asserted here rather than argued: a steady frame paints nothing, and a streaming
+    /// delta wraps one item at the one width its conversation is on screen at.
     #[test]
     fn a_conversation_drawn_at_two_widths_measures_correctly_at_both() {
-        let (mut workspace, mut terminal, mut conversation) = one_conversation_in_two_widths();
+        let agent_a = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let (mut workspace, mut terminal, mut conversation) =
+            with_the_second_agent_beside_the_conversation();
         let primary = measured(&workspace, SurfaceId::Transcript);
         let inspected = measured(&workspace, SurfaceId::Inspector);
 
@@ -889,10 +1036,10 @@ mod tests {
             primary.content_width, inspected.content_width,
             "the two panels have to be different widths or this proves nothing"
         );
-        for viewport in [primary, inspected] {
+        for (agent, viewport) in [(&agent_a, primary), (&agent_b, inspected)] {
             assert_eq!(
                 viewport.content_rows,
-                whole_conversation_rows(&workspace, viewport.content_width),
+                whole_conversation_rows(&workspace, agent, viewport.content_width),
                 "a panel {} columns wide reported the height of some other width",
                 viewport.content_width
             );
@@ -910,8 +1057,8 @@ mod tests {
         workspace.emit(conversation.drain());
         let work = frame(&mut workspace, &mut terminal);
         assert_eq!(
-            work.items_wrapped, 2,
-            "a delta costs one wrap per width on screen; a whole history per panel is the defect"
+            work.items_wrapped, 1,
+            "a delta costs one wrap at the width its conversation is drawn at; a whole history is the defect"
         );
     }
 
@@ -934,7 +1081,8 @@ mod tests {
             before.saturating_sub(measured(workspace, SurfaceId::Transcript).offset)
         };
 
-        let (mut alone, mut alone_terminal, _events) = one_conversation_in_two_widths();
+        let (mut alone, mut alone_terminal, _events) =
+            with_the_second_agent_beside_the_conversation();
         step(
             &mut alone,
             &mut alone_terminal,
@@ -947,11 +1095,14 @@ mod tests {
         let control = notch(&mut alone, &mut alone_terminal);
         assert!(control > 0, "the fixture has to be scrollable");
 
-        let (mut inspecting, mut inspecting_terminal, _events) = one_conversation_in_two_widths();
-        assert_eq!(
-            measured(&inspecting, SurfaceId::Transcript).content_width,
-            measured(&alone, SurfaceId::Transcript).content_width,
-            "opening the inspector takes the secondary column, never the conversation's width"
+        let (mut inspecting, mut inspecting_terminal, _events) =
+            with_the_second_agent_beside_the_conversation();
+        // The second column comes out of the conversation's width (D-024), so the conversation is
+        // narrower with it open; a notch must still move the reader the same number of rows.
+        assert!(
+            measured(&inspecting, SurfaceId::Transcript).content_width
+                < measured(&alone, SurfaceId::Transcript).content_width,
+            "the fixture has to change the conversation's width, or this proves nothing"
         );
         assert_eq!(
             notch(&mut inspecting, &mut inspecting_terminal),
@@ -997,7 +1148,7 @@ mod tests {
             "steer",
             "there is a draft to be typed into"
         );
-        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"));
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Message Agent B"));
 
         // Down to the height the guarantee clamps at, where a conversation and an input no longer
         // both fit. The loop is bounded by the ring rather than counted: what is asserted is where
@@ -1026,7 +1177,7 @@ mod tests {
             "and nothing owns a cursor, least of all the conversation"
         );
         assert!(
-            !painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"),
+            !painted(&terminal, &workspace, SurfaceId::Inspector).contains("Message Agent B"),
             "there is no input drawn, which is what INS-5 asks for"
         );
 
@@ -1056,7 +1207,7 @@ mod tests {
         for _ in 0..3 {
             step(&mut workspace, &mut terminal, &grow);
         }
-        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"));
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Message Agent B"));
         let caret = cursor(&terminal).unwrap_or_else(|| panic!("the input is back and drawn"));
         assert!(
             bounds(&workspace, SurfaceId::Inspector).contains(caret),
@@ -1087,30 +1238,13 @@ mod tests {
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
-        // Point the inspector at B and pin it, then take the conversation back to A. An unpinned
-        // inspector would follow, and both panels would be showing the same conversation.
+        // Look at B: its conversation opens over A's, which stays where it is (INS-1).
         step(
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
         );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Char('p'), KeyModifiers::CONTROL),
-        );
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Up, KeyModifiers::NONE),
-        );
-        assert_eq!(selected(&workspace), "agent-a");
+        assert_eq!(selected(&workspace), "agent-b");
         (workspace, terminal)
     }
 
@@ -1125,7 +1259,7 @@ mod tests {
     fn two_conversations_scroll_independently_and_neither_moves_the_other() {
         let (mut workspace, mut terminal) = two_conversations();
 
-        let conversation = painted(&terminal, &workspace, SurfaceId::Transcript);
+        let conversation = painted_beneath(&terminal, &workspace);
         let inspected = painted(&terminal, &workspace, SurfaceId::Inspector);
         assert_ne!(
             conversation, inspected,
@@ -1153,9 +1287,9 @@ mod tests {
             "the inspected conversation moved"
         );
         assert_eq!(
-            painted(&terminal, &workspace, SurfaceId::Transcript),
+            painted_beneath(&terminal, &workspace),
             conversation,
-            "and the one beside it did not"
+            "and the one beneath it did not"
         );
 
         // Now the other way round, from where each of them is standing.
@@ -1168,15 +1302,12 @@ mod tests {
                 &mouse(
                     MouseEventKind::ScrollUp,
                     over_conversation.x + 2,
-                    over_conversation.y + 2,
+                    over_conversation.bottom().saturating_sub(2),
                 ),
             );
         }
 
-        assert_ne!(
-            painted(&terminal, &workspace, SurfaceId::Transcript),
-            conversation
-        );
+        assert_ne!(painted_beneath(&terminal, &workspace), conversation);
         assert_eq!(
             painted(&terminal, &workspace, SurfaceId::Inspector),
             inspected,
@@ -1202,8 +1333,8 @@ mod tests {
             );
         }
         // The first content row is the anchor: which message the reader is on and how far into it
-        // (TR-3). The whole region is the wrong comparison — reopening arrives unpinned and holding
-        // focus, so the title and the input strip both differ for reasons that are not the reader.
+        // (TR-3). The whole region is the wrong comparison — the height the user dragged to does
+        // not survive a close, so the region differs for reasons that are not the reader.
         let anchor = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
             painted(terminal, workspace, SurfaceId::Inspector)
                 .lines()
@@ -1213,7 +1344,7 @@ mod tests {
         };
         let parked = anchor(&terminal, &workspace);
         assert!(
-            parked.contains("wrap across"),
+            parked.contains("Filler") || parked.contains("wrap across") || parked.contains("panel"),
             "the reader must be parked inside a message, not at a boundary: {parked}"
         );
 
@@ -1234,11 +1365,6 @@ mod tests {
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
         );
 
         assert_eq!(
@@ -1310,7 +1436,7 @@ mod tests {
     #[test]
     fn going_to_a_request_is_the_users_move_and_marks_it_seen() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        assert_eq!(selected(&workspace), "agent-a");
+        assert_eq!(selected(&workspace), "none");
         assert_eq!(workspace.state.attention_pending(), 1);
 
         tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
@@ -1323,12 +1449,12 @@ mod tests {
         assert_eq!(
             selected(&workspace),
             "agent-b",
-            "the user chose to go to the agent that asked"
+            "the user chose to go to the agent that asked, which opens its window"
         );
         assert_eq!(
             focused(&workspace),
-            Some(SurfaceId::Transcript),
-            "and the keyboard went with them"
+            Some(SurfaceId::Inspector),
+            "and the keyboard went with them, into that window"
         );
         assert_eq!(workspace.state.attention_pending(), 0);
         assert_eq!(
@@ -1382,8 +1508,8 @@ mod tests {
         );
         assert_eq!(
             selected(&workspace),
-            "agent-a",
-            "and Enter goes to whichever request the cursor is on"
+            "none",
+            "and Enter goes to whichever request the cursor is on: the primary's opens nothing"
         );
     }
 
@@ -1442,6 +1568,11 @@ mod tests {
         step(
             &mut workspace,
             &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
             &press(KeyCode::Enter, KeyModifiers::NONE),
         );
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_some());
@@ -1484,7 +1615,7 @@ mod tests {
     #[test]
     fn a_drag_in_flight_survives_the_terminal_changing_size() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
 
         let shelf = bounds(&workspace, SurfaceId::Inspector);
@@ -1535,7 +1666,7 @@ mod tests {
     #[test]
     fn dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
 
         let shelf = bounds(&workspace, SurfaceId::Inspector);
@@ -1564,9 +1695,9 @@ mod tests {
         workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), column, 200));
         frame(&mut workspace, &mut terminal);
         assert_eq!(
-            bounds(&workspace, SurfaceId::Transcript).height,
+            readable_rows(&workspace),
             10,
-            "the conversation keeps its ten rows however far the pointer goes"
+            "the conversation keeps its ten readable rows however far the pointer goes"
         );
 
         let settled = bounds(&workspace, SurfaceId::Inspector).height;
@@ -1587,7 +1718,7 @@ mod tests {
     #[test]
     fn the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does() {
         let (mut workspace, mut terminal) = drawn(120, 40);
-        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
@@ -1611,7 +1742,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         }
         let pinned_at_the_guarantee = rows(&workspace);
-        assert_eq!(bounds(&workspace, SurfaceId::Transcript).height, 10);
+        assert_eq!(readable_rows(&workspace), 10);
 
         workspace.handle(&shrink);
         frame(&mut workspace, &mut terminal);

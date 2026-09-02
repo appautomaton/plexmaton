@@ -7,10 +7,12 @@
 use ratatui::{
     Frame,
     layout::Rect,
+    symbols::border,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
+use super::panel::Edges;
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
@@ -18,44 +20,78 @@ use crate::{
     theme::{Palette, Role},
 };
 
+/// A panel title: what the panel is, in the heading role, then what it says about itself, muted.
+///
+/// The name is the thing a user scans for; the status, the counts and the way out are secondary
+/// and read that way. Section headings inside a panel share the heading role, so a panel's name
+/// is never quieter than a section it contains.
+pub(super) fn title(
+    palette: &Palette,
+    name: impl Into<String>,
+    name_role: Role,
+    rest: impl Into<String>,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(name.into(), palette.style(name_role)),
+        Span::styled(rest.into(), palette.style(Role::Muted)),
+        Span::raw(" "),
+    ])
+}
+
 /// The rail counts what is still unanswered, because that is the number that means anything.
 ///
 /// A queue of five the user has been to is not five things demanding them, so counting the total
 /// here would keep the workspace shouting after they had done exactly what was asked (ATT-3).
-pub(super) fn agents_title(state: &ViewState) -> String {
-    format!(" Agents · attention {} ", state.attention_pending())
+pub(super) fn agents_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+    title(
+        palette,
+        "Agents",
+        attention_role(state),
+        format!(" · attention {}", state.attention_pending()),
+    )
 }
 
 /// The band names both numbers, because it is the surface that can show the difference.
-pub(super) fn attention_title(state: &ViewState) -> String {
+pub(super) fn attention_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     let queued = state.attention_count();
     let pending = state.attention_pending();
-    if pending == queued {
-        format!(" Attention · {queued} ")
+    let rest = if pending == queued {
+        format!(" · {queued}")
     } else {
-        format!(" Attention · {queued} · {pending} unanswered ")
-    }
+        format!(" · {queued} · {pending} unanswered")
+    };
+    title(palette, "Attention", attention_role(state), rest)
 }
 
 /// An unanswered request must read as action required, not as ambient decoration.
 pub(super) fn attention_role(state: &ViewState) -> Role {
     if state.attention_pending() == 0 {
-        Role::Muted
+        Role::SectionHeading
     } else {
         Role::ActionRequired
     }
 }
 
-pub(super) fn transcript_title(state: &ViewState) -> String {
-    state.selected_agent().map_or_else(
-        || " Transcript ".to_owned(),
+pub(super) fn transcript_title(
+    state: &ViewState,
+    palette: &Palette,
+    with_counts: bool,
+) -> Line<'static> {
+    state.primary_agent().map_or_else(
+        || title(palette, "Transcript", Role::SectionHeading, ""),
         |agent| {
-            format!(
-                " {} · {}{} ",
-                agent.label,
+            let rest = format!(
+                " · {}{}{}",
                 content::agent_status_label(agent.status),
+                if with_counts {
+                    content::activity_counts(agent)
+                } else {
+                    String::new()
+                },
                 selected_suffix(state, SurfaceId::Transcript)
-            )
+            );
+            title(palette, agent.label.clone(), Role::SectionHeading, rest)
         },
     )
 }
@@ -74,36 +110,56 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     })
 }
 
-/// The title carries the presentation state, because pin and maximize have no other signal.
-pub(super) fn inspector_title(state: &ViewState) -> String {
+/// The title names the agent and the way out.
+pub(super) fn inspector_title(
+    state: &ViewState,
+    palette: &Palette,
+    with_counts: bool,
+) -> Line<'static> {
     let Some(open) = state.inspector() else {
-        return " Inspector ".to_owned();
+        return title(palette, "Inspector", Role::SectionHeading, "");
     };
-    let label = state
-        .agent(&open.agent)
-        .map_or_else(|| open.agent.to_string(), |agent| agent.label.clone());
-    let pin = if open.pinned { " · pinned" } else { "" };
+    let Some(agent) = state.agent(&open.agent) else {
+        return title(
+            palette,
+            open.agent.to_string(),
+            Role::SectionHeading,
+            " · esc",
+        );
+    };
+    let counts = if with_counts {
+        content::activity_counts(agent)
+    } else {
+        String::new()
+    };
     let selected = selected_suffix(state, SurfaceId::Inspector);
-    format!(" {label}{pin}{selected} · esc ")
+    title(
+        palette,
+        agent.label.clone(),
+        Role::SectionHeading,
+        format!("{counts}{selected} · esc"),
+    )
 }
 
-pub(super) fn notices_title(state: &ViewState) -> String {
+pub(super) fn notices_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     let retained = state.notices().count();
     let dropped = state.notices_dropped();
-    if dropped == 0 {
-        format!(" Notices · {retained} ")
+    let rest = if dropped == 0 {
+        format!(" · {retained}")
     } else {
-        format!(" Notices · {retained} · {dropped} discarded ")
-    }
+        format!(" · {retained} · {dropped} discarded")
+    };
+    title(palette, "Notices", Role::SectionHeading, rest)
 }
 
 /// The title names the target, which keeps the binding visible rather than remembered when the
 /// selection is on a different agent (COM-4).
-pub(super) fn composer_title(state: &ViewState) -> String {
-    state.primary_agent().map_or_else(
-        || " Message ".to_owned(),
-        |agent| format!(" Message {} ", agent.label),
-    )
+pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+    let name = state.primary_agent().map_or_else(
+        || "Message".to_owned(),
+        |agent| format!("Message {}", agent.label),
+    );
+    title(palette, name, Role::SectionHeading, "")
 }
 
 /// One key hint, and how readily the strip gives it up when there is no room.
@@ -208,17 +264,42 @@ pub(super) fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: R
 /// pixels and a focused panel with a pending request still reads as both.
 pub(super) fn block(
     palette: &Palette,
-    title: String,
-    title_role: Role,
+    title: Line<'static>,
     focused: bool,
+    edges: Edges,
 ) -> Block<'static> {
     let border = if focused {
         Role::BorderFocused
     } else {
         Role::Border
     };
-    Block::default()
-        .borders(Borders::ALL)
-        .border_style(palette.style(border))
-        .title(Span::styled(title, palette.style(title_role)))
+    let (borders, set) = match edges {
+        Edges::None => (Borders::NONE, border::PLAIN),
+        Edges::All => (Borders::ALL, border::PLAIN),
+        Edges::Upper => (Borders::TOP | Borders::LEFT | Borders::RIGHT, border::PLAIN),
+        Edges::Closing => (
+            Borders::LEFT | Borders::RIGHT | Borders::BOTTOM,
+            border::PLAIN,
+        ),
+        // The divider joins the sides it sits between, so the two sections read as one box.
+        Edges::Lower => (
+            Borders::ALL,
+            border::Set {
+                top_left: "├",
+                top_right: "┤",
+                ..border::PLAIN
+            },
+        ),
+    };
+    let block = Block::default()
+        .borders(borders)
+        .border_set(set)
+        .border_style(palette.style(border));
+    // An empty title is no title. Ratatui still reserves the top row for one when the block has
+    // no top edge, which would leave a one-row region with nowhere to paint its row.
+    if title.spans.iter().all(|span| span.content.is_empty()) {
+        block
+    } else {
+        block.title(title)
+    }
 }

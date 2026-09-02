@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Delivery complete — 8 steps and two closure slices; the exit gate is assessed below |
+| Status | Exit gate passed 2026-08-31; reopened 2026-09-01 for step 09, experience alignment, whose plan is [`plans/phase-00-step-09-experience-alignment.md`](../plans/phase-00-step-09-experience-alignment.md) |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
@@ -318,190 +318,75 @@ surface that opens, and stays in the table naming delivery step 7 rather than be
 Tests: 49 at the start of step 2, 113 now. All workspace gates, the supply-chain lane, and
 `scripts/smoke-tui.py` pass.
 
-### Delivery step 7 — inspectors as shelves — 2026-08-31
+### Delivery step 7 — inspectors as shelves — 2026-08-31 — compressed
 
-The workspace shows two agents at once and has its one dismissible layer.
-[`specs/inspector.md`](../specs/inspector.md) carries INS-1 to INS-5, and `Dismiss` — the last
-intent without a consumer since step 1 — has one. D-016, D-018, D-022, D-023, D-026, D-027 and
-D-028 stop being decisions with no implementation.
+The second window arrived as a shelf splitting the conversation, with pin and follow (D-042) and a
+surface kind named `Inspector` rather than `Shelf`, because a shelf is one of three presentations.
+What survives: the eighteen-row shelf cutoff's reason was corrected in `ui-ux.md` (the guarantee
+binds, the shelf stops being worth having); which agent a keystroke addresses is derived from the
+focused surface, and a submission carries its target; drafts are keyed by agent. Z-order was cut
+here as having no caller, and D-042's model was superseded by D-049 in step 09 — both because the
+shelf split the region instead of floating over it, which the contract had said all along.
 
-Two questions `ui-ux.md` left open had to be answered before anything could be built, and both
-changed what got built:
+### Delivery step 8 — Attention queue and selection/copy — 2026-08-31 — compressed
 
-- **Inspection is an axis of its own** (D-042). Opening does not move the selection, so with one
-  agent selected and another inspected there are two on screen — the only arrangement in which a
-  shelf shows something the workspace does not already. It is also what gives **pinned** a meaning:
-  an unpinned inspector *follows* the selection, and pinning is it declining to. The first
-  implementation closed an unpinned inspector when the selection moved, which read correctly from
-  the contract and was wrong in use — the peek ended at the moment it became useful.
-- **The surface kind is `Inspector`, not `Shelf`.** `surface-model.md` predicted `Shelf`; a shelf is
-  one of three presentations the same surface takes by terminal size, and a kind named after one
-  geometry is the wrong name at the other two. `Modal` never arrived at all, for the reason SURF-4
-  is still unproven: nothing in this phase blocks.
+ATT-1 to ATT-3 and SEL-1 to SEL-5 landed (D-043, D-044, D-045). Findings that changed invariants:
+an arrow means "move inside what holds focus" (INV-10), which also gave the keyboard a way to
+scroll; a selection is a range over entries, never cells, so width and scroll cannot change what it
+copies, proven with `proptest`; copy leaves as a value on `Outcome` and is delivered by OSC 52, which
+reaches the user's terminal rather than the process's desktop, at the cost that nothing acknowledges
+it. Correction: SURF-2's clipping has no owner in Phase 00 either — an item is content inside a
+surface, and TR-2 owns which rows a frame builds. The hint strip sheds hints by rank rather than
+clipping its end. Measured: extending a selection re-wraps nothing.
 
-Findings and corrections:
+### Closure slice — corrections from an external review — 2026-09-01 — compressed
 
-- **Z-order promotion was cut, and the reason is that nothing overlaps.** A docked shelf splits the
-  conversation region rather than covering it, so no two surfaces compete for a cell and no
-  `z_index` above zero has a caller. That is the third Phase 00 mechanism to have no owner for the
-  same reason, alongside SURF-2's clipping and SURF-4's modality.
-- **Correction to `ui-ux.md`.** It gives the reason for the eighteen-row shelf cutoff as the ten-row
-  guarantee failing. It does not fail — below eighteen the guarantee binds instead of the share, and
-  the shelf shrinks while the conversation keeps its ten. What stops being true is that the shelf is
-  worth being one. The number is unchanged; the reason is corrected in both files.
-- **Two inputs made "exactly one cursor" a claim that could fail.** Until now the workspace had one
-  text input, so COM-1 held by construction. Which agent a keystroke addresses is now derived from
-  the focused surface, and a submission carries its target rather than being handed to whoever
-  receives it — so the composition root stopped guessing the recipient.
-- **A draft belongs to the conversation, not the surface.** Drafts are keyed by agent, which means
-  peeking elsewhere and returning finds the half-written steer, and two inputs pointed at the same
-  agent correctly show one draft.
-- **Opening an inspector takes the arrows away from the agent rail**, because the inspector holds
-  the cursor and an arrow under a cursor is not a list movement (INV-2). `Tab` gives them back,
-  which is what the collapsed composer row advertises. Consistent, and worth knowing before using
-  the binding.
-- **Two files hit the 400-line sentinel and were split rather than raised**: `layout` into the
-  workspace's row budget and where an inspector goes inside it, and `render` into what a surface
-  draws and what it says about itself in its border.
+An independent review found six defects that every gate had passed: the second window drew a
+detail panel rather than a conversation, so canonical step 5 had never run (INS-6 now carries it);
+a hidden selection could copy the wrong agent's text (SEL-3 now drops it); a finalized item still
+accepted deltas and an identity deserialized past its constructor (both refused); `touch()` ran on
+acceptance rather than change, repainting continuously (FR-1); the composer measured itself in
+newlines while panels wrap. The finding worth keeping: four of the six were already written down as
+invariants, so the gates were not weak, they were not pointed at the claims. Reading the code
+against the contract is the one instrument the project does not own.
 
-Measured through step 6's harness: opening an inspector costs **zero** re-wrapping, because a shelf
-splits the region vertically and the conversation keeps its width. That fills the eighth and last
-`ui-ux.md` budget row. The same run showed the lane's own limit — every figure roughly doubled
-against step 6's, and re-measuring the *previous commit* under the same load reproduced it, so the
-spread is the machine. Both O(n) rows now read over budget on a loaded laptop and under it on a
-quiet one; that is recorded rather than rounded away.
+### Second closure slice — the inspector's three unreconciled edges — 2026-09-01 — compressed
 
-Tests: 49 at the start of step 2, 129 now. Eight mutations were each caught by the intended tests.
-All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
+Heights were keyed by agent alone, so two panels drawing one conversation at two widths
+invalidated each other every frame; the cache now keys on agent and width and a viewport carries
+the width it was measured at (TR-1, TR-3). A window too short for its input claimed a cursor it
+had not drawn; INS-7 and D-047 close that. The roadmap and the implementation disagreed about what
+the window is; D-046 scoped it to a conversation until Phase 03.
 
+### Step 09 — experience alignment, slice 1 — 2026-09-01 to 2026-09-02
 
-### Delivery step 8 — Attention queue and selection/copy — 2026-08-31
+The user compared the running prototype against `ui-ux.md` and found the mechanisms built and the
+experience not; the plan is `plans/phase-00-step-09-experience-alignment.md`. Slice 1 landed the
+composition the contract describes, and each item below was a deviation the contract already
+forbade:
 
-A background agent can ask for something without interrupting anyone, and the user can take evidence
-out of the workspace. [`specs/attention.md`](../specs/attention.md) carries ATT-1 to ATT-3 and
-[`specs/selection-and-copy.md`](../specs/selection-and-copy.md) carries SEL-1 to SEL-5. D-043, D-044
-and D-045 record the three decisions that shaped it, and `ui-ux.md` lost its last three open
-questions about selection and clipboards.
+- **The second window is the selection** (D-049, superseding D-042). The list holds only
+  sub-agents, selecting one — arrow or click — opens its conversation, `Escape` closes it; pin,
+  follow and the open command are gone. The window's agent is derived from the selection, so the
+  default path can no longer show one conversation twice.
+- **The shelf floats** (`ui-ux.md` §shelf, "overlay without occlusion"). Z-order has its first
+  caller; the conversation beneath keeps its rectangle and its reader; short conversations sit at
+  the bottom of their panel; cells beneath the shelf are cleared before it paints, which the first
+  float did not do and showed fragments through.
+- **One agent column** (D-014): list over activity in one box, from wide up; counts in the
+  conversation's title below that. The activity column had been on the right, and stacked under
+  the conversation at medium.
+- **Every input inside its conversation's box** (`ui-ux.md` §input). The composer had been a
+  separate box under the whole workspace; collapsed, it is one row closing the primary's box, and
+  `Tab` from a sub-agent's input lands on it, which the ring order had made false.
+- **Strips at the top**, so a notice or a request takes rows from what has been read and never
+  moves the composer or the cursor (ATT-1). **Equal columns** at ultrawide, as D-024's sizing
+  assumed. **Panel titles** in the heading role with their detail muted.
+- **Bare `q`** no longer quits (INV-7, D-031).
 
-- **Arrows had to stop being a global binding first** (D-044, INV-10). They moved the agent
-  selection from any navigational surface, which was defensible with one list on screen and stops
-  being so with three. Now an arrow means "move inside what holds focus" — and that turned out to
-  close a gap nobody had named: **nothing scrolled by keyboard at all**, so the wheel was the one
-  interaction with no keyboard equivalent, which `ui-ux.md` §user control forbids.
-- **A selection is a range over entries, never over cells** (D-043). Because it names content,
-  scrolling, resizing and re-wrapping cannot change what it copies — which is not a mechanism that
-  has to remember to extend past the viewport, but the absence of one. `proptest` entered here and
-  is what makes that claim a statement about every width rather than about three of them.
-- **The clipboard seam made the clipboard crate unnecessary.** Copy leaves as a value on `Outcome`,
-  exactly as a submission does, so `plexmaton-tui` cannot reach a host clipboard even by mistake.
-  What delivers it is OSC 52, which reaches the terminal the *user* is at rather than the desktop the
-  *process* is on — the case `arboard` explicitly could not serve. Its honest cost: the terminal
-  never acknowledges the sequence, so the workspace claims nothing about a copy having landed, and
-  the selection staying visible is the whole of the feedback.
-- **Correction: SURF-2's clipping has no owner in Phase 00 either.** Step 2 predicted this step would
-  own it, because a transcript item scrolled past its viewport edge looked like a surface outgrowing
-  its parent. It is not one — an item is content inside a surface, and TR-2 already owns which of its
-  rows a frame builds. Layout tiles the terminal, so nothing overlaps and nothing overflows. That is
-  now the third predicted mechanism to close the phase without a caller, alongside SURF-4's modality
-  and z-order promotion, and all three for the same underlying reason.
-- **The hint strip was silently losing `quit` on narrow terminals.** A one-row `Paragraph` clips its
-  end, and the end is where `quit` was. It now sheds hints by rank until the rest fit, which is the
-  same all-or-nothing discipline the row budget uses. Found by the existing narrow render test the
-  moment two hints were added.
-- **The measurement harness hit the 400-line sentinel and was split rather than raised**: what a
-  measurement *is* — a frame, its work, a run's percentiles — from which situations are worth
-  measuring, which is a reading of the responsiveness workloads rather than a mechanism.
-
-Measured: extending a selection re-wraps **nothing**, because a selection changes a style and never a
-character, so the heights the cache holds were measured unselected and stay valid. The full table is
-in [`ui-ux.md`](./ui-ux.md); this run was on a quiet machine and every row is inside its budget,
-including the two that read over on a loaded one at step 7. Both readings are kept, because the
-spread between them is the point (D-041).
-
-Tests: 49 at the start of step 2, 147 now. Eleven mutations were each caught by the intended tests.
-All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
-
-### Closure slice — corrections from an external review — 2026-09-01
-
-An independent review of the delivered phase reported six defects. All six reproduced, four of them
-against behaviour the workspace's own specs already forbade, and one against the phase's hardest
-declared requirement. They are recorded here rather than folded into the steps that introduced
-them, because what a future reader needs is not the fix but the class of thing eight steps of gates
-did not catch.
-
-- **The inspector never held a conversation.** `specs/inspector.md` opens by saying it must; what
-  was built drew the inspected agent's tools, artifacts and mail — the same content the activity
-  column already draws for the selected agent. So canonical step 5 had never run, neither had the
-  two workloads §responsiveness workloads declares for it, and the surface-open budget was
-  measuring a small detail panel. INS-6 now carries the contract. Making it a conversation was
-  mostly plumbing, because heights were already keyed by agent and readers already belonged to
-  conversations rather than to panels — but that is the point: **the cheap mechanism was in place
-  and the surface that needed it was pointed somewhere else, and nothing failed.**
-- **A hidden selection could copy the wrong agent's text.** The selection carried its agent, which
-  was enough to stop a frame *highlighting* the wrong list and not enough to stop a copy *reading*
-  one. The highlight disappearing is what made it invisible. Every path that changes what a surface
-  shows now drops the selection rather than rebinding it (SEL-3).
-- **Two documented boundary claims were unenforced.** A finalized transcript item still accepted
-  deltas, and identities derived `Deserialize` straight onto the inner string, so `""` decoded into
-  an `AgentId` the constructor refuses. Both are now refused the way every other producer defect is.
-- **`touch()` was called on acceptance rather than on change**, so a runtime re-reporting a running
-  agent or an executing tool repainted continuously — which FR-1 says explicitly must not happen.
-  `select` had the same defect at the ends of a list, beside a `move_selection` that did not.
-- **The composer measured itself in newlines while every panel wraps.** At 60 columns a
-  150-character draft painted its tail ending at column 34 with the caret at column 59, on the
-  border. It now wraps its own draft at the width it is drawn at, so the rows it asks for, the rows
-  it paints and the row the caret lands on are one answer.
-- **Three claims in this file and the README were wrong** and are corrected above: `Esc` had not
-  quit since D-031, the journey's step-5 assertion claimed two different conversations while both
-  panels showed agent B, and the exit gate said one declared workload had not run when three had
-  not.
-
-The common thread is worth more than the six fixes: **every one of these passed every gate.** Tests,
-clippy, the sentinels, the citation checker and a PTY smoke test all held while the inspector showed
-the wrong thing entirely. What caught them was somebody reading the code against the contract, which
-is the one instrument this project does not own — and the second-order finding is that four of the
-six were already written down as invariants, so the gates were not weak, they were simply not
-pointed at the claims.
-
-One consequence was recorded rather than fixed: an unpinned inspector open on the selected agent now
-visibly shows that conversation twice. Pinning is the documented way out (INS-1), and whether
-opening should pin by default is a question for real use.
-
-Tests: 147 at the close of step 8, 158 now. Eight mutations were each caught by the intended tests.
-All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
-
-### Second closure slice — the inspector's three unreconciled edges — 2026-09-01
-
-A second external review found two defects and one contradiction, all three where the inspector meets
-something else. The pattern is worth more than the fixes: the first closure slice pointed the
-inspector at the conversation and left every consequence of a *second* conversation being on screen —
-two widths, a second input, a second claim on the vocabulary — for the next reader to hit.
-
-- **Heights were keyed by agent, and the width only decided whether an entry was stale.** So at
-  ultrawide, where an unpinned inspector follows the selection into the secondary column, the same
-  history was measured at 76 columns and at 32 in one frame and each panel threw away the other's
-  heights. The second cost is the one that matters: every frame re-wrapped the whole history once
-  per panel, and the scroll path resolved anchors against whichever width was measured last, so a
-  wheel notch on the conversation moved its reader by the *inspector's* arithmetic. The cache now
-  keys on agent and width, bounded at the two that can be on screen, and a viewport carries the
-  width it was measured at so the scroll path cannot guess (TR-1, TR-3).
-- **The inspector claimed a cursor it had not drawn.** INS-5 already said a rectangle too short for
-  both keeps the conversation; nobody had said what focus becomes. It stayed `TextInput`, so the
-  caret landed at the end of the conversation's last line and typing filled a draft nothing showed.
-  INS-7 is the missing half, D-047 the rejected alternative, and the geometry now has one owner that
-  the renderer and focus both call.
-- **The roadmap and the implementation disagreed about what an inspector is**, and a code comment
-  asserted the version that was false. Settled by D-046 rather than by building: the inspector is a
-  conversation, the other four domains stay with the activity column, and Phase 03 composes them.
-  The consequence is recorded rather than left to be found — at ultrawide the inspector *is* the one
-  secondary column, so opening it hides the activity column until `Escape` closes it.
-
-No existing gate could have caught any of this: the work counts were asserted for one conversation on
-screen, the caret was asserted inside the inspector's *rectangle* rather than inside its input, and
-no gate compares a document against the code it describes. Reading is still what finds them.
-
-Tests: 158 at the close of the first slice, 163 now. Two mutations — collapsing the cache to a single
-width, and deleting the navigation-only arm — were each caught by the intended tests.
+Two gates were found wanting on the way: the exit gate had been assessed on text-presence tests
+without anyone reading the screen, and headless frames had been trusted where a real terminal
+disagreed. The step's frames are now replayed through a pseudo-terminal before being reported.
 
 ## Scope
 
@@ -533,7 +418,7 @@ These are prototype contracts for the TUI boundary, not the final provider wire 
 - Mouse hit testing and local-coordinate translation
 - Independent viewport state
 - Full floating-inspector behavior: drag, resize, z-order promotion, pointer capture, boundary clamping, and responsive recovery
-- Popup/peek, pinned pane, modal, popover, tooltip, and Attention queue primitives as required by the canonical journey
+- Popup/peek, second column, modal, popover, tooltip, and Attention queue primitives as required by the canonical journey
 - Resize and responsive layout transitions
 - Command routing and keyboard equivalents
 - Semantic selection/copy independent of rendered cell decoration
@@ -655,7 +540,7 @@ is the scripted canonical demonstration; everything it names runs under `cargo t
 | --- | --- | --- |
 | The canonical A-to-B journey runs deterministically in the real TUI event loop | `journey::*`, driving the same `Workspace` the executable drives | Met |
 | The user can continue interacting with A while B streams | `the_journey_reaches_two_agents_without_losing_the_first` | Met |
-| Opening, scrolling, dragging/resizing, z-order, pinning/maximizing, closing and reopening B preserve independent state | `the_journey_pins_an_agent_and_takes_a_request_without_being_interrupted`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` | Met **except z-order**, which was cut because nothing overlaps |
+| Opening, scrolling, dragging/resizing, z-order, pinning/maximizing, closing and reopening B preserve independent state | `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` | Met **except z-order**, which was cut because nothing overlaps |
 | Mouse routing selects the correct topmost viewport; hover-scroll does not change keyboard focus | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted` | Met — but the **overlapping** case is proven against a fixture, because no real workspace surface overlaps another |
 | Drag and resize retain pointer capture, respect bounds, and recover across resize | `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle`, `a_dragged_height_is_clamped_rather_than_obeyed`, `a_drag_in_flight_survives_the_terminal_changing_size` | Met |
 | Background action-required events enter the queue without stealing focus or opening a modal | `a_background_request_takes_no_focus_no_selection_and_no_cursor` | Met |
@@ -669,16 +554,16 @@ is the scripted canonical demonstration; everything it names runs under `cargo t
 | Durable UI/UX decisions have been promoted to `ui-ux.md` | D-013 to D-028 and D-041 to D-045 | Met |
 | The producer boundary refuses what its own contract forbids | `a_delta_after_finalization_is_refused_and_the_text_does_not_land`, `an_identity_cannot_be_deserialized_past_its_constructor`, `a_repeated_status_or_tool_state_costs_no_frame` | Met — after the closure slice |
 
-Two criteria are met with a named reduction rather than in full, and both reductions are recorded
-where the mechanism would have lived. A third reduction is not a criterion but is the phase's one
-standing product limitation: an inspector shows a **conversation and nothing else** (D-046), and at
-ultrawide it takes the one secondary column, so the selected agent's tools, artifacts and mail leave
-the screen while it is open and come back when `Escape` closes it. Reaching a second agent's
-evidence at all is Phase 03's. **Z-order** has no caller because layout tiles the terminal, so
-no two surfaces ever compete for a cell; the same fact retired SURF-2's clipping and SURF-4's
-modality. **Equation source** left this phase with the math track on 2026-08-31 (D-007), and the copy
-model that would carry it — a selection over entries, each answering with its own semantic source —
-is in place and needs one more entry kind rather than a new mechanism.
+Two criteria were met with a named reduction rather than in full when the gate was assessed, and
+step 09 has since closed one of them. The phase's one standing product limitation: the second
+window shows a **conversation and nothing else** (D-046); the tools, artifacts and mail stay in the
+agent column beside it, and reaching a second agent's evidence at all is Phase 03's. **Z-order**
+had no caller at the gate because the shelf split the conversation; since 2026-09-01 the shelf
+floats over it and is the one surface above the base layer, so the row above is met in full.
+SURF-2's clipping and SURF-4's modality still have no caller. **Equation source** left this phase
+with the math track on 2026-08-31 (D-007), and the copy model that would carry it — a selection
+over entries, each answering with its own semantic source — is in place and needs one more entry
+kind rather than a new mechanism.
 
 **Correction.** This section previously said one declared workload had not been run. Three had not:
 a pending and then completed math render, which left with the math track (D-007); *a large hidden
@@ -718,7 +603,11 @@ The two things a real runtime must get right, both learned the hard way here:
 ### Accepted layouts and interaction grammar
 
 Five layout classes with ultrawide at 132, wide at 96, medium at 72, and a hard floor of 48 × 12
-(D-024, D-025). The full key grammar is in [interaction-routing](../specs/interaction-routing.md),
+(D-024, D-025). The composition since step 09: the notice strip and the Attention band at the top;
+one agent column on the left holding the list of sub-agents over the activity (D-014); the primary
+conversation beside it with its composer as the bottom section of its box; the second window as a
+shelf floating over the conversation, an equal column beside it at ultrawide, or the whole region
+when maximized (D-049). The full key grammar is in [interaction-routing](../specs/interaction-routing.md),
 [inspector](../specs/inspector.md) and [selection-and-copy](../specs/selection-and-copy.md); the two
 rules a new binding must not break are that exactly one component accepts a terminal event, and that
 `Escape` resolves exactly one layer per press.

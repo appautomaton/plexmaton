@@ -119,7 +119,7 @@ impl Scenario {
                     agent_id: agent_b.clone(),
                     attention_id: AttentionId::new("attention-b-1")?,
                     kind: AttentionKind::Clarification,
-                    summary: "Choose whether the inspector should pin on narrow screens.".into(),
+                    summary: "Choose whether the overlap study should cover narrow screens.".into(),
                 },
             ),
             (

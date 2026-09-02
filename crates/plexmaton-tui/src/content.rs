@@ -5,8 +5,11 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam the wrapping cache attaches to in delivery step 5.
 
-use plexmaton_core::{AgentStatus, AttentionKind, ToolActivityStatus, TranscriptRole};
-use ratatui::text::{Line, Span};
+use plexmaton_core::{AgentId, AgentStatus, AttentionKind, ToolActivityStatus, TranscriptRole};
+use ratatui::{
+    text::{Line, Span},
+    widgets::{Paragraph, Wrap},
+};
 
 use crate::{
     NoticeView, TranscriptItemView, ViewState,
@@ -15,11 +18,20 @@ use crate::{
     theme::{Palette, Role, agent_role, tool_role},
 };
 
-/// The agent rail: identity, lifecycle, and which one is selected.
+/// The list of sub-agents: identity, lifecycle, and which one is being looked at.
+///
+/// The primary is not in it. Its conversation is the screen, and looking at it is looking at
+/// nobody else (INS-1).
 pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
     let selected = state.selected_agent().map(|agent| agent.id.clone());
+    if state.sub_agents().next().is_none() {
+        return vec![Line::styled(
+            "No sub-agents yet.",
+            palette.style(Role::Muted),
+        )];
+    }
     state
-        .agents()
+        .sub_agents()
         .map(|agent| {
             let (marker, marker_role) = if selected.as_ref() == Some(&agent.id) {
                 ("●", Role::Accent)
@@ -36,6 +48,32 @@ pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>>
             ])
         })
         .collect()
+}
+
+/// Which agent is painted on `row` of the list, counting rows the way the panel wraps them.
+///
+/// The pointer's way of looking at an agent. Rows are counted through the same lines the panel
+/// paints, so a label that wrapped onto two rows hits on either; `row` is relative to the panel's
+/// content and already past its scroll offset, which the caller knows and this function does not.
+pub(crate) fn agent_at_row(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    row: u16,
+) -> Option<AgentId> {
+    let target = usize::from(row);
+    let mut first = 0_usize;
+    for (agent, line) in state.sub_agents().zip(agents(state, palette)) {
+        let rows = Paragraph::new(line)
+            .wrap(Wrap { trim: false })
+            .line_count(width)
+            .max(1);
+        if (first..first.saturating_add(rows)).contains(&target) {
+            return Some(agent.id.clone());
+        }
+        first = first.saturating_add(rows);
+    }
+    None
 }
 
 /// One transcript item, as the logical lines a viewport measures and paints.
@@ -85,13 +123,27 @@ pub(crate) fn conversation_placeholder(
     vec![Line::styled(message, palette.style(Role::Muted))]
 }
 
-/// Tools, artifacts, and mail belonging to the selected agent.
+/// Counts of an agent's tools, artifacts and mail, for a title that has no activity column beside
+/// it. Empty when there is nothing to count, so a quiet agent's title stays short.
+pub(crate) fn activity_counts(agent: &crate::AgentView) -> String {
+    let mut parts = String::new();
+    for (count, one, many) in [
+        (agent.tool_activity().count(), "tool", "tools"),
+        (agent.artifacts().count(), "artifact", "artifacts"),
+        (agent.inbox().count(), "mail", "mail"),
+    ] {
+        if count > 0 {
+            let noun = if count == 1 { one } else { many };
+            parts.push_str(&format!(" · {count} {noun}"));
+        }
+    }
+    parts
+}
+
+/// Tools, artifacts, and mail belonging to the agent being looked at, else the primary.
 pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
-    let Some(agent) = state.selected_agent() else {
-        return vec![Line::styled(
-            "No agent selected.",
-            palette.style(Role::Muted),
-        )];
+    let Some(agent) = state.activity_agent() else {
+        return vec![Line::styled("No agents yet.", palette.style(Role::Muted))];
     };
     detail(
         agent,

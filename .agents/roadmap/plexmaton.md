@@ -7,7 +7,7 @@
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
 | Primary language | Rust |
 | TUI foundation | Ratatui + Crossterm |
-| Active phase | Phase 01 — Session and Provider Core; [Phase 00](./phase-00-experience-skeleton.md) passed its exit gate on 2026-08-31 |
+| Active phase | [Phase 00](./phase-00-experience-skeleton.md), reopened on 2026-09-01 for one experience-alignment step after passing its exit gate on 2026-08-31; Phase 01 — Session and Provider Core — follows |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Decision index | [DECISIONS.md](../DECISIONS.md) |
 | Mechanism specs | [specs/](../specs/README.md) |
@@ -22,7 +22,7 @@ Phases are named with two digits everywhere — `Phase 00`, not `Phase 0` — so
 
 | Phase | Purpose | Detail status |
 | --- | --- | --- |
-| 00 | Validate the experience and architectural event boundaries with synthetic agents | [Complete](./phase-00-experience-skeleton.md); the handoff is its last section |
+| 00 | Validate the experience and architectural event boundaries with synthetic agents | [Gate passed; step 09 in progress](./phase-00-experience-skeleton.md); the handoff is its last section |
 | 01 | Canonical session state and the three provider transports | Summary only |
 | 02 | Tools, context projection, persistence, and MCP | Summary only |
 | 03 | Durable multi-agent mailbox and runtime ownership | Summary only |
@@ -66,7 +66,7 @@ The product should feel immediate under load, preserve completed work durably, a
 - A delegated agent is a real session with its own identity, transcript, lifecycle, context, tools, and durable history.
 - Delegation is asynchronous. Starting agent B returns control to agent A and the user-facing TUI immediately.
 - Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts. The composed surface is Phase 03's; Phase 00's inspector is the conversation, and the other four belong to the activity column (D-046).
-- Agent inspectors are independently scrollable and may be opened as a floating window, pinned pane, or maximized view without changing the underlying session.
+- Agent inspectors are independently scrollable and may be shown as a window floating over the primary conversation, a column beside it, or a maximized view without changing the underlying session.
 - Agent-to-agent communication is typed mail between sessions, not a fake user message and not a blocking tool result.
 - Bulk findings remain in artifacts or the delegated session; mail carries a bounded summary and durable pointers.
 
@@ -222,7 +222,6 @@ above. Recording the growth now is cheaper than meeting it as a surprise when th
 - Storage engine and transaction model for session events plus mailbox delivery.
 - Initial terminal support matrix, especially tmux, SSH, Kitty graphics, Sixel, and terminals with no graphics protocol.
 - Transcript layout cache structure and memory budget across many live agents.
-- Whether floating inspectors should be draggable in the first usable release or initially use deterministic placement/pinning.
 - Plugin isolation model after MCP and native tools are stable.
 
 ## Decision rule

@@ -1,25 +1,29 @@
-//! What the user can ask of the inspector: open it, pin it, resize it, close it.
+//! What the user can ask of the second window: look at an agent, enter it, maximize it, resize it,
+//! close it.
 //!
 //! Separated from the rest of the projection because it is a command surface rather than a fact
-//! about the workspace. What the inspector *is* lives in [`super::inspector`]; this is the set of
-//! things a user gesture can do to it, and every one of them answers the same way — change
-//! something and say so, or change nothing and say that.
+//! about the workspace. Opening is selecting (INS-1): the window shows the selected agent whenever
+//! that is not the primary, so the roster owns whether it is open and moving the selection lives
+//! here beside what closing means. Every command answers the same way — change something and say
+//! so, or change nothing and say that.
 
 use plexmaton_core::AgentId;
 
 use crate::{
-    intent::{InspectorIntent, PointerIntent},
+    intent::{Direction, InspectorIntent, PointerIntent},
     layout::{self, InspectorRequest, SteerSplit},
     surface::{SurfaceId, SurfaceTree},
 };
 
-use super::{InspectorView, ViewState, inner_width};
+use super::{InspectorView, ReduceError, ViewState, inner_width};
 
 impl ViewState {
-    /// Returns the open inspector, if one is open.
+    /// The second window, if one is open: the selected agent when that is not the primary.
     #[must_use]
-    pub fn inspector(&self) -> Option<&InspectorView> {
-        self.inspector.open()
+    pub fn inspector(&self) -> Option<InspectorView> {
+        self.agents
+            .peeked()
+            .map(|agent| self.inspector.view(agent.id.clone()))
     }
 
     /// The inspector's steer input and who it addresses, if it has one on screen right now.
@@ -35,7 +39,7 @@ impl ViewState {
             return None;
         }
         let bounds = surfaces.get(SurfaceId::Inspector)?.bounds;
-        let agent = self.inspector.open()?.agent.clone();
+        let agent = self.inspector()?.agent;
         let wanted = self.draft(&agent).requested_rows(inner_width(bounds.width));
         layout::steer_split(bounds, wanted).map(|split| (split, agent))
     }
@@ -43,7 +47,7 @@ impl ViewState {
     /// What layout needs in order to place the inspector.
     #[must_use]
     pub fn inspector_request(&self) -> Option<InspectorRequest> {
-        self.inspector.request()
+        self.agents.peeked().map(|_| self.inspector.request())
     }
 
     /// Resolves exactly one layer, innermost first. Returns whether anything was there to resolve.
@@ -52,49 +56,42 @@ impl ViewState {
     /// to remake, so it goes before the surface it was made in. One layer per press is the whole of
     /// INV-6 — `Escape` is the key people press to back out of one mistake at a time.
     ///
-    /// Focus returns to the conversation, but only when the inspector was holding it. Moving focus
+    /// Closing the window is selecting the primary again, because the window is the selection
+    /// (INS-1). Focus returns to the conversation only when the window was holding it: moving it
     /// unconditionally would take the cursor out of the composer for a user who pressed `Escape`
     /// while typing, which is not what closing an overlay somewhere else asked for.
     pub fn dismiss(&mut self, surfaces: &SurfaceTree) -> bool {
         if self.clear_selection() {
             return true;
         }
+        if self.agents.peeked().is_none() {
+            return false;
+        }
         let held_focus = self.focus.resolve(surfaces) == Some(SurfaceId::Inspector);
-        let dismissed = self.inspector.dismiss();
-        if dismissed {
-            if held_focus {
-                self.focus.prefer(SurfaceId::Transcript);
-            }
-            // Unreachable through this ladder, whose first rung already took any selection. Kept so
-            // that SEL-3 is guaranteed by every path that changes what a surface shows, rather than
-            // by the order of the rungs above it.
-            let _pruned = self.prune_selection();
+        let closed = self.agents.clear_selection();
+        self.settle_window(held_focus);
+        if closed {
             self.touch();
         }
-        dismissed
+        closed
     }
 
-    /// Applies one inspector command.
+    /// Applies one command to the second window.
     ///
     /// A command with nothing open is a no-op rather than a refusal: the router translates what the
     /// user pressed, and whether there is anything to act on is this side's question.
     pub fn inspect(&mut self, surfaces: &SurfaceTree, intent: InspectorIntent) {
+        if self.agents.peeked().is_none() {
+            return;
+        }
         let changed = match intent {
-            // Opening focuses it, so its input is usable without a second step (D-026). The
-            // surface arrives with the next frame; a focus preference is resolved then, not now.
-            InspectorIntent::Open => match self.agents.selected().map(|agent| agent.id.clone()) {
-                Some(agent_id) => {
-                    // Re-pointing an open inspector at another agent is the second way the surface
-                    // under a selection changes what it is showing, alongside the roster moving
-                    // (SEL-3).
-                    let opened = self.inspector.show(agent_id);
-                    let pruned = opened && self.prune_selection();
-                    self.focus.prefer(SurfaceId::Inspector) || opened || pruned
-                }
-                None => false,
-            },
-            InspectorIntent::TogglePin => self.inspector.toggle_pin(),
-            InspectorIntent::ToggleMaximize => self.inspector.toggle_maximized(),
+            // Entering focuses it, so its input is usable without a second step (D-026). The
+            // surface is already registered, but a preference is what focus keeps across frames.
+            InspectorIntent::Open => self.focus.prefer(SurfaceId::Inspector),
+            InspectorIntent::ToggleMaximize => {
+                self.inspector.toggle_maximized();
+                true
+            }
             InspectorIntent::Grow => self.nudge(surfaces, 1),
             InspectorIntent::Shrink => self.nudge(surfaces, -1),
         };
@@ -154,5 +151,45 @@ impl ViewState {
         if changed {
             self.touch();
         }
+    }
+
+    /// Selects an existing agent without changing semantic runtime state.
+    pub fn select_agent(&mut self, agent_id: &AgentId) -> Result<(), ReduceError> {
+        if self.agents.select(agent_id)? {
+            self.after_selection_moved();
+            self.touch();
+        }
+        Ok(())
+    }
+
+    /// Moves the agent selection one step in arrival order, clamped at both ends.
+    pub fn move_selection(&mut self, direction: Direction) {
+        if self.agents.move_selection(direction) {
+            self.after_selection_moved();
+            self.touch();
+        }
+    }
+
+    /// What a moved selection changes besides the rail: the second window (INS-1).
+    ///
+    /// Landing on another agent opens or re-points the window, so a selection made in it is judged
+    /// against the agent it now shows (SEL-3). Landing on the primary closes it.
+    fn after_selection_moved(&mut self) {
+        if self.agents.peeked().is_some() {
+            let _pruned = self.prune_selection();
+        } else {
+            let held_focus = self.focus.prefers(SurfaceId::Inspector);
+            self.settle_window(held_focus);
+        }
+    }
+
+    /// What closing the second window means besides the selection: its presentation is forgotten,
+    /// a keyboard it was holding goes back to the conversation, and a selection made in it goes.
+    fn settle_window(&mut self, held_focus: bool) {
+        self.inspector.reset();
+        if held_focus {
+            self.focus.prefer(SurfaceId::Transcript);
+        }
+        let _pruned = self.prune_selection();
     }
 }

@@ -78,10 +78,9 @@ pub enum PointerIntent {
 /// agents be on screen at once.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InspectorIntent {
-    /// Open the selected agent's inspector, or re-point an open one at it.
+    /// Enter the second window, so its input takes the keyboard. Opening it is selecting an agent
+    /// other than the primary (INS-1), which is not a command to the window at all.
     Open,
-    /// Toggle whether the inspector survives the selection moving on.
-    TogglePin,
     /// Toggle the full-region presentation.
     ToggleMaximize,
     /// Take one more row from the conversation, within its guarantee.

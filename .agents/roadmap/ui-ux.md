@@ -16,7 +16,7 @@ The interface reveals detail progressively:
 
 1. Ambient status shows that work exists.
 2. A lightweight peek reveals what an agent is doing.
-3. A pinned inspector supports sustained comparison.
+3. Looking at another agent keeps it on screen, above or beside the primary's conversation, for as long as the user wants; the primary never leaves.
 4. A maximized session exposes the complete transcript and artifacts.
 
 Background work must remain observable without becoming foreground noise.
@@ -34,9 +34,8 @@ Use these terms consistently in product copy, architecture, and tests:
 | Artifact | Durable work product or evidence referenced by identity/path rather than copied into mail |
 | Surface | A rendered interactive region participating in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
-| Inspector | A surface exposing one agent/session's transcript, tools, mail, artifacts, and state. In Phase 00 it is the conversation alone; the other four are the activity column's until Phase 03 (D-046) |
-| Peek | A lightweight, dismissible inspector presentation |
-| Pin | Promote a transient inspector into persistent workspace layout |
+| Inspector | The second window: one agent's conversation, shown above or beside the primary's while the user looks at that agent. In Phase 00 it is the conversation alone; tools, mail, artifacts and state are the activity column's until Phase 03 (D-046). `Inspector` is the code's name; user-facing copy says which agent it is |
+| Peek | Looking at a sub-agent in the list, which is what opens the second window; `Escape` closes it (D-049). The primary is not in the list: its conversation is the screen |
 
 An alias such as `B` or `reviewer` is a routing/display label, not durable agent identity. A pane is a layout presentation, not a session.
 
@@ -74,12 +73,18 @@ other rule about input follows from this one.
 - The composer is bound to the **primary agent** and is never retargeted by selection. Its title
   names its target. Selecting, inspecting, or scrolling another agent does not change where typing
   goes.
-- A sub-agent's steer input **does not render at all** unless that agent's surface holds keyboard
+- A sub-agent's input **does not render at all** unless that agent's surface holds keyboard
   focus. There is nothing to mistarget because there is nothing there.
-- **Opening a sub-agent focuses it.** Opening one is an explicit user action, so its input appears
-  immediately and is usable without a second step. This does not conflict with "background agents
-  never steal focus": that rule constrains what agents do on their own, not what the user asks for.
-  `Escape` closes the surface and returns focus to the primary conversation.
+- **Entering a sub-agent's window focuses it; looking at one does not.** Selecting a sub-agent in
+  the list opens its window and leaves the keyboard in the list, so the arrows keep moving through
+  the list. `Enter`, or a click in the window, moves the keyboard into it, and its input appears
+  then and is usable without a further step (amended 2026-09-02, D-026). This does not conflict
+  with "background agents never steal focus": that rule constrains what agents do on their own, not
+  what the user asks for. `Escape` closes the window and returns focus to the primary conversation.
+- **Every input lives inside the box of the conversation it addresses.** The primary composer is
+  the bottom section of the primary's box, under a divider; a sub-agent's input is the bottom of its
+  window. There is no input anywhere else on the screen, and `Tab` from a sub-agent's input lands on
+  the primary composer, which is what the collapsed row's `⇥ to return` promises.
 - When a sub-agent's input is active, the primary composer **collapses to a single row** reading
   `Message Agent A · ⇥ to return`. It does not disappear: a composer that vanishes costs the user
   the affordance and jumps the tail of the transcript they are reading. One row of jump is
@@ -132,7 +137,7 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 
 ### Stable spatial memory
 
-- Each surface preserves its own focus and scroll state while hidden, pinned, moved, or temporarily covered.
+- Each surface preserves its own focus and scroll state while hidden, moved, or temporarily covered.
 - Opening an inspector must not disturb the primary transcript's scroll anchor.
 - Resize recomputes layout while preserving the semantic anchor in each visible transcript.
 - Closing the top surface restores the previous focus predictably.
@@ -218,8 +223,7 @@ Surface categories:
 | Category | Intended behavior |
 | --- | --- |
 | Base workspace | Primary layout; never floats above other surfaces |
-| Peek inspector | Fast, non-destructive inspection; easy to dismiss or pin |
-| Pinned pane | Participates in layout and persists while the user works elsewhere |
+| Second window | The sub-agent the user is looking at, floating over the primary's conversation or beside it at ultrawide; stays while they work elsewhere and closes on `Escape` |
 | Modal | Owns input until resolved or dismissed; background does not receive pointer events |
 | Popover/menu | Anchored to an initiating element; closes on outside interaction or Escape |
 | Tooltip | Informational only; never owns keyboard focus |
@@ -228,7 +232,9 @@ Surface categories:
 ### Shelf: overlay without occlusion
 
 A peeked sub-agent renders as a **shelf** docked to the top edge of the conversation region, not as
-a centred floating window.
+a centred floating window. It floats: the conversation beneath keeps its whole rectangle, its title
+and its reading position, and a conversation shorter than its panel sits at the bottom of it, so
+what the shelf covers is always empty rows or rows already read.
 
 The reason is that transcripts follow their tail, so the newest content sits at the bottom.
 Covering the top hides what has already been read; covering the middle or bottom hides what the
@@ -242,12 +248,12 @@ user is reading now.
   below 18 rows. It holds — below 18 the guarantee simply binds instead of the share, and the shelf
   shrinks while the conversation keeps its ten. What stops being true is that the shelf is worth
   being one. The number is unchanged; the reason is.
-- The mechanism, the bindings, and what pinning means are in
+- The mechanism, the bindings, and what opening means are in
   [`specs/inspector.md`](../specs/inspector.md).
 
-Presentation and persistence are separate axes. **Pinned** is whether a surface survives the user
-working elsewhere; **shelf, column, or maximized** is geometry chosen by terminal width. Changing
-presentation must never change a surface's identity, scroll position, or focus.
+Which agent is shown is the selection (INS-1); **shelf, column, or maximized** is geometry chosen
+by terminal width and the user's maximize. Changing presentation must never change a surface's
+identity, scroll position, or focus. There is no pin: the window stays until `Escape` (D-049).
 
 ### Drag scope
 
@@ -261,7 +267,7 @@ capture on both axes, boundary clamping, resize recovery, and keyboard equivalen
 a gesture nothing in the canonical journey needs yet.
 
 This is a reduction from the first anatomy proposal, which asked for full floating-window
-behaviour in Phase 00. Free drag returns when a pinned or maximized surface has a reason to be
+behaviour in Phase 00. Free drag returns when a maximized surface has a reason to be
 somewhere other than where the layout puts it.
 
 ## Input and event-routing contract
@@ -279,7 +285,7 @@ somewhere other than where the layout puts it.
 The mechanism — translation, capture state machine, key grammar, and the numbered invariants — is
 specified in [`specs/interaction-routing.md`](../specs/interaction-routing.md).
 
-Exact click, double-click, context-menu, pin, maximize, drag, and resize bindings remain a Phase 00 design decision. They must be tested as one coherent grammar rather than assigned widget by widget.
+Exact click, double-click, context-menu, maximize, drag, and resize bindings remain a Phase 00 design decision. They must be tested as one coherent grammar rather than assigned widget by widget.
 
 ## Multi-agent journey under test
 
@@ -290,7 +296,7 @@ The canonical Phase 00 journey is:
 3. B appears as running without taking focus from A or the composer.
 4. The user opens a peek inspector for B.
 5. B's transcript and tool activity stream inside an independently scrollable viewport.
-6. The user returns to A, continues typing, and optionally pins B for side-by-side observation.
+6. The user returns to A and continues typing while B stays on screen.
 7. The user freely moves/resizes B while A remains independently usable.
 8. B requests approval or clarification; the request enters the Attention queue without opening a modal or stealing focus.
 9. B sends typed mail to A; ambient status changes without automatic navigation.
@@ -395,9 +401,9 @@ spent is a frame the user waits for.
 | Extending a selection | 5 ms | 1.2 ms p50, 1.5 ms max, and **zero** re-wrapping | `extend selection` |
 | Streaming redraw frequency | one frame per changed projection, never per event | holds; ambient traffic that changes nothing costs no frame | FR-1 |
 | Layout work per updated transcript block | 1 item wrapped | 1 wrapped, 27 lines built, at any history length | `streaming delta` |
-| Opening an unmeasured conversation | 20 ms | 12.6 ms p50, 13.4 ms max | `cold open`, and the first frame of `switch reader` |
+| Opening an unmeasured conversation | 20 ms | 12.6 ms p50, 13.4 ms max | `cold open`, and `open hidden conversation` |
 | Resize recovery | 20 ms | 12.4 ms p50, 14.3 ms max | `resize` |
-| Memory retained per hidden conversation | one cache entry per message, per width that conversation is drawn at | 10,000 entries for two 5,000-message conversations; nothing else is retained. At most two widths are kept per conversation, so a run of resizes does not grow it (TR-1) | `switch reader`, `two conversations` |
+| Memory retained per hidden conversation | one cache entry per message, per width that conversation is drawn at | 10,000 entries for two 5,000-message conversations; nothing else is retained. At most two widths are kept per conversation, so a run of resizes does not grow it (TR-1) | `open inspector`, `two conversations` |
 
 **Read the observed column as an order of magnitude, not a baseline.** These are the quiet-machine
 figures. The same binary, on the same laptop hours earlier under compile load, measured roughly
@@ -458,6 +464,6 @@ selection and clipboard questions (D-043 — a selection over entries, keyboard-
 OSC 52). Each is stated in the section that owns it.
 
 One question is answered here rather than in a section, because it turned out to have no section:
-**pin and maximize bindings** are `Ctrl-P` and `Ctrl-F`, resolved before keyboard focus so they work
-while the inspector's own input holds the cursor. The full grammar is in
-[`specs/inspector.md`](../specs/inspector.md).
+**the maximize binding** is `Ctrl-F`, resolved before keyboard focus so it works while the second
+window's own input holds the cursor. There is no pin binding, because there is no pin (D-049). The
+full grammar is in [`specs/inspector.md`](../specs/inspector.md).

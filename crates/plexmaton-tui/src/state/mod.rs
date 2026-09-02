@@ -160,7 +160,7 @@ impl ViewState {
     /// borders. A height asked for without a width is a height for a draft nobody wrapped.
     #[must_use]
     pub fn composer_rows(&self, width: u16) -> u16 {
-        if self.inspector.open().is_some() && self.focus.prefers(SurfaceId::Inspector) {
+        if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {
             // One row, not none. A composer that vanishes costs the affordance and jumps the tail
             // of the transcript by three rows; one row of jump is what D-027 accepts.
             1
@@ -210,6 +210,18 @@ impl ViewState {
         self.agents.selected()
     }
 
+    /// The sub-agents: every agent but the primary, which is what the list holds.
+    pub fn sub_agents(&self) -> impl Iterator<Item = &AgentView> {
+        self.agents.sub_agents()
+    }
+
+    /// The agent whose tools, artifacts and mail are on screen: the one being looked at, else the
+    /// primary.
+    #[must_use]
+    pub fn activity_agent(&self) -> Option<&AgentView> {
+        self.agents.selected().or_else(|| self.agents.primary())
+    }
+
     /// Returns one agent by identity, for a surface showing an agent that is not selected.
     #[must_use]
     pub fn agent(&self, agent_id: &AgentId) -> Option<&AgentView> {
@@ -254,7 +266,14 @@ impl ViewState {
                 // The agent may have left the roster; the acknowledgement still stands, because
                 // the user did see it.
                 let _selected = self.select_agent(&agent_id);
-                self.focus.point_at(surfaces, SurfaceId::Transcript);
+                // Going to a background agent opens its window, and the user asked to be taken
+                // there, so the keyboard goes with them. The primary's conversation is already on
+                // screen, so going to the primary is pointing at it.
+                if self.agents.peeked().is_some() {
+                    self.focus.prefer(SurfaceId::Inspector);
+                } else {
+                    self.focus.point_at(surfaces, SurfaceId::Transcript);
+                }
                 true
             }
         };
@@ -272,35 +291,6 @@ impl ViewState {
     #[must_use]
     pub const fn notices_dropped(&self) -> u64 {
         self.notices.dropped()
-    }
-
-    /// Selects an existing agent without changing semantic runtime state.
-    pub fn select_agent(&mut self, agent_id: &AgentId) -> Result<(), ReduceError> {
-        if self.agents.select(agent_id)? {
-            self.follow_selection();
-            self.touch();
-        }
-        Ok(())
-    }
-
-    /// Moves the agent selection one step in arrival order, clamped at both ends.
-    pub fn move_selection(&mut self, direction: Direction) {
-        if self.agents.move_selection(direction) {
-            self.follow_selection();
-            self.touch();
-        }
-    }
-
-    /// Points an unpinned inspector at whatever the user is now looking at.
-    ///
-    /// Pruning happens after the inspector has followed, not before: both the conversation and an
-    /// unpinned inspector change agent here, so a selection has to be judged against where the two
-    /// of them end up rather than against a state neither is in yet.
-    fn follow_selection(&mut self) {
-        if let Some(agent_id) = self.agents.selected().map(|agent| agent.id.clone()) {
-            self.inspector.follow(agent_id);
-        }
-        let _pruned = self.prune_selection();
     }
 
     /// Resolves which surface holds keyboard focus for the frame `surfaces` describes.
@@ -441,12 +431,12 @@ mod tests {
             seen,
             [
                 Some(SurfaceId::Agents),
-                Some(SurfaceId::Transcript),
                 Some(SurfaceId::Activity),
+                Some(SurfaceId::Transcript),
                 Some(SurfaceId::Composer),
                 Some(SurfaceId::Agents),
             ],
-            "the ring runs down the screen and wraps"
+            "the ring runs down the agent column, then the conversation and its input, and wraps"
         );
     }
 
@@ -455,13 +445,15 @@ mod tests {
     }
 
     #[test]
-    fn canonical_projection_keeps_primary_selected_when_background_agent_appears() {
+    fn canonical_projection_selects_nobody_when_a_background_agent_appears() {
         let state = canonical_state();
 
         assert_eq!(
             state.selected_agent().map(|agent| agent.id.as_str()),
-            Some("agent-a")
+            None,
+            "the primary is on screen without being selected, and B's arrival selects nothing"
         );
+        assert_eq!(state.sub_agents().count(), 1);
         assert_eq!(state.attention_count(), 1);
         assert_eq!(state.agents().count(), 2);
         assert_eq!(state.notices().count(), 0);
@@ -476,17 +468,24 @@ mod tests {
     #[test]
     fn selection_moves_in_arrival_order_and_clamps_at_both_ends() {
         let mut state = canonical_state();
-        assert_eq!(selected(&state), "agent-a");
+        assert_eq!(selected(&state), "none");
 
         state.move_selection(Direction::Backward);
-        assert_eq!(selected(&state), "agent-a", "clamped at the first agent");
-
-        state.move_selection(Direction::Forward);
-        assert_eq!(selected(&state), "agent-b");
+        assert_eq!(
+            selected(&state),
+            "agent-b",
+            "from nothing, either arrow lands on the first sub-agent"
+        );
 
         let at_end = state.revision();
+        state.move_selection(Direction::Backward);
+        assert_eq!(
+            selected(&state),
+            "agent-b",
+            "clamped at the first sub-agent"
+        );
         state.move_selection(Direction::Forward);
-        assert_eq!(selected(&state), "agent-b", "clamped at the last agent");
+        assert_eq!(selected(&state), "agent-b", "clamped at the last sub-agent");
         assert_eq!(
             state.revision(),
             at_end,

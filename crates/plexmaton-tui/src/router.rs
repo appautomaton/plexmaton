@@ -222,16 +222,15 @@ fn text_key(key: KeyEvent) -> Routed {
     }
 }
 
-/// Inspector chords, which resolve before keyboard focus is consulted.
+/// Second-window chords, which resolve before keyboard focus is consulted.
 ///
-/// Before the split because the inspector holds a text input while it is focused, and a control
+/// Before the split because the window holds a text input while it is focused, and a control
 /// chord is never text (INV-2). Translated whether or not anything is open: the router says what
 /// the user pressed, and whether there is something to act on is the reducer's question.
 fn inspector_chord(key: KeyEvent) -> Option<TuiIntent> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
     let intent = match key.code {
-        KeyCode::Char('p') if control && !shift => InspectorIntent::TogglePin,
         KeyCode::Char('f') if control && !shift => InspectorIntent::ToggleMaximize,
         // Locked in `ui-ux.md` as the keyboard equivalent of dragging the bottom edge (D-028).
         KeyCode::Down if control && shift => InspectorIntent::Grow,
@@ -748,10 +747,6 @@ mod tests {
         let surfaces = tree();
         let mut router = Router::default();
         let chords = [
-            (
-                key(KeyCode::Char('p'), KeyModifiers::CONTROL),
-                InspectorIntent::TogglePin,
-            ),
             (
                 key(KeyCode::Char('f'), KeyModifiers::CONTROL),
                 InspectorIntent::ToggleMaximize,

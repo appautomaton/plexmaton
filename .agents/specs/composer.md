@@ -48,7 +48,7 @@ TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ Runtime
 | --- | --- | --- |
 | The draft text | `state::composer::Composer` | One string; there is nothing else to keep in sync with it |
 | Whether a cursor exists | `SurfaceKind`, via the focused surface | A second answer is how a workspace ends up with none or two |
-| Where the caret is painted | `render_composer`, the only `set_cursor_position` call site | Ratatui hides the cursor unless a frame asks, so one call site *is* the invariant |
+| Where the caret is painted | `place_cursor`, called once per frame from the render loop for whichever surface owns the cursor | Ratatui hides the cursor unless a frame asks, so one call site *is* the invariant |
 | What a submitted message becomes | `plexmaton-sim::Runtime` | The transcript has one writer, and it is the event stream |
 
 ### No cursor offset
@@ -58,12 +58,19 @@ insertion point is always the end of the text. An offset nothing can change woul
 maintain and a second thing able to disagree with the string. It arrives with the binding that moves
 it, not before.
 
-### Height
+### Height and place
 
-The composer asks layout for two borders plus its line count, capped at three lines, and shows the
-newest lines when the draft is longer — the same bounded tail the notice strip uses. On a terminal
-too short for everything, the composer is served before the notice strip and the agent rail: a
-workspace that cannot be typed into is not one of the supported shapes.
+The composer is the bottom section of the primary conversation's box (`ui-ux.md` §input): a
+divider carrying its title, its lines, and the box's bottom edge. It asks layout for that divider
+and edge plus its line count, capped at three lines, and shows the newest lines when the draft is
+longer — the same bounded tail the notice strip uses. On a terminal too short for everything, the
+composer is served before the notice strip and the agent list: a workspace that cannot be typed
+into is not one of the supported shapes.
+
+While a sub-agent's input holds the cursor the composer is **one row** closing the box — `Message
+Agent A · ⇥ to return`, no divider, no title — so the conversation gains one row and nothing else
+moves (D-027). The row is still a focus stop and a pointer target, and `Tab` from the sub-agent's
+input lands on it because the composer follows the second window in the focus ring.
 
 ## Failure modes
 
@@ -79,8 +86,6 @@ workspace that cannot be typed into is not one of the supported shapes.
 
 - **Cursor movement, selection, and editing beyond the four verbs.** They arrive with the bindings
   that need them; the key grammar in [`interaction-routing`](./interaction-routing.md) is the gate.
-- **The collapsed row** (D-027). Its trigger is a sub-agent's input being active, which needs a
-  sub-agent surface. `ui-ux.md` §input is the authority.
 - **Steering by explicit address** (`@agent-b …`). Locked in `ui-ux.md`; its consumer is the
   delegation record in Phase 03.
 - **What the runtime does with a message.** [`delegation-and-steering`](./delegation-and-steering.md)

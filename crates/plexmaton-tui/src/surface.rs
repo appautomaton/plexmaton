@@ -94,31 +94,32 @@ impl SurfaceKind {
 /// arrive as variants carrying their own identity.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SurfaceId {
-    /// The agent rail, carrying agents and the attention count.
+    /// The list of sub-agents, carrying the attention count.
     Agents,
-    /// The selected agent's conversation.
+    /// Tools, artifacts, and mail belonging to the agent being looked at, stacked under the list
+    /// in the same box (D-014).
+    Activity,
+    /// The primary agent's conversation.
     Transcript,
-    /// One agent's detail, opened explicitly. Registered only while it is open.
+    /// The second window: one sub-agent's conversation, open while one is selected (INS-1).
     ///
     /// Declared next to the conversation because that is where it lives in every presentation: over
-    /// the conversation as a shelf, in place of it when maximized, and beside it as the secondary
+    /// the conversation as a shelf, in place of it when maximized, and beside it as the second
     /// column. No fixed position matches reading order at all three — a surface that moves cannot —
     /// and SURF-3 prefers a ring that never reorders over one that reads correctly at one size.
     Inspector,
-    /// Tools, artifacts, and mail belonging to the selected agent.
-    Activity,
+    /// The one text input, bound to the primary agent (D-017), inside its conversation's box.
+    ///
+    /// Declared right after the second window so that `Tab` from the window's input lands here:
+    /// the collapsed composer says `⇥ to return`, and the ring is what makes that true.
+    Composer,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
     /// Requests background agents have made of the user. Registered only while one is queued.
     ///
-    /// Declared between the defect strip and the composer because that is where it is drawn: the
-    /// thing the user has to act on sits next to where they act.
+    /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
+    /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
     Attention,
-    /// The one text input, bound to the primary agent (D-017).
-    ///
-    /// Declared last among the focus stops because it is drawn last, at the bottom of the
-    /// workspace: the ring then runs down the screen rather than jumping back up it.
-    Composer,
     /// The key-hint strip.
     Footer,
 }
