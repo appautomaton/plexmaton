@@ -1,6 +1,6 @@
 //! Where an open inspector goes inside the conversation region.
 //!
-//! One rule governs all of it: the conversation keeps ten readable rows (D-023). Everything else —
+//! One rule governs all of it: the conversation keeps ten readable rows (INS-2). Everything else —
 //! the share a shelf takes by default, the height a user drags to, the size below which two
 //! surfaces stop fitting — is that rule meeting a terminal of some particular size.
 //!
@@ -12,7 +12,7 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 
 use super::{BodyRegions, LayoutClass, MIN_PANEL_HEIGHT, band};
 
-/// Rows of the primary conversation an open inspector must leave readable (D-023).
+/// Rows of the primary conversation an open inspector must leave readable (INS-2).
 const CONVERSATION_GUARANTEE: u16 = 10;
 
 /// Share of the conversation region a shelf takes by default, in hundredths (D-016).
@@ -135,7 +135,7 @@ const fn presentation(class: LayoutClass, maximized: bool, region_rows: u16) -> 
     }
 }
 
-/// Rows a shelf takes, leaving the conversation its guarantee (D-016, D-023).
+/// Rows a shelf takes, leaving the conversation its guarantee (D-016, INS-2).
 ///
 /// The default is a share of the region; a height the user dragged to replaces it. Both are clamped
 /// by the guarantee, so dragging is a choice within the contract rather than a way out of it.
@@ -263,7 +263,7 @@ mod tests {
         );
     }
 
-    /// D-023: an inspector never takes the conversation below ten readable rows.
+    /// INS-2: an inspector never takes the conversation below ten readable rows.
     ///
     /// The rule is about what the inspector *takes*, not an absolute floor — a twelve-row terminal
     /// has fewer than ten rows of conversation before anything opens, and the inspector is not what

@@ -71,11 +71,11 @@ pub enum PointerIntent {
     },
 }
 
-/// One thing the user asked of the open inspector.
+/// One thing the user asked of the second window.
 ///
-/// Opening is here rather than beside `MoveSelection` because inspection and selection are separate
-/// axes: opening an inspector does not move the conversation underneath it, which is what lets two
-/// agents be on screen at once.
+/// Nothing here opens it or chooses the agent it shows: the window is the selection (INS-1), so
+/// `MoveSelection` is what puts a second agent on screen. These verbs act on the window the
+/// selection already opened: entering it, maximizing it, and moving its edge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum InspectorIntent {
     /// Enter the second window, so its input takes the keyboard. Opening it is selecting an agent

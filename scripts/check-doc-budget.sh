@@ -3,26 +3,27 @@
 #
 # This never fails a build, deliberately. A budget here is not a length limit: it is a signal that
 # content is sitting at the wrong load-time, and the escape hatch for each path — push it down,
-# split it, or age it — matters more than the number. Budgets and their escape hatches are defined
-# once, in .agents/README.md; this script only measures against them.
+# split it, or rewrite it — matters more than the number. Budgets are in bytes, because a line
+# budget is satisfied by writing longer lines. They and their escape hatches are defined once, in
+# .agents/README.md; this script only measures against them.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
 budget_for() {
     case "$1" in
-        AGENTS.md) echo 120 ;;
-        .agents/README.md) echo 100 ;;
-        .agents/standards/*.md) echo 150 ;;
-        .agents/specs/*.md) echo 200 ;;
-        .agents/plans/*.md) echo 150 ;;
-        .agents/DECISIONS.md) echo 250 ;;
-        .agents/roadmap/plexmaton.md) echo 250 ;;
+        AGENTS.md) echo 10240 ;;
+        .agents/README.md) echo 8192 ;;
+        .agents/standards/*.md) echo 8192 ;;
+        .agents/specs/*.md) echo 12288 ;;
+        .agents/plans/*.md) echo 8192 ;;
+        .agents/DECISIONS.md) echo 12288 ;;
+        .agents/roadmap/plexmaton.md) echo 16384 ;;
         # Long-format documents. A phase or the interaction contract legitimately carries many
         # distinct sections, so their ceiling catches runaway growth rather than shaping structure.
-        .agents/roadmap/ui-ux.md) echo 750 ;;
-        .agents/roadmap/phase-*.md) echo 750 ;;
-        .agents/handoffs/*.md) echo 200 ;;
+        .agents/roadmap/ui-ux.md) echo 32768 ;;
+        .agents/roadmap/phase-*.md) echo 32768 ;;
+        .agents/handoffs/*.md) echo 8192 ;;
         *) echo 0 ;;
     esac
 }
@@ -30,12 +31,14 @@ budget_for() {
 over=0
 
 while IFS= read -r file; do
+    # A tracked file deleted in the working tree has nothing to measure.
+    [[ -f "$file" ]] || continue
     budget=$(budget_for "$file")
     [[ "$budget" -eq 0 ]] && continue
-    lines=$(wc -l < "$file")
-    if [[ "$lines" -gt "$budget" ]]; then
-        printf 'doc budget: %s is %d lines, %d over its %d line budget\n' \
-            "$file" "$lines" "$((lines - budget))" "$budget" >&2
+    bytes=$(wc -c < "$file")
+    if [[ "$bytes" -gt "$budget" ]]; then
+        printf 'doc budget: %s is %d bytes, %d over its %d byte budget\n' \
+            "$file" "$bytes" "$((bytes - budget))" "$budget" >&2
         over=$((over + 1))
     fi
 done < <(git ls-files AGENTS.md .agents | grep '\.md$' | sort)

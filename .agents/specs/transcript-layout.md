@@ -79,7 +79,7 @@ like every other row count, so resolving clamps it to that item's height at the 
 without the clamp, a message that wrapped shorter would be overshot and the *next* message would
 appear at the top.
 
-An anchor whose item no longer exists resolves to the tail. Nothing removes an item in Phase 00;
+An anchor whose item no longer exists resolves to the tail. Nothing removes an item yet;
 this is the prepared answer for a future that trims history, where rejoining the live conversation
 is the least surprising place to land.
 
@@ -116,7 +116,7 @@ What those walks cost, and the length at which they would start to matter, is me
   asynchronous fill for it to hide. It arrives with a renderer that can be behind.
 - **Expand and collapse for tool activity and artifacts.** Their surface is the inspector
   (delivery step 7).
-- **Retention limits and cache pruning.** Nothing drops a transcript item in Phase 00, so the cache
+- **Retention limits and cache pruning.** Nothing drops a transcript item yet, so the cache
   is bounded by the projection it mirrors. Pruning arrives with whatever first drops one.
 - **Which surface the wheel reaches.** [`interaction-routing`](./interaction-routing.md) INV-3.
 

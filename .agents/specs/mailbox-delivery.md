@@ -95,5 +95,5 @@ makes INV-7 structural rather than a discipline someone has to remember.
 | --- | --- |
 | INV-1 … INV-8 | Unproven — not implemented |
 
-Phase 03 owns the implementation. Phase 00 owns only the surfaces that make queue membership,
-delivery state, and undeliverable items visible.
+Phase 03 owns the implementation. The workspace already has the surfaces that make queue
+membership, delivery state, and undeliverable items visible.

@@ -21,7 +21,7 @@ process: the user's shell keeps reporting movement with nothing on screen to exp
 itself is sent as a real SGR sequence, so it exercises crossterm's parser rather than a constructed
 event.
 
-Promoting this to a `cargo test` target requires choosing a PTY crate, which Phase 00 has not
+Promoting this to a `cargo test` target requires choosing a PTY crate, which has not been
 audited; until then it stays an out-of-band evidence command.
 """
 

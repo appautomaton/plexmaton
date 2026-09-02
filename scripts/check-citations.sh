@@ -5,7 +5,7 @@
 # weight: it is a pointer, read far from the file that defines it. A pointer to nothing is worse
 # than the paraphrase it replaced, because it looks authoritative.
 #
-# This exists because Phase 00 produced exactly that failure. A delivery plan carried four inline
+# This exists because the project produced exactly that failure once. A delivery plan carried four inline
 # invariants, the code cited them nine times, and the plan was deleted when its slice landed --
 # which is what plans are for. Prose could not have caught it; the rule now has a gate.
 set -euo pipefail
@@ -27,11 +27,11 @@ for id in $cited_invariants; do
     fi
 done
 
-# Decisions are ledger rows in DECISIONS.md.
+# Decisions are entries in DECISIONS.md, one per bold heading.
 cited_decisions=$(grep -rhoE '\bD-[0-9]{3}\b' --include='*.rs' crates/ 2>/dev/null | sort -u || true)
 for id in $cited_decisions; do
-    if ! grep -qE "^\| ${id} \|" .agents/DECISIONS.md; then
-        printf 'citation: %s is cited in code but has no ledger row\n' "$id" >&2
+    if ! grep -qE "^\*\*${id} " .agents/DECISIONS.md; then
+        printf 'citation: %s is cited in code but has no entry in DECISIONS.md\n' "$id" >&2
         fail=1
     fi
 done
@@ -53,7 +53,7 @@ if [[ "$fail" -ne 0 ]]; then
 
 A cited identifier must live somewhere that outlives the citation. If it came from a plan, the
 citation is the proof that the contract is durable: promote it to .agents/specs/ rather than
-deleting the citation. See .agents/plans/README.md.
+deleting the citation. See .agents/README.md §plans.
 HINT
     exit 1
 fi

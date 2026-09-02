@@ -20,7 +20,7 @@ assembles, and what a frame cost is a value it returns.
 ## Invariants
 
 **FR-1 — A frame is drawn only when something changed.** The projection's revision gates the
-repaint (D-004). A terminal resize changes what a frame means without changing the projection, so it
+repaint. A terminal resize changes what a frame means without changing the projection, so it
 invalidates the last frame explicitly rather than being inferred. Producer traffic that alters
 nothing visible costs no frame at all.
 
@@ -85,7 +85,7 @@ clothes.
 | Situation | Response |
 | --- | --- |
 | Nothing changed since the last frame | `draw` returns `None`. A caller that cannot tell this from a frame cannot measure how often the gate fires |
-| A terminal below the supported minimum | One notice, and no surfaces registered, so the next event resolves to nothing (D-025) |
+| A terminal below the supported minimum | One notice, and no surfaces registered, so the next event resolves to nothing |
 | An event arriving before the first frame | Routed against an empty registry and declined by name, never against a layout computed on the side |
 | A backend that fails to draw | The backend's own error is returned; the loop neither swallows it nor keeps a stale `painted` |
 | A submitted draft with no agent to receive it | Stays in the draft. The workspace hands text back as a value and never delivers it itself (COM-3) |

@@ -10,11 +10,11 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 
 | When you are about to… | Read |
 | --- | --- |
-| decide something that feels already settled | [`.agents/DECISIONS.md`](./.agents/DECISIONS.md) — an index; follow its links |
-| start or resume work on the active phase | [`roadmap/phase-00-experience-skeleton.md`](./.agents/roadmap/phase-00-experience-skeleton.md) — named here so the common path skips the roadmap |
+| decide something that feels already settled | [`.agents/DECISIONS.md`](./.agents/DECISIONS.md) — what was chosen over what, and where the rule lives |
+| start or resume work on the active phase | [`roadmap/phase-01-one-real-agent.md`](./.agents/roadmap/phase-01-one-real-agent.md) — named here so the common path skips the roadmap |
 | ask what the product is, or plan beyond this phase | [`roadmap/plexmaton.md`](./.agents/roadmap/plexmaton.md) |
-| implement or review a named mechanism | [`.agents/specs/<mechanism>.md`](./.agents/specs/README.md) — cite its invariant in the test that proves it |
-| start a step big enough to have an order | [`.agents/plans/`](./.agents/plans/README.md) — slice it before writing code; delete the plan when consumed |
+| implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
+| start a step big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
 | change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`roadmap/ui-ux.md`](./.agents/roadmap/ui-ux.md) |
 | write, change, or delete a test | [`standards/testing.md`](./.agents/standards/testing.md) |
 | organize a module, or add/upgrade/remove a dependency | [`standards/rust.md`](./.agents/standards/rust.md) |
@@ -22,9 +22,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 | write or reorganize a document | [`.agents/README.md`](./.agents/README.md) |
 | compare against a third-party implementation | `.references/`, which is gitignored and absent in a fresh clone. Treat its absence as normal |
 
-If `.agents/handoffs/` contains a letter, it is an orientation note a previous session was asked to leave. Reading the newest one is optional and cheap when picking up unfamiliar work; it never holds a rule.
-
-**Cite, don't restate.** Reference `D-027`, `INV-4`, or `phase-00 §delivery sequence` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
+**Cite, don't restate.** Reference `D-027`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
 
 ## Explicit state and ownership
 
@@ -86,8 +84,16 @@ While changing code: keep patches scoped to one coherent outcome; add or update 
 
 Before handoff: inspect the diff for accidental dependency, generated-file, snapshot, or formatting churn; report what changed, what was tested, and what remains unverified.
 
+For a change to layout, copy, focus, attention, or interaction, done also means a rendered frame at wide, medium, and narrow was looked at, by the user or attached to the step record. A test that a region contains a string proves the mechanism, not the experience.
+
 Do not claim a check passed unless it was actually run in this workspace. Do not commit, publish, install globally, or mutate live user configuration unless the user explicitly requests it. Commit messages follow Conventional Commits.
 
 ## Documenting work
 
-Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and contradictory defaults are defects. Link to one source of truth instead of copying a rule into several files, and expand a document just in time rather than to look complete. Which file owns what is a table in [`.agents/README.md`](./.agents/README.md); the two rules worth carrying without looking are that an invariant with no test is marked unproven rather than left reading as fact, and that a finding is promoted upward only when it changes a durable invariant or a system boundary.
+Keep roadmap, code, tests, and user-facing behavior aligned; stale comments and contradictory defaults are defects. Which file owns what is a table in [`.agents/README.md`](./.agents/README.md). The rules worth carrying without looking:
+
+- **Rewrite in place.** When a fact changes, rewrite the sentence that stated it. Nothing is appended beside it: no correction note, no superseded marker, no compressed account of what the section used to say. Git holds the history.
+- **One name per thing.** The product vocabulary in `roadmap/ui-ux.md` is the code's vocabulary and the screen's. A rename lands in all three in one change.
+- **A decision is recorded once it has survived use**, not when it is proposed, and only when it was contested or is expensive to reverse. Everything else is a commit.
+- **An invariant with no test is marked unproven**, never left reading as fact.
+- **Link to one source of truth** instead of copying a rule into several files, and expand a document just in time rather than to look complete. A finding is promoted upward only when it changes a durable invariant or a system boundary.

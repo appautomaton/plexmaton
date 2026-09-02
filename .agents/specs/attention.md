@@ -13,7 +13,7 @@ A delegating workspace has agents that get stuck. The whole point of delegating 
 somewhere else when it happens, so the mechanism that tells them has to be one that does not take
 them back.
 
-This is also the reason Phase 00 has no modal surface at all. The one thing that would have opened
+This is also the reason the workspace has no modal surface at all. The one thing that would have opened
 one is a background approval, and this exists so it does not.
 
 ## Invariants
@@ -29,7 +29,7 @@ to" is structural rather than a rule to be remembered.
 
 **ATT-3 — Acknowledging is not resolving.** Going to a request marks it seen, and a seen request
 stays queued, because it is still outstanding. What clears one is the agent being unblocked, which
-needs an approval no Phase 00 runtime can grant. An agent that asks again arrives unseen.
+needs an approval the runtime cannot yet grant. An agent that asks again arrives unseen.
 
 ## Model
 
@@ -80,12 +80,12 @@ with room to show the difference.
 
 ## Out of scope
 
-- **Resolving a request.** There is no `AttentionResolved` event, because no Phase 00 producer could
-  emit one honestly. It arrives with the phase that owns real tools and real approvals.
+- **Resolving a request.** There is no `AttentionResolved` event, because no producer can yet emit one
+  honestly. It arrives with real tools and real approvals (Phase 01).
 - **The other direction of the relationship.** `ui-ux.md` asks the queue to carry a delegating agent
   objecting to something the user changed. Same mechanism, no producer yet.
 - **Acting on a request from inside the queue.** Approving or answering in place needs a reply
-  channel the runtime does not have. Going to the agent is what Phase 00 offers.
+  channel the runtime does not have. Going to the agent is what the workspace offers today.
 - **Clicking a row to act on it.** A press focuses the band; the cursor moves by keyboard. The
   contract requires every mouse gesture to have a keyboard equivalent, not the reverse.
 

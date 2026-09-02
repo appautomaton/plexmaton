@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Partially implemented; SURF-1, SURF-3 and SURF-5 proven. SURF-2 and SURF-4 have no caller in this phase |
+| Status | Implemented; SURF-2 and SURF-4 are unproven, having no caller yet |
 | Owns | What a surface is, how one is registered, and which surface an event may reach |
 | Depends on | The surface categories and routing rules in [`ui-ux.md`](../roadmap/ui-ux.md) |
 | Proven by | `plexmaton-tui::layout`, `::surface`, and `::render` tests; see the evidence table |
@@ -26,7 +26,7 @@ visible rectangle. A rectangle computed without being registered is a defect, no
 **SURF-2 — Clip, not bounds.** A surface carries both the rectangle it occupies and the rectangle it
 is clipped to. Hit testing and painting use their intersection. A surface scrolled or covered past
 its parent's edge is not hit where it is not visible, and its content keeps its logical origin
-rather than restarting at the visible slice. **No Phase 00 surface needs this** — see Evidence.
+rather than restarting at the visible slice. **No surface needs this yet** — see Evidence.
 
 **SURF-3 — Focus is a surface property.** At most one surface holds keyboard focus, and it is a
 surface the focus ring contains. Whether a text cursor exists is derived from the focused surface's
@@ -55,7 +55,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | --- | --- |
 | `id` | `SurfaceId`, a named variant. Never a number agreed by convention (D-036) |
 | `bounds` | The rectangle the surface occupies, whether or not all of it is visible |
-| `clip` | The rectangle it is confined to. Still not a field: Phase 00 closed without a caller, so `bounds` is that rectangle |
+| `clip` | The rectangle it is confined to. Not a field: nothing has needed a clip distinct from `bounds`, which is that rectangle |
 | `z_index` | Draw and hit order among siblings. Zero for every tiled region; the second window as a shelf is one, floating inside the conversation, painted last and hit first, with the cells beneath it cleared before it paints |
 | `kind` | What the surface *is*; every behavioural answer below is derived from it |
 | `viewport` | How tall its content is and how far through it the user is. Filled in by the renderer, because measuring needs the text; `None` until a frame has drawn it |
@@ -83,7 +83,7 @@ predicted `Shelf`, but a shelf is one of three presentations the same surface ta
 terminal size, and a kind named after one geometry would be the wrong name at the other two.
 [`inspector`](./inspector.md) owns it.
 
-`Modal` never joined. Nothing in Phase 00 blocks, so there is no surface to give the kind — the same
+`Modal` has not joined. Nothing blocks yet, so there is no surface to give the kind — the same
 reason SURF-4 is unproven below. A kind with no surface using it is not added in advance.
 
 ### Hit testing
@@ -120,14 +120,14 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | A surface whose `visible()` is empty | Registered, painted as nothing, unhittable. It exists so its retained state survives (SURF-5) |
 | Focus held by a surface no longer registered | Focus moves to the first ring stop; it never becomes a dangling identity |
 | A press on a surface that is not focusable | The press routes, focus does not move |
-| A terminal below the supported minimum | Nothing is registered, so a pointer event resolves to nothing rather than to a guess (D-025) |
+| A terminal below the supported minimum | Nothing is registered, so a pointer event resolves to nothing rather than to a guess |
 | Z-order exhausted by promotion | `SurfaceTreeError::ZOrderExhausted`; never a silent wrap that reorders the workspace |
 
 ## Out of scope
 
 - **Terminal-event translation, capture, and the `Escape` ladder.**
   [`interaction-routing`](./interaction-routing.md) owns them.
-- **Shelf geometry and the ten-row guarantee** (D-016, D-023). [`inspector`](./inspector.md) owns
+- **Shelf geometry and the ten-row guarantee** (D-016). [`inspector`](./inspector.md) owns
   them.
 - **Which surfaces exist.** That is layout's decision, and it changes with the layout class.
 
@@ -136,7 +136,7 @@ surface it hits; hover never does, per [`interaction-routing`](./interaction-rou
 | Invariant | Proven by |
 | --- | --- |
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
-| SURF-2 | Unproven, and unowned inside Phase 00. **Correction:** delivery step 2 predicted step 8 would own this, on the grounds that a transcript item scrolled past its viewport edge is a surface outgrowing its parent. It is not — an item is content *inside* a surface, and which rows of it a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business. The base layer tiles the terminal, and the one surface above it — the second window as a shelf — lies wholly inside the conversation it covers, so nothing overflows its parent; the first surface that does is one drawn past a parent's edge, which no phase has yet needed |
+| SURF-2 | Unproven; no surface overflows its parent yet. The base layer tiles the terminal, and the one surface above it, the second window as a shelf, lies wholly inside the conversation it covers. A transcript item scrolled past its viewport edge is content inside a surface, and which rows of it a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
 | SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
-| SURF-4 | Unproven, and unowned inside Phase 00. Nothing in the canonical journey blocks: the Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with the phase that owns real tools |
+| SURF-4 | Unproven; nothing blocks yet. The Attention queue exists so a background request does not open a modal, and a shelf overlays without blocking. The first blocking surface is a permission or confirmation prompt, which arrives with real tools |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

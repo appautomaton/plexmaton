@@ -6,25 +6,24 @@
 | Kind | Research track, not a delivery phase |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
-| Blocked by | A viewport with clipping and scroll ownership (Phase 00 interaction spine) |
+| Entry condition | Met; see below |
 | Blocks | Productionizing math in Phase 04 |
 
 ## Why this is a track and not part of a phase
 
-Math rendering was originally folded into Phase 00. It was separated on 2026-08-31 because it
-shares almost no machinery with surface routing: the interaction spine needs focus, hit testing,
-pointer capture, and viewports, while this track needs a layout engine, a raster cache, and two
-display transports. Keeping them in one exit gate coupled a fourteen-condition phase to an
-open-ended engine comparison, which the phase file itself flagged as a risk.
+It shares almost no machinery with the interaction spine, which needs focus, hit testing, pointer
+capture, and viewports, while this track needs a layout engine, a raster cache, and two display
+transports. One exit gate for both would couple a bounded phase to an open-ended engine
+comparison.
 
-Separating them does not soften the product invariants. The invariants live in the parent roadmap
-and remain locked: typeset math is the primary presentation, source is preserved behind it, and
+Separating them does not soften the product invariants, which live in the parent roadmap and
+remain locked: typeset math is the primary presentation, source is preserved behind it, and
 a terminal without an image protocol gets Unicode cell graphics derived from the same rendered
 result rather than raw LaTeX.
 
 ## Entry condition
 
-Do not start this track until the interaction spine can provide:
+Met. The interaction spine provides:
 
 - A viewport that clips content to a rectangle and owns its own scroll offset.
 - A transcript block whose layout is invalidated by revision and width.

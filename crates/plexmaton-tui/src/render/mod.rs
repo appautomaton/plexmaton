@@ -75,7 +75,7 @@ pub fn render(
     for (z, id, bounds) in drawn {
         let has_focus = focused == Some(id);
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
-        // the conversation's ten-row guarantee (D-022, INS-5). What is left is what its
+        // the conversation's ten-row guarantee (INS-5). What is left is what its
         // conversation is drawn into, so the two are laid out before either is built.
         let bounds = match (id, &steer) {
             (SurfaceId::Inspector, Some((split, _))) => split.conversation,

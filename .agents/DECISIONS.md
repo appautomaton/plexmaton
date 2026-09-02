@@ -1,246 +1,130 @@
 # Decisions
 
-An index, not a fourth copy of the rules. Every decision's detail lives in exactly one place —
-`roadmap/plexmaton.md`, `roadmap/ui-ux.md`, or a file in `specs/` — and this file points at it.
+An entry is a decision that was contested or is expensive to reverse: what was chosen, what it
+rejected and why, and where the rule now lives. An uncontested choice is a commit, not an entry.
+When a decision changes, its entry is rewritten; a replaced decision is named by its replacement
+and has no entry of its own.
 
-What this file holds that no other file can:
+## Architecture
 
-- **When** a decision was made, and what drove it.
-- **What was rejected**, and why. This is the part that cannot be reconstructed later, and the
-  part that stops a settled question from being reopened every few months.
-- **What superseded what.** A decision that was narrowed or reversed stays here with its
-  replacement named.
+**D-001 · Rust, Ratatui and Crossterm; four crates, with `plexmaton-core` free of any terminal,
+async or rendering crate; rendering is a pure projection of explicit state.** Rejected: a
+runtime in the Bubble Tea mould; a component framework layered over Ratatui; and one crate,
+which is how the reference project sprawled. Owner: `roadmap/plexmaton.md` §locked
+foundations, `Cargo.toml`.
 
-Rules for this file: a row is added only when something is actually decided — proposals live in
-the active phase document or its design artifact. A row never becomes the only statement of a
-rule. Superseded rows are struck through in the Status column, never deleted.
+**D-003 · A producer contract violation degrades into a visible typed notice.** Rejected:
+terminating the workspace, which hands the user a broken terminal for a bug they cannot see.
+Owner: `plexmaton-tui::state::ViewState::apply`.
 
-That last rule makes this the one budget with an irreducible half: the ledger grows by a line per
-decision forever, and only the prose below it can be aged. It went from 200 lines to 250 on
-2026-08-31, after nine of fourteen rejected-alternative blocks had already been compressed. Raise it
-again the same way — age first, then move the number.
+**D-029 · One router owns terminal-event translation, and declining an event is a named outcome.**
+Rejected: per-widget event handling, and a silent fallthrough that makes a dead key
+indistinguishable from a routing defect. Owner: [interaction-routing](./specs/interaction-routing.md) INV-1.
 
-## Ledger
+**D-030 · Intents live in `plexmaton-tui`; `plexmaton-core` is the runtime-to-projection boundary.**
+Rejected: `TuiIntent` in core. Scroll, focus and pointer capture are no runtime's business; a user
+action that must reach one becomes a core command at the composition boundary. Owner:
+`plexmaton-tui::intent`.
 
-| ID | Date | Decision | Status | Detail |
-| --- | --- | --- | --- | --- |
-| D-049 | 2026-09-01 | The second window is the selection: the list holds only sub-agents, selecting one floats its conversation over the primary's, which never leaves the screen; there is no pin, no follow, and no open command | Accepted | [inspector](./specs/inspector.md) INS-1 |
-| D-048 | 2026-09-01 | A palette is a complete assignment of the twelve colour roles; the three constructors are presets, not a closed set | Accepted | [ui-ux](./roadmap/ui-ux.md) §readability, `plexmaton-tui::theme` |
-| D-047 | 2026-09-01 | An inspector with no room for its input becomes a navigation surface: no input, no cursor, no draft | Accepted | [inspector](./specs/inspector.md) INS-7 |
-| D-046 | 2026-09-01 | In Phase 00 an inspector is a conversation; tools, mail, artifacts and status stay with the activity column, and the composed inspector the roadmap describes is Phase 03's | Accepted | [inspector](./specs/inspector.md) INS-6 |
-| D-045 | 2026-08-31 | An action-required event joins a visible, ordered band and takes nothing; going to one is the user's keypress, and acknowledging it is not resolving it | Accepted | [attention](./specs/attention.md) ATT-1 to ATT-3 |
-| D-044 | 2026-08-31 | A navigation key means "move inside what holds focus": it chooses an agent only in the rail and scrolls everywhere else, which is how the wheel finally has a keyboard equivalent | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-10 |
-| D-043 | 2026-08-31 | A selection is a range over a surface's entries, never over cells; copy returns the producer's source, is bound to `Ctrl-Y`, and is delivered by OSC 52 | Accepted | [selection-and-copy](./specs/selection-and-copy.md) SEL-1 to SEL-5 |
-| D-042 | 2026-08-31 | Inspection is an axis of its own: opening does not move the selection, an unpinned inspector follows it, and a pinned one is what puts two agents on screen | Superseded by D-049 | [inspector](./specs/inspector.md) INS-1 |
-| D-041 | 2026-08-31 | The event loop is one `Workspace` the executable and the harness both drive; frame work is asserted and frame time is only reported | Accepted | [frame-loop](./specs/frame-loop.md) FR-1 to FR-3 |
-| D-040 | 2026-08-31 | A conversation is measured item by item and cached by revision and width; a reader is parked against a message rather than a row, and each conversation keeps its own | Accepted | [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5 |
-| D-039 | 2026-08-31 | A viewport measures its content through the same `Paragraph` that paints it, using ratatui's `unstable-rendered-line-info` | Accepted | [surface-model](./specs/surface-model.md) §viewports |
-| D-038 | 2026-08-31 | The composer is first-party; `ratatui-textarea` is not adopted, and a submitted message is a runtime command rather than a write | Accepted | [ui-ux](./roadmap/ui-ux.md) §input, `plexmaton-sim::Runtime` |
-| D-037 | 2026-08-31 | The composer is delivery step 3 of Phase 00, so the sequence grows from seven steps to eight | Accepted | [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery sequence |
-| D-036 | 2026-08-31 | Surface identities are named; the renderer returns the registry it drew, and routing hit-tests only that | Accepted | [surface-model](./specs/surface-model.md) SURF-1 |
-| D-035 | 2026-08-31 | `.worktrees/` is the single ignored location for parallel checkouts, and each one keeps its own Cargo target directory | Accepted | [standards/quality-gates.md](./standards/quality-gates.md) |
-| D-034 | 2026-08-31 | A plan slices one delivery step and is deleted when consumed; a spec is earned, a plan is cheap | Accepted | [plans/README.md](./plans/README.md) |
-| D-033 | 2026-08-31 | Cite identifiers rather than restating rules, in conversation, comments, tests, and commits | Accepted | [.agents/README.md](./README.md) |
-| D-032 | 2026-08-31 | Documents are layered by load-time; only `AGENTS.md` is always-on, and every layer has a warn-only budget | Accepted | [.agents/README.md](./README.md), `scripts/check-doc-budget.sh` |
-| D-031 | 2026-08-31 | `Escape` resolves one interaction layer per press and never quits; `Ctrl-C` is the only quit, since 2026-09-01 without a bare `q` | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7 |
-| D-030 | 2026-08-31 | The intent vocabulary lives in `plexmaton-tui`; `plexmaton-core` stays the runtime-to-projection semantic boundary | Accepted | `plexmaton-tui::intent` |
-| D-029 | 2026-08-31 | One router owns terminal-event translation, and declining an event is a named outcome rather than a fallthrough | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-1 |
-| D-028 | 2026-08-31 | Direct manipulation in the first slice is shelf vertical resize only; free panel movement is deferred | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-027 | 2026-08-31 | While a sub-agent's input is active the primary composer collapses to one row rather than hiding | Accepted | [ui-ux](./roadmap/ui-ux.md) §input |
-| D-026 | 2026-08-31 | Entering a sub-agent's window focuses it, so its input is usable immediately; looking at one opens the window without moving the keyboard (amended 2026-09-02) | Accepted | [ui-ux](./roadmap/ui-ux.md) §input |
-| D-025 | 2026-08-31 | Minimum terminal is 48 × 12; below it one explicit notice and no workspace content | Accepted | `LayoutClass::for_size` |
-| D-024 | 2026-08-31 | Ultrawide starts at 132 and holds exactly one secondary column, replaced on selection | Accepted | `LayoutClass::for_size`, [ui-ux](./roadmap/ui-ux.md) |
-| D-023 | 2026-08-31 | A shelf guarantees ten readable rows of the primary conversation | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-022 | 2026-08-31 | A sub-agent's input takes rows from its own budget, never from the primary conversation's guarantee | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-021 | 2026-08-31 | `specs/` holds mechanism definitions; every invariant names the test that proves it | Accepted | [specs/README.md](./specs/README.md) |
-| D-020 | 2026-08-31 | Inbox and Attention queue are projections over one item log, never separate stores | Accepted | [mailbox-delivery](./specs/mailbox-delivery.md) INV-1, INV-7 |
-| D-019 | 2026-08-31 | A delegation is one authoritative record with two writers; the user's steer is an amendment, not a bypass | Accepted | [delegation-and-steering](./specs/delegation-and-steering.md) |
-| D-018 | 2026-08-31 | Exactly one cursor exists on screen; a sub-agent's input renders only while its surface has focus | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-017 | 2026-08-31 | The composer is bound to the primary agent and is never retargeted by selection | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-016 | 2026-08-31 | A peek renders as a shelf docked to the top of the conversation, guaranteeing ten readable rows below | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-015 | 2026-08-31 | Four layout classes; at ultrawide two conversations sit side by side | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-014 | 2026-08-31 | The agent column sits on the left and carries agents, attention, and activity as three surfaces in one box | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-013 | 2026-08-31 | Colour is twelve semantic roles over three palettes; `ansi` is the default so the user's terminal theme wins | Accepted | `plexmaton-tui::theme` |
-| D-012 | 2026-08-31 | Commit messages follow Conventional Commits | Accepted | [AGENTS.md](../AGENTS.md) |
-| D-011 | 2026-08-31 | Sprawl guards are function-level first; a 400-line file sentinel excludes inline tests | Accepted | [AGENTS.md](../AGENTS.md), `clippy.toml` |
-| D-010 | 2026-08-31 | `missing_docs` is denied in `plexmaton-core` only | Accepted | `crates/plexmaton-core/src/lib.rs` |
-| D-009 | 2026-08-31 | The licence allow-list is exactly the licences in the resolved graph; workspace members are skipped rather than given a placeholder | Accepted | `deny.toml` |
-| D-008 | 2026-08-31 | Duplicate Ratatui or Crossterm generations fail the build | Accepted | `deny.toml` |
-| D-007 | 2026-08-31 | Math rendering is a research track, not part of Phase 00 | Accepted | [track-math-rendering](./roadmap/track-math-rendering.md) |
-| D-006 | 2026-08-31 | An exhausted child viewport does not propagate scroll to its parent | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-005 | 2026-08-31 | Plexmaton owns the full alternate screen; it does not render into inline scrollback | Accepted | [ui-ux](./roadmap/ui-ux.md) |
-| D-004 | 2026-08-31 | `ViewState` is revisioned and the executable repaints only when the revision advances | Accepted | `plexmaton-tui::state` |
-| D-003 | 2026-08-31 | Ordering defects degrade visibly instead of terminating the workspace | Accepted | `plexmaton-tui::state::ViewState::apply` |
-| D-002 | 2026-08-30 | Four crates; `plexmaton-core` depends on no terminal, async, or rendering crate | Accepted | [plexmaton](./roadmap/plexmaton.md) |
-| D-001 | 2026-08-30 | Rust with Ratatui and Crossterm; unidirectional state flow with rendering as pure projection | Accepted | [plexmaton](./roadmap/plexmaton.md) |
+**D-036 · Surface identities are named; the renderer returns the registry it drew and routing
+hit-tests only that.** Rejected: numeric identities, which break silently when a region is added;
+and a second layout computed for hit testing, whose failure is a click landing one panel over.
+Owner: [surface-model](./specs/surface-model.md) SURF-1.
 
-## Rejected alternatives
+**D-041 · One `Workspace` drives the executable and the measurement harness; frame work is
+asserted, frame time only reported.** Rejected: `criterion`, which cannot see work counts; and
+wall-clock assertions, which the same binary on the same laptop moved by a factor of two hours
+apart. Owner: [frame-loop](./specs/frame-loop.md) FR-3.
 
-### D-049 · Storing which agent the second window shows — rejected
+**D-019 · A delegation is one record with two writers; the user's steer is an amendment the
+delegator sees before its next turn.** Rejected: routing every steer through the delegator, a game
+of telephone that contradicts direct steering; and steering the delegator never sees, which makes
+its model of the task stale invisibly. Owner: [delegation-and-steering](./specs/delegation-and-steering.md).
 
-The window's agent was its own state beside the selection, with pin and follow to keep the two
-aligned, and the default path — select B, press Enter — put B on screen twice, because the main
-panel followed the selection too. The user read the contract the other way: the main panel is the
-primary's, and selecting anyone else is looking at them. Deriving the window from the selection
-makes the duplicate unrepresentable and retires pin, follow and the open command; taking the
-primary out of the list makes "select the primary" unsayable. D-042 is superseded; its first
-rejection — `Enter` selecting *and* opening — was rejecting the symptom. Splitting the region
-instead of floating the shelf went the same day: `ui-ux.md` had said overlay all along.
+**D-020 · Inbox and Attention queue are projections over one item log.** Rejected: separate
+stores with synchronization between them. Owner: [mailbox-delivery](./specs/mailbox-delivery.md) INV-1, INV-7.
 
-### D-046 · A composed five-domain inspector in Phase 00 — rejected for now
+## Screen
 
-Two documents described one and the surface was another, so the gap had to close in one direction.
-It closes by scoping, because nothing in this phase asks for the rest: the exit gate wants two
-conversations streaming independently, and semantic copy of mail and artifacts, which the activity
-column already gives for the selected agent. Composing them needs sub-region scroll ownership, a
-selection index meaning different things in different parts of one surface, and an expand/collapse
-model [transcript-layout](./specs/transcript-layout.md) deliberately lacks — a delivery step, not a
-correction, and Phase 03 already owns the ground it stands on. The cost is
-recorded rather than smoothed over. **Amended 2026-09-01:** the activity moved into the agent
-column where D-014 had put it, so it now stays on screen beside a second conversation.
+**D-005 · Plexmaton owns the full alternate screen.** Rejected: rendering into inline scrollback,
+which gives the terminal ownership of scroll position and contradicts per-surface scroll
+ownership. Owner: `roadmap/ui-ux.md` §screen ownership.
 
-### D-047 · Guaranteeing the inspector enough rows for its input — rejected
+**D-013 · Colour is twelve semantic roles; a palette is any complete assignment of them, the
+three constructors are presets, and `ansi` is the default so the user's terminal theme wins.**
+Rejected: terminal colours named inside widgets, and the presets as a closed set, which makes a
+new colourway a fourth constructor. Owner: `plexmaton-tui::theme`.
 
-Aged: [inspector](./specs/inspector.md) INS-7 owns it. A clamp that depends on focus makes `Tab` resize a panel (INS-3).
+**D-014 · The agent column sits on the left and holds the sub-agent list over the activity in one
+box.** Rejected: an activity column on the right, stacked under the conversation at medium, which
+left the screen whenever a second window opened. Owner: `roadmap/ui-ux.md` §responsive layout classes.
 
-### D-043 · Character selection, `arboard`, and `Ctrl-C` as the copy key — all rejected
+**D-024 · Ultrawide starts at 132 and holds exactly one secondary column, replaced on selection.**
+Rejected: three live transcripts, which is a monitoring product rather than a working one. Owner:
+`roadmap/ui-ux.md` §responsive layout classes.
 
-Aged: [selection-and-copy](./specs/selection-and-copy.md) owns the model and the binding. Character
-granularity makes SEL-1 false at a second width; `arboard` reaches the wrong machine over SSH;
-`Ctrl-C` is the exit (INV-7).
+**D-016 · The second window is a shelf docked to the top of the conversation, floating over it.**
+Rejected: a centred floating window, which covers what the user is reading; and splitting the
+region, which shipped once and moved the conversation under it. Owner: `roadmap/ui-ux.md` §shelf.
 
-### D-045 · Resolving an attention item from inside the queue — rejected for now
+**D-028 · Direct manipulation is the shelf's vertical resize only.** Rejected: free two-axis drag
+and eight-way resize now, for a gesture nothing in the journey needs. Owner:
+`roadmap/ui-ux.md` §drag scope.
 
-Aged: [attention](./specs/attention.md) ATT-3 owns it. Acknowledging is not resolving; the runtime that can resolve arrives with Phase 01.
+**D-049 · The second window is the selection: the list holds only sub-agents, selecting one floats
+its conversation over the primary's, and `Escape` closes it.** Replaces D-042, which stored the
+open window beside the selection with pin and follow; the default path put one conversation on
+screen twice, and deriving the window from the selection makes that unrepresentable. Owner:
+[inspector](./specs/inspector.md) INS-1.
 
-### D-041 · `criterion` as the measurement lane — rejected
+**D-046 · Until Phase 03 the second window is a conversation and nothing else.** Rejected: composing
+tools, mail, artifacts and status into it now, which needs sub-region scroll ownership and an
+expand model the transcript lacks; Phase 03 owns it. Owner: [inspector](./specs/inspector.md) INS-6.
 
-Aged: the evidence is work counts an ordinary test asserts, which a benchmark harness cannot see.
+## Input
 
-### D-041 · Asserting wall-clock budgets in the test suite — rejected
+**D-017 · The composer is bound to the primary agent and is never retargeted by selection.**
+Rejected: one composer whose target follows the selection; the target is invisible state, and a
+misdirected steer to a running worker is not undone by sending another. Owner: `roadmap/ui-ux.md` §input.
 
-Aged: [frame-loop](./specs/frame-loop.md) and [ui-ux](./roadmap/ui-ux.md) §budgets own it, with the
-measurement that settled it — the same binary, the same laptop, hours apart, roughly double. A
-threshold loose enough not to flake catches nothing; work counts are exact everywhere.
+**D-018 · Exactly one cursor exists; a sub-agent's input renders only while its surface holds
+focus.** Rejected: a visible unfocused input, which is something to mistarget. Owner:
+`roadmap/ui-ux.md` §input.
 
-### D-017 · One composer that retargets on selection — rejected
+**D-026 · Entering a sub-agent's window focuses it; looking at one does not.** Rejected: focusing
+on look, which stops the arrows moving through the list. Owner: [inspector](./specs/inspector.md) INS-4.
 
-Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rationale. The verdict is that a target which
-follows the selection is invisible state, and a misdirected steer to a running worker is not undone
-by sending another one.
+**D-027 · While a sub-agent's input is active the primary composer collapses to one row.**
+Rejected: hiding it, which costs the affordance and jumps the transcript tail three rows;
+performance was never the reason. Owner: `roadmap/ui-ux.md` §input.
 
-### D-019 · Steering only through the delegator, and steering it never sees — both rejected
+**D-031 · `Escape` resolves one layer per press and never quits; `Ctrl-C` is the only quit.**
+Rejected: `Escape` as quit, then a bare `q`. Both shipped and both ended sessions by reflex,
+`Escape` once a dismissible layer existed and `q` because focus starts on a navigation surface.
+Owner: [interaction-routing](./specs/interaction-routing.md) INV-6, INV-7.
 
-Aged: [delegation-and-steering](./specs/delegation-and-steering.md) owns the record and its two
-writers. **Routing every instruction through the delegator** removes divergence by construction and
-is a game of telephone, contradicting a locked goal: the user steers, pauses and aborts workers
-through explicit actions. **Steering it never sees** is the cheapest option and the worst — the
-delegator's model of the task goes stale invisibly, which is the multiple-sources-of-truth
-anti-pattern in textbook form, and it fails where the user cannot diagnose it.
+**D-038 · The composer is first-party, and a submitted message is a runtime command rather than a
+write.** Rejected: `ratatui-textarea`, which consumes terminal events when only the router may;
+and the projection appending its own transcript, which puts two writers on one numbered stream.
+Owner: [composer](./specs/composer.md) COM-3.
 
-### D-032 · Claude Code skills as the trigger layer — rejected
+**D-043 · A selection is a range over a surface's entries; copy is `Ctrl-Y`, delivered by OSC 52.**
+Rejected: character selection, which changes what is copied at a second width; `arboard`, which
+reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the exit. Owner:
+[selection-and-copy](./specs/selection-and-copy.md).
 
-Aged: [.agents/README.md](./README.md) owns the trigger layer. A skill is one vendor's mechanism,
-and the corpus has to be readable by a person and by any agent, so triggers are prose in a document
-rather than a directory only one tool loads.
+**D-006 · An exhausted child viewport does not pass the wheel to its parent.** Rejected:
+propagation, which makes the same gesture over the same cell move a different surface depending
+on scroll position. Owner: `roadmap/ui-ux.md` §nested scrolling.
 
-### D-032 · A blocking document-budget gate — rejected
+## Transcript
 
-Aged: [`.agents/README.md`](./README.md) §budgets now owns the reasoning. The verdict is that a
-document over budget is a design question, and a blocking gate turns it into pressure to delete a
-sentence.
+**D-039 · A viewport measures its content through the same `Paragraph` that paints it.** Rejected:
+owning the wrapping, roughly eighty lines reaching the same answer with our own bugs; the exact
+pin and the lockfile make an unstable-API change a reviewed bump. Owner:
+[surface-model](./specs/surface-model.md) §viewports.
 
-### D-039 · Owning the text wrapping instead — rejected
-
-Aged: the mechanism is in [surface-model](./specs/surface-model.md) §viewports. The objection that
-made owning it attractive does not hold: `line_count` runs the same `WordWrapper` the renderer runs,
-so it is ratatui measuring its own wrapping rather than a second derivation that could drift. Owning
-it meant roughly eighty lines of grapheme-and-width logic reaching the same answer with our own bugs
-instead of ratatui's. The exact pin plus a committed lockfile is what makes an unstable API change
-surface at a reviewed bump.
-
-### D-040 · A row offset, a per-surface reading position, and bounded overscan — all rejected
-
-Aged: [transcript-layout](./specs/transcript-layout.md) TR-3 and TR-5 own the two positions.
-Three verdicts. A **row offset** survives a resize as a number while naming different text, so it
-moves the reader while looking like it did not; an item identity is the durable half. Keying a
-conversation's position **by surface** breaks step 4 of the journey — leave A, come back, land where
-B was. **Bounded overscan** was in the phase's scope and was not built: a synchronous renderer has
-no asynchronous fill for it to hide, so it costs wraps and prevents nothing.
-
-### D-038 · Adopting `ratatui-textarea`, and letting Submit write the transcript — both rejected
-
-Aged: [phase-00](./roadmap/phase-00-experience-skeleton.md) §delivery step 3 and
-[composer](./specs/composer.md) COM-3 own the reasoning. The crate takes a
-`crossterm::event::Event`, and exactly one component here may (D-029). And a submitted message being
-a command rather than a write cost real work — sequence numbering had to move into the runtime,
-because two sources feeding one monotonic stream cannot both number it — and bought one writer.
-
-### D-037 · Leaving the composer to Phase 01, and folding it into the surfaces step — both rejected
-
-Aged: the outcome is the delivery sequence itself. The verdict is that a phase whose exit gate says
-the user can converse cannot defer the one place they type, and that folding it into the surfaces
-step would have hidden a whole invariant set — the single cursor, and a submission as a command —
-inside a step already about something else.
-
-### D-036 · Numeric identities and a second layout for hit testing — rejected
-
-Aged: [surface-model](./specs/surface-model.md) owns both. A numbered identity is a convention, and
-a convention breaks silently when a region is added; a second layout computed for hit testing is the
-multiple-sources-of-truth anti-pattern, whose failure here is a click landing one panel over.
-
-### D-035 · `.agents/worktrees/`, and one shared `CARGO_TARGET_DIR` — both rejected
-
-Aged: [standards/quality-gates.md](./standards/quality-gates.md) owns the location and the
-fingerprint collision. Two facts it does not record. `.agents/` is tracked, budgeted markdown, and a
-directory holding that plus 245 MB of build output per checkout stops being one anyone can describe.
-And sharing a target directory — the standard advice, which silently runs the wrong code here —
-saves four crate builds out of seventy-six; `sccache` does not reach it either, because absolute
-paths enter its cache key.
-
-### D-034 · Folding specs into the plans folder — rejected
-
-Aged: [plans/README.md](./plans/README.md) owns the comparison. The two have opposite lifetimes, so
-one folder means keeping dead plans or deleting live contracts.
-
-### D-031 · `Escape` as the quit key — rejected
-
-The prototype shipped this way and it was changed: `Esc` quit while there was nothing to dismiss,
-and the moment a shelf or a draft exists the same reflex that closes an overlay ends the session one
-press later. [interaction-routing](./specs/interaction-routing.md) INV-6 and INV-7 replaced it.
-A bare `q` went the same way on 2026-09-01: focus starts on a navigation surface, so it ended the
-session the first time a message was typed one `Tab` too early. `Ctrl-C` is the only quit.
-
-### D-030 · Putting `TuiIntent` in `plexmaton-core` — rejected
-
-Aged: the crate boundary is in [plexmaton](./roadmap/plexmaton.md). Scroll, focus cycling and
-pointer capture are none of a runtime's business; a user action that does need to reach one becomes
-a command in core's vocabulary at the composition boundary.
-
-### D-027 · Hiding the unfocused composer entirely — rejected
-
-Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rule. Hiding recovers three rows instead of one,
-which matters at 48 × 12. Worth keeping: performance was never a reason — painting three dim rows
-costs nothing a terminal can measure.
-
-### D-028 · Full floating-window drag in Phase 00 — rejected for now
-
-Aged: [ui-ux](./roadmap/ui-ux.md) §drag scope owns it. A shelf is docked by definition, so only its
-height is a user choice.
-
-### D-010, D-011 · Workspace-wide `missing_docs`, and a file-length limit as the primary guard — rejected
-
-Aged: [standards/rust.md](./standards/rust.md) and
-[standards/quality-gates.md](./standards/quality-gates.md) own the reasoning. The fact that survives
-them: `missing_docs` across the workspace produced 61 findings, nearly all restated signatures.
-
-### D-048 · Three palettes as a closed set — rejected
-
-The vocabulary is the twelve roles. Treating `ansi` / `truecolor` / `monochrome` as the only
-constructible themes would make a new colourway a fourth constructor, or a `Color` inside a widget.
-Presets stay; a palette is any complete assignment (`Palette::from_roles`, `Workspace::with_palette`).
-
-### D-016 supersedes part of the revision-1 floating-window proposal
-
-Aged: [ui-ux](./roadmap/ui-ux.md) §shelf. A docked panel needs a vertical resize handle; free drag
-is a reduction of the revision-1 floating-window proposal, not a deferral of a defining behaviour.
+**D-040 · Heights are cached per item by revision and width; a reader is parked on a message, per
+conversation.** Rejected: a row offset, which survives a resize as a number while naming different
+text; a per-surface position, which loses A's place on returning from B; and bounded overscan,
+which a synchronous renderer cannot use. Owner: [transcript-layout](./specs/transcript-layout.md) TR-1, TR-3, TR-5.

@@ -69,7 +69,7 @@ pub struct FrameWork {
 ///
 /// Held together because they are only correct together: routing hit-tests the surfaces the last
 /// frame drew (SURF-1), the wheel resolves a reading position against the heights that frame
-/// measured (TR-3), and the repaint gate compares against the revision that frame painted (D-004).
+/// measured (TR-3), and the repaint gate compares against the revision that frame painted (FR-1).
 /// Assembling these separately at each call site is three chances to wire one of them wrong.
 #[derive(Debug, Default)]
 pub struct Workspace {
@@ -86,7 +86,7 @@ impl Workspace {
     /// Builds a workspace that paints with `palette`.
     ///
     /// The default workspace uses [`Palette::ansi`]. A colourway is a palette, so swapping one is
-    /// construction, not a later rewrite of the widgets (D-048).
+    /// construction, not a later rewrite of the widgets (D-013).
     #[must_use]
     pub fn with_palette(palette: Palette) -> Self {
         Self {
@@ -813,7 +813,7 @@ mod tests {
         assert!(workspace.surfaces.get(SurfaceId::Inspector).is_none());
     }
 
-    /// COM-1, D-018, D-022 and D-027: two inputs exist, one cursor does, and neither costs the
+    /// COM-1, D-018, INS-5 and D-027: two inputs exist, one cursor does, and neither costs the
     /// conversation its rows.
     ///
     /// This is the first time "exactly one cursor" is a claim that could fail. Until now there was
@@ -937,7 +937,7 @@ mod tests {
         assert!(
             focused_conversation >= bounds(&workspace, SurfaceId::Transcript).height,
             "the steer input costs the conversation nothing: its rows come out of the inspector's \
-             own budget (D-022), and the collapsing composer gives two more back"
+             own budget (INS-5), and the collapsing composer gives two more back"
         );
 
         // Back in, and type: the primary draft is untouched, because a draft belongs to the
@@ -1662,7 +1662,7 @@ mod tests {
     /// Capture is the whole reason a drag is usable: the edge the user grabbed keeps moving after
     /// the pointer has left the surface, which is where a resize gesture spends most of its time.
     /// The clamp is the other half — a drag is a choice inside the ten-row guarantee, never a way
-    /// out of it (D-023).
+    /// out of it (INS-2).
     #[test]
     fn dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle() {
         let (mut workspace, mut terminal) = drawn(120, 40);

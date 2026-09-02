@@ -104,6 +104,6 @@ The amendment's delivery state is observable throughout, per
 | INV-6 | Unproven — not implemented |
 | INV-7 | Unproven — not implemented |
 
-This table is the honest state of the spec: the direction is accepted, nothing is built. Phase 03
-owns the implementation; Phase 00 owns only the surfaces that make an amendment and an objection
-visible.
+This table is the state of the spec: the direction is accepted, nothing is built. Phase 03 owns
+the implementation; the workspace already has the surfaces that make an amendment and an
+objection visible.

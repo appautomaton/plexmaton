@@ -89,7 +89,7 @@ git worktree add .worktrees/surfaces -b feat/surfaces   # then start the agent i
 git worktree remove .worktrees/surfaces                 # never rm -rf; this takes target/ with it
 ```
 
-Never put a worktree in `.agents/`, which is the tracked corpus (D-035).
+Never put a worktree in `.agents/`, which is the tracked corpus.
 
 **Never share `CARGO_TARGET_DIR` between worktrees.** It looks free — the checkouts differ by four
 crates out of seventy-six — and it silently runs the wrong code. Two checkouts of this workspace

@@ -2,7 +2,7 @@
 //!
 //! Widgets name a [`Role`], never a terminal colour (D-013). A [`Palette`] is one complete
 //! assignment of those tokens; [`Palette::ansi`], [`Palette::truecolor`], and
-//! [`Palette::monochrome`] are shipped presets, not a closed set (D-048). A new colourway is a
+//! [`Palette::monochrome`] are shipped presets, not a closed set (D-013). A new colourway is a
 //! new assignment, not a change to a widget.
 
 use plexmaton_core::{AgentStatus, ToolActivityStatus};
@@ -125,7 +125,7 @@ impl Palette {
     /// Builds a complete palette from a function of the colour tokens.
     ///
     /// Every role is assigned exactly once. A palette that left a role unset would force a widget
-    /// to pick a colour, which is the thing this type exists to prevent (D-048).
+    /// to pick a colour, which is the thing this type exists to prevent (D-013).
     #[must_use]
     pub fn from_roles(mut style: impl FnMut(Role) -> Style) -> Self {
         Self {

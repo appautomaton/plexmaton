@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented for the Phase 00 grammar; consumers arrive with later steps |
+| Status | Implemented |
 | Owns | Translation from terminal events to typed intents, pointer capture, and the Escape ladder |
 | Depends on | The locked input decisions in [`ui-ux.md`](../roadmap/ui-ux.md) |
 | Proven by | `plexmaton-tui::router` tests; see the evidence table |

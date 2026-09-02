@@ -7,10 +7,10 @@
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
 | Primary language | Rust |
 | TUI foundation | Ratatui + Crossterm |
-| Active phase | [Phase 00](./phase-00-experience-skeleton.md), reopened on 2026-09-01 for one experience-alignment step after passing its exit gate on 2026-08-31; Phase 01 — Session and Provider Core — follows |
+| Active phase | [Phase 01 — One real agent](./phase-01-one-real-agent.md), opened 2026-09-02 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Decision index | [DECISIONS.md](../DECISIONS.md) |
-| Mechanism specs | [specs/](../specs/README.md) |
+| Mechanism specs | [specs/](../specs/) |
 
 This document records product and architecture direction. It is intentionally not a feature checklist or an implementation promise. Decisions marked **Locked** are the current foundation; items marked **Research gate** require a focused prototype or measurement before selection.
 
@@ -22,9 +22,9 @@ Phases are named with two digits everywhere — `Phase 00`, not `Phase 0` — so
 
 | Phase | Purpose | Detail status |
 | --- | --- | --- |
-| 00 | Validate the experience and architectural event boundaries with synthetic agents | [Gate passed; step 09 in progress](./phase-00-experience-skeleton.md); the handoff is its last section |
-| 01 | Canonical session state and the three provider transports | Summary only |
-| 02 | Tools, context projection, persistence, and MCP | Summary only |
+| 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
+| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | [Active](./phase-01-one-real-agent.md) |
+| 02 | Canonical session state, the remaining provider transports, tools, context projection, persistence, and MCP | Summary only; expected to split when opened |
 | 03 | Durable multi-agent mailbox and runtime ownership | Summary only |
 | 04 | Product polish, performance hardening, and extensibility | Summary only |
 
@@ -35,7 +35,7 @@ comparisons rather than delivered capability:
 
 | Track | Purpose | Status |
 | --- | --- | --- |
-| [Math rendering](./track-math-rendering.md) | Select the math layout engine and both display transports | Not started; **unblocked** on 2026-08-31 by the Phase 00 viewport |
+| [Math rendering](./track-math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
 
 ## Product thesis
 
@@ -65,7 +65,7 @@ The product should feel immediate under load, preserve completed work durably, a
 
 - A delegated agent is a real session with its own identity, transcript, lifecycle, context, tools, and durable history.
 - Delegation is asynchronous. Starting agent B returns control to agent A and the user-facing TUI immediately.
-- Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts. The composed surface is Phase 03's; Phase 00's inspector is the conversation, and the other four belong to the activity column (D-046).
+- Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts. Until Phase 03 the inspector is the conversation alone, and the other four are the activity column's (D-046).
 - Agent inspectors are independently scrollable and may be shown as a window floating over the primary conversation, a column beside it, or a maximized view without changing the underlying session.
 - Agent-to-agent communication is typed mail between sessions, not a fake user message and not a blocking tool result.
 - Bulk findings remain in artifacts or the delegated session; mail carries a bounded summary and durable pointers.
@@ -110,10 +110,9 @@ Mathematical content has one semantic source and one typeset layout. We do **not
 
 The invariants above are locked. Engine and transport selection is delegated to the
 [math rendering track](./track-math-rendering.md), which owns the comparison corpus, the
-candidates, and the decision criteria. It was blocked on the Phase 00 viewport, because partial
-scrolling and source copy are the properties that actually decide the engine; both now exist, and
-what the track has to design first is an item kind that can report a provisional height and revise
-it, which is the shape a pending render has and nothing in Phase 00 needed.
+candidates, and the decision criteria. Its entry condition is met: partial scrolling and source
+copy, the properties that decide the engine, exist. The first thing it has to design is an item
+kind that can report a provisional height and revise it, which is the shape a pending render has.
 
 ## Proposed system boundaries
 
@@ -161,23 +160,22 @@ The runtime emits semantic events. The TUI decides how those events are presente
 
 ### Phase 00: experience skeleton
 
-Detailed plan: [Phase 00 — Experience Skeleton](./phase-00-experience-skeleton.md).
+Closed 2026-09-02 by scoping rather than by its gate. It delivered the interaction mechanisms, each with a spec in [`specs/`](../specs/), and the contract's layout, against a scripted producer. The rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01.
 
-- Establish only the workspace and event boundaries needed by the experience prototype.
-- Run synthetic streaming agents through the same semantic UI boundary intended for the real runtime.
-- Validate `SurfaceTree`, independent viewports, multi-agent inspection, and responsive layout before provider and persistence complexity arrives.
-- Add deterministic TUI snapshots and interaction tests before visual complexity grows.
+### Phase 01: one real agent
 
-### Phase 01: canonical session and provider transport
+Detailed plan: [Phase 01 — One real agent](./phase-01-one-real-agent.md).
 
-- Define session, item, content block, tool, usage, provider replay, and streaming event types.
-- Implement the authoritative session reducer and active-turn state machine.
-- Implement pooled HTTP transport and Server-Sent Events decoding.
-- Add Chat Completions, Responses, and Messages adapters with recorded fixtures.
-- Prove cross-adapter round trips without discarding provider continuation metadata.
+- Finish the composition and freeze it in checked-in frames at three widths.
+- Put one provider behind the semantic boundary: streaming, a bounded tool set, the loop, approval before a mutating call. The executable runs it; the simulator stays the test producer.
+- Design the transcript grammar against that producer's real output, growing the event vocabulary only where it must.
 
-### Phase 02: tools, persistence, and context
+### Phase 02: session core, transports, tools, and persistence
 
+Expected to split when it opens; Phase 01's closure decides where.
+
+- Define session, item, content block, tool, usage, provider replay, and streaming event types; implement the authoritative session reducer and active-turn state machine.
+- Implement pooled HTTP transport and Server-Sent Events decoding; add the remaining provider adapters with recorded fixtures, and prove cross-adapter round trips without discarding provider continuation metadata.
 - Add a versioned tool registry and capability-aware scheduler.
 - Implement the initial file, search, edit, and command tools with bounded outputs.
 - Select and implement the durable event store after measuring SQLite Write-Ahead Logging versus an append-only log plus index.
@@ -192,10 +190,6 @@ Detailed plan: [Phase 00 — Experience Skeleton](./phase-00-experience-skeleton
 - Keep the user-facing agent responsive while workers run.
 - Add agent list, status indicators, mailbox activity, independently scrollable inspectors, artifact navigation, and explicit steering/abort controls.
 - Begin with one mutating agent per workspace; make mutation ownership a runtime lease rather than a prompt convention.
-
-This phase grew on 2026-08-31. The delegation record, amendment events, undeliverable payloads, and
-the objection flow were not in the original summary; they arrived from the two-writers finding
-above. Recording the growth now is cheaper than meeting it as a surprise when the phase opens.
 
 ### Phase 04: product polish and extensibility
 
@@ -230,7 +224,7 @@ Prefer the smallest architecture that preserves the locked invariants. New subsy
 
 ## How this roadmap grows
 
-- Expand one active phase at a time. Do not create detailed Phase 01–04 files merely to make the roadmap look complete.
+- Expand one active phase at a time. Do not create detailed Phase 02–04 files merely to make the roadmap look complete.
 - A phase file is created when its predecessor is approaching the exit gate and current evidence can constrain the next design.
 - Put durable product and architecture invariants here; put cross-cutting interaction rules in `ui-ux.md`; put implementation scope and evidence in the active phase file.
 - Promote a phase finding into this file only when it changes a durable invariant or system boundary.

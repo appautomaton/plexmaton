@@ -47,12 +47,12 @@ composer.
 
 **INS-5 — The window's input exists only while the window holds focus.** There is nothing to
 mistarget because there is nothing there (D-018). It takes a strip off the bottom of the window's
-own rectangle, never off the conversation's guarantee (D-022), and while it is active the primary
+own rectangle, never off the conversation's guarantee, and while it is active the primary
 composer collapses to a single row that stays clickable and stays a focus stop (D-027). A rectangle
 with no room for both keeps the conversation and shows no input, which is the same all-or-nothing
 rule the row budget uses.
 
-**INS-6 — What the window shows is a conversation, and in Phase 00 that is all it shows.** The
+**INS-6 — What the window shows is a conversation, and until Phase 03 that is all it shows.** The
 looked-at agent's, virtualized through the same cache and the same reading position the main
 conversation uses (TR-1, TR-3, TR-5) — so the two scroll independently because their readers are
 keyed by agent, not because a second mechanism was added. It is not a second copy of the activity
@@ -67,7 +67,7 @@ every width that has a column at all.
 that cannot hold both keeps the conversation and shows no input; this is the other half of that
 sentence. With no input drawn there is no cursor, no text target, and no draft to type into, and the
 same geometry answers all three — one function, called by the renderer and by focus, so the
-affordance, the caret and the keystroke cannot reach different conclusions (D-047).
+affordance, the caret and the keystroke cannot reach different conclusions.
 
 ## Model
 
@@ -132,7 +132,7 @@ what makes them reachable while the window's own input holds the cursor.
 | Situation | Response |
 | --- | --- |
 | A window command with nothing open | A no-op that does not advance the revision. The router says what was pressed; whether there is anything to act on is the reducer's question |
-| The looked-at agent leaves the roster | The panel says so rather than painting an empty box. Nothing removes an agent in Phase 00; this is the prepared answer |
+| The looked-at agent leaves the roster | The panel says so rather than painting an empty box. Nothing removes an agent yet; this is the prepared answer |
 | Going to a request from the primary itself | No window opens and any open one closes, because the primary is already on screen; the keyboard is pointed at its conversation |
 | No sub-agents yet | The list says so and the arrows move nothing |
 | A drag that began on the body, not the edge | Moves nothing. A grab is recorded at press time or not at all |

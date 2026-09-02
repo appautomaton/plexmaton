@@ -6,7 +6,7 @@
 | Applies to | Every delivery phase |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 
-This document defines the product experience across phases. It separates durable interaction principles from temporary layouts and implementation details. A layout becomes locked only after the experience skeleton demonstrates it at wide, medium, and narrow terminal sizes.
+This document defines the product experience across phases. It separates durable interaction principles from temporary layouts and implementation details. A layout becomes locked only after the prototype demonstrates it at wide, medium, and narrow terminal sizes.
 
 ## Experience promise
 
@@ -34,7 +34,7 @@ Use these terms consistently in product copy, architecture, and tests:
 | Artifact | Durable work product or evidence referenced by identity/path rather than copied into mail |
 | Surface | A rendered interactive region participating in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
-| Inspector | The second window: one agent's conversation, shown above or beside the primary's while the user looks at that agent. In Phase 00 it is the conversation alone; tools, mail, artifacts and state are the activity column's until Phase 03 (D-046). `Inspector` is the code's name; user-facing copy says which agent it is |
+| Inspector | The second window: one agent's conversation, shown above or beside the primary's while the user looks at that agent. Until Phase 03 it is the conversation alone, and tools, mail, artifacts and state are the activity column's (D-046). `Inspector` is the code's name; user-facing copy says which agent it is |
 | Peek | Looking at a sub-agent in the list, which is what opens the second window; `Escape` closes it (D-049). The primary is not in the list: its conversation is the screen |
 
 An alias such as `B` or `reviewer` is a routing/display label, not durable agent identity. A pane is a layout presentation, not a session.
@@ -162,7 +162,7 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Agent, mail, tool, reasoning, artifact, warning, and error content are visually distinguishable without relying on color alone.
 - Typeset math is the primary presentation; source is an interaction layer for inspect/copy and a clear failure representation.
 - Colour is twelve semantic tokens (D-013). Widgets name a role — body, muted, border, focus, heading, accent, key hint, and the four attention levels plus selection — never a terminal colour.
-- A palette is a complete assignment of those tokens. The three shipped palettes are presets; a new colourway is a new assignment, not a fourth constructor and not a widget edit (D-048). Default remains `ansi` so the user's terminal theme wins.
+- A palette is a complete assignment of those tokens. The three shipped palettes are presets; a new colourway is a new assignment, not a fourth constructor and not a widget edit (D-013). Default remains `ansi` so the user's terminal theme wins.
 
 ### Selection and copy
 
@@ -185,7 +185,7 @@ the one on the machine the process happens to run on. The mechanism is
 
 ## Information architecture to validate
 
-The experience skeleton must determine the durable arrangement of these product areas without assuming they are all permanently visible:
+The durable arrangement of these product areas, decided without assuming they are all permanently visible:
 
 - Primary conversation and composer
 - Agent navigator and agent lifecycle status
@@ -196,12 +196,10 @@ The experience skeleton must determine the durable arrangement of these product 
 - Command palette and help
 - Permission, approval, and confirmation surfaces
 
-The first prototype may place them provisionally. The exit gate requires evidence for what remains persistent, collapsible, overlaid, or command-driven.
-
-Phase 00's answer to the third row, so it is not left to be inferred from what got built: the
-inspector is the inspected agent's **conversation**, and its tool activity, mail, artifacts and
-metadata are the activity column's, for the selected agent. Composing them into one surface is
-Phase 03's, with the reasoning and the cost in D-046.
+The third row is decided: the inspector is the inspected agent's **conversation**, and its tool
+activity, mail, artifacts and metadata are the activity column's, for the selected agent.
+Composing them into one surface is Phase 03's, with the reasoning and the cost in D-046. The
+other rows are placed provisionally until the phase that builds them.
 
 ## Surface model
 
@@ -266,9 +264,8 @@ only its height is a user choice. Free two-axis movement and eight-way resize wo
 capture on both axes, boundary clamping, resize recovery, and keyboard equivalents for each — for
 a gesture nothing in the canonical journey needs yet.
 
-This is a reduction from the first anatomy proposal, which asked for full floating-window
-behaviour in Phase 00. Free drag returns when a maximized surface has a reason to be
-somewhere other than where the layout puts it.
+Free drag returns when a maximized surface has a reason to be somewhere other than where the
+layout puts it.
 
 ## Input and event-routing contract
 
@@ -285,11 +282,11 @@ somewhere other than where the layout puts it.
 The mechanism — translation, capture state machine, key grammar, and the numbered invariants — is
 specified in [`specs/interaction-routing.md`](../specs/interaction-routing.md).
 
-Exact click, double-click, context-menu, maximize, drag, and resize bindings remain a Phase 00 design decision. They must be tested as one coherent grammar rather than assigned widget by widget.
+Exact bindings are in the specs named above, tested as one coherent grammar rather than assigned widget by widget.
 
 ## Multi-agent journey under test
 
-The canonical Phase 00 journey is:
+The canonical journey is:
 
 1. Agent A streams in the primary conversation.
 2. A delegates a bounded task to agent B.
@@ -433,19 +430,6 @@ Two findings the numbers carry and a target alone would not:
   unselected and stay valid too. Only a change of *width* invalidates them, which is why resize is
   the expensive interaction and nothing else in the grammar is.
 
-## Phase 00 outputs
-
-- Wide, medium, and narrow screen compositions
-- Canonical A delegates to B interaction recording
-- Surface/focus/event state diagram
-- Initial keyboard and mouse grammar
-- Transcript component grammar
-- Design-token draft for spacing, color roles, borders, and elevation
-- State-matrix examples for the canonical journey
-- Attention hierarchy and queue behavior
-- Transcript, path, artifact, and equation selection/copy behavior
-- Measured responsiveness under synthetic streaming load
-
 ## Open design questions
 
 - Persistent agent rail versus command-driven agent switcher at medium widths
@@ -454,10 +438,10 @@ Two findings the numbers carry and a target alone would not:
 - Notification treatment for mail that arrives while its sender inspector is open
 - Whether ten rows is the right primary-conversation guarantee under real transcripts
 
-These questions should be resolved by the Phase 00 prototype and recorded here as durable interaction rules.
+Each is resolved by the prototype and recorded in the section that owns it.
 
 Earlier questions answered and moved out of this list: the ultrawide threshold and whether its
-second column is replaced on selection (D-024), the minimum supported terminal size (D-025),
+second column is replaced on selection (D-024), the minimum supported terminal size,
 low-colour behaviour (D-013), whether the composer keeps `ratatui-textarea` (D-038 — it is
 first-party, because the crate consumes terminal events and only one component may), and the three
 selection and clipboard questions (D-043 — a selection over entries, keyboard-driven, delivered by
