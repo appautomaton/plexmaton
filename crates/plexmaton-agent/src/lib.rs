@@ -9,6 +9,7 @@
 //! The vocabulary crossing outward is [`plexmaton_core::SessionEvent`]; the vocabulary crossing
 //! inward is [`Input`]. They never merge.
 
+mod admission;
 mod interface;
 mod model;
 mod record;
@@ -16,7 +17,14 @@ mod step;
 mod tools;
 mod turn;
 
-pub use interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
+pub use admission::{
+    AdmissionOutcome, AdmissionRefusal, AdmittedCallError, AdmittedToolCall, ApprovalPolicy,
+    CapabilitySet, PolicyDecision, ToolDefinitionRevision,
+};
+pub use interface::{
+    ApprovalDecisionRefusal, Effect, Input, Reaction, UndeliveredInput, UndeliveredReason,
+    UnresolvedApprovalDecision,
+};
 pub use model::{ModelError, ModelEvent, ModelRequest, RequestItem, StopReason};
-pub use tools::{ToolCall, ToolOutcome};
+pub use tools::{PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome};
 pub use turn::{Agent, TurnBudget};

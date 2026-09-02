@@ -1,6 +1,6 @@
 //! The ordered queue of things a background agent needs from the user.
 
-use plexmaton_core::{AgentId, AttentionId, AttentionKind};
+use plexmaton_core::{AgentId, AttentionId, AttentionKind, AttentionRequest};
 
 use super::ordered::OrderedById;
 use crate::intent::Direction;
@@ -10,14 +10,37 @@ use crate::intent::Direction;
 pub struct AttentionView {
     pub id: AttentionId,
     pub agent_id: AgentId,
-    pub kind: AttentionKind,
-    pub summary: String,
+    /// The typed request. Approval identity and capabilities stay attached to the queue item instead
+    /// of being copied into a presentation-owned waiter.
+    pub request: AttentionRequest,
     /// Whether the user has been to this request.
     ///
     /// Deliberately not "resolved". Acknowledging is the user saying they have seen it; resolving is
     /// the agent being unblocked, which needs an approval a Phase 00 runtime cannot grant. An
     /// acknowledged request therefore stays queued and stays visible — it is still outstanding.
     pub acknowledged: bool,
+}
+
+impl AttentionView {
+    /// Presentation category derived from the semantic request.
+    #[must_use]
+    pub const fn kind(&self) -> AttentionKind {
+        self.request.kind()
+    }
+
+    /// Bounded queue text derived from the semantic request.
+    #[must_use]
+    pub fn summary(&self) -> &str {
+        self.request.summary()
+    }
+}
+
+/// Stable target returned when the user visits one request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct AttentionTarget {
+    pub(super) id: AttentionId,
+    pub(super) agent_id: AgentId,
+    pub(super) kind: AttentionKind,
 }
 
 /// Requests waiting for the user, in the order they arrived.
@@ -53,6 +76,11 @@ impl AttentionQueue {
         self.items.iter()
     }
 
+    /// Returns one request by stable identity.
+    pub(super) fn get(&self, id: &AttentionId) -> Option<&AttentionView> {
+        self.items.get(id)
+    }
+
     /// Number of requests awaiting the user.
     pub(super) fn len(&self) -> usize {
         self.items.len()
@@ -84,17 +112,33 @@ impl AttentionQueue {
     ///
     /// Returns `None` on an empty queue rather than inventing a target: an intent with nothing to
     /// act on is a no-op the reducer decides, not a defect the router could have prevented.
-    pub(super) fn acknowledge(&mut self) -> Option<AgentId> {
+    pub(super) fn acknowledge(&mut self) -> Option<AttentionTarget> {
         let key = self.items.key_at(self.cursor())?.clone();
         let item = self.items.get_mut(&key)?;
         item.acknowledged = true;
-        Some(item.agent_id.clone())
+        Some(AttentionTarget {
+            id: item.id.clone(),
+            agent_id: item.agent_id.clone(),
+            kind: item.kind(),
+        })
+    }
+
+    /// Removes a resolved request and keeps the cursor on the same logical neighbor.
+    pub(super) fn resolve(&mut self, id: &AttentionId) -> bool {
+        let Some((removed, _item)) = self.items.remove(id) else {
+            return false;
+        };
+        if removed < self.cursor {
+            self.cursor = self.cursor.saturating_sub(1);
+        }
+        self.cursor = self.cursor.min(self.items.len().saturating_sub(1));
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, AttentionId, AttentionKind};
+    use plexmaton_core::{AgentId, ApprovalId, AttentionId, AttentionRequest, ToolCallId};
 
     use super::{AttentionQueue, AttentionView};
     use crate::intent::Direction;
@@ -103,8 +147,15 @@ mod tests {
         AttentionView {
             id: AttentionId::new(id).unwrap_or_else(|error| panic!("fixture: {error}")),
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
-            kind: AttentionKind::Approval,
-            summary: summary.to_owned(),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new(format!("approval-{id}"))
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new(format!("call-{id}"))
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit".to_owned(),
+                capabilities: Vec::new(),
+                detail: summary.to_owned(),
+            },
             acknowledged: false,
         }
     }
@@ -116,7 +167,7 @@ mod tests {
         queue.request(request("ask-2", "other"));
         queue.request(request("ask-1", "revised"));
 
-        let summaries: Vec<_> = queue.iter().map(|item| item.summary.as_str()).collect();
+        let summaries: Vec<_> = queue.iter().map(AttentionView::summary).collect();
         assert_eq!(
             summaries,
             ["revised", "other"],
@@ -134,7 +185,9 @@ mod tests {
         assert_eq!(queue.pending(), 2);
 
         assert_eq!(
-            queue.acknowledge().map(|id| id.to_string()),
+            queue
+                .acknowledge()
+                .map(|target| target.agent_id.to_string()),
             Some("agent-b".to_owned())
         );
         assert_eq!(queue.pending(), 1);
@@ -169,5 +222,24 @@ mod tests {
             !queue.move_cursor(Direction::Backward),
             "clamped at the start"
         );
+    }
+
+    #[test]
+    fn resolving_removes_only_the_named_request_and_repairs_the_cursor() {
+        let mut queue = AttentionQueue::default();
+        queue.request(request("ask-1", "first"));
+        queue.request(request("ask-2", "second"));
+        queue.request(request("ask-3", "third"));
+        queue.move_cursor(Direction::Forward);
+        queue.move_cursor(Direction::Forward);
+
+        let second = AttentionId::new("ask-2").unwrap_or_else(|error| panic!("fixture: {error}"));
+        assert!(queue.resolve(&second));
+        assert_eq!(queue.cursor(), 1);
+        assert_eq!(
+            queue.iter().map(AttentionView::summary).collect::<Vec<_>>(),
+            ["first", "third"]
+        );
+        assert!(!queue.resolve(&second));
     }
 }

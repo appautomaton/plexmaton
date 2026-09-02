@@ -9,7 +9,7 @@ use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
-use plexmaton_tui::{Flow, Submission, SubmissionKind, Workspace};
+use plexmaton_tui::{ApprovalSubmission, Flow, Submission, SubmissionKind, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
@@ -117,6 +117,13 @@ async fn run(
                                 route_interrupt(agent_id),
                             )?;
                         }
+                        if let Some(approval) = outcome.approval {
+                            dispatch(
+                                &mut runtime,
+                                &mut workspace,
+                                route_approval(approval),
+                            )?;
+                        }
                         if let Some(request) = outcome.copied {
                             clipboard.copy(&request.text).context("copy to the clipboard")?;
                         }
@@ -165,6 +172,17 @@ fn route_interrupt(to: AgentId) -> AddressedInput {
     }
 }
 
+/// Preserves the exact pending identity and typed answer chosen on the approval surface (APV-4).
+fn route_approval(approval: ApprovalSubmission) -> AddressedInput {
+    AddressedInput {
+        to: approval.to,
+        input: Input::ApprovalDecided {
+            approval_id: approval.approval_id,
+            decision: approval.decision,
+        },
+    }
+}
+
 /// Gives addressed user input to today's synthetic adapter and applies what it emits.
 ///
 /// The projection is never written directly here. A message reaches the screen as the runtime's
@@ -188,7 +206,19 @@ fn dispatch(
             text,
         },
         Input::Interrupted => RuntimeCommand::Interrupt { to: addressed.to },
-        Input::Streamed(_) | Input::Failed(_) | Input::ToolFinished { .. } => {
+        Input::ApprovalDecided {
+            approval_id,
+            decision,
+        } => RuntimeCommand::Approval {
+            to: addressed.to,
+            approval_id,
+            decision,
+        },
+        Input::Streamed(_)
+        | Input::Failed(_)
+        | Input::ToolAdmissionResolved(_)
+        | Input::ToolFinished { .. }
+        | Input::ShuttingDown => {
             bail!("the TUI produced an input reserved for the producer")
         }
     };
@@ -201,14 +231,14 @@ fn dispatch(
 mod tests {
     use plexmaton_core::TranscriptRole;
     use plexmaton_sim::{Scenario, ScriptedRuntime};
-    use plexmaton_tui::{Submission, SubmissionKind, SurfaceId, Workspace};
+    use plexmaton_tui::{ApprovalSubmission, Submission, SubmissionKind, SurfaceId, Workspace};
     use ratatui::{
         Terminal,
         backend::TestBackend,
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use super::{dispatch, route_interrupt, route_submission};
+    use super::{dispatch, route_approval, route_interrupt, route_submission};
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
@@ -350,9 +380,9 @@ mod tests {
     /// LOOP-6 and INV-7 at the composition boundary: the visible input chooses the agent input,
     /// and the addressed interrupt reaches that same running turn rather than ending in TUI state.
     #[test]
-    fn production_mapping_preserves_message_steering_and_interrupt() {
+    fn production_mapping_preserves_message_steering_interrupt_and_approval() {
         use plexmaton_agent::{Agent, Input};
-        use plexmaton_core::AgentId;
+        use plexmaton_core::{AgentId, ApprovalDecision, ApprovalId};
 
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         let mut agent = Agent::new(agent_id.clone());
@@ -394,6 +424,21 @@ mod tests {
         assert!(matches!(
             steering.input,
             Input::Steered { ref text } if text == "check the cache"
+        ));
+
+        let approval = route_approval(ApprovalSubmission {
+            to: agent_id.clone(),
+            approval_id: ApprovalId::new("approval-1")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            decision: ApprovalDecision::AllowOnce,
+        });
+        assert_eq!(approval.to, agent_id);
+        assert!(matches!(
+            approval.input,
+            Input::ApprovalDecided {
+                ref approval_id,
+                decision: ApprovalDecision::AllowOnce,
+            } if approval_id.as_str() == "approval-1"
         ));
 
         for character in "discard me".chars() {

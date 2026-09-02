@@ -1,0 +1,322 @@
+//! Trusted tool admission facts and the first stateless approval policy.
+//!
+//! A provider only says which name and raw arguments the model emitted. Whoever owns the trusted
+//! tool catalog turns that request into [`AdmittedToolCall`]; the loop never infers authority from
+//! the model's name or prose (APV-1 and APV-2).
+
+use std::num::NonZeroU64;
+
+use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId};
+
+use crate::tools::ToolCall;
+
+/// Maximum canonical argument bytes one admitted call may retain in turn state.
+pub const MAX_ADMITTED_ARGUMENT_BYTES: usize = 64 * 1024;
+
+/// Maximum concrete operation detail shown in an approval request.
+pub const MAX_APPROVAL_DETAIL_BYTES: usize = 1024;
+
+/// A finite, canonical set of capabilities.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CapabilitySet(Vec<ToolCapability>);
+
+impl CapabilitySet {
+    /// Sorts and de-duplicates a capability collection.
+    #[must_use]
+    pub fn new(capabilities: impl IntoIterator<Item = ToolCapability>) -> Self {
+        let mut capabilities: Vec<_> = capabilities.into_iter().collect();
+        capabilities.sort_unstable();
+        capabilities.dedup();
+        Self(capabilities)
+    }
+
+    /// Iterates the set in stable capability order.
+    pub fn iter(&self) -> impl Iterator<Item = ToolCapability> + '_ {
+        self.0.iter().copied()
+    }
+
+    /// Whether this set shares at least one capability with `other`.
+    #[must_use]
+    pub fn intersects(&self, other: &Self) -> bool {
+        self.0.iter().any(|capability| other.0.contains(capability))
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<ToolCapability> {
+        self.0.clone()
+    }
+}
+
+/// Monotonic revision of one trusted tool definition.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ToolDefinitionRevision(NonZeroU64);
+
+impl ToolDefinitionRevision {
+    /// Creates a revision; zero is not a published definition revision.
+    #[must_use]
+    pub const fn new(value: u64) -> Option<Self> {
+        match NonZeroU64::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// Returns the numeric revision.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
+/// Why a trusted catalog refused a model tool request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmissionRefusal {
+    /// No registered definition owns the requested name.
+    UnknownTool,
+    /// The raw arguments did not satisfy the definition's schema or hard guards.
+    InvalidArguments,
+    /// The definition exists but its executor is unavailable.
+    DefinitionUnavailable,
+}
+
+/// Why an admitted-call constructor rejected catalog output.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AdmittedCallError {
+    /// Canonical arguments exceeded the turn-state bound.
+    ArgumentsTooLarge,
+    /// Approval detail exceeded the presentation bound.
+    DetailTooLarge,
+}
+
+/// One immutable call after trusted parsing and canonicalization.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdmittedToolCall {
+    requested: ToolCall,
+    definition_id: ToolDefinitionId,
+    definition_revision: ToolDefinitionRevision,
+    capabilities: CapabilitySet,
+    canonical_arguments: String,
+    detail: String,
+}
+
+impl AdmittedToolCall {
+    /// Builds the value returned by a trusted catalog after enforcing its retained-size bounds.
+    pub fn new(
+        requested: ToolCall,
+        definition_id: ToolDefinitionId,
+        definition_revision: ToolDefinitionRevision,
+        capabilities: impl IntoIterator<Item = ToolCapability>,
+        canonical_arguments: String,
+        detail: String,
+    ) -> Result<Self, AdmittedCallError> {
+        if canonical_arguments.len() > MAX_ADMITTED_ARGUMENT_BYTES {
+            return Err(AdmittedCallError::ArgumentsTooLarge);
+        }
+        if detail.len() > MAX_APPROVAL_DETAIL_BYTES {
+            return Err(AdmittedCallError::DetailTooLarge);
+        }
+        Ok(Self {
+            requested,
+            definition_id,
+            definition_revision,
+            capabilities: CapabilitySet::new(capabilities),
+            canonical_arguments,
+            detail,
+        })
+    }
+
+    /// The exact request this admitted call answers.
+    #[must_use]
+    pub const fn requested(&self) -> &ToolCall {
+        &self.requested
+    }
+
+    /// Stable trusted definition identity.
+    #[must_use]
+    pub const fn definition_id(&self) -> &ToolDefinitionId {
+        &self.definition_id
+    }
+
+    /// Trusted definition revision pinned by this call.
+    #[must_use]
+    pub const fn definition_revision(&self) -> ToolDefinitionRevision {
+        self.definition_revision
+    }
+
+    /// Canonical capabilities policy evaluates.
+    #[must_use]
+    pub const fn capabilities(&self) -> &CapabilitySet {
+        &self.capabilities
+    }
+
+    /// Canonical arguments the executor receives instead of the model's raw text.
+    #[must_use]
+    pub fn canonical_arguments(&self) -> &str {
+        &self.canonical_arguments
+    }
+
+    /// Bounded concrete-operation detail shown to the user.
+    #[must_use]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+/// Result of one explicit admission effect.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AdmissionOutcome {
+    /// The catalog accepted and canonicalized the call.
+    Admitted(AdmittedToolCall),
+    /// The catalog refused the request before policy or execution.
+    Refused {
+        /// Exact model call being answered.
+        call_id: ToolCallId,
+        /// Typed reason; presentation adapters may render it but never match its text.
+        reason: AdmissionRefusal,
+    },
+}
+
+/// Pure policy result over an admitted call.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PolicyDecision {
+    /// Run without asking the user.
+    Allow,
+    /// Park this call in turn state and ask the user.
+    RequireApproval,
+    /// Never run; approval cannot override this result.
+    Forbidden,
+}
+
+/// Slice 4's stateless policy over typed capabilities.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovalPolicy {
+    approval_required: CapabilitySet,
+    forbidden: CapabilitySet,
+}
+
+impl ApprovalPolicy {
+    /// Creates a policy. A capability present in both sets is forbidden.
+    #[must_use]
+    pub fn new(approval_required: CapabilitySet, forbidden: CapabilitySet) -> Self {
+        Self {
+            approval_required,
+            forbidden,
+        }
+    }
+
+    /// Decides an admitted call without I/O or presentation state (APV-2).
+    #[must_use]
+    pub fn decide(&self, call: &AdmittedToolCall) -> PolicyDecision {
+        if call.capabilities.intersects(&self.forbidden) {
+            PolicyDecision::Forbidden
+        } else if call.capabilities.intersects(&self.approval_required) {
+            PolicyDecision::RequireApproval
+        } else {
+            PolicyDecision::Allow
+        }
+    }
+}
+
+impl Default for ApprovalPolicy {
+    fn default() -> Self {
+        Self::new(
+            CapabilitySet::new([ToolCapability::FileWrite, ToolCapability::ProcessSpawn]),
+            CapabilitySet::default(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId};
+
+    use super::{
+        AdmittedCallError, AdmittedToolCall, ApprovalPolicy, CapabilitySet,
+        MAX_ADMITTED_ARGUMENT_BYTES, MAX_APPROVAL_DETAIL_BYTES, PolicyDecision,
+        ToolDefinitionRevision,
+    };
+    use crate::ToolCall;
+
+    fn call(capabilities: impl IntoIterator<Item = ToolCapability>) -> AdmittedToolCall {
+        AdmittedToolCall::new(
+            ToolCall {
+                call_id: ToolCallId::new("call-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                name: "fixture".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+            ToolDefinitionId::new("fixture-v1").unwrap_or_else(|error| panic!("fixture: {error}")),
+            ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+            capabilities,
+            "{}".to_owned(),
+            "fixture operation".to_owned(),
+        )
+        .unwrap_or_else(|error| panic!("fixture admitted call: {error:?}"))
+    }
+
+    #[test]
+    fn capabilities_are_a_canonical_set() {
+        let set = CapabilitySet::new([
+            ToolCapability::ProcessSpawn,
+            ToolCapability::FileRead,
+            ToolCapability::FileRead,
+        ]);
+
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            [ToolCapability::FileRead, ToolCapability::ProcessSpawn]
+        );
+    }
+
+    #[test]
+    fn policy_uses_capabilities_and_forbidden_wins() {
+        let default = ApprovalPolicy::default();
+        assert_eq!(
+            default.decide(&call([ToolCapability::FileRead])),
+            PolicyDecision::Allow
+        );
+        assert_eq!(
+            default.decide(&call([ToolCapability::FileWrite])),
+            PolicyDecision::RequireApproval
+        );
+
+        let forbidden_write = ApprovalPolicy::new(
+            CapabilitySet::new([ToolCapability::FileWrite]),
+            CapabilitySet::new([ToolCapability::FileWrite]),
+        );
+        assert_eq!(
+            forbidden_write.decide(&call([ToolCapability::FileWrite])),
+            PolicyDecision::Forbidden
+        );
+    }
+
+    #[test]
+    fn admitted_state_is_bounded_before_the_loop_can_retain_it() {
+        let base = call([]);
+        let request = base.requested().clone();
+        let definition = base.definition_id().clone();
+        let revision = base.definition_revision();
+
+        assert_eq!(
+            AdmittedToolCall::new(
+                request.clone(),
+                definition.clone(),
+                revision,
+                [],
+                "x".repeat(MAX_ADMITTED_ARGUMENT_BYTES + 1),
+                String::new(),
+            ),
+            Err(AdmittedCallError::ArgumentsTooLarge)
+        );
+        assert_eq!(
+            AdmittedToolCall::new(
+                request,
+                definition,
+                revision,
+                [],
+                String::new(),
+                "x".repeat(MAX_APPROVAL_DETAIL_BYTES + 1),
+            ),
+            Err(AdmittedCallError::DetailTooLarge)
+        );
+    }
+}

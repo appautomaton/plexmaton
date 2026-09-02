@@ -48,19 +48,27 @@ pub enum SurfaceKind {
     /// changing presentation must not change identity — so a kind named after one geometry would be
     /// the wrong name at the other two.
     Inspector,
+    /// A user-opened blocking decision surface. It owns navigation until answered or dismissed.
+    Modal,
 }
 
 impl SurfaceKind {
     /// Whether a pointer event may resolve to a surface of this kind.
     #[must_use]
     pub const fn accepts_pointer(self) -> bool {
-        matches!(self, Self::Panel | Self::Composer | Self::Inspector)
+        matches!(
+            self,
+            Self::Panel | Self::Composer | Self::Inspector | Self::Modal
+        )
     }
 
     /// Whether a surface of this kind is a stop on the focus ring.
     #[must_use]
     pub const fn is_focusable(self) -> bool {
-        matches!(self, Self::Panel | Self::Composer | Self::Inspector)
+        matches!(
+            self,
+            Self::Panel | Self::Composer | Self::Inspector | Self::Modal
+        )
     }
 
     /// Whether `Escape` closes a surface of this kind.
@@ -70,14 +78,21 @@ impl SurfaceKind {
     /// place as every other behavioural answer (SURF-3).
     #[must_use]
     pub const fn is_dismissible(self) -> bool {
-        matches!(self, Self::Inspector)
+        matches!(self, Self::Inspector | Self::Modal)
+    }
+
+    /// Whether this surface prevents delivery to every lower surface, including outside its own
+    /// visible rectangle.
+    #[must_use]
+    pub const fn blocks_below(self) -> bool {
+        matches!(self, Self::Modal)
     }
 
     /// What typing does while a surface of this kind holds focus.
     #[must_use]
     pub const fn keyboard_focus(self) -> KeyboardFocus {
         match self {
-            Self::Panel | Self::Chrome => KeyboardFocus::Navigation,
+            Self::Panel | Self::Chrome | Self::Modal => KeyboardFocus::Navigation,
             // The inspector carries the inspected agent's steer input, which renders only while it
             // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
@@ -120,6 +135,8 @@ pub enum SurfaceId {
     /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
     /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
     Attention,
+    /// A tool approval the user chose to open from Attention.
+    Approval,
     /// The status line: the last row of the screen, under every pane.
     Status,
 }
@@ -205,6 +222,9 @@ impl SurfaceTree {
     /// Returns the topmost pointer-eligible surface containing the point.
     #[must_use]
     pub fn hit_test(&self, point: Point) -> Option<SurfaceId> {
+        if let Some(blocker) = self.top_blocker() {
+            return Some(blocker.id);
+        }
         self.surfaces
             .values()
             .filter(|surface| surface.kind.accepts_pointer() && contains(surface.bounds, point))
@@ -220,6 +240,11 @@ impl SurfaceTree {
     /// scrolling).
     #[must_use]
     pub fn wheel_target(&self, point: Point) -> Option<SurfaceId> {
+        if let Some(blocker) = self.top_blocker() {
+            return (contains(blocker.bounds, point)
+                && blocker.viewport.is_some_and(Viewport::is_scrollable))
+            .then_some(blocker.id);
+        }
         self.surfaces
             .values()
             .filter(|surface| {
@@ -264,9 +289,12 @@ impl SurfaceTree {
     /// the muscle memory a ring exists to build; the enum is declared in reading order, so at
     /// every layout class the two agree anyway.
     pub fn focus_ring(&self) -> impl Iterator<Item = SurfaceId> + '_ {
+        let blocker = self.top_blocker().map(|surface| surface.id);
         self.surfaces
             .values()
-            .filter(|surface| surface.kind.is_focusable())
+            .filter(move |surface| {
+                surface.kind.is_focusable() && blocker.is_none_or(|blocker| surface.id == blocker)
+            })
             .map(|surface| surface.id)
     }
 
@@ -338,6 +366,13 @@ impl SurfaceTree {
             .ok_or(SurfaceTreeError::UnknownSurface(surface_id))?;
         surface.z_index = next_z;
         Ok(())
+    }
+
+    fn top_blocker(&self) -> Option<&Surface> {
+        self.surfaces
+            .values()
+            .filter(|surface| surface.kind.blocks_below())
+            .max_by_key(|surface| (surface.z_index, surface.id))
     }
 }
 
@@ -455,8 +490,30 @@ mod tests {
 
     #[test]
     fn no_kind_puts_a_cursor_on_screen_before_the_composer_exists() {
-        for kind in [SurfaceKind::Panel, SurfaceKind::Chrome] {
+        for kind in [SurfaceKind::Panel, SurfaceKind::Chrome, SurfaceKind::Modal] {
             assert_eq!(kind.keyboard_focus(), KeyboardFocus::Navigation);
         }
+    }
+
+    /// SURF-4: a modal is the only focus stop and catches pointer delivery even outside its card.
+    #[test]
+    fn a_blocking_surface_prevents_delivery_below_it() {
+        let mut tree = SurfaceTree::default();
+        insert(&mut tree, SurfaceId::Transcript, SurfaceKind::Panel);
+        tree.insert(Surface {
+            id: SurfaceId::Approval,
+            bounds: Rect::new(5, 2, 10, 6),
+            z_index: 10,
+            kind: SurfaceKind::Modal,
+            viewport: None,
+        })
+        .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
+
+        assert_eq!(tree.focus_ring().collect::<Vec<_>>(), [SurfaceId::Approval]);
+        assert_eq!(
+            tree.hit_test(Point { x: 1, y: 1 }),
+            Some(SurfaceId::Approval),
+            "a click outside the visible card must not fall through the modal"
+        );
     }
 }

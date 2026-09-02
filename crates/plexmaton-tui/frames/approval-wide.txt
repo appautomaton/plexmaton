@@ -1,0 +1,40 @@
+┌ Attention · 2 · 1 unanswered ────────────────────────────────────────────────────────────────────────────────────────┐
+│  ask   agent-b · Choose whether the overlap study should cover narrow screens.                                       │
+│> seen  agent-b · Change crates/plexmaton-core/src/lib.rs and preserve its current revision.                          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Agents · !1 ─────────────┐┌ Agent A · primary · running ─────────────────────────────────────────────────────────────┐
+│● Agent B · UI study  done││┌ Agent B · UI study · esc ──────────────────────────────────────────────────────────────┐│
+│                          │││                                                                                        ││
+│                          │││                                                                                        ││
+├ Activity ────────────────┤││                                                                                        ││
+│Tools                     │││                                                                                        ││
+│[+] inspect interaction   │││                                                                                        ││
+│fixtures                  │││                                                                                        ││
+│Artifacts                 │││                                                                                        ││
+│@ interaction findings ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
+│  artifact://agent-b/in│Agent  agent-b                                                        │                      ││
+│action-findings        │Tool   edit · tool-b-write                                            │                      ││
+│Mail                   │Access change files                                                   │                      ││
+│  none                 │                                                                      │                      ││
+│                       │  Allow once                                                          │ior.                  ││
+│                       │> Deny                                                                │                      ││
+│                       │↑↓ choose · Enter decide                                              │──────────────────────┘│
+│                       │PgUp/PgDn details · Esc keeps pending                                 │                       │
+│                       │                                                                      │                       │
+│                       │Details                                                               │                       │
+│                       │Change crates/plexmaton-core/src/lib.rs and preserve its current      │                       │
+│                       └──────────────────────────────────────────────────────────────────────┘                       │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││assistant                                                                                 │
+│                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running        │
+│                          ││independently; this transcript remains interactive.                                       │
+│                          ││                                                                                          │
+│                          │├ Message Agent A · primary ───────────────────────────────────────────────────────────────┤
+│                          ││Type a message · ⇥ to focus                                                               │
+└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                                                                            

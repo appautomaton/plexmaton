@@ -5,7 +5,8 @@
 //! make the projection reject the first one it saw out of order.
 
 use plexmaton_core::{
-    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, ToolCallId, TranscriptItemId,
+    AgentId, ApprovalId, AttentionId, EventSequence, SessionEvent, SessionEventEnvelope,
+    ToolCallId, TranscriptItemId, TurnId,
 };
 
 use crate::interface::Reaction;
@@ -18,6 +19,8 @@ pub(crate) struct Record {
     items: Vec<RequestItem>,
     next_sequence: u64,
     next_item: u64,
+    next_turn: u64,
+    next_approval: u64,
 }
 
 impl Record {
@@ -29,6 +32,8 @@ impl Record {
             items: Vec::new(),
             next_sequence: 1,
             next_item: 0,
+            next_turn: 0,
+            next_approval: 0,
         }
     }
 
@@ -78,6 +83,24 @@ impl Record {
         TranscriptItemId::new(format!("{}-{ordinal}", self.agent_id))
             .unwrap_or_else(|error| unreachable!("a formatted identity is never empty: {error}"))
     }
+
+    /// A turn identity nothing else in this agent will use.
+    pub(crate) fn next_turn_id(&mut self) -> TurnId {
+        self.next_turn = self.next_turn.saturating_add(1);
+        TurnId::new(format!("{}-turn-{}", self.agent_id, self.next_turn))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is never empty: {error}"))
+    }
+
+    /// Paired approval and Attention identities for one pending call.
+    pub(crate) fn next_approval_ids(&mut self) -> (ApprovalId, AttentionId) {
+        self.next_approval = self.next_approval.saturating_add(1);
+        let ordinal = self.next_approval;
+        let approval = ApprovalId::new(format!("{}-approval-{ordinal}", self.agent_id))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is never empty: {error}"));
+        let attention = AttentionId::new(format!("{}-attention-{ordinal}", self.agent_id))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is never empty: {error}"));
+        (approval, attention)
+    }
 }
 
 #[cfg(test)]
@@ -123,6 +146,17 @@ mod tests {
 
         assert_ne!(first, second);
         assert!(first.as_str().starts_with("agent-a"));
+    }
+
+    #[test]
+    fn turn_and_approval_identities_are_stable_and_distinct() {
+        let mut record = record();
+
+        assert_ne!(record.next_turn_id(), record.next_turn_id());
+        let first = record.next_approval_ids();
+        let second = record.next_approval_ids();
+        assert_ne!(first.0, second.0);
+        assert_ne!(first.1, second.1);
     }
 
     #[test]

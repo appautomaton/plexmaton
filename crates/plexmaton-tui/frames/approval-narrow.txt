@@ -1,0 +1,40 @@
+┌ Attention · 2 · 1 unanswered ────────────────────────────┐
+│  ask   agent-b · Choose whether the overlap study should │
+│cover narrow screens.                                     │
+└──────────────────────────────────────────────────────────┘
+┌ Agents · !1 ─────────────────────────────────────────────┐
+│● Agent B · UI study  done                                │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+┌ Agent B · UI study · 1 tool · 1 artifact · esc ──────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│ ┌ Approval required · user opened ─────────────────────┐ │
+│ │Agent  agent-b                                        │ │
+│ │Tool   edit · tool-b-write                            │ │
+│ │Access change files                                   │ │
+│ │                                                      │ │
+│ │  Allow once                                          │ │
+│ │> Deny                                                │ │
+│ │↑↓ choose · Enter decide                              │ │
+│ │PgUp/PgDn details · Esc keeps pending                 │ │
+│ │                                                      │ │
+│ │Details                                               │ │
+│ │Change crates/plexmaton-core/src/lib.rs and preserve  │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│assistant                                                 │
+│I found the surface-routing boundary and am checking      │
+│overlap behavior.                                         │
+│                                                          │
+├ Message Agent A · primary ───────────────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                

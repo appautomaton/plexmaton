@@ -11,8 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
-        SelectionIntent, TextIntent, TuiIntent,
+        ApprovalIntent, AttentionIntent, Direction, InspectorIntent, PointerIntent,
+        ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
     },
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
 };
@@ -111,6 +111,26 @@ impl Router {
             }
         }
 
+        // A modal owns every non-global key. In particular, inspector and selection chords must
+        // not reach a surface hidden underneath it (SURF-4).
+        if context.focused == Some(SurfaceId::Approval) {
+            return match key.code {
+                KeyCode::Esc => self.escape(context),
+                KeyCode::Up | KeyCode::Char('k') => Routed::Intent(TuiIntent::Approval(
+                    ApprovalIntent::Move(Direction::Backward),
+                )),
+                KeyCode::Down | KeyCode::Char('j') => Routed::Intent(TuiIntent::Approval(
+                    ApprovalIntent::Move(Direction::Forward),
+                )),
+                KeyCode::Enter => Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide)),
+                KeyCode::PageUp => modal_scroll(ScrollDirection::Up, context),
+                KeyCode::PageDown => modal_scroll(ScrollDirection::Down, context),
+                KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
+                KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
+                _ => Routed::Ignored(Ignored::Unbound),
+            };
+        }
+
         if let Some(intent) = inspector_chord(key).or_else(|| selection_chord(key)) {
             return Routed::Intent(intent);
         }
@@ -183,6 +203,21 @@ impl Router {
         };
         self.capture = Some(surface);
         Routed::Intent(TuiIntent::Pointer(PointerIntent::Press { surface, at }))
+    }
+}
+
+fn modal_scroll(direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
+    if context
+        .surfaces
+        .viewport(SurfaceId::Approval)
+        .is_some_and(Viewport::is_scrollable)
+    {
+        Routed::Intent(TuiIntent::Scroll {
+            surface: SurfaceId::Approval,
+            direction,
+        })
+    } else {
+        Routed::Ignored(Ignored::NothingScrollable)
     }
 }
 
@@ -337,7 +372,8 @@ mod tests {
     use super::{Ignored, KeyboardFocus, Routed, Router, RouterContext};
     use crate::{
         intent::{
-            Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent, TuiIntent,
+            ApprovalIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent,
+            TuiIntent,
         },
         surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     };
@@ -522,6 +558,57 @@ mod tests {
             ),
             Routed::Ignored(Ignored::NothingScrollable),
             "a surface with nowhere to scroll declines by name rather than moving the rail"
+        );
+    }
+
+    /// SURF-4 and INV-10: modal navigation is a closed grammar, including a keyboard equivalent
+    /// for scrolling long decision detail.
+    #[test]
+    fn approval_keys_stay_inside_the_blocking_surface() {
+        let mut surfaces = tree();
+        surfaces
+            .insert(Surface {
+                id: SurfaceId::Approval,
+                bounds: Rect::new(4, 2, 30, 12),
+                z_index: 10,
+                kind: SurfaceKind::Modal,
+                viewport: Some(Viewport {
+                    content_rows: 40,
+                    content_width: 28,
+                    visible_rows: 10,
+                    offset: 0,
+                }),
+            })
+            .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
+        let context = focused_on(
+            SurfaceId::Approval,
+            &surfaces,
+            KeyboardFocus::Navigation,
+            true,
+        );
+        let mut router = Router::default();
+
+        assert_eq!(
+            router.translate(&key(KeyCode::Up, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Approval(ApprovalIntent::Move(
+                Direction::Backward
+            )))
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Enter, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide))
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::PageDown, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Scroll {
+                surface: SurfaceId::Approval,
+                direction: ScrollDirection::Down,
+            })
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Char('f'), KeyModifiers::CONTROL), &context),
+            Routed::Ignored(Ignored::Unbound),
+            "an inspector chord cannot reach the workspace under a modal"
         );
     }
 

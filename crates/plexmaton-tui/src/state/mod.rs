@@ -1,4 +1,5 @@
 mod agent;
+mod approval;
 mod attention;
 mod composer;
 mod focus;
@@ -17,6 +18,7 @@ use std::collections::BTreeMap;
 use plexmaton_core::{AgentId, EventSequence};
 
 pub use agent::{AgentView, ArtifactView, MailView, ToolCallView, TranscriptItemView};
+pub use approval::{ApprovalSubmission, ApprovalView};
 pub use attention::AttentionView;
 pub use composer::Composer;
 pub use ingest::{ApplyOutcome, ReduceError};
@@ -28,10 +30,11 @@ pub use selection::{CopyRequest, Selection};
 pub use status::{QuitPress, Status, StatusNote};
 
 use crate::{
-    intent::{AttentionIntent, Direction, ScrollDirection},
+    intent::{ApprovalIntent, AttentionIntent, Direction, ScrollDirection},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
     transcript::{TranscriptMetrics, TranscriptPosition},
 };
+use approval::ApprovalSurface;
 use attention::AttentionQueue;
 use focus::Focus;
 use inspector::Inspector;
@@ -61,6 +64,7 @@ pub struct ViewState {
     last_sequence: Option<EventSequence>,
     agents: Roster,
     attention: AttentionQueue,
+    approval: ApprovalSurface,
     notices: NoticeLog,
     focus: Focus,
     scroll: ScrollState,
@@ -230,34 +234,59 @@ impl ViewState {
         self.attention.iter()
     }
 
+    /// The user-opened approval presentation, if its loop-owned request is still pending.
+    #[must_use]
+    pub fn approval(&self) -> Option<ApprovalView<'_>> {
+        self.approval.view(&self.attention)
+    }
+
     /// Applies one user action to the Attention queue.
     ///
     /// Going to a request is the *only* thing in the workspace that lets a background agent change
     /// what the user is looking at, and it happens because the user pressed a key on it. Nothing on
     /// the producer path reaches here (ATT-1).
-    pub fn attend(&mut self, surfaces: &SurfaceTree, intent: AttentionIntent) {
+    pub fn attend(&mut self, _surfaces: &SurfaceTree, intent: AttentionIntent) {
         let changed = match intent {
             AttentionIntent::Move(direction) => self.attention.move_cursor(direction),
             AttentionIntent::GoTo => {
-                let Some(agent_id) = self.attention.acknowledge() else {
+                let Some(target) = self.attention.acknowledge() else {
                     return;
                 };
                 // The agent may have left the roster; the acknowledgement still stands, because
                 // the user did see it.
-                let _selected = self.select_agent(&agent_id);
+                let _selected = self.select_agent(&target.agent_id);
                 // Going to a background agent opens its window, and the user asked to be taken
                 // there, so the keyboard goes with them. The primary's conversation is already on
                 // screen, so going to the primary is pointing at it.
-                if self.agents.peeked().is_some() {
-                    self.focus.prefer(SurfaceId::Inspector);
+                let destination = if self.agents.peeked().is_some() {
+                    SurfaceId::Inspector
                 } else {
-                    self.focus.point_at(surfaces, SurfaceId::Transcript);
+                    SurfaceId::Transcript
+                };
+                if target.kind == plexmaton_core::AttentionKind::Approval {
+                    self.approval.open(target.id, destination);
+                    self.focus.prefer(SurfaceId::Approval);
+                } else {
+                    self.focus.prefer(destination);
                 }
                 true
             }
         };
         if changed {
             self.touch();
+        }
+    }
+
+    /// Moves within or answers the user-opened approval surface.
+    pub fn decide_approval(&mut self, intent: ApprovalIntent) -> Option<ApprovalSubmission> {
+        match intent {
+            ApprovalIntent::Move(direction) => {
+                if self.approval.move_selection(direction) {
+                    self.touch();
+                }
+                None
+            }
+            ApprovalIntent::Decide => self.approval.submission(&self.attention),
         }
     }
 

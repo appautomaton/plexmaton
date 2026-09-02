@@ -4,8 +4,9 @@
 //! the decision and the doing in different places — and what lets a whole turn be driven from a
 //! script with no network, no clock and no terminal.
 
-use plexmaton_core::{SessionEventEnvelope, ToolCallId};
+use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
+use crate::admission::{AdmissionOutcome, AdmittedToolCall};
 use crate::model::{ModelError, ModelEvent, ModelRequest};
 use crate::tools::{ToolCall, ToolOutcome};
 
@@ -26,6 +27,8 @@ pub enum Input {
     Streamed(ModelEvent),
     /// The step failed before it could finish.
     Failed(ModelError),
+    /// The trusted catalog answered one explicit admission effect.
+    ToolAdmissionResolved(AdmissionOutcome),
     /// A dispatched tool call ended.
     ToolFinished {
         /// The call being answered.
@@ -33,8 +36,17 @@ pub enum Input {
         /// How it ended.
         outcome: ToolOutcome,
     },
+    /// The user answered one pending approval request.
+    ApprovalDecided {
+        /// Exact pending request being answered.
+        approval_id: ApprovalId,
+        /// Once-only decision Slice 4 accepts.
+        decision: ApprovalDecision,
+    },
     /// The user asked the current turn to stop.
     Interrupted,
+    /// The runtime began orderly shutdown.
+    ShuttingDown,
 }
 
 /// Something the loop needs performed, and cannot perform itself.
@@ -42,8 +54,10 @@ pub enum Input {
 pub enum Effect {
     /// Ask the model, and feed what it says back in as [`Input::Streamed`].
     CallModel(ModelRequest),
-    /// Run one call, and feed the result back in as [`Input::ToolFinished`].
-    RunTool(ToolCall),
+    /// Ask the trusted catalog to validate and canonicalize one raw model call.
+    AdmitTool(ToolCall),
+    /// Run one admitted call, and feed the result back in as [`Input::ToolFinished`].
+    RunTool(AdmittedToolCall),
 }
 
 /// Why user input could not be claimed by the boundary it named.
@@ -61,6 +75,26 @@ pub enum UndeliveredReason {
     StepBudgetReached,
     /// The bounded input queue had no room for another entry.
     QueueFull,
+    /// The runtime shut down before the named boundary opened.
+    Shutdown,
+}
+
+/// Why a typed approval decision changed no pending call.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApprovalDecisionRefusal {
+    /// No current turn has that request pending; it may be stale or belong elsewhere.
+    NotPending,
+}
+
+/// A decision the loop did not apply, retaining its exact identity and action (APV-4).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnresolvedApprovalDecision {
+    /// Identity the caller attempted to resolve.
+    pub approval_id: ApprovalId,
+    /// Decision that was not applied.
+    pub decision: ApprovalDecision,
+    /// Typed refusal reason.
+    pub reason: ApprovalDecisionRefusal,
 }
 
 /// User input the loop did not deliver, retaining both its payload and the reason (LOOP-6).
@@ -88,4 +122,6 @@ pub struct Reaction {
     /// User input whose intended boundary cannot claim it. Ownership returns to the caller with
     /// the exact payload instead of leaving it in a queue that a later turn could misread.
     pub undelivered: Vec<UndeliveredInput>,
+    /// Approval decisions that matched no pending request.
+    pub unresolved_approvals: Vec<UnresolvedApprovalDecision>,
 }

@@ -4,7 +4,7 @@ mod runtime;
 mod workload;
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionKind, IdError, MailId, SessionEvent,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, IdError, MailId, SessionEvent,
     ToolCallId, ToolCallStatus, TranscriptItemId, TranscriptRole,
 };
 
@@ -118,8 +118,10 @@ impl Scenario {
                 SessionEvent::AttentionRequested {
                     agent_id: agent_b.clone(),
                     attention_id: AttentionId::new("attention-b-1")?,
-                    kind: AttentionKind::Clarification,
-                    summary: "Choose whether the overlap study should cover narrow screens.".into(),
+                    request: AttentionRequest::Clarification {
+                        summary: "Choose whether the overlap study should cover narrow screens."
+                            .into(),
+                    },
                 },
             ),
             (
@@ -181,6 +183,8 @@ impl Scenario {
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::{AttentionRequest, SessionEvent};
+
     use super::Scenario;
 
     #[test]
@@ -200,6 +204,23 @@ mod tests {
                 .windows(2)
                 .all(|pair| pair[0].at_tick <= pair[1].at_tick),
             "a step must never be scheduled before the one in front of it"
+        );
+    }
+
+    #[test]
+    fn canonical_attention_keeps_its_structured_clarification_request() {
+        let scenario =
+            Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let request = scenario.steps().iter().find_map(|step| match &step.event {
+            SessionEvent::AttentionRequested { request, .. } => Some(request),
+            _ => None,
+        });
+
+        assert_eq!(
+            request,
+            Some(&AttentionRequest::Clarification {
+                summary: "Choose whether the overlap study should cover narrow screens.".into(),
+            })
         );
     }
 }

@@ -18,7 +18,10 @@ use crate::{
     intent::{PointerIntent, SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{CopyRequest, QuitPress, Submission, ViewRevision, ViewState, inner_width},
+    state::{
+        ApprovalSubmission, CopyRequest, QuitPress, Submission, ViewRevision, ViewState,
+        inner_width,
+    },
     surface::{Point, SurfaceId, SurfaceTree},
     theme::Palette,
     transcript::TranscriptMetrics,
@@ -45,6 +48,9 @@ pub struct Outcome {
     /// Which agent the user asked to interrupt. The target is resolved from the focused
     /// conversation before the command crosses the composition boundary (INV-7).
     pub interrupted: Option<AgentId>,
+    /// An answer to the exact approval the user explicitly opened. The runtime routes it to the
+    /// loop that owns the pending call (APV-4).
+    pub approval: Option<ApprovalSubmission>,
     /// What the user asked to copy. Leaves as a value for the same reason: the clipboard is the
     /// host's, and nothing in this crate may reach for it (SEL-4).
     pub copied: Option<CopyRequest>,
@@ -56,6 +62,7 @@ impl Outcome {
             flow: Flow::Quit,
             submitted: None,
             interrupted: None,
+            approval: None,
             copied: None,
         }
     }
@@ -261,6 +268,12 @@ impl Workspace {
             }
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
+            TuiIntent::Approval(approval) => {
+                return Outcome {
+                    approval: self.state.decide_approval(approval),
+                    ..Outcome::default()
+                };
+            }
             // The phase's one dismissible layer. `Escape` reaches here only when the router found
             // nothing closer to resolve, which is the ladder's last rung before nothing (INV-6).
             TuiIntent::Dismiss => {
@@ -325,12 +338,15 @@ mod tests {
         style::{Color, Style},
     };
 
-    use plexmaton_core::{AgentId, AttentionId, AttentionKind, SessionEvent};
+    use plexmaton_core::{
+        AgentId, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest, SessionEvent,
+        ToolCallId, ToolCapability,
+    };
 
     use super::{Flow, Outcome, Workspace};
     use crate::{
         SubmissionKind,
-        surface::SurfaceId,
+        surface::{Point, SurfaceId},
         test_support::{Conversation, canonical_runtime},
         theme::{Palette, Role},
     };
@@ -1628,8 +1644,15 @@ mod tests {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: AttentionId::new("attention-a-1")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
-            kind: AttentionKind::Approval,
-            summary: "Approve writing the findings file.".into(),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new("approval-a-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("tool-a-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit".into(),
+                capabilities: vec![ToolCapability::FileWrite],
+                detail: "Approve writing the findings file.".into(),
+            },
         });
         let mut workspace = Workspace::default();
         let mut terminal = Terminal::new(TestBackend::new(120, 40))
@@ -1663,6 +1686,115 @@ mod tests {
             "none",
             "and Enter goes to whichever request the cursor is on: the primary's opens nothing"
         );
+    }
+
+    /// APV-4 and SURF-4: only a user action opens the blocking surface, whose answer echoes the
+    /// loop's identity; Escape closes presentation without manufacturing a decision (ATT-3).
+    #[test]
+    fn an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision() {
+        let mut conversation = Conversation::canonical();
+        let attention_id = AttentionId::new("attention-b-approval")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(SessionEvent::AttentionRequested {
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: attention_id.clone(),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new("approval-b-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("tool-b-write")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit".into(),
+                capabilities: vec![ToolCapability::FileWrite],
+                detail: "Change crates/plexmaton-core/src/lib.rs".into(),
+            },
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
+        let card = bounds(&workspace, SurfaceId::Approval);
+        assert_eq!(
+            workspace.surfaces.hit_test(Point { x: 0, y: 0 }),
+            Some(SurfaceId::Approval),
+            "a click outside the card cannot reach the workspace below it"
+        );
+        let card_text = painted(&terminal, &workspace, SurfaceId::Approval);
+        assert!(card_text.contains("Change crates/plexmaton-core/src/lib.rs"));
+        assert!(
+            card_text.contains("> Deny"),
+            "safe answer is highlighted: {card_text}"
+        );
+        assert!(
+            card.width < 120 && card.height < 40,
+            "the surface is a card, not a replacement screen"
+        );
+
+        let denied = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        let denied = denied
+            .approval
+            .unwrap_or_else(|| panic!("Enter returns the highlighted decision"));
+        assert_eq!(denied.approval_id.as_str(), "approval-b-1");
+        assert_eq!(denied.decision, ApprovalDecision::Deny);
+        assert_eq!(
+            workspace.state.attention_count(),
+            2,
+            "the UI did not resolve loop state"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Approval).is_none());
+        assert_eq!(
+            workspace.state.attention_count(),
+            2,
+            "Escape keeps the request pending"
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::NONE),
+        );
+        let allowed = workspace
+            .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+            .approval
+            .unwrap_or_else(|| panic!("Enter returns the highlighted decision"));
+        assert_eq!(allowed.approval_id.as_str(), "approval-b-1");
+        assert_eq!(allowed.decision, ApprovalDecision::AllowOnce);
+
+        conversation.emit(SessionEvent::AttentionResolved {
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id,
+        });
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+        assert!(workspace.surfaces.get(SurfaceId::Approval).is_none());
+        assert_eq!(workspace.state.attention_count(), 1);
     }
 
     /// SEL-3: copying a detail entry returns the value, not the label that was painted.

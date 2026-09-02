@@ -43,6 +43,13 @@ impl<K: Clone + Ord, V: PartialEq> OrderedById<K, V> {
         self.entries.get_mut(key)
     }
 
+    /// Removes one entry and returns the arrival position it occupied.
+    pub(super) fn remove(&mut self, key: &K) -> Option<(usize, V)> {
+        let index = self.order.iter().position(|candidate| candidate == key)?;
+        self.order.remove(index);
+        self.entries.remove(key).map(|value| (index, value))
+    }
+
     pub(super) fn len(&self) -> usize {
         self.order.len()
     }
@@ -92,5 +99,17 @@ mod tests {
             !collection.upsert("z", 3),
             "repeating an entry's current state changes nothing, and must say so (FR-1)"
         );
+    }
+
+    #[test]
+    fn removing_returns_the_position_and_closes_the_gap() {
+        let mut collection = OrderedById::default();
+        collection.upsert("z", 1);
+        collection.upsert("a", 2);
+        collection.upsert("m", 3);
+
+        assert_eq!(collection.remove(&"a"), Some((1, 2)));
+        assert_eq!(collection.iter().copied().collect::<Vec<_>>(), [1, 3]);
+        assert_eq!(collection.remove(&"a"), None);
     }
 }

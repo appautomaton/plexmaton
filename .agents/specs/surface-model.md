@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; SURF-2 and SURF-4 are unproven, having no caller yet |
+| Status | Implemented; SURF-2 remains unproven, having no caller yet |
 | Owns | What a surface is, how one is registered, and which surface an event may reach |
 | Depends on | The surface categories and routing rules in [`ui-ux.md`](../ui-ux.md) §surface model and §input and event-routing contract |
 | Proven by | `plexmaton-tui::layout`, `::surface`, and `::render` tests |
@@ -23,7 +23,8 @@ the focus ring contains. Whether a text cursor exists is derived from the focuse
 never asserted independently.
 
 **SURF-4 — A modal blocks delivery below it.** While a surface that blocks is registered, pointer
-hit testing stops at it and the focus ring contains only it. Unproven: nothing blocks yet.
+hit testing stops at it and the focus ring contains only it. The approval card is opened only by a
+user action from Attention; a background request alone registers no modal.
 
 **SURF-5 — Hidden state survives.** A surface's focus and scroll state belong to the surface, not
 to the frame that drew it. Covering, unregistering for a frame, or re-registering does not reset
@@ -41,7 +42,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | --- | --- |
 | `id` | `SurfaceId`, a named variant. Rejected: numeric identities, which break silently when a region is added; and a second layout computed for hit testing, whose failure is a click landing one panel over |
 | `bounds` | The rectangle the surface occupies. `visible()` is `bounds ∩ clip` (SURF-2), and until a surface exists that does not fit its parent, `clip` is `bounds` and not a field |
-| `z_index` | Draw and hit order among siblings: zero for every tiled region, one for the shelf, painted last and hit first |
+| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, and ten for the blocking approval card |
 | `kind` | What the surface is; every behavioural answer below is derived from it |
 | `viewport` | Content height and the user's position through it, filled in by the renderer because measuring needs the text; `None` until a frame has drawn it |
 
@@ -51,10 +52,10 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | `Chrome` | no | no | no | no | no |
 | `Composer` | yes | yes | yes | no | no |
 | `Inspector` | yes | yes | yes | no | yes |
+| `Modal` | yes | yes | no | yes | yes |
 
 Deriving the five answers from `kind` makes the boolean combinations that mean nothing, a status
-line holding the cursor, a modal that does not block, unrepresentable. A kind with no
-surface using it is not added in advance, which is why there is no `Modal` (SURF-4).
+line holding the cursor, or a modal that does not block, unrepresentable.
 
 **Hit testing.** Among surfaces whose kind takes the pointer and whose `visible()` contains the
 point, the greatest `(z_index, id)` wins. A blocking surface truncates the search rather than being
@@ -93,5 +94,5 @@ hover never does (INV-3).
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | SURF-2 | Unproven; no surface overflows its parent. The base layer tiles the terminal and the shelf lies wholly inside the conversation it covers; which rows of a scrolled item a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
 | SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
-| SURF-4 | Unproven; nothing blocks. The Attention queue exists so a background request opens no modal, and the shelf overlays without blocking. The first blocking surface is an approval prompt, which arrives with real tools |
+| SURF-4 | `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_approval_frames_match_their_fixtures` |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

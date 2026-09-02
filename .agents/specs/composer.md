@@ -66,4 +66,4 @@ Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
 | COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing` |
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item` |
-| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_and_interrupt` |
+| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |

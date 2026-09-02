@@ -6,8 +6,8 @@
 use std::collections::VecDeque;
 
 use plexmaton_core::{
-    AgentId, EventSequence, IdError, SessionEvent, SessionEventEnvelope, TranscriptItemId,
-    TranscriptRole,
+    AgentId, ApprovalDecision, ApprovalId, EventSequence, IdError, SessionEvent,
+    SessionEventEnvelope, TranscriptItemId, TranscriptRole,
 };
 
 use crate::{Scenario, ScenarioStep};
@@ -31,6 +31,16 @@ pub enum RuntimeCommand {
     Interrupt {
         /// Agent whose real turn would be stopped.
         to: AgentId,
+    },
+    /// Answer one approval. The scripted producer has no pending call, so it reports this
+    /// limitation visibly instead of pretending an identity was resolved.
+    Approval {
+        /// Agent whose real loop would own the request.
+        to: AgentId,
+        /// Exact request identity supplied by the projection.
+        approval_id: ApprovalId,
+        /// User's typed answer.
+        decision: ApprovalDecision,
     },
 }
 
@@ -108,6 +118,15 @@ impl ScriptedRuntime {
                     ),
                 })])
             }
+            RuntimeCommand::Approval {
+                to,
+                approval_id,
+                decision,
+            } => Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                message: format!(
+                    "the synthetic runtime cannot apply {decision:?} to {approval_id} for {to}; no real turn owns that approval"
+                ),
+            })]),
         }
     }
 
@@ -126,7 +145,7 @@ impl ScriptedRuntime {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, SessionEvent, TranscriptRole};
+    use plexmaton_core::{AgentId, ApprovalDecision, ApprovalId, SessionEvent, TranscriptRole};
 
     use super::{RuntimeCommand, ScriptedRuntime};
     use crate::Scenario;
@@ -226,6 +245,30 @@ mod tests {
                     &event.event,
                     SessionEvent::RuntimeWarning { message }
                         if message.contains("agent-a") && message.contains("cannot interrupt")
+                )
+        ));
+    }
+
+    #[test]
+    fn an_approval_the_simulator_cannot_perform_is_visible() {
+        let mut runtime = runtime();
+
+        let events = runtime
+            .submit(RuntimeCommand::Approval {
+                to: agent("agent-a"),
+                approval_id: ApprovalId::new("approval-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                decision: ApprovalDecision::Deny,
+            })
+            .unwrap_or_else(|error| panic!("valid command: {error}"));
+
+        assert!(matches!(
+            events.as_slice(),
+            [event]
+                if matches!(
+                    &event.event,
+                    SessionEvent::RuntimeWarning { message }
+                        if message.contains("approval-1") && message.contains("cannot apply")
                 )
         ));
     }

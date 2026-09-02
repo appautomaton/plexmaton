@@ -5,7 +5,7 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam the wrapping cache attaches to in delivery step 5.
 
-use plexmaton_core::{AgentId, AgentStatus, AttentionKind, ToolCallStatus, TranscriptRole};
+use plexmaton_core::{AgentId, AgentStatus, ToolCallStatus, TranscriptRole};
 use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -17,6 +17,11 @@ use crate::{
     surface::SurfaceId,
     theme::{Palette, Role, agent_role, tool_role},
 };
+
+#[path = "content_approval.rs"]
+mod approval_presentation;
+
+pub(crate) use approval_presentation::{approval, attention};
 
 /// The list of sub-agents: identity, lifecycle, and which one is being looked at.
 ///
@@ -254,37 +259,6 @@ fn detail(agent: &crate::AgentView, palette: &Palette, selected: Selected) -> Ve
     lines
 }
 
-/// Queued background requests, oldest first, with the cursor on the one `Enter` would go to.
-///
-/// Approval and clarification are drawn apart because `ui-ux.md` §attention management refuses one
-/// generic notification treatment: one is an agent that cannot proceed, the other is an agent that
-/// can. Seen requests stay listed and stop shouting — acknowledging is not resolving (ATT-3).
-pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
-    let cursor = state.attention_cursor();
-    state
-        .attention()
-        .enumerate()
-        .map(|(index, item)| {
-            let (marker, role) = match (item.acknowledged, item.kind) {
-                (true, _) => ("seen  ", Role::Muted),
-                (false, AttentionKind::Approval) => ("block ", Role::ActionRequired),
-                (false, AttentionKind::Clarification) => ("ask   ", Role::NewInformation),
-            };
-            let (caret, caret_role) = if index == cursor {
-                ("> ", Role::Accent)
-            } else {
-                ("  ", Role::Muted)
-            };
-            Line::from(vec![
-                Span::styled(caret, palette.style(caret_role)),
-                Span::styled(marker, palette.style(role)),
-                Span::styled(format!("{} · ", item.agent_id), palette.style(Role::Muted)),
-                Span::styled(item.summary.clone(), palette.style(Role::Body)),
-            ])
-        })
-        .collect()
-}
-
 /// Producer defects, oldest first. The strip opens at its newest entry.
 pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
     state
@@ -352,9 +326,11 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
 const fn tool_marker(status: ToolCallStatus) -> &'static str {
     match status {
         ToolCallStatus::Queued => "[ ]",
+        ToolCallStatus::AwaitingApproval => "[?]",
         ToolCallStatus::Running => "[~]",
         ToolCallStatus::Succeeded => "[+]",
         ToolCallStatus::Failed => "[!]",
+        ToolCallStatus::Denied => "[x]",
         ToolCallStatus::Cancelled => "[-]",
     }
 }

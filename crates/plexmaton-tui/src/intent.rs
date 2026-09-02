@@ -105,6 +105,15 @@ pub enum AttentionIntent {
     GoTo,
 }
 
+/// One thing the user asked of an approval surface they explicitly opened.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApprovalIntent {
+    /// Move between `AllowOnce` and `Deny`.
+    Move(Direction),
+    /// Return the highlighted typed decision to the owning loop.
+    Decide,
+}
+
 /// One thing the user asked of the selection.
 ///
 /// There is no `Clear` here: clearing arrives as `Dismiss`, because the `Escape` ladder resolves
@@ -139,6 +148,8 @@ pub enum TuiIntent {
     Inspector(InspectorIntent),
     /// Act on the Attention queue.
     Attention(AttentionIntent),
+    /// Act on the open approval surface.
+    Approval(ApprovalIntent),
     /// Act on the selection.
     Selection(SelectionIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.

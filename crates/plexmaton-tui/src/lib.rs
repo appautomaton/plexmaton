@@ -23,15 +23,16 @@ mod transcript;
 mod workspace;
 
 pub use intent::{
-    AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection, SelectionIntent,
-    TextIntent, TuiIntent,
+    ApprovalIntent, AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
+    SelectionIntent, TextIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
-    AgentView, ApplyOutcome, ArtifactView, AttentionView, Composer, CopyRequest, InspectorView,
-    MailView, NoticeView, ReduceError, ScrollPosition, Selection, Submission, SubmissionKind,
-    ToolCallView, TranscriptItemView, ViewRevision, ViewState,
+    AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
+    Composer, CopyRequest, InspectorView, MailView, NoticeView, ReduceError, ScrollPosition,
+    Selection, Submission, SubmissionKind, ToolCallView, TranscriptItemView, ViewRevision,
+    ViewState,
 };
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,

@@ -90,12 +90,10 @@ Idle ─────────────────────────
 | `Backspace` | Unbound | Delete backward |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-The quit, interrupt, second-window and selection chords resolve before keyboard focus is
-consulted, so a control chord is never text (INV-2) and they reach the window while its own input
-holds the cursor. `Enter`
-is the exception, because under a cursor it submits. Chords translate whether or not a window is
-open; whether there is anything to act on is the reducer's question. Key release events are
-ignored, so a terminal reporting press and release does not act twice.
+Control chords are never text (INV-2), and reducers decide whether their target exists. `Enter`
+submits under a cursor; key releases are ignored. The approval modal overrides both columns:
+`↑`/`↓` chooses, `Enter` decides, `PageUp`/`PageDown` scrolls detail, and `Escape` closes it without
+answering. Quit and interrupt stay global; other chords cannot reach the covered workspace.
 
 | Fact | Value |
 | --- | --- |
@@ -129,7 +127,7 @@ ignored, so a terminal reporting press and release does not act twice.
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord`, `ctrl_c_names_the_conversation_it_interrupts` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
-| INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection` |
+| INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
 
 Every intent has a consumer in the executable and is reachable from a keyboard alone, which the
 canonical journey exercises end to end in `plexmaton-tui::journey`.

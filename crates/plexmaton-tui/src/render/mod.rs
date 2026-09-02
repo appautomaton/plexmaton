@@ -48,6 +48,7 @@ pub fn render(
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
             attention: state.attention_count(),
+            approval: state.approval().is_some(),
             composer_rows: state.composer_rows(area.width),
             inspector: state.inspector_request(),
             sub_agents: state.sub_agents().count(),
@@ -152,6 +153,7 @@ pub fn render(
                 title: attention_title(state, palette),
                 edges: Edges::All,
             }),
+            SurfaceId::Approval => Some(approval_panel(state, palette)),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -209,6 +211,22 @@ pub fn render(
     }
 
     surfaces
+}
+
+fn approval_panel(state: &ViewState, palette: &Palette) -> Panel {
+    Panel {
+        body: Body::Whole {
+            lines: content::approval(state, palette),
+            follows_tail: false,
+        },
+        title: title(
+            palette,
+            "Approval required",
+            Role::ActionRequired,
+            " · user opened",
+        ),
+        edges: Edges::All,
+    }
 }
 
 /// Which surfaces share one outline this frame.
@@ -823,6 +841,7 @@ mod tests {
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
+                SurfaceId::Approval => "Approval required",
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
             };

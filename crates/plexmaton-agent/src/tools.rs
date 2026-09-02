@@ -5,7 +5,11 @@
 //! answered does not break the turn it happened in — it breaks the *next* request, one turn later
 //! than the mistake, which is why the rule lives in a type rather than in a reviewer's memory.
 
-use plexmaton_core::{ToolCallId, ToolCallStatus};
+use plexmaton_core::{
+    ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, TurnId,
+};
+
+use crate::admission::{AdmissionRefusal, AdmittedToolCall};
 
 /// A call the model asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,8 +37,31 @@ pub enum ToolOutcome {
         /// What the model is shown instead of output.
         message: String,
     },
-    /// It never finished, because the turn was interrupted first.
-    Aborted,
+    /// Trusted admission refused the model request before it could run.
+    AdmissionRefused {
+        /// Typed catalog refusal.
+        reason: AdmissionRefusal,
+    },
+    /// Policy forbade the call; approval cannot override this outcome.
+    Forbidden,
+    /// The user explicitly declined the admitted call.
+    Denied,
+    /// The call did not finish because its owning turn stopped.
+    Cancelled {
+        /// Transition that cancelled it.
+        reason: ToolCancellationReason,
+    },
+}
+
+/// Why a call was cancelled before producing an ordinary result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ToolCancellationReason {
+    /// The user interrupted the turn.
+    Interrupted,
+    /// The model step failed while calls were outstanding.
+    StepFailed,
+    /// The runtime began an orderly shutdown.
+    Shutdown,
 }
 
 impl ToolOutcome {
@@ -43,10 +70,92 @@ impl ToolOutcome {
     pub fn status(&self) -> ToolCallStatus {
         match self {
             Self::Succeeded { .. } => ToolCallStatus::Succeeded,
-            Self::Failed { .. } => ToolCallStatus::Failed,
-            Self::Aborted => ToolCallStatus::Cancelled,
+            Self::Denied => ToolCallStatus::Denied,
+            Self::Cancelled { .. } => ToolCallStatus::Cancelled,
+            Self::Failed { .. } | Self::AdmissionRefused { .. } | Self::Forbidden => {
+                ToolCallStatus::Failed
+            }
         }
     }
+}
+
+/// One admitted call parked for an explicit user decision (LOOP-5, APV-4).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingApproval {
+    approval_id: ApprovalId,
+    attention_id: AttentionId,
+    turn_id: TurnId,
+    admitted: AdmittedToolCall,
+}
+
+impl PendingApproval {
+    pub(crate) const fn new(
+        approval_id: ApprovalId,
+        attention_id: AttentionId,
+        turn_id: TurnId,
+        admitted: AdmittedToolCall,
+    ) -> Self {
+        Self {
+            approval_id,
+            attention_id,
+            turn_id,
+            admitted,
+        }
+    }
+
+    /// Stable request identity a decision must echo.
+    #[must_use]
+    pub const fn approval_id(&self) -> &ApprovalId {
+        &self.approval_id
+    }
+
+    /// Attention projection identity paired with this request.
+    #[must_use]
+    pub const fn attention_id(&self) -> &AttentionId {
+        &self.attention_id
+    }
+
+    /// Turn that owns this request.
+    #[must_use]
+    pub const fn turn_id(&self) -> &TurnId {
+        &self.turn_id
+    }
+
+    /// Exact admitted call the decision controls.
+    #[must_use]
+    pub const fn admitted(&self) -> &AdmittedToolCall {
+        &self.admitted
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CallState {
+    AwaitingAdmission,
+    AwaitingApproval(PendingApproval),
+    Running(AdmittedToolCall),
+    Finished(ToolOutcome),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CallSlot {
+    requested: ToolCall,
+    state: CallState,
+}
+
+pub(crate) enum ApprovalResolution {
+    Run {
+        attention_id: AttentionId,
+        admitted: AdmittedToolCall,
+    },
+    Denied {
+        attention_id: AttentionId,
+        call_id: ToolCallId,
+    },
+}
+
+pub(crate) struct AbandonedCall {
+    pub(crate) call_id: ToolCallId,
+    pub(crate) attention_id: Option<AttentionId>,
 }
 
 /// The calls one step dispatched, and their outcomes in the order the model asked for them.
@@ -56,48 +165,166 @@ impl ToolOutcome {
 /// the model that its own ordering means nothing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Batch {
-    calls: Vec<ToolCall>,
-    outcomes: Vec<Option<ToolOutcome>>,
+    slots: Vec<CallSlot>,
 }
 
 impl Batch {
     /// Opens a batch over the calls one step produced, in the order it produced them.
     pub(crate) fn new(calls: Vec<ToolCall>) -> Self {
-        let outcomes = vec![None; calls.len()];
-        Self { calls, outcomes }
+        Self {
+            slots: calls
+                .into_iter()
+                .map(|requested| CallSlot {
+                    requested,
+                    state: CallState::AwaitingAdmission,
+                })
+                .collect(),
+        }
+    }
+
+    pub(crate) fn requested(&self, call_id: &ToolCallId) -> Option<&ToolCall> {
+        self.slots
+            .iter()
+            .find(|slot| &slot.requested.call_id == call_id)
+            .map(|slot| &slot.requested)
+    }
+
+    pub(crate) fn run(&mut self, admitted: AdmittedToolCall) -> bool {
+        let call_id = &admitted.requested().call_id;
+        let Some(slot) = self
+            .slots
+            .iter_mut()
+            .find(|slot| &slot.requested.call_id == call_id)
+        else {
+            return false;
+        };
+        if slot.requested != *admitted.requested()
+            || !matches!(slot.state, CallState::AwaitingAdmission)
+        {
+            return false;
+        }
+        slot.state = CallState::Running(admitted);
+        true
+    }
+
+    pub(crate) fn await_approval(&mut self, pending: PendingApproval) -> bool {
+        let admitted = pending.admitted();
+        let Some(slot) = self
+            .slots
+            .iter_mut()
+            .find(|slot| slot.requested.call_id == admitted.requested().call_id)
+        else {
+            return false;
+        };
+        if slot.requested != *admitted.requested()
+            || !matches!(slot.state, CallState::AwaitingAdmission)
+        {
+            return false;
+        }
+        slot.state = CallState::AwaitingApproval(pending);
+        true
+    }
+
+    pub(crate) fn finish_before_run(&mut self, call_id: &ToolCallId, outcome: ToolOutcome) -> bool {
+        let Some(slot) = self
+            .slots
+            .iter_mut()
+            .find(|slot| &slot.requested.call_id == call_id)
+        else {
+            return false;
+        };
+        if !matches!(slot.state, CallState::AwaitingAdmission) {
+            return false;
+        }
+        slot.state = CallState::Finished(outcome);
+        true
+    }
+
+    pub(crate) fn resolve_approval(
+        &mut self,
+        approval_id: &ApprovalId,
+        decision: ApprovalDecision,
+    ) -> Option<ApprovalResolution> {
+        let slot = self.slots.iter_mut().find(|slot| {
+            matches!(
+                &slot.state,
+                CallState::AwaitingApproval(pending)
+                    if pending.approval_id() == approval_id
+            )
+        })?;
+        let CallState::AwaitingApproval(pending) =
+            std::mem::replace(&mut slot.state, CallState::Finished(ToolOutcome::Denied))
+        else {
+            return None;
+        };
+        let attention_id = pending.attention_id().clone();
+        match decision {
+            ApprovalDecision::AllowOnce => {
+                let admitted = pending.admitted;
+                slot.state = CallState::Running(admitted.clone());
+                Some(ApprovalResolution::Run {
+                    attention_id,
+                    admitted,
+                })
+            }
+            ApprovalDecision::Deny => Some(ApprovalResolution::Denied {
+                attention_id,
+                call_id: slot.requested.call_id.clone(),
+            }),
+        }
+    }
+
+    pub(crate) fn pending_approvals(&self) -> impl Iterator<Item = &PendingApproval> {
+        self.slots.iter().filter_map(|slot| match &slot.state {
+            CallState::AwaitingApproval(pending) => Some(pending),
+            CallState::AwaitingAdmission | CallState::Running(_) | CallState::Finished(_) => None,
+        })
     }
 
     /// Records one outcome. `false` when no dispatched call has that identity, which is a defect
     /// in whoever ran it rather than something to answer the model with.
     pub(crate) fn settle(&mut self, call_id: &ToolCallId, outcome: ToolOutcome) -> bool {
-        let Some(index) = self.calls.iter().position(|call| &call.call_id == call_id) else {
+        let Some(slot) = self
+            .slots
+            .iter_mut()
+            .find(|slot| &slot.requested.call_id == call_id)
+        else {
             return false;
         };
-        let Some(slot) = self.outcomes.get_mut(index) else {
+        if !matches!(slot.state, CallState::Running(_)) {
             return false;
-        };
-        *slot = Some(outcome);
+        }
+        slot.state = CallState::Finished(outcome);
         true
     }
 
     /// Whether every dispatched call has been answered.
     pub(crate) fn is_settled(&self) -> bool {
-        self.outcomes.iter().all(Option::is_some)
+        self.slots
+            .iter()
+            .all(|slot| matches!(slot.state, CallState::Finished(_)))
     }
 
     /// Answers everything still outstanding as aborted, and says which those were.
     ///
     /// The turn is over either way; this is what keeps the conversation it leaves behind usable.
-    pub(crate) fn abandon(&mut self) -> Vec<ToolCallId> {
+    pub(crate) fn abandon(&mut self, reason: ToolCancellationReason) -> Vec<AbandonedCall> {
         let mut abandoned = Vec::new();
-        for (index, slot) in self.outcomes.iter_mut().enumerate() {
-            if slot.is_some() {
+        for slot in &mut self.slots {
+            if matches!(slot.state, CallState::Finished(_)) {
                 continue;
             }
-            *slot = Some(ToolOutcome::Aborted);
-            if let Some(call) = self.calls.get(index) {
-                abandoned.push(call.call_id.clone());
-            }
+            let attention_id = match &slot.state {
+                CallState::AwaitingApproval(pending) => Some(pending.attention_id().clone()),
+                CallState::AwaitingAdmission | CallState::Running(_) | CallState::Finished(_) => {
+                    None
+                }
+            };
+            slot.state = CallState::Finished(ToolOutcome::Cancelled { reason });
+            abandoned.push(AbandonedCall {
+                call_id: slot.requested.call_id.clone(),
+                attention_id,
+            });
         }
         abandoned
     }
@@ -107,10 +334,14 @@ impl Batch {
     /// Only a settled batch has pairs to give. An unsettled one yields nothing rather than a
     /// partial conversation, and the caller reaches this only through [`Self::abandon`].
     pub(crate) fn into_results(self) -> Vec<(ToolCall, ToolOutcome)> {
-        self.calls
+        self.slots
             .into_iter()
-            .zip(self.outcomes)
-            .filter_map(|(call, outcome)| outcome.map(|outcome| (call, outcome)))
+            .filter_map(|slot| match slot.state {
+                CallState::Finished(outcome) => Some((slot.requested, outcome)),
+                CallState::AwaitingAdmission
+                | CallState::AwaitingApproval(_)
+                | CallState::Running(_) => None,
+            })
             .collect()
     }
 }
@@ -119,7 +350,7 @@ impl Batch {
 mod tests {
     use plexmaton_core::{ToolCallId, ToolCallStatus};
 
-    use super::{Batch, ToolCall, ToolOutcome};
+    use super::{Batch, ToolCall, ToolCancellationReason, ToolOutcome};
 
     fn call(id: &str) -> ToolCall {
         ToolCall {
@@ -145,7 +376,7 @@ mod tests {
     /// Finishing order is whatever the machine did; the model is shown its own order.
     #[test]
     fn results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished() {
-        let mut batch = Batch::new(vec![call("one"), call("two"), call("three")]);
+        let mut batch = running_batch(vec![call("one"), call("two"), call("three")]);
 
         assert!(batch.settle(&call("three").call_id, done("third")));
         assert!(batch.settle(&call("one").call_id, done("first")));
@@ -164,15 +395,15 @@ mod tests {
     /// The debt rule: what an interrupt leaves behind is still a conversation.
     #[test]
     fn abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone() {
-        let mut batch = Batch::new(vec![call("one"), call("two"), call("three")]);
+        let mut batch = running_batch(vec![call("one"), call("two"), call("three")]);
         batch.settle(&call("two").call_id, done("kept"));
 
-        let abandoned = batch.abandon();
+        let abandoned = batch.abandon(ToolCancellationReason::Interrupted);
 
         assert_eq!(
             abandoned
                 .iter()
-                .map(ToolCallId::to_string)
+                .map(|call| call.call_id.to_string())
                 .collect::<Vec<_>>(),
             ["one", "three"],
             "only the calls that had not answered"
@@ -191,7 +422,7 @@ mod tests {
     /// the model with it would put an identity in the conversation the model never used.
     #[test]
     fn an_outcome_for_a_call_that_was_never_dispatched_is_refused() {
-        let mut batch = Batch::new(vec![call("one")]);
+        let mut batch = running_batch(vec![call("one")]);
 
         assert!(!batch.settle(&call("elsewhere").call_id, done("stray")));
         assert!(!batch.is_settled());
@@ -200,6 +431,33 @@ mod tests {
     #[test]
     fn an_outcome_carries_the_lifecycle_state_a_projection_shows() {
         assert_eq!(done("x").status(), ToolCallStatus::Succeeded);
-        assert_eq!(ToolOutcome::Aborted.status(), ToolCallStatus::Cancelled);
+        assert_eq!(
+            ToolOutcome::Cancelled {
+                reason: ToolCancellationReason::Interrupted
+            }
+            .status(),
+            ToolCallStatus::Cancelled
+        );
+    }
+
+    fn running_batch(calls: Vec<ToolCall>) -> Batch {
+        use plexmaton_core::{ToolCapability, ToolDefinitionId};
+
+        use crate::{AdmittedToolCall, ToolDefinitionRevision};
+
+        let mut batch = Batch::new(calls.clone());
+        for call in calls {
+            let admitted = AdmittedToolCall::new(
+                call,
+                ToolDefinitionId::new("fixture").unwrap_or_else(|error| panic!("fixture: {error}")),
+                ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+                [ToolCapability::FileRead],
+                "{}".to_owned(),
+                "fixture".to_owned(),
+            )
+            .unwrap_or_else(|error| panic!("fixture: {error:?}"));
+            assert!(batch.run(admitted));
+        }
+        batch
     }
 }

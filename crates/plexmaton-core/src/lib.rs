@@ -81,11 +81,14 @@ macro_rules! stable_id {
 }
 
 stable_id!(AgentId, "agent id");
+stable_id!(ApprovalId, "approval id");
 stable_id!(ArtifactId, "artifact id");
 stable_id!(AttentionId, "attention id");
 stable_id!(MailId, "mail id");
+stable_id!(ToolDefinitionId, "tool definition id");
 stable_id!(ToolCallId, "tool call id");
 stable_id!(TranscriptItemId, "transcript item id");
+stable_id!(TurnId, "turn id");
 
 /// Monotonic sequence assigned by one semantic event producer.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -142,14 +145,43 @@ pub enum TranscriptRole {
 pub enum ToolCallStatus {
     /// Admitted by the scheduler but not started.
     Queued,
+    /// Admitted, but parked until the user answers its approval request.
+    AwaitingApproval,
     /// Executing now.
     Running,
     /// Finished and produced a usable result.
     Succeeded,
     /// Finished without a usable result.
     Failed,
+    /// Finished without running because the user declined it.
+    Denied,
     /// Stopped before completion by an explicit decision.
     Cancelled,
+}
+
+/// A typed capability an admitted tool call may exercise.
+///
+/// Capabilities compose: a command may both spawn a process and write files. Tool names and prompt
+/// prose are not authority, so approval and policy reason over this vocabulary instead.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCapability {
+    /// Read files through the workspace filesystem boundary.
+    FileRead,
+    /// Create, replace or remove files through the workspace filesystem boundary.
+    FileWrite,
+    /// Start a host process.
+    ProcessSpawn,
+}
+
+/// The decisions Slice 4 accepts for one pending approval.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecision {
+    /// Permit only the admitted call named by the request.
+    AllowOnce,
+    /// Decline only the admitted call named by the request.
+    Deny,
 }
 
 /// Why a background agent needs the user's attention.
@@ -160,6 +192,53 @@ pub enum AttentionKind {
     Approval,
     /// The agent can proceed but needs a decision or missing information first.
     Clarification,
+}
+
+/// What one Attention item asks the user to resolve.
+///
+/// The enum prevents a clarification from carrying an approval identity or an approval from
+/// arriving without the exact call and capabilities the decision applies to.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttentionRequest {
+    /// A tool call is parked until the user permits or denies it.
+    Approval {
+        /// Identity a decision must echo.
+        approval_id: ApprovalId,
+        /// Exact model call the request blocks.
+        call_id: ToolCallId,
+        /// Stable display label of the admitted tool definition.
+        tool: String,
+        /// Canonical capabilities policy evaluated for this call.
+        capabilities: Vec<ToolCapability>,
+        /// Bounded explanation of the concrete operation.
+        detail: String,
+    },
+    /// The agent needs information rather than permission.
+    Clarification {
+        /// Bounded question or summary.
+        summary: String,
+    },
+}
+
+impl AttentionRequest {
+    /// Returns the presentation category without duplicating it in serialized state.
+    #[must_use]
+    pub const fn kind(&self) -> AttentionKind {
+        match self {
+            Self::Approval { .. } => AttentionKind::Approval,
+            Self::Clarification { .. } => AttentionKind::Clarification,
+        }
+    }
+
+    /// Returns the bounded one-line text used by the Attention queue.
+    #[must_use]
+    pub fn summary(&self) -> &str {
+        match self {
+            Self::Approval { detail, .. } => detail,
+            Self::Clarification { summary } => summary,
+        }
+    }
 }
 
 /// One UI-facing semantic transition.
@@ -236,10 +315,15 @@ pub enum SessionEvent {
         agent_id: AgentId,
         /// Identity of the queued request.
         attention_id: AttentionId,
-        /// Whether the agent is blocked or merely needs information.
-        kind: AttentionKind,
-        /// Bounded summary of what is being asked.
-        summary: String,
+        /// Typed request. Its kind and summary are derived rather than stored twice.
+        request: AttentionRequest,
+    },
+    /// A previously requested Attention item no longer blocks its agent.
+    AttentionResolved {
+        /// Agent whose request was resolved.
+        agent_id: AgentId,
+        /// Exact queued request to remove.
+        attention_id: AttentionId,
     },
     /// Typed mail was delivered from one session to another.
     MailDelivered {
@@ -282,9 +366,9 @@ pub struct SessionEventEnvelope {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentId, AgentStatus, AttentionId, AttentionKind, EventSequence, IdError, MailId,
-        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
-        TranscriptRole,
+        AgentId, AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest,
+        EventSequence, IdError, MailId, SessionEvent, SessionEventEnvelope, ToolCallId,
+        ToolCallStatus, ToolCapability, TranscriptItemId, TranscriptRole, TurnId,
     };
 
     fn agent(value: &str) -> AgentId {
@@ -363,8 +447,20 @@ mod tests {
                 agent_id: agent("agent-b"),
                 attention_id: AttentionId::new("attention-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
-                kind: AttentionKind::Approval,
-                summary: "approve the write".into(),
+                request: AttentionRequest::Approval {
+                    approval_id: ApprovalId::new("approval-1")
+                        .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                    call_id: ToolCallId::new("tool-1")
+                        .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                    tool: "write".into(),
+                    capabilities: vec![ToolCapability::FileWrite],
+                    detail: "approve the write".into(),
+                },
+            },
+            SessionEvent::AttentionResolved {
+                agent_id: agent("agent-b"),
+                attention_id: AttentionId::new("attention-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             },
             SessionEvent::MailDelivered {
                 mail_id: MailId::new("mail-1")
@@ -384,6 +480,10 @@ mod tests {
                 message: "degraded".into(),
             },
         ];
+
+        let _typed_decision = ApprovalDecision::AllowOnce;
+        let _turn =
+            TurnId::new("turn-1").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
 
         for (index, event) in events.into_iter().enumerate() {
             let envelope = SessionEventEnvelope {

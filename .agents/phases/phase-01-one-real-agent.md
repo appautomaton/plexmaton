@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 done; stage 2 slices 1–3 done 2026-09-02, slice 4 open in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
+| Status | Active; stage 1 done; stage 2 slices 1–4 done 2026-09-02; slice 5 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -28,7 +28,7 @@ the projection refuses a gap or a repeat.
 | `AgentCreated`, `AgentStatusChanged` | Durable |
 | `TranscriptItemStarted`, `TranscriptDelta`, `TranscriptItemFinalized` | Durable; the cache and the anchors are built on this shape |
 | `ToolCallChanged` | Durable and thin: no arguments, no output, no expand state. Stage 2 grows it |
-| `AttentionRequested` | Durable, one way. Its resolution counterpart arrives with stage 2 |
+| `AttentionRequested`, `AttentionResolved` | Durable; a typed request and the exact identity that stopped being pending |
 | `MailDelivered`, `ArtifactAnnounced` | Provisional: a bounded summary and a pointer, no body |
 | `RuntimeWarning` | Durable; the degradation path |
 
@@ -46,8 +46,9 @@ queue has no eviction; nothing removes a transcript item, so cache pruning has n
    `crates/plexmaton-tui/frames/`, compared cell by cell on every test run, and were read by the
    user on 2026-09-02.
 2. **The producer.** One provider adapter behind the semantic boundary: streaming, tool calls, a
-   bounded tool set (read, search, run a command), the loop that executes a call and continues
-   until the model stops asking, and approval before a mutating call. It emits `SessionEvent`,
+   bounded tool set (read, search, create and edit a file, run a command), the loop that executes a
+   call and continues until the model stops asking, and trusted admission plus approval before a
+   policy-protected call. It emits `SessionEvent`,
    growing the vocabulary only where it must: a reasoning role, a typed tool detail (text or diff,
    bounded), an awaiting-approval tool state, a resolution for an attention item. The executable
    runs it; the simulator stays the test producer. The provider is chosen at the start of this
@@ -66,9 +67,10 @@ the user.
 ## Not in this phase
 
 A second real agent, delegation, mail between sessions, the mailbox, pause and abort, and a composed
-status-and-artifact surface beside a conversation: Phase 03. Persistence, context projection, MCP, a
-second provider, and a session reducer beyond what the loop needs: Phase 02. Math rendering: its
-track. Themes and animation: Phase 04.
+status-and-artifact surface beside a conversation: Phase 03. Persistence, context projection, MCP,
+a second provider, session- and workspace-scoped approval grants, their durable policy store, and
+a session reducer beyond what the loop needs: Phase 02. Math rendering: its track. Themes and
+animation: Phase 04.
 
 ## Exit gate
 

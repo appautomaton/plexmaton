@@ -55,4 +55,4 @@ Steered   ──▶ next-step queue ──▶ step boundary ──▶ user item 
 | LOOP-3 | `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished` |
 | LOOP-4 | `an_interrupted_turn_keeps_what_arrived_and_leaves_no_item_open`, `an_interrupt_starts_no_new_work_and_returns_what_was_waiting` |
 | LOOP-5 | Unproven; Phase 01 stage 2 slice 4 |
-| LOOP-6 | `steering_is_claimed_only_by_the_current_turns_next_step`, `input_without_its_boundary_is_returned_with_its_text_intact`, `failure_and_budget_return_pending_steering`, `agent_returns_the_exact_input_that_overflows_its_queue`, `production_mapping_preserves_message_steering_and_interrupt` |
+| LOOP-6 | `steering_is_claimed_only_by_the_current_turns_next_step`, `input_without_its_boundary_is_returned_with_its_text_intact`, `failure_and_budget_return_pending_steering`, `agent_returns_the_exact_input_that_overflows_its_queue`, `production_mapping_preserves_message_steering_interrupt_and_approval` |

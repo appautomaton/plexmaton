@@ -20,8 +20,9 @@ conversation rows and the composer stay where they are.
 that verb: the intent enum it lives in has no producer caller.
 
 **ATT-3 — Acknowledging is not resolving.** Going to a request marks it seen and leaves it queued,
-because it is still outstanding; what clears one is the agent being unblocked, which needs an
-approval no runtime can yet grant. An agent that asks again arrives unseen.
+because it is still outstanding. Only `AttentionResolved` from the owning loop clears it; closing
+an approval surface or sending a decision does not optimistically remove loop-owned state. An
+agent that asks again arrives unseen.
 
 ## Model
 
@@ -29,6 +30,8 @@ approval no runtime can yet grant. An agent that asks again arrives unseen.
 SessionEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
                                             │
    user presses Enter on the queue ─────────┴──▶ acknowledge + select the requesting agent
+                                            │
+SessionEvent::AttentionResolved ─────────────┴──▶ remove the exact request
 ```
 
 | Fact | Value |
@@ -45,6 +48,7 @@ SessionEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coales
 | A request from an agent not in the roster | Rejected at ingest as an unknown agent, which reaches the notice log |
 | `Enter` on an empty queue | A no-op that does not advance the revision |
 | Going to a request whose agent has since left the roster | The acknowledgement stands and the selection does not move |
+| A resolution names another agent's request | Rejected as an ownership mismatch and shown in the notice log |
 | More requests than the band lists | The band keeps its height and the rest arrive by scrolling it |
 | A click on a row | Focuses the band; the cursor moves by keyboard |
 | A terminal too short for the band and a comfortable conversation | The band is not registered; the rail's count remains |
@@ -55,4 +59,4 @@ SessionEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coales
 | --- | --- |
 | ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted` |
 | ATT-2 | `going_to_a_request_is_the_users_move_and_marks_it_seen`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `the_cursor_clamps_at_both_ends_and_survives_an_empty_queue` |
-| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
+| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision` |

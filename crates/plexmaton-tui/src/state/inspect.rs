@@ -61,6 +61,13 @@ impl ViewState {
     /// unconditionally would take the cursor out of the composer for a user who pressed `Escape`
     /// while typing, which is not what closing an overlay somewhere else asked for.
     pub fn dismiss(&mut self, surfaces: &SurfaceTree) -> bool {
+        if surfaces.get(SurfaceId::Approval).is_some()
+            && let Some(return_focus) = self.approval.dismiss()
+        {
+            self.focus.prefer(return_focus);
+            self.touch();
+            return true;
+        }
         if self.clear_selection() {
             return true;
         }

@@ -11,13 +11,17 @@
 mod tests {
     use std::path::PathBuf;
 
+    use plexmaton_core::{
+        AgentId, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
+        ToolCapability,
+    };
     use ratatui::{buffer::Buffer, layout::Rect};
 
     use crate::{
         ViewState,
-        intent::{Direction, InspectorIntent},
+        intent::{AttentionIntent, Direction, InspectorIntent},
         surface::{SurfaceId, SurfaceTree},
-        test_support::{canonical_state, draw, draw_frame, region_text},
+        test_support::{Conversation, canonical_state, draw, draw_frame, region_text},
         theme::Palette,
     };
 
@@ -26,6 +30,13 @@ mod tests {
         ("canonical-wide", 120, 40),
         ("canonical-medium", 95, 40),
         ("canonical-narrow", 60, 40),
+    ];
+
+    /// The first blocking surface, at the same three product widths.
+    const APPROVAL_FRAMES: [(&str, u16, u16); 3] = [
+        ("approval-wide", 120, 40),
+        ("approval-medium", 95, 40),
+        ("approval-narrow", 60, 40),
     ];
 
     fn fixture_path(name: &str) -> PathBuf {
@@ -91,6 +102,73 @@ mod tests {
                 fixture == drawn,
                 "{name} drifted from its fixture at {}\nif the change is intended, refresh with \
                  PLEXMATON_WRITE_FRAMES=1 and review the diff",
+                first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    fn approval_state(width: u16, height: u16) -> ViewState {
+        let mut conversation = Conversation::canonical();
+        conversation.emit(SessionEvent::AttentionRequested {
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: AttentionId::new("attention-b-approval")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new("approval-b-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("tool-b-write")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit".to_owned(),
+                capabilities: vec![ToolCapability::FileWrite],
+                detail:
+                    "Change crates/plexmaton-core/src/lib.rs and preserve its current revision."
+                        .to_owned(),
+            },
+        });
+        conversation
+            .state
+            .set_working_directory("~/plexmaton".to_owned());
+        let (surfaces, _) = draw_frame(&conversation.state, &Palette::default(), width, height);
+        conversation
+            .state
+            .attend(&surfaces, AttentionIntent::Move(Direction::Forward));
+        conversation.state.attend(&surfaces, AttentionIntent::GoTo);
+        conversation.state
+    }
+
+    /// APV-4 and SURF-4: the blocking decision surface is frozen at every supported composition.
+    #[test]
+    fn the_approval_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width, height) in APPROVAL_FRAMES {
+            let drawn = draw(&approval_state(width, height), width, height);
+            for signature in [
+                "Approval required",
+                "change files",
+                "Allow once",
+                "> Deny",
+                "Esc keeps pending",
+            ] {
+                assert!(
+                    drawn.contains(signature),
+                    "{name}: {signature:?} is not on screen"
+                );
+            }
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
                 first_difference(&fixture, &drawn)
             );
         }

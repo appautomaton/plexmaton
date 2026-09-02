@@ -8,16 +8,18 @@
 //! back with; the turn ends at the first step that stops for anything else, when its tools are
 //! answered and the budget is spent, or when the user interrupts it.
 
-use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole};
+use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole, TurnId};
 
+use crate::admission::ApprovalPolicy;
 use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
-use crate::model::{ModelError, ModelEvent, RequestItem, StopReason};
+use crate::model::{ModelEvent, RequestItem, StopReason};
 use crate::record::Record;
 use crate::step::Step;
-use crate::tools::{Batch, ToolCall};
+use crate::tools::{Batch, PendingApproval, ToolCall};
 
 mod batch;
 mod input;
+mod lifecycle;
 
 use input::{DeliveryBoundary, InputQueue};
 
@@ -44,9 +46,16 @@ enum Turn {
     /// No turn is open; a submission starts one.
     Idle,
     /// A step is streaming into one assistant message and collecting the calls it asks for.
-    Streaming(Step),
+    Streaming {
+        /// Stable owner identity retained through every step.
+        turn_id: TurnId,
+        /// Step currently receiving model events.
+        step: Step,
+    },
     /// The step is over and the calls it made are out being run.
     Working {
+        /// Stable owner identity retained while tools run or await approval.
+        turn_id: TurnId,
         /// What was dispatched, and what has answered.
         batch: Batch,
         /// Which step dispatched them.
@@ -64,6 +73,7 @@ pub struct Agent {
     turn: Turn,
     input: InputQueue,
     budget: TurnBudget,
+    policy: ApprovalPolicy,
     announced: bool,
 }
 
@@ -77,11 +87,18 @@ impl Agent {
     /// Starts an idle agent whose turns may take `budget.max_steps` steps.
     #[must_use]
     pub fn with_budget(agent_id: AgentId, budget: TurnBudget) -> Self {
+        Self::with_policy(agent_id, budget, ApprovalPolicy::default())
+    }
+
+    /// Starts an idle agent with an explicit stateless tool policy.
+    #[must_use]
+    pub fn with_policy(agent_id: AgentId, budget: TurnBudget, policy: ApprovalPolicy) -> Self {
         Self {
             record: Record::new(agent_id),
             turn: Turn::Idle,
             input: InputQueue::default(),
             budget,
+            policy,
             announced: false,
         }
     }
@@ -131,6 +148,16 @@ impl Agent {
         self.input.pending(DeliveryBoundary::NextStep)
     }
 
+    /// Approval records owned by the current turn (LOOP-5).
+    pub fn pending_approvals(&self) -> impl Iterator<Item = &PendingApproval> {
+        match &self.turn {
+            Turn::Working { batch, .. } => Some(batch.pending_approvals()),
+            Turn::Idle | Turn::Streaming { .. } => None,
+        }
+        .into_iter()
+        .flatten()
+    }
+
     /// Advances the machine by one input.
     pub fn handle(&mut self, input: Input) -> Reaction {
         let mut reaction = Reaction::default();
@@ -139,10 +166,18 @@ impl Agent {
             Input::Steered { text } => self.steer(text, &mut reaction),
             Input::Streamed(event) => self.stream(event, &mut reaction),
             Input::Failed(error) => self.fail(&error, &mut reaction),
+            Input::ToolAdmissionResolved(outcome) => {
+                self.admission_resolved(outcome, &mut reaction);
+            }
             Input::ToolFinished { call_id, outcome } => {
                 self.tool_finished(&call_id, outcome, &mut reaction);
             }
+            Input::ApprovalDecided {
+                approval_id,
+                decision,
+            } => self.approval_decided(approval_id, decision, &mut reaction),
             Input::Interrupted => self.interrupt(&mut reaction),
+            Input::ShuttingDown => self.shutdown(&mut reaction),
         }
         reaction
     }
@@ -175,7 +210,8 @@ impl Agent {
 
     fn open_turn(&mut self, text: String, reaction: &mut Reaction) {
         self.record_user(text, reaction);
-        self.open_step(1, reaction);
+        let turn_id = self.record.next_turn_id();
+        self.open_step(turn_id, 1, reaction);
     }
 
     /// Records user input in both views of the one record: semantic events and model history.
@@ -211,16 +247,19 @@ impl Agent {
     }
 
     /// Asks the model, and says the agent is producing.
-    fn open_step(&mut self, index: u16, reaction: &mut Reaction) {
+    fn open_step(&mut self, turn_id: TurnId, index: u16, reaction: &mut Reaction) {
         self.status(reaction, AgentStatus::Running);
-        self.turn = Turn::Streaming(Step::new(index));
+        self.turn = Turn::Streaming {
+            turn_id,
+            step: Step::new(index),
+        };
         reaction
             .effects
             .push(Effect::CallModel(self.record.request()));
     }
 
     fn stream(&mut self, event: ModelEvent, reaction: &mut Reaction) {
-        if !matches!(self.turn, Turn::Streaming(_)) {
+        if !matches!(self.turn, Turn::Streaming { .. }) {
             self.warn(reaction, "the model produced output with no step open");
             return;
         }
@@ -230,12 +269,12 @@ impl Agent {
             // then declines to keep.
             ModelEvent::TextDelta(delta) if delta.is_empty() => {}
             ModelEvent::TextDelta(delta) => {
-                if let Turn::Streaming(step) = &mut self.turn {
+                if let Turn::Streaming { step, .. } = &mut self.turn {
                     step.append(&mut self.record, reaction, delta);
                 }
             }
             ModelEvent::Called(call) => {
-                if let Turn::Streaming(step) = &mut self.turn {
+                if let Turn::Streaming { step, .. } = &mut self.turn {
                     step.collect(call);
                 }
             }
@@ -254,7 +293,7 @@ impl Agent {
                 self.warn(reaction, "the model stopped without saying why");
             }
         }
-        let Some((calls, index)) = self.close_step(reaction) else {
+        let Some((turn_id, calls, index)) = self.close_step(reaction) else {
             return;
         };
         if calls.is_empty() {
@@ -267,89 +306,35 @@ impl Agent {
             self.finish_turn(reaction);
             return;
         }
-        self.dispatch(calls, index, reaction);
+        self.dispatch(turn_id, calls, index, reaction);
     }
 
     /// Ends the streaming half of the step, and says what it asked for.
-    fn close_step(&mut self, reaction: &mut Reaction) -> Option<(Vec<ToolCall>, u16)> {
-        let Turn::Streaming(step) = std::mem::replace(&mut self.turn, Turn::Idle) else {
+    fn close_step(&mut self, reaction: &mut Reaction) -> Option<(TurnId, Vec<ToolCall>, u16)> {
+        let Turn::Streaming { turn_id, step } = std::mem::replace(&mut self.turn, Turn::Idle)
+        else {
             return None;
         };
         let index = step.index();
-        Some((step.close(&mut self.record, reaction), index))
-    }
-
-    fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
-        self.warn(reaction, &error.message());
-        if self.is_running() {
-            self.abort_turn(UndeliveredReason::StepFailed, reaction);
-        }
-    }
-
-    fn interrupt(&mut self, reaction: &mut Reaction) {
-        if self.is_running() {
-            self.abort_turn(UndeliveredReason::Interrupted, reaction);
-        }
-    }
-
-    /// Stops the turn wherever it is, pays what it owes, and goes idle.
-    ///
-    /// A stopped turn does not roll into the next one: that would make cancellation start work.
-    /// Pending input instead returns through [`Reaction::undelivered`] with its exact text and the
-    /// transition that prevented its boundary from opening (LOOP-6).
-    fn abort_turn(&mut self, reason: UndeliveredReason, reaction: &mut Reaction) {
-        self.abandon(reaction);
-        self.close_step(reaction);
-        self.turn = Turn::Idle;
-        reaction.undelivered.extend(self.input.reject_all(reason));
-        self.status(reaction, AgentStatus::Idle);
-    }
-
-    /// Ends a turn that ran its course, and opens the next one if a message waited for it.
-    fn finish_turn(&mut self, reaction: &mut Reaction) {
-        self.turn = Turn::Idle;
-        reaction.undelivered.extend(
-            self.input
-                .reject(DeliveryBoundary::NextStep, UndeliveredReason::TurnEnded),
-        );
-        let Some(next) = self.input.claim_one(DeliveryBoundary::NextTurn) else {
-            self.status(reaction, AgentStatus::Idle);
-            return;
-        };
-        self.open_turn(next, reaction);
-    }
-
-    /// Claims steering immediately before the request for the next step is assembled (LOOP-6).
-    fn claim_next_step_input(&mut self, reaction: &mut Reaction) {
-        for text in self.input.claim(DeliveryBoundary::NextStep) {
-            self.record_user(text, reaction);
-        }
-    }
-
-    fn status(&mut self, reaction: &mut Reaction, status: AgentStatus) {
-        let event = SessionEvent::AgentStatusChanged {
-            agent_id: self.record.agent_id().clone(),
-            status,
-        };
-        self.record.emit(reaction, event);
-    }
-
-    fn warn(&mut self, reaction: &mut Reaction, message: &str) {
-        let event = SessionEvent::RuntimeWarning {
-            message: message.to_owned(),
-        };
-        self.record.emit(reaction, event);
+        Some((turn_id, step.close(&mut self.record, reaction), index))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, AgentStatus, SessionEvent, ToolCallId, TranscriptRole};
+    use plexmaton_core::{
+        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, SessionEvent, ToolCallId,
+        ToolCallStatus, ToolCapability, ToolDefinitionId, TranscriptRole,
+    };
 
     use super::{Agent, Effect, Input, Reaction, TurnBudget};
     use crate::interface::UndeliveredReason;
     use crate::model::{ModelError, ModelEvent, RequestItem, StopReason};
-    use crate::tools::{ToolCall, ToolOutcome};
+    use crate::tools::{ToolCall, ToolCancellationReason, ToolOutcome};
+    use crate::{
+        AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
+        ApprovalPolicy, CapabilitySet, ToolDefinitionRevision,
+    };
 
     fn agent() -> Agent {
         Agent::new(AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")))
@@ -376,11 +361,36 @@ mod tests {
     }
 
     fn call(agent: &mut Agent, call_id: &str) -> Reaction {
+        call_named(agent, call_id, "read")
+    }
+
+    fn call_named(agent: &mut Agent, call_id: &str, name: &str) -> Reaction {
         agent.handle(Input::Streamed(ModelEvent::Called(ToolCall {
             call_id: id(call_id),
-            name: "read".to_owned(),
+            name: name.to_owned(),
             arguments: "{}".to_owned(),
         })))
+    }
+
+    fn admitted(
+        call_id: &str,
+        name: &str,
+        capabilities: impl IntoIterator<Item = ToolCapability>,
+    ) -> AdmittedToolCall {
+        AdmittedToolCall::new(
+            ToolCall {
+                call_id: id(call_id),
+                name: name.to_owned(),
+                arguments: "{}".to_owned(),
+            },
+            ToolDefinitionId::new(format!("{name}-v1"))
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+            capabilities,
+            "{}".to_owned(),
+            format!("{name} fixture"),
+        )
+        .unwrap_or_else(|error| panic!("fixture: {error:?}"))
     }
 
     fn finish(agent: &mut Agent, call_id: &str, output: &str) -> Reaction {
@@ -393,7 +403,49 @@ mod tests {
     }
 
     fn stop(agent: &mut Agent, reason: StopReason) -> Reaction {
+        let mut reaction = stop_before_admission(agent, reason);
+        let calls: Vec<_> = reaction
+            .effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::AdmitTool(call) => Some(call.clone()),
+                Effect::CallModel(_) | Effect::RunTool(_) => None,
+            })
+            .collect();
+        reaction
+            .effects
+            .retain(|effect| !matches!(effect, Effect::AdmitTool(_)));
+        for call in calls {
+            let admitted = AdmittedToolCall::new(
+                call,
+                ToolDefinitionId::new("read-v1").unwrap_or_else(|error| panic!("fixture: {error}")),
+                ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+                [ToolCapability::FileRead],
+                "{}".to_owned(),
+                "read fixture".to_owned(),
+            )
+            .unwrap_or_else(|error| panic!("fixture: {error:?}"));
+            merge(
+                &mut reaction,
+                agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+                    admitted,
+                ))),
+            );
+        }
+        reaction
+    }
+
+    fn stop_before_admission(agent: &mut Agent, reason: StopReason) -> Reaction {
         agent.handle(Input::Streamed(ModelEvent::Stopped(reason)))
+    }
+
+    fn merge(target: &mut Reaction, mut source: Reaction) {
+        target.events.append(&mut source.events);
+        target.effects.append(&mut source.effects);
+        target.undelivered.append(&mut source.undelivered);
+        target
+            .unresolved_approvals
+            .append(&mut source.unresolved_approvals);
     }
 
     fn events(reaction: &Reaction) -> Vec<SessionEvent> {
@@ -563,13 +615,13 @@ mod tests {
                 .any(|effect| matches!(effect, Effect::CallModel(_))),
             "the model is not asked again until its calls are answered"
         );
-        assert!(matches!(
-            events(&dispatching).last(),
-            Some(SessionEvent::AgentStatusChanged {
+        assert!(events(&dispatching).iter().any(|event| matches!(
+            event,
+            SessionEvent::AgentStatusChanged {
                 status: AgentStatus::Waiting,
                 ..
-            })
-        ));
+            }
+        )));
         assert_eq!(dispatched(&agent), ["one", "two"]);
         assert!(agent.is_running(), "waiting on a tool is still a turn");
     }
@@ -655,7 +707,9 @@ mod tests {
             agent.record().last(),
             Some(&RequestItem::ToolResult {
                 call_id: id("one"),
-                outcome: ToolOutcome::Aborted
+                outcome: ToolOutcome::Cancelled {
+                    reason: ToolCancellationReason::StepFailed
+                }
             })
         );
     }
@@ -980,6 +1034,289 @@ mod tests {
         assert_eq!(warnings(&stray).len(), 1);
         assert!(answered(&agent).is_empty());
         assert!(agent.is_running(), "and the batch is still waiting");
+    }
+
+    /// APV-1, APV-2 and LOOP-5: raw model arguments produce only an admission effect. A protected
+    /// admitted call becomes inspectable pending state and runs only after its exact ID is allowed.
+    #[test]
+    fn a_protected_call_waits_as_state_and_allow_once_resumes_that_exact_call() {
+        let mut agent = agent();
+        submit(&mut agent, "change the file");
+        call_named(&mut agent, "write-1", "edit");
+
+        let dispatched = stop_before_admission(&mut agent, StopReason::ToolCalls);
+        assert!(matches!(
+            dispatched.effects.as_slice(),
+            [Effect::AdmitTool(call)] if call.call_id == id("write-1")
+        ));
+        assert!(events(&dispatched).iter().any(|event| matches!(
+            event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Queued,
+                ..
+            }
+        )));
+
+        let waiting = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        assert!(
+            waiting.effects.is_empty(),
+            "approval is state, not execution"
+        );
+        let pending = agent
+            .pending_approvals()
+            .next()
+            .cloned()
+            .unwrap_or_else(|| panic!("the protected call must be pending"));
+        assert_eq!(pending.admitted().requested().call_id, id("write-1"));
+        assert_eq!(pending.admitted().definition_revision().get(), 1);
+        assert!(events(&waiting).iter().any(|event| matches!(
+            event,
+            SessionEvent::AttentionRequested {
+                request: AttentionRequest::Approval { approval_id, call_id, .. },
+                ..
+            } if approval_id == pending.approval_id() && call_id == &id("write-1")
+        )));
+
+        let allowed = agent.handle(Input::ApprovalDecided {
+            approval_id: pending.approval_id().clone(),
+            decision: ApprovalDecision::AllowOnce,
+        });
+        assert!(agent.pending_approvals().next().is_none());
+        assert!(matches!(
+            allowed.effects.as_slice(),
+            [Effect::RunTool(call)] if call.requested().call_id == id("write-1")
+        ));
+        assert!(matches!(
+            events(&allowed).as_slice(),
+            [
+                SessionEvent::AttentionResolved { attention_id, .. },
+                SessionEvent::ToolCallChanged {
+                    status: ToolCallStatus::Running,
+                    ..
+                }
+            ] if attention_id == pending.attention_id()
+        ));
+    }
+
+    /// APV-4 and LOOP-2: denial resolves Attention, never executes, and is still a tool result in
+    /// the next model request. Reusing the same approval ID is a typed non-decision.
+    #[test]
+    fn deny_pays_the_call_debt_and_a_duplicate_decision_is_typed() {
+        let mut agent = agent();
+        submit(&mut agent, "change the file");
+        call_named(&mut agent, "write-1", "edit");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+        agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        let approval_id = agent
+            .pending_approvals()
+            .next()
+            .map(|pending| pending.approval_id().clone())
+            .unwrap_or_else(|| panic!("pending approval"));
+
+        let denied = agent.handle(Input::ApprovalDecided {
+            approval_id: approval_id.clone(),
+            decision: ApprovalDecision::Deny,
+        });
+        assert!(
+            denied
+                .effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+        );
+        let request = denied
+            .effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::CallModel(request) => Some(request),
+                Effect::AdmitTool(_) | Effect::RunTool(_) => None,
+            })
+            .unwrap_or_else(|| panic!("denial completes the batch and opens the next step"));
+        assert!(matches!(
+            request.items.last(),
+            Some(RequestItem::ToolResult {
+                call_id,
+                outcome: ToolOutcome::Denied
+            }) if call_id == &id("write-1")
+        ));
+
+        let duplicate = agent.handle(Input::ApprovalDecided {
+            approval_id: approval_id.clone(),
+            decision: ApprovalDecision::Deny,
+        });
+        assert!(matches!(
+            duplicate.unresolved_approvals.as_slice(),
+            [unresolved]
+                if unresolved.approval_id == approval_id
+                    && unresolved.reason == ApprovalDecisionRefusal::NotPending
+        ));
+        assert!(duplicate.effects.is_empty());
+        assert!(duplicate.events.is_empty());
+    }
+
+    /// APV-5: admission and execution are per slot. A safe sibling runs and may finish while a
+    /// protected call waits, but the model receives neither result until the whole batch is paid.
+    #[test]
+    fn a_safe_sibling_runs_while_a_protected_call_waits_and_results_keep_model_order() {
+        let mut agent = agent();
+        submit(&mut agent, "read then edit");
+        call_named(&mut agent, "write-1", "edit");
+        call_named(&mut agent, "read-2", "read");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+
+        agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        let read = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("read-2", "read", [ToolCapability::FileRead]),
+        )));
+        assert!(matches!(
+            read.effects.as_slice(),
+            [Effect::RunTool(call)] if call.requested().call_id == id("read-2")
+        ));
+        let read_done = finish(&mut agent, "read-2", "contents");
+        assert!(
+            !read_done
+                .effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::CallModel(_))),
+            "one pending slot keeps the batch open"
+        );
+
+        let approval_id = agent
+            .pending_approvals()
+            .next()
+            .map(|pending| pending.approval_id().clone())
+            .unwrap_or_else(|| panic!("write waits"));
+        agent.handle(Input::ApprovalDecided {
+            approval_id,
+            decision: ApprovalDecision::AllowOnce,
+        });
+        let write_done = finish(&mut agent, "write-1", "changed");
+        let request = write_done
+            .effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::CallModel(request) => Some(request),
+                Effect::AdmitTool(_) | Effect::RunTool(_) => None,
+            })
+            .unwrap_or_else(|| panic!("settled batch opens the next step"));
+        let result_ids: Vec<_> = request
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                RequestItem::ToolResult { call_id, .. } => Some(call_id.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(result_ids, ["write-1", "read-2"]);
+    }
+
+    /// APV-2 and APV-3: forbidden is policy, not an approval option, and catalog refusal is a
+    /// separate result. Neither path emits a run effect or an Attention request.
+    #[test]
+    fn forbidden_and_admission_refusal_finish_without_approval_or_execution() {
+        let policy = ApprovalPolicy::new(
+            CapabilitySet::default(),
+            CapabilitySet::new([ToolCapability::FileWrite]),
+        );
+        let mut forbidden = Agent::with_policy(
+            AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            TurnBudget::default(),
+            policy,
+        );
+        submit(&mut forbidden, "change");
+        call_named(&mut forbidden, "write-1", "edit");
+        stop_before_admission(&mut forbidden, StopReason::ToolCalls);
+        let forbidden_result = forbidden.handle(Input::ToolAdmissionResolved(
+            AdmissionOutcome::Admitted(admitted("write-1", "edit", [ToolCapability::FileWrite])),
+        ));
+        assert!(
+            forbidden_result
+                .effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+        );
+        assert!(
+            !events(&forbidden_result)
+                .iter()
+                .any(|event| matches!(event, SessionEvent::AttentionRequested { .. }))
+        );
+        assert!(matches!(
+            forbidden.record().iter().find_map(|item| match item {
+                RequestItem::ToolResult { outcome, .. } => Some(outcome),
+                _ => None,
+            }),
+            Some(ToolOutcome::Forbidden)
+        ));
+
+        let mut refused = agent();
+        submit(&mut refused, "unknown");
+        call_named(&mut refused, "unknown-1", "missing");
+        stop_before_admission(&mut refused, StopReason::ToolCalls);
+        let refused_result =
+            refused.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Refused {
+                call_id: id("unknown-1"),
+                reason: AdmissionRefusal::UnknownTool,
+            }));
+        assert!(
+            refused_result
+                .effects
+                .iter()
+                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+        );
+        assert!(matches!(
+            refused.record().iter().find_map(|item| match item {
+                RequestItem::ToolResult { outcome, .. } => Some(outcome),
+                _ => None,
+            }),
+            Some(ToolOutcome::AdmissionRefused {
+                reason: AdmissionRefusal::UnknownTool
+            })
+        ));
+    }
+
+    /// APV-6: no hidden waiter survives cancellation. Both interrupt and shutdown resolve the
+    /// Attention item, pay the call with the typed cause, and leave the turn idle.
+    #[test]
+    fn interrupt_and_shutdown_cancel_pending_approval_as_explicit_state() {
+        for (input, expected) in [
+            (Input::Interrupted, ToolCancellationReason::Interrupted),
+            (Input::ShuttingDown, ToolCancellationReason::Shutdown),
+        ] {
+            let mut agent = agent();
+            submit(&mut agent, "change");
+            call_named(&mut agent, "write-1", "edit");
+            stop_before_admission(&mut agent, StopReason::ToolCalls);
+            agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+                admitted("write-1", "edit", [ToolCapability::FileWrite]),
+            )));
+            let attention_id = agent
+                .pending_approvals()
+                .next()
+                .map(|pending| pending.attention_id().clone())
+                .unwrap_or_else(|| panic!("pending approval"));
+
+            let cancelled = agent.handle(input);
+
+            assert!(!agent.is_running());
+            assert!(agent.pending_approvals().next().is_none());
+            assert!(events(&cancelled).iter().any(|event| matches!(
+                event,
+                SessionEvent::AttentionResolved { attention_id: resolved, .. }
+                    if resolved == &attention_id
+            )));
+            assert!(matches!(
+                agent.record().last(),
+                Some(RequestItem::ToolResult {
+                    outcome: ToolOutcome::Cancelled { reason },
+                    ..
+                }) if *reason == expected
+            ));
+        }
     }
 
     /// An interrupt stops work; it does not start any.

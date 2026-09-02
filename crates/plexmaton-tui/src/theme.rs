@@ -71,12 +71,14 @@ impl Role {
 
 /// Maps a tool lifecycle onto the attention hierarchy.
 ///
-/// Tool state is not its own colour vocabulary: a running tool is ambient background work and a
-/// failed one is a failure, exactly like any other source of those levels.
+/// Tool state is not its own colour vocabulary: a running tool is ambient background work, a call
+/// awaiting approval requires action, and a failed one is a failure, exactly like any other source
+/// of those levels. A denied call is quiet because it is a resolved user decision, not a failure.
 #[must_use]
 pub const fn tool_role(status: ToolCallStatus) -> Role {
     match status {
-        ToolCallStatus::Queued | ToolCallStatus::Cancelled => Role::Muted,
+        ToolCallStatus::Queued | ToolCallStatus::Denied | ToolCallStatus::Cancelled => Role::Muted,
+        ToolCallStatus::AwaitingApproval => Role::ActionRequired,
         ToolCallStatus::Running => Role::Ambient,
         ToolCallStatus::Succeeded => Role::NewInformation,
         ToolCallStatus::Failed => Role::Failure,
@@ -255,7 +257,9 @@ mod tests {
 
     use ratatui::style::Modifier;
 
-    use super::{Palette, Role};
+    use plexmaton_core::ToolCallStatus;
+
+    use super::{Palette, Role, tool_role};
 
     fn palettes() -> [(&'static str, Palette); 3] {
         [
@@ -278,6 +282,15 @@ mod tests {
                 "{name} collapses two attention levels onto one style"
             );
         }
+    }
+
+    #[test]
+    fn approval_tool_states_map_to_attention_without_treating_denial_as_failure() {
+        assert_eq!(
+            tool_role(ToolCallStatus::AwaitingApproval),
+            Role::ActionRequired
+        );
+        assert_eq!(tool_role(ToolCallStatus::Denied), Role::Muted);
     }
 
     #[test]

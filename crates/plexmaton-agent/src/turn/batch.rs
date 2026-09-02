@@ -1,35 +1,191 @@
 //! The agent's dealings with one step's batch of tool calls.
 //!
-//! Dispatching, settling and abandoning are one responsibility: everything between a step asking
-//! for tools and the model being shown what they produced. The debt rule lives here, which is why
-//! abandoning sits beside dispatching rather than beside cancellation.
+//! Admission, approval, execution, settling and cancellation live together because each is one
+//! state of the same per-call slot. No future or presentation queue owns the transition (LOOP-5).
 
-use plexmaton_core::{AgentStatus, SessionEvent, ToolCallId, ToolCallStatus};
+use plexmaton_core::{
+    AgentStatus, ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId,
+    ToolCallStatus, TurnId,
+};
 
 use super::{Agent, Turn};
+use crate::admission::{AdmissionOutcome, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::model::RequestItem;
-use crate::tools::{Batch, ToolCall, ToolOutcome};
+use crate::tools::{
+    ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome,
+};
 
 impl Agent {
-    /// Records the calls, announces them, and asks for them to be run.
-    pub(super) fn dispatch(&mut self, calls: Vec<ToolCall>, step: u16, reaction: &mut Reaction) {
+    /// Records raw calls and asks the trusted catalog to admit each one (APV-1).
+    pub(super) fn dispatch(
+        &mut self,
+        turn_id: TurnId,
+        calls: Vec<ToolCall>,
+        step: u16,
+        reaction: &mut Reaction,
+    ) {
         for call in &calls {
             self.record.push(RequestItem::ToolCall(call.clone()));
-            let announced = SessionEvent::ToolCallChanged {
-                agent_id: self.record.agent_id().clone(),
-                call_id: call.call_id.clone(),
-                label: call.name.clone(),
-                status: ToolCallStatus::Running,
-            };
-            self.record.emit(reaction, announced);
-            reaction.effects.push(Effect::RunTool(call.clone()));
+            self.emit_tool_status(call.call_id.clone(), ToolCallStatus::Queued, reaction);
+            reaction.effects.push(Effect::AdmitTool(call.clone()));
         }
         self.status(reaction, AgentStatus::Waiting);
         self.turn = Turn::Working {
+            turn_id,
             batch: Batch::new(calls),
             step,
         };
+    }
+
+    /// Applies one catalog result to the exact call still awaiting admission.
+    pub(super) fn admission_resolved(
+        &mut self,
+        outcome: AdmissionOutcome,
+        reaction: &mut Reaction,
+    ) {
+        match outcome {
+            AdmissionOutcome::Admitted(admitted) => {
+                let call_id = admitted.requested().call_id.clone();
+                let Some((turn_id, expected)) = self.requested_call(&call_id) else {
+                    self.warn(
+                        reaction,
+                        "admission answered for a call this turn is not awaiting",
+                    );
+                    return;
+                };
+                if expected != *admitted.requested() {
+                    self.warn(
+                        reaction,
+                        "admission changed the model call it claimed to answer",
+                    );
+                    return;
+                }
+
+                match self.policy.decide(&admitted) {
+                    PolicyDecision::Allow => {
+                        let accepted = match &mut self.turn {
+                            Turn::Working { batch, .. } => batch.run(admitted.clone()),
+                            Turn::Idle | Turn::Streaming { .. } => false,
+                        };
+                        if !accepted {
+                            self.warn(reaction, "admitted call no longer awaits admission");
+                            return;
+                        }
+                        self.emit_tool_status(call_id, ToolCallStatus::Running, reaction);
+                        reaction.effects.push(Effect::RunTool(admitted));
+                    }
+                    PolicyDecision::RequireApproval => {
+                        let (approval_id, attention_id) = self.record.next_approval_ids();
+                        let pending = PendingApproval::new(
+                            approval_id.clone(),
+                            attention_id.clone(),
+                            turn_id,
+                            admitted.clone(),
+                        );
+                        let accepted = match &mut self.turn {
+                            Turn::Working { batch, .. } => batch.await_approval(pending),
+                            Turn::Idle | Turn::Streaming { .. } => false,
+                        };
+                        if !accepted {
+                            self.warn(reaction, "admitted call no longer awaits approval");
+                            return;
+                        }
+                        self.emit_tool_status(
+                            call_id.clone(),
+                            ToolCallStatus::AwaitingApproval,
+                            reaction,
+                        );
+                        let request = AttentionRequest::Approval {
+                            approval_id,
+                            call_id,
+                            tool: admitted.requested().name.clone(),
+                            capabilities: admitted.capabilities().to_vec(),
+                            detail: admitted.detail().to_owned(),
+                        };
+                        self.record.emit(
+                            reaction,
+                            SessionEvent::AttentionRequested {
+                                agent_id: self.record.agent_id().clone(),
+                                attention_id,
+                                request,
+                            },
+                        );
+                    }
+                    PolicyDecision::Forbidden => {
+                        let accepted = match &mut self.turn {
+                            Turn::Working { batch, .. } => {
+                                batch.finish_before_run(&call_id, ToolOutcome::Forbidden)
+                            }
+                            Turn::Idle | Turn::Streaming { .. } => false,
+                        };
+                        if !accepted {
+                            self.warn(reaction, "forbidden call no longer awaits policy");
+                            return;
+                        }
+                        self.emit_tool_status(call_id, ToolCallStatus::Failed, reaction);
+                        self.continue_if_batch_complete(reaction);
+                    }
+                }
+            }
+            AdmissionOutcome::Refused { call_id, reason } => {
+                let accepted = match &mut self.turn {
+                    Turn::Working { batch, .. } => {
+                        batch.finish_before_run(&call_id, ToolOutcome::AdmissionRefused { reason })
+                    }
+                    Turn::Idle | Turn::Streaming { .. } => false,
+                };
+                if !accepted {
+                    self.warn(
+                        reaction,
+                        "admission refused a call this turn is not awaiting",
+                    );
+                    return;
+                }
+                self.emit_tool_status(call_id, ToolCallStatus::Failed, reaction);
+                self.continue_if_batch_complete(reaction);
+            }
+        }
+    }
+
+    /// Resolves one pending request exactly once (APV-4).
+    pub(super) fn approval_decided(
+        &mut self,
+        approval_id: ApprovalId,
+        decision: ApprovalDecision,
+        reaction: &mut Reaction,
+    ) {
+        let resolution = match &mut self.turn {
+            Turn::Working { batch, .. } => batch.resolve_approval(&approval_id, decision),
+            Turn::Idle | Turn::Streaming { .. } => None,
+        };
+        let Some(resolution) = resolution else {
+            Self::refuse_approval_decision(reaction, approval_id, decision);
+            return;
+        };
+
+        match resolution {
+            ApprovalResolution::Run {
+                attention_id,
+                admitted,
+            } => {
+                self.resolve_attention(attention_id, reaction);
+                self.emit_tool_status(
+                    admitted.requested().call_id.clone(),
+                    ToolCallStatus::Running,
+                    reaction,
+                );
+                reaction.effects.push(Effect::RunTool(admitted));
+            }
+            ApprovalResolution::Denied {
+                attention_id,
+                call_id,
+            } => {
+                self.resolve_attention(attention_id, reaction);
+                self.emit_tool_status(call_id, ToolCallStatus::Denied, reaction);
+                self.continue_if_batch_complete(reaction);
+            }
+        }
     }
 
     pub(super) fn tool_finished(
@@ -52,29 +208,70 @@ impl Agent {
         let Some(complete) = settled else {
             self.warn(
                 reaction,
-                "a tool answered for a call this turn is not waiting on",
+                "a tool answered for a call this turn is not running",
             );
             return;
         };
-        let label = self.record.label_of(call_id);
-        let changed = SessionEvent::ToolCallChanged {
-            agent_id: self.record.agent_id().clone(),
-            call_id: call_id.clone(),
-            label,
-            status,
-        };
-        self.record.emit(reaction, changed);
-        if complete && let Some(step) = self.settle_batch() {
-            self.next_step(step, reaction);
+        self.emit_tool_status(call_id.clone(), status, reaction);
+        if complete {
+            self.continue_if_batch_complete(reaction);
         }
     }
 
-    /// Moves the batch's results into the record in model order, and says which step made them.
-    ///
-    /// Completion order is whatever the machine did; the model is answered in the order it asked,
-    /// because reordering a batch teaches it that its own ordering means nothing.
-    pub(super) fn settle_batch(&mut self) -> Option<u16> {
-        let Turn::Working { batch, step } = std::mem::replace(&mut self.turn, Turn::Idle) else {
+    fn requested_call(&self, call_id: &ToolCallId) -> Option<(TurnId, ToolCall)> {
+        let Turn::Working { turn_id, batch, .. } = &self.turn else {
+            return None;
+        };
+        Some((turn_id.clone(), batch.requested(call_id)?.clone()))
+    }
+
+    fn emit_tool_status(
+        &mut self,
+        call_id: ToolCallId,
+        status: ToolCallStatus,
+        reaction: &mut Reaction,
+    ) {
+        let changed = SessionEvent::ToolCallChanged {
+            agent_id: self.record.agent_id().clone(),
+            label: self.record.label_of(&call_id),
+            call_id,
+            status,
+        };
+        self.record.emit(reaction, changed);
+    }
+
+    fn resolve_attention(
+        &mut self,
+        attention_id: plexmaton_core::AttentionId,
+        reaction: &mut Reaction,
+    ) {
+        self.record.emit(
+            reaction,
+            SessionEvent::AttentionResolved {
+                agent_id: self.record.agent_id().clone(),
+                attention_id,
+            },
+        );
+    }
+
+    fn continue_if_batch_complete(&mut self, reaction: &mut Reaction) {
+        let complete = matches!(
+            &self.turn,
+            Turn::Working { batch, .. } if batch.is_settled()
+        );
+        if complete && let Some((turn_id, step)) = self.settle_batch() {
+            self.next_step(turn_id, step, reaction);
+        }
+    }
+
+    /// Moves the batch's results into the record in model order.
+    pub(super) fn settle_batch(&mut self) -> Option<(TurnId, u16)> {
+        let Turn::Working {
+            turn_id,
+            batch,
+            step,
+        } = std::mem::replace(&mut self.turn, Turn::Idle)
+        else {
             return None;
         };
         for (call, outcome) in batch.into_results() {
@@ -83,11 +280,11 @@ impl Agent {
                 outcome,
             });
         }
-        Some(step)
+        Some((turn_id, step))
     }
 
     /// Takes the next step, or ends the turn because there is no budget for one.
-    pub(super) fn next_step(&mut self, step: u16, reaction: &mut Reaction) {
+    pub(super) fn next_step(&mut self, turn_id: TurnId, step: u16, reaction: &mut Reaction) {
         if step >= self.budget.max_steps {
             self.warn(
                 reaction,
@@ -101,28 +298,20 @@ impl Agent {
             return;
         }
         self.claim_next_step_input(reaction);
-        self.open_step(step.saturating_add(1), reaction);
+        self.open_step(turn_id, step.saturating_add(1), reaction);
     }
 
-    /// Answers every dispatched call that had not answered, so the conversation stays usable.
-    ///
-    /// This is the debt rule at run time: a call the model made and the loop dispatched leaves a
-    /// result behind whatever happens to the turn, because the next request is built from this
-    /// record, and a call with no result is a request no dialect will accept.
-    pub(super) fn abandon(&mut self, reaction: &mut Reaction) {
+    /// Pays every unfinished slot, resolving Attention projections on the way (APV-6).
+    pub(super) fn abandon(&mut self, reason: ToolCancellationReason, reaction: &mut Reaction) {
         let abandoned = match &mut self.turn {
-            Turn::Working { batch, .. } => batch.abandon(),
-            Turn::Idle | Turn::Streaming(_) => return,
+            Turn::Working { batch, .. } => batch.abandon(reason),
+            Turn::Idle | Turn::Streaming { .. } => return,
         };
-        for call_id in abandoned {
-            let label = self.record.label_of(&call_id);
-            let cancelled = SessionEvent::ToolCallChanged {
-                agent_id: self.record.agent_id().clone(),
-                call_id,
-                label,
-                status: ToolCallStatus::Cancelled,
-            };
-            self.record.emit(reaction, cancelled);
+        for call in abandoned {
+            if let Some(attention_id) = call.attention_id {
+                self.resolve_attention(attention_id, reaction);
+            }
+            self.emit_tool_status(call.call_id, ToolCallStatus::Cancelled, reaction);
         }
         self.settle_batch();
     }

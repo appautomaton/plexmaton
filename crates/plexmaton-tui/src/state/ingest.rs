@@ -5,7 +5,7 @@
 //! the collection that holds it. Keeping them apart is what stops "is this event well formed" and
 //! "where is the reader" from sharing one file and one set of reasons to change.
 
-use plexmaton_core::{AgentId, SessionEvent, SessionEventEnvelope, TranscriptItemId};
+use plexmaton_core::{AgentId, AttentionId, SessionEvent, SessionEventEnvelope, TranscriptItemId};
 use thiserror::Error;
 
 use super::{AgentView, AttentionView, NoticeView, ViewState};
@@ -22,6 +22,12 @@ pub enum ReduceError {
     DuplicateAgent(AgentId),
     #[error("unknown agent: {0}")]
     UnknownAgent(AgentId),
+    #[error("attention {attention_id} belongs to {expected}, not {received}")]
+    AttentionOwnerMismatch {
+        attention_id: AttentionId,
+        expected: AgentId,
+        received: AgentId,
+    },
     #[error("transcript item already exists: {0}")]
     DuplicateTranscriptItem(TranscriptItemId),
     #[error("unknown transcript item: {0}")]
@@ -157,8 +163,7 @@ impl ViewState {
             SessionEvent::AttentionRequested {
                 agent_id,
                 attention_id,
-                kind,
-                summary,
+                request,
             } => {
                 if !self.agents.contains(&agent_id) {
                     return Err(ReduceError::UnknownAgent(agent_id));
@@ -166,12 +171,32 @@ impl ViewState {
                 self.attention.request(AttentionView {
                     id: attention_id,
                     agent_id,
-                    kind,
-                    summary,
+                    request,
                     // A producer cannot deliver an already-seen request, and a repeat of one the
                     // user had seen is a fresh ask (ATT-3).
                     acknowledged: false,
                 })
+            }
+            SessionEvent::AttentionResolved {
+                agent_id,
+                attention_id,
+            } => {
+                if !self.agents.contains(&agent_id) {
+                    return Err(ReduceError::UnknownAgent(agent_id));
+                }
+                if let Some(item) = self.attention.get(&attention_id)
+                    && item.agent_id != agent_id
+                {
+                    return Err(ReduceError::AttentionOwnerMismatch {
+                        attention_id,
+                        expected: item.agent_id.clone(),
+                        received: agent_id,
+                    });
+                }
+                let return_focus = self.approval.resolved(&attention_id);
+                let removed = self.attention.resolve(&attention_id);
+                let restored = return_focus.is_some_and(|surface| self.focus.prefer(surface));
+                removed || restored
             }
             SessionEvent::MailDelivered {
                 mail_id,

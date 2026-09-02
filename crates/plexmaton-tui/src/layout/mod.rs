@@ -6,12 +6,13 @@
 
 mod column;
 mod inspector;
+mod registration;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 
 pub use inspector::{InspectorRequest, SteerSplit, steer_split};
 
-use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
+use crate::surface::SurfaceTree;
 
 /// Rows a bordered region needs before it can say anything: two borders and one line.
 ///
@@ -86,6 +87,8 @@ pub struct WorkspaceInput {
     pub has_notices: bool,
     /// How many background requests are queued. Zero registers no band at all.
     pub attention: usize,
+    /// Whether the user explicitly opened a pending approval.
+    pub approval: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
     /// The open inspector, if one is open.
@@ -99,6 +102,7 @@ impl Default for WorkspaceInput {
         Self {
             has_notices: false,
             attention: 0,
+            approval: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
@@ -119,9 +123,8 @@ impl Default for WorkspaceInput {
 /// takes rows from what has been read rather than from what is being read or typed.
 #[must_use]
 pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
-    let mut tree = SurfaceTree::default();
     if LayoutClass::for_size(area.width, area.height) == LayoutClass::TooSmall {
-        return tree;
+        return SurfaceTree::default();
     }
 
     // The status line is the last row, full width, and never negotiates; everything else bids for
@@ -180,56 +183,8 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         input.sub_agents,
         composer_height,
     );
-    let composer = regions.composer;
 
-    register(
-        &mut tree,
-        SurfaceId::Agents,
-        regions.agents,
-        SurfaceKind::Panel,
-    );
-    register(
-        &mut tree,
-        SurfaceId::Transcript,
-        regions.transcript,
-        SurfaceKind::Panel,
-    );
-    register_at(
-        &mut tree,
-        SurfaceId::Inspector,
-        regions.inspector,
-        SurfaceKind::Inspector,
-        u32::from(regions.inspector_floats),
-    );
-    register(
-        &mut tree,
-        SurfaceId::Activity,
-        regions.activity,
-        SurfaceKind::Panel,
-    );
-    register(
-        &mut tree,
-        SurfaceId::Composer,
-        Some(composer),
-        SurfaceKind::Composer,
-    );
-    // A panel, not chrome: its tail can outgrow the strip, and a region the wheel can move must
-    // also be reachable by keyboard -- every mouse interaction has a keyboard equivalent.
-    register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Panel);
-    register(
-        &mut tree,
-        SurfaceId::Attention,
-        attention,
-        SurfaceKind::Panel,
-    );
-    register(
-        &mut tree,
-        SurfaceId::Status,
-        Some(status),
-        SurfaceKind::Chrome,
-    );
-
-    tree
+    registration::surface_tree(area, input.approval, status, notices, attention, regions)
 }
 
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
@@ -267,7 +222,7 @@ fn attention_rows(queued: usize, available: u16) -> u16 {
 /// transition, and registering a conversation with no rows to draw would leave a focus stop and a
 /// pointer target showing nothing.
 pub(super) struct BodyRegions {
-    agents: Option<Rect>,
+    pub(super) agents: Option<Rect>,
     pub(super) transcript: Option<Rect>,
     pub(super) inspector: Option<Rect>,
     /// Whether the second window floats over the conversation rather than tiling beside it.
@@ -362,35 +317,6 @@ fn reserve(remaining: &mut u16, want: u16, floor: u16) -> u16 {
 
 fn band(column: Rect, top: u16, height: u16) -> Option<Rect> {
     (height > 0).then(|| Rect::new(column.x, top, column.width, height))
-}
-
-/// Registers a base-layer region. Workspace regions tile the terminal as siblings.
-fn register(tree: &mut SurfaceTree, id: SurfaceId, bounds: Option<Rect>, kind: SurfaceKind) {
-    register_at(tree, id, bounds, kind, 0);
-}
-
-/// Registers a region at a depth. The second window is the one surface above the base layer: as
-/// a shelf it floats over the conversation, and the pointer and the painter both resolve the
-/// topmost surface at a cell.
-fn register_at(
-    tree: &mut SurfaceTree,
-    id: SurfaceId,
-    bounds: Option<Rect>,
-    kind: SurfaceKind,
-    z_index: u32,
-) {
-    let Some(bounds) = bounds else {
-        return;
-    };
-    tree.insert(Surface {
-        id,
-        bounds,
-        z_index,
-        kind,
-        // Layout owns rectangles, not content. The renderer measures and fills this in.
-        viewport: None,
-    })
-    .expect("each workspace region is registered exactly once, under a distinct identity");
 }
 
 #[cfg(test)]
