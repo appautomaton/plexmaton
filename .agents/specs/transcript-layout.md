@@ -108,7 +108,7 @@ What those walks cost, and the length at which they would start to matter, is me
 | Panel too narrow to wrap into | An item measures zero rows rather than dividing by a zero width |
 | A conversation with no items | The panel falls back to a placeholder; there is nothing to virtualize |
 | A conversation nothing has measured | No window and no anchor, so the wheel leaves it alone rather than parking it at a guess |
-| An offset past the end of the content | An empty window. Drawing something arbitrary would hide the mis-clamp that produced it |
+| An offset past the end of the content | An empty window. Drawing something arbitrary would hide the clamping error that produced it |
 | Content taller than `u16::MAX` rows | Saturates. A viewport offset is a `u16` because that is what the terminal addresses |
 | An anchored item that no longer exists | Resolves to the tail |
 

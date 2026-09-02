@@ -27,7 +27,7 @@ known; everything else is pushed down until pushing further would hurt.
 | `phases/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
 | `plans/phase-NN-step-MM-*.md` | One step's slices | Every slice | Consumed. Deleted |
 | `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
-| `research/*.md` | A research gate: its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
+| `research/*.md` | A research gate: the invariants its result must satisfy, its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
 
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
@@ -37,6 +37,11 @@ owns the first.
 
 Three cells, each saying one thing: the roadmap's active phase, the phase file's status, the
 plan's status. Phase, step, slice.
+
+One phase is open at a time. Its file is created when its predecessor nears its gate, so evidence
+constrains the design; every other phase is a row in the roadmap's table until then. Phases carry
+two digits everywhere, `Phase 00`, so prose, the table and the file names are one greppable
+identifier.
 
 ## Specs
 
@@ -72,7 +77,8 @@ the plan. `scripts/check-citations.sh` enforces this.
 - A **phase** closes when its exit gate is assessed against the screen and the tests. The roadmap
   row takes the date and one sentence of what was delivered; the next phase's front matter takes
   what it inherits; every spec the phase produced reads Implemented or lists what is unproven;
-  contested choices have entries; the file is deleted.
+  each contested choice carries a `Rejected:` sentence beside the rule it explains; the file is
+  deleted.
 - A **mechanism** is removed by deleting its spec, tests and citations in one change.
 
 Growth goes into specs. A full harness has tens of mechanisms, each with a spec of a few kilobytes
@@ -100,7 +106,7 @@ long-format, and their ceiling only catches runaway growth.
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
 | `.agents/specs/*.md` | 12 KB | One spec defines one mechanism; split by mechanism |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the step it plans is too big |
-| `.agents/roadmap.md` | 16 KB | Promote detail into a phase file or a spec |
+| `.agents/roadmap.md` | 8 KB | Detail belongs in a phase file, a research track, or a spec |
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
 | `.agents/phases/*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |
 | `.agents/research/*.md` | 8 KB | A track this long has started building; give it a phase |

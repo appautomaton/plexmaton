@@ -5,7 +5,7 @@
 | Status | Active; opened 2026-09-02; step 1 next |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
-| Depends on | The mechanisms and the composition Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
+| Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
 | Unlocks | Phase 02 — session core, transports, tools, persistence |
 
 ## Outcome
@@ -63,10 +63,10 @@ the user.
 
 ## Not in this phase
 
-A second real agent, delegation, mail between sessions, the mailbox, pause and abort, and the
-a composed status-and-artifact surface beside a conversation: Phase 03. Persistence, context projection, MCP, a second provider,
-and a session reducer beyond what the loop needs: Phase 02. Math rendering: its track. Themes
-and animation: Phase 04.
+A second real agent, delegation, mail between sessions, the mailbox, pause and abort, and a composed
+status-and-artifact surface beside a conversation: Phase 03. Persistence, context projection, MCP, a
+second provider, and a session reducer beyond what the loop needs: Phase 02. Math rendering: its
+track. Themes and animation: Phase 04.
 
 ## Exit gate
 

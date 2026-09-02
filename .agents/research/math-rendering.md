@@ -16,10 +16,29 @@ capture, and viewports, while this track needs a layout engine, a raster cache, 
 transports. One exit gate for both would couple a bounded phase to an open-ended engine
 comparison.
 
-Separating them does not soften the product invariants, which live in the parent roadmap and
-remain locked: typeset math is the primary presentation, source is preserved behind it, and
-a terminal without an image protocol gets Unicode cell graphics derived from the same rendered
-result rather than raw LaTeX.
+## Invariants
+
+Locked. The comparison selects an engine and two transports that satisfy them, and a finding that
+changes one rewrites it here.
+
+- Recognized display math is rendered as KaTeX-quality typeset math whenever parsing succeeds.
+- The display transport follows terminal capability; the equation's semantic and layout pipeline
+  does not change because one graphics protocol is unavailable.
+- On terminals supporting Kitty, Sixel, or iTerm2 graphics, the typeset result is rendered at
+  pixel fidelity inside a cell-aligned region.
+- On terminals without an image protocol, the same rendered result is mapped into Unicode cell
+  graphics such as Braille, half-block, or sextant glyphs with appropriate scaling and contrast.
+  This is a lower-resolution transport, not a raw-source fallback.
+- The original equation source is preserved behind every rendered formula.
+- Clicking or selecting a formula reveals a stable source view without reflowing the surrounding
+  transcript; copy returns the exact original source; keyboard-only users have an equivalent
+  reveal and copy action.
+- Formula layout participates in normal viewport clipping and scrolling. A partially visible
+  formula retains its logical image origin rather than restarting at the visible slice.
+- Rendering is asynchronous and bounded, cached by source, display width, theme, scale, renderer
+  version, and terminal transport.
+- When parsing or rendering genuinely fails, an explicit readable error or source representation
+  is shown, never broken cell art.
 
 ## Entry condition
 
@@ -30,7 +49,9 @@ Met. The interaction spine provides:
 - Semantic copy that returns source rather than rendered cells.
 
 Without these, a math prototype cannot demonstrate clipping, partial scrolling, or source copy,
-which are the properties that actually decide the engine.
+which are the properties that actually decide the engine. The first thing the track designs is an
+item kind that can report a provisional height and revise it, which is the shape a pending render
+has.
 
 ## Comparison corpus
 
@@ -87,4 +108,4 @@ Screenshots alone do not select an engine.
 - Unsupported corpus entries listed explicitly rather than quietly dropped.
 - Cache key defined over source, display width, theme, scale, renderer version, and transport.
 - Source reveal and copy proven for both transports.
-- Findings that change a durable invariant promoted to the parent roadmap.
+- An invariant the comparison changed is rewritten above, not noted beside the result.
