@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; opened 2026-09-02; stage 1 done 2026-09-02; stage 2 next |
+| Status | Active; opened 2026-09-02; stage 1 done 2026-09-02; stage 2 open, planned in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
