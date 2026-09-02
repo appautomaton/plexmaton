@@ -235,6 +235,64 @@ mod tests {
         );
     }
 
+    /// Stage 2 slice 1 closes here: what the loop emits, the projection accepts.
+    ///
+    /// `plexmaton-agent` and `plexmaton-tui` both depend on `plexmaton-core` and neither knows the
+    /// other exists, so this binary is the only place that can prove the vocabulary they share
+    /// lines up. An empty notice log is the assertion: the projection refuses a gap, a repeat, an
+    /// unknown agent and an unknown item, so a stream it accepts in full is one it understood.
+    #[test]
+    fn a_turn_the_loop_drove_is_a_stream_the_projection_accepts() {
+        use plexmaton_agent::{Agent, Effect, Input, ModelEvent, StopReason};
+        use plexmaton_core::AgentId;
+
+        let mut agent =
+            Agent::new(AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")));
+        let mut workspace = Workspace::default();
+
+        workspace.emit(agent.announce("Agent A").events);
+        let opened = agent.handle(Input::Submitted {
+            text: "hello".to_owned(),
+        });
+        assert!(
+            matches!(opened.effects.as_slice(), [Effect::CallModel(_)]),
+            "the loop asks the model, and this crate is what would perform it"
+        );
+        workspace.emit(opened.events);
+        for delta in ["hi ", "there"] {
+            workspace.emit(
+                agent
+                    .handle(Input::Streamed(ModelEvent::TextDelta(delta.to_owned())))
+                    .events,
+            );
+        }
+        workspace.emit(
+            agent
+                .handle(Input::Streamed(ModelEvent::Stopped(StopReason::EndOfTurn)))
+                .events,
+        );
+
+        assert_eq!(
+            workspace.state().notices().count(),
+            0,
+            "the projection refused something the loop emitted"
+        );
+        let transcript: Vec<_> = workspace
+            .state()
+            .primary_agent()
+            .unwrap_or_else(|| panic!("the loop announced an agent"))
+            .transcript()
+            .map(|item| (item.role, item.source.clone()))
+            .collect();
+        assert_eq!(
+            transcript,
+            [
+                (TranscriptRole::User, "hello".to_owned()),
+                (TranscriptRole::Assistant, "hi there".to_owned()),
+            ]
+        );
+    }
+
     /// With no agent there is no cursor, so there is nothing to submit in the first place.
     ///
     /// This replaces a test that submitted into an empty roster and checked the text was not lost.

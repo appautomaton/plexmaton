@@ -25,6 +25,11 @@ plexmaton-tui = { path = "../plexmaton-tui" }
 ratatui.workspace = true
 tokio.workspace = true
 
+# The loop is reached only from the test that proves what it emits is what the projection accepts.
+# It becomes an ordinary dependency at the slice that makes the executable run it, and not before.
+[dev-dependencies]
+plexmaton-agent = { path = "../plexmaton-agent" }
+
 [lints]
 workspace = true
 

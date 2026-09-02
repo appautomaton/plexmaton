@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slice 0 of 7; open 2026-09-02 |
+| Status | Slice 1 of 7 landed 2026-09-02; slice 2 next |
 | Blocked | Slice 5 only, on the provider choice, which is the user's |
 
 ## Outcome
@@ -49,16 +49,17 @@ second adapter fabricating fields (`codex-api::ResponseEvent`).
 
 ## Slices
 
-1. **The turn machine.** `plexmaton-agent`: session, turn, step and tool-call states, and a
-   `step()` that takes a typed input and returns transitions, `SessionEvent`s, and effects to
-   perform. No tokio, no HTTP, no I/O. *Closes when* a turn driven entirely by scripted inputs
-   produces a stream the existing projection accepts with an empty notice log, and `cargo tree`
-   shows `plexmaton-agent` depending on `plexmaton-core` alone.
-2. **Cancellation and the debt.** Interrupt as a transition, not an error. Synthetic results for
-   calls that never ran. *Closes when* a turn interrupted mid-batch yields a conversation the next
-   request can be built from, asserted as: no dispatched call without a result (LOOP-2).
-3. **Input routing.** Next-turn and next-step queues, claimed at the boundary the loop opens;
-   `Ctrl-C` interrupts a running turn instead of only clearing the draft. *Closes when* text
+1. **The turn machine.** Landed. `plexmaton-agent`: the session record, the turn state, and a
+   `handle` that takes a typed input and returns events plus effects. One turn is one step, because
+   no tools exist yet to ask for a second. Closed by a stream the projection accepted with an empty
+   notice log, and by a gate that refuses a runtime, a client or a terminal anywhere in this
+   crate's dependency closure.
+2. **Steps, tool calls, and the debt.** A turn becomes several steps with a budget counted in them
+   (LOOP-1), a step gains a tool-call batch, and cancellation stays a transition. *Closes when* a
+   turn interrupted mid-batch yields a conversation the next request can be built from, asserted
+   as: no dispatched call without a result (LOOP-2).
+3. **Input routing.** The next-step queue and the boundary claim, slice 1 having landed the
+   next-turn half; `Ctrl-C` interrupts a running turn instead of only clearing the draft. *Closes when* text
    submitted while a step is in flight lands in the turn the user meant, and an undeliverable one
    keeps its text.
 4. **Approval.** A pure policy over declared effects, a pending record on the turn, the command

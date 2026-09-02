@@ -1,0 +1,15 @@
+[package]
+name = "plexmaton-agent"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The dependency list is the invariant. This crate decides what a turn does next; it never performs
+# the decision, so it has no runtime, no HTTP client, and no terminal. A dependency added here that
+# can do I/O is the defect, not the code that would call it.
+[dependencies]
+plexmaton-core = { path = "../plexmaton-core" }
+
+[lints]
+workspace = true

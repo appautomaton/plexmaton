@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/plexmaton-agent",
     "crates/plexmaton-cli",
     "crates/plexmaton-core",
     "crates/plexmaton-sim",

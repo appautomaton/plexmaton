@@ -25,6 +25,7 @@ any single edit:
 | `cargo machete` | Dependencies that are declared but unused |
 | `typos` | Prose and identifier spelling |
 | `./scripts/check-file-length.sh` | Module sprawl in `crates/**/*.rs` |
+| `./scripts/check-crate-graph.sh` | A dependency arrow the design forbids: a runtime, a client or a terminal reachable from the loop or the vocabulary, and a producer reachable from the projection |
 | `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |

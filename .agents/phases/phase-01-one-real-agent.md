@@ -83,4 +83,4 @@ Assessed against the screen and the tests, per the corpus README.
 | Streaming costs one wrap per delta at any history length, with a real producer | `FrameWork` asserted (FR-2) |
 | The projection refused nothing under real traffic | The notice log is empty after a session; a test injects a gap and sees the refusal |
 | No user-facing string says `inspector`, `shelf` or `column` | A test over the rendered strings |
-| Nothing in the TUI calls the adapter or a tool | The crate graph: `plexmaton-tui` depends on `plexmaton-core` only |
+| Nothing in the TUI calls the adapter or a tool | `./scripts/check-crate-graph.sh`, which also refuses a runtime or a client in the loop's closure |
