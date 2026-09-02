@@ -5,6 +5,10 @@
 //! its own side of the boundary. A shared event type carrying one dialect's concerns leaves every
 //! other adapter fabricating fields it does not have.
 
+use plexmaton_core::ToolCallId;
+
+use crate::tools::{ToolCall, ToolOutcome};
+
 /// What the loop needs the model to be asked.
 ///
 /// The whole conversation, assembled by the session that owns it. Assembling per step rather than
@@ -16,7 +20,12 @@ pub struct ModelRequest {
     pub items: Vec<RequestItem>,
 }
 
-/// One turn of the conversation as the model is shown it.
+/// One entry of the conversation as the model is shown it.
+///
+/// A step where the model both spoke and asked for tools leaves an [`Self::Assistant`] entry
+/// followed by its [`Self::ToolCall`] entries. Whether a dialect sends those as one message with
+/// several blocks or as separate turns is the adapter's business, and exactly the kind of thing
+/// that must not reach this far in.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestItem {
     /// Something the person said.
@@ -29,6 +38,15 @@ pub enum RequestItem {
         /// The finished text of one assistant message.
         text: String,
     },
+    /// Something the model asked to have run.
+    ToolCall(ToolCall),
+    /// The answer to one such call. Every recorded call has exactly one of these after it.
+    ToolResult {
+        /// The call being answered.
+        call_id: ToolCallId,
+        /// How it ended.
+        outcome: ToolOutcome,
+    },
 }
 
 /// One semantic thing a model produced, in the order it produced it.
@@ -36,6 +54,11 @@ pub enum RequestItem {
 pub enum ModelEvent {
     /// Text appended to the message being streamed.
     TextDelta(String),
+    /// The model finished asking for one tool call.
+    ///
+    /// Arrives whole. Accumulating argument fragments across wire deltas and deciding when a call
+    /// is complete belongs to the adapter, because how a dialect fragments them is the dialect's.
+    Called(ToolCall),
     /// The model finished this step, and why.
     Stopped(StopReason),
 }

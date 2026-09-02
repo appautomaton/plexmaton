@@ -14,25 +14,45 @@ cd "$(dirname "$0")/.."
 
 fail=0
 
+# Reads one crate's normal dependency closure, or fails the run saying why.
+#
+# Cargo's own errors are surfaced rather than discarded: a row naming a crate that does not exist —
+# a typo, a rename, a crate that moved — would otherwise read as an empty closure, and an empty
+# closure contains no forbidden dependency. A gate that passes when it cannot see is worse than no
+# gate, because it is believed.
+closure_of() {
+    local crate="$1" output
+    if ! output=$(cargo tree -p "$crate" --edges normal --prefix none 2>&1); then
+        printf 'cannot read the dependency closure of %s:\n%s\n' "$crate" "$output" >&2
+        fail=1
+        return 1
+    fi
+    printf '%s\n' "$output"
+}
+
 # Usage: forbid <crate> <description> <extended-regex matched against the closure>
 forbid() {
-    local crate="$1" why="$2" pattern="$3" hit
-    hit=$(cargo tree -p "$crate" --edges normal --prefix none 2>/dev/null |
-        awk '{print $1}' | sort -u | grep -E "^(${pattern})$" || true)
+    local crate="$1" why="$2" pattern="$3" closure hit
+    closure=$(closure_of "$crate") || return
+    hit=$(printf '%s\n' "$closure" | awk '{print $1}' | sort -u | grep -E "^(${pattern})$" || true)
     if [[ -n "$hit" ]]; then
         printf '%s must not reach %s: %s\n' "$crate" "$why" "$(echo "$hit" | tr '\n' ' ')" >&2
         fail=1
     fi
 }
 
-# Usage: only <crate> <space separated workspace crates it may depend on directly>
+# Usage: only <crate> <the workspace crates it may reach, space separated and sorted>
+#
+# The whole closure rather than the direct dependencies, so a workspace crate reached through
+# another one is caught too.
 only() {
-    local crate="$1" allowed="$2" direct
-    direct=$(cargo tree -p "$crate" --edges normal --depth 1 --prefix none 2>/dev/null |
-        awk 'NR > 1 {print $1}' | grep '^plexmaton-' | sort -u | tr '\n' ' ')
-    direct="${direct% }"
-    if [[ "$direct" != "$allowed" ]]; then
-        printf '%s depends on [%s], expected [%s]\n' "$crate" "$direct" "$allowed" >&2
+    local crate="$1" allowed="$2" closure reached
+    closure=$(closure_of "$crate") || return
+    reached=$(printf '%s\n' "$closure" | awk 'NR > 1 {print $1}' |
+        grep '^plexmaton-' | sort -u | tr '\n' ' ')
+    reached="${reached% }"
+    if [[ "$reached" != "$allowed" ]]; then
+        printf '%s reaches [%s], expected [%s]\n' "$crate" "$reached" "$allowed" >&2
         fail=1
     fi
 }

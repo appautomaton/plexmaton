@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slice 1 of 7 landed 2026-09-02; slice 2 next |
+| Status | Slices 1 and 2 of 7 landed 2026-09-02; slice 3 next |
 | Blocked | Slice 5 only, on the provider choice, which is the user's |
 
 ## Outcome
@@ -54,10 +54,11 @@ second adapter fabricating fields (`codex-api::ResponseEvent`).
    no tools exist yet to ask for a second. Closed by a stream the projection accepted with an empty
    notice log, and by a gate that refuses a runtime, a client or a terminal anywhere in this
    crate's dependency closure.
-2. **Steps, tool calls, and the debt.** A turn becomes several steps with a budget counted in them
-   (LOOP-1), a step gains a tool-call batch, and cancellation stays a transition. *Closes when* a
-   turn interrupted mid-batch yields a conversation the next request can be built from, asserted
-   as: no dispatched call without a result (LOOP-2).
+2. **Steps, tool calls, and the debt.** Landed. A turn is several steps under a budget counted in
+   them (LOOP-1), a step dispatches its calls as one batch and is answered in model order
+   (LOOP-3), and an interrupt or a failure pays what the batch owes before going idle. Closed by
+   the debt asserted at every point an interrupt can land, shown to fail when the payment is
+   removed.
 3. **Input routing.** The next-step queue and the boundary claim, slice 1 having landed the
    next-turn half; `Ctrl-C` interrupts a running turn instead of only clearing the draft. *Closes when* text
    submitted while a step is in flight lands in the turn the user meant, and an undeliverable one
