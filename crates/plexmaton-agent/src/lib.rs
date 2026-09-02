@@ -16,7 +16,7 @@ mod step;
 mod tools;
 mod turn;
 
-pub use interface::{Effect, Input, Reaction};
+pub use interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
 pub use model::{ModelError, ModelEvent, ModelRequest, RequestItem, StopReason};
 pub use tools::{ToolCall, ToolOutcome};
 pub use turn::{Agent, TurnBudget};

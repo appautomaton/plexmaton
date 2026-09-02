@@ -36,9 +36,9 @@ drop a selection, then dismiss the topmost dismissible layer, then nothing. `Esc
 
 **INV-7 — Quit is a chord pressed twice, and `Ctrl-C` never quits.** `Ctrl-D` asks on the first
 press, in the status line, and leaves on the second in a row; any other key withdraws the question.
-`Ctrl-C` is the interrupt: it clears the draft under the cursor, and with nothing to clear it points
-at the chord. No bare key quits from any focus; a printable `q` is text under a cursor and unbound
-elsewhere. Rejected: `Escape` as quit, which the reflex that closes an overlay would trigger one
+`Ctrl-C` clears the draft, emits an interrupt to that conversation, or points at the chord.
+No bare key quits; a printable `q` is text under a cursor and unbound elsewhere.
+Rejected: `Escape` as quit, which the reflex that closes an overlay would trigger one
 press later; a bare `q`, which ended the session the first time a message was typed one `Tab` too
 early; and `Ctrl-C` as a one-press exit, which ended sessions a shell habit meant to interrupt.
 
@@ -76,7 +76,7 @@ Idle ─────────────────────────
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
 | `Ctrl-D` | Quit chord: ask, then leave on the second press | The same |
-| `Ctrl-C` | Interrupt: clear the draft, else point at the quit chord | The same |
+| `Ctrl-C` | Interrupt; clear the draft or show the quit chord | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
@@ -126,7 +126,7 @@ ignored, so a terminal reporting press and release does not act twice.
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
-| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord` |
+| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord`, `ctrl_c_names_the_conversation_it_interrupts` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection` |

@@ -12,11 +12,11 @@ use plexmaton_core::{
 
 use crate::{Scenario, ScenarioStep};
 
-/// One thing the user asked the runtime to do.
+/// One thing the user asked the synthetic runtime to do.
 ///
-/// A submitted message is a command, never a write. The projection shows it only once the runtime
-/// emits it back, which is the boundary a real runtime will occupy — and the reason the transcript
-/// has exactly one writer.
+/// User input is a command, never a projection write. The projection changes only through what the
+/// runtime emits back, which is the boundary a real runtime will occupy — and the reason the
+/// transcript has exactly one writer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeCommand {
     /// Deliver a user message to an agent's session.
@@ -25,6 +25,12 @@ pub enum RuntimeCommand {
         to: AgentId,
         /// Exact text the user submitted.
         text: String,
+    },
+    /// Ask a running turn to stop. The scripted producer has no turn machine, so it reports this
+    /// limitation visibly rather than silently pretending the command succeeded.
+    Interrupt {
+        /// Agent whose real turn would be stopped.
+        to: AgentId,
     },
 }
 
@@ -66,8 +72,8 @@ impl ScriptedRuntime {
 
     /// Emits the events one user command produces.
     ///
-    /// A message becomes a complete transcript item rather than an open one: the user's text is not
-    /// streamed, so leaving the item unfinalized would model a producer that never finishes.
+    /// A message becomes a complete transcript item because user text is not streamed. An
+    /// interrupt becomes a visible warning because this producer has no turn machine to stop.
     pub fn submit(
         &mut self,
         command: RuntimeCommand,
@@ -94,6 +100,13 @@ impl ScriptedRuntime {
                         item_revision: 2,
                     }),
                 ])
+            }
+            RuntimeCommand::Interrupt { to } => {
+                Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                    message: format!(
+                        "the synthetic runtime cannot interrupt {to}; no real turn is running"
+                    ),
+                })])
             }
         }
     }
@@ -194,6 +207,27 @@ mod tests {
             id(&second),
             "a repeated identity would make the projection reject the second message"
         );
+    }
+
+    #[test]
+    fn an_interrupt_the_simulator_cannot_perform_is_visible() {
+        let mut runtime = runtime();
+
+        let events = runtime
+            .submit(RuntimeCommand::Interrupt {
+                to: agent("agent-a"),
+            })
+            .unwrap_or_else(|error| panic!("valid command: {error}"));
+
+        assert!(matches!(
+            events.as_slice(),
+            [event]
+                if matches!(
+                    &event.event,
+                    SessionEvent::RuntimeWarning { message }
+                        if message.contains("agent-a") && message.contains("cannot interrupt")
+                )
+        ));
     }
 
     #[test]

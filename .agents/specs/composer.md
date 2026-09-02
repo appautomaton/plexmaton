@@ -24,16 +24,21 @@ only whitespace submits nothing and is left alone. Rejected: `ratatui-textarea`,
 terminal events when only the router may (INV-1); and the projection appending its own transcript,
 which puts two writers on one numbered stream.
 
-**COM-4 — The target is on screen.** The composer's title names the agent it addresses, and that
-agent does not change when the selection does (ui-ux §input).
+**COM-4 — The route is on screen.** The primary composer names its agent and submits a message for
+the next turn; an entered worker window names that worker and submits steering for its next step.
+Selection alone changes neither route (ui-ux §input).
 
 ## Model
 
 ```text
-TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ RuntimeCommand::SendMessage
-                     │                (a submission)              │
-                     └─ draft, in graphemes                       ▼
-                                                     SessionEvent stream ──▶ the transcript
+TextIntent ──▶ ViewState::edit ──▶ Option<Submission>
+                     │                  ├─ Message  ──▶ Input::Submitted
+                     │                  └─ Steering ──▶ Input::Steered
+                     └─ draft, in graphemes                │
+                                                          ▼
+                                            SessionEvent stream ──▶ transcript
+
+Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
 ```
 
 | Fact | Value |
@@ -48,7 +53,7 @@ TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ Runtime
 | Situation | Response |
 | --- | --- |
 | Blank or whitespace-only draft submitted | Nothing is sent and the draft is kept |
-| `Ctrl-C` on a draft | The draft is discarded; nothing is sent and nothing quits (INV-7) |
+| `Ctrl-C` on a draft | The draft is discarded, its conversation is named for interruption, and nothing quits (INV-7) |
 | `Backspace` on an empty draft | No change is reported, so it costs no repaint |
 | Submitting before any agent exists | The text stays in the draft; there is no session to deliver into |
 | A text intent arriving under navigation focus | Cannot happen and is not re-checked: the router reads focus from the same state (INV-2) |
@@ -61,4 +66,4 @@ TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ Runtime
 | COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing` |
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item` |
-| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected` |
+| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_and_interrupt` |

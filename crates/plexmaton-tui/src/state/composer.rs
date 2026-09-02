@@ -3,8 +3,11 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use super::{Submission, ViewState};
-use crate::{intent::TextIntent, surface::SurfaceTree};
+use super::{Submission, SubmissionKind, ViewState};
+use crate::{
+    intent::TextIntent,
+    surface::{SurfaceId, SurfaceTree},
+};
 
 /// Rows of draft the composer will show before it starts showing only the tail.
 ///
@@ -170,6 +173,11 @@ impl ViewState {
     /// intent while a text input holds the cursor, and it reads that from this same state, so the
     /// two cannot disagree about which of the two inputs is being typed into (INV-2).
     pub fn edit(&mut self, surfaces: &SurfaceTree, intent: TextIntent) -> Option<Submission> {
+        let kind = match self.focus.resolve(surfaces)? {
+            SurfaceId::Composer => SubmissionKind::Message,
+            SurfaceId::Inspector => SubmissionKind::Steering,
+            _ => return None,
+        };
         let to = self.text_target(surfaces)?;
         let composer = self.composers.entry(to.clone()).or_default();
         let changed = match intent {
@@ -187,7 +195,7 @@ impl ViewState {
                 if submitted.is_some() {
                     self.touch();
                 }
-                return submitted.map(|text| Submission { to, text });
+                return submitted.map(|text| Submission { to, text, kind });
             }
         };
         if changed {

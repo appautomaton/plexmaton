@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; opened 2026-09-02; stage 1 done 2026-09-02; stage 2 open, planned in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
+| Status | Active; stage 1 done; stage 2 slices 1–3 done 2026-09-02, slice 4 open in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -32,9 +32,9 @@ the projection refuses a gap or a repeat.
 | `MailDelivered`, `ArtifactAnnounced` | Provisional: a bounded summary and a pointer, no body |
 | `RuntimeWarning` | Durable; the degradation path |
 
-Known limits carried in: `plexmaton-sim` is a scripted timeline with a one-verb command
-vocabulary and is not a design for a runtime's command surface; the Attention queue has no
-eviction; nothing removes a transcript item, so cache pruning has never run.
+Known limits carried in: `plexmaton-sim` is a scripted timeline that echoes user text and visibly
+declines interrupts because it owns no turn; it is not a runtime command design. The Attention
+queue has no eviction; nothing removes a transcript item, so cache pruning has never run.
 
 ## Scope
 

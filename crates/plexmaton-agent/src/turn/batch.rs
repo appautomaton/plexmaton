@@ -7,7 +7,7 @@
 use plexmaton_core::{AgentStatus, SessionEvent, ToolCallId, ToolCallStatus};
 
 use super::{Agent, Turn};
-use crate::interface::{Effect, Reaction};
+use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::model::RequestItem;
 use crate::tools::{Batch, ToolCall, ToolOutcome};
 
@@ -93,9 +93,14 @@ impl Agent {
                 reaction,
                 "the turn reached its step budget with the model still asking for tools",
             );
+            reaction.undelivered.extend(self.input.reject(
+                super::input::DeliveryBoundary::NextStep,
+                UndeliveredReason::StepBudgetReached,
+            ));
             self.finish_turn(reaction);
             return;
         }
+        self.claim_next_step_input(reaction);
         self.open_step(step.saturating_add(1), reaction);
     }
 

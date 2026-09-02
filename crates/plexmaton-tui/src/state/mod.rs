@@ -88,6 +88,17 @@ pub struct Submission {
     pub to: AgentId,
     /// Exactly what the user typed.
     pub text: String,
+    /// Which loop boundary the visible input names.
+    pub kind: SubmissionKind,
+}
+
+/// Whether submitted text starts a later turn or steers the current one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SubmissionKind {
+    /// Text from the primary composer, for the agent's next turn.
+    Message,
+    /// Text from a worker's entered window, for that turn's next step.
+    Steering,
 }
 
 /// Borrowed when an agent has never been typed to, so a caller never has to handle absence.

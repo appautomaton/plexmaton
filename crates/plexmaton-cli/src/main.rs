@@ -1,13 +1,15 @@
 use std::{io, path::Path, time::Duration};
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, EventStream},
     execute,
 };
 use futures_util::StreamExt;
+use plexmaton_agent::Input;
+use plexmaton_core::AgentId;
 use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
-use plexmaton_tui::{Flow, Submission, Workspace};
+use plexmaton_tui::{Flow, Submission, SubmissionKind, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
@@ -102,7 +104,18 @@ async fn run(
                     Some(Ok(event)) => {
                         let outcome = workspace.handle(&event);
                         if let Some(submission) = outcome.submitted {
-                            send(&mut runtime, &mut workspace, submission)?;
+                            dispatch(
+                                &mut runtime,
+                                &mut workspace,
+                                route_submission(submission),
+                            )?;
+                        }
+                        if let Some(agent_id) = outcome.interrupted {
+                            dispatch(
+                                &mut runtime,
+                                &mut workspace,
+                                route_interrupt(agent_id),
+                            )?;
                         }
                         if let Some(request) = outcome.copied {
                             clipboard.copy(&request.text).context("copy to the clipboard")?;
@@ -121,24 +134,65 @@ async fn run(
     Ok(())
 }
 
-/// Hands a submitted draft to the runtime and applies whatever it emits in response.
+/// One user input after the TUI has settled both its addressee and delivery boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AddressedInput {
+    to: AgentId,
+    input: Input,
+}
+
+/// Preserves the route named by the visible input as the loop's own vocabulary (COM-4, LOOP-6).
+fn route_submission(submission: Submission) -> AddressedInput {
+    let input = match submission.kind {
+        SubmissionKind::Message => Input::Submitted {
+            text: submission.text,
+        },
+        SubmissionKind::Steering => Input::Steered {
+            text: submission.text,
+        },
+    };
+    AddressedInput {
+        to: submission.to,
+        input,
+    }
+}
+
+/// Turns the focused conversation identity into the loop's interrupt input (INV-7).
+fn route_interrupt(to: AgentId) -> AddressedInput {
+    AddressedInput {
+        to,
+        input: Input::Interrupted,
+    }
+}
+
+/// Gives addressed user input to today's synthetic adapter and applies what it emits.
 ///
 /// The projection is never written directly here. A message reaches the screen as the runtime's
 /// own events or not at all, which is what keeps the transcript to one writer (COM-3).
 ///
-/// The target rides along with the text. With two inputs on screen, a composition root that picked
-/// the recipient itself would be a second answer to a question focus has already settled.
-fn send(
+/// The adapter deliberately matches every user-facing [`Input`] variant. The simulator has no turn
+/// machine, so it renders steering as user-authored text and reports an interrupt as unsupported;
+/// slice 7 replaces only this adapter, not the mapping above.
+fn dispatch(
     runtime: &mut ScriptedRuntime,
     workspace: &mut Workspace,
-    submission: Submission,
+    addressed: AddressedInput,
 ) -> anyhow::Result<()> {
-    let emitted = runtime
-        .submit(RuntimeCommand::SendMessage {
-            to: submission.to,
-            text: submission.text,
-        })
-        .context("submit the composed message")?;
+    let command = match addressed.input {
+        Input::Submitted { text } => RuntimeCommand::SendMessage {
+            to: addressed.to,
+            text,
+        },
+        Input::Steered { text } => RuntimeCommand::SendMessage {
+            to: addressed.to,
+            text,
+        },
+        Input::Interrupted => RuntimeCommand::Interrupt { to: addressed.to },
+        Input::Streamed(_) | Input::Failed(_) | Input::ToolFinished { .. } => {
+            bail!("the TUI produced an input reserved for the producer")
+        }
+    };
+    let emitted = runtime.submit(command).context("dispatch user input")?;
     workspace.emit(emitted);
     Ok(())
 }
@@ -147,14 +201,14 @@ fn send(
 mod tests {
     use plexmaton_core::TranscriptRole;
     use plexmaton_sim::{Scenario, ScriptedRuntime};
-    use plexmaton_tui::{SurfaceId, Workspace};
+    use plexmaton_tui::{Submission, SubmissionKind, SurfaceId, Workspace};
     use ratatui::{
         Terminal,
         backend::TestBackend,
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use super::send;
+    use super::{dispatch, route_interrupt, route_submission};
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
@@ -216,7 +270,7 @@ mod tests {
             "nothing may appear in the transcript until the runtime emits it"
         );
 
-        send(&mut runtime, &mut workspace, submission)
+        dispatch(&mut runtime, &mut workspace, route_submission(submission))
             .unwrap_or_else(|error| panic!("the runtime accepts the message: {error}"));
 
         let user_items: Vec<_> = workspace
@@ -290,6 +344,104 @@ mod tests {
                 (TranscriptRole::User, "hello".to_owned()),
                 (TranscriptRole::Assistant, "hi there".to_owned()),
             ]
+        );
+    }
+
+    /// LOOP-6 and INV-7 at the composition boundary: the visible input chooses the agent input,
+    /// and the addressed interrupt reaches that same running turn rather than ending in TUI state.
+    #[test]
+    fn production_mapping_preserves_message_steering_and_interrupt() {
+        use plexmaton_agent::{Agent, Input};
+        use plexmaton_core::AgentId;
+
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let mut agent = Agent::new(agent_id.clone());
+        let mut terminal = Terminal::new(TestBackend::new(120, 24))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        let mut workspace = Workspace::default();
+        workspace.emit(agent.announce("Agent A").events);
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+
+        for _ in 0..workspace.surfaces().len() {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Composer) {
+                break;
+            }
+            workspace.handle(&press(KeyCode::Tab));
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+        }
+        for character in "hello".chars() {
+            workspace.handle(&press(KeyCode::Char(character)));
+        }
+        let submission = workspace
+            .handle(&press(KeyCode::Enter))
+            .submitted
+            .unwrap_or_else(|| panic!("the composer must submit"));
+        let addressed = route_submission(submission);
+        assert_eq!(addressed.to, agent_id);
+        let opened = agent.handle(addressed.input);
+        workspace.emit(opened.events);
+        assert!(agent.is_running());
+
+        let steering = route_submission(Submission {
+            to: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            text: "check the cache".to_owned(),
+            kind: SubmissionKind::Steering,
+        });
+        assert!(matches!(
+            steering.input,
+            Input::Steered { ref text } if text == "check the cache"
+        ));
+
+        for character in "discard me".chars() {
+            workspace.handle(&press(KeyCode::Char(character)));
+        }
+        assert_eq!(workspace.state().composer().draft(), "discard me");
+
+        let interrupted = workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(workspace.state().composer().draft(), "");
+        let target = interrupted
+            .interrupted
+            .unwrap_or_else(|| panic!("Ctrl-C must name its conversation"));
+        let addressed = route_interrupt(target);
+        assert_eq!(addressed.to, agent_id);
+        agent.handle(addressed.input);
+
+        assert!(
+            !agent.is_running(),
+            "the TUI command stopped at the boundary"
+        );
+    }
+
+    #[test]
+    fn the_synthetic_adapter_reports_an_interrupt_it_cannot_perform() {
+        use plexmaton_core::AgentId;
+
+        let mut runtime = ScriptedRuntime::new(
+            Scenario::canonical().unwrap_or_else(|error| panic!("fixture: {error}")),
+        );
+        let mut workspace = Workspace::default();
+        workspace.emit(runtime.ready(u64::MAX));
+        let before = workspace.state().notices().count();
+
+        dispatch(
+            &mut runtime,
+            &mut workspace,
+            route_interrupt(
+                AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("the adapter must report its limitation: {error}"));
+
+        assert_eq!(
+            workspace.state().notices().count(),
+            before.saturating_add(1)
         );
     }
 

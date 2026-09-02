@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1 and 2 of 7 landed 2026-09-02; slice 3 next |
+| Status | Slices 1–3 of 7 landed 2026-09-02; slice 4 next |
 | Blocked | Slice 5 only, on the provider choice, which is the user's |
 
 ## Outcome
@@ -14,38 +14,10 @@ boundary that did not move. The projection cannot tell that the producer changed
 timeline to a model: it still receives `SessionEvent` on one monotonic sequence, still refuses a
 gap, and the checked-in frames still match.
 
-## The loop's contract, until code cites it
+## The loop's contract
 
-Kept inline here, and promoted to `specs/agent-loop.md` the moment an identifier below appears in
-code — a citation must outlive the plan.
-
-**LOOP-1 — A turn is one or more steps, and the budget is counted in steps.** A step is one
-request to the model and the tool calls it returns; the turn ends when a step's stop reason is not
-a tool call. Exhausting the budget is a typed failure with a visible warning, never a silent stop.
-
-**LOOP-2 — Every dispatched tool call owes a result.** A call the model made and the loop
-dispatched is answered, including when the turn is cancelled: a call interrupted before it ran is
-answered as aborted rather than dropped. A tool call with no result makes the *next* request
-malformed, so the defect surfaces a turn later than the mistake.
-
-**LOOP-3 — Results are model-ordered.** Calls whose declared effects do not conflict may overlap,
-bounded; the batch is assembled in the order the model emitted it, whatever order it finished in.
-Which calls may overlap is decided by a pure function over declared effects.
-
-**LOOP-4 — The turn is one value.** Interrupt at any point and the state says where it stopped and
-what it owes. Nothing that a frame must show or a future session must resume lives in a stack
-frame, a callback, or an adapter's privates — provider replay metadata included.
-
-**LOOP-5 — Approval is state, not a suspended call.** A call whose effect is not read-only parks
-the turn in a pending record the Attention queue projects; the agent reads waiting and the
-composer stays live. The decision arrives as a command and its resolution leaves as an event.
-
-Rejected, from the four implementations read on 2026-09-02: a turn as one `async fn`, whose state
-is its stack frame and whose only test is a mocked socket (`codex-rs` `run_turn`); an approval as
-`Arc<dyn Fn(..) -> BoxFuture<Decision>>`, which cannot be counted, rendered, or resumed
-(`pi_agent_rust`); cancellation as an error variant, which makes every call site decide separately
-what an abort meant; and one dialect's wire vocabulary as the shared event type, which leaves the
-second adapter fabricating fields (`codex-api::ResponseEvent`).
+[`agent-loop.md`](../specs/agent-loop.md) owns LOOP-1 through LOOP-6 now that their identifiers are
+cited by the implementation and tests. This plan owns only the order in which the mechanism lands.
 
 ## Slices
 
@@ -59,10 +31,11 @@ second adapter fabricating fields (`codex-api::ResponseEvent`).
    (LOOP-3), and an interrupt or a failure pays what the batch owes before going idle. Closed by
    the debt asserted at every point an interrupt can land, shown to fail when the payment is
    removed.
-3. **Input routing.** The next-step queue and the boundary claim, slice 1 having landed the
-   next-turn half; `Ctrl-C` interrupts a running turn instead of only clearing the draft. *Closes when* text
-   submitted while a step is in flight lands in the turn the user meant, and an undeliverable one
-   keeps its text.
+3. **Input routing.** Landed. Submitted messages queue for the next turn, steering queues for the
+   current turn's next step, and each bounded route is claimed only while its boundary opens
+   (LOOP-6). An input with no boundary returns with its exact text and a typed reason. The
+   composition root maps visible routes and `Ctrl-C` to `Input`; its synthetic adapter reports that
+   it cannot perform an interrupt, and slice 7 replaces that adapter with the live loop owner.
 4. **Approval.** A pure policy over declared effects, a pending record on the turn, the command
    that answers it and the event that empties the queue. *Closes when* the badge and the queue
    count come from state alone, and answering resumes that exact call (LOOP-5).

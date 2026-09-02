@@ -6,7 +6,7 @@
 //! the user gets. The contract is
 //! [`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md).
 
-use plexmaton_core::SessionEventEnvelope;
+use plexmaton_core::{AgentId, SessionEventEnvelope};
 use ratatui::{
     Terminal,
     backend::Backend,
@@ -42,6 +42,9 @@ pub struct Outcome {
     /// What the user submitted, and who to. Only the runtime may turn it into transcript events,
     /// so it leaves the workspace as a value rather than being written anywhere (COM-3).
     pub submitted: Option<Submission>,
+    /// Which agent the user asked to interrupt. The target is resolved from the focused
+    /// conversation before the command crosses the composition boundary (INV-7).
+    pub interrupted: Option<AgentId>,
     /// What the user asked to copy. Leaves as a value for the same reason: the clipboard is the
     /// host's, and nothing in this crate may reach for it (SEL-4).
     pub copied: Option<CopyRequest>,
@@ -52,6 +55,7 @@ impl Outcome {
         Self {
             flow: Flow::Quit,
             submitted: None,
+            interrupted: None,
             copied: None,
         }
     }
@@ -219,7 +223,12 @@ impl Workspace {
                 QuitPress::Confirmed => return Outcome::quit(),
                 QuitPress::Asked => {}
             },
-            TuiIntent::Interrupt => self.state.interrupt(&self.surfaces),
+            TuiIntent::Interrupt => {
+                return Outcome {
+                    interrupted: self.state.interrupt(&self.surfaces),
+                    ..Outcome::default()
+                };
+            }
             TuiIntent::Text(edit) => {
                 return Outcome {
                     submitted: self.state.edit(&self.surfaces, edit),
@@ -320,6 +329,7 @@ mod tests {
 
     use super::{Flow, Outcome, Workspace};
     use crate::{
+        SubmissionKind,
         surface::SurfaceId,
         test_support::{Conversation, canonical_runtime},
         theme::{Palette, Role},
@@ -480,7 +490,7 @@ mod tests {
         );
     }
 
-    /// INV-7: `Ctrl-C` takes the draft and nothing else; with no draft it points at the chord.
+    /// INV-7: `Ctrl-C` clears the draft, names the addressed turn to interrupt, and never quits.
     #[test]
     fn ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord() {
         let (mut workspace, mut terminal) = drawn(120, 24);
@@ -498,7 +508,11 @@ mod tests {
         assert_eq!(workspace.state.composer().draft(), "hi");
 
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
-        assert_eq!(outcome, Outcome::default(), "clearing is not quitting");
+        assert_eq!(outcome.flow, Flow::Continue, "clearing is not quitting");
+        assert_eq!(
+            outcome.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-a")
+        );
         assert_eq!(workspace.state.composer().draft(), "");
         workspace
             .draw(&mut terminal)
@@ -509,7 +523,10 @@ mod tests {
         );
 
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
-        assert_eq!(outcome, Outcome::default());
+        assert_eq!(
+            outcome.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-a")
+        );
         workspace
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
@@ -521,6 +538,30 @@ mod tests {
             outcome.flow,
             Flow::Continue,
             "however many times: never a quit"
+        );
+    }
+
+    /// INV-7: the command is addressed by the conversation holding focus, not by selection alone.
+    #[test]
+    fn ctrl_c_names_the_conversation_it_interrupts() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        let looking = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            looking.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-a"),
+            "looking at a worker does not retarget commands before the user enters its window"
+        );
+
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        frame(&mut workspace, &mut terminal);
+        let entered = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            entered.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-b"),
+            "the entered conversation owns the interrupt"
         );
     }
 
@@ -1885,6 +1926,11 @@ mod tests {
 
         let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(
+            outcome.submitted.as_ref().map(|submission| submission.kind),
+            Some(SubmissionKind::Message),
+            "the primary composer names the next-turn route"
+        );
+        assert_eq!(
             outcome
                 .submitted
                 .map(|submission| submission.text)
@@ -1903,5 +1949,33 @@ mod tests {
                 .is_some(),
             "typing changed the screen, so the next frame paints"
         );
+    }
+
+    /// COM-4: the visible input names both the recipient and the boundary the loop must claim.
+    #[test]
+    fn the_inspectors_input_submits_steering_for_that_agents_next_step() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        for character in "check the cache".chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+
+        let submission = workspace
+            .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+            .submitted
+            .unwrap_or_else(|| panic!("the entered worker input must submit"));
+
+        assert_eq!(submission.to.as_str(), "agent-b");
+        assert_eq!(submission.kind, SubmissionKind::Steering);
+        assert_eq!(submission.text, "check the cache");
     }
 }

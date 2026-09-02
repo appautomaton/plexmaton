@@ -25,8 +25,10 @@ cargo test --workspace
 ```
 
 Press `Ctrl-D` twice to leave the synthetic TUI; the first press says so in the status line, and
-any other key withdraws it. `Ctrl-C` clears the draft and never quits. `Esc` backs out one layer at
-a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
+any other key withdraws it. `Ctrl-C` clears the draft, addresses the focused conversation's
+interrupt, and never quits; the synthetic producer reports that it has no real turn to stop. `Esc`
+backs out one layer at a time — a selection, then an open second window — and does not quit
+(INV-6, INV-7).
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 
@@ -49,4 +51,3 @@ Enable the shared pre-commit hook once per clone:
 ```console
 git config core.hooksPath .githooks
 ```
-

@@ -88,20 +88,28 @@ impl ViewState {
         QuitPress::Asked
     }
 
-    /// `Ctrl-C`: clears the draft under the cursor, and with nothing to clear says how to leave.
+    /// `Ctrl-C`: clears the draft under the cursor, names its conversation for interruption, and
+    /// with nothing to clear says how to leave.
     ///
-    /// The shell habit, kept safe: a draft is the one thing the key may take, and it never quits.
-    pub fn interrupt(&mut self, surfaces: &SurfaceTree) {
+    /// The shell habit may discard a draft and stop work, but it never ends the session.
+    pub fn interrupt(&mut self, surfaces: &SurfaceTree) -> Option<plexmaton_core::AgentId> {
+        let target = match self.focus.resolve(surfaces) {
+            Some(crate::surface::SurfaceId::Inspector) => {
+                self.inspector().map(|inspector| inspector.agent)
+            }
+            _ => self.agents.primary().map(|agent| agent.id.clone()),
+        };
         if let Some(to) = self.text_target(surfaces)
             && let Some(composer) = self.composers.get_mut(&to)
             && composer.clear()
         {
             self.touch();
-            return;
+            return target;
         }
         if self.status.set_note(StatusNote::QuitHint) {
             self.touch();
         }
+        target
     }
 
     /// Any key that is not the quit chord withdraws what the status line asked.

@@ -10,13 +10,16 @@
 
 use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole};
 
-use crate::interface::{Effect, Input, Reaction};
+use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
 use crate::model::{ModelError, ModelEvent, RequestItem, StopReason};
 use crate::record::Record;
 use crate::step::Step;
 use crate::tools::{Batch, ToolCall};
 
 mod batch;
+mod input;
+
+use input::{DeliveryBoundary, InputQueue};
 
 /// How many steps one turn may take before the loop stops it.
 ///
@@ -59,7 +62,7 @@ enum Turn {
 pub struct Agent {
     record: Record,
     turn: Turn,
-    queued: Vec<String>,
+    input: InputQueue,
     budget: TurnBudget,
     announced: bool,
 }
@@ -77,7 +80,7 @@ impl Agent {
         Self {
             record: Record::new(agent_id),
             turn: Turn::Idle,
-            queued: Vec::new(),
+            input: InputQueue::default(),
             budget,
             announced: false,
         }
@@ -118,10 +121,14 @@ impl Agent {
         self.record.items()
     }
 
-    /// Messages submitted while a turn was running, waiting for the next turn boundary.
-    #[must_use]
-    pub fn queued(&self) -> &[String] {
-        &self.queued
+    /// Messages waiting for the next turn boundary, in arrival order (LOOP-6).
+    pub fn queued_for_next_turn(&self) -> impl Iterator<Item = &str> {
+        self.input.pending(DeliveryBoundary::NextTurn)
+    }
+
+    /// Steering waiting for the current turn's next step, in arrival order (LOOP-6).
+    pub fn queued_for_next_step(&self) -> impl Iterator<Item = &str> {
+        self.input.pending(DeliveryBoundary::NextStep)
     }
 
     /// Advances the machine by one input.
@@ -129,6 +136,7 @@ impl Agent {
         let mut reaction = Reaction::default();
         match input {
             Input::Submitted { text } => self.submit(text, &mut reaction),
+            Input::Steered { text } => self.steer(text, &mut reaction),
             Input::Streamed(event) => self.stream(event, &mut reaction),
             Input::Failed(error) => self.fail(&error, &mut reaction),
             Input::ToolFinished { call_id, outcome } => {
@@ -139,20 +147,39 @@ impl Agent {
         reaction
     }
 
-    /// A submission during a turn joins the next one rather than this one.
-    ///
-    /// The request for the step in flight has already gone, so there is nowhere for the text to go
-    /// except the next boundary. Holding it is not the whole of input routing — steering a running
-    /// turn is its own queue — but losing it is a defect either way.
+    /// A submission starts an idle turn or waits for the next turn boundary (LOOP-6).
     fn submit(&mut self, text: String, reaction: &mut Reaction) {
         if self.is_running() {
-            self.queued.push(text);
+            self.queue(DeliveryBoundary::NextTurn, text, reaction);
             return;
         }
         self.open_turn(text, reaction);
     }
 
+    /// Steering belongs to the turn already in flight and can only enter at its next step.
+    fn steer(&mut self, text: String, reaction: &mut Reaction) {
+        if !self.is_running() {
+            reaction
+                .undelivered
+                .push(UndeliveredInput::new(text, UndeliveredReason::NoActiveTurn));
+            return;
+        }
+        self.queue(DeliveryBoundary::NextStep, text, reaction);
+    }
+
+    fn queue(&mut self, boundary: DeliveryBoundary, text: String, reaction: &mut Reaction) {
+        if let Some(undelivered) = self.input.queue(boundary, text) {
+            reaction.undelivered.push(undelivered);
+        }
+    }
+
     fn open_turn(&mut self, text: String, reaction: &mut Reaction) {
+        self.record_user(text, reaction);
+        self.open_step(1, reaction);
+    }
+
+    /// Records user input in both views of the one record: semantic events and model history.
+    fn record_user(&mut self, text: String, reaction: &mut Reaction) {
         let item = self.record.next_item_id();
         let agent_id = self.record.agent_id().clone();
         self.record.emit(
@@ -181,7 +208,6 @@ impl Agent {
             },
         );
         self.record.push(RequestItem::User { text });
-        self.open_step(1, reaction);
     }
 
     /// Asks the model, and says the agent is producing.
@@ -256,39 +282,48 @@ impl Agent {
     fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
         self.warn(reaction, &error.message());
         if self.is_running() {
-            self.abort_turn(reaction);
+            self.abort_turn(UndeliveredReason::StepFailed, reaction);
         }
     }
 
     fn interrupt(&mut self, reaction: &mut Reaction) {
         if self.is_running() {
-            self.abort_turn(reaction);
+            self.abort_turn(UndeliveredReason::Interrupted, reaction);
         }
     }
 
     /// Stops the turn wherever it is, pays what it owes, and goes idle.
     ///
-    /// A stopped turn does not roll into the next one. Text the user typed while the model was
-    /// answering stays queued and is not sent: a cancelled turn that immediately opened a fresh
-    /// model request would be a cancel that started work, which is the opposite of what was asked
-    /// for. What happens to text left waiting is input routing's to decide, and until it does the
-    /// text is retained rather than delivered or dropped.
-    fn abort_turn(&mut self, reaction: &mut Reaction) {
+    /// A stopped turn does not roll into the next one: that would make cancellation start work.
+    /// Pending input instead returns through [`Reaction::undelivered`] with its exact text and the
+    /// transition that prevented its boundary from opening (LOOP-6).
+    fn abort_turn(&mut self, reason: UndeliveredReason, reaction: &mut Reaction) {
         self.abandon(reaction);
         self.close_step(reaction);
         self.turn = Turn::Idle;
+        reaction.undelivered.extend(self.input.reject_all(reason));
         self.status(reaction, AgentStatus::Idle);
     }
 
     /// Ends a turn that ran its course, and opens the next one if a message waited for it.
     fn finish_turn(&mut self, reaction: &mut Reaction) {
         self.turn = Turn::Idle;
-        if self.queued.is_empty() {
+        reaction.undelivered.extend(
+            self.input
+                .reject(DeliveryBoundary::NextStep, UndeliveredReason::TurnEnded),
+        );
+        let Some(next) = self.input.claim_one(DeliveryBoundary::NextTurn) else {
             self.status(reaction, AgentStatus::Idle);
             return;
-        }
-        let next = self.queued.remove(0);
+        };
         self.open_turn(next, reaction);
+    }
+
+    /// Claims steering immediately before the request for the next step is assembled (LOOP-6).
+    fn claim_next_step_input(&mut self, reaction: &mut Reaction) {
+        for text in self.input.claim(DeliveryBoundary::NextStep) {
+            self.record_user(text, reaction);
+        }
     }
 
     fn status(&mut self, reaction: &mut Reaction, status: AgentStatus) {
@@ -312,6 +347,7 @@ mod tests {
     use plexmaton_core::{AgentId, AgentStatus, SessionEvent, ToolCallId, TranscriptRole};
 
     use super::{Agent, Effect, Input, Reaction, TurnBudget};
+    use crate::interface::UndeliveredReason;
     use crate::model::{ModelError, ModelEvent, RequestItem, StopReason};
     use crate::tools::{ToolCall, ToolOutcome};
 
@@ -325,6 +361,12 @@ mod tests {
 
     fn submit(agent: &mut Agent, text: &str) -> Reaction {
         agent.handle(Input::Submitted {
+            text: text.to_owned(),
+        })
+    }
+
+    fn steer(agent: &mut Agent, text: &str) -> Reaction {
+        agent.handle(Input::Steered {
             text: text.to_owned(),
         })
     }
@@ -669,7 +711,7 @@ mod tests {
 
         let held = submit(&mut agent, "second");
         assert_eq!(held, Reaction::default(), "nothing happens mid-step");
-        assert_eq!(agent.queued(), ["second"]);
+        assert_eq!(agent.queued_for_next_turn().collect::<Vec<_>>(), ["second"]);
 
         let ended = stop(&mut agent, StopReason::EndOfTurn);
 
@@ -690,8 +732,141 @@ mod tests {
                 },
             ]
         );
-        assert!(agent.queued().is_empty());
+        assert_eq!(agent.queued_for_next_turn().count(), 0);
         assert!(agent.is_running());
+    }
+
+    /// LOOP-6: steering names the current turn's next step, not merely the next model request that
+    /// happens to be made. The tool-result boundary claims it; the later turn queue stays separate.
+    #[test]
+    fn steering_is_claimed_only_by_the_current_turns_next_step() {
+        let mut agent = agent();
+        submit(&mut agent, "read one file");
+        steer(&mut agent, "check the cache too");
+        submit(&mut agent, "then summarize");
+        call(&mut agent, "one");
+        stop(&mut agent, StopReason::ToolCalls);
+
+        assert_eq!(
+            agent.queued_for_next_step().collect::<Vec<_>>(),
+            ["check the cache too"]
+        );
+        assert_eq!(
+            agent.queued_for_next_turn().collect::<Vec<_>>(),
+            ["then summarize"]
+        );
+
+        let claimed = finish(&mut agent, "one", "contents");
+        let [Effect::CallModel(request)] = claimed.effects.as_slice() else {
+            panic!(
+                "settling the batch must open the next step: {:?}",
+                claimed.effects
+            );
+        };
+        assert_eq!(
+            request.items.last(),
+            Some(&RequestItem::User {
+                text: "check the cache too".to_owned()
+            })
+        );
+        assert_eq!(agent.queued_for_next_step().count(), 0);
+        assert_eq!(
+            agent.queued_for_next_turn().collect::<Vec<_>>(),
+            ["then summarize"],
+            "a step boundary must not claim the next turn"
+        );
+    }
+
+    /// LOOP-6: a missing boundary returns ownership with a typed reason. The text is never moved
+    /// to a different boundary just because that one still exists.
+    #[test]
+    fn input_without_its_boundary_is_returned_with_its_text_intact() {
+        let mut idle = agent();
+        let no_turn = steer(&mut idle, "do not lose this");
+        assert!(matches!(
+            no_turn.undelivered.as_slice(),
+            [input]
+                if input.text == "do not lose this"
+                    && input.reason == UndeliveredReason::NoActiveTurn
+        ));
+
+        let mut ended = agent();
+        submit(&mut ended, "first");
+        steer(&mut ended, "amend the answer");
+        let stopped = stop(&mut ended, StopReason::EndOfTurn);
+        assert!(matches!(
+            stopped.undelivered.as_slice(),
+            [input]
+                if input.text == "amend the answer"
+                    && input.reason == UndeliveredReason::TurnEnded
+        ));
+        assert_eq!(
+            ended.record(),
+            [RequestItem::User {
+                text: "first".to_owned()
+            }],
+            "steering must not be rewritten as a later user turn"
+        );
+    }
+
+    /// LOOP-6 through the public boundary: queue overflow returns ownership from `handle` rather
+    /// than relying on the internal queue's caller to remember its `Option`.
+    #[test]
+    fn agent_returns_the_exact_input_that_overflows_its_queue() {
+        let mut agent = agent();
+        submit(&mut agent, "first");
+        let mut overflow = None;
+
+        for index in 0..100 {
+            let text = format!("steer {index}");
+            let reaction = steer(&mut agent, &text);
+            if !reaction.undelivered.is_empty() {
+                overflow = Some((text, reaction));
+                break;
+            }
+        }
+
+        let (text, reaction) = overflow
+            .unwrap_or_else(|| panic!("the bounded queue accepted one hundred pending inputs"));
+        assert!(matches!(
+            reaction.undelivered.as_slice(),
+            [input]
+                if input.text == text && input.reason == UndeliveredReason::QueueFull
+        ));
+    }
+
+    /// LOOP-6 on abnormal boundaries: failure and budget exhaustion do not silently move steering
+    /// into a later turn, and both return the exact payload with the transition that prevented it.
+    #[test]
+    fn failure_and_budget_return_pending_steering() {
+        let mut failed = agent();
+        submit(&mut failed, "first");
+        steer(&mut failed, "still mine");
+        let failed_reaction = failed.handle(Input::Failed(ModelError::Transport {
+            message: "offline".to_owned(),
+        }));
+        assert!(matches!(
+            failed_reaction.undelivered.as_slice(),
+            [input]
+                if input.text == "still mine"
+                    && input.reason == UndeliveredReason::StepFailed
+        ));
+
+        let mut budgeted = Agent::with_budget(
+            AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            TurnBudget { max_steps: 1 },
+        );
+        submit(&mut budgeted, "first");
+        steer(&mut budgeted, "keep this too");
+        call(&mut budgeted, "one");
+        stop(&mut budgeted, StopReason::ToolCalls);
+        let spent = finish(&mut budgeted, "one", "done");
+        assert!(matches!(
+            spent.undelivered.as_slice(),
+            [input]
+                if input.text == "keep this too"
+                    && input.reason == UndeliveredReason::StepBudgetReached
+        ));
     }
 
     /// Cancellation is a transition, not an error: what arrived is kept and read, and nothing is
@@ -811,14 +986,14 @@ mod tests {
     ///
     /// A cancelled turn that immediately opened the queued message's turn would fire a model
     /// request the user had just cancelled, and leave the agent running when they asked for it to
-    /// stop. The text is neither sent nor dropped: it stays queued, which is what the contract
-    /// asks for a message that never reached its turn.
+    /// stop. The text is neither sent nor dropped: ownership returns to the caller with its reason.
     #[test]
-    fn an_interrupt_starts_no_new_work_and_keeps_what_was_waiting() {
+    fn an_interrupt_starts_no_new_work_and_returns_what_was_waiting() {
         let mut agent = agent();
         submit(&mut agent, "first");
         delta(&mut agent, "answering");
         submit(&mut agent, "second");
+        steer(&mut agent, "steer the first");
 
         let stopped = agent.handle(Input::Interrupted);
 
@@ -831,7 +1006,20 @@ mod tests {
             stopped.effects
         );
         assert!(!agent.is_running(), "and left the agent running");
-        assert_eq!(agent.queued(), ["second"], "the held text was not retained");
+        assert_eq!(agent.queued_for_next_turn().count(), 0);
+        assert_eq!(agent.queued_for_next_step().count(), 0);
+        assert_eq!(
+            stopped
+                .undelivered
+                .iter()
+                .map(|input| (input.text.as_str(), input.reason))
+                .collect::<Vec<_>>(),
+            [
+                ("second", UndeliveredReason::Interrupted),
+                ("steer the first", UndeliveredReason::Interrupted),
+            ],
+            "the boundary returned every held input, in arrival order"
+        );
         assert!(matches!(
             events(&stopped).last(),
             Some(SessionEvent::AgentStatusChanged {

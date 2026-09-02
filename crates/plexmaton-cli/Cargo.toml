@@ -19,17 +19,16 @@ path = "src/measure/main.rs"
 anyhow.workspace = true
 crossterm.workspace = true
 futures-util.workspace = true
+plexmaton-agent = { path = "../plexmaton-agent" }
 plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-sim = { path = "../plexmaton-sim" }
 plexmaton-tui = { path = "../plexmaton-tui" }
 ratatui.workspace = true
 tokio.workspace = true
 
-# The loop is reached only from the test that proves what it emits is what the projection accepts.
-# It becomes an ordinary dependency at the slice that makes the executable run it, and not before.
-[dev-dependencies]
-plexmaton-agent = { path = "../plexmaton-agent" }
+# The executable translates addressed user actions into the loop's typed `Input` now. Its
+# synthetic adapter reports the operations it cannot perform; slice 7 replaces that adapter with
+# the owner that drives `Agent::handle` and performs the returned effects.
 
 [lints]
 workspace = true
-
