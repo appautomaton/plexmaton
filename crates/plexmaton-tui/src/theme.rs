@@ -29,7 +29,7 @@ pub enum Role {
     SectionHeading,
     /// Identity emphasis, such as the selected agent marker.
     Accent,
-    /// Reversed key hint in the footer.
+    /// Reversed key hint, such as the `⇥` in the collapsed composer's row.
     KeyHint,
     /// Background work in progress. Must never compete for attention.
     Ambient,

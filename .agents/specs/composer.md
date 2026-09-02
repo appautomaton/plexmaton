@@ -39,6 +39,7 @@ TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ Runtime
 | Fact | Value |
 | --- | --- |
 | Place | The bottom section of the primary conversation's box (ui-ux §input): a divider carrying the title, the lines, and the box's bottom edge |
+| Bottom edge | The status line (INV-7): the working directory at rest, replaced by what the last key asked until the next key. The composition root names the directory; this crate never reads the filesystem |
 | Height | Up to three lines; a longer draft shows its newest lines, the bounded tail the notice strip also uses |
 | On a short terminal | Served before the notice strip and the agent list: a workspace that cannot be typed into is not a supported shape |
 | While a sub-agent's input holds the cursor | One row closing the box, `Message Agent A · ⇥ to return`: no divider, no title, still a focus stop and a pointer target. `Tab` from that input lands on it, because the composer follows the second window in the focus ring |
@@ -48,6 +49,7 @@ TextIntent ──▶ ViewState::edit ──▶ Option<String>  ──▶ Runtime
 | Situation | Response |
 | --- | --- |
 | Blank or whitespace-only draft submitted | Nothing is sent and the draft is kept |
+| `Ctrl-C` on a draft | The draft is discarded; nothing is sent and nothing quits (INV-7) |
 | `Backspace` on an empty draft | No change is reported, so it costs no repaint |
 | Submitting before any agent exists | The text stays in the draft; there is no session to deliver into |
 | A text intent arriving under navigation focus | Cannot happen and is not re-checked: the router reads focus from the same state (INV-2) |

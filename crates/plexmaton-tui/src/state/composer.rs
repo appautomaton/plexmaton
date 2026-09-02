@@ -3,6 +3,9 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use super::{Submission, ViewState};
+use crate::{intent::TextIntent, surface::SurfaceTree};
+
 /// Rows of draft the composer will show before it starts showing only the tail.
 ///
 /// A bounded tail rather than a scrollable region, the same shape the notice strip uses. The
@@ -52,6 +55,15 @@ impl Composer {
         };
         let keep = self.draft.len().saturating_sub(last.len());
         self.draft.truncate(keep);
+        true
+    }
+
+    /// Discards the draft, reporting whether there was one to discard.
+    pub fn clear(&mut self) -> bool {
+        if self.draft.is_empty() {
+            return false;
+        }
+        self.draft.clear();
         true
     }
 
@@ -146,6 +158,43 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
     }
     rows.push(row);
     rows
+}
+
+impl ViewState {
+    /// Applies one edit to whichever input holds the cursor.
+    ///
+    /// The returned submission is a *command* for the runtime, never something to write into the
+    /// transcript here: the projection has one writer, and it is the event stream (COM-3).
+    ///
+    /// The target comes from focus rather than from the intent. The router only produces a text
+    /// intent while a text input holds the cursor, and it reads that from this same state, so the
+    /// two cannot disagree about which of the two inputs is being typed into (INV-2).
+    pub fn edit(&mut self, surfaces: &SurfaceTree, intent: TextIntent) -> Option<Submission> {
+        let to = self.text_target(surfaces)?;
+        let composer = self.composers.entry(to.clone()).or_default();
+        let changed = match intent {
+            TextIntent::Insert(character) => {
+                composer.insert(character);
+                true
+            }
+            TextIntent::Newline => {
+                composer.newline();
+                true
+            }
+            TextIntent::DeleteBackward => composer.delete_backward(),
+            TextIntent::Submit => {
+                let submitted = composer.take_draft();
+                if submitted.is_some() {
+                    self.touch();
+                }
+                return submitted.map(|text| Submission { to, text });
+            }
+        };
+        if changed {
+            self.touch();
+        }
+        None
+    }
 }
 
 #[cfg(test)]

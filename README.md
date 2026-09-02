@@ -24,8 +24,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Press `Ctrl-C` to leave the synthetic TUI from anywhere; it is the only quit. `Esc` backs out one
-layer at a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
+Press `Ctrl-D` twice to leave the synthetic TUI; the first press says so in the status line, and
+any other key withdraws it. `Ctrl-C` clears the draft and never quits. `Esc` backs out one layer at
+a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 

@@ -37,8 +37,6 @@ pub enum KeyboardFocus {
 pub enum SurfaceKind {
     /// A base workspace region: takes the pointer and is a focus stop.
     Panel,
-    /// Painted but never interactive, such as a key-hint strip.
-    Chrome,
     /// A text input. While it holds focus it owns the workspace's one cursor.
     Composer,
     /// One agent's detail, opened explicitly and dismissed with `Escape`.
@@ -77,7 +75,7 @@ impl SurfaceKind {
     #[must_use]
     pub const fn keyboard_focus(self) -> KeyboardFocus {
         match self {
-            Self::Panel | Self::Chrome => KeyboardFocus::Navigation,
+            Self::Panel => KeyboardFocus::Navigation,
             // The inspector carries the inspected agent's steer input, which renders only while it
             // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
@@ -120,8 +118,6 @@ pub enum SurfaceId {
     /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
     /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
     Attention,
-    /// The key-hint strip.
-    Footer,
 }
 
 /// How much content a surface has, and how far through it the user is.
@@ -171,7 +167,7 @@ pub struct Surface {
     pub bounds: Rect,
     pub z_index: u32,
     pub kind: SurfaceKind,
-    /// Present once the renderer has measured this surface's content. Chrome never has one.
+    /// Present once the renderer has measured this surface's content.
     pub viewport: Option<Viewport>,
 }
 
@@ -403,29 +399,17 @@ mod tests {
         );
     }
 
-    /// SURF-3: what a surface is decides how events reach it, so chrome is unreachable by both.
-    #[test]
-    fn chrome_is_neither_a_pointer_target_nor_a_focus_stop() {
-        let mut tree = SurfaceTree::default();
-        insert(&mut tree, SurfaceId::Footer, SurfaceKind::Chrome);
-
-        assert_eq!(tree.hit_test(Point { x: 1, y: 1 }), None);
-        assert_eq!(tree.focus_ring().count(), 0);
-        assert_eq!(tree.next_focus(None, Direction::Forward), None);
-    }
-
     #[test]
     fn the_focus_ring_wraps_in_both_directions() {
         let mut tree = SurfaceTree::default();
         insert(&mut tree, SurfaceId::Agents, SurfaceKind::Panel);
         insert(&mut tree, SurfaceId::Transcript, SurfaceKind::Panel);
-        insert(&mut tree, SurfaceId::Footer, SurfaceKind::Chrome);
 
         let ring: Vec<_> = tree.focus_ring().collect();
         assert_eq!(
             ring,
             [SurfaceId::Agents, SurfaceId::Transcript],
-            "chrome is not a stop, and the order is declaration order"
+            "the order is declaration order"
         );
 
         let forward = tree.next_focus(Some(SurfaceId::Transcript), Direction::Forward);
@@ -455,8 +439,9 @@ mod tests {
 
     #[test]
     fn no_kind_puts_a_cursor_on_screen_before_the_composer_exists() {
-        for kind in [SurfaceKind::Panel, SurfaceKind::Chrome] {
-            assert_eq!(kind.keyboard_focus(), KeyboardFocus::Navigation);
-        }
+        assert_eq!(
+            SurfaceKind::Panel.keyboard_focus(),
+            KeyboardFocus::Navigation
+        );
     }
 }

@@ -75,7 +75,7 @@ knowing before you touch it:
 - Ratatui emits only changed cells, so an incremental frame carries `1` rather than `Agents · !1`.
   The script forces one full repaint through a resize and asserts against that frame.
 - An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
-  defect; run the smoke outside it. `Ctrl-C` is the key it quits with, so a change to that binding
+  defect; run the smoke outside it. `Ctrl-D` twice is how it quits, so a change to that chord
   changes this script in the same commit.
 
 ## Parallel checkouts

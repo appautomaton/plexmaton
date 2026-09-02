@@ -148,24 +148,4 @@ mod tests {
     fn focus_resolves_to_nothing_when_no_surface_is_registered() {
         assert_eq!(Focus::default().resolve(&SurfaceTree::default()), None);
     }
-
-    #[test]
-    fn pointing_at_an_unfocusable_surface_reports_no_change() {
-        let mut tree = tree_of(&[SurfaceId::Agents]);
-        tree.insert(Surface {
-            id: SurfaceId::Footer,
-            bounds: Rect::new(0, 10, 10, 1),
-            z_index: 0,
-            kind: SurfaceKind::Chrome,
-            viewport: None,
-        })
-        .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
-        let mut focus = Focus::default();
-
-        assert!(
-            !focus.point_at(&tree, SurfaceId::Footer),
-            "reporting a change would cost a full repaint for nothing"
-        );
-        assert_eq!(focus.resolve(&tree), Some(SurfaceId::Agents));
-    }
 }

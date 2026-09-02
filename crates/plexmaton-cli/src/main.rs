@@ -1,4 +1,4 @@
-use std::{io, time::Duration};
+use std::{io, path::Path, time::Duration};
 
 use anyhow::Context;
 use crossterm::{
@@ -46,8 +46,27 @@ async fn main() -> anyhow::Result<()> {
         terminal,
         Runtime::new(scenario),
         &mut TerminalClipboard::new(io::stdout()),
+        working_directory(),
     )
     .await
+}
+
+/// Where the process runs, the way a shell prompt shows it: the home directory as `~`.
+///
+/// `None` when the directory cannot be read, which the status line shows as nothing rather than
+/// as an error: it is a label, and a session does not fail over a label.
+fn working_directory() -> Option<String> {
+    let current = std::env::current_dir().ok()?;
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let shown = match home
+        .as_deref()
+        .and_then(|home| current.strip_prefix(home).ok())
+    {
+        Some(rest) if rest == Path::new("") => "~".to_owned(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => current.display().to_string(),
+    };
+    Some(shown)
 }
 
 /// The event loop: producer events, terminal events, and the frames they justify.
@@ -58,8 +77,12 @@ async fn run(
     mut terminal: DefaultTerminal,
     mut runtime: Runtime,
     clipboard: &mut impl ClipboardSink,
+    working_directory: Option<String>,
 ) -> anyhow::Result<()> {
     let mut workspace = Workspace::default();
+    if let Some(path) = working_directory {
+        workspace.set_working_directory(path);
+    }
     let mut tick = 0_u64;
     let mut ticker = tokio::time::interval(TICK_INTERVAL);
     let mut terminal_events = EventStream::new();

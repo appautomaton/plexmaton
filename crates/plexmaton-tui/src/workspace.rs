@@ -7,14 +7,18 @@
 //! [`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md).
 
 use plexmaton_core::PrototypeEventEnvelope;
-use ratatui::{Terminal, backend::Backend, crossterm::event::Event};
+use ratatui::{
+    Terminal,
+    backend::Backend,
+    crossterm::event::{Event, KeyEventKind},
+};
 
 use crate::{
     content,
     intent::{PointerIntent, SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{CopyRequest, Submission, ViewRevision, ViewState, inner_width},
+    state::{CopyRequest, QuitPress, Submission, ViewRevision, ViewState, inner_width},
     surface::{Point, SurfaceId, SurfaceTree},
     theme::Palette,
     transcript::TranscriptMetrics,
@@ -151,10 +155,25 @@ impl Workspace {
             dismissible: surfaces.has_dismissible(),
             selecting: state.selection().is_some(),
         };
-        match router.translate(event, &context) {
+        let routed = router.translate(event, &context);
+        // Any key but the quit chord withdraws what the status line asked, bound or not: the user
+        // pressed something else, so the question is answered (INV-7).
+        if let Event::Key(key) = event
+            && key.kind != KeyEventKind::Release
+            && routed != Routed::Intent(TuiIntent::Quit)
+        {
+            state.settle_status();
+        }
+        match routed {
             Routed::Intent(intent) => self.apply(intent),
             Routed::Ignored(_) => Outcome::default(),
         }
+    }
+
+    /// Names where the process runs, for the status line. The composition root knows; this crate
+    /// never asks the filesystem.
+    pub fn set_working_directory(&mut self, path: String) {
+        self.state.set_working_directory(path);
     }
 
     /// Draws a frame if the projection changed since the last one, and reports what it cost.
@@ -196,7 +215,11 @@ impl Workspace {
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent) -> Outcome {
         match intent {
-            TuiIntent::Quit => return Outcome::quit(),
+            TuiIntent::Quit => match self.state.press_quit() {
+                QuitPress::Confirmed => return Outcome::quit(),
+                QuitPress::Asked => {}
+            },
+            TuiIntent::Interrupt => self.state.interrupt(&self.surfaces),
             TuiIntent::Text(edit) => {
                 return Outcome {
                     submitted: self.state.edit(&self.surfaces, edit),
@@ -338,7 +361,7 @@ mod tests {
     #[test]
     fn an_injected_palette_is_the_one_the_frame_paints() {
         let palette = Palette::from_roles(|role| match role {
-            Role::KeyHint => Style::new().fg(Color::Magenta),
+            Role::Border => Style::new().fg(Color::Magenta),
             role => Palette::ansi().style(role),
         });
         let mut workspace = Workspace::with_palette(palette);
@@ -349,22 +372,15 @@ mod tests {
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
-        let footer = bounds(&workspace, SurfaceId::Footer);
-        let buffer = terminal.backend().buffer();
-        let mut found = false;
-        for x in footer.x..footer.right() {
-            let cell = &buffer[(x, footer.y)];
-            if cell.symbol() != "⇥" {
-                continue;
-            }
-            found = true;
-            assert_eq!(
-                cell.style().fg,
-                Some(Color::Magenta),
-                "the frame must paint the injected assignment, not the ansi preset"
-            );
-        }
-        assert!(found, "the footer must paint the focus key");
+        // The conversation is not focused at start, so its corner wears the plain border role.
+        let conversation = bounds(&workspace, SurfaceId::Transcript);
+        let corner = &terminal.backend().buffer()[(conversation.x, conversation.y)];
+        assert_eq!(corner.symbol(), "┌");
+        assert_eq!(
+            corner.style().fg,
+            Some(Color::Magenta),
+            "the frame must paint the injected assignment, not the ansi preset"
+        );
     }
 
     /// FR-1: a frame is drawn when something changed and at no other time.
@@ -406,13 +422,98 @@ mod tests {
         assert_eq!(workspace.frames(), 2, "exactly two frames reached a screen");
     }
 
+    /// INV-7: the chord asks first, any other key withdraws the question, and only a second press
+    /// in a row leaves. The status line is where the asking happens, in the composer's border.
     #[test]
-    fn ctrl_c_quits_from_anywhere() {
-        let (mut workspace, _terminal) = drawn(120, 24);
+    fn the_quit_chord_asks_once_and_leaves_on_the_second_press() {
+        let (mut workspace, mut terminal) = drawn(120, 24);
+        workspace.set_working_directory("~/work".to_owned());
+        let redraw = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
+            workspace
+                .draw(terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}"));
+        };
+        redraw(&mut workspace, &mut terminal);
+        assert!(painted(&terminal, &workspace, SurfaceId::Composer).contains("~/work"));
 
         assert_eq!(
-            workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL)),
-            Outcome::quit()
+            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Outcome::default(),
+            "the first press asks"
+        );
+        redraw(&mut workspace, &mut terminal);
+        let asked = painted(&terminal, &workspace, SurfaceId::Composer);
+        assert!(asked.contains("press Ctrl-D again to quit"), "{asked}");
+        assert!(
+            !asked.contains("~/work"),
+            "the question replaces the directory"
+        );
+
+        assert_eq!(
+            workspace
+                .handle(&press(KeyCode::Tab, KeyModifiers::NONE))
+                .flow,
+            Flow::Continue
+        );
+        redraw(&mut workspace, &mut terminal);
+        let withdrawn = painted(&terminal, &workspace, SurfaceId::Composer);
+        assert!(
+            withdrawn.contains("~/work"),
+            "any other key withdraws it: {withdrawn}"
+        );
+
+        assert_eq!(
+            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Outcome::default()
+        );
+        assert_eq!(
+            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Outcome::quit(),
+            "two presses in a row leave"
+        );
+    }
+
+    /// INV-7: `Ctrl-C` takes the draft and nothing else; with no draft it points at the chord.
+    #[test]
+    fn ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord() {
+        let (mut workspace, mut terminal) = drawn(120, 24);
+        workspace.set_working_directory("~/work".to_owned());
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        workspace.handle(&Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: composer.x.saturating_add(1),
+            row: composer.y.saturating_add(1),
+            modifiers: KeyModifiers::NONE,
+        }));
+        for character in "hi".chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(workspace.state.composer().draft(), "hi");
+
+        let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(outcome, Outcome::default(), "clearing is not quitting");
+        assert_eq!(workspace.state.composer().draft(), "");
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("~/work"),
+            "taking the draft asks nothing"
+        );
+
+        let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(outcome, Outcome::default());
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+        let hinted = painted(&terminal, &workspace, SurfaceId::Composer);
+        assert!(hinted.contains("Ctrl-D twice to quit"), "{hinted}");
+
+        let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            outcome.flow,
+            Flow::Continue,
+            "however many times: never a quit"
         );
     }
 

@@ -34,10 +34,14 @@ release produces `Ignored::NoCapture`, never a second drag intent.
 **INV-6 — The Escape ladder resolves one layer per press.** In order: cancel an active drag, then
 drop a selection, then dismiss the topmost dismissible layer, then nothing. `Escape` never quits.
 
-**INV-7 — Quit is explicit and unreachable while typing.** `Ctrl-C` quits from any focus, and no
-bare key quits from any; a printable `q` is text under a cursor and unbound elsewhere. Rejected:
-`Escape` as quit, which the reflex that closes an overlay would trigger one press later; and a bare
-`q`, which ended the session the first time a message was typed one `Tab` too early.
+**INV-7 — Quit is a chord pressed twice, and `Ctrl-C` never quits.** `Ctrl-D` asks on the first
+press, in the status line, and leaves on the second in a row; any other key withdraws the question.
+`Ctrl-C` is the interrupt: it clears the draft under the cursor, and with nothing to clear it points
+at the chord. No bare key quits from any focus; a printable `q` is text under a cursor and unbound
+elsewhere. Rejected: `Escape` as quit, which the reflex that closes an overlay would trigger one
+press later; a bare `q`, which ended the session the first time a message was typed one `Tab` too
+early; and `Ctrl-C` as a one-press exit, which took the session where a shell habit meant to take a
+line.
 
 **INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
 is routed to no surface, so the terminal's own selection keeps working over an owned screen.
@@ -72,7 +76,8 @@ Idle ─────────────────────────
 
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
-| `Ctrl-C` | Quit | Quit |
+| `Ctrl-D` | Quit chord: ask, then leave on the second press in a row | The same |
+| `Ctrl-C` | Interrupt: clear the draft, else point at the quit chord | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
@@ -86,8 +91,9 @@ Idle ─────────────────────────
 | `Backspace` | Unbound | Delete backward |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-The second-window and selection chords resolve before keyboard focus is consulted, so a control
-chord is never text (INV-2) and they reach the window while its own input holds the cursor. `Enter`
+The quit, interrupt, second-window and selection chords resolve before keyboard focus is
+consulted, so a control chord is never text (INV-2) and they reach the window while its own input
+holds the cursor. `Enter`
 is the exception, because under a cursor it submits. Chords translate whether or not a window is
 open; whether there is anything to act on is the reducer's question. Key release events are
 ignored, so a terminal reporting press and release does not act twice.
@@ -100,6 +106,7 @@ ignored, so a terminal reporting press and release does not act twice.
 | Pointer press outside every registered surface | `Ignored::OutsideWorkspace`; capture is not taken |
 | Drag or release with no capture held | `Ignored::NoCapture` |
 | `Escape` with nothing on the ladder | `Ignored::NothingToDismiss`, not a quit |
+| `Ctrl-C` with nothing to clear | The status line says `Ctrl-D twice to quit`; nothing else changes |
 | Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside it |
 | Wheel over no surface | `Ignored::OutsideWorkspace` |
 | Pointer event with `Shift` held | `Ignored::TerminalSelection` (INV-8) |
@@ -116,7 +123,7 @@ ignored, so a terminal reporting press and release does not act twice.
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
-| INV-7 | `quit_is_explicit_and_unreachable_while_typing` |
+| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection` |

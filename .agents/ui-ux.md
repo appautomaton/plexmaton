@@ -94,6 +94,13 @@ other rule about input follows from this one.
   acceptable and zero costs too much screen on a small terminal.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
+- **The composer's bottom border is the status line.** It says one thing at a time: at rest, the
+  working directory; after a key that raised a question, the answer, until the next key. Nothing
+  else on screen lists keys. Rejected: a key-hint strip along the bottom, a row of chords nobody
+  read that cost the conversation a line.
+- **Quitting is `Ctrl-D` twice.** The first press makes the status line say so, and any other key
+  withdraws it. `Ctrl-C` is the shell's interrupt: it clears the draft under the cursor, and with
+  nothing to clear it points at `Ctrl-D`. It never quits.
 
 Making the input physically live inside the surface it addresses turns "where does this keystroke
 go" into a fact on screen rather than something to remember. Steering by explicit address
@@ -183,7 +190,7 @@ scroll without moving the transcript behind it.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Rejected: character selection, which changes what is copied at a second width; a local clipboard
-  crate, which reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the exit.
+  crate, which reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the interrupt.
 
 The mechanism and the bindings are [`specs/selection-and-copy.md`](./specs/selection-and-copy.md).
 

@@ -101,8 +101,14 @@ impl Router {
         if key.kind == KeyEventKind::Release {
             return Routed::Ignored(Ignored::KeyRelease);
         }
-        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            return Routed::Intent(TuiIntent::Quit);
+        // Both chords resolve before focus is consulted: under a cursor a control chord is never
+        // text (INV-2), and neither key may mean something else somewhere (INV-7).
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('d') => return Routed::Intent(TuiIntent::Quit),
+                KeyCode::Char('c') => return Routed::Intent(TuiIntent::Interrupt),
+                _ => {}
+            }
         }
 
         if let Some(intent) = inspector_chord(key).or_else(|| selection_chord(key)) {
@@ -248,9 +254,9 @@ fn inspector_chord(key: KeyEvent) -> Option<TuiIntent> {
 /// that cannot be selected by keyboard. `Shift` with an arrow produces no character, so nothing here
 /// can be text.
 ///
-/// Copy is `Ctrl-Y` and not `Ctrl-C`, because `Ctrl-C` is the unconditional exit (INV-7) and a key
-/// that sometimes copies and sometimes ends the session is worse than an unfamiliar one. The cost is
-/// real, and the `Shift` escape hatch to the terminal's own copy is what covers the habit.
+/// Copy is `Ctrl-Y` and not `Ctrl-C`, because `Ctrl-C` is the interrupt that clears a draft (INV-7)
+/// and a key that sometimes copies and sometimes discards is worse than an unfamiliar one. The cost
+/// is real, and the `Shift` escape hatch to the terminal's own copy is what covers the habit.
 fn selection_chord(key: KeyEvent) -> Option<TuiIntent> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let shift = key.modifiers.contains(KeyModifiers::SHIFT);
@@ -797,19 +803,30 @@ mod tests {
     ///
     /// `q` used to quit under navigation focus. Focus starts on a navigation surface and moves
     /// without the screen saying so, so the first letter of a message typed one `Tab` too early
-    /// ended the session. A chord is the only shape a quit key can have.
+    /// ended the session. A chord is the only shape a quit key can have, and `Ctrl-C`, the chord
+    /// every hand already knows, is the interrupt rather than the exit under both focuses.
     #[test]
     fn quit_is_explicit_and_unreachable_while_typing() {
         let surfaces = tree();
         let mut router = Router::default();
 
-        assert_eq!(
-            router.translate(
-                &key(KeyCode::Char('c'), KeyModifiers::CONTROL),
-                &context(&surfaces, KeyboardFocus::TextInput, true)
-            ),
-            Routed::Intent(TuiIntent::Quit)
-        );
+        for focus in [KeyboardFocus::TextInput, KeyboardFocus::Navigation] {
+            assert_eq!(
+                router.translate(
+                    &key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                    &context(&surfaces, focus, true)
+                ),
+                Routed::Intent(TuiIntent::Quit)
+            );
+            assert_eq!(
+                router.translate(
+                    &key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                    &context(&surfaces, focus, true)
+                ),
+                Routed::Intent(TuiIntent::Interrupt),
+                "Ctrl-C is the interrupt, never the exit"
+            );
+        }
         assert_eq!(
             router.translate(
                 &key(KeyCode::Char('q'), KeyModifiers::NONE),

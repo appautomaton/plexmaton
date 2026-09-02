@@ -48,12 +48,11 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | Kind | Pointer | Focusable | Cursor | Blocks below | Dismissible |
 | --- | --- | --- | --- | --- | --- |
 | `Panel` | yes | yes | no | no | no |
-| `Chrome` | no | no | no | no | no |
 | `Composer` | yes | yes | yes | no | no |
 | `Inspector` | yes | yes | yes | no | yes |
 
-Deriving the five answers from `kind` makes the sixteen boolean combinations that mean nothing, a
-chrome strip holding the cursor, a modal that does not block, unrepresentable. A kind with no
+Deriving the five answers from `kind` makes the boolean combinations that mean nothing, a focus
+stop the pointer cannot reach, a modal that does not block, unrepresentable. A kind with no
 surface using it is not added in advance, which is why there is no `Modal` (SURF-4).
 
 **Hit testing.** Among surfaces whose kind takes the pointer and whose `visible()` contains the
@@ -92,6 +91,6 @@ hover never does (INV-3).
 | --- | --- |
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | SURF-2 | Unproven; no surface overflows its parent. The base layer tiles the terminal and the shelf lies wholly inside the conversation it covers; which rows of a scrolled item a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
-| SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
+| SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
 | SURF-4 | Unproven; nothing blocks. The Attention queue exists so a background request opens no modal, and the shelf overlays without blocking. The first blocking surface is an approval prompt, which arrives with real tools |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

@@ -10,6 +10,7 @@ mod ordered;
 mod roster;
 mod scroll;
 mod selection;
+mod status;
 
 use std::collections::BTreeMap;
 
@@ -24,9 +25,10 @@ pub use notices::NoticeView;
 pub use scroll::ScrollPosition;
 pub(crate) use selection::Selected;
 pub use selection::{CopyRequest, Selection};
+pub use status::{QuitPress, Status, StatusNote};
 
 use crate::{
-    intent::{AttentionIntent, Direction, ScrollDirection, TextIntent},
+    intent::{AttentionIntent, Direction, ScrollDirection},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
     transcript::{TranscriptMetrics, TranscriptPosition},
 };
@@ -72,6 +74,7 @@ pub struct ViewState {
     inspector: Inspector,
     /// What the user has selected for copying, expressed in entries rather than in cells.
     selection: Option<Selection>,
+    status: Status,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -167,41 +170,6 @@ impl ViewState {
         } else {
             self.composer().requested_rows(inner_width(width))
         }
-    }
-
-    /// Applies one edit to whichever input holds the cursor.
-    ///
-    /// The returned submission is a *command* for the runtime, never something to write into the
-    /// transcript here: the projection has one writer, and it is the event stream (COM-3).
-    ///
-    /// The target comes from focus rather than from the intent. The router only produces a text
-    /// intent while a text input holds the cursor, and it reads that from this same state, so the
-    /// two cannot disagree about which of the two inputs is being typed into (INV-2).
-    pub fn edit(&mut self, surfaces: &SurfaceTree, intent: TextIntent) -> Option<Submission> {
-        let to = self.text_target(surfaces)?;
-        let composer = self.composers.entry(to.clone()).or_default();
-        let changed = match intent {
-            TextIntent::Insert(character) => {
-                composer.insert(character);
-                true
-            }
-            TextIntent::Newline => {
-                composer.newline();
-                true
-            }
-            TextIntent::DeleteBackward => composer.delete_backward(),
-            TextIntent::Submit => {
-                let submitted = composer.take_draft();
-                if submitted.is_some() {
-                    self.touch();
-                }
-                return submitted.map(|text| Submission { to, text });
-            }
-        };
-        if changed {
-            self.touch();
-        }
-        None
     }
 
     /// Returns the selected agent projection, when one exists.
@@ -391,31 +359,6 @@ mod tests {
         surface::SurfaceId,
         test_support::canonical_state,
     };
-
-    /// SURF-3: focus is a stop on the ring, and a press on chrome is not a way off it.
-    #[test]
-    fn focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it() {
-        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
-        let mut state = canonical_state();
-
-        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
-
-        state.focus_surface(&surfaces, SurfaceId::Transcript);
-        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
-
-        let before = state.revision();
-        state.focus_surface(&surfaces, SurfaceId::Footer);
-        assert_eq!(
-            state.focused(&surfaces),
-            Some(SurfaceId::Transcript),
-            "a hint strip is not a focus stop, so the press must leave focus where it was"
-        );
-        assert_eq!(
-            state.revision(),
-            before,
-            "a press that changes nothing must not force a repaint"
-        );
-    }
 
     #[test]
     fn cycling_focus_walks_the_ring_and_wraps() {

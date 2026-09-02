@@ -123,8 +123,12 @@ pub enum SelectionIntent {
 /// `plexmaton_core::PrototypeEvent`, and the two vocabularies never merge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
-    /// Leave the workspace.
+    /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves on the second,
+    /// so a quit is never one keystroke (INV-7).
     Quit,
+    /// `Ctrl-C`, the shell's interrupt: clears the draft under the cursor, and with nothing to
+    /// clear, says how to leave. Never a quit.
+    Interrupt,
     /// Move keyboard focus one stop around the focus ring.
     CycleFocus(Direction),
     /// Move the agent selection one step, without opening anything.
