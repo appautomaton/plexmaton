@@ -532,6 +532,55 @@ mod tests {
         );
     }
 
+    /// TR-3 across a resize that comes back: a width the reader left and returned to paints the
+    /// frame it had, and a wander across the layout classes accumulates no drift.
+    ///
+    /// The test above proves the anchor still names the same message, which is the half that
+    /// would keep passing if a resize wrote the clamped row back into the stored anchor. That is
+    /// the natural optimization, and it is why content creeps in a terminal resized twice: each
+    /// conversion loses the depth into the message, and the loss compounds. Comparing the whole
+    /// region is what catches it, because the row inside the item is the other half of an anchor.
+    #[test]
+    fn a_conversation_resized_away_and_back_paints_the_frame_it_had() {
+        let mut session = Session::canonical(60, 20);
+        session.conversation.extend(10);
+        session.draw();
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
+
+        let narrow = session.viewport(SurfaceId::Transcript);
+        let parked = session.region(SurfaceId::Transcript);
+        assert!(
+            !markers(&parked).is_empty(),
+            "the reader has to be somewhere in the filler or this proves nothing"
+        );
+
+        session.resize(160, 20);
+        assert_ne!(
+            narrow.content_rows,
+            session.viewport(SurfaceId::Transcript).content_rows,
+            "the resize has to rewrap the conversation, or nothing was re-measured"
+        );
+
+        session.resize(60, 20);
+        assert_eq!(
+            session.region(SurfaceId::Transcript),
+            parked,
+            "one width painted two different frames across a single round trip"
+        );
+
+        // Every class boundary, because a class change swaps which surfaces exist beside the
+        // conversation, and the reader must survive that too.
+        for width in [160, 132, 95, 72, 48] {
+            session.resize(width, 20);
+        }
+        session.resize(60, 20);
+        assert_eq!(
+            session.region(SurfaceId::Transcript),
+            parked,
+            "a wander across the widths moved the reader that one resize did not"
+        );
+    }
+
     /// TR-5: each conversation keeps its own reading position (canonical journey, step 4).
     #[test]
     fn each_conversation_keeps_its_own_reading_position() {

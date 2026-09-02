@@ -22,7 +22,9 @@ nothing else.
 
 **TR-3 — A reading position is an item, not a row.** A parked conversation is anchored to a
 transcript item and a row inside it, so the same text stays on screen across a resize and content
-arriving elsewhere does not move it. Both directions of the row-to-item conversion resolve at the
+arriving elsewhere does not move it. A width the reader left and returned to paints the frame it
+had: resolving an anchor clamps the row for display without writing the clamp back, and only a
+scroll rewrites the stored position. Both directions of the row-to-item conversion resolve at the
 width that produced the viewport being scrolled, carried out of the frame on the viewport itself.
 Rejected: a row offset, which survives a resize as a number while naming different text; a
 per-surface position, which loses A's place on returning from B (TR-5); and bounded overscan, which
@@ -81,6 +83,6 @@ what make the claim testable. What those walks cost is measured in [frame-loop](
 | --- | --- |
 | TR-1 | `measurement_is_proportional_to_what_changed`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `the_resize_workload_re_measures_every_item_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
 | TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history` |
-| TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
+| TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |
