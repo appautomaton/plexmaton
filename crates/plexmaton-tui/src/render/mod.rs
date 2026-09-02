@@ -6,8 +6,8 @@ mod panel;
 use panel::{Body, Edges, Panel, draw_panel, place_cursor, render_steer};
 
 use chrome::{
-    agents_title, attention_title, composer_title, inspector_title, notices_title,
-    render_too_small, status_line, title, transcript_title,
+    agents_title, attention_title, composer_title, inspector_title, notices_title, render_status,
+    render_too_small, title, transcript_title,
 };
 
 use crate::{
@@ -90,7 +90,6 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: agents_title(state, palette),
-                status: None,
                 edges: if stacking.sidebar {
                     Edges::Upper
                 } else {
@@ -107,7 +106,6 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Transcript),
                 ),
                 title: transcript_title(state, palette, counts_in_titles),
-                status: None,
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
             // The inspected agent's conversation, not a second copy of the activity column: the
@@ -122,7 +120,6 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Inspector),
                 ),
                 title: inspector_title(state, palette, counts_in_titles),
-                status: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Activity => Some(Panel {
@@ -131,7 +128,6 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: title(palette, "Activity", Role::SectionHeading, ""),
-                status: None,
                 edges: if stacking.sidebar {
                     Edges::Lower
                 } else {
@@ -144,7 +140,6 @@ pub fn render(
                     follows_tail: true,
                 },
                 title: notices_title(state, palette),
-                status: None,
                 edges: Edges::All,
             }),
             SurfaceId::Attention => Some(Panel {
@@ -155,7 +150,6 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: attention_title(state, palette),
-                status: None,
                 edges: Edges::All,
             }),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
@@ -167,7 +161,6 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: Line::default(),
-                status: None,
                 edges: if stacking.composer_under.is_some() {
                     Edges::Closing
                 } else {
@@ -176,6 +169,10 @@ pub fn render(
             }),
             SurfaceId::Composer => {
                 Some(composer_panel(state, palette, has_focus, bounds, &stacking))
+            }
+            SurfaceId::Status => {
+                render_status(frame, state, palette, bounds);
+                None
             }
         };
 
@@ -258,8 +255,7 @@ impl Stacking {
     }
 }
 
-/// The primary composer: the bottom section of its conversation's box, whose bottom edge is the
-/// status line.
+/// The primary composer: the bottom section of its conversation's box.
 fn composer_panel(
     state: &ViewState,
     palette: &Palette,
@@ -273,7 +269,6 @@ fn composer_panel(
             follows_tail: true,
         },
         title: composer_title(state, palette),
-        status: status_line(state, palette),
         edges: if stacking.composer_under.is_some() {
             Edges::Lower
         } else {
@@ -458,7 +453,6 @@ mod tests {
             .block(block(
                 palette,
                 transcript_title(state, palette, counts),
-                None,
                 false,
                 Edges::Upper,
             ))
@@ -765,7 +759,11 @@ mod tests {
     fn every_registered_surface_is_drawn_inside_its_own_bounds() {
         let (surfaces, buffer) = draw_frame(&degraded_state(), &Palette::default(), 120, 24);
 
-        assert_eq!(surfaces.len(), 6, "a degraded workspace registers all six");
+        assert_eq!(
+            surfaces.len(),
+            7,
+            "a degraded workspace registers all seven"
+        );
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
             // proves it was drawn.
@@ -777,6 +775,7 @@ mod tests {
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
                 SurfaceId::Inspector => "Inspector",
+                SurfaceId::Status => "~/plexmaton",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(
@@ -854,6 +853,10 @@ mod tests {
             "below wide the activity column is counts in the conversation's title"
         );
         assert!(rendered.contains("Message Agent A"));
+        assert!(
+            rendered.contains("~/plexmaton"),
+            "the status line is the last row"
+        );
     }
 
     #[test]

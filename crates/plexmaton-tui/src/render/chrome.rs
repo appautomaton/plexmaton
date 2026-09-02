@@ -187,11 +187,18 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
     title(palette, name, Role::SectionHeading, "")
 }
 
-/// The status line: the composer's bottom border, saying one thing at a time (INV-7).
+/// The status line: the last row of the screen, saying one thing at a time (INV-7).
 ///
 /// At rest it names the working directory, so the row is never blank and later facts about the
 /// session have a place. A question the user's last key raised replaces it until the next key.
-pub(super) fn status_line(state: &ViewState, palette: &Palette) -> Option<Line<'static>> {
+/// One row under every pane, so the answer is in the same place whichever conversation the key
+/// was pressed in.
+pub(super) fn render_status(
+    frame: &mut Frame<'_>,
+    state: &ViewState,
+    palette: &Palette,
+    area: Rect,
+) {
     let status = state.status();
     let (text, role) = match status.note() {
         StatusNote::QuitArmed => (
@@ -199,13 +206,16 @@ pub(super) fn status_line(state: &ViewState, palette: &Palette) -> Option<Line<'
             Role::ActionRequired,
         ),
         StatusNote::QuitHint => ("Ctrl-D twice to quit".to_owned(), Role::Body),
-        StatusNote::Quiet => (status.working_directory()?.to_owned(), Role::Muted),
+        StatusNote::Quiet => (
+            status.working_directory().unwrap_or_default().to_owned(),
+            Role::Muted,
+        ),
     };
-    Some(Line::from(vec![
+    let line = Line::from(vec![
         Span::raw(" "),
         Span::styled(text, palette.style(role)),
-        Span::raw(" "),
-    ]))
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
 }
 
 pub(super) fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {
@@ -233,7 +243,6 @@ pub(super) fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: R
 pub(super) fn block(
     palette: &Palette,
     title: Line<'static>,
-    status: Option<Line<'static>>,
     focused: bool,
     edges: Edges,
 ) -> Block<'static> {
@@ -264,10 +273,6 @@ pub(super) fn block(
         .borders(borders)
         .border_set(set)
         .border_style(palette.style(border));
-    let block = match status {
-        Some(status) if borders.contains(Borders::BOTTOM) => block.title_bottom(status),
-        _ => block,
-    };
     // An empty title is no title. Ratatui still reserves the top row for one when the block has
     // no top edge, which would leave a one-row region with nowhere to paint its row.
     if title.spans.iter().all(|span| span.content.is_empty()) {

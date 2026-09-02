@@ -112,8 +112,9 @@ impl Default for WorkspaceInput {
 /// A terminal below the minimum registers nothing: the notice that replaces the workspace has no
 /// interactive region, so a pointer event there must resolve to nothing rather than to a guess.
 ///
-/// Rows are handed out in the order the journey cannot do without them: the composer, then the
-/// notice strip, then the Attention band, and the workspace body takes what is left. At the supported minimum that order is what decides which region disappears. The strips
+/// Rows are handed out in the order the journey cannot do without them: the status line, then the
+/// composer, then the notice strip, then the Attention band, and the workspace body takes what is
+/// left. At the supported minimum that order is what decides which region disappears. The strips
 /// sit at the top and the composer inside the conversation's box at the bottom, so what arrives
 /// takes rows from what has been read rather than from what is being read or typed.
 #[must_use]
@@ -123,7 +124,11 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         return tree;
     }
 
-    let budget = area.height;
+    // The status line is the last row, full width, and never negotiates; everything else bids for
+    // what is left. Under every pane rather than in one of them, so what it says about a key does
+    // not depend on which conversation the key was pressed in (INV-7).
+    let status = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
+    let budget = area.height.saturating_sub(status.height);
 
     // Typing is the one thing a workspace this small still has to allow, so the composer is served
     // before the notice strip and before the body, and only clamped to keep the conversation. It
@@ -216,6 +221,12 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         SurfaceId::Attention,
         attention,
         SurfaceKind::Panel,
+    );
+    register(
+        &mut tree,
+        SurfaceId::Status,
+        Some(status),
+        SurfaceKind::Chrome,
     );
 
     tree
@@ -518,9 +529,15 @@ mod tests {
             let tree = workspace(Rect::new(0, 0, width, height), input);
 
             for surface in tree.iter() {
-                // Every bordered region needs two borders and a line before it is worth drawing.
+                // The status line is one unbordered row by design; every bordered region needs
+                // two borders and a line before it is worth drawing.
+                let floor = if surface.id == SurfaceId::Status {
+                    1
+                } else {
+                    MIN_PANEL_HEIGHT
+                };
                 assert!(
-                    surface.bounds.height >= MIN_PANEL_HEIGHT,
+                    surface.bounds.height >= floor,
                     "{width}x{height} {input:?}: {:?} got {} rows",
                     surface.id,
                     surface.bounds.height
@@ -555,7 +572,7 @@ mod tests {
     /// Anything the wheel can reach must also be reachable by keyboard, so pointer eligibility and
     /// the focus ring are one decision made by `SurfaceKind` rather than two that could disagree.
     #[test]
-    fn every_registered_region_takes_the_pointer() {
+    fn only_the_status_line_is_beyond_the_pointer() {
         let tree = workspace(Rect::new(0, 0, 120, 24), input(true));
         let pointer_eligible = |id| {
             tree.get(id)
@@ -571,6 +588,10 @@ mod tests {
         ] {
             assert!(pointer_eligible(id), "{id:?} must be reachable");
         }
+        assert!(
+            !pointer_eligible(SurfaceId::Status),
+            "the status line says things; there is nothing in it to point at"
+        );
     }
 
     /// SURF-3: the ring may lose stops on a short terminal, but it never reorders.
@@ -637,8 +658,8 @@ mod tests {
 
     /// What survives at the smallest supported terminal, in priority order.
     ///
-    /// Twelve rows cannot hold a composer, a conversation, a notice strip and an agent rail at
-    /// once, so this pins which of them goes. Typing and the conversation are the
+    /// Twelve rows cannot hold a status line, a composer, a conversation, a notice strip and an
+    /// agent rail at once, so this pins which of them goes. Typing and the conversation are the
     /// workspace. A producer defect the user cannot see is the failure the notice log exists to
     /// prevent, and
     /// nothing else signals it. A missing agent rail is visible in itself and returns on resize, so

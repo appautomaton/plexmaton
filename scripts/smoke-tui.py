@@ -59,8 +59,10 @@ ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
 # how a report is encoded, so it is the one worth pinning.
 MOUSE_ON = b"\x1b[?1006h"
 MOUSE_OFF = b"\x1b[?1006l"
-# A cell inside the resized Wide layout's transcript column.
+# Cells inside the resized Wide layout: the transcript column, and the status line on the last
+# row. The status line is chrome, so a press there must route to nothing and repaint nothing.
 CLICK_IN_TRANSCRIPT = (40, 10)
+CLICK_IN_STATUS = (5, RESIZED[0] - 1)
 CLICK_SETTLE_SECONDS = 0.8
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 WHITESPACE = re.compile(r"\s+")
@@ -139,6 +141,7 @@ def main() -> int:
 
         # The timeline is drained by now and the projection is static, so any repaint from here on
         # was caused by the click and nothing else.
+        on_chrome = click(master, CLICK_IN_STATUS, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
 
         os.write(master, b"\x04\x04")  # Ctrl-D twice, the quit chord (INV-7)
@@ -169,6 +172,12 @@ def main() -> int:
     if MOUSE_ON not in captured:
         print("smoke: mouse reporting was never enabled", file=sys.stderr)
         failures.append("mouse on")
+    if on_chrome:
+        print(
+            "smoke: a press on the status line repainted; chrome must route to nothing",
+            file=sys.stderr,
+        )
+        failures.append("chrome click")
     if not on_transcript:
         print("smoke: a press on the transcript did not reach the workspace", file=sys.stderr)
         failures.append("transcript click")
@@ -195,7 +204,7 @@ def main() -> int:
     print(
         f"smoke: painted the canonical timeline at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
-        "transcript, accepted the quit chord, and released mouse "
+        "transcript and none to the status line, accepted the quit chord, and released mouse "
         "reporting before the alternate screen"
     )
     return 0

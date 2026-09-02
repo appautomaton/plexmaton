@@ -29,8 +29,6 @@ use crate::{
 pub(super) struct Panel {
     pub(super) body: Body,
     pub(super) title: Line<'static>,
-    /// What the bottom border says, for the one panel whose bottom border is the status line.
-    pub(super) status: Option<Line<'static>>,
     /// Which sides carry a frame, and so how many rows the content cannot have.
     pub(super) edges: Edges,
 }
@@ -122,7 +120,6 @@ pub(super) fn render_steer(
                 Role::SectionHeading,
                 "",
             ),
-            None,
             true,
             Edges::All,
         ));
@@ -160,13 +157,7 @@ pub(super) fn draw_panel(
     }
     let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     if panel.edges != Edges::None {
-        paragraph = paragraph.block(block(
-            palette,
-            panel.title.clone(),
-            panel.status.clone(),
-            focused,
-            panel.edges,
-        ));
+        paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
     }
 
     let (viewport, scroll) = match &panel.body {

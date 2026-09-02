@@ -94,10 +94,11 @@ other rule about input follows from this one.
   acceptable and zero costs too much screen on a small terminal.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
-- **The composer's bottom border is the status line.** It says one thing at a time: at rest, the
-  working directory; after a key that raised a question, the answer, until the next key. Nothing
-  else on screen lists keys. Rejected: a key-hint strip along the bottom, a row of chords nobody
-  read that cost the conversation a line.
+- **The last row of the screen is the status line.** Full width, under every pane, it says one
+  thing at a time: at rest, the working directory; after a key that raised a question, the answer,
+  until the next key. Nothing else on screen lists keys. Rejected: a key-hint strip there, a row of
+  chords nobody read; and the composer's bottom border, which belongs to one conversation, so a
+  question raised from another agent's window was answered in the wrong box.
 - **Quitting is `Ctrl-D` twice.** The first press makes the status line say so, and any other key
   withdraws it. `Ctrl-C` is the shell's interrupt: it clears the draft under the cursor, and with
   nothing to clear it points at `Ctrl-D`. It never quits.

@@ -26,7 +26,9 @@ pub fn canonical_runtime() -> Runtime {
 
 /// The canonical timeline, fully replayed into a projection.
 pub fn canonical_state() -> ViewState {
-    Conversation::canonical().state
+    let mut state = Conversation::canonical().state;
+    state.set_working_directory("~/plexmaton".to_owned());
+    state
 }
 
 /// A projection a test can keep streaming into.

@@ -40,8 +40,7 @@ press, in the status line, and leaves on the second in a row; any other key with
 at the chord. No bare key quits from any focus; a printable `q` is text under a cursor and unbound
 elsewhere. Rejected: `Escape` as quit, which the reflex that closes an overlay would trigger one
 press later; a bare `q`, which ended the session the first time a message was typed one `Tab` too
-early; and `Ctrl-C` as a one-press exit, which took the session where a shell habit meant to take a
-line.
+early; and `Ctrl-C` as a one-press exit, which ended sessions a shell habit meant to interrupt.
 
 **INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
 is routed to no surface, so the terminal's own selection keeps working over an owned screen.
@@ -76,7 +75,7 @@ Idle ─────────────────────────
 
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
-| `Ctrl-D` | Quit chord: ask, then leave on the second press in a row | The same |
+| `Ctrl-D` | Quit chord: ask, then leave on the second press | The same |
 | `Ctrl-C` | Interrupt: clear the draft, else point at the quit chord | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
@@ -98,6 +97,10 @@ is the exception, because under a cursor it submits. Chords translate whether or
 open; whether there is anything to act on is the reducer's question. Key release events are
 ignored, so a terminal reporting press and release does not act twice.
 
+| Fact | Value |
+| --- | --- |
+| Status line | The last row, chrome under every pane: the working directory at rest, replaced by what the last key asked until the next key |
+
 ## Failure modes
 
 | Situation | Response |
@@ -106,7 +109,7 @@ ignored, so a terminal reporting press and release does not act twice.
 | Pointer press outside every registered surface | `Ignored::OutsideWorkspace`; capture is not taken |
 | Drag or release with no capture held | `Ignored::NoCapture` |
 | `Escape` with nothing on the ladder | `Ignored::NothingToDismiss`, not a quit |
-| `Ctrl-C` with nothing to clear | The status line says `Ctrl-D twice to quit`; nothing else changes |
+| `Ctrl-C` with nothing to clear | The status line says `Ctrl-D twice to quit` |
 | Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside it |
 | Wheel over no surface | `Ignored::OutsideWorkspace` |
 | Pointer event with `Shift` held | `Ignored::TerminalSelection` (INV-8) |

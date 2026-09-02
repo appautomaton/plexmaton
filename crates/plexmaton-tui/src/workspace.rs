@@ -434,15 +434,22 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
         redraw(&mut workspace, &mut terminal);
-        assert!(painted(&terminal, &workspace, SurfaceId::Composer).contains("~/work"));
+        assert!(painted(&terminal, &workspace, SurfaceId::Status).contains("~/work"));
 
+        // From inside a sub-agent's window, because the answer must not depend on which
+        // conversation the key was pressed in.
+        workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
+        redraw(&mut workspace, &mut terminal);
+        workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+        redraw(&mut workspace, &mut terminal);
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
         assert_eq!(
             workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
             Outcome::default(),
             "the first press asks"
         );
         redraw(&mut workspace, &mut terminal);
-        let asked = painted(&terminal, &workspace, SurfaceId::Composer);
+        let asked = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(asked.contains("press Ctrl-D again to quit"), "{asked}");
         assert!(
             !asked.contains("~/work"),
@@ -456,7 +463,7 @@ mod tests {
             Flow::Continue
         );
         redraw(&mut workspace, &mut terminal);
-        let withdrawn = painted(&terminal, &workspace, SurfaceId::Composer);
+        let withdrawn = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(
             withdrawn.contains("~/work"),
             "any other key withdraws it: {withdrawn}"
@@ -497,7 +504,7 @@ mod tests {
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Composer).contains("~/work"),
+            painted(&terminal, &workspace, SurfaceId::Status).contains("~/work"),
             "taking the draft asks nothing"
         );
 
@@ -506,7 +513,7 @@ mod tests {
         workspace
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
-        let hinted = painted(&terminal, &workspace, SurfaceId::Composer);
+        let hinted = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(hinted.contains("Ctrl-D twice to quit"), "{hinted}");
 
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));

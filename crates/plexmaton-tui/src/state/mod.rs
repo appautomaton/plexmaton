@@ -360,6 +360,31 @@ mod tests {
         test_support::canonical_state,
     };
 
+    /// SURF-3: focus is a stop on the ring, and a press on chrome is not a way off it.
+    #[test]
+    fn focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it() {
+        let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());
+        let mut state = canonical_state();
+
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Agents));
+
+        state.focus_surface(&surfaces, SurfaceId::Transcript);
+        assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
+
+        let before = state.revision();
+        state.focus_surface(&surfaces, SurfaceId::Status);
+        assert_eq!(
+            state.focused(&surfaces),
+            Some(SurfaceId::Transcript),
+            "the status line is not a focus stop, so the press must leave focus where it was"
+        );
+        assert_eq!(
+            state.revision(),
+            before,
+            "a press that changes nothing must not force a repaint"
+        );
+    }
+
     #[test]
     fn cycling_focus_walks_the_ring_and_wraps() {
         let surfaces = layout::workspace(Rect::new(0, 0, 120, 24), WorkspaceInput::default());

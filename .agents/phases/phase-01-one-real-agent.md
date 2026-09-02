@@ -40,7 +40,7 @@ eviction; nothing removes a transcript item, so cache pruning has never run.
 
 1. **Composition, finished and frozen in frames.** One row per agent with its status on the row;
    the agent list a column from wide up and a band below; focus shown by the border, not the
-   title; the status line in the composer's bottom border; no user-facing word is `inspector`,
+   title; the status line on the last row; no user-facing word is `inspector`,
    `shelf` or `column`. Three frames of the canonical scenario, at wide, medium and narrow, checked
    in, compared by a test, and read by eye.
 2. **The producer.** One provider adapter behind the semantic boundary: streaming, tool calls, a
