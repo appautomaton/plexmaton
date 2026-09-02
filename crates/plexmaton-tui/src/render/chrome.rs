@@ -141,8 +141,10 @@ pub(super) fn inspector_title(
     palette: &Palette,
     with_counts: bool,
 ) -> Line<'static> {
+    // The surface is registered only while an agent is open, so this is no title rather than a
+    // word the user would otherwise never see (phase 01 §scope 1).
     let Some(open) = state.inspector() else {
-        return title(palette, "Inspector", Role::SectionHeading, "");
+        return title(palette, "", Role::SectionHeading, "");
     };
     let Some(agent) = state.agent(&open.agent) else {
         return title(

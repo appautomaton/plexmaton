@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; opened 2026-09-02; step 1 next |
+| Status | Active; opened 2026-09-02; step 1 done 2026-09-02; step 2 next |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -38,11 +38,13 @@ eviction; nothing removes a transcript item, so cache pruning has never run.
 
 ## Scope
 
-1. **Composition, finished and frozen in frames.** One row per agent with its status on the row;
-   the agent list a column from wide up and a band below; focus shown by the border, not the
-   title; the status line on the last row; no user-facing word is `inspector`,
-   `shelf` or `column`. Three frames of the canonical scenario, at wide, medium and narrow, checked
-   in, compared by a test, and read by eye.
+1. **Composition, finished and frozen in frames.** Done. One row per agent with its status on
+   the row and an unanswered-request badge on the list's title; the list a column from wide up
+   and a band below; focus shown by the border; the status line on the last row, where `Ctrl-D`
+   asks before it quits; no user-facing word is `inspector`, `shelf` or `column`, proven over the
+   painted chrome. Three frames of the canonical scenario, at wide, medium and narrow, live in
+   `crates/plexmaton-tui/frames/`, compared cell by cell on every test run, and were read by the
+   user on 2026-09-02.
 2. **The producer.** One provider adapter behind the semantic boundary: streaming, tool calls, a
    bounded tool set (read, search, run a command), the loop that executes a call and continues
    until the model stops asking, and approval before a mutating call. It emits `PrototypeEvent`,

@@ -7,6 +7,7 @@
 //! remember ([`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md) FR-3).
 
 mod content;
+mod frames;
 mod intent;
 #[cfg(test)]
 mod journey;

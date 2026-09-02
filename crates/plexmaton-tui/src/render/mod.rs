@@ -774,7 +774,7 @@ mod tests {
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
-                SurfaceId::Inspector => "Inspector",
+                SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
             };
             let painted = region_text(&buffer, surface.bounds);
