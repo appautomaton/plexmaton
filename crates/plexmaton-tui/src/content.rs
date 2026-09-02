@@ -112,7 +112,9 @@ pub(crate) fn composer_collapsed(state: &ViewState, palette: &Palette) -> Vec<Li
     );
     vec![Line::from(vec![
         Span::styled(format!("Message {target}"), palette.style(Role::Muted)),
-        Span::styled("  ·  ⇥ to return", palette.style(Role::KeyHint)),
+        Span::styled("  ·  ", palette.style(Role::Muted)),
+        Span::styled(" ⇥ ", palette.style(Role::KeyHint)),
+        Span::styled(" to return", palette.style(Role::Muted)),
     ])]
 }
 

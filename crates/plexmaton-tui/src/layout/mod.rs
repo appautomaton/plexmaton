@@ -8,7 +8,7 @@ mod inspector;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 
-pub use inspector::InspectorRequest;
+pub use inspector::{InspectorRequest, SteerSplit, steer_split};
 
 use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 

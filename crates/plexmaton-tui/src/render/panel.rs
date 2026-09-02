@@ -18,12 +18,9 @@ use super::{BORDER_ROWS, chrome::block};
 use crate::{
     ViewState,
     state::{ScrollPosition, inner_width},
-    surface::{SurfaceId, Viewport},
+    surface::Viewport,
     theme::{Palette, Role},
 };
-
-/// Rows a bordered region needs before it is worth drawing content into: two borders and one line.
-const MIN_CONVERSATION_ROWS: u16 = 3;
 
 /// One bordered, scrollable region, ready to draw.
 pub(super) struct Panel {
@@ -60,47 +57,6 @@ impl Body {
             Self::Whole { lines, .. } | Self::Window { lines, .. } => lines,
         }
     }
-}
-
-/// Takes the inspector's input strip out of the inspector's own rectangle.
-///
-/// Returns what is left for the conversation, and where the input goes. The strip comes off the
-/// bottom because that is where the main composer is, and a workspace whose two inputs sit in
-/// different places is one the user has to look for.
-///
-/// A rectangle with no room for both keeps the conversation and shows no input. That is the same
-/// all-or-nothing rule the row budget uses: an input squeezed to nothing is a place the cursor
-/// claims to be and is not.
-pub(super) fn steer_split(
-    state: &ViewState,
-    id: SurfaceId,
-    bounds: Rect,
-    has_focus: bool,
-) -> (Rect, Option<(Rect, AgentId)>) {
-    if id != SurfaceId::Inspector || !has_focus {
-        return (bounds, None);
-    }
-    let Some(agent_id) = state.agent_shown_by(id) else {
-        return (bounds, None);
-    };
-    let wanted = state
-        .draft(&agent_id)
-        .requested_rows(inner_width(bounds.width));
-    let room = bounds.height.saturating_sub(MIN_CONVERSATION_ROWS);
-    let rows = wanted.min(room);
-    if rows < MIN_CONVERSATION_ROWS {
-        return (bounds, None);
-    }
-    let above = Rect {
-        height: bounds.height.saturating_sub(rows),
-        ..bounds
-    };
-    let strip = Rect {
-        y: above.bottom(),
-        height: rows,
-        ..bounds
-    };
-    (above, Some((strip, agent_id)))
 }
 
 /// Draws the inspector's input and puts the workspace's one cursor in it (INS-5, COM-1).
@@ -167,6 +123,7 @@ pub(super) fn draw_panel(
             let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
             let mut viewport = Viewport {
                 content_rows: measured.saturating_sub(frame_rows),
+                content_width: inner_width,
                 visible_rows: area.height.saturating_sub(frame_rows),
                 offset: 0,
             };

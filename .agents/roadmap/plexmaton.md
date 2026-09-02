@@ -65,7 +65,7 @@ The product should feel immediate under load, preserve completed work durably, a
 
 - A delegated agent is a real session with its own identity, transcript, lifecycle, context, tools, and durable history.
 - Delegation is asynchronous. Starting agent B returns control to agent A and the user-facing TUI immediately.
-- Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts.
+- Selecting an agent opens an inspector surface showing its transcript, tool activity, mailbox traffic, status, and artifacts. The composed surface is Phase 03's; Phase 00's inspector is the conversation, and the other four belong to the activity column (D-046).
 - Agent inspectors are independently scrollable and may be opened as a floating window, pinned pane, or maximized view without changing the underlying session.
 - Agent-to-agent communication is typed mail between sessions, not a fake user message and not a blocking tool result.
 - Bulk findings remain in artifacts or the delegated session; mail carries a bounded summary and durable pointers.

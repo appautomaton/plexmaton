@@ -34,7 +34,7 @@ Use these terms consistently in product copy, architecture, and tests:
 | Artifact | Durable work product or evidence referenced by identity/path rather than copied into mail |
 | Surface | A rendered interactive region participating in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
-| Inspector | A surface exposing one agent/session's transcript, tools, mail, artifacts, and state |
+| Inspector | A surface exposing one agent/session's transcript, tools, mail, artifacts, and state. In Phase 00 it is the conversation alone; the other four are the activity column's until Phase 03 (D-046) |
 | Peek | A lightweight, dismissible inspector presentation |
 | Pin | Promote a transient inspector into persistent workspace layout |
 
@@ -156,6 +156,8 @@ viewport beneath it. "Exhausted" and "not scrollable" are deliberately different
 - Visual hierarchy comes from spacing, alignment, restrained color, and consistent component grammar before decorative borders.
 - Agent, mail, tool, reasoning, artifact, warning, and error content are visually distinguishable without relying on color alone.
 - Typeset math is the primary presentation; source is an interaction layer for inspect/copy and a clear failure representation.
+- Colour is twelve semantic tokens (D-013). Widgets name a role — body, muted, border, focus, heading, accent, key hint, and the four attention levels plus selection — never a terminal colour.
+- A palette is a complete assignment of those tokens. The three shipped palettes are presets; a new colourway is a new assignment, not a fourth constructor and not a widget edit (D-048). Default remains `ansi` so the user's terminal theme wins.
 
 ### Selection and copy
 
@@ -190,6 +192,11 @@ The experience skeleton must determine the durable arrangement of these product 
 - Permission, approval, and confirmation surfaces
 
 The first prototype may place them provisionally. The exit gate requires evidence for what remains persistent, collapsible, overlaid, or command-driven.
+
+Phase 00's answer to the third row, so it is not left to be inferred from what got built: the
+inspector is the inspected agent's **conversation**, and its tool activity, mail, artifacts and
+metadata are the activity column's, for the selected agent. Composing them into one surface is
+Phase 03's, with the reasoning and the cost in D-046.
 
 ## Surface model
 
@@ -390,7 +397,7 @@ spent is a frame the user waits for.
 | Layout work per updated transcript block | 1 item wrapped | 1 wrapped, 27 lines built, at any history length | `streaming delta` |
 | Opening an unmeasured conversation | 20 ms | 12.6 ms p50, 13.4 ms max | `cold open`, and the first frame of `switch reader` |
 | Resize recovery | 20 ms | 12.4 ms p50, 14.3 ms max | `resize` |
-| Memory retained per hidden conversation | one cache entry per message | 10,000 entries for two 5,000-message conversations; nothing else is retained | `switch reader`, `two conversations` |
+| Memory retained per hidden conversation | one cache entry per message, per width that conversation is drawn at | 10,000 entries for two 5,000-message conversations; nothing else is retained. At most two widths are kept per conversation, so a run of resizes does not grow it (TR-1) | `switch reader`, `two conversations` |
 
 **Read the observed column as an order of magnitude, not a baseline.** These are the quiet-machine
 figures. The same binary, on the same laptop hours earlier under compile load, measured roughly

@@ -131,6 +131,13 @@ pub enum SurfaceId {
 pub struct Viewport {
     /// Rows the content occupies once wrapped to this surface's width.
     pub content_rows: u16,
+    /// The width those rows were wrapped at, borders excluded.
+    ///
+    /// It travels with the row count because it is what makes the row count mean anything: the same
+    /// conversation is a different number of rows at every width, and two surfaces can be showing
+    /// one conversation at two widths in the same frame. Anything turning a row back into a
+    /// transcript item has to be told which of them it is holding (TR-1, TR-3).
+    pub content_width: u16,
     /// Rows of the surface that show content, borders excluded.
     pub visible_rows: u16,
     /// Rows scrolled past the top. Always within `0..=max_offset`.

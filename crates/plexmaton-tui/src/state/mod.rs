@@ -143,7 +143,9 @@ impl ViewState {
     #[must_use]
     pub fn text_target(&self, surfaces: &SurfaceTree) -> Option<AgentId> {
         match self.focus.resolve(surfaces)? {
-            SurfaceId::Inspector => self.inspector.open().map(|view| view.agent.clone()),
+            // Not merely "an inspector is open": one with no room for its input has no cursor, so
+            // it has nowhere for a keystroke to land either (INS-7).
+            SurfaceId::Inspector => self.steer_input(surfaces).map(|(_, agent)| agent),
             SurfaceId::Composer => self.agents.primary().map(|agent| agent.id.clone()),
             _ => None,
         }
@@ -307,10 +309,11 @@ impl ViewState {
         self.focus.resolve(surfaces)
     }
 
-    /// Resolves where typed text would go, from the focused surface's kind alone (SURF-3).
+    /// Resolves where typed text would go (SURF-3), and whether that input is on screen (INS-7).
     #[must_use]
     pub fn keyboard_focus(&self, surfaces: &SurfaceTree) -> KeyboardFocus {
-        self.focus.keyboard(surfaces)
+        self.focus
+            .keyboard(surfaces, self.steer_input(surfaces).is_some())
     }
 
     /// Returns where the user last put this panel, if they ever moved it.

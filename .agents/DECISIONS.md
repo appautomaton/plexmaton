@@ -24,6 +24,9 @@ again the same way — age first, then move the number.
 
 | ID | Date | Decision | Status | Detail |
 | --- | --- | --- | --- | --- |
+| D-048 | 2026-09-01 | A palette is a complete assignment of the twelve colour roles; the three constructors are presets, not a closed set | Accepted | [ui-ux](./roadmap/ui-ux.md) §readability, `plexmaton-tui::theme` |
+| D-047 | 2026-09-01 | An inspector with no room for its input becomes a navigation surface: no input, no cursor, no draft | Accepted | [inspector](./specs/inspector.md) INS-7 |
+| D-046 | 2026-09-01 | In Phase 00 an inspector is a conversation; tools, mail, artifacts and status stay with the activity column, and the composed inspector the roadmap describes is Phase 03's | Accepted | [inspector](./specs/inspector.md) INS-6 |
 | D-045 | 2026-08-31 | An action-required event joins a visible, ordered band and takes nothing; going to one is the user's keypress, and acknowledging it is not resolving it | Accepted | [attention](./specs/attention.md) ATT-1 to ATT-3 |
 | D-044 | 2026-08-31 | A navigation key means "move inside what holds focus": it chooses an agent only in the rail and scrolls everywhere else, which is how the wheel finally has a keyboard equivalent | Accepted | [interaction-routing](./specs/interaction-routing.md) INV-10 |
 | D-043 | 2026-08-31 | A selection is a range over a surface's entries, never over cells; copy returns the producer's source, is bound to `Ctrl-Y`, and is delivered by OSC 52 | Accepted | [selection-and-copy](./specs/selection-and-copy.md) SEL-1 to SEL-5 |
@@ -72,27 +75,34 @@ again the same way — age first, then move the number.
 
 ## Rejected alternatives
 
-### D-043 · Character-granular selection inside a message — rejected
+### D-046 · A composed five-domain inspector in Phase 00 — rejected for now
 
-It needs an inverse map from painted cells back through the wrapping cache to byte offsets, and that
-is not merely more work: it makes SEL-1 false. A sub-item range is expressed in wrapped rows, so the
-same selection would copy different text at a different width — the exact property the entry-based
-model exists to guarantee. Nothing in the journey copies half a message.
+Two documents described one and the surface was another, so the gap had to close in one direction.
+It closes by scoping, because nothing in this phase asks for the rest: the exit gate wants two
+conversations streaming independently, and semantic copy of mail and artifacts, which the activity
+column already gives for the selected agent. Composing them needs sub-region scroll ownership, a
+selection index meaning different things in different parts of one surface, and an expand/collapse
+model [transcript-layout](./specs/transcript-layout.md) deliberately lacks — a delivery step, not a
+correction, and Phase 03 already owns the ground it stands on. The cost is
+recorded rather than smoothed over: at ultrawide the inspector *is* the one secondary column
+(D-024), so mail and artifacts stay reachable but not beside a second conversation.
 
-### D-043 · `arboard` for clipboard access — rejected for now
+### D-047 · Guaranteeing the inspector enough rows for its input — rejected
 
-It reaches the desktop the *process* runs on, which over SSH or inside tmux is the wrong machine —
-and the phase file already recorded that a local clipboard cannot be the only path. OSC 52 reaches
-the terminal the *user* is at, needs no crate at all (Crossterm has the feature), and covers the
-harder case. It has a real cost: the terminal never acknowledges it, and many decline it unless
-configured. That cost is stated rather than hidden, which is why the workspace claims nothing about
-a copy having landed. A native path waits for a user whose terminal refuses OSC 52.
+Tempting, because clamping a focused inspector to a conversation plus an input makes the bad state
+unreachable. Rejected because the clamp depends on focus, so `Tab` would resize a panel — geometry
+moving unasked, which INS-3 forbids. INS-5 was already right; only its other half was missing.
 
-### D-043 · `Ctrl-C` as the copy binding — rejected
+### D-043 · Character selection, `arboard`, and `Ctrl-C` as the copy key — all rejected
 
-The familiar one, and unavailable: `Ctrl-C` is the unconditional exit (INV-7), and a key that both
-copies and ends sessions is worse than an unfamiliar one. `Ctrl-Y` is the binding, and the `Shift`
-escape hatch to the terminal's own copy covers the habit.
+Aged: [selection-and-copy](./specs/selection-and-copy.md) owns the model and the binding, and
+[phase-00](./roadmap/phase-00-experience-skeleton.md) §candidates owns the clipboard constraint.
+Three verdicts. **Character-granular** selection needs an inverse map from painted cells back to
+byte offsets, and makes SEL-1 false: a range in wrapped rows copies different text at a different
+width. **`arboard`** reaches the desktop the *process* runs on, which over SSH or tmux is the wrong
+machine; OSC 52 reaches the terminal the *user* is at and needs no crate, at the stated cost that
+nothing acknowledges it. **`Ctrl-C`** is the unconditional exit (INV-7), and a key that both copies
+and ends sessions is worse than an unfamiliar one.
 
 ### D-045 · Resolving an attention item from inside the queue — rejected for now
 
@@ -103,19 +113,14 @@ still outstanding.
 
 Only where a serious alternative was considered. The reason matters more than the verdict.
 
-### D-042 · An inspector that replaces the conversation it was opened from — rejected
+### D-042 · An inspector tied to the selection — two shapes, both rejected
 
-The simpler model: `Enter` selects and opens, so the inspector shows what the conversation already
-shows. Then the shelf displays a second copy of the surface beneath it and "overlay without
-occlusion" protects rows nobody needed. Separating the axes is what makes the geometry worth having,
-and it is what gives pinning a meaning — a pin is the inspector declining to follow.
-
-### D-042 · Closing an unpinned inspector when the selection moves — rejected
-
-The first implementation, read correctly from `ui-ux.md`'s "pinned is whether a surface survives the
-user working elsewhere", and wrong in use: the peek ended at the moment it became useful, which is
-when the user returns to the conversation they were reading. An unpinned inspector follows instead.
-The contract sentence still holds; it just does not mean the unpinned one dies.
+Aged: [inspector](./specs/inspector.md) INS-1 owns what pinning means, and its failure-modes table
+owns the state that follows. Two verdicts. Making `Enter` **select and open** leaves the shelf
+showing a second copy of the surface beneath it, so "overlay without occlusion" protects rows nobody
+needed and pinning means nothing. **Closing an unpinned inspector** when the selection moves was the
+first implementation, read correctly from `ui-ux.md` and wrong in use: the peek ended at the moment
+it became useful, which is when the user goes back to the conversation they were reading.
 
 ### D-041 · `criterion` as the measurement lane — rejected
 
@@ -135,18 +140,14 @@ Aged: [ui-ux](./roadmap/ui-ux.md) §input owns the rationale. The verdict is tha
 follows the selection is invisible state, and a misdirected steer to a running worker is not undone
 by sending another one.
 
-### D-019 · Forbidding direct user steering — rejected
+### D-019 · Steering only through the delegator, and steering it never sees — both rejected
 
-Routing every instruction through the delegating agent removes divergence by construction, but it
-is a game of telephone, and it contradicts a locked product goal: the user steers, pauses, and
-aborts workers through explicit actions.
-
-### D-019 · Allowing steering that the delegator never sees — rejected
-
-The cheapest option and the worst. The delegator's model of the task goes stale invisibly, which
-is the "multiple sources of truth with synchronisation code between them" anti-pattern in its
-textbook form. It also produces a failure the user cannot diagnose: the delegator reports one
-thing while the worker does another.
+Aged: [delegation-and-steering](./specs/delegation-and-steering.md) owns the record and its two
+writers. **Routing every instruction through the delegator** removes divergence by construction and
+is a game of telephone, contradicting a locked goal: the user steers, pauses and aborts workers
+through explicit actions. **Steering it never sees** is the cheapest option and the worst — the
+delegator's model of the task goes stale invisibly, which is the multiple-sources-of-truth
+anti-pattern in textbook form, and it fails where the user cannot diagnose it.
 
 ### D-032 · Claude Code skills as the trigger layer — rejected
 
@@ -242,9 +243,13 @@ Aged: [standards/rust.md](./standards/rust.md) and
 [standards/quality-gates.md](./standards/quality-gates.md) own the reasoning. The fact that survives
 them: `missing_docs` across the workspace produced 61 findings, nearly all restated signatures.
 
+### D-048 · Three palettes as a closed set — rejected
+
+The vocabulary is the twelve roles. Treating `ansi` / `truecolor` / `monochrome` as the only
+constructible themes would make a new colourway a fourth constructor, or a `Color` inside a widget.
+Presets stay; a palette is any complete assignment (`Palette::from_roles`, `Workspace::with_palette`).
+
 ### D-016 supersedes part of the revision-1 floating-window proposal
 
-Revision 1 proposed free two-axis drag and resize for every inspector in Phase 00. The shelf makes
-most of that unnecessary: a top-docked panel needs only a vertical resize handle. Free drag is
-retained for pinned and maximized surfaces only. This is a deliberate reduction in Phase 00 scope,
-not a deferral of a defining behaviour.
+Aged: [ui-ux](./roadmap/ui-ux.md) §shelf. A docked panel needs a vertical resize handle; free drag
+is a reduction of the revision-1 floating-window proposal, not a deferral of a defining behaviour.

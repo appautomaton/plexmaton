@@ -1,7 +1,14 @@
+//! Semantic colour tokens and the palettes that assign them a style.
+//!
+//! Widgets name a [`Role`], never a terminal colour (D-013). A [`Palette`] is one complete
+//! assignment of those tokens; [`Palette::ansi`], [`Palette::truecolor`], and
+//! [`Palette::monochrome`] are shipped presets, not a closed set (D-048). A new colourway is a
+//! new assignment, not a change to a widget.
+
 use plexmaton_core::{AgentStatus, ToolActivityStatus};
 use ratatui::style::{Color, Modifier, Style};
 
-/// A semantic colour role.
+/// A semantic colour token.
 ///
 /// Widgets name a role, never a terminal colour. That keeps a palette change to one edit and
 /// makes low-colour degradation a single implementation rather than a decision repeated at every
@@ -115,6 +122,28 @@ pub struct Palette {
 }
 
 impl Palette {
+    /// Builds a complete palette from a function of the colour tokens.
+    ///
+    /// Every role is assigned exactly once. A palette that left a role unset would force a widget
+    /// to pick a colour, which is the thing this type exists to prevent (D-048).
+    #[must_use]
+    pub fn from_roles(mut style: impl FnMut(Role) -> Style) -> Self {
+        Self {
+            body: style(Role::Body),
+            muted: style(Role::Muted),
+            border: style(Role::Border),
+            border_focused: style(Role::BorderFocused),
+            section_heading: style(Role::SectionHeading),
+            accent: style(Role::Accent),
+            key_hint: style(Role::KeyHint),
+            ambient: style(Role::Ambient),
+            new_information: style(Role::NewInformation),
+            action_required: style(Role::ActionRequired),
+            failure: style(Role::Failure),
+            selection: style(Role::Selection),
+        }
+    }
+
     /// Palette built from the sixteen ANSI colours.
     ///
     /// This is the default because named colours resolve through the user's own terminal theme,
@@ -129,7 +158,9 @@ impl Palette {
             border_focused: Style::new().fg(Color::Cyan),
             section_heading: Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             accent: Style::new().fg(Color::Cyan),
-            key_hint: Style::new().fg(Color::Black).bg(Color::Cyan),
+            // Reverse, not a named colour: a cyan chip next to muted labels made the footer
+            // compete with focus for the same hue.
+            key_hint: Style::new().add_modifier(Modifier::REVERSED),
             ambient: Style::new().fg(Color::Blue),
             new_information: Style::new().fg(Color::Green),
             action_required: Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
@@ -152,7 +183,6 @@ impl Palette {
         const INFO: Color = Color::Rgb(0x55, 0xC0, 0x8A);
         const ATTENTION: Color = Color::Rgb(0xDD, 0xA3, 0x3F);
         const FAILURE: Color = Color::Rgb(0xE8, 0x74, 0x6D);
-        const GROUND: Color = Color::Rgb(0x0B, 0x11, 0x14);
 
         Self {
             body: Style::new().fg(INK),
@@ -161,7 +191,7 @@ impl Palette {
             border_focused: Style::new().fg(ACCENT),
             section_heading: Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
             accent: Style::new().fg(ACCENT),
-            key_hint: Style::new().fg(GROUND).bg(ACCENT),
+            key_hint: Style::new().add_modifier(Modifier::REVERSED),
             ambient: Style::new().fg(AMBIENT),
             new_information: Style::new().fg(INFO),
             action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
@@ -223,6 +253,8 @@ impl Default for Palette {
 mod tests {
     use std::collections::HashSet;
 
+    use ratatui::style::Modifier;
+
     use super::{Palette, Role};
 
     fn palettes() -> [(&'static str, Palette); 3] {
@@ -278,6 +310,39 @@ mod tests {
             for role in Role::ALL {
                 let _ = palette.style(role);
             }
+        }
+    }
+
+    #[test]
+    fn key_hints_are_reversed_without_a_named_colour() {
+        for (name, palette) in palettes() {
+            let style = palette.style(Role::KeyHint);
+            assert!(
+                style.add_modifier.contains(Modifier::REVERSED),
+                "{name} key hints are not reversed"
+            );
+            assert!(
+                style.fg.is_none() && style.bg.is_none(),
+                "{name} key hints inject a named colour"
+            );
+            assert_ne!(
+                style,
+                palette.style(Role::Accent),
+                "{name} paints keys as identity emphasis"
+            );
+        }
+    }
+
+    #[test]
+    fn a_palette_is_a_complete_assignment_of_roles() {
+        let ansi = Palette::ansi();
+        let rebuilt = Palette::from_roles(|role| ansi.style(role));
+        for role in Role::ALL {
+            assert_eq!(
+                rebuilt.style(role),
+                ansi.style(role),
+                "{role:?} did not round-trip through from_roles"
+            );
         }
     }
 }

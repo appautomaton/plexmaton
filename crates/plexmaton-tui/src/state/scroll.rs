@@ -115,6 +115,11 @@ impl ScrollState {
     /// The metrics are the only thing that can turn a row back into an item, which is why they
     /// reach this far in: storing a row here would leave a number that means something different
     /// after the next resize (TR-3).
+    ///
+    /// Both directions are resolved at `viewport.content_width` — the width the frame that produced
+    /// this viewport measured at. Reading whichever width the cache saw last turns a row of one
+    /// panel into an item of the other, which is a reader landing on a message they never scrolled
+    /// to whenever two surfaces show one conversation.
     pub(super) fn scroll_conversation(
         &mut self,
         agent_id: &AgentId,
@@ -123,11 +128,12 @@ impl ScrollState {
         metrics: &TranscriptMetrics,
     ) -> bool {
         let max_offset = viewport.max_offset();
+        let width = viewport.content_width;
         let current = self
             .conversations
             .get(agent_id)
             .map_or(viewport.offset, |position| {
-                metrics.offset_of(agent_id, position, max_offset)
+                metrics.offset_of(agent_id, width, position, max_offset)
             });
         let Some(next) = step(current, direction, max_offset) else {
             return false;
@@ -137,7 +143,7 @@ impl ScrollState {
         } else {
             // A row inside the conversation always names an item. Nothing else can be anchored to,
             // so a conversation nothing has measured is left alone rather than parked at a guess.
-            let Some(anchor) = metrics.anchor_at(agent_id, next) else {
+            let Some(anchor) = metrics.anchor_at(agent_id, width, next) else {
                 return false;
             };
             anchor
@@ -170,6 +176,9 @@ mod tests {
             content_rows,
             visible_rows,
             offset,
+            // These fixtures scroll panels, which park on a row. The width a conversation's
+            // anchor would be resolved at has no part in it.
+            ..Viewport::default()
         }
     }
 

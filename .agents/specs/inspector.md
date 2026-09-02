@@ -46,16 +46,32 @@ composer collapses to a single row that stays clickable and stays a focus stop (
 with no room for both keeps the conversation and shows no input, which is the same all-or-nothing
 rule the row budget uses.
 
-**INS-6 — What an inspector shows is a conversation.** The inspected agent's, virtualized through
-the same cache and the same reading position the main conversation uses (TR-1, TR-3, TR-5) — so two
-of them on screen scroll independently because their readers are keyed by agent, not because a
-second mechanism was added. It is not a second copy of the activity column: that column already
-shows the selected agent's tools, artifacts and mail, and reaching another agent's is what selecting
-it is for.
+**INS-6 — What an inspector shows is a conversation, and in Phase 00 that is all it shows.** The
+inspected agent's, virtualized through the same cache and the same reading position the main
+conversation uses (TR-1, TR-3, TR-5) — so two of them on screen scroll independently because their
+readers are keyed by agent, not because a second mechanism was added. It is not a second copy of the
+activity column: that column already shows the selected agent's tools, artifacts and mail, and
+reaching another agent's is what selecting it is for.
 
 The first implementation drew the detail rather than the conversation, which left canonical step 5 —
 two agents streaming into independent virtualized transcripts — never exercised, and the surface's
 own measurement measuring a small detail panel. Corrected 2026-09-01.
+
+The composed inspector `ui-ux.md` and `plexmaton.md` describe — transcript, tools, mail, artifacts
+and status in one surface — is **deferred to Phase 03, not weakened** (D-046). Both documents now
+say which phase owns it. The consequence to know while working at ultrawide is that the inspector is
+the one secondary column (D-024), so opening it hides the activity column until `Escape` closes it.
+
+**INS-7 — An inspector with no room for its input is a navigation surface.** INS-5 says a rectangle
+that cannot hold both keeps the conversation and shows no input; this is the other half of that
+sentence. With no input drawn there is no cursor, no text target, and no draft to type into, and the
+same geometry answers all three — one function, called by the renderer and by focus, so the
+affordance, the caret and the keystroke cannot reach different conclusions (D-047).
+
+Reported as text focus regardless, the surface placed the caret at the end of the conversation's
+last built line — inside a transcript item, as though a message were an editor — and accepted
+typing into a draft with nothing on screen to show it. Restoring the rows restores the input, the
+cursor, and the draft that was waiting for it.
 
 ## Model
 
@@ -75,7 +91,8 @@ ViewState                          layout::inspector
 | Which agent is inspected | `state::inspector::Inspector` | User intent, and it has to survive frames and selection changes |
 | Which presentation is used | `layout::inspector`, per frame | Derived from size; storing it would let a stored value disagree with the terminal |
 | Whether a press began a resize | `state::inspector::Inspector` | The router owns *that* a gesture is in progress (INV-4); what the gesture means is not its business |
-| Which agent a keystroke addresses | Derived from the focused surface | Two answers to "where does this go" is how a steer reaches the wrong worker |
+| Which agent a keystroke addresses | Derived from the focused surface, and from whether its input fits | Two answers to "where does this go" is how a steer reaches the wrong worker, or reaches a draft nobody can see (INS-7) |
+| Where the inspector's input goes | `layout::inspector::steer_split`, per frame | Geometry, and a draw call must not be where a surface decides which of two states it is in |
 | The draft itself | `ViewState`, keyed by agent | A draft belongs to the conversation it addresses, so peeking elsewhere and returning finds it |
 
 ### Geometry
@@ -120,6 +137,7 @@ is what makes them reachable while the inspector's own input holds the cursor.
 | A press on another surface while a grab is held | Clears the grab rather than leaving a stale one for the next drag |
 | A height dragged past the guarantee | Clamped to it. Dragging is a choice inside the contract, never a way out |
 | A conversation region too small for two surfaces | Maximized, not a sliver |
+| An inspector rectangle too short for a conversation and an input | Keeps the conversation and becomes navigation-only: no input, no cursor, no draft (INS-7). It still holds focus, and giving the rows back gives the input back |
 | Focus preferring an inspector that is not registered | Falls back to the first ring stop, and reclaims focus if it returns (SURF-5) |
 
 ## Out of scope
@@ -131,9 +149,11 @@ is what makes them reachable while the inspector's own input holds the cursor.
 - **Free two-axis drag.** Cut by D-028 before this step: a shelf is docked, so only its height is a
   user choice.
 - **Expand and collapse for tool activity.** A transcript-item behaviour, not an inspector one.
-- **A second full conversation at ultrawide.** The inspector becomes the secondary column and
-  carries a conversation among other things; three live transcripts is the monitoring layout D-024
-  already declined.
+- **Tools, mail, artifacts and status inside the inspector.** Phase 03's, with the reasoning in
+  D-046. The activity column owns them for the selected agent, and reaching another agent's is what
+  selecting it is for.
+- **A third live conversation at ultrawide.** The inspector becomes the secondary column, and D-024
+  allows exactly one; three live transcripts is the monitoring layout it already declined.
 
 ## Evidence
 
@@ -144,4 +164,5 @@ is what makes them reachable while the inspector's own input holds the cursor.
 | INS-3 | `presentation_follows_the_terminal_and_the_users_maximize`, `the_composer_survives_every_presentation`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
 | INS-4 | `enter_opens_the_inspector_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter` |
 | INS-5 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `only_a_press_on_the_bottom_edge_starts_a_resize`, `the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does` |
-| INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first` |
+| INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
+| INS-7 | `an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor`, `an_inspector_splits_for_its_input_only_when_both_still_fit` |

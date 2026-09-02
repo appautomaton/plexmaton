@@ -24,6 +24,13 @@ same wrapper that paints it (D-039), and is recomputed only when that item's rev
 width changes. A streaming delta re-measures one item; a resize re-measures each item once; an
 unchanged frame re-measures none.
 
+The width is part of the *key*, not merely a validity check: two surfaces draw a conversation and an
+unpinned inspector follows the selection (INS-1), so at ultrawide the same history is measured twice
+in one frame at two widths. One set of heights per agent made each panel invalidate the other's, and
+the counts above became one whole history per panel per frame. A conversation therefore keeps one
+set per width, bounded by the two surfaces that can draw one, evicting the width least recently
+measured.
+
 **TR-2 — A frame builds only what it draws.** The lines a frame constructs are bounded by the
 viewport, not by the conversation's length. Off-screen items contribute their measured height and
 nothing else.
@@ -31,6 +38,11 @@ nothing else.
 **TR-3 — A reading position is an item, not a row.** A parked conversation is anchored to a
 transcript item and a row inside it. The same text stays on screen across a resize, and content
 arriving elsewhere in the conversation does not move it.
+
+Turning a row into an item and back is width-dependent, so both directions resolve at the width that
+produced the viewport being scrolled — carried out of the frame on the viewport itself, never read
+from whichever width the cache measured last. Otherwise a wheel notch in one panel names an item
+from the other panel's layout, and the reader lands on a message they never scrolled to.
 
 **TR-4 — Following the tail is a state.** A viewport at its last row is *following* and stays at the
 newest line as content arrives. Scrolling away parks it; scrolling back to the end resumes
@@ -53,7 +65,8 @@ ViewState (immutable to the renderer)        TranscriptMetrics (outlives the fra
 
 | Fact | Owner | Why not elsewhere |
 | --- | --- | --- |
-| Wrapped item heights | `TranscriptMetrics`, held by the [frame loop](./frame-loop.md) | The renderer takes the projection by shared reference, and a cache that dies with the frame is not one |
+| Wrapped item heights | `TranscriptMetrics`, held by the [frame loop](./frame-loop.md), keyed by agent and width | The renderer takes the projection by shared reference, and a cache that dies with the frame is not one |
+| The width a surface's rows were measured at | `Viewport::content_width`, filled in by the renderer | A row count means nothing without it, and the scroll path is not where the renderer's arithmetic should be repeated |
 | Where each reader is | `state::scroll::ScrollState`, keyed by agent | It is user intent, and it has to survive frames and agent switches |
 | Turning a row into an item and back | `TranscriptMetrics` | Both directions need the same heights; two implementations would disagree at exactly one width |
 | What an item's lines are | `content::transcript_item` | Measuring and painting must be given identical input or the height is a guess |
@@ -110,8 +123,8 @@ What those walks cost, and the length at which they would start to matter, is me
 
 | Invariant | Proven by |
 | --- | --- |
-| TR-1 | `measurement_is_proportional_to_what_changed`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `the_resize_workload_re_measures_every_item_exactly_once` |
+| TR-1 | `measurement_is_proportional_to_what_changed`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `the_resize_workload_re_measures_every_item_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
 | TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history` |
-| TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message` |
+| TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |

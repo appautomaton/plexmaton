@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Delivery complete — 8 steps and one closure slice; the exit gate is assessed below |
+| Status | Delivery complete — 8 steps and two closure slices; the exit gate is assessed below |
 | Parent roadmap | [Plexmaton Roadmap](./plexmaton.md) |
 | Product contract | [UI/UX](./ui-ux.md) |
 | Depends on | Locked foundations in the parent roadmap |
@@ -470,6 +470,39 @@ opening should pin by default is a question for real use.
 Tests: 147 at the close of step 8, 158 now. Eight mutations were each caught by the intended tests.
 All workspace gates, the supply-chain lane, and `scripts/smoke-tui.py` pass.
 
+### Second closure slice — the inspector's three unreconciled edges — 2026-09-01
+
+A second external review found two defects and one contradiction, all three where the inspector meets
+something else. The pattern is worth more than the fixes: the first closure slice pointed the
+inspector at the conversation and left every consequence of a *second* conversation being on screen —
+two widths, a second input, a second claim on the vocabulary — for the next reader to hit.
+
+- **Heights were keyed by agent, and the width only decided whether an entry was stale.** So at
+  ultrawide, where an unpinned inspector follows the selection into the secondary column, the same
+  history was measured at 76 columns and at 32 in one frame and each panel threw away the other's
+  heights. The second cost is the one that matters: every frame re-wrapped the whole history once
+  per panel, and the scroll path resolved anchors against whichever width was measured last, so a
+  wheel notch on the conversation moved its reader by the *inspector's* arithmetic. The cache now
+  keys on agent and width, bounded at the two that can be on screen, and a viewport carries the
+  width it was measured at so the scroll path cannot guess (TR-1, TR-3).
+- **The inspector claimed a cursor it had not drawn.** INS-5 already said a rectangle too short for
+  both keeps the conversation; nobody had said what focus becomes. It stayed `TextInput`, so the
+  caret landed at the end of the conversation's last line and typing filled a draft nothing showed.
+  INS-7 is the missing half, D-047 the rejected alternative, and the geometry now has one owner that
+  the renderer and focus both call.
+- **The roadmap and the implementation disagreed about what an inspector is**, and a code comment
+  asserted the version that was false. Settled by D-046 rather than by building: the inspector is a
+  conversation, the other four domains stay with the activity column, and Phase 03 composes them.
+  The consequence is recorded rather than left to be found — at ultrawide the inspector *is* the one
+  secondary column, so opening it hides the activity column until `Escape` closes it.
+
+No existing gate could have caught any of this: the work counts were asserted for one conversation on
+screen, the caret was asserted inside the inspector's *rectangle* rather than inside its input, and
+no gate compares a document against the code it describes. Reading is still what finds them.
+
+Tests: 158 at the close of the first slice, 163 now. Two mutations — collapsing the cache to a single
+width, and deleting the navigation-only arm — were each caught by the intended tests.
+
 ## Scope
 
 ### Workspace skeleton
@@ -637,7 +670,11 @@ is the scripted canonical demonstration; everything it names runs under `cargo t
 | The producer boundary refuses what its own contract forbids | `a_delta_after_finalization_is_refused_and_the_text_does_not_land`, `an_identity_cannot_be_deserialized_past_its_constructor`, `a_repeated_status_or_tool_state_costs_no_frame` | Met — after the closure slice |
 
 Two criteria are met with a named reduction rather than in full, and both reductions are recorded
-where the mechanism would have lived. **Z-order** has no caller because layout tiles the terminal, so
+where the mechanism would have lived. A third reduction is not a criterion but is the phase's one
+standing product limitation: an inspector shows a **conversation and nothing else** (D-046), and at
+ultrawide it takes the one secondary column, so the selected agent's tools, artifacts and mail leave
+the screen while it is open and come back when `Escape` closes it. Reaching a second agent's
+evidence at all is Phase 03's. **Z-order** has no caller because layout tiles the terminal, so
 no two surfaces ever compete for a cell; the same fact retired SURF-2's clipping and SURF-4's
 modality. **Equation source** left this phase with the math track on 2026-08-31 (D-007), and the copy
 model that would carry it — a selection over entries, each answering with its own semantic source —

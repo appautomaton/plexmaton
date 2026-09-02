@@ -5,7 +5,10 @@
 //! surfaces stop fitting — is that rule meeting a terminal of some particular size.
 //!
 //! Separated from the workspace's own row budget because the two answer different questions. That
-//! one decides which regions exist; this one decides how one region is shared.
+//! one decides which regions exist; this one decides how one region is shared — the conversation
+//! region with the inspector, and then the inspector's own rectangle with its input.
+
+use ratatui::layout::Rect;
 
 use super::{BodyRegions, LayoutClass, MIN_PANEL_HEIGHT, band};
 
@@ -63,7 +66,9 @@ pub(super) fn place_inspector(
     };
     match presentation(class, request.maximized, conversation.height) {
         // The secondary column, in place of activity rather than beside it: D-024 allows exactly
-        // one, and the inspector carries the same tools and artifacts that column was showing.
+        // one. The inspector does not carry what that column was showing — it is a conversation
+        // (INS-6, D-046) — so the selected agent's tools, artifacts and mail are off screen until
+        // this closes. Recorded as a Phase 00 limitation rather than worked around here.
         Presentation::Column => BodyRegions {
             inspector: base.activity,
             activity: None,
@@ -123,11 +128,49 @@ fn shelf_rows(region: u16, requested: Option<u16>) -> u16 {
         .clamp(MIN_PANEL_HEIGHT, ceiling)
 }
 
+/// An inspector's rectangle, divided between its conversation and its steer input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SteerSplit {
+    /// What is left for the inspected agent's conversation.
+    pub conversation: Rect,
+    /// The strip the input is drawn into, at the bottom.
+    pub input: Rect,
+}
+
+/// Divides an inspector's rectangle between its conversation and an input `wanted` rows tall.
+///
+/// `None` when the two will not both fit, which is the all-or-nothing rule the row budget uses: an
+/// input squeezed to nothing is a place the cursor claims to be and is not (INS-5). It is the one
+/// answer to whether the inspector has an input at all — the renderer draws from it and focus
+/// derives the cursor from it, so the affordance and the caret cannot disagree (INS-7).
+///
+/// Geometry, and therefore here rather than in the renderer: rendering is a projection of state,
+/// and which of two states a surface is in must not be decided inside a draw call.
+#[must_use]
+pub fn steer_split(bounds: Rect, wanted: u16) -> Option<SteerSplit> {
+    let rows = wanted.min(bounds.height.saturating_sub(MIN_PANEL_HEIGHT));
+    if rows < MIN_PANEL_HEIGHT {
+        return None;
+    }
+    let conversation = Rect {
+        height: bounds.height.saturating_sub(rows),
+        ..bounds
+    };
+    Some(SteerSplit {
+        conversation,
+        input: Rect {
+            y: conversation.bottom(),
+            height: rows,
+            ..bounds
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::layout::Rect;
 
-    use super::{CONVERSATION_GUARANTEE, InspectorRequest, MIN_PANEL_HEIGHT};
+    use super::{CONVERSATION_GUARANTEE, InspectorRequest, MIN_PANEL_HEIGHT, steer_split};
     use crate::{
         layout::{WorkspaceInput, tests::SIZES, workspace},
         surface::{SurfaceId, SurfaceTree},
@@ -149,6 +192,43 @@ mod tests {
 
     fn height_of(tree: &SurfaceTree, id: SurfaceId) -> Option<u16> {
         tree.get(id).map(|surface| surface.bounds.height)
+    }
+
+    /// INS-5, INS-7: the input and the conversation both fit or the input does not appear.
+    ///
+    /// The tiling half is what stops the two rectangles from being drawn over each other, and the
+    /// boundary is where the surface changes what focus means — so both are pinned to a number
+    /// rather than left to be read off the implementation.
+    #[test]
+    fn an_inspector_splits_for_its_input_only_when_both_still_fit() {
+        let bounds = Rect::new(4, 2, 30, 12);
+        let wanted = MIN_PANEL_HEIGHT;
+
+        for height in 0..MIN_PANEL_HEIGHT * 2 {
+            assert_eq!(
+                steer_split(Rect { height, ..bounds }, wanted),
+                None,
+                "{height} rows cannot hold a conversation and an input, so it holds neither"
+            );
+        }
+
+        let split = steer_split(bounds, wanted)
+            .unwrap_or_else(|| panic!("twelve rows hold both several times over"));
+        assert_eq!(
+            split.conversation.height + split.input.height,
+            bounds.height,
+            "the two halves tile the rectangle: a shared row would be painted twice"
+        );
+        assert_eq!(split.input.y, split.conversation.bottom());
+        assert_eq!(
+            split.input.height, wanted,
+            "an input that fits gets the rows it asked for"
+        );
+        assert_eq!(
+            steer_split(bounds, u16::MAX).map(|split| split.conversation.height),
+            Some(MIN_PANEL_HEIGHT),
+            "and one that asks for everything still leaves a conversation behind"
+        );
     }
 
     /// D-023: an inspector never takes the conversation below ten readable rows.

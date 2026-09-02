@@ -5,19 +5,39 @@
 //! things a user gesture can do to it, and every one of them answers the same way — change
 //! something and say so, or change nothing and say that.
 
+use plexmaton_core::AgentId;
+
 use crate::{
     intent::{InspectorIntent, PointerIntent},
-    layout::InspectorRequest,
+    layout::{self, InspectorRequest, SteerSplit},
     surface::{SurfaceId, SurfaceTree},
 };
 
-use super::{InspectorView, ViewState};
+use super::{InspectorView, ViewState, inner_width};
 
 impl ViewState {
     /// Returns the open inspector, if one is open.
     #[must_use]
     pub fn inspector(&self) -> Option<&InspectorView> {
         self.inspector.open()
+    }
+
+    /// The inspector's steer input and who it addresses, if it has one on screen right now.
+    ///
+    /// `None` in three cases that mean the same thing to everyone downstream: nothing is open,
+    /// something else holds focus (INS-5, D-018), or the rectangle the user dragged to is too short
+    /// to hold a conversation and an input at once (INS-7). The renderer draws from this, the caret
+    /// follows it, and [`Self::text_target`] refuses without it, so a draft can never be typed into
+    /// somewhere the user cannot see.
+    #[must_use]
+    pub(crate) fn steer_input(&self, surfaces: &SurfaceTree) -> Option<(SteerSplit, AgentId)> {
+        if self.focus.resolve(surfaces)? != SurfaceId::Inspector {
+            return None;
+        }
+        let bounds = surfaces.get(SurfaceId::Inspector)?.bounds;
+        let agent = self.inspector.open()?.agent.clone();
+        let wanted = self.draft(&agent).requested_rows(inner_width(bounds.width));
+        layout::steer_split(bounds, wanted).map(|split| (split, agent))
     }
 
     /// What layout needs in order to place the inspector.

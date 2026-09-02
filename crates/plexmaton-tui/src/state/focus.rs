@@ -32,13 +32,25 @@ impl Focus {
             .or_else(|| surfaces.focus_ring().next())
     }
 
-    /// Resolves where typed text would go, from the focused surface's kind alone (SURF-3).
-    pub(super) fn keyboard(self, surfaces: &SurfaceTree) -> KeyboardFocus {
-        self.resolve(surfaces)
-            .and_then(|id| surfaces.get(id))
-            .map_or_else(KeyboardFocus::default, |surface| {
-                surface.kind.keyboard_focus()
-            })
+    /// Resolves where typed text would go: the focused surface's kind (SURF-3), and for the
+    /// inspector whether its input was given room to appear.
+    ///
+    /// The kind says which surfaces *can* hold the cursor; an inspector too short to draw its input
+    /// shows none, and a surface that reported a cursor it never painted put the caret in the
+    /// conversation and typed into a draft nobody could see (INS-7). The caller supplies the second
+    /// half because it needs the rectangle, which focus has no business computing.
+    pub(super) fn keyboard(
+        self,
+        surfaces: &SurfaceTree,
+        inspector_has_input: bool,
+    ) -> KeyboardFocus {
+        match self.resolve(surfaces).and_then(|id| surfaces.get(id)) {
+            Some(surface) if surface.id == SurfaceId::Inspector && !inspector_has_input => {
+                KeyboardFocus::Navigation
+            }
+            Some(surface) => surface.kind.keyboard_focus(),
+            None => KeyboardFocus::default(),
+        }
     }
 
     /// Moves focus one stop around the ring. Returns whether anything visible changed.

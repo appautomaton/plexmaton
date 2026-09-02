@@ -3,7 +3,7 @@ use ratatui::{Frame, layout::Rect};
 mod chrome;
 mod panel;
 
-use panel::{Body, Panel, draw_panel, place_cursor, render_steer, steer_split};
+use panel::{Body, Panel, draw_panel, place_cursor, render_steer};
 
 use chrome::{
     agents_title, attention_role, attention_title, composer_title, inspector_title, notices_title,
@@ -14,7 +14,7 @@ use crate::{
     ViewState, content,
     layout::{self, LayoutClass, WorkspaceInput},
     state::inner_width,
-    surface::{KeyboardFocus, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
+    surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
     theme::{Palette, Role},
     transcript::TranscriptMetrics,
 };
@@ -53,18 +53,28 @@ pub fn render(
         },
     );
     let focused = state.focused(&surfaces);
+    // Both are asked once, before anything is painted, and both come from the projection: whether
+    // the inspector has an input is a fact about state and geometry, not a decision a draw call
+    // gets to make. The renderer then has one answer to obey rather than a second to derive.
+    let steer = state.steer_input(&surfaces);
+    let cursor_owner = (state.keyboard_focus(&surfaces) == KeyboardFocus::TextInput)
+        .then_some(focused)
+        .flatten();
     // Identities first, so each surface's viewport can be recorded as it is measured.
-    let drawn: Vec<(SurfaceId, Rect, SurfaceKind)> = surfaces
+    let drawn: Vec<(SurfaceId, Rect)> = surfaces
         .iter()
-        .map(|surface| (surface.id, surface.bounds, surface.kind))
+        .map(|surface| (surface.id, surface.bounds))
         .collect();
 
-    for (id, bounds, kind) in drawn {
+    for (id, bounds) in drawn {
         let has_focus = focused == Some(id);
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (D-022, INS-5). What is left is what its
         // conversation is drawn into, so the two are laid out before either is built.
-        let (bounds, steer) = steer_split(state, id, bounds, has_focus);
+        let bounds = match (id, &steer) {
+            (SurfaceId::Inspector, Some((split, _))) => split.conversation,
+            _ => bounds,
+        };
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.
         let panel = match id {
@@ -157,16 +167,16 @@ pub fn render(
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
 
-        // The cursor belongs to whichever focused surface is a text input, which is one answer
-        // derived from one kind rather than a list of identities to keep in step (SURF-3, COM-1).
-        // An inspector's input is the strip below its conversation, so the cursor follows the
+        // The cursor belongs to whichever surface the projection says owns it, which is the same
+        // answer routing and editing use (SURF-3, COM-1, INS-7) rather than a second one derived
+        // here. An inspector's input is the strip below its conversation, so the cursor follows the
         // rectangle the text was drawn into rather than the surface's.
-        if has_focus && kind.keyboard_focus() == KeyboardFocus::TextInput && panel.bordered {
-            match steer {
-                Some((steer_area, ref agent_id)) => {
-                    render_steer(frame, palette, state, agent_id, steer_area);
+        if cursor_owner == Some(id) && panel.bordered {
+            match &steer {
+                Some((split, agent_id)) if id == SurfaceId::Inspector => {
+                    render_steer(frame, palette, state, agent_id, split.input);
                 }
-                None => place_cursor(frame, bounds, panel.body.lines()),
+                _ => place_cursor(frame, bounds, panel.body.lines()),
             }
         }
     }
@@ -201,7 +211,10 @@ fn conversation_body(
         };
     };
     let visible_rows = area.height.saturating_sub(BORDER_ROWS);
-    if metrics.measure(agent, palette, area.width.saturating_sub(BORDER_ROWS)) == 0 {
+    // Every height below belongs to this width, and the viewport carries it out of the frame so the
+    // scroll path resolves against the same one rather than against whatever was measured last.
+    let width = inner_width(area.width);
+    if metrics.measure(agent, palette, width) == 0 {
         return Body::Whole {
             lines: content::conversation_placeholder(palette, surface, true),
             follows_tail: false,
@@ -209,7 +222,8 @@ fn conversation_body(
     }
 
     let mut viewport = Viewport {
-        content_rows: metrics.total_rows(&agent.id),
+        content_rows: metrics.total_rows(&agent.id, width),
+        content_width: width,
         visible_rows,
         offset: 0,
     };
@@ -217,9 +231,9 @@ fn conversation_body(
     // its reader stopped at, so this width's rows are recomputed rather than remembered (TR-3).
     viewport.offset = state.conversation_position(&agent.id).map_or_else(
         || viewport.max_offset(),
-        |position| metrics.offset_of(&agent.id, position, viewport.max_offset()),
+        |position| metrics.offset_of(&agent.id, width, position, viewport.max_offset()),
     );
-    let window = metrics.window(&agent.id, viewport.offset, visible_rows);
+    let window = metrics.window(&agent.id, width, viewport.offset, visible_rows);
 
     Body::Window {
         lines: metrics.build(
@@ -753,5 +767,34 @@ mod tests {
 
         assert_eq!(ansi, truecolor);
         assert_eq!(ansi, monochrome);
+    }
+
+    #[test]
+    fn footer_keys_are_reversed_not_accent() {
+        let palette = Palette::ansi();
+        let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
+        let footer = surfaces
+            .get(SurfaceId::Footer)
+            .unwrap_or_else(|| panic!("footer must be registered"))
+            .bounds;
+        let mut found_key = false;
+        for x in footer.x..footer.right() {
+            let cell = &buffer[(x, footer.y)];
+            let style = cell.style();
+            assert_ne!(
+                ink(style),
+                role_ink(&palette, Role::Accent),
+                "footer chrome must not share the focus hue"
+            );
+            assert!(
+                style.bg.filter(|colour| *colour != Color::Reset).is_none(),
+                "footer keys must not carry a named background"
+            );
+            if cell.symbol() == "⇥" {
+                found_key = true;
+                assert_eq!(ink(style), role_ink(&palette, Role::KeyHint));
+            }
+        }
+        assert!(found_key, "the footer must paint the focus key");
     }
 }

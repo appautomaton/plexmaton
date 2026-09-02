@@ -358,6 +358,7 @@ mod tests {
                 // that cannot move is a separate case with its own test below.
                 viewport: Some(Viewport {
                     content_rows: 100,
+                    content_width: bounds.width,
                     visible_rows: bounds.height,
                     offset: 0,
                 }),
@@ -567,6 +568,7 @@ mod tests {
                 content_rows: 2,
                 visible_rows: 6,
                 offset: 0,
+                ..Viewport::default()
             },
         );
         assert_eq!(
@@ -588,6 +590,7 @@ mod tests {
                 content_rows: 40,
                 visible_rows: 6,
                 offset: 34,
+                ..Viewport::default()
             },
         );
         assert_eq!(
@@ -613,6 +616,7 @@ mod tests {
                     content_rows: 1,
                     visible_rows: 6,
                     offset: 0,
+                    ..Viewport::default()
                 },
             );
         }

@@ -2,7 +2,8 @@
 //!
 //! Wrapping a whole history in order to paint twenty rows of it is the cost this module removes.
 //! Heights are measured one item at a time and kept until that item's revision or the panel's width
-//! changes (TR-1), and a frame builds lines only for the items its viewport reaches (TR-2). Because
+//! changes (TR-1) — per width, because two surfaces can draw one conversation at two sizes in the
+//! same frame — and a frame builds lines only for the items its viewport reaches (TR-2). Because
 //! those heights are also what turn an item into a row number, this is where a reading position is
 //! resolved (TR-3). The contract is
 //! [`specs/transcript-layout.md`](../../../.agents/specs/transcript-layout.md).
@@ -40,15 +41,36 @@ pub(crate) enum TranscriptPosition {
 /// The identity is stored alongside the height so a slot can be checked rather than trusted: items
 /// only ever arrive at the end today, and an entry that has drifted from the item at its position
 /// is re-measured instead of silently describing a different message.
+///
+/// The width is not here: it is the key of the set this entry belongs to, so heights measured at
+/// two widths sit side by side rather than overwriting each other.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Measured {
     id: TranscriptItemId,
     revision: u64,
-    width: u16,
     rows: u16,
 }
 
-/// Wrapped item heights, retained across frames.
+/// One conversation's heights at one panel width.
+#[derive(Debug)]
+struct AtWidth {
+    width: u16,
+    items: Vec<Measured>,
+}
+
+/// Measurement widths one conversation keeps, most recently measured first.
+///
+/// Two, because two surfaces draw a conversation and both may be showing the same agent: an
+/// unpinned inspector follows the selection (INS-1), and at ultrawide it is the secondary column,
+/// so the same history is measured at two different widths in one frame. One set per agent made
+/// each of those frames invalidate the other's heights, which cost a full re-wrap per surface per
+/// frame and left the scroll path resolving anchors against whichever width happened to be
+/// measured last. A third width cannot arise today, because `render` draws a conversation for
+/// exactly two surface identities; a third has to move this number with it, and what would say so
+/// is the work count in `two_widths_of_one_conversation_do_not_invalidate_each_other`.
+const MEASURED_WIDTHS: usize = 2;
+
+/// Wrapped item heights, retained across frames and keyed by agent and width.
 ///
 /// It cannot live in `ViewState`, because the renderer takes the projection by shared reference and
 /// keeping it that way is what makes "rendering never mutates state" checkable. It cannot live in
@@ -57,7 +79,7 @@ struct Measured {
 /// heights to turn a row back into an item.
 #[derive(Debug, Default)]
 pub struct TranscriptMetrics {
-    by_agent: BTreeMap<AgentId, Vec<Measured>>,
+    by_agent: BTreeMap<AgentId, Vec<AtWidth>>,
     wrapped: usize,
     built: usize,
 }
@@ -69,17 +91,38 @@ impl TranscriptMetrics {
     /// and costs one wrap; a resize changes the width and costs one pass; an unchanged frame costs
     /// none.
     pub(crate) fn measure(&mut self, agent: &AgentView, palette: &Palette, width: u16) -> usize {
-        let entries = self.by_agent.entry(agent.id.clone()).or_default();
+        let cached = self.by_agent.entry(agent.id.clone()).or_default();
+        // Front is most recently measured, so the width a frame stopped drawing at is the one
+        // evicted. Both live widths are measured every frame, so neither can evict the other.
+        match cached.iter().position(|entry| entry.width == width) {
+            Some(0) => {}
+            Some(index) => {
+                let entry = cached.remove(index);
+                cached.insert(0, entry);
+            }
+            None => cached.insert(
+                0,
+                AtWidth {
+                    width,
+                    items: Vec::new(),
+                },
+            ),
+        }
+        cached.truncate(MEASURED_WIDTHS);
+        // The match above always leaves this width at the front, so the fallback is unreachable
+        // rather than a case: reporting no items is what a caller can safely draw if it ever is.
+        let Some(entries) = cached.first_mut().map(|entry| &mut entry.items) else {
+            return 0;
+        };
         let mut count = 0_usize;
         for item in agent.transcript() {
-            let reusable = entries.get(count).is_some_and(|entry| {
-                entry.id == item.id && entry.revision == item.revision && entry.width == width
-            });
+            let reusable = entries
+                .get(count)
+                .is_some_and(|entry| entry.id == item.id && entry.revision == item.revision);
             if !reusable {
                 let measured = Measured {
                     id: item.id.clone(),
                     revision: item.revision,
-                    width,
                     rows: wrap_rows(item, palette, width),
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
@@ -97,13 +140,13 @@ impl TranscriptMetrics {
         count
     }
 
-    /// Total rows a conversation occupies at the width it was last measured at.
+    /// Total rows a conversation occupies at `width`.
     ///
     /// Saturating rather than widening: a viewport offset is a `u16` because that is what the
     /// terminal can address, so a conversation taller than that is already past what scrolling can
     /// reach.
-    pub(crate) fn total_rows(&self, agent_id: &AgentId) -> u16 {
-        self.items(agent_id)
+    pub(crate) fn total_rows(&self, agent_id: &AgentId, width: u16) -> u16 {
+        self.items(agent_id, width)
             .iter()
             .fold(0_u16, |total, item| total.saturating_add(item.rows))
     }
@@ -112,9 +155,15 @@ impl TranscriptMetrics {
     ///
     /// An empty range when the offset is past the end, which is what an unmeasured conversation and
     /// an offset clamped wrongly both look like — neither is a reason to draw something arbitrary.
-    pub(crate) fn window(&self, agent_id: &AgentId, offset: u16, visible_rows: u16) -> Window {
-        let items = self.items(agent_id);
-        let Some((first, skip_rows)) = self.locate(agent_id, offset) else {
+    pub(crate) fn window(
+        &self,
+        agent_id: &AgentId,
+        width: u16,
+        offset: u16,
+        visible_rows: u16,
+    ) -> Window {
+        let items = self.items(agent_id, width);
+        let Some((first, skip_rows)) = self.locate(agent_id, width, offset) else {
             return Window::empty(items.len());
         };
 
@@ -133,17 +182,22 @@ impl TranscriptMetrics {
         }
     }
 
-    /// The position naming the item that row `offset` falls inside.
+    /// The position naming the item that row `offset` falls inside, at `width`.
     ///
-    /// `None` when nothing has been measured or the row is past the end: an anchor naming no item
-    /// would be a position nothing can resolve.
-    pub(crate) fn anchor_at(&self, agent_id: &AgentId, offset: u16) -> Option<TranscriptPosition> {
-        let (index, rows) = self.locate(agent_id, offset)?;
-        let item = self.items(agent_id).get(index)?.id.clone();
+    /// `None` when nothing has been measured at that width or the row is past the end: an anchor
+    /// naming no item would be a position nothing can resolve.
+    pub(crate) fn anchor_at(
+        &self,
+        agent_id: &AgentId,
+        width: u16,
+        offset: u16,
+    ) -> Option<TranscriptPosition> {
+        let (index, rows) = self.locate(agent_id, width, offset)?;
+        let item = self.items(agent_id, width).get(index)?.id.clone();
         Some(TranscriptPosition::At { item, rows })
     }
 
-    /// The row a position resolves to, at the width the conversation was last measured.
+    /// The row a position resolves to at `width`.
     ///
     /// An anchor whose item is gone resolves to the tail. Nothing removes an item in Phase 00, so
     /// this is the answer prepared for a future that trims history: rejoining the live conversation
@@ -156,6 +210,7 @@ impl TranscriptMetrics {
     pub(crate) fn offset_of(
         &self,
         agent_id: &AgentId,
+        width: u16,
         position: &TranscriptPosition,
         max_offset: u16,
     ) -> u16 {
@@ -163,7 +218,7 @@ impl TranscriptMetrics {
             return max_offset;
         };
         let mut start = 0_u16;
-        for entry in self.items(agent_id) {
+        for entry in self.items(agent_id, width) {
             if &entry.id == item {
                 let inside = (*rows).min(entry.rows.saturating_sub(1));
                 return start.saturating_add(inside).min(max_offset);
@@ -217,20 +272,24 @@ impl TranscriptMetrics {
         self.built
     }
 
-    /// Cached item heights held across every conversation, whether or not one is on screen.
+    /// Cached item heights held across every conversation and width, on screen or not.
     ///
     /// This is what the renderer retains per hidden conversation. The transcript itself belongs to
     /// the projection and is there regardless, so counting entries here is the honest answer to
-    /// what virtualization costs in memory rather than a figure for the whole workspace.
+    /// what virtualization costs in memory rather than a figure for the whole workspace. Bounded by
+    /// [`MEASURED_WIDTHS`] per agent, so a run of resizes cannot grow it.
     #[must_use]
     pub fn retained(&self) -> usize {
-        self.by_agent.values().map(Vec::len).sum()
+        self.by_agent
+            .values()
+            .flat_map(|cached| cached.iter().map(|entry| entry.items.len()))
+            .sum()
     }
 
     /// The item index containing row `offset`, and how far into that item the row is.
-    fn locate(&self, agent_id: &AgentId, offset: u16) -> Option<(usize, u16)> {
+    fn locate(&self, agent_id: &AgentId, width: u16, offset: u16) -> Option<(usize, u16)> {
         let mut start = 0_u16;
-        for (index, item) in self.items(agent_id).iter().enumerate() {
+        for (index, item) in self.items(agent_id, width).iter().enumerate() {
             let end = start.saturating_add(item.rows);
             if end > offset {
                 return Some((index, offset.saturating_sub(start)));
@@ -240,8 +299,12 @@ impl TranscriptMetrics {
         None
     }
 
-    fn items(&self, agent_id: &AgentId) -> &[Measured] {
-        self.by_agent.get(agent_id).map_or(&[], Vec::as_slice)
+    /// Heights for one conversation at one width, empty when that pair was never measured.
+    fn items(&self, agent_id: &AgentId, width: u16) -> &[Measured] {
+        self.by_agent
+            .get(agent_id)
+            .and_then(|cached| cached.iter().find(|entry| entry.width == width))
+            .map_or(&[], |entry| entry.items.as_slice())
     }
 }
 
@@ -284,7 +347,7 @@ fn wrap_rows(item: &TranscriptItemView, palette: &Palette, width: u16) -> u16 {
 mod tests {
     use ratatui::widgets::{Paragraph, Wrap};
 
-    use super::{TranscriptMetrics, TranscriptPosition};
+    use super::{MEASURED_WIDTHS, TranscriptMetrics, TranscriptPosition};
     use crate::{AgentView, ViewState, content, test_support::Conversation, theme::Palette};
 
     /// The width the canonical conversation is measured at in these tests.
@@ -379,7 +442,7 @@ mod tests {
                 .line_count(width);
 
             assert_eq!(
-                usize::from(metrics.total_rows(&agent(state).id)),
+                usize::from(metrics.total_rows(&agent(state).id, width)),
                 together,
                 "measuring item by item disagreed with measuring the conversation at width {width}"
             );
@@ -396,19 +459,19 @@ mod tests {
         let id = &agent(state).id;
         let mut metrics = TranscriptMetrics::default();
         let count = metrics.measure(agent(state), &palette, WIDTH);
-        let total = metrics.total_rows(id);
+        let total = metrics.total_rows(id, WIDTH);
 
-        let top = metrics.window(id, 0, 4);
+        let top = metrics.window(id, WIDTH, 0, 4);
         assert_eq!((top.items.start, top.skip_rows), (0, 0));
 
-        let inside = metrics.window(id, 1, 4);
+        let inside = metrics.window(id, WIDTH, 1, 4);
         assert_eq!(
             (inside.items.start, inside.skip_rows),
             (0, 1),
             "an offset inside the first item keeps that item and skips into it"
         );
 
-        let bottom = metrics.window(id, total.saturating_sub(1), 4);
+        let bottom = metrics.window(id, WIDTH, total.saturating_sub(1), 4);
         assert_eq!(
             bottom.items.end, count,
             "the last row belongs to the last item"
@@ -418,13 +481,13 @@ mod tests {
         // item the window named. A window one item short leaves the bottom of the panel blank.
         let visible = 6_u16;
         for offset in 0..total {
-            let window = metrics.window(id, offset, visible);
+            let window = metrics.window(id, WIDTH, offset, visible);
             let last_row = offset
                 .saturating_add(visible)
                 .saturating_sub(1)
                 .min(total.saturating_sub(1));
             let (needed, _) = metrics
-                .locate(id, last_row)
+                .locate(id, WIDTH, last_row)
                 .unwrap_or_else(|| panic!("row {last_row} of {total} is inside the conversation"));
             assert!(
                 window.items.contains(&needed),
@@ -447,26 +510,26 @@ mod tests {
         let id = &agent(state).id;
         let mut metrics = TranscriptMetrics::default();
         metrics.measure(agent(state), &palette, WIDTH);
-        let total = metrics.total_rows(id);
+        let total = metrics.total_rows(id, WIDTH);
 
         for row in 0..total {
             let anchor = metrics
-                .anchor_at(id, row)
+                .anchor_at(id, WIDTH, row)
                 .unwrap_or_else(|| panic!("row {row} of {total} is inside the conversation"));
             assert_eq!(
-                metrics.offset_of(id, &anchor, total),
+                metrics.offset_of(id, WIDTH, &anchor, total),
                 row,
                 "anchoring row {row} and resolving it back landed somewhere else"
             );
         }
 
         assert_eq!(
-            metrics.anchor_at(id, total),
+            metrics.anchor_at(id, WIDTH, total),
             None,
             "a row past the end names no item"
         );
         assert_eq!(
-            metrics.offset_of(id, &TranscriptPosition::Tail, total),
+            metrics.offset_of(id, WIDTH, &TranscriptPosition::Tail, total),
             total,
             "following resolves to the end of whatever the content became"
         );
@@ -482,23 +545,23 @@ mod tests {
         let mut metrics = TranscriptMetrics::default();
 
         metrics.measure(agent(state), &palette, 40);
-        let narrow_total = metrics.total_rows(id);
+        let narrow_total = metrics.total_rows(id, 40);
         let row = narrow_total / 2;
         let anchor = metrics
-            .anchor_at(id, row)
+            .anchor_at(id, 40, row)
             .unwrap_or_else(|| panic!("the middle of the conversation is inside it"));
 
         metrics.measure(agent(state), &palette, 100);
-        let wide_total = metrics.total_rows(id);
+        let wide_total = metrics.total_rows(id, 100);
         assert!(
             wide_total < narrow_total,
             "the widths have to wrap differently or this proves nothing: \
              {narrow_total} then {wide_total}"
         );
 
-        let moved = metrics.offset_of(id, &anchor, wide_total);
+        let moved = metrics.offset_of(id, 100, &anchor, wide_total);
         let landed = metrics
-            .anchor_at(id, moved)
+            .anchor_at(id, 100, moved)
             .unwrap_or_else(|| panic!("the resolved row is inside the conversation"));
         assert_eq!(
             anchored_item(&landed),
@@ -511,6 +574,82 @@ mod tests {
         );
     }
 
+    /// TR-1: one conversation measured at two widths keeps both, and neither costs the other.
+    ///
+    /// Two surfaces draw a conversation and an unpinned inspector follows the selection (INS-1), so
+    /// at ultrawide the same history is measured twice per frame at two different widths. With one
+    /// set of heights per agent, each measurement invalidated the other's: every frame re-wrapped
+    /// the whole history once per panel, and every reader was resolved against whichever width had
+    /// been measured last.
+    #[test]
+    fn two_widths_of_one_conversation_do_not_invalidate_each_other() {
+        let palette = Palette::default();
+        let mut conversation = Conversation::canonical();
+        conversation.extend(6);
+        let id = agent(&conversation.state).id.clone();
+        let mut metrics = TranscriptMetrics::default();
+
+        let items = metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        metrics.measure(agent(&conversation.state), &palette, WIDTH / 2);
+        let cold = metrics.wrapped();
+        assert_eq!(cold, items * 2, "a cold cache measures each width once");
+
+        metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        metrics.measure(agent(&conversation.state), &palette, WIDTH / 2);
+        assert_eq!(
+            metrics.wrapped(),
+            cold,
+            "a steady frame at two widths must re-wrap nothing at either of them"
+        );
+
+        conversation.append(" and more streamed text.");
+        metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        metrics.measure(agent(&conversation.state), &palette, WIDTH / 2);
+        assert_eq!(
+            metrics.wrapped().saturating_sub(cold),
+            2,
+            "a delta costs one wrap per width on screen, not one history per width"
+        );
+
+        let narrow = metrics.total_rows(&id, WIDTH / 2);
+        let wide = metrics.total_rows(&id, WIDTH);
+        assert!(
+            narrow > wide,
+            "the widths have to wrap differently or this proves nothing: {narrow} then {wide}"
+        );
+    }
+
+    /// Retention is bounded by the widths in use, not by the widths ever seen.
+    ///
+    /// A resize is a new width every row the user drags through, so a set per width with nothing
+    /// evicting it would grow the cache for the length of the session.
+    #[test]
+    fn a_run_of_widths_retains_only_the_last_two() {
+        let palette = Palette::default();
+        let mut conversation = Conversation::canonical();
+        let state = &conversation.extend(4).state;
+        let mut metrics = TranscriptMetrics::default();
+
+        let items = metrics.measure(agent(state), &palette, 30);
+        for width in 31..60 {
+            metrics.measure(agent(state), &palette, width);
+        }
+
+        assert_eq!(
+            metrics.retained(),
+            items * MEASURED_WIDTHS,
+            "thirty widths were measured and two sets of heights are kept"
+        );
+        assert!(
+            metrics.items(&agent(state).id, 30).is_empty(),
+            "the width nothing has drawn at since is the one evicted"
+        );
+        assert!(
+            !metrics.items(&agent(state).id, 59).is_empty(),
+            "and the most recently measured width is still there"
+        );
+    }
+
     #[test]
     fn a_conversation_nothing_has_measured_has_no_window_and_no_anchor() {
         let metrics = TranscriptMetrics::default();
@@ -520,7 +659,7 @@ mod tests {
             .map(|agent| agent.id.clone())
             .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
 
-        assert_eq!(metrics.window(&id, 0, 10).items, 0..0);
-        assert_eq!(metrics.anchor_at(&id, 0), None);
+        assert_eq!(metrics.window(&id, WIDTH, 0, 10).items, 0..0);
+        assert_eq!(metrics.anchor_at(&id, WIDTH, 0), None);
     }
 }

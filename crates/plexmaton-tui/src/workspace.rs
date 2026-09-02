@@ -82,6 +82,18 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Builds a workspace that paints with `palette`.
+    ///
+    /// The default workspace uses [`Palette::ansi`]. A colourway is a palette, so swapping one is
+    /// construction, not a later rewrite of the widgets (D-048).
+    #[must_use]
+    pub fn with_palette(palette: Palette) -> Self {
+        Self {
+            palette,
+            ..Self::default()
+        }
+    }
+
     /// The projection, for whatever the executable needs to read out of it.
     #[must_use]
     pub const fn state(&self) -> &ViewState {
@@ -238,6 +250,7 @@ mod tests {
             Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         },
         layout::Rect,
+        style::{Color, Style},
     };
 
     use plexmaton_core::{AgentId, AttentionId, AttentionKind, PrototypeEvent};
@@ -246,6 +259,7 @@ mod tests {
     use crate::{
         surface::SurfaceId,
         test_support::{Conversation, canonical_runtime},
+        theme::{Palette, Role},
     };
 
     /// A workspace holding the canonical timeline, with one frame already drawn.
@@ -279,6 +293,38 @@ mod tests {
             .get(surface_id)
             .unwrap_or_else(|| panic!("{surface_id:?} must be registered"))
             .bounds
+    }
+
+    #[test]
+    fn an_injected_palette_is_the_one_the_frame_paints() {
+        let palette = Palette::from_roles(|role| match role {
+            Role::KeyHint => Style::new().fg(Color::Magenta),
+            role => Palette::ansi().style(role),
+        });
+        let mut workspace = Workspace::with_palette(palette);
+        let mut terminal = Terminal::new(TestBackend::new(120, 24))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(canonical_runtime().ready(u64::MAX));
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+
+        let footer = bounds(&workspace, SurfaceId::Footer);
+        let buffer = terminal.backend().buffer();
+        let mut found = false;
+        for x in footer.x..footer.right() {
+            let cell = &buffer[(x, footer.y)];
+            if cell.symbol() != "⇥" {
+                continue;
+            }
+            found = true;
+            assert_eq!(
+                cell.style().fg,
+                Some(Color::Magenta),
+                "the frame must paint the injected assignment, not the ansi preset"
+            );
+        }
+        assert!(found, "the footer must paint the focus key");
     }
 
     /// FR-1: a frame is drawn when something changed and at no other time.
@@ -778,6 +824,256 @@ mod tests {
 
     /// Two agents, plenty of history each, with B pinned into an inspector and A in the
     /// conversation. The arrangement INS-1 says pinning exists to produce.
+    /// One conversation on screen twice at ultrawide: the main panel and the secondary column.
+    ///
+    /// The inspector is left unpinned, so it follows the selection (INS-1) and shows the agent the
+    /// conversation is already showing — the state `specs/inspector.md` records as reachable and
+    /// left as specified. At ultrawide the two panels are different widths, which is the whole
+    /// point: the same history is measured twice per frame at two sizes.
+    fn one_conversation_in_two_widths() -> (Workspace, Terminal<TestBackend>, Conversation) {
+        let mut conversation = Conversation::canonical();
+        conversation.extend(20);
+
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(140, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        (workspace, terminal, conversation)
+    }
+
+    fn measured(workspace: &Workspace, surface_id: SurfaceId) -> crate::Viewport {
+        workspace
+            .surfaces
+            .viewport(surface_id)
+            .unwrap_or_else(|| panic!("{surface_id:?} was drawn, so it has been measured"))
+    }
+
+    /// The rows one agent's whole conversation wraps to at `width`, measured the un-virtualized way.
+    fn whole_conversation_rows(workspace: &Workspace, width: u16) -> u16 {
+        let palette = Palette::default();
+        let agent = workspace
+            .state
+            .selected_agent()
+            .unwrap_or_else(|| panic!("the canonical timeline selects an agent"));
+        let lines: Vec<_> = agent
+            .transcript()
+            .flat_map(|item| crate::content::transcript_item(item, &palette, false))
+            .collect();
+        let rows = ratatui::widgets::Paragraph::new(lines)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .line_count(width);
+        u16::try_from(rows).unwrap_or(u16::MAX)
+    }
+
+    /// TR-1 through the executable: each panel's rows belong to the width that panel was drawn at.
+    ///
+    /// Heights were keyed by agent alone, with the width only deciding whether an entry was still
+    /// valid — so the two panels overwrote each other's measurements every frame. What that cost is
+    /// asserted here rather than argued: a steady frame paints nothing, and a streaming delta wraps
+    /// one item per width on screen instead of one whole history per panel.
+    #[test]
+    fn a_conversation_drawn_at_two_widths_measures_correctly_at_both() {
+        let (mut workspace, mut terminal, mut conversation) = one_conversation_in_two_widths();
+        let primary = measured(&workspace, SurfaceId::Transcript);
+        let inspected = measured(&workspace, SurfaceId::Inspector);
+
+        assert_ne!(
+            primary.content_width, inspected.content_width,
+            "the two panels have to be different widths or this proves nothing"
+        );
+        for viewport in [primary, inspected] {
+            assert_eq!(
+                viewport.content_rows,
+                whole_conversation_rows(&workspace, viewport.content_width),
+                "a panel {} columns wide reported the height of some other width",
+                viewport.content_width
+            );
+        }
+
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "and having measured both, an unchanged frame has nothing to repaint"
+        );
+
+        conversation.append(" and more streamed text.");
+        workspace.emit(conversation.drain());
+        let work = frame(&mut workspace, &mut terminal);
+        assert_eq!(
+            work.items_wrapped, 2,
+            "a delta costs one wrap per width on screen; a whole history per panel is the defect"
+        );
+    }
+
+    /// TR-3 through the executable: the reader moves by the width of the panel under the wheel.
+    ///
+    /// The control is the same terminal with nothing open. An inspector showing the same
+    /// conversation must not change how far one notch takes its reader — and it did, because the
+    /// anchor was resolved against whichever width the cache had measured last, which was the
+    /// narrow column's.
+    #[test]
+    fn a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open() {
+        let notch = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
+            let over = bounds(workspace, SurfaceId::Transcript);
+            let before = measured(workspace, SurfaceId::Transcript).offset;
+            step(
+                workspace,
+                terminal,
+                &mouse(MouseEventKind::ScrollUp, over.x + 2, over.y + 2),
+            );
+            before.saturating_sub(measured(workspace, SurfaceId::Transcript).offset)
+        };
+
+        let (mut alone, mut alone_terminal, _events) = one_conversation_in_two_widths();
+        step(
+            &mut alone,
+            &mut alone_terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(
+            alone.surfaces.get(SurfaceId::Inspector).is_none(),
+            "the control has to have closed the inspector"
+        );
+        let control = notch(&mut alone, &mut alone_terminal);
+        assert!(control > 0, "the fixture has to be scrollable");
+
+        let (mut inspecting, mut inspecting_terminal, _events) = one_conversation_in_two_widths();
+        assert_eq!(
+            measured(&inspecting, SurfaceId::Transcript).content_width,
+            measured(&alone, SurfaceId::Transcript).content_width,
+            "opening the inspector takes the secondary column, never the conversation's width"
+        );
+        assert_eq!(
+            notch(&mut inspecting, &mut inspecting_terminal),
+            control,
+            "one notch moved the reader a different distance because a second panel was open"
+        );
+    }
+
+    /// INS-7 through the executable: an inspector with no room for its input holds no cursor.
+    ///
+    /// INS-5 already said a rectangle that cannot hold both keeps the conversation and shows no
+    /// input. What it did not say is what focus becomes, and the surface went on reporting text
+    /// focus regardless — so the caret was placed at the end of the conversation's last line, as
+    /// though a transcript item were an editor, and every keystroke landed in a draft with nothing
+    /// on screen to show it. The three now agree: no input, no cursor, no draft.
+    #[test]
+    fn an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor() {
+        let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let draft = |workspace: &Workspace| workspace.state.draft(&agent_b).draft().to_owned();
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        for character in "steer".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(
+            draft(&workspace),
+            "steer",
+            "there is a draft to be typed into"
+        );
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"));
+
+        // Down to the height the guarantee clamps at, where a conversation and an input no longer
+        // both fit. The loop is bounded by the ring rather than counted: what is asserted is where
+        // dragging stops, not how many presses it takes to get there.
+        for _ in 0..bounds(&workspace, SurfaceId::Inspector).height {
+            step(&mut workspace, &mut terminal, &shrink);
+        }
+        let squeezed = bounds(&workspace, SurfaceId::Inspector);
+        assert_eq!(
+            squeezed.height, 3,
+            "the shelf is at the smallest height layout will draw"
+        );
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Inspector),
+            "it still holds focus; what changed is what holding focus means"
+        );
+        assert_eq!(
+            workspace.state.keyboard_focus(&workspace.surfaces),
+            crate::KeyboardFocus::Navigation,
+            "a surface with no input on screen is a navigation surface"
+        );
+        assert_eq!(
+            cursor(&terminal),
+            None,
+            "and nothing owns a cursor, least of all the conversation"
+        );
+        assert!(
+            !painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"),
+            "there is no input drawn, which is what INS-5 asks for"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('x'), KeyModifiers::NONE),
+        );
+        assert_eq!(
+            draft(&workspace),
+            "steer",
+            "typing must not reach a draft the user cannot see"
+        );
+        // The consequence of becoming a navigation surface, asserted rather than left to be
+        // discovered: with no cursor on screen a letter is a command again. The command `q` maps to
+        // still refuses while a dismissible layer is open, so this transition does not put an exit
+        // under a bare keypress — `Escape` remains the way out (INV-7).
+        assert_eq!(
+            workspace
+                .handle(&press(KeyCode::Char('q'), KeyModifiers::NONE))
+                .flow,
+            Flow::Continue,
+            "quitting is not how an open inspector gets closed"
+        );
+
+        // Give the rows back, and the input comes back with the draft that was waiting for it.
+        for _ in 0..3 {
+            step(&mut workspace, &mut terminal, &grow);
+        }
+        assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Steer"));
+        let caret = cursor(&terminal).unwrap_or_else(|| panic!("the input is back and drawn"));
+        assert!(
+            bounds(&workspace, SurfaceId::Inspector).contains(caret),
+            "the caret is at {caret:?}, outside the inspector"
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('!'), KeyModifiers::NONE),
+        );
+        assert_eq!(
+            draft(&workspace),
+            "steer!",
+            "and typing lands where the caret is"
+        );
+    }
+
     fn two_conversations() -> (Workspace, Terminal<TestBackend>) {
         let mut conversation = Conversation::canonical();
         let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
