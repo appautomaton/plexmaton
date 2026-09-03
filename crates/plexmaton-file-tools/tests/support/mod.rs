@@ -4,7 +4,45 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+use plexmaton_agent::{AdmissionRequest, Agent, Effect, Input, ModelEvent, StopReason, ToolCall};
+use plexmaton_core::{AgentId, ToolCallId};
+use serde_json::Value;
+
 static NEXT: AtomicU64 = AtomicU64::new(1);
+
+#[allow(dead_code)] // This shared module is compiled once per integration-test binary.
+pub fn admission_request(name: &str, arguments: Value) -> AdmissionRequest {
+    let mut agent = Agent::new(
+        AgentId::new("file-tool-catalog-fixture")
+            .unwrap_or_else(|error| panic!("fixture agent ID: {error}")),
+    );
+    let _submitted = agent.handle(Input::Submitted {
+        text: "exercise one tool".to_owned(),
+    });
+    let step_id = agent
+        .active_model_step()
+        .unwrap_or_else(|| panic!("fixture model step did not open"));
+    let called = agent.handle(Input::Streamed {
+        step_id: step_id.clone(),
+        event: ModelEvent::Called(ToolCall {
+            call_id: ToolCallId::new(format!("call-{name}"))
+                .unwrap_or_else(|error| panic!("fixture call ID: {error}")),
+            name: name.to_owned(),
+            arguments: arguments.to_string(),
+        }),
+    });
+    assert!(called.effects.is_empty());
+    let stopped = agent.handle(Input::Streamed {
+        step_id,
+        event: ModelEvent::Stopped(StopReason::ToolCalls),
+    });
+    let mut effects = stopped.effects.into_iter();
+    let Some(Effect::AdmitTool(request)) = effects.next() else {
+        panic!("fixture did not emit one admission request");
+    };
+    assert!(effects.next().is_none());
+    request
+}
 
 pub struct TestWorkspace {
     path: PathBuf,

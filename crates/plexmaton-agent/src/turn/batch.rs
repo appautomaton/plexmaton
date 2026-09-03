@@ -10,7 +10,7 @@ use plexmaton_core::{
 
 use super::usage::UsageAccumulator;
 use super::{Agent, Turn};
-use crate::admission::{AdmissionOutcome, PolicyDecision};
+use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::model::RequestItem;
 use crate::tools::{
@@ -30,7 +30,9 @@ impl Agent {
         for call in &calls {
             self.record.push(RequestItem::ToolCall(call.clone()));
             self.emit_tool_status(call.call_id.clone(), ToolCallStatus::Queued, reaction);
-            reaction.effects.push(Effect::AdmitTool(call.clone()));
+            reaction
+                .effects
+                .push(Effect::AdmitTool(AdmissionRequest::new(call.clone())));
         }
         self.status(reaction, AgentStatus::Waiting);
         self.turn = Turn::Working {

@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1–7 of 10 landed 2026-09-02; slice 8 next |
+| Status | Slices 1–8 of 10 landed 2026-09-03; slice 9 next |
 | Blocked | None |
 
 ## Outcome
@@ -63,12 +63,12 @@ admission and approval boundary. This plan owns only the order in which the mech
    authoritative observed version, and typed bounded search through an argv-based ripgrep adapter.
    *Closes when* a large file, a giant line, an ignored binary, a symlink escape and more matches
    than fit all end as bounded typed results without scanning or retaining unbounded work.
-8. **File mutation.** Run the [native-tool-surface](../research/native-tool-surface.md) codec trial
-   against the selected model, then land its winner over one canonical mutation representation.
-   New files require absence; existing files require an observed version; all edits against one
-   file validate before a same-directory commit, and no failed edit falls back to whole-file
-   overwrite. *Closes when* stale, ambiguous, concurrent, cancelled and failed commits preserve the
-   original, while LF, CRLF, BOM, tabs and untouched Unicode bytes survive an admitted edit.
+8. **File mutation.** Landed. The model trial selected exact observed replacements plus separate
+   create-if-absent; [workspace-mutation](../specs/workspace-mutation.md) owns the canonical byte
+   splices, descriptor-pinned publication, bounds and honest concurrency guarantee (MUT-1 through
+   MUT-6). Stale, ambiguous, overlapping, concurrent, cancelled and failed operations preserve the
+   original or absence, while LF, CRLF, BOM, tabs, ordinary permission bits and untouched Unicode
+   bytes survive.
 9. **Command.** A workspace-scoped foreground process with a typed exit cause, owned cancellation
    and two-phase termination, bounded UTF-8 stdout and stderr, and a broad declared capability.
    *Closes when* a megabyte on each stream neither grows the transcript nor the next request, and

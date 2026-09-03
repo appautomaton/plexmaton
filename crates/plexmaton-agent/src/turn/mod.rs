@@ -405,32 +405,29 @@ mod tests {
 
     fn stop(agent: &mut Agent, reason: StopReason) -> Reaction {
         let mut reaction = stop_before_admission(agent, reason);
-        let calls: Vec<_> = reaction
-            .effects
-            .iter()
-            .filter_map(|effect| match effect {
-                Effect::AdmitTool(call) => Some(call.clone()),
-                Effect::CallModel(_) | Effect::RunTool(_) => None,
-            })
-            .collect();
-        reaction
-            .effects
-            .retain(|effect| !matches!(effect, Effect::AdmitTool(_)));
-        for call in calls {
-            let admitted = AdmittedToolCall::new(
-                call,
-                ToolDefinitionId::new("read-v1").unwrap_or_else(|error| panic!("fixture: {error}")),
-                ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
-                [ToolCapability::FileRead],
-                "{}".to_owned(),
-                "read fixture".to_owned(),
-            )
-            .unwrap_or_else(|error| panic!("fixture: {error:?}"));
+        let mut calls = Vec::new();
+        for effect in std::mem::take(&mut reaction.effects) {
+            match effect {
+                Effect::AdmitTool(call) => calls.push(call),
+                other @ (Effect::CallModel(_) | Effect::RunTool(_)) => {
+                    reaction.effects.push(other);
+                }
+            }
+        }
+        for request in calls {
+            let admitted = request
+                .admit(
+                    ToolDefinitionId::new("read-v1")
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+                    [ToolCapability::FileRead],
+                    "{}".to_owned(),
+                    "read fixture".to_owned(),
+                )
+                .unwrap_or_else(|error| panic!("fixture: {error:?}"));
             merge(
                 &mut reaction,
-                agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
-                    admitted,
-                ))),
+                agent.handle(Input::ToolAdmissionResolved(admitted)),
             );
         }
         reaction
@@ -1197,7 +1194,7 @@ mod tests {
         let dispatched = stop_before_admission(&mut agent, StopReason::ToolCalls);
         assert!(matches!(
             dispatched.effects.as_slice(),
-            [Effect::AdmitTool(call)] if call.call_id == id("write-1")
+            [Effect::AdmitTool(call)] if call.requested().call_id == id("write-1")
         ));
         assert!(events(&dispatched).iter().any(|event| matches!(
             event,

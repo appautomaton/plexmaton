@@ -4,8 +4,8 @@ use std::{collections::VecDeque, sync::Arc};
 
 use futures_util::future::BoxFuture;
 use plexmaton_agent::{
-    AdmissionOutcome, AdmissionRefusal, Agent, Effect, Input, ModelCall, ModelError, ModelEvent,
-    ModelStepId, Reaction,
+    AdmissionRefusal, Agent, Effect, Input, ModelCall, ModelError, ModelEvent, ModelStepId,
+    Reaction,
 };
 use plexmaton_core::{AgentId, SessionEventEnvelope, TokenUsage};
 use plexmaton_provider::{ApiKey, ProviderProfile};
@@ -261,12 +261,9 @@ impl LiveRuntime {
             for effect in reaction.effects {
                 match effect {
                     Effect::CallModel(call) => self.spawn_model(call)?,
-                    Effect::AdmitTool(call) => {
+                    Effect::AdmitTool(request) => {
                         reactions.push_back(self.agent.handle(Input::ToolAdmissionResolved(
-                            AdmissionOutcome::Refused {
-                                call_id: call.call_id,
-                                reason: AdmissionRefusal::DefinitionUnavailable,
-                            },
+                            request.refuse(AdmissionRefusal::DefinitionUnavailable),
                         )));
                     }
                     Effect::RunTool(_) => return Err(RuntimeError::UnexpectedToolRun),

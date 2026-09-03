@@ -339,6 +339,11 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
                 AdmissionRefusal::UnknownTool => "unknown_tool",
                 AdmissionRefusal::InvalidArguments => "invalid_arguments",
                 AdmissionRefusal::DefinitionUnavailable => "definition_unavailable",
+                AdmissionRefusal::StalePrecondition => "stale_precondition",
+                AdmissionRefusal::SourceMismatch => "source_mismatch",
+                AdmissionRefusal::AmbiguousTarget => "ambiguous_target",
+                AdmissionRefusal::ConflictingArguments => "conflicting_arguments",
+                AdmissionRefusal::Cancelled => "cancelled",
             },
         })
         .to_string(),
@@ -358,9 +363,28 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_agent::ModelError;
+    use plexmaton_agent::{AdmissionRefusal, ModelError, ToolOutcome};
 
-    use super::classify_http_error;
+    use super::{classify_http_error, tool_output};
+
+    #[test]
+    fn typed_admission_refusals_keep_their_wire_reason() {
+        for (reason, expected) in [
+            (AdmissionRefusal::StalePrecondition, "stale_precondition"),
+            (AdmissionRefusal::SourceMismatch, "source_mismatch"),
+            (AdmissionRefusal::AmbiguousTarget, "ambiguous_target"),
+            (
+                AdmissionRefusal::ConflictingArguments,
+                "conflicting_arguments",
+            ),
+            (AdmissionRefusal::Cancelled, "cancelled"),
+        ] {
+            let output = tool_output(&ToolOutcome::AdmissionRefused { reason });
+            let output: serde_json::Value = serde_json::from_str(&output)
+                .unwrap_or_else(|error| panic!("tool output JSON: {error}"));
+            assert_eq!(output["reason"], expected);
+        }
+    }
 
     /// PRV-5: retry behavior is selected from status and typed metadata, never error prose.
     #[test]

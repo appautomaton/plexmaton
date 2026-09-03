@@ -2,8 +2,7 @@ use std::convert::Infallible;
 
 use futures_util::stream;
 use plexmaton_agent::{
-    AdmissionOutcome, AdmittedToolCall, Agent, Effect, Input, ModelEvent, ModelRequest, ToolCall,
-    ToolDefinitionRevision, ToolOutcome,
+    Agent, Effect, Input, ModelEvent, ModelRequest, ToolCall, ToolDefinitionRevision, ToolOutcome,
 };
 use plexmaton_core::{AgentId, TokenUsage, ToolCapability, ToolDefinitionId};
 use plexmaton_provider::{
@@ -65,23 +64,23 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
                 .effects,
         );
     }
-    let [Effect::AdmitTool(call)] = effects.as_slice() else {
-        panic!("tool step should request one admission: {effects:?}");
+    let mut effects = effects.into_iter();
+    let Some(Effect::AdmitTool(request)) = effects.next() else {
+        panic!("tool step should request one admission");
     };
-    let call = call.clone();
-    let admitted = AdmittedToolCall::new(
-        call.clone(),
-        ToolDefinitionId::new("read-file-v1")
-            .unwrap_or_else(|error| panic!("fixture definition id: {error}")),
-        ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
-        [ToolCapability::FileRead],
-        call.arguments.clone(),
-        "read README.md".to_owned(),
-    )
-    .unwrap_or_else(|error| panic!("fixture admission: {error:?}"));
-    let admitted_reaction = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
-        admitted,
-    )));
+    assert!(effects.next().is_none());
+    let call = request.requested().clone();
+    let admitted = request
+        .admit(
+            ToolDefinitionId::new("read-file-v1")
+                .unwrap_or_else(|error| panic!("fixture definition id: {error}")),
+            ToolDefinitionRevision::new(1).unwrap_or_else(|| panic!("fixture revision")),
+            [ToolCapability::FileRead],
+            call.arguments.clone(),
+            "read README.md".to_owned(),
+        )
+        .unwrap_or_else(|error| panic!("fixture admission: {error:?}"));
+    let admitted_reaction = agent.handle(Input::ToolAdmissionResolved(admitted));
     assert!(matches!(
         admitted_reaction.effects.as_slice(),
         [Effect::RunTool(running)] if running.requested() == &call

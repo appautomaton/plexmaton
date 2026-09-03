@@ -1,7 +1,7 @@
 //! Relative-path validation and descriptor-relative file opening.
 
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     fs::File,
     io,
     path::{Component, Path, PathBuf},
@@ -35,6 +35,8 @@ pub enum PathError {
     TooLong,
     #[error("the path does not exist")]
     NotFound,
+    #[error("an entry already exists at the path")]
+    AlreadyExists,
     #[error("symbolic links are not accepted by the file tools")]
     Symlink,
     #[error("the path does not name a regular file")]
@@ -47,6 +49,52 @@ pub(crate) struct SearchTarget {
     pub(crate) display: String,
     pub(crate) directory: File,
     pub(crate) file: Option<File>,
+}
+
+/// A validated leaf whose parent directory remains pinned for one mutation.
+pub(crate) struct MutationPath {
+    parent: File,
+    leaf: OsString,
+    display: String,
+}
+
+#[cfg(unix)]
+impl MutationPath {
+    pub(crate) fn parent(&self) -> &File {
+        &self.parent
+    }
+
+    pub(crate) fn leaf(&self) -> &OsStr {
+        &self.leaf
+    }
+
+    pub(crate) fn display(&self) -> &str {
+        &self.display
+    }
+
+    pub(crate) fn open_existing(&self) -> Result<File, PathError> {
+        let file = open_leaf(&self.parent, &self.leaf)?;
+        if !file
+            .metadata()
+            .map_err(|error| PathError::Io(error.kind()))?
+            .is_file()
+        {
+            return Err(PathError::NotFile);
+        }
+        Ok(file)
+    }
+
+    pub(crate) fn require_absent(&self) -> Result<(), PathError> {
+        match rustix::fs::statat(
+            &self.parent,
+            &self.leaf,
+            rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+        ) {
+            Ok(_) => Err(PathError::AlreadyExists),
+            Err(error) if error == rustix::io::Errno::NOENT => Ok(()),
+            Err(error) => Err(map_rustix(error)),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -124,6 +172,21 @@ impl WorkspaceRoot {
             return Err(PathError::NotFile);
         }
         Ok((relative.display, file))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn mutation_path(&self, supplied: &str) -> Result<MutationPath, PathError> {
+        let relative = validate_relative(supplied, false)?;
+        let (parent, leaf) =
+            open_parent(&self.directory, &relative.components).or_else(|error| {
+                self.reject_visible_symlink(&relative)?;
+                Err(error)
+            })?;
+        Ok(MutationPath {
+            parent,
+            leaf,
+            display: relative.display,
+        })
     }
 
     #[cfg(unix)]
@@ -251,6 +314,12 @@ fn pin_root(root: &Path) -> Result<File, PathError> {
 
 #[cfg(unix)]
 fn open_beneath(root: &File, components: &[OsString]) -> Result<File, PathError> {
+    let (directory, file_name) = open_parent(root, components)?;
+    open_leaf(&directory, &file_name)
+}
+
+#[cfg(unix)]
+fn open_parent(root: &File, components: &[OsString]) -> Result<(File, OsString), PathError> {
     use rustix::fs::{Mode, OFlags, openat};
 
     let directory_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
@@ -265,10 +334,17 @@ fn open_beneath(root: &File, components: &[OsString]) -> Result<File, PathError>
             openat(&directory, component, directory_flags, Mode::empty()).map_err(map_rustix)?,
         );
     }
+    Ok((directory, file_name.clone()))
+}
+
+#[cfg(unix)]
+fn open_leaf(parent: &File, file_name: &OsStr) -> Result<File, PathError> {
+    use rustix::fs::{Mode, OFlags, openat};
+
     let file = openat(
-        &directory,
+        parent,
         file_name,
-        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
         Mode::empty(),
     )
     .map_err(map_rustix)?;
@@ -289,4 +365,116 @@ fn map_rustix(error: rustix::io::Errno) -> PathError {
 #[cfg(not(unix))]
 fn open_beneath(_root: &Path, _components: &[OsString]) -> Result<File, PathError> {
     Err(PathError::UnsupportedPlatform)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        fs,
+        io::Read as _,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    use super::{PathError, WorkspaceRoot};
+
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+
+    fn fixture(name: &str) -> std::path::PathBuf {
+        let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "plexmaton-mutation-path-{name}-{}-{suffix}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap_or_else(|error| panic!("create fixture: {error}"));
+        directory
+    }
+
+    #[test]
+    fn mutation_paths_pin_the_parent_and_keep_the_leaf_separate() {
+        let directory = fixture("pinned");
+        fs::create_dir(directory.join("parent"))
+            .unwrap_or_else(|error| panic!("create parent: {error}"));
+        fs::write(directory.join("parent/file"), b"original")
+            .unwrap_or_else(|error| panic!("write original: {error}"));
+        let root = WorkspaceRoot::open(&directory)
+            .unwrap_or_else(|error| panic!("open workspace: {error}"));
+        let target = root
+            .mutation_path("parent/file")
+            .unwrap_or_else(|error| panic!("resolve mutation path: {error}"));
+
+        fs::rename(directory.join("parent"), directory.join("old-parent"))
+            .unwrap_or_else(|error| panic!("rename parent: {error}"));
+        fs::create_dir(directory.join("parent"))
+            .unwrap_or_else(|error| panic!("create replacement parent: {error}"));
+        fs::write(directory.join("parent/file"), b"replacement")
+            .unwrap_or_else(|error| panic!("write replacement: {error}"));
+        let mut bytes = Vec::new();
+        target
+            .open_existing()
+            .unwrap_or_else(|error| panic!("open pinned file: {error}"))
+            .read_to_end(&mut bytes)
+            .unwrap_or_else(|error| panic!("read pinned file: {error}"));
+
+        assert_eq!(target.display(), "parent/file");
+        assert_eq!(target.leaf(), std::ffi::OsStr::new("file"));
+        assert!(target.parent().metadata().is_ok());
+        assert_eq!(bytes, b"original");
+        fs::remove_dir_all(directory).unwrap_or_else(|error| panic!("remove fixture: {error}"));
+    }
+
+    #[test]
+    fn mutation_paths_refuse_symlinked_parents_and_leaves() {
+        let directory = fixture("symlinks");
+        fs::create_dir(directory.join("real"))
+            .unwrap_or_else(|error| panic!("create parent: {error}"));
+        fs::write(directory.join("real/file"), b"inside")
+            .unwrap_or_else(|error| panic!("write file: {error}"));
+        std::os::unix::fs::symlink("real", directory.join("linked-parent"))
+            .unwrap_or_else(|error| panic!("symlink parent: {error}"));
+        std::os::unix::fs::symlink("file", directory.join("real/linked-file"))
+            .unwrap_or_else(|error| panic!("symlink leaf: {error}"));
+        let root = WorkspaceRoot::open(&directory)
+            .unwrap_or_else(|error| panic!("open workspace: {error}"));
+
+        assert!(matches!(
+            root.mutation_path("linked-parent/file"),
+            Err(PathError::Symlink)
+        ));
+        let linked_leaf = root
+            .mutation_path("real/linked-file")
+            .unwrap_or_else(|error| panic!("resolve linked leaf parent: {error}"));
+        assert_eq!(linked_leaf.require_absent(), Err(PathError::AlreadyExists));
+        assert!(matches!(
+            linked_leaf.open_existing(),
+            Err(PathError::Symlink)
+        ));
+        fs::remove_dir_all(directory).unwrap_or_else(|error| panic!("remove fixture: {error}"));
+    }
+
+    #[test]
+    fn mutation_paths_allow_a_missing_leaf_but_not_a_missing_parent() {
+        let directory = fixture("missing");
+        fs::create_dir(directory.join("parent"))
+            .unwrap_or_else(|error| panic!("create parent: {error}"));
+        let root = WorkspaceRoot::open(&directory)
+            .unwrap_or_else(|error| panic!("open workspace: {error}"));
+
+        let missing_leaf = root
+            .mutation_path("parent/new")
+            .unwrap_or_else(|error| panic!("resolve missing leaf: {error}"));
+        assert_eq!(missing_leaf.require_absent(), Ok(()));
+        assert!(matches!(
+            missing_leaf.open_existing(),
+            Err(PathError::NotFound)
+        ));
+        let existing = root
+            .mutation_path("parent")
+            .unwrap_or_else(|error| panic!("resolve existing leaf: {error}"));
+        assert_eq!(existing.require_absent(), Err(PathError::AlreadyExists));
+        assert!(matches!(
+            root.mutation_path("missing/new"),
+            Err(PathError::NotFound)
+        ));
+        fs::remove_dir_all(directory).unwrap_or_else(|error| panic!("remove fixture: {error}"));
+    }
 }

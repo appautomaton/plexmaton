@@ -6,9 +6,9 @@
 
 use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
-use crate::admission::{AdmissionOutcome, AdmittedToolCall};
+use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
-use crate::tools::{ToolCall, ToolOutcome};
+use crate::tools::ToolOutcome;
 
 /// Something the loop is told.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -60,12 +60,12 @@ pub enum Input {
 }
 
 /// Something the loop needs performed, and cannot perform itself.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Effect {
     /// Ask the model, and feed what it says back in as [`Input::Streamed`].
     CallModel(ModelCall),
     /// Ask the trusted catalog to validate and canonicalize one raw model call.
-    AdmitTool(ToolCall),
+    AdmitTool(AdmissionRequest),
     /// Run one admitted call, and feed the result back in as [`Input::ToolFinished`].
     RunTool(AdmittedToolCall),
 }
@@ -144,7 +144,7 @@ impl UndeliveredInput {
 }
 
 /// What one input produced.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct Reaction {
     /// Events for the projection, numbered on this agent's one sequence.
     pub events: Vec<SessionEventEnvelope>,

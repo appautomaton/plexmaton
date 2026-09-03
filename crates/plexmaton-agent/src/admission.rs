@@ -76,6 +76,16 @@ pub enum AdmissionRefusal {
     InvalidArguments,
     /// The definition exists but its executor is unavailable.
     DefinitionUnavailable,
+    /// A trusted observation or absence condition no longer holds.
+    StalePrecondition,
+    /// Exact source text did not occur in the observed region.
+    SourceMismatch,
+    /// Exact source text did not identify one unique target.
+    AmbiguousTarget,
+    /// Individually valid arguments conflict when applied as one operation.
+    ConflictingArguments,
+    /// Admission work was cancelled before it could publish a trusted call.
+    Cancelled,
 }
 
 /// Why an admitted-call constructor rejected catalog output.
@@ -87,7 +97,64 @@ pub enum AdmittedCallError {
     DetailTooLarge,
 }
 
+/// One exact loop-issued request a trusted catalog may consume to resolve admission (APV-1).
+///
+/// Callers cannot construct a ticket from an arbitrary [`ToolCall`]. Holding an already admitted
+/// call therefore does not grant the ability to mint another call with changed canonical intent.
+#[derive(Debug, Eq, PartialEq)]
+pub struct AdmissionRequest {
+    requested: ToolCall,
+}
+
+impl AdmissionRequest {
+    pub(crate) const fn new(requested: ToolCall) -> Self {
+        Self { requested }
+    }
+
+    /// Exact untrusted call the catalog must parse and answer.
+    #[must_use]
+    pub const fn requested(&self) -> &ToolCall {
+        &self.requested
+    }
+
+    /// Consumes this loop-issued ticket and freezes trusted catalog facts into one admitted call.
+    pub fn admit(
+        self,
+        definition_id: ToolDefinitionId,
+        definition_revision: ToolDefinitionRevision,
+        capabilities: impl IntoIterator<Item = ToolCapability>,
+        canonical_arguments: String,
+        detail: String,
+    ) -> Result<AdmissionOutcome, AdmittedCallError> {
+        AdmittedToolCall::new(
+            self.requested,
+            definition_id,
+            definition_revision,
+            capabilities,
+            canonical_arguments,
+            detail,
+        )
+        .map(AdmissionOutcome::Admitted)
+    }
+
+    /// Consumes this loop-issued ticket as a typed refusal.
+    #[must_use]
+    pub fn refuse(self, reason: AdmissionRefusal) -> AdmissionOutcome {
+        AdmissionOutcome::Refused {
+            call_id: self.requested.call_id,
+            reason,
+        }
+    }
+}
+
 /// One immutable call after trusted parsing and canonicalization.
+///
+/// The constructor is intentionally not public; only consuming a loop-issued
+/// [`AdmissionRequest`] can produce this value outside the loop crate.
+///
+/// ```compile_fail
+/// let _constructor = plexmaton_agent::AdmittedToolCall::new;
+/// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedToolCall {
     requested: ToolCall,
@@ -100,7 +167,7 @@ pub struct AdmittedToolCall {
 
 impl AdmittedToolCall {
     /// Builds the value returned by a trusted catalog after enforcing its retained-size bounds.
-    pub fn new(
+    pub(crate) fn new(
         requested: ToolCall,
         definition_id: ToolDefinitionId,
         definition_revision: ToolDefinitionRevision,

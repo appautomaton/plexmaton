@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented for Phase 01 stage 2 slice 4 |
+| Status | Implemented through Phase 01 stage 2 slice 8 |
 | Owns | How an untrusted model tool request becomes an admitted call, how policy decides it, and how an approval decision names it |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-2 through LOOP-5; [attention](./attention.md) ATT-1 and ATT-3; Phase 01 §producer |
 | Proven by | `plexmaton-agent::{admission,tools,turn}` and `plexmaton-tui::{approval,workspace,frames}` tests |
@@ -11,8 +11,9 @@
 
 **APV-1 — Authority starts at admission.** The model supplies an untrusted tool name and raw
 arguments. The trusted tool catalog validates and canonicalizes them through an explicit loop
-effect, producing one immutable admitted call or a typed refusal before policy or execution can
-run; neither the model nor a presentation adapter can construct an admitted call.
+effect carrying a non-cloneable, loop-issued `AdmissionRequest`. Consuming that request produces
+one immutable admitted call or a typed refusal before policy or execution can run; neither the
+model, a presentation adapter, nor a holder of an already admitted call can construct another one.
 
 **APV-2 — Policy reads capabilities, not names.** An admitted call carries its tool-definition
 identity and revision, normalized arguments, a finite set of typed capabilities, and bounded
@@ -86,7 +87,7 @@ ordering.
 | --- | --- |
 | APV-1 | `admitted_state_is_bounded_before_the_loop_can_retain_it`, `forbidden_and_admission_refusal_finish_without_approval_or_execution` |
 | APV-2 | `capabilities_are_a_canonical_set`, `policy_uses_capabilities_and_forbidden_wins` |
-| APV-3 | `forbidden_and_admission_refusal_finish_without_approval_or_execution`; executor confinement and integrity remain unproven until slices 6–8 |
+| APV-3 | `forbidden_and_admission_refusal_finish_without_approval_or_execution`, `stale_edit_preserves_the_concurrent_writer`, `malformed_canonical_and_cancelled_mutations_fail_closed` |
 | APV-4 | `a_protected_call_waits_as_state_and_allow_once_resumes_that_exact_call`, `deny_pays_the_call_debt_and_a_duplicate_decision_is_typed`, `a_decision_echoes_the_open_request_and_cannot_recompute_policy`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
 | APV-5 | `a_safe_sibling_runs_while_a_protected_call_waits_and_results_keep_model_order`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished` |
 | APV-6 | `interrupt_and_shutdown_cancel_pending_approval_as_explicit_state`, `abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone`; durable restore remains unproven until Phase 02 |

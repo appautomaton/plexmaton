@@ -3,6 +3,7 @@
 use std::{
     fs::File,
     io::{self, BufRead, BufReader, Read},
+    ops::Range,
 };
 
 use thiserror::Error;
@@ -95,7 +96,7 @@ pub enum ReadError {
 pub(crate) fn read(
     root: &WorkspaceRoot,
     request: &ReadRequest,
-) -> Result<(ReadResult, FileVersion), ReadError> {
+) -> Result<(ReadResult, FileVersion, Range<usize>), ReadError> {
     read_before_version_check(root, request, || {})
 }
 
@@ -103,7 +104,7 @@ fn read_before_version_check(
     root: &WorkspaceRoot,
     request: &ReadRequest,
     before_version_check: impl FnOnce(),
-) -> Result<(ReadResult, FileVersion), ReadError> {
+) -> Result<(ReadResult, FileVersion, Range<usize>), ReadError> {
     let (path, file) = root.open_file(&request.path)?;
     let before = FileVersion::read(&file).map_err(|error| ReadError::Io(error.kind()))?;
     let mut reader = LineReader::new(BufReader::new(file));
@@ -120,6 +121,8 @@ fn read_before_version_check(
             limit: MAX_SCAN_BYTES,
         })?;
     }
+    let visible_start = reader.examined;
+    let mut visible_end = visible_start;
     while line_number >= request.offset && lines < request.limit {
         let Some(line) = reader.next(line_number)? else {
             break;
@@ -129,6 +132,7 @@ fn read_before_version_check(
             break;
         }
         content.push_str(&line);
+        visible_end = reader.examined;
         lines = lines.saturating_add(1);
         line_number = line_number.checked_add(1).ok_or(ReadError::ScanLimit {
             limit: MAX_SCAN_BYTES,
@@ -155,6 +159,7 @@ fn read_before_version_check(
             bytes_examined: reader.examined,
         },
         after,
+        visible_start..visible_end,
     ))
 }
 
@@ -226,7 +231,7 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{ReadError, ReadRequest, read_before_version_check};
+    use super::{ReadCompletion, ReadError, ReadRequest, read, read_before_version_check};
     use crate::WorkspaceRoot;
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
@@ -256,6 +261,40 @@ mod tests {
         });
 
         assert_eq!(result, Err(ReadError::ChangedDuringRead));
+        fs::remove_dir_all(directory)
+            .unwrap_or_else(|error| panic!("remove test directory: {error}"));
+    }
+
+    #[test]
+    fn the_observed_range_excludes_skipped_and_lookahead_bytes() {
+        let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
+        let directory = std::env::temp_dir().join(format!(
+            "plexmaton-read-range-{}-{suffix}",
+            std::process::id()
+        ));
+        fs::create_dir(&directory).unwrap_or_else(|error| panic!("create test directory: {error}"));
+        let first_visible = format!("{}\n", "a".repeat(16_000));
+        let mut bytes = b"skip\r\n".to_vec();
+        for _ in 0..4 {
+            bytes.extend_from_slice(first_visible.as_bytes());
+        }
+        let lookahead = format!("{}\n", "b".repeat(2_000));
+        bytes.extend_from_slice(lookahead.as_bytes());
+        fs::write(directory.join("file"), &bytes)
+            .unwrap_or_else(|error| panic!("write fixture: {error}"));
+        let root = WorkspaceRoot::open(&directory)
+            .unwrap_or_else(|error| panic!("open workspace: {error}"));
+        let request = ReadRequest::new("file".to_owned(), Some(2), None)
+            .unwrap_or_else(|error| panic!("request: {error}"));
+
+        let (result, _, byte_range) =
+            read(&root, &request).unwrap_or_else(|error| panic!("read: {error}"));
+
+        let visible_bytes = first_visible.len() * 4;
+        assert_eq!(result.completion, ReadCompletion::ByteLimit);
+        assert_eq!(byte_range, 6..6 + visible_bytes);
+        assert_eq!(result.content.as_bytes(), &bytes[byte_range.clone()]);
+        assert!(result.bytes_examined > byte_range.end);
         fs::remove_dir_all(directory)
             .unwrap_or_else(|error| panic!("remove test directory: {error}"));
     }

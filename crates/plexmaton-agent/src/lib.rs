@@ -18,8 +18,9 @@ mod tools;
 mod turn;
 
 pub use admission::{
-    AdmissionOutcome, AdmissionRefusal, AdmittedCallError, AdmittedToolCall, ApprovalPolicy,
-    CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
+    AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedCallError, AdmittedToolCall,
+    ApprovalPolicy, CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, PolicyDecision,
+    ToolDefinitionRevision,
 };
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, UndeliveredInput,
