@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 8 |
+| Status | Implemented through Phase 01 stage 2 slice 9 |
 | Owns | How an untrusted model tool request becomes an admitted call, how policy decides it, and how an approval decision names it |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-2 through LOOP-5; [attention](./attention.md) ATT-1 and ATT-3; Phase 01 §producer |
-| Proven by | `plexmaton-agent::{admission,tools,turn}` and `plexmaton-tui::{approval,workspace,frames}` tests |
+| Proven by | `plexmaton-agent::{admission,tools,turn}`, `plexmaton-command::admission` and `plexmaton-tui::{approval,workspace,frames}` tests |
 
 ## Invariants
 
@@ -85,9 +85,9 @@ ordering.
 
 | Invariant | Proven by |
 | --- | --- |
-| APV-1 | `admitted_state_is_bounded_before_the_loop_can_retain_it`, `forbidden_and_admission_refusal_finish_without_approval_or_execution` |
-| APV-2 | `capabilities_are_a_canonical_set`, `policy_uses_capabilities_and_forbidden_wins` |
-| APV-3 | `forbidden_and_admission_refusal_finish_without_approval_or_execution`, `stale_edit_preserves_the_concurrent_writer`, `malformed_canonical_and_cancelled_mutations_fail_closed` |
+| APV-1 | `admitted_state_is_bounded_before_the_loop_can_retain_it`, `forbidden_and_admission_refusal_finish_without_approval_or_execution`, `cmd_1_admission_is_strict_canonical_and_pins_the_workspace`, `cmd_1_refuses_every_shape_outside_the_model_contract_and_hard_bounds` |
+| APV-2 | `capabilities_are_a_canonical_set`, `policy_uses_capabilities_and_forbidden_wins`, `cmd_1_admission_is_strict_canonical_and_pins_the_workspace`, `cmd_1_approval_detail_keeps_root_and_command_head_tail_separately` |
+| APV-3 | `forbidden_and_admission_refusal_finish_without_approval_or_execution`, `stale_edit_preserves_the_concurrent_writer`, `malformed_canonical_and_cancelled_mutations_fail_closed`, `cmd_1_executor_refuses_a_call_pinned_to_another_workspace` |
 | APV-4 | `a_protected_call_waits_as_state_and_allow_once_resumes_that_exact_call`, `deny_pays_the_call_debt_and_a_duplicate_decision_is_typed`, `a_decision_echoes_the_open_request_and_cannot_recompute_policy`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
 | APV-5 | `a_safe_sibling_runs_while_a_protected_call_waits_and_results_keep_model_order`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished` |
 | APV-6 | `interrupt_and_shutdown_cancel_pending_approval_as_explicit_state`, `abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone`; durable restore remains unproven until Phase 02 |

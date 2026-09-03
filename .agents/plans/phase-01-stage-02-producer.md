@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1–8 of 10 landed 2026-09-03; slice 9 next |
+| Status | Slices 1–9 of 10 landed 2026-09-03; slice 10 next |
 | Blocked | None |
 
 ## Outcome
@@ -69,15 +69,18 @@ admission and approval boundary. This plan owns only the order in which the mech
    MUT-6). Stale, ambiguous, overlapping, concurrent, cancelled and failed operations preserve the
    original or absence, while LF, CRLF, BOM, tabs, ordinary permission bits and untouched Unicode
    bytes survive.
-9. **Command.** A workspace-scoped foreground process with a typed exit cause, owned cancellation
+9. **Command.** Landed. A workspace-scoped foreground process with a typed exit cause, owned cancellation
    and two-phase termination, bounded UTF-8 stdout and stderr, and a broad declared capability.
-   *Closes when* a megabyte on each stream neither grows the transcript nor the next request, and
-   interrupt leaves no live descendant or unpaid result.
+   *Closes when* a megabyte on each stream drains to one bounded model result, and interrupt leaves
+   no live member of the owned process group or unjoined drain. A deliberate new session/process
+   group is outside this Unix boundary and is stated as such in
+   [command-tool](../specs/command-tool.md), rather than hidden behind a stronger claim.
 10. **Integrated live tools.** The live runtime registers the native catalog and executes admitted
    read, search, mutation and command effects; the simulator stays the deterministic test producer.
    *Closes when* a real model completes a representative coding task through tools, all failure and
-   cancellation debts settle, the notice log stays empty, and wide, medium and narrow frames have
-   been looked at.
+   cancellation debts settle, a maximal command result cannot grow the transcript or next request
+   beyond its bound, the notice log stays empty, and wide, medium and narrow frames have been looked
+   at.
 
 ## Order, and why
 

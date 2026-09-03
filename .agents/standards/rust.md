@@ -70,16 +70,16 @@
 Versions and features are declared once, in `[workspace.dependencies]`. This table owns only what a
 manifest cannot express: why each crate is here and what its feature set is allowed to become.
 
-Audited 2026-09-02 against the graph resolved in `Cargo.lock`.
+Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 
 | Crate | Role | Feature and version decision |
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Current modular generation and umbrella crate; splitting its subcrates requires a measured compile-time or boundary benefit |
 | `reqwest` | Pooled streaming HTTP client | Defaults off; `json`, `stream`, Rustls. Redirects are disabled around bearer authority. Rustls selects vendored `aws-lc-rs`, not platform OpenSSL |
-| `rustix` | Descriptor-relative file access and driver `fchdir` | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
+| `rustix` | Descriptor-relative file access and Unix process-group signalling | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
 | `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
 | `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
-| `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, and `time`, while reqwest's resolved HTTP graph additionally enables `fs`, `io-util`, and `net`. Never `full`; `process`, `rt-multi-thread`, and `signal` wait for an owner |
+| `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
 | `serde` / `serde_json` | Deterministic scenario and snapshot data | `derive` enabled. This is not the durable-session schema |
