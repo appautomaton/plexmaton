@@ -179,6 +179,61 @@ fn admission_is_strict_and_canonical() {
     ));
 }
 
+/// WFS-5/ENT-4: admission freezes one lexical workspace path spelling for provider replay,
+/// transcript presentation, and the executor's model-facing result.
+#[test]
+fn read_and_search_paths_agree_across_canonical_invocation_and_execution() {
+    let workspace = TestWorkspace::new();
+    workspace.write("nested/notes.txt", b"needle\n");
+    let mut tools = FileTools::open(workspace.path(), rg_executable(), search_driver())
+        .unwrap_or_else(|error| panic!("open tools: {error}"));
+
+    let read = admitted(tools.admit(
+        call(READ_TOOL_NAME, json!({"path": "./nested//notes.txt"})),
+        &FileCancellation::new(),
+    ));
+    let read_arguments: Value = serde_json::from_str(read.canonical_arguments())
+        .unwrap_or_else(|error| panic!("canonical read: {error}"));
+    assert_eq!(read_arguments["path"], "nested/notes.txt");
+    assert_eq!(read.detail(), "read nested/notes.txt");
+    assert!(matches!(
+        read.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source.contains("path: \"nested/notes.txt\"")
+    ));
+    let read_result = tools.execute(&read, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = read_result.outcome() else {
+        panic!("canonical read failed: {read_result:?}");
+    };
+    let read_output: Value =
+        serde_json::from_str(output).unwrap_or_else(|error| panic!("read output: {error}"));
+    assert_eq!(read_output["path"], read_arguments["path"]);
+
+    let search = admitted(tools.admit(
+        call(
+            SEARCH_TOOL_NAME,
+            json!({"pattern": "needle", "path": "./nested///"}),
+        ),
+        &FileCancellation::new(),
+    ));
+    let search_arguments: Value = serde_json::from_str(search.canonical_arguments())
+        .unwrap_or_else(|error| panic!("canonical search: {error}"));
+    assert_eq!(search_arguments["path"], "nested");
+    assert_eq!(search.detail(), "search needle in nested");
+    assert!(matches!(
+        search.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source.contains("path: \"nested\"")
+    ));
+    let search_result = tools.execute(&search, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = search_result.outcome() else {
+        panic!("canonical search failed: {search_result:?}");
+    };
+    let search_output: Value =
+        serde_json::from_str(output).unwrap_or_else(|error| panic!("search output: {error}"));
+    assert_eq!(search_output["matches"][0]["path"], "nested/notes.txt");
+}
+
 /// WFS-5: execution trusts the admitted definition identity, never the requested model name.
 #[test]
 fn execution_dispatches_by_admitted_definition() {

@@ -40,25 +40,27 @@ pub(super) struct SearchArguments {
 }
 
 pub(super) fn parse_read(raw: &str) -> Option<ReadArguments> {
-    let arguments: ReadArguments = serde_json::from_str(raw).ok()?;
-    ReadRequest::new(
+    let mut arguments: ReadArguments = serde_json::from_str(raw).ok()?;
+    let request = ReadRequest::new(
         arguments.path.clone(),
         Some(arguments.offset),
         Some(arguments.limit),
     )
     .ok()?;
+    arguments.path = request.path().to_owned();
     Some(arguments)
 }
 
 pub(super) fn parse_search(raw: &str) -> Option<SearchArguments> {
-    let arguments: SearchArguments = serde_json::from_str(raw).ok()?;
-    SearchRequest::new(
+    let mut arguments: SearchArguments = serde_json::from_str(raw).ok()?;
+    let request = SearchRequest::new(
         arguments.pattern.clone(),
         Some(arguments.path.clone()),
         arguments.glob.clone(),
         Some(arguments.limit),
     )
     .ok()?;
+    arguments.path = request.path().to_owned();
     Some(arguments)
 }
 

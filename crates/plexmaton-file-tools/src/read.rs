@@ -11,7 +11,7 @@ use thiserror::Error;
 use crate::{
     ObservationId,
     observation::FileVersion,
-    path::{PathError, WorkspaceRoot, validate_file_path},
+    path::{PathError, WorkspaceRoot, normalize_file_path},
 };
 
 pub const DEFAULT_READ_LINES: u16 = 200;
@@ -30,7 +30,7 @@ pub struct ReadRequest {
 
 impl ReadRequest {
     pub fn new(path: String, offset: Option<u64>, limit: Option<u16>) -> Result<Self, ReadError> {
-        validate_file_path(&path)?;
+        let path = normalize_file_path(&path)?;
         let offset = offset.unwrap_or(1);
         let limit = limit.unwrap_or(DEFAULT_READ_LINES);
         if offset == 0 || limit == 0 || limit > MAX_READ_LINES {

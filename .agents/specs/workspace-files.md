@@ -48,8 +48,10 @@ path, or glob. Candidate filtering never bypasses ripgrep's regular-expression v
 invalid windows and oversized strings are refused before execution. Provider schemas require every
 declared property and express optional defaults as nullable values; admission freezes null or
 omitted defaults into one canonical form. Schema `maxLength` values are character ceilings while
-field descriptions state the decoded UTF-8 byte guards that admission enforces. Read and search
-declare only `FileRead`, and the executor dispatches by pinned definition identity and revision.
+field descriptions state the decoded UTF-8 byte guards that admission enforces. Relative read and
+search paths are lexically normalized once for canonical arguments, presentation, and executor
+results. Read and search declare only `FileRead`, and the executor dispatches by pinned definition
+identity and revision.
 Their canonical path, window or query facts become bounded transcript invocations; successful and
 failed results retain a bounded text outcome without changing the exact model-facing result.
 
@@ -77,5 +79,5 @@ performs only bounded synchronous work and publishes no observation after cancel
 | WFS-2 | `read_windows_preserve_exact_bytes_without_scanning_the_tail`, `invalid_binary_and_giant_lines_are_typed` |
 | WFS-3 | `successful_reads_issue_bounded_observations`, `a_change_before_the_version_check_refuses_the_read`, `the_observed_range_excludes_skipped_and_lookahead_bytes`, `an_observation_authorizes_only_ranges_inside_its_read_window`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit` |
 | WFS-4 | `directory_driver_prefix_precedes_rg_and_model_arguments_exactly`, `search_children_do_not_receive_host_credentials`, `pattern_and_glob_are_distinct_argv_while_path_is_pinned`, `relative_search_executables_are_refused_before_spawn`, `candidate_count_is_bounded_before_unbounded_content_work_starts`, `transport_bytes_are_one_limit_across_discovery_and_every_file`, `a_growing_snapshot_reads_only_one_byte_past_its_hard_bound`, `an_oversized_text_file_reports_its_file_byte_limit`, `an_invalid_pattern_is_rejected_when_every_candidate_is_binary`, `an_invalid_pattern_fails_before_discovery_can_exhaust_transport`, `a_file_change_during_content_search_discards_the_result`, `match_overflow_stops_ripgrep_without_an_unusable_continuation`, `ignored_and_binary_files_do_not_enter_results`, `a_giant_rg_record_is_typed_and_never_retained`, `retained_match_bytes_stop_independently_of_transport`, `stdout_eof_does_not_disable_the_process_deadline` |
-| WFS-5 | `catalog_definitions_are_strict_and_bounded`, `model_paths_enforce_the_decoded_utf8_byte_bound`, `search_text_enforces_decoded_utf8_byte_bounds`, `admission_is_strict_and_canonical`, `execution_dispatches_by_admitted_definition`, `execution_rechecks_revision_and_capabilities`, `search_execution_accepts_its_own_canonical_arguments`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit` |
+| WFS-5 | `catalog_definitions_are_strict_and_bounded`, `model_paths_enforce_the_decoded_utf8_byte_bound`, `search_text_enforces_decoded_utf8_byte_bounds`, `admission_is_strict_and_canonical`, `read_and_search_paths_agree_across_canonical_invocation_and_execution`, `execution_dispatches_by_admitted_definition`, `execution_rechecks_revision_and_capabilities`, `search_execution_accepts_its_own_canonical_arguments`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit` |
 | WFS-6 | `a_cancelled_read_publishes_no_observation`, `cancellation_after_read_work_still_publishes_no_observation`, `a_cancelled_file_boundary_precedes_an_oversized_completion`, `a_cancelled_search_joins_its_exact_child_and_reader_tasks`, `a_cancelled_search_returns_only_after_reader_join`, `a_reader_panic_still_joins_every_sibling_before_returning` |

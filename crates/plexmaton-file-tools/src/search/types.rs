@@ -10,7 +10,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{PathError, path::validate_search_path};
+use crate::{PathError, path::normalize_search_path};
 
 pub const DEFAULT_SEARCH_MATCHES: u16 = 100;
 pub const MAX_SEARCH_MATCHES: u16 = 500;
@@ -46,7 +46,7 @@ impl SearchRequest {
     ) -> Result<Self, SearchError> {
         let path = path.unwrap_or_else(|| ".".to_owned());
         let limit = limit.unwrap_or(DEFAULT_SEARCH_MATCHES);
-        validate_search_path(&path)?;
+        let path = normalize_search_path(&path)?;
         if pattern.is_empty()
             || pattern.len() > MAX_PATTERN_BYTES
             || glob
@@ -63,6 +63,10 @@ impl SearchRequest {
             glob,
             limit,
         })
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
     }
 }
 

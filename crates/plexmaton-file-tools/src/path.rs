@@ -285,12 +285,17 @@ fn validate_relative(supplied: &str, allow_root: bool) -> Result<ValidatedPath, 
     })
 }
 
-pub(crate) fn validate_file_path(supplied: &str) -> Result<(), PathError> {
-    validate_relative(supplied, false).map(|_| ())
+pub(crate) fn normalize_file_path(supplied: &str) -> Result<String, PathError> {
+    validate_relative(supplied, false).map(|path| path.display)
 }
 
-pub(crate) fn validate_search_path(supplied: &str) -> Result<(), PathError> {
-    validate_relative(supplied, true).map(|_| ())
+pub(crate) fn normalize_search_path(supplied: &str) -> Result<String, PathError> {
+    validate_relative(supplied, true).map(|path| path.display)
+}
+
+#[cfg(test)]
+fn validate_file_path(supplied: &str) -> Result<(), PathError> {
+    normalize_file_path(supplied).map(|_| ())
 }
 
 fn map_path_io(error: io::Error) -> PathError {
