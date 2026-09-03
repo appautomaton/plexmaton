@@ -19,9 +19,6 @@ use crate::{
     transcript::TranscriptMetrics,
 };
 
-/// Rows a bordered block spends on its own frame.
-const BORDER_ROWS: u16 = 2;
-
 /// Projects the current view state into a Ratatui frame without mutating it.
 ///
 /// Returns the surfaces this frame actually drew, with each one's measured viewport, which is what
@@ -43,14 +40,16 @@ pub fn render(
         return SurfaceTree::default();
     }
 
+    let inspector = state.inspector_request();
+    let composer_width = layout::composer_width(area, inspector);
     let mut surfaces = layout::workspace(
         area,
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
             attention: state.attention_count(),
             approval: state.approval().is_some(),
-            composer_rows: state.composer_rows(area.width),
-            inspector: state.inspector_request(),
+            composer_rows: state.composer_rows(composer_width),
+            inspector,
         },
     );
     let stacking = Stacking::of(&surfaces);
@@ -181,12 +180,12 @@ pub fn render(
         // answer routing and editing use (SURF-3, COM-1, INS-7) rather than a second one derived
         // here. An inspector's input is the strip below its conversation, so the cursor follows the
         // rectangle the text was drawn into rather than the surface's.
-        if cursor_owner == Some(id) && panel.edges != Edges::None {
+        if cursor_owner == Some(id) {
             match &steer {
                 Some((split, agent_id)) if id == SurfaceId::Inspector => {
                     render_steer(frame, palette, state, agent_id, split.input);
                 }
-                _ => place_cursor(frame, bounds, panel.body.lines()),
+                _ => place_cursor(frame, bounds, panel.body.lines(), panel.edges),
             }
         }
     }
@@ -346,10 +345,16 @@ mod tests {
         buffer::Buffer,
         layout::Rect,
         style::{Color, Modifier, Style},
+        text::Line,
         widgets::{Paragraph, Wrap},
     };
 
-    use super::{chrome::block, composer_title, panel::Edges, transcript_title};
+    use super::{
+        chrome::block,
+        composer_title,
+        panel::{Body, Edges, Panel, draw_panel},
+        transcript_title,
+    };
 
     use crate::{
         TranscriptMetrics, ViewState,
@@ -379,6 +384,44 @@ mod tests {
             style.fg.filter(|colour| *colour != Color::Reset),
             style.add_modifier,
         )
+    }
+
+    /// SURF-1: a partial frame spends two columns even when it spends only one row.
+    #[test]
+    fn a_partial_frame_measures_each_axis_from_the_edges_it_paints() {
+        let area = Rect::new(0, 0, 8, 2);
+        let palette = Palette::default();
+        let panel = Panel {
+            body: Body::Whole {
+                lines: vec![Line::raw("abcdefg")],
+                follows_tail: false,
+            },
+            title: Line::default(),
+            edges: Edges::Closing,
+        };
+        let mut measured = None;
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+
+        terminal
+            .draw(|frame| {
+                measured = Some(draw_panel(frame, &palette, area, false, &panel, None));
+            })
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+
+        let viewport = measured.unwrap_or_else(|| panic!("the panel was measured"));
+        assert_eq!(
+            viewport.content_width, 6,
+            "the two side edges spend two cells"
+        );
+        assert_eq!(
+            viewport.content_rows, 2,
+            "seven cells wrap at the six-cell painted width"
+        );
+        assert_eq!(
+            viewport.visible_rows, 1,
+            "only the bottom edge spends a row"
+        );
     }
 
     fn border_ink(buffer: &Buffer, surfaces: &SurfaceTree, id: SurfaceId) -> Ink {

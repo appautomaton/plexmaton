@@ -183,8 +183,8 @@ impl ViewState {
     /// Read from the stored preference rather than from resolved focus, because laying out the
     /// workspace is what needs the answer and there is no tree yet when it asks.
     ///
-    /// `width` is the terminal's, which the composer band spans; the draft wraps inside its
-    /// borders. A height asked for without a width is a height for a draft nobody wrapped.
+    /// `width` is the composer rectangle layout will register; the draft wraps inside its borders.
+    /// A height asked for without that width is a height for a draft nobody paints.
     #[must_use]
     pub fn composer_rows(&self, width: u16) -> u16 {
         if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {

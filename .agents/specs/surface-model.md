@@ -11,7 +11,8 @@
 
 **SURF-1 — Drawn equals registered.** Layout is the only producer of workspace rectangles, and every
 rectangle it computes is registered in the `SurfaceTree` the router borrows and never mutates. The
-renderer draws each surface only inside that surface's visible rectangle.
+renderer draws each surface only inside that surface's visible rectangle, and measures its frame
+rows and columns independently from the edges it paints.
 
 **SURF-2 — Clip, not bounds.** A surface carries the rectangle it occupies and the rectangle it is
 clipped to; hit testing and painting use their intersection, so a surface scrolled or covered past
@@ -91,7 +92,7 @@ hover never does (INV-3).
 
 | Invariant | Proven by |
 | --- | --- |
-| SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap` |
+| SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap`, `a_partial_frame_measures_each_axis_from_the_edges_it_paints` |
 | SURF-2 | Unproven; no surface overflows its parent. The base layer tiles the terminal and the shelf lies wholly inside the conversation it covers; which rows of a scrolled item a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
 | SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
 | SURF-4 | `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_approval_frames_match_their_fixtures` |

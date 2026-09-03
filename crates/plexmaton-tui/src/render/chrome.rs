@@ -247,7 +247,6 @@ pub(super) fn block(
         Role::Border
     };
     let (borders, set) = match edges {
-        Edges::None => (Borders::NONE, border::PLAIN),
         Edges::All => (Borders::ALL, border::PLAIN),
         Edges::Upper => (Borders::TOP | Borders::LEFT | Borders::RIGHT, border::PLAIN),
         Edges::Closing => (

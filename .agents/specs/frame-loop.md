@@ -92,7 +92,7 @@ a height.
 
 | Invariant | Proven by |
 | --- | --- |
-| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_chord_asks_once_and_leaves_on_the_second_press` |
+| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord` |
 | FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground` |
 | FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
 | FR-4 | The FR-2 rows assert work counts; `plexmaton-measure` prints time and asserts none of it |

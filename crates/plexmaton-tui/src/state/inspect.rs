@@ -109,10 +109,7 @@ impl ViewState {
 
     /// Moves the inspector's bottom edge by one row, from where it was actually drawn.
     fn nudge(&mut self, surfaces: &SurfaceTree, rows: i16) -> bool {
-        let Some(bounds) = surfaces
-            .get(SurfaceId::Inspector)
-            .map(|surface| surface.bounds)
-        else {
+        let Some(bounds) = shelf_bounds(surfaces) else {
             return false;
         };
         let next = if rows.is_negative() {
@@ -129,9 +126,7 @@ impl ViewState {
     /// moves nothing. Capture is the router's (INV-4), so a drag reaches here even after the
     /// pointer has left the rectangle, which is exactly what makes the edge followable.
     pub fn drag(&mut self, surfaces: &SurfaceTree, intent: PointerIntent) {
-        let bounds = surfaces
-            .get(SurfaceId::Inspector)
-            .map(|surface| surface.bounds);
+        let bounds = shelf_bounds(surfaces);
         let on_inspector = |surface| {
             (surface == SurfaceId::Inspector)
                 .then_some(bounds)
@@ -199,4 +194,16 @@ impl ViewState {
         }
         let _pruned = self.prune_selection();
     }
+}
+
+/// The actual frame decides whether the window is a resizable shelf (INS-3, INS-8).
+///
+/// A stored maximize flag cannot answer this: narrow and short layouts maximize by geometry, and
+/// ultrawide gives the window a tiled column. The shelf is the only Inspector registered above the
+/// base layer, matching ui-ux §drag scope.
+fn shelf_bounds(surfaces: &SurfaceTree) -> Option<ratatui::layout::Rect> {
+    surfaces
+        .get(SurfaceId::Inspector)
+        .filter(|surface| surface.z_index > 0)
+        .map(|surface| surface.bounds)
 }

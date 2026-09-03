@@ -103,6 +103,10 @@ impl ViewState {
             && let Some(composer) = self.composers.get_mut(&to)
             && composer.clear()
         {
+            // `Ctrl-C` is another key after an armed quit, so clearing a draft also withdraws the
+            // question. Do both before one touch: they are one user-visible transition (INV-7,
+            // FR-1).
+            self.status.set_note(StatusNote::Quiet);
             self.touch();
             return target;
         }

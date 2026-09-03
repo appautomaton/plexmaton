@@ -14,16 +14,15 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::{
-    BORDER_ROWS,
-    chrome::{block, title},
-};
+use super::chrome::{block, title};
 use crate::{
     ViewState,
     state::{ScrollPosition, inner_width},
     surface::Viewport,
     theme::{Palette, Role},
 };
+
+const FULL_FRAME_ROWS: u16 = 2;
 
 /// One bordered, scrollable region, ready to draw.
 pub(super) struct Panel {
@@ -41,8 +40,6 @@ pub(super) struct Panel {
 /// box with two sections rather than as two boxes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Edges {
-    /// No frame at all: a collapsed composer row.
-    None,
     /// A box of its own.
     All,
     /// Top and sides, open at the bottom: the upper section of a shared box.
@@ -58,9 +55,15 @@ impl Edges {
     /// Rows the frame spends, which the content cannot have.
     pub(super) const fn rows(self) -> u16 {
         match self {
-            Self::None => 0,
             Self::Upper | Self::Closing => 1,
-            Self::All | Self::Lower => BORDER_ROWS,
+            Self::All | Self::Lower => FULL_FRAME_ROWS,
+        }
+    }
+
+    /// Columns the frame spends, which the content cannot have.
+    pub(super) const fn columns(self) -> u16 {
+        match self {
+            Self::All | Self::Upper | Self::Lower | Self::Closing => 2,
         }
     }
 }
@@ -124,7 +127,7 @@ pub(super) fn render_steer(
             Edges::All,
         ));
     frame.render_widget(paragraph, area);
-    place_cursor(frame, area, &lines);
+    place_cursor(frame, area, &lines, Edges::All);
 }
 
 /// Draws a panel through its viewport and returns what it measured.
@@ -141,9 +144,8 @@ pub(super) fn draw_panel(
     panel: &Panel,
     parked: Option<ScrollPosition>,
 ) -> Viewport {
-    // An unbordered region spends no rows on a frame, so none of the arithmetic below may take
-    // them off. A collapsed composer is the only one, and it is one row tall (INS-5).
     let frame_rows = panel.edges.rows();
+    let frame_columns = panel.edges.columns();
     let mut lines = panel.body.lines().to_vec();
     // A conversation shorter than its panel sits at the bottom, the way one that overflows does:
     // the newest content is always at the bottom, so what a window floating over the top covers
@@ -156,15 +158,13 @@ pub(super) fn draw_panel(
         );
     }
     let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    if panel.edges != Edges::None {
-        paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
-    }
+    paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
 
     let (viewport, scroll) = match &panel.body {
         Body::Whole { follows_tail, .. } => {
             // `line_count` wraps at exactly the width it is given and then adds the block's border
             // rows, so it is asked for the inner width and those rows are taken back off.
-            let inner_width = area.width.saturating_sub(frame_rows);
+            let inner_width = area.width.saturating_sub(frame_columns);
             let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
             let mut viewport = Viewport {
                 content_rows: measured.saturating_sub(frame_rows),
@@ -206,7 +206,7 @@ const fn resolve_offset(
 ///
 /// The only `set_cursor_position` call site in the workspace. Ratatui hides the cursor unless a
 /// frame asks for it, so "exactly one cursor" (COM-1) is a property of there being one caller.
-pub(super) fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>]) {
+pub(super) fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>], edges: Edges) {
     let last = lines.last();
     // Display width, not character count: a wide glyph occupies two cells and the caret has to
     // land after both.
@@ -214,8 +214,8 @@ pub(super) fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>]
         u16::try_from(UnicodeWidthStr::width(line.to_string().as_str())).unwrap_or(u16::MAX)
     });
     let rows = u16::try_from(lines.len()).unwrap_or(1).max(1);
-    let inside_width = area.width.saturating_sub(BORDER_ROWS);
-    let inside_height = area.height.saturating_sub(BORDER_ROWS);
+    let inside_width = area.width.saturating_sub(edges.columns());
+    let inside_height = area.height.saturating_sub(edges.rows());
     frame.set_cursor_position((
         area.x
             .saturating_add(1)

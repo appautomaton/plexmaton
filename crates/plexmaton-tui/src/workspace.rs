@@ -172,11 +172,16 @@ impl Workspace {
             selecting: state.selection().is_some(),
         };
         let routed = router.translate(event, &context);
-        // Any key but the quit chord withdraws what the status line asked, bound or not: the user
-        // pressed something else, so the question is answered (INV-7).
+        // Any key but the two status-owning chords withdraws what the status line asked, bound or
+        // not: the user pressed something else, so the question is answered (INV-7). Interrupt
+        // replaces the note itself when needed; settling it first would turn a repeated `Ctrl-C`
+        // into two revisions whose final projection is unchanged (FR-1).
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
-            && routed != Routed::Intent(TuiIntent::Quit)
+            && !matches!(
+                routed,
+                Routed::Intent(TuiIntent::Quit | TuiIntent::Interrupt)
+            )
         {
             state.settle_status();
         }
@@ -351,6 +356,7 @@ mod tests {
     use super::{Flow, Outcome, Workspace};
     use crate::{
         SubmissionKind,
+        state::StatusNote,
         surface::{Point, SurfaceId},
         test_support::{Conversation, canonical_runtime},
         theme::{Palette, Role},
@@ -604,11 +610,45 @@ mod tests {
         let hinted = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(hinted.contains("Ctrl-D twice to quit"), "{hinted}");
 
+        let revision = workspace.state.revision();
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(
             outcome.flow,
             Flow::Continue,
             "however many times: never a quit"
+        );
+        assert_eq!(
+            workspace.state.revision(),
+            revision,
+            "the same hint is not a visible change (FR-1)"
+        );
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "and an unchanged hint costs no duplicate frame"
+        );
+
+        workspace.handle(&press(KeyCode::Char('x'), KeyModifiers::NONE));
+        workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL));
+        let revision = workspace.state.revision();
+        let cleared = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            workspace.state.revision().get(),
+            revision.get().saturating_add(1),
+            "clearing the draft and withdrawing the quit question is one transition"
+        );
+        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        assert_eq!(workspace.state.composer().draft(), "");
+        assert_eq!(
+            cleared.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-a")
+        );
+        assert_eq!(
+            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Outcome::default(),
+            "Ctrl-C broke the quit chord, so the next Ctrl-D only asks again"
         );
     }
 
@@ -1081,6 +1121,36 @@ mod tests {
         );
     }
 
+    /// COM-1: height is measured at the composer's column, not at the terminal around it.
+    #[test]
+    fn a_draft_reserves_the_rows_it_needs_in_an_ultrawide_split() {
+        let (mut workspace, mut terminal) = drawn(160, 24);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+
+        let characters = 100_u16;
+        for character in "x".repeat(usize::from(characters)).chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        frame(&mut workspace, &mut terminal);
+
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        let inside = composer.width.saturating_sub(2);
+        assert!(
+            inside < characters,
+            "the fixture must wrap in the composer column"
+        );
+        assert!(
+            characters < 160_u16.saturating_sub(2),
+            "the same draft must fit at terminal width or this proves nothing"
+        );
+        assert_eq!(composer.height, 4, "two painted rows and two frame rows");
+    }
+
     /// Every event is followed by a frame, the way the loop runs them. Focus cycles against the
     /// tree the last frame drew (FR-3), so batching two focus changes without a frame between
     /// would be asking the ring about a surface that had not been registered yet.
@@ -1528,6 +1598,52 @@ mod tests {
             painted(&terminal, &workspace, SurfaceId::Inspector),
             inspected,
             "the reader the user was not moving stayed exactly where it was"
+        );
+    }
+
+    /// INS-5: the input is part of the inspector surface whose conversation scrolls.
+    #[test]
+    fn a_wheel_over_the_inspector_input_scrolls_that_inspectors_conversation() {
+        let (mut workspace, mut terminal) = two_conversations();
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        let (split, _) = workspace
+            .state
+            .steer_input(&workspace.surfaces)
+            .unwrap_or_else(|| panic!("entering the inspector draws its input"));
+        let primary = measured(&workspace, SurfaceId::Transcript).offset;
+        let inspected = measured(&workspace, SurfaceId::Inspector).offset;
+        assert!(
+            inspected > 0,
+            "the fixture must leave room to scroll upward"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(
+                MouseEventKind::ScrollUp,
+                split.input.x.saturating_add(1),
+                split.input.y.saturating_add(1),
+            ),
+        );
+
+        assert!(
+            measured(&workspace, SurfaceId::Inspector).offset < inspected,
+            "the composite inspector owns the viewport addressed from its input strip"
+        );
+        assert_eq!(
+            measured(&workspace, SurfaceId::Transcript).offset,
+            primary,
+            "the conversation beneath the shelf does not receive the wheel"
+        );
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Inspector),
+            "hover routing never changes focus"
         );
     }
 
@@ -2101,6 +2217,151 @@ mod tests {
             pinned_at_the_guarantee.saturating_sub(1),
             "the first press back off the boundary must move it, not undo forty of them"
         );
+    }
+
+    /// INS-8: maximize is a presentation, not a replacement for the remembered shelf height.
+    #[test]
+    fn resizing_a_maximized_inspector_preserves_the_shelf_height() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let maximize = press(KeyCode::Char('f'), KeyModifiers::CONTROL);
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        step(&mut workspace, &mut terminal, &shrink);
+        let shelf_height = bounds(&workspace, SurfaceId::Inspector).height;
+
+        step(&mut workspace, &mut terminal, &maximize);
+        let maximized = bounds(&workspace, SurfaceId::Inspector);
+        assert!(
+            maximized.height > shelf_height,
+            "the fixture must change presentation"
+        );
+        let revision = workspace.state.revision();
+
+        workspace.handle(&grow);
+        let column = maximized.x.saturating_add(2);
+        let edge = maximized.bottom().saturating_sub(1);
+        workspace.handle(&mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            column,
+            edge,
+        ));
+        workspace.handle(&mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            column,
+            maximized.y.saturating_add(4),
+        ));
+        workspace.handle(&mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            column,
+            maximized.y.saturating_add(4),
+        ));
+        assert_eq!(
+            workspace.state.revision(),
+            revision,
+            "neither resize path changes a maximized presentation"
+        );
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "a resize that cannot change the screen costs no frame"
+        );
+
+        step(&mut workspace, &mut terminal, &maximize);
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Inspector).height,
+            shelf_height,
+            "un-maximizing restores the height chosen before maximize"
+        );
+    }
+
+    /// INS-3 and INS-8: geometry, not the stored maximize flag, decides whether an edge exists.
+    #[test]
+    fn derived_maximized_and_column_inspectors_have_no_resize_edge() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+        let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        step(&mut workspace, &mut terminal, &shrink);
+        let shelf_height = bounds(&workspace, SurfaceId::Inspector).height;
+
+        for (width, label) in [(60, "derived maximized"), (160, "tiled column")] {
+            terminal.backend_mut().resize(width, 40);
+            workspace.handle(&Event::Resize(width, 40));
+            frame(&mut workspace, &mut terminal);
+            let presented = bounds(&workspace, SurfaceId::Inspector);
+            assert_eq!(
+                workspace
+                    .surfaces
+                    .get(SurfaceId::Inspector)
+                    .map(|surface| surface.z_index),
+                Some(0),
+                "{label} is not a floating shelf"
+            );
+            let revision = workspace.state.revision();
+
+            workspace.handle(&grow);
+            let column = presented.x.saturating_add(2);
+            let edge = presented.bottom().saturating_sub(1);
+            workspace.handle(&mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                column,
+                edge,
+            ));
+            workspace.handle(&mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                column,
+                presented.y.saturating_add(4),
+            ));
+            workspace.handle(&mouse(
+                MouseEventKind::Up(MouseButton::Left),
+                column,
+                presented.y.saturating_add(4),
+            ));
+            assert_eq!(
+                workspace.state.revision(),
+                revision,
+                "{label} ignores both resize paths"
+            );
+            assert_eq!(
+                workspace
+                    .draw(&mut terminal)
+                    .unwrap_or_else(|error| panic!("test render: {error}")),
+                None,
+                "{label} resize costs no frame"
+            );
+
+            terminal.backend_mut().resize(120, 40);
+            workspace.handle(&Event::Resize(120, 40));
+            frame(&mut workspace, &mut terminal);
+            assert_eq!(
+                bounds(&workspace, SurfaceId::Inspector).height,
+                shelf_height,
+                "returning from {label} restores the chosen shelf height"
+            );
+        }
     }
 
     /// COM-2 and INV-7 through the loop: `q` is a letter while the cursor is in the composer.

@@ -175,6 +175,17 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     registration::surface_tree(area, input.approval, status, notices, attention, regions)
 }
 
+/// Width the primary composer will occupy for this frame.
+///
+/// Height allocation cannot answer this for the caller: at ultrawide an open second window splits
+/// the conversation column after the composer has reserved its rows. Reusing `body_regions` keeps
+/// the width used to wrap the draft identical to the rectangle later registered for painting.
+pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) -> u16 {
+    body_regions(area, area, inspector, MIN_PANEL_HEIGHT)
+        .composer
+        .width
+}
+
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
 ///
 /// It outranks the agent rail and loses to the conversation. A projection that is silently wrong
