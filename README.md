@@ -83,7 +83,8 @@ entry and release, resize handling, and the quit key in front of a real pseudo-t
 ```
 
 With a local profile and its named key environment variable already set, the opt-in live lane also
-submits two safe tool-backed requests and waits for their streamed answers in the PTY:
+runs one isolated read → approved edit → approved command turn and waits for its streamed answer in
+the PTY:
 
 ```console
 PLEXMATON_HOME=.local/plexmaton ./scripts/smoke-tui.py --live

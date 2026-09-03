@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 2 |
+| Status | Implemented |
 | Owns | Strict command admission, foreground Unix process-group ownership, bounded output capture and typed completion |
-| Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3; [agent-loop](./agent-loop.md) LOOP-2; Phase 01 §producer |
+| Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3; [agent-loop](./agent-loop.md) LOOP-2 |
 | Proven by | `plexmaton-command::{admission,capture,executor}`, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::frames` tests |
 
 ## Invariants

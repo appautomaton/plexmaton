@@ -338,7 +338,9 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use plexmaton_core::{ToolCallStatus, ToolDetail, TranscriptRole};
+    use plexmaton_core::{
+        SessionEvent, SessionEventEnvelope, ToolCallStatus, ToolDetail, TranscriptRole,
+    };
     use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{
         ApprovalSubmission, Submission, SubmissionKind, SurfaceId, TranscriptEntryView,
@@ -366,6 +368,45 @@ mod tests {
             },
             None,
         )
+    }
+
+    fn failed_tool_result(message: &str) -> plexmaton_agent::ToolExecutionResult {
+        plexmaton_agent::ToolExecutionResult::new(
+            plexmaton_agent::ToolOutcome::Failed {
+                message: message.to_owned(),
+            },
+            None,
+        )
+    }
+
+    fn finish_tool(
+        agent: &mut plexmaton_agent::Agent,
+        call_id: &str,
+        result: plexmaton_agent::ToolExecutionResult,
+    ) -> Vec<SessionEventEnvelope> {
+        agent
+            .handle(plexmaton_agent::Input::ToolFinished {
+                call_id: plexmaton_core::ToolCallId::new(call_id)
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                result,
+            })
+            .events
+    }
+
+    fn assert_native_tools_advertised(requests: &[Vec<u8>]) {
+        for request in requests {
+            let request = std::str::from_utf8(request)
+                .unwrap_or_else(|error| panic!("fixture request body: {error}"));
+            for name in [
+                "read_file",
+                "search",
+                "edit_file",
+                "create_file",
+                "exec_command",
+            ] {
+                assert!(request.contains(name), "request omitted native tool {name}");
+            }
+        }
     }
 
     struct FixtureWorkspace(PathBuf);
@@ -653,7 +694,14 @@ mod tests {
         let step_id = agent
             .active_model_step()
             .unwrap_or_else(|| panic!("submission opens one model step"));
-        for call_id in ["success", "refused", "denied", "cancelled", "approved"] {
+        for call_id in [
+            "success",
+            "execution-failed",
+            "refused",
+            "denied",
+            "cancelled",
+            "approved",
+        ] {
             let reaction = agent.handle(Input::Streamed {
                 step_id: step_id.clone(),
                 event: ModelEvent::Called(ToolCall {
@@ -679,6 +727,7 @@ mod tests {
             });
         for (expected, capability) in [
             ("success", Some(ToolCapability::FileRead)),
+            ("execution-failed", Some(ToolCapability::FileRead)),
             ("refused", None),
             ("denied", Some(ToolCapability::FileWrite)),
             ("cancelled", Some(ToolCapability::FileRead)),
@@ -731,15 +780,11 @@ mod tests {
             [Effect::RunTool(call)] if call.requested().call_id.as_str() == "approved"
         ));
         workspace.emit(std::mem::take(&mut allowed.events));
-        workspace.emit(
-            agent
-                .handle(Input::ToolFinished {
-                    call_id: ToolCallId::new("approved")
-                        .unwrap_or_else(|error| panic!("fixture: {error}")),
-                    result: succeeded_tool_result("approved done"),
-                })
-                .events,
-        );
+        workspace.emit(finish_tool(
+            &mut agent,
+            "approved",
+            succeeded_tool_result("approved done"),
+        ));
         workspace.emit(
             agent
                 .handle(Input::ApprovalDecided {
@@ -748,15 +793,16 @@ mod tests {
                 })
                 .events,
         );
-        workspace.emit(
-            agent
-                .handle(Input::ToolFinished {
-                    call_id: ToolCallId::new("success")
-                        .unwrap_or_else(|error| panic!("fixture: {error}")),
-                    result: succeeded_tool_result("done"),
-                })
-                .events,
-        );
+        workspace.emit(finish_tool(
+            &mut agent,
+            "success",
+            succeeded_tool_result("done"),
+        ));
+        workspace.emit(finish_tool(
+            &mut agent,
+            "execution-failed",
+            failed_tool_result("executor refused fixture"),
+        ));
         workspace.emit(agent.handle(Input::Interrupted).events);
 
         let tools: Vec<_> = workspace
@@ -770,6 +816,7 @@ mod tests {
             tools,
             [
                 ("success", 2, ToolCallStatus::Succeeded),
+                ("execution-failed", 2, ToolCallStatus::Failed),
                 ("refused", 1, ToolCallStatus::Failed),
                 ("denied", 2, ToolCallStatus::Denied),
                 ("cancelled", 2, ToolCallStatus::Cancelled),
@@ -986,8 +1033,32 @@ reasoning_effort = "none"
         )
         .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
-        while let Some(event) = runtime.try_next_event() {
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        let mut streamed_deltas = 0_usize;
+        let mut project = |workspace: &mut Workspace, event: SessionEventEnvelope| {
+            let is_delta = matches!(&event.event, SessionEvent::TranscriptDelta { .. });
             workspace.emit(vec![event]);
+            let work = workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("draw real-producer frame: {error}"));
+            if is_delta {
+                streamed_deltas = streamed_deltas.saturating_add(1);
+                let work = work.unwrap_or_else(|| panic!("a real streamed delta changed no frame"));
+                assert_eq!(
+                    work.entries_wrapped, 1,
+                    "a real streamed delta must re-wrap exactly its entry"
+                );
+            } else if let Some(work) = work {
+                assert!(
+                    work.entries_wrapped <= 1,
+                    "one real producer event re-wrapped {} transcript entries",
+                    work.entries_wrapped
+                );
+            }
+        };
+        while let Some(event) = runtime.try_next_event() {
+            project(&mut workspace, event);
         }
 
         dispatch_live(
@@ -1008,18 +1079,18 @@ reasoning_effort = "none"
                 .unwrap_or_else(|_| panic!("fixture runtime timed out"))
                 .unwrap_or_else(|error| panic!("fixture runtime event: {error}"))
             {
-                workspace.emit(vec![event]);
+                project(&mut workspace, event);
             }
         }
         while let Some(event) = runtime.try_next_event() {
-            workspace.emit(vec![event]);
+            project(&mut workspace, event);
         }
         runtime
             .shutdown()
             .await
             .unwrap_or_else(|error| panic!("shutdown fixture runtime: {error}"));
         while let Some(event) = runtime.try_next_event() {
-            workspace.emit(vec![event]);
+            project(&mut workspace, event);
         }
 
         let requests = server
@@ -1027,19 +1098,7 @@ reasoning_effort = "none"
             .unwrap_or_else(|_| panic!("fixture HTTP server panicked"))
             .unwrap_or_else(|error| panic!("fixture HTTP server: {error}"));
         assert_eq!(requests.len(), 2);
-        for request in &requests {
-            let request = std::str::from_utf8(request)
-                .unwrap_or_else(|error| panic!("fixture request body: {error}"));
-            for name in [
-                "read_file",
-                "search",
-                "edit_file",
-                "create_file",
-                "exec_command",
-            ] {
-                assert!(request.contains(name), "request omitted native tool {name}");
-            }
-        }
+        assert_native_tools_advertised(&requests);
         let agent = workspace
             .state()
             .primary_agent()
@@ -1063,6 +1122,10 @@ reasoning_effort = "none"
                 if source.contains("Plexmaton fixture")
         ));
         assert!(agent.usage().is_some());
+        assert!(
+            streamed_deltas > 0,
+            "the recorded provider emitted no transcript delta"
+        );
         assert_eq!(
             workspace.state().notices().count(),
             0,

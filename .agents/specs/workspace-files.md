@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proven through Phase 01 stage 3 slice 2 |
+| Status | Implemented |
 | Owns | Workspace path authority, bounded exact text reads, observed file versions and windows, and bounded ripgrep search |
-| Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3; Phase 01 §producer |
+| Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3 |
 | Proven by | `plexmaton-file-tools` component tests and the live-runtime integration tests named below |
 
 ## Invariants

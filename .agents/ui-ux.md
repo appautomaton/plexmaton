@@ -375,6 +375,8 @@ it (FR-4). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loo
 | Budget | Target | Workload |
 | --- | --- | --- |
 | Input event to visible frame | 5 ms | `streaming delta` |
+| Compact tool entry to visible frame | 5 ms, and one entry wrapped | `compact tool entry` |
+| Opening or closing one tool detail | 5 ms, and one entry wrapped | `open tool entry` |
 | Wheel event to visible scroll | 5 ms | `wheel` |
 | Surface open and close | 5 ms, and no re-wrapping | `open inspector` |
 | Two conversations on screen, either scrolled | 5 ms, and no re-wrapping | `two conversations` |

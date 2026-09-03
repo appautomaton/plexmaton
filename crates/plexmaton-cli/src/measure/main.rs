@@ -24,7 +24,7 @@ use ratatui::{Terminal, backend::TestBackend, crossterm::event::Event, layout::R
 /// The terminal the workloads run at, unless one of them is about changing it.
 pub(crate) const SIZE: (u16, u16) = (120, 40);
 
-/// Assistant-message counts every workload is run at; tool entries are added by the fixture.
+/// Transcript-entry history scales every workload is run at; each fixture names its exact shape.
 ///
 /// Two, because the shape of the curve is the finding. One size cannot distinguish a frame whose
 /// cost is bounded by the viewport from one that is merely fast today.
@@ -40,8 +40,8 @@ pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
 mod workloads;
 
 use workloads::{
-    cold_open, hidden_conversation, inspector, interleaved, resize, select, streaming,
-    two_conversations, wheel,
+    cold_open, compact_tool_entries, hidden_conversation, inspector, interleaved, open_tool_entry,
+    resize, select, streaming, two_conversations, wheel,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -50,6 +50,8 @@ fn main() -> anyhow::Result<()> {
         runs.push(cold_open(messages)?);
         runs.push(streaming(messages)?);
         runs.push(interleaved(messages)?);
+        runs.push(compact_tool_entries(messages)?);
+        runs.push(open_tool_entry(messages)?);
         runs.push(wheel(messages)?);
         runs.push(resize(messages)?);
         runs.push(inspector(messages)?);

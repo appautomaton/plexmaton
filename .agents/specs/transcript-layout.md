@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 5 |
+| Status | Implemented |
 | Owns | How tall a conversation is, which part of it a frame builds, and where its reader is |
 | Depends on | [surface-model](./surface-model.md) SURF-5 for retained state; the wheel rules in [interaction-routing](./interaction-routing.md) INV-3 |
 | Proven by | `plexmaton-tui::transcript`, `::render`, and `::state::scroll` tests |
@@ -94,8 +94,8 @@ what make the claim testable. What those walks cost is measured in [frame-loop](
 
 | Invariant | Proven by |
 | --- | --- |
-| TR-1 | `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
-| TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `maximum_newline_detail_and_the_entry_after_it_remain_reachable`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `the_open_tool_frames_match_their_fixtures` |
+| TR-1 | `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
+| TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `maximum_newline_detail_and_the_entry_after_it_remain_reachable`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_open_tool_frames_match_their_fixtures` |
 | TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |

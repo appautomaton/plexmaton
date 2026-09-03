@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 2 |
+| Status | Implemented; APV-6 durable restore remains unproven until Phase 02 |
 | Owns | How an untrusted model tool request becomes an admitted call, how policy decides it, and how an approval decision names it |
-| Depends on | [agent-loop](./agent-loop.md) LOOP-2 through LOOP-5; [attention](./attention.md) ATT-1 and ATT-3; Phase 01 §producer |
+| Depends on | [agent-loop](./agent-loop.md) LOOP-2 through LOOP-5; [attention](./attention.md) ATT-1 and ATT-3 |
 | Proven by | `plexmaton-agent::{admission,tools,turn}`, native-tool admission, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::{approval,workspace,frames}` tests |
 
 ## Invariants

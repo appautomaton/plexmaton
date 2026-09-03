@@ -24,7 +24,8 @@ nothing is registered, so a pointer event resolves to nothing rather than a gues
 **FR-4 — Work is asserted; time is reported.** Entries wrapped, lines built, frames painted, and
 cache entries retained are identical on every machine, so they are test assertions and a regression
 fails a build. Wall-clock latency belongs to the machine that ran the command and is recorded beside
-it, never asserted. Rejected: asserting wall-clock budgets, a flaky test wearing a budget's clothes;
+it, never asserted. A workload that promises one changed frame per sample asserts that exact count;
+a boundary no-op cannot silently shorten the run. Rejected: asserting wall-clock budgets, a flaky test wearing a budget's clothes;
 `criterion`, which cannot see work counts; and a shared runner's numbers as budgets, which nobody
 can reproduce.
 
@@ -56,18 +57,20 @@ scan. These passes are arithmetic, not wrapping, and become the budget somewhere
 thousand entries, which is where to look first and not before.
 
 Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
-machine, release profile, 120 × 40, over a 5,000-message conversation with its 625 interleaved tool
-entries:
+machine, release profile, 120 × 40, over 5,000-entry histories; the message history has 625
+additional interleaved tool entries:
 
 | Workload | Observed | Work |
 | --- | --- | --- |
-| `streaming delta` | 1.1 ms p50, 1.6 ms max | 1 entry wrapped, 31 lines built, at any history length |
-| `wheel` | 1.1 ms p50, 1.5 ms max | 0 wrapped |
-| `open inspector` | 2.3 ms p50, 2.7 ms max | 0 wrapped |
-| `two conversations` | 2.5 ms p50, 3.5 ms max | 0 wrapped |
-| `extend selection` | 1.4 ms p50, 1.8 ms max | 0 wrapped |
-| `cold open`, `open hidden conversation` | 14.2 to 15.2 ms p50, 16.0 ms max | 5,625 wrapped, once |
-| `resize` | 14.2 ms p50, 16.6 ms max | 5,625 wrapped, once per width |
+| `streaming delta` | 1.5 ms p50, 1.8 ms max | 1 entry wrapped, 31 lines built, at any history length |
+| `compact tool entry` | 1.4 ms p50, 1.6 ms max | 1 entry wrapped, 35 lines built, at any history length |
+| `open tool entry` | 1.7 ms p50, 2.1 ms max | 1 entry wrapped, 39 lines built, at any history length |
+| `wheel` | 1.5 ms p50, 1.7 ms max | 0 wrapped |
+| `open inspector` | 2.7 ms p50, 4.0 ms max | 0 wrapped |
+| `two conversations` | 2.9 ms p50, 4.0 ms max | 0 wrapped |
+| `extend selection` | 1.8 ms p50, 2.1 ms max | 0 wrapped |
+| `cold open`, `open hidden conversation` | 14.7 to 15.8 ms p50, 16.7 ms max | 5,625 wrapped, once |
+| `resize` | 14.8 ms p50, 16.4 ms max | 5,625 wrapped, once per width |
 | retained | 11,250 entries for two 5,625-entry conversations; at most two widths per conversation (TR-1) | |
 
 Read the timings as an order of magnitude: the same binary on the same laptop under compile load
@@ -93,6 +96,6 @@ a height.
 | Invariant | Proven by |
 | --- | --- |
 | FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord` |
-| FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground` |
+| FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts` |
 | FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
-| FR-4 | The FR-2 rows assert work counts; `plexmaton-measure` prints time and asserts none of it |
+| FR-4 | The FR-2 rows assert work counts; `extending_selection_records_every_declared_sample` pins sample accounting; `plexmaton-measure` prints time and asserts none of it |

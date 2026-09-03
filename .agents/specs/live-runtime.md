@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 1 |
+| Status | Implemented |
 | Owns | Live agent ownership, model-step correlation, native-tool scheduling, cancellation, reported token usage, and the executable-to-agent composition boundary |
 | Depends on | [agent-loop](./agent-loop.md), [tool-admission](./tool-admission.md), [provider-adapter](./provider-adapter.md), [workspace-files](./workspace-files.md), [command-tool](./command-tool.md), [frame-loop](./frame-loop.md) |
 | Proven by | `plexmaton-runtime` component and opt-in live tests, provider fixtures, agent correlation tests, CLI startup test, and TUI reducer test |
@@ -16,6 +16,8 @@ execution runs on a bounded per-call worker the runtime joins. `Drop` cancels an
 workers and drops the provider future; orderly shutdown remains the semantic transition. One
 catalog advertises four workspace-file definitions and one command definition through either
 codec; native outcomes are bounded before replay. The TUI knows only semantic events and intents.
+The opt-in PTY drives read → approved edit → approved command through executable and rejects
+projection notices.
 
 **LIVE-2 — Every model event names the step that requested it.** A stable typed step identity
 travels on `CallModel`, streamed input and model failure. Only the current matching step accepts

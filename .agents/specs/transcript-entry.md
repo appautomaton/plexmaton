@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 6 |
+| Status | Implemented |
 | Owns | Stable transcript identity, first-appearance order, entry revisions, tool lifecycle updates, typed presentation, and replay reduction |
 | Depends on | [transcript-layout](./transcript-layout.md) TR-1 and [tool-admission](./tool-admission.md) APV-5/APV-6 |
 | Proven by | `plexmaton-core::transcript`, `plexmaton-agent::{record,tools,turn}`, `plexmaton-file-tools`, `plexmaton-command`, `plexmaton-runtime`, and `plexmaton-tui::{content,transcript,state}` tests |

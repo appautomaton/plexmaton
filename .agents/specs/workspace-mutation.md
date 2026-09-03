@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Proven through Phase 01 stage 3 slice 2 |
+| Status | Implemented |
 | Owns | Observation-bound exact edits, create-if-absent, bounded staging, and same-directory publication |
 | Depends on | [workspace-files](./workspace-files.md) WFS-1 through WFS-3; [tool-admission](./tool-admission.md) APV-1 through APV-3 |
 | Proven by | `plexmaton-file-tools::{catalog,mutation,path}` component and integration tests named below |

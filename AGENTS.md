@@ -10,7 +10,7 @@ Read only the material the active task needs. Progressive disclosure is an enfor
 
 | When you are about to… | Read |
 | --- | --- |
-| start or resume work on an open phase | its file in [`phases/`](./.agents/phases/), today [`phase-01-one-real-agent.md`](./.agents/phases/phase-01-one-real-agent.md), named so the common path skips the roadmap |
+| start or resume work on an open phase | its file in [`phases/`](./.agents/phases/); when none is open, read the roadmap before creating one |
 | ask what the product is, or plan beyond this phase | [`roadmap.md`](./.agents/roadmap.md) |
 | implement or review a named mechanism | `.agents/specs/<mechanism>.md` — cite its invariant in the test that proves it |
 | start a stage big enough to have an order | `.agents/plans/`, shaped as [`.agents/README.md`](./.agents/README.md) §plans says — slice it before writing code; delete the plan when consumed |
@@ -31,7 +31,7 @@ A change is not done until the documents it invalidates are rewritten in the sam
 | a phase's or a plan's status | the roadmap's row for that phase, the phase file's status, the plan's status; three cells, one fact each |
 | a dependency | [`standards/rust.md`](./.agents/standards/rust.md) §audited foundation |
 
-**Cite, don't restate.** Reference `INS-5`, `INV-4`, or `phase-01 §scope` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
+**Cite, don't restate.** Reference `INS-5`, `INV-4`, or `PRV-3` rather than paraphrasing what they say. Restating a rule to demonstrate you read it is the largest source of bloat and creates a second copy that will drift.
 
 ## Explicit state and ownership
 

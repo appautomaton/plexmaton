@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 10 |
+| Status | Implemented |
 | Owns | Configuration, request encoding, streaming decode, reasoning replay, and typed failure at the model-provider boundary |
-| Depends on | [agent-loop](./agent-loop.md) LOOP-1, LOOP-3 and LOOP-4; Phase 01 §producer |
+| Depends on | [agent-loop](./agent-loop.md) LOOP-1, LOOP-3 and LOOP-4 |
 | Proven by | `plexmaton-provider::{config,codec,sse}` tests, sanitized protocol fixtures, `plexmaton-runtime::http` tests, and `plexmaton-agent::turn` tests |
 
 ## Invariants

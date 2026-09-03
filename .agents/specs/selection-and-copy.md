@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 6 |
+| Status | Implemented |
 | Owns | What a selection is, what copying it returns, and where copied text goes |
 | Depends on | The rules and what they rejected in [`ui-ux.md`](../ui-ux.md) §selection and copy; the `Escape` ladder in [interaction-routing](./interaction-routing.md) INV-6; the virtualization contract in [transcript-layout](./transcript-layout.md) TR-2 |
 | Proven by | `plexmaton-tui::state::selection` and `::workspace` tests, `plexmaton-cli::clipboard` tests |

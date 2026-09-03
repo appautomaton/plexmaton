@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 6 |
+| Status | Implemented |
 | Owns | Turn and step lifecycle, input-boundary routing, tool-call debt and approval state |
-| Depends on | Phase 01 §producer; the UI/UX state matrix for queued and undelivered steering |
+| Depends on | [UI/UX](../ui-ux.md) §state matrix for queued and undelivered steering |
 | Proven by | `plexmaton-agent::turn` tests and the executable's boundary tests |
 
 ## Invariants
