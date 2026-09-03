@@ -31,7 +31,7 @@ table in `AGENTS.md` allows.
 | Phase | Purpose | Status |
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
-| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Active; stages 1 and 2 closed 2026-09-03; stage 3 remains |
+| 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Active; stages 1 and 2 closed 2026-09-03; stage 3 planned |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Not opened; expected to split when it is |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Not opened |

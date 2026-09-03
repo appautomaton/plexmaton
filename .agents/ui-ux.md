@@ -325,7 +325,7 @@ carries identity and status but is never the only carrier:
 - User message
 - Assistant message, streaming and final
 - Reasoning summary
-- Tool call: queued, running, succeeded, failed, cancelled, approval required
+- Tool call: queued, running, succeeded, failed, denied, cancelled, approval required
 - Diff and artifact
 - Agent mail
 - Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the
