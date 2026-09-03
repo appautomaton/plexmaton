@@ -34,7 +34,7 @@
 │                          ││independently; this transcript remains interactive.                                           │
 │                          ││                                                                                              │
 │                          ││[?] exec_command · approval required                                                          │
-│                          │├ Message Agent A · primary ───────────────────────────────────────────────────────────────────┤
+│                          │├ Message Agent A · primary · Approval required ───────────────────────────────────────────────┤
 │                          ││Type a message · ⇥ to focus                                                                   │
 └──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────┘
  ~/plexmaton                                                                                                                

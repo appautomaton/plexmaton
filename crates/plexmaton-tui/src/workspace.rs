@@ -344,8 +344,8 @@ mod tests {
     };
 
     use plexmaton_core::{
-        AgentId, ApprovalDecision, ApprovalId, ArtifactId, AttentionId, AttentionRequest,
-        SessionEvent, ToolCallId, ToolCapability, TranscriptItemId,
+        AgentId, AgentStatus, ApprovalDecision, ApprovalId, ArtifactId, AttentionId,
+        AttentionRequest, SessionEvent, ToolCallId, ToolCapability, TranscriptItemId,
     };
 
     use super::{Flow, Outcome, Workspace};
@@ -451,6 +451,56 @@ mod tests {
             "a resize changes no projection state, and must still force the next frame"
         );
         assert_eq!(workspace.frames(), 2, "exactly two frames reached a screen");
+    }
+
+    /// FR-1: the derived current-work fact occupies chrome, not another row or another revision.
+    #[test]
+    fn current_work_does_not_move_input_and_repeated_facts_cost_no_frame() {
+        let mut conversation = Conversation::canonical();
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        let transcript = bounds(&workspace, SurfaceId::Transcript);
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
+            "running work is named in the composer's existing boundary"
+        );
+
+        let primary = workspace
+            .state()
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
+        conversation.emit(SessionEvent::AgentStatusChanged {
+            agent_id: primary.clone(),
+            status: AgentStatus::Idle,
+        });
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        assert_eq!(bounds(&workspace, SurfaceId::Transcript), transcript);
+        assert_eq!(bounds(&workspace, SurfaceId::Composer), composer);
+        assert!(
+            !painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
+            "idle adds no label or placeholder"
+        );
+
+        conversation.emit(SessionEvent::AgentStatusChanged {
+            agent_id: primary,
+            status: AgentStatus::Idle,
+        });
+        workspace.emit(conversation.drain());
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "repeating the fact painted in the boundary must not produce a frame"
+        );
     }
 
     /// INV-7: the chord asks first, any other key withdraws the question, and only a second press

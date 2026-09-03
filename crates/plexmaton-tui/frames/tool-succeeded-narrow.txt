@@ -34,7 +34,7 @@
 │                                                          │
 │                                                          │
 │[+] read_file · succeeded                                 │
-├ Message Plexmaton ───────────────────────────────────────┤
+├ Message Plexmaton · Thinking ────────────────────────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘
  ~/plexmaton                                                

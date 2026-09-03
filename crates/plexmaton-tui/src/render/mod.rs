@@ -337,7 +337,8 @@ fn conversation_body(
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, SessionEvent, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+        AgentId, AgentStatus, SessionEvent, ToolCallId, ToolCallStatus, ToolPresentation,
+        TranscriptItemId, TranscriptRole,
     };
     use ratatui::{
         Terminal,
@@ -348,7 +349,7 @@ mod tests {
         widgets::{Paragraph, Wrap},
     };
 
-    use super::{chrome::block, panel::Edges, transcript_title};
+    use super::{chrome::block, composer_title, panel::Edges, transcript_title};
 
     use crate::{
         TranscriptMetrics, ViewState,
@@ -390,6 +391,80 @@ mod tests {
 
     fn role_ink(palette: &Palette, role: Role) -> Ink {
         ink(palette.style(role))
+    }
+
+    /// The proposed current-work vocabulary is emitted exactly and idle contributes no suffix.
+    #[test]
+    fn the_composer_boundary_names_each_current_work_state() {
+        let palette = Palette::default();
+        let mut conversation = Conversation::canonical();
+        let primary = conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
+        let title = |state: &ViewState| composer_title(state, &palette).to_string();
+
+        assert!(title(&conversation.state).contains(" · Thinking"));
+
+        conversation.emit(SessionEvent::TranscriptItemStarted {
+            agent_id: primary.clone(),
+            item_id: TranscriptItemId::new("current-response")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            role: TranscriptRole::Assistant,
+        });
+        assert!(title(&conversation.state).contains(" · Responding"));
+
+        let running_item = TranscriptItemId::new("current-tool")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let running_call =
+            ToolCallId::new("current-tool").unwrap_or_else(|error| panic!("fixture: {error}"));
+        for (item_revision, status) in [(0, ToolCallStatus::Queued), (1, ToolCallStatus::Running)] {
+            conversation.emit(SessionEvent::ToolCallChanged {
+                agent_id: primary.clone(),
+                item_id: running_item.clone(),
+                item_revision,
+                call_id: running_call.clone(),
+                label: "read_file".to_owned(),
+                status,
+                presentation: ToolPresentation::default(),
+            });
+        }
+        assert!(
+            title(&conversation.state).contains(" · Running read_file"),
+            "the stable tool label is part of the candidate copy"
+        );
+
+        let approval_item = TranscriptItemId::new("current-approval")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let approval_call =
+            ToolCallId::new("current-approval").unwrap_or_else(|error| panic!("fixture: {error}"));
+        for (item_revision, status) in [
+            (0, ToolCallStatus::Queued),
+            (1, ToolCallStatus::AwaitingApproval),
+        ] {
+            conversation.emit(SessionEvent::ToolCallChanged {
+                agent_id: primary.clone(),
+                item_id: approval_item.clone(),
+                item_revision,
+                call_id: approval_call.clone(),
+                label: "edit_file".to_owned(),
+                status,
+                presentation: ToolPresentation::default(),
+            });
+        }
+        assert!(title(&conversation.state).contains(" · Approval required"));
+
+        let mut idle = Conversation::canonical();
+        idle.emit(SessionEvent::AgentStatusChanged {
+            agent_id: primary,
+            status: AgentStatus::Idle,
+        });
+        assert_eq!(
+            title(&idle.state),
+            " Message Agent A · primary ",
+            "idle adds no label, separator or placeholder"
+        );
     }
 
     /// TR-2: virtualizing changed what a frame builds, not what reaches the screen.

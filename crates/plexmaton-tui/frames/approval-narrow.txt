@@ -34,7 +34,7 @@
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
 │-> agent-a · Routing stays centralized and z-ordered.     │
-├ Message Agent A · primary ───────────────────────────────┤
+├ Message Agent A · primary · Thinking ────────────────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘
  ~/plexmaton                                                

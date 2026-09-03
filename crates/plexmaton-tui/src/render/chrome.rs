@@ -16,7 +16,7 @@ use super::panel::Edges;
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
-    state::StatusNote,
+    state::{CurrentWork, StatusNote},
     surface::SurfaceId,
     theme::{Palette, Role},
 };
@@ -35,7 +35,7 @@ pub(super) fn title(
     title_with(palette, name, name_role, rest, Role::Muted)
 }
 
-/// A title whose detail carries a role of its own, for the one detail that is not muted.
+/// A title whose detail carries a role of its own.
 fn title_with(
     palette: &Palette,
     name: impl Into<String>,
@@ -170,7 +170,16 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
         || "Message".to_owned(),
         |agent| format!("Message {}", agent.label),
     );
-    title(palette, name, Role::SectionHeading, "")
+    let (rest, role) = match state.current_work() {
+        None => (String::new(), Role::Muted),
+        Some(CurrentWork::Thinking) => (" · Thinking".to_owned(), Role::Ambient),
+        Some(CurrentWork::Responding) => (" · Responding".to_owned(), Role::Ambient),
+        Some(CurrentWork::RunningTool(tool)) => (format!(" · Running {tool}"), Role::Ambient),
+        Some(CurrentWork::ApprovalRequired) => {
+            (" · Approval required".to_owned(), Role::ActionRequired)
+        }
+    };
+    title_with(palette, name, Role::SectionHeading, rest, role)
 }
 
 /// The status line: the last row of the screen, saying one thing at a time (INV-7).

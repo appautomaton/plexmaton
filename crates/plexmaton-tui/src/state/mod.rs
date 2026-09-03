@@ -2,6 +2,7 @@ mod agent;
 mod approval;
 mod attention;
 mod composer;
+mod current_work;
 mod entry;
 mod focus;
 mod ingest;
@@ -22,6 +23,7 @@ pub use agent::AgentView;
 pub use approval::{ApprovalSubmission, ApprovalView};
 pub use attention::AttentionView;
 pub use composer::Composer;
+pub(crate) use current_work::CurrentWork;
 pub use entry::{
     ArtifactView, MailView, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind,

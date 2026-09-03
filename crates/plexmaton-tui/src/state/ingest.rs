@@ -375,6 +375,7 @@ mod tests {
     use super::{ApplyOutcome, ReduceError};
     use crate::{
         NoticeView, TranscriptEntryView, TranscriptTextKind, ViewState,
+        state::CurrentWork,
         test_support::{canonical_runtime, canonical_state},
     };
 
@@ -712,6 +713,7 @@ mod tests {
         let mut state = ViewState::default();
         state.apply(envelope(1, created("agent-a")));
         let quiet = state.revision();
+        assert_eq!(state.current_work(), Some(CurrentWork::Thinking));
 
         assert_eq!(
             state.apply(envelope(
@@ -725,6 +727,11 @@ mod tests {
             "the event is well formed, so it is accepted; what it is not is a change"
         );
         assert_eq!(state.revision(), quiet);
+        assert_eq!(
+            state.current_work(),
+            Some(CurrentWork::Thinking),
+            "the fact painted in the composer did not change either"
+        );
 
         state.apply(envelope(
             3,
