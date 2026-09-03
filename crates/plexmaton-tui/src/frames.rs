@@ -22,7 +22,10 @@ mod tests {
         ViewState,
         intent::{AttentionIntent, Direction, InspectorIntent},
         surface::{SurfaceId, SurfaceTree},
-        test_support::{Conversation, canonical_state, draw, draw_frame, region_text},
+        test_support::{
+            Conversation, canonical_state, current_responding_state, current_running_tool_state,
+            draw, draw_frame, region_text,
+        },
         theme::Palette,
     };
 
@@ -64,6 +67,10 @@ mod tests {
     const TOOL_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
 
+    /// Compact composer-only candidates for work states absent from the canonical frames.
+    const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
+        [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
+
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("frames")
@@ -85,6 +92,61 @@ mod tests {
             expected.lines().count(),
             actual.lines().count()
         )
+    }
+
+    fn composer_frame(state: &ViewState, width: u16, height: u16) -> String {
+        let (surfaces, buffer) = draw_frame(state, &Palette::default(), width, height);
+        let composer = surfaces
+            .get(SurfaceId::Composer)
+            .unwrap_or_else(|| panic!("the composer is registered at {width}x{height}"));
+        region_text(&buffer, composer.bounds)
+    }
+
+    /// Slice 4 candidates: every proposed ambient label can be reviewed at all three widths.
+    #[test]
+    fn the_current_work_candidate_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        let states = [
+            ("responding", current_responding_state(), "Responding"),
+            (
+                "running-tool",
+                current_running_tool_state(),
+                "Running read_file",
+            ),
+        ];
+        for (state_name, state, label) in states {
+            for (width_name, width, height) in CURRENT_WORK_FRAMES {
+                let name = format!("current-work-{state_name}-{width_name}");
+                let drawn = composer_frame(&state, width, height);
+                assert!(
+                    drawn.contains(&format!(" · {label}")),
+                    "{name}: the candidate label is visible"
+                );
+                assert_eq!(
+                    drawn.lines().count(),
+                    3,
+                    "{name}: the fixture is only the composer boundary and body"
+                );
+
+                let path = fixture_path(&name);
+                if write {
+                    std::fs::write(&path, &drawn)
+                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                    continue;
+                }
+                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                    panic!(
+                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                        path.display()
+                    )
+                });
+                assert!(
+                    fixture == drawn,
+                    "{name} drifted from its fixture at {}",
+                    first_difference(&fixture, &drawn)
+                );
+            }
+        }
     }
 
     /// Phase 01 §scope 1: the composition at wide, medium and narrow, checked in.

@@ -51,7 +51,7 @@ conversation currently takes one full semantic-entry pass to validate cached hei
 to derive the counts in its title. Each sub-agent row takes one count pass, and an inspected
 conversation's title takes its own. The cached heights are walked once in full to sum rows, then
 partially to resolve the anchor and window; building reaches the visible entries through the
-semantic iterator. The planned Phase 01 stage 3 slice 4 current-work label adds one primary-entry
+semantic iterator. The current-work label adds one primary-entry
 scan. These passes are arithmetic, not wrapping, and become the budget somewhere around fifty
 thousand entries, which is where to look first and not before.
 
@@ -92,7 +92,7 @@ a height.
 
 | Invariant | Proven by |
 | --- | --- |
-| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `the_quit_chord_asks_once_and_leaves_on_the_second_press` |
+| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_chord_asks_once_and_leaves_on_the_second_press` |
 | FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground` |
 | FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
 | FR-4 | The FR-2 rows assert work counts; `plexmaton-measure` prints time and asserts none of it |

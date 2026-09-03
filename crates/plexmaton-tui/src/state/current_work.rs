@@ -2,7 +2,7 @@
 
 use plexmaton_core::{AgentStatus, AttentionKind, ToolCallStatus, TranscriptRole};
 
-use super::{AgentView, AttentionView, ViewState};
+use super::{AgentView, AttentionView, TranscriptEntryView, ViewState};
 
 /// One compact fact for the primary composer's boundary.
 ///
@@ -27,12 +27,34 @@ impl<'a> CurrentWork<'a> {
             action_required = true;
             approval_requested |= request.kind() == AttentionKind::Approval;
         }
-        if approval_requested
-            || agent
-                .tool_activity()
-                .any(|tool| tool.status == ToolCallStatus::AwaitingApproval)
-        {
+        if approval_requested {
             return Some(Self::ApprovalRequired);
+        }
+
+        let mut running_tool = None;
+        let mut responding = false;
+        for entry in agent.entries() {
+            match entry {
+                TranscriptEntryView::Tool(tool)
+                    if tool.status == ToolCallStatus::AwaitingApproval =>
+                {
+                    return Some(Self::ApprovalRequired);
+                }
+                TranscriptEntryView::Tool(tool)
+                    if tool.status == ToolCallStatus::Running && running_tool.is_none() =>
+                {
+                    running_tool = Some(tool.label.as_str());
+                }
+                TranscriptEntryView::Text(item)
+                    if item.role == TranscriptRole::Assistant && !item.finalized =>
+                {
+                    responding = true;
+                }
+                TranscriptEntryView::Text(_)
+                | TranscriptEntryView::Tool(_)
+                | TranscriptEntryView::Artifact(_)
+                | TranscriptEntryView::Mail(_) => {}
+            }
         }
         // The Attention band names other outstanding requests. They still suppress ambient work
         // here, because action required must not compete with a background label, but this slice
@@ -41,20 +63,14 @@ impl<'a> CurrentWork<'a> {
             return None;
         }
 
-        if let Some(tool) = agent
-            .tool_activity()
-            .find(|tool| tool.status == ToolCallStatus::Running)
-        {
-            return Some(Self::RunningTool(&tool.label));
+        if let Some(tool) = running_tool {
+            return Some(Self::RunningTool(tool));
         }
 
         if agent.status != AgentStatus::Running {
             return None;
         }
-        if agent
-            .transcript()
-            .any(|item| item.role == TranscriptRole::Assistant && !item.finalized)
-        {
+        if responding {
             return Some(Self::Responding);
         }
         Some(Self::Thinking)

@@ -1,0 +1,3 @@
+├ Message Agent A · primary · Running read_file ────────────────────┤
+│Type a message · ⇥ to focus                                        │
+└───────────────────────────────────────────────────────────────────┘

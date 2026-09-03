@@ -337,8 +337,8 @@ fn conversation_body(
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, SessionEvent, ToolCallId, ToolCallStatus, ToolPresentation,
-        TranscriptItemId, TranscriptRole,
+        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
+        TranscriptItemId,
     };
     use ratatui::{
         Terminal,
@@ -359,8 +359,8 @@ mod tests {
         render,
         surface::{SurfaceId, SurfaceTree},
         test_support::{
-            Conversation, Session, canonical_state, degraded_state, draw, draw_frame, draw_with,
-            region_text,
+            Conversation, Session, canonical_state, current_responding_state,
+            current_running_tool_state, degraded_state, draw, draw_frame, draw_with, region_text,
         },
         theme::{Palette, Role},
     };
@@ -397,73 +397,72 @@ mod tests {
     #[test]
     fn the_composer_boundary_names_each_current_work_state() {
         let palette = Palette::default();
-        let mut conversation = Conversation::canonical();
-        let primary = conversation
-            .state
+        let canonical = canonical_state();
+        let primary = canonical
             .primary_agent()
             .map(|agent| agent.id.clone())
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
-        let title = |state: &ViewState| composer_title(state, &palette).to_string();
+        let assert_title = |state: &ViewState, expected: &str, role: Role| {
+            let title = composer_title(state, &palette);
+            assert_eq!(title.to_string(), expected);
+            assert_eq!(
+                title.spans[2].style,
+                palette.style(role),
+                "the current-work suffix must carry {role:?}"
+            );
+        };
 
-        assert!(title(&conversation.state).contains(" · Thinking"));
-
-        conversation.emit(SessionEvent::TranscriptItemStarted {
-            agent_id: primary.clone(),
-            item_id: TranscriptItemId::new("current-response")
-                .unwrap_or_else(|error| panic!("fixture: {error}")),
-            role: TranscriptRole::Assistant,
-        });
-        assert!(title(&conversation.state).contains(" · Responding"));
-
-        let running_item = TranscriptItemId::new("current-tool")
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
-        let running_call =
-            ToolCallId::new("current-tool").unwrap_or_else(|error| panic!("fixture: {error}"));
-        for (item_revision, status) in [(0, ToolCallStatus::Queued), (1, ToolCallStatus::Running)] {
-            conversation.emit(SessionEvent::ToolCallChanged {
-                agent_id: primary.clone(),
-                item_id: running_item.clone(),
-                item_revision,
-                call_id: running_call.clone(),
-                label: "read_file".to_owned(),
-                status,
-                presentation: ToolPresentation::default(),
-            });
-        }
-        assert!(
-            title(&conversation.state).contains(" · Running read_file"),
-            "the stable tool label is part of the candidate copy"
+        assert_title(
+            &canonical,
+            " Message Agent A · primary · Thinking ",
+            Role::Ambient,
+        );
+        assert_title(
+            &current_responding_state(),
+            " Message Agent A · primary · Responding ",
+            Role::Ambient,
+        );
+        assert_title(
+            &current_running_tool_state(),
+            " Message Agent A · primary · Running read_file ",
+            Role::Ambient,
         );
 
-        let approval_item = TranscriptItemId::new("current-approval")
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
-        let approval_call =
-            ToolCallId::new("current-approval").unwrap_or_else(|error| panic!("fixture: {error}"));
-        for (item_revision, status) in [
-            (0, ToolCallStatus::Queued),
-            (1, ToolCallStatus::AwaitingApproval),
-        ] {
-            conversation.emit(SessionEvent::ToolCallChanged {
-                agent_id: primary.clone(),
-                item_id: approval_item.clone(),
-                item_revision,
-                call_id: approval_call.clone(),
-                label: "edit_file".to_owned(),
-                status,
-                presentation: ToolPresentation::default(),
-            });
-        }
-        assert!(title(&conversation.state).contains(" · Approval required"));
+        let mut approval = Conversation::canonical();
+        approval.emit(SessionEvent::AttentionRequested {
+            agent_id: primary.clone(),
+            attention_id: AttentionId::new("current-approval")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new("current-approval")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("current-approval")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit_file".to_owned(),
+                capabilities: Vec::new(),
+                detail: "Change one file".to_owned(),
+            },
+        });
+        assert_title(
+            &approval.state,
+            " Message Agent A · primary · Approval required ",
+            Role::ActionRequired,
+        );
 
         let mut idle = Conversation::canonical();
         idle.emit(SessionEvent::AgentStatusChanged {
             agent_id: primary,
             status: AgentStatus::Idle,
         });
+        let idle_title = composer_title(&idle.state, &palette);
         assert_eq!(
-            title(&idle.state),
+            idle_title.to_string(),
             " Message Agent A · primary ",
             "idle adds no label, separator or placeholder"
+        );
+        assert!(
+            idle_title.spans[2].content.is_empty(),
+            "idle paints no empty status padding"
         );
     }
 

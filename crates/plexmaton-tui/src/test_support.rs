@@ -5,7 +5,8 @@
 //! payer.
 
 use plexmaton_core::{
-    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId, TranscriptRole,
+    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus,
+    ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_sim::{Scenario, ScriptedRuntime};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
@@ -30,6 +31,39 @@ pub fn canonical_state() -> ViewState {
     let mut state = Conversation::canonical().state;
     state.set_working_directory("~/plexmaton".to_owned());
     state
+}
+
+/// The canonical projection while the primary agent has an open assistant response.
+pub fn current_responding_state() -> ViewState {
+    let mut conversation = Conversation::canonical();
+    conversation.emit(SessionEvent::TranscriptItemStarted {
+        agent_id: conversation.agent.clone(),
+        item_id: TranscriptItemId::new("current-response")
+            .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+        role: TranscriptRole::Assistant,
+    });
+    conversation.state
+}
+
+/// The canonical projection while the primary agent is running one tool.
+pub fn current_running_tool_state() -> ViewState {
+    let mut conversation = Conversation::canonical();
+    let item_id = TranscriptItemId::new("current-running-tool")
+        .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+    let call_id = ToolCallId::new("current-running-tool")
+        .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+    for (item_revision, status) in [(0, ToolCallStatus::Queued), (1, ToolCallStatus::Running)] {
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: conversation.agent.clone(),
+            item_id: item_id.clone(),
+            item_revision,
+            call_id: call_id.clone(),
+            label: "read_file".to_owned(),
+            status,
+            presentation: ToolPresentation::default(),
+        });
+    }
+    conversation.state
 }
 
 /// A projection a test can keep streaming into.
