@@ -256,9 +256,9 @@ mod tests {
         // 7. Look at B, enter its window, resize it, maximize and restore, then go back to typing
         // to A with B still on screen.
         //
-        // Z-order promotion is not exercised because it does not exist: a docked shelf splits the
-        // conversation region rather than covering it, so nothing overlaps and no surface has a
-        // z-index above zero to promote. That finding is recorded in the phase file.
+        // Z-order promotion itself is not exercised: the inspector already floats over the
+        // primary conversation at z-index one, and it is the only floating sibling here, so there
+        // is nothing to promote it over.
         journey.key(KeyCode::Down).key(KeyCode::Enter);
         assert_eq!(journey.focused(), Some(SurfaceId::Inspector));
         let shelf = journey.bounds(SurfaceId::Inspector).height;

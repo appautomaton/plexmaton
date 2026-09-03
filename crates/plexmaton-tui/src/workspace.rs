@@ -721,7 +721,7 @@ mod tests {
 
     /// FR-2: moving the reader costs no measurement at all.
     ///
-    /// Scrolling changes neither an item's revision nor the panel's width, so every height it needs
+    /// Scrolling changes neither an entry's revision nor the panel's width, so every height it needs
     /// is already cached. A frame that re-wrapped here would make the wheel the most expensive
     /// thing in the workspace.
     #[test]
@@ -1186,7 +1186,7 @@ mod tests {
     /// Heights were keyed by agent alone, with the width only deciding whether an entry was still
     /// valid — so a conversation drawn at a second width threw away the first's measurements. What
     /// that cost is asserted here rather than argued: a steady frame paints nothing, and a streaming
-    /// delta wraps one item at the one width its conversation is on screen at.
+    /// delta wraps one entry at the one width its conversation is on screen at.
     #[test]
     fn a_conversation_drawn_at_two_widths_measures_correctly_at_both() {
         let agent_a = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
