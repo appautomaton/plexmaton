@@ -1,9 +1,9 @@
 //! Semantic colour tokens and the palettes that assign them a style.
 //!
 //! Widgets name a [`Role`], never a terminal colour. A [`Palette`] is one complete
-//! assignment of those tokens; [`Palette::ansi`], [`Palette::truecolor`], and
-//! [`Palette::monochrome`] are shipped presets, not a closed set. A new colourway is a
-//! new assignment, not a change to a widget.
+//! assignment of those tokens; [`Palette::ansi`], [`Palette::pastel`],
+//! [`Palette::truecolor`], and [`Palette::monochrome`] are shipped presets, not a closed set. A
+//! new colourway is a new assignment, not a change to a widget.
 
 use plexmaton_core::{AgentStatus, ToolCallStatus};
 use ratatui::style::{Color, Modifier, Style};
@@ -171,6 +171,38 @@ impl Palette {
         }
     }
 
+    /// Soft truecolour palette designed for a dark terminal background.
+    ///
+    /// The terminal still owns its background. Pastel identity, activity, attention, and failure
+    /// hues remain separate while the monochrome grammar continues to carry their meaning.
+    #[must_use]
+    pub fn pastel() -> Self {
+        const BODY: Color = Color::Rgb(0xEA, 0xE4, 0xF2);
+        const MUTED: Color = Color::Rgb(0x93, 0x8F, 0xA8);
+        const BORDER: Color = Color::Rgb(0x51, 0x4D, 0x66);
+        const FOCUS: Color = Color::Rgb(0x8B, 0xD5, 0xCA);
+        const ACCENT: Color = Color::Rgb(0xC6, 0xA0, 0xF6);
+        const AMBIENT: Color = Color::Rgb(0x8A, 0xAD, 0xF4);
+        const INFO: Color = Color::Rgb(0xA6, 0xDA, 0x95);
+        const ATTENTION: Color = Color::Rgb(0xEE, 0xD4, 0x9F);
+        const FAILURE: Color = Color::Rgb(0xED, 0x87, 0x96);
+
+        Self {
+            body: Style::new().fg(BODY),
+            muted: Style::new().fg(MUTED),
+            border: Style::new().fg(BORDER),
+            border_focused: Style::new().fg(FOCUS),
+            section_heading: Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
+            accent: Style::new().fg(ACCENT),
+            key_hint: Style::new().add_modifier(Modifier::REVERSED),
+            ambient: Style::new().fg(AMBIENT),
+            new_information: Style::new().fg(INFO),
+            action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
+            failure: Style::new().fg(FAILURE).add_modifier(Modifier::BOLD),
+            selection: SELECTION,
+        }
+    }
+
     /// Designed truecolour palette matching the published screen-anatomy tokens.
     ///
     /// Opt in only when the terminal is known to support 24-bit colour; it overrides the user's
@@ -261,9 +293,10 @@ mod tests {
 
     use super::{Palette, Role, tool_role};
 
-    fn palettes() -> [(&'static str, Palette); 3] {
+    fn palettes() -> [(&'static str, Palette); 4] {
         [
             ("ansi", Palette::ansi()),
+            ("pastel", Palette::pastel()),
             ("truecolor", Palette::truecolor()),
             ("monochrome", Palette::monochrome()),
         ]

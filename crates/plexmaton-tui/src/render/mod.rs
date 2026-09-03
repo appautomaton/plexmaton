@@ -784,7 +784,12 @@ mod tests {
     /// against every palette, because a monochrome terminal must show focus too.
     #[test]
     fn only_the_focused_panel_carries_the_focused_border() {
-        for palette in [Palette::ansi(), Palette::truecolor(), Palette::monochrome()] {
+        for palette in [
+            Palette::ansi(),
+            Palette::pastel(),
+            Palette::truecolor(),
+            Palette::monochrome(),
+        ] {
             let mut state = canonical_state();
 
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
@@ -942,9 +947,11 @@ mod tests {
         // reach the buffer would mean colour is carrying meaning that the glyphs do not.
         let state = canonical_state();
         let ansi = draw_with(&state, &Palette::ansi(), 120, 24);
+        let pastel = draw_with(&state, &Palette::pastel(), 120, 24);
         let truecolor = draw_with(&state, &Palette::truecolor(), 120, 24);
         let monochrome = draw_with(&state, &Palette::monochrome(), 120, 24);
 
+        assert_eq!(ansi, pastel);
         assert_eq!(ansi, truecolor);
         assert_eq!(ansi, monochrome);
     }
@@ -956,7 +963,12 @@ mod tests {
     /// reads as every other heading and the badge is what the eye finds.
     #[test]
     fn the_rail_wears_a_badge_only_while_something_is_unanswered() {
-        for palette in [Palette::ansi(), Palette::truecolor(), Palette::monochrome()] {
+        for palette in [
+            Palette::ansi(),
+            Palette::pastel(),
+            Palette::truecolor(),
+            Palette::monochrome(),
+        ] {
             let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
             let bounds = surfaces
                 .get(SurfaceId::Agents)

@@ -14,7 +14,7 @@ use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
 use plexmaton_runtime::{DispatchReport, LiveRuntime, NativeToolCatalog};
-use plexmaton_tui::{ApprovalSubmission, Flow, Submission, SubmissionKind, Workspace};
+use plexmaton_tui::{ApprovalSubmission, Flow, Palette, Submission, SubmissionKind, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
@@ -148,7 +148,7 @@ async fn run(
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
 ) -> anyhow::Result<()> {
-    let mut workspace = Workspace::default();
+    let mut workspace = Workspace::with_palette(Palette::pastel());
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }

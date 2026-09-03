@@ -180,8 +180,9 @@ scroll without moving the transcript behind it.
   a clear failure representation.
 - Colour is twelve semantic roles. Widgets name a role, never a terminal colour. A palette is a
   complete assignment of the roles; the shipped palettes are presets, and a new colourway is a new
-  assignment, not a constructor and not a widget edit. The default is `ansi`, so the user's terminal
-  theme wins.
+  assignment, not a constructor and not a widget edit. The executable defaults to the dark-terminal
+  `pastel` palette; `ansi` lets the user's terminal theme win, and `monochrome` preserves the same
+  hierarchy without colour.
 
 ### Selection and copy
 
