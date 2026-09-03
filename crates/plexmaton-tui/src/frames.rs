@@ -75,6 +75,13 @@ mod tests {
         ("tool-open-narrow", 60, 40),
     ];
 
+    /// Slice 6's remaining transcript roles and a disclosed canonical patch.
+    const GRAMMAR_FRAMES: [(&str, u16, u16); 3] = [
+        ("transcript-grammar-wide", 120, 40),
+        ("transcript-grammar-medium", 95, 40),
+        ("transcript-grammar-narrow", 60, 40),
+    ];
+
     /// Compact composer-only frames for work states absent from the canonical frames.
     const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
@@ -314,6 +321,166 @@ mod tests {
         state
     }
 
+    fn apply_frame_event(state: &mut ViewState, sequence: &mut u64, event: SessionEvent) {
+        *sequence = sequence.saturating_add(1);
+        let outcome = state.apply(SessionEventEnvelope {
+            sequence: EventSequence::new(*sequence),
+            event,
+        });
+        assert!(
+            matches!(outcome, crate::ApplyOutcome::Accepted),
+            "frame event was rejected: {outcome:?}"
+        );
+    }
+
+    fn append_frame_text(
+        state: &mut ViewState,
+        sequence: &mut u64,
+        agent: &AgentId,
+        name: &str,
+        role: plexmaton_core::TranscriptRole,
+        source: &str,
+    ) {
+        let item = TranscriptItemId::new(name).unwrap_or_else(|error| panic!("fixture: {error}"));
+        apply_frame_event(
+            state,
+            sequence,
+            SessionEvent::TranscriptItemStarted {
+                agent_id: agent.clone(),
+                item_id: item.clone(),
+                role,
+            },
+        );
+        apply_frame_event(
+            state,
+            sequence,
+            SessionEvent::TranscriptDelta {
+                agent_id: agent.clone(),
+                item_id: item.clone(),
+                item_revision: 1,
+                text: source.to_owned(),
+            },
+        );
+        apply_frame_event(
+            state,
+            sequence,
+            SessionEvent::TranscriptItemFinalized {
+                agent_id: agent.clone(),
+                item_id: item,
+                item_revision: 2,
+            },
+        );
+    }
+
+    fn transcript_grammar_state(width: u16, height: u16) -> ViewState {
+        use plexmaton_core::TranscriptRole;
+
+        let agent =
+            AgentId::new("agent-primary").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let mut state = ViewState::default();
+        let mut sequence = 0_u64;
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            SessionEvent::AgentCreated {
+                agent_id: agent.clone(),
+                label: "Plexmaton".to_owned(),
+                status: AgentStatus::Idle,
+            },
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "visible-reasoning",
+            TranscriptRole::Reasoning,
+            "The retained patch matches the requested change.",
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "system-message",
+            TranscriptRole::System,
+            "Tool execution resumed after approval.",
+        );
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            SessionEvent::RuntimeWarning {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new("runtime-warning")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                message: "Provider usage omitted cached-token detail.".to_owned(),
+            },
+        );
+        apply_frame_event(
+            &mut state,
+            &mut sequence,
+            SessionEvent::RuntimeError {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new("runtime-error")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                message: "The model request failed before producing an answer.".to_owned(),
+            },
+        );
+
+        let item = TranscriptItemId::new("canonical-edit")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call =
+            ToolCallId::new("canonical-edit").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let invocation = ToolDetail::Text {
+            source: "path: src/lib.rs\nobservation: obs-7".to_owned(),
+            omitted_bytes: 0,
+        };
+        for (revision, status, outcome) in [
+            (0, ToolCallStatus::Queued, None),
+            (1, ToolCallStatus::Running, None),
+            (
+                2,
+                ToolCallStatus::Succeeded,
+                Some(ToolDetail::Diff {
+                    patch: "*** Begin Patch\n*** Update File: src/lib.rs\n@@ bytes 0..36; old_bytes=36; new_bytes=38 @@\n-pub const COLOR: &str = \"blue\";\n+pub const COLOR: &str = \"pastel\";\n*** End Patch"
+                        .to_owned(),
+                }),
+            ),
+        ] {
+            apply_frame_event(
+                &mut state,
+                &mut sequence,
+                SessionEvent::ToolCallChanged {
+                    agent_id: agent.clone(),
+                    item_id: item.clone(),
+                    item_revision: revision,
+                    call_id: call.clone(),
+                    label: "edit_file".to_owned(),
+                    status,
+                    presentation: ToolPresentation {
+                        invocation: (revision > 0).then(|| invocation.clone()),
+                        outcome,
+                    },
+                },
+            );
+        }
+        state.set_working_directory("~/plexmaton".to_owned());
+        let index = state
+            .primary_agent()
+            .and_then(|agent| agent.entries().position(|entry| entry.id() == &item))
+            .unwrap_or_else(|| panic!("the edit is in the transcript"));
+        let (surfaces, _) = draw_frame(&state, &Palette::pastel(), width, height);
+        state.toggle_pointer_entry(
+            &surfaces,
+            &TranscriptMetrics::default(),
+            EntryTarget {
+                surface: SurfaceId::Transcript,
+                agent,
+                item,
+                index,
+            },
+        );
+        state
+    }
+
     /// ENT-2/TR-2: all seven compact states remain legible at wide, medium and narrow.
     #[test]
     fn the_tool_state_frames_match_their_fixtures() {
@@ -368,6 +535,48 @@ mod tests {
                 "cargo test -p plexmaton-tui",
                 "outcome",
                 "197 tests passed",
+            ] {
+                assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            assert_eq!(drawn.lines().count(), usize::from(height));
+
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
+                first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    /// ENT-4 and `ui-ux.md` §transcript grammar: every remaining role and a complete canonical
+    /// patch stay legible together at wide, medium, and narrow.
+    #[test]
+    fn the_remaining_transcript_grammar_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width, height) in GRAMMAR_FRAMES {
+            let drawn = draw(&transcript_grammar_state(width, height), width, height);
+            for signature in [
+                "reasoning",
+                "system",
+                "warning",
+                "error",
+                "edit_file · succeeded",
+                "*** Begin Patch",
+                "*** Update File: src/lib.rs",
+                "-pub const COLOR",
+                "+pub const COLOR",
             ] {
                 assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
             }

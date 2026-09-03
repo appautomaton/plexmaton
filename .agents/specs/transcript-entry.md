@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Identity, lifecycle, retained presentation, compact projection, disclosure and semantic copy implemented through Phase 01 stage 3 slice 5; diff styling remains slice 6 |
+| Status | Implemented through Phase 01 stage 3 slice 6 |
 | Owns | Stable transcript identity, first-appearance order, entry revisions, tool lifecycle updates, typed presentation, and replay reduction |
 | Depends on | [transcript-layout](./transcript-layout.md) TR-1 and [tool-admission](./tool-admission.md) APV-5/APV-6 |
 | Proven by | `plexmaton-core::transcript`, `plexmaton-agent::{record,tools,turn}`, `plexmaton-file-tools`, `plexmaton-command`, `plexmaton-runtime`, and `plexmaton-tui::{content,transcript,state}` tests |
@@ -13,7 +13,9 @@
 `TranscriptItemId`; text, tools, artifacts, mail, warnings and errors share one per-agent ordered
 projection. Mail is owned by its producer while retaining both delivery endpoints. A tool's
 `ToolCallId` and other domain IDs correlate facts but never choose their position, and a vector
-index is not an identity.
+index is not an identity. Explicit plaintext reasoning uses an ambient heading and muted body;
+system text is muted; warning and error headings use action-required and failure roles. Their names
+carry the distinction in monochrome. Provider replay metadata never enters this vocabulary (PRV-3).
 
 **ENT-2 — One tool call is one revisioned entry.** A call first appears queued at revision zero and
 each accepted lifecycle transition advances exactly one revision on the original entry. Display
@@ -38,8 +40,10 @@ another session fact: it survives lifecycle replacement, changes one cached heig
 inside the parent conversation rather than creating a nested viewport. `Ctrl-O` addresses the
 selection's moving end; a completed pointer gesture selects and addresses the same entry, while
 hover is visual only. Copy returns the retained invocation then outcome without the disclosure's
-headings, gutters, clipping, styling, or omission label. Diff source already follows this path;
-its distinct added/removed treatment remains unproven until Phase 01 stage 3 slice 6.
+headings, gutters, clipping, styling, or omission label. A canonical diff keeps its original
+markers: added and removed lines use new-information and failure roles, hunk headers use accent,
+and the patch envelope uses muted. Selection adds its common treatment without erasing those roles. The
+renderer makes only bounded line-prefix decisions; unknown forms remain exact plain text.
 
 ## Model
 
@@ -70,7 +74,7 @@ as mail and artifacts stay at revision zero because they have no update vocabula
 
 | Invariant | Proven by |
 | --- | --- |
-| ENT-1 | `every_transcript_identity_is_new_and_names_its_agent`, `every_transcript_category_enters_one_ordered_projection`, `mail_retains_both_endpoints_and_lives_with_its_producer`, `an_entry_identity_cannot_move_between_agents`, `shuffled_tool_completions_update_their_original_entries`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order` |
+| ENT-1 | `every_transcript_identity_is_new_and_names_its_agent`, `every_transcript_category_enters_one_ordered_projection`, `mail_retains_both_endpoints_and_lives_with_its_producer`, `an_entry_identity_cannot_move_between_agents`, `shuffled_tool_completions_update_their_original_entries`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order`, `non_chat_text_roles_have_distinct_named_treatments`, `reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation`, `the_remaining_transcript_grammar_frames_match_their_fixtures` |
 | ENT-2 | `a_step_that_asked_for_tools_dispatches_them_and_waits`, `production_tool_lifecycles_replay_as_one_entry_each`, `tool_lifecycle_allows_only_forward_declared_transitions`, `tool_updates_refuse_revision_gaps_and_invalid_transitions`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished`, `every_tool_status_is_one_named_logical_line`, `a_tool_transition_remeasures_only_its_original_entry` |
 | ENT-3 | `every_event_variant_survives_a_json_round_trip`, `two_fresh_projections_of_the_same_envelopes_are_equal`, `rejected_event_does_not_block_the_rest_of_the_stream`, crate-graph gate |
-| ENT-4 | Presentation production/bounds: `bounded_presentation_text_carries_exact_omission_metadata`, `tool_status_updates_accumulate_invocation_and_outcome_presentation`, `cancellation_before_admission_has_outcome_without_invocation`, `maximum_valid_edit_retains_a_complete_bounded_patch`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request`; disclosure/copy: `every_tool_status_can_disclose_the_same_typed_detail`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `pointer_and_ctrl_o_toggle_the_same_item_while_drag_cancels_disclosure`, `tool_completion_preserves_the_users_open_state`, `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `the_open_tool_frames_match_their_fixtures`; distinct diff styling remains unproven until Phase 01 stage 3 slice 6 |
+| ENT-4 | Presentation production/bounds: `bounded_presentation_text_carries_exact_omission_metadata`, `tool_status_updates_accumulate_invocation_and_outcome_presentation`, `cancellation_before_admission_has_outcome_without_invocation`, `maximum_valid_edit_retains_a_complete_bounded_patch`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request`; disclosure/copy: `every_tool_status_can_disclose_the_same_typed_detail`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `pointer_and_ctrl_o_toggle_the_same_item_while_drag_cancels_disclosure`, `tool_completion_preserves_the_users_open_state`, `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `the_open_tool_frames_match_their_fixtures`; diff treatment: `canonical_diff_lines_keep_markers_and_receive_bounded_semantic_roles`, `opaque_maximum_diff_line_degrades_to_exact_plain_text`, `the_remaining_transcript_grammar_frames_match_their_fixtures` |

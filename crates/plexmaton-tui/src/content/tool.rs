@@ -64,17 +64,57 @@ fn append_detail(
     };
     let heading = Line::styled(format!("  {heading}{omitted}"), palette.style(Role::Muted));
     lines.push(select_line(heading, palette, selected));
-    let source = match detail {
-        ToolDetail::Text { source, .. } => source,
-        ToolDetail::Diff { patch } => patch,
-    };
+    match detail {
+        ToolDetail::Text { source, .. } => {
+            append_source(lines, source, palette, selected, false, |_| Role::Body);
+        }
+        ToolDetail::Diff { patch } => {
+            append_source(lines, patch, palette, selected, true, diff_role);
+        }
+    }
+}
+
+fn append_source(
+    lines: &mut Vec<Line<'static>>,
+    source: &str,
+    palette: &Palette,
+    selected: bool,
+    preserve_role: bool,
+    role: impl Fn(&str) -> Role,
+) {
     lines.extend(source.split('\n').map(|row| {
         let line = Line::from(vec![
             Span::styled("  │ ", palette.style(Role::Muted)),
-            Span::styled(row.to_owned(), palette.style(Role::Body)),
+            Span::styled(row.to_owned(), palette.style(role(row))),
         ]);
-        select_line(line, palette, selected)
+        if selected && preserve_role {
+            let selection = palette.style(Role::Selection);
+            Line::from(
+                line.spans
+                    .into_iter()
+                    .map(|span| span.patch_style(selection))
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            select_line(line, palette, selected)
+        }
     }));
+}
+
+/// One bounded line-prefix decision, not a diff parser. Unknown and context lines remain source
+/// text; decoration can never make the canonical patch invalid or expensive to understand.
+fn diff_role(row: &str) -> Role {
+    if row.starts_with("@@") {
+        Role::Accent
+    } else if row.starts_with("*** ") || row.starts_with("\\ No newline") {
+        Role::Muted
+    } else if row.starts_with('+') {
+        Role::NewInformation
+    } else if row.starts_with('-') {
+        Role::Failure
+    } else {
+        Role::Body
+    }
 }
 
 /// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
@@ -111,7 +151,7 @@ mod tests {
     use super::{entry, marker};
     use crate::{
         state::{EntryAppearance, ToolCallView},
-        theme::Palette,
+        theme::{Palette, Role},
     };
 
     fn tool(status: ToolCallStatus, presentation: ToolPresentation) -> ToolCallView {
@@ -201,5 +241,102 @@ mod tests {
             assert!(rendered.contains("outcome · 17 bytes omitted"));
             assert!(rendered.contains("  │ stdout:\n  │ ok"));
         }
+    }
+
+    /// ENT-4: diff meaning comes from retained markers in monochrome and semantic roles in colour;
+    /// file headers are metadata rather than false additions/removals.
+    #[test]
+    fn canonical_diff_lines_keep_markers_and_receive_bounded_semantic_roles() {
+        let patch = "*** Begin Patch\n*** Update File: src/lib.rs\n@@ bytes 0..4; old_bytes=4; new_bytes=6 @@\n-blue\n+pastel\n---old flag\n+++new flag\n\\ No newline at end of edit\n*** End Patch";
+        let presentation = ToolPresentation {
+            invocation: None,
+            outcome: Some(ToolDetail::Diff {
+                patch: patch.to_owned(),
+            }),
+        };
+        let appearance = EntryAppearance {
+            open: true,
+            ..EntryAppearance::default()
+        };
+
+        let monochrome = entry(
+            &tool(ToolCallStatus::Succeeded, presentation.clone()),
+            &Palette::monochrome(),
+            appearance,
+        );
+        assert_eq!(monochrome[5].to_string(), "  │ -blue");
+        assert_eq!(monochrome[6].to_string(), "  │ +pastel");
+        assert_eq!(monochrome[7].to_string(), "  │ ---old flag");
+        assert_eq!(monochrome[8].to_string(), "  │ +++new flag");
+
+        let palette = Palette::pastel();
+        let coloured = entry(
+            &tool(ToolCallStatus::Succeeded, presentation),
+            &palette,
+            appearance,
+        );
+        for (line, role) in [
+            (2, Role::Muted),
+            (3, Role::Muted),
+            (4, Role::Accent),
+            (5, Role::Failure),
+            (6, Role::NewInformation),
+            (7, Role::Failure),
+            (8, Role::NewInformation),
+            (9, Role::Muted),
+            (10, Role::Muted),
+        ] {
+            assert_eq!(coloured[line].spans[1].style, palette.style(role));
+        }
+
+        let selected = entry(
+            &tool(
+                ToolCallStatus::Succeeded,
+                ToolPresentation {
+                    invocation: None,
+                    outcome: Some(ToolDetail::Diff {
+                        patch: patch.to_owned(),
+                    }),
+                },
+            ),
+            &palette,
+            EntryAppearance {
+                selected: true,
+                open: true,
+                hovered: false,
+            },
+        );
+        assert_eq!(
+            selected[6].spans[1].style,
+            palette
+                .style(Role::NewInformation)
+                .patch(palette.style(Role::Selection)),
+            "selection keeps the semantic diff role and adds its common treatment"
+        );
+    }
+
+    /// ENT-4: decoration is one prefix check per logical line. A maximum-sized opaque line stays
+    /// one exact body span rather than entering an unbounded parser or tokenizer.
+    #[test]
+    fn opaque_maximum_diff_line_degrades_to_exact_plain_text() {
+        let source = format!(" {}", "x".repeat(64 * 1024 - 1));
+        let lines = entry(
+            &tool(
+                ToolCallStatus::Succeeded,
+                ToolPresentation {
+                    invocation: None,
+                    outcome: Some(ToolDetail::Diff {
+                        patch: source.clone(),
+                    }),
+                },
+            ),
+            &Palette::pastel(),
+            EntryAppearance {
+                open: true,
+                ..EntryAppearance::default()
+            },
+        );
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[2].spans[1].content.as_ref(), source);
     }
 }

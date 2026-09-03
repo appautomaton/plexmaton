@@ -338,14 +338,14 @@ mod tests {
     #[test]
     fn tool_copy_preserves_every_retained_source_in_producer_order() {
         let invocation = "path: crates/plexmaton-tui/src/content.rs";
-        let outcome = "head\n...[7 bytes omitted]...\ntail";
+        let outcome = "*** Begin Patch\n*** Update File: src/lib.rs\n@@ bytes 0..3; old_bytes=3; new_bytes=3 @@\n-old\n+new\n*** End Patch";
         let copied = tool_source(&ToolPresentation {
-            invocation: Some(ToolDetail::Diff {
-                patch: invocation.to_owned(),
+            invocation: Some(ToolDetail::Text {
+                source: invocation.to_owned(),
+                omitted_bytes: 0,
             }),
-            outcome: Some(ToolDetail::Text {
-                source: outcome.to_owned(),
-                omitted_bytes: 7,
+            outcome: Some(ToolDetail::Diff {
+                patch: outcome.to_owned(),
             }),
         })
         .unwrap_or_else(|| panic!("retained tool detail has a copy source"));

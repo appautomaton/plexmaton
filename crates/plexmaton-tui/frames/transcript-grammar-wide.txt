@@ -1,0 +1,40 @@
+┌ Agents ──────────────────┐┌ Plexmaton · idle · 1 tool · 1 selected ──────────────────────────────────────────────────┐
+│No sub-agents yet.        ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││reasoning                                                                                 │
+│                          ││The retained patch matches the requested change.                                          │
+│                          ││                                                                                          │
+│                          ││system                                                                                    │
+│                          ││Tool execution resumed after approval.                                                    │
+│                          ││                                                                                          │
+│                          ││warning                                                                                   │
+│                          ││Provider usage omitted cached-token detail.                                               │
+│                          ││                                                                                          │
+│                          ││error                                                                                     │
+│                          ││The model request failed before producing an answer.                                      │
+│                          ││                                                                                          │
+│                          ││[+] edit_file · succeeded                                                                 │
+│                          ││  invocation                                                                              │
+│                          ││  │ path: src/lib.rs                                                                      │
+│                          ││  │ observation: obs-7                                                                    │
+│                          ││  outcome                                                                                 │
+│                          ││  │ *** Begin Patch                                                                       │
+│                          ││  │ *** Update File: src/lib.rs                                                           │
+│                          ││  │ @@ bytes 0..36; old_bytes=36; new_bytes=38 @@                                         │
+│                          ││  │ -pub const COLOR: &str = "blue";                                                      │
+│                          ││  │ +pub const COLOR: &str = "pastel";                                                    │
+│                          ││  │ *** End Patch                                                                         │
+│                          │├ Message Plexmaton ───────────────────────────────────────────────────────────────────────┤
+│                          ││Type a message · ⇥ to focus                                                               │
+└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                                                                            

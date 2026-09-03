@@ -180,6 +180,12 @@ scroll without moving the transcript behind it.
   grammar before decorative borders.
 - Agent, mail, tool, reasoning, artifact, warning, and error content are distinguishable without
   relying on colour alone.
+- Explicit plaintext reasoning is named and visually quiet; system text is named and muted;
+  warnings and errors are named before colour adds action-required or failure emphasis. Opaque
+  provider replay is never a visible transcript entry (PRV-3).
+- A canonical diff keeps its source `+`/`-` markers. Added lines use new-information, removed lines
+  use failure, hunk headers use accent, and the patch envelope is muted. Selecting the entry adds the
+  selection treatment without erasing those roles; unknown diff text remains undecorated source.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
 - Colour is twelve semantic roles. Widgets name a role, never a terminal colour. A palette is a
@@ -338,17 +344,17 @@ carries identity and status but is never the only carrier:
 
 - User message
 - Assistant message, streaming and final
-- Reasoning summary
+- Reasoning summary, named `reasoning` and visually quiet
 - Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
   `[x] denied`, or `[-] cancelled`; retained invocation and outcome disclose beneath the same row
-- Diff and artifact
+- Diff with original `+`/`-` markers, and artifact
 - Agent mail
 - Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the
   user and the delegating agent read the same story
 - Agent objection: the delegating agent disputes an amendment, shown as action required
 - Undelivered steering: a message that never reached its worker, with its original text intact
-- System and runtime notice
-- Warning and error
+- System text, named and muted
+- Warning and error, each named before colour adds emphasis
 - Typeset display math and source reveal
 
 ## State matrix

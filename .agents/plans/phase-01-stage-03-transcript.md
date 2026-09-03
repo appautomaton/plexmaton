@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 3 |
 | Contract | [UI/UX](../ui-ux.md) §progressive disclosure, §readability, §transcript grammar, §state matrix |
-| Status | Slices 1–5 done; slice 6 ready |
+| Status | Slices 1–6 done; slice 7 ready |
 | Blocked | None |
 
 ## Outcome
@@ -70,7 +70,7 @@ maintain a second live/replay UI.
    *Closes when* resize/scroll/theme do not change copy, opening invalidates only that entry's
    height, keyboard and pointer agree, and monochrome remains sufficient.
 
-6. **Diff and remaining grammar.** Paint the complete retained patch with `+`/`-` markers and
+6. **Diff and remaining grammar — done.** Paint the complete retained patch with `+`/`-` markers and
    semantic roles; viewport clipping and decoration limits never alter its copy source. Give
    reasoning, system, warning and error their treatments; encrypted replay stays absent. *Closes
    when* diff meaning survives monochrome, expensive decoration degrades to bounded plain text,

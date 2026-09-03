@@ -127,32 +127,33 @@ fn transcript_text(
     palette: &Palette,
     selected: bool,
 ) -> Vec<Line<'static>> {
-    let (author, default_heading) = match item.kind {
-        TranscriptTextKind::Message => (
-            match item.role {
-                TranscriptRole::User => "you",
-                TranscriptRole::Assistant => "assistant",
-                TranscriptRole::Reasoning => "reasoning",
-                TranscriptRole::System => "system",
-            },
-            Role::SectionHeading,
-        ),
-        TranscriptTextKind::Warning => ("warning", Role::ActionRequired),
-        TranscriptTextKind::Error => ("error", Role::Failure),
-    };
+    let (author, default_heading, default_body) = text_treatment(item);
     // Selection replaces the body role rather than adding to it: what is selected has to be
     // legible as one block, and a message whose text kept its own colour while the heading did not
     // reads as two things.
     let (heading, body) = if selected {
         (Role::Selection, Role::Selection)
     } else {
-        (default_heading, Role::Body)
+        (default_heading, default_body)
     };
     vec![
         Line::styled(author, palette.style(heading)),
         Line::styled(item.source.clone(), palette.style(body)),
         Line::raw(""),
     ]
+}
+
+const fn text_treatment(item: &TranscriptItemView) -> (&'static str, Role, Role) {
+    match item.kind {
+        TranscriptTextKind::Message => match item.role {
+            TranscriptRole::User => ("you", Role::SectionHeading, Role::Body),
+            TranscriptRole::Assistant => ("assistant", Role::SectionHeading, Role::Body),
+            TranscriptRole::Reasoning => ("reasoning", Role::Ambient, Role::Muted),
+            TranscriptRole::System => ("system", Role::Muted, Role::Muted),
+        },
+        TranscriptTextKind::Warning => ("warning", Role::ActionRequired, Role::Body),
+        TranscriptTextKind::Error => ("error", Role::Failure, Role::Body),
+    }
 }
 
 fn select_line(line: Line<'static>, palette: &Palette, selected: bool) -> Line<'static> {
@@ -319,10 +320,70 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::{TranscriptItemId, TranscriptRole};
     use ratatui::widgets::{Paragraph, Wrap};
 
-    use super::agents;
-    use crate::{test_support::canonical_state, theme::Palette};
+    use super::{agents, transcript_text};
+    use crate::{
+        TranscriptItemView, TranscriptTextKind,
+        test_support::canonical_state,
+        theme::{Palette, Role},
+    };
+
+    /// ENT-1: explicit plaintext reasoning, runtime system text, warnings, and errors each keep a
+    /// named monochrome treatment and a semantic palette role.
+    #[test]
+    fn non_chat_text_roles_have_distinct_named_treatments() {
+        let cases = [
+            (
+                TranscriptRole::Reasoning,
+                TranscriptTextKind::Message,
+                "reasoning",
+                Role::Ambient,
+                Role::Muted,
+            ),
+            (
+                TranscriptRole::System,
+                TranscriptTextKind::Message,
+                "system",
+                Role::Muted,
+                Role::Muted,
+            ),
+            (
+                TranscriptRole::System,
+                TranscriptTextKind::Warning,
+                "warning",
+                Role::ActionRequired,
+                Role::Body,
+            ),
+            (
+                TranscriptRole::System,
+                TranscriptTextKind::Error,
+                "error",
+                Role::Failure,
+                Role::Body,
+            ),
+        ];
+        let palette = Palette::pastel();
+        for (role, kind, label, heading, body) in cases {
+            let item = TranscriptItemView {
+                id: TranscriptItemId::new(label).unwrap_or_else(|error| panic!("fixture: {error}")),
+                role,
+                kind,
+                source: format!("{label} source"),
+                revision: 0,
+                finalized: true,
+            };
+            let lines = transcript_text(&item, &palette, false);
+            assert_eq!(lines[0].to_string(), label);
+            assert_eq!(lines[0].style, palette.style(heading));
+            assert_eq!(lines[1].style, palette.style(body));
+
+            let monochrome = transcript_text(&item, &Palette::monochrome(), false);
+            assert_eq!(monochrome[0].to_string(), label);
+            assert_eq!(monochrome[1].to_string(), format!("{label} source"));
+        }
+    }
 
     /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
     #[test]
