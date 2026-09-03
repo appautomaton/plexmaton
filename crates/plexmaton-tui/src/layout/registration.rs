@@ -88,7 +88,7 @@ pub(super) fn surface_tree(
 /// Responsive approval card whose request detail scrolls instead of growing the terminal.
 fn approval_rect(area: Rect) -> Rect {
     let width = area.width.saturating_sub(4).min(72);
-    let height = area.height.saturating_sub(2).min(13);
+    let height = area.height.saturating_sub(1).min(15);
     Rect::new(
         area.x.saturating_add(area.width.saturating_sub(width) / 2),
         area.y

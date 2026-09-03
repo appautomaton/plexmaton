@@ -305,9 +305,15 @@ fn approval_detail(arguments: &CanonicalArguments) -> String {
         panic!("serializing an already-owned command string cannot fail: {error}")
     });
     let root = bounded_head_tail(&quoted_root, ROOT_LIMIT);
-    let prefix = format!("Run in {root} (timeout {} ms): ", arguments.timeout_ms);
-    let command = bounded_head_tail(&quoted_command, LIMIT.saturating_sub(prefix.len()));
-    format!("{prefix}{command}")
+    let prefix = "Command ";
+    let context = format!(" · cwd {root} · timeout {} ms", arguments.timeout_ms);
+    let command = bounded_head_tail(
+        &quoted_command,
+        LIMIT
+            .saturating_sub(prefix.len())
+            .saturating_sub(context.len()),
+    );
+    format!("{prefix}{command}{context}")
 }
 
 fn bounded_head_tail(text: &str, limit: usize) -> String {
@@ -606,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn cmd_1_approval_detail_keeps_root_and_command_head_tail_separately() {
+    fn cmd_1_approval_detail_leads_with_command_and_bounds_root_separately() {
         let arguments = CanonicalArguments {
             cmd: format!("COMMAND-HEAD-{}-COMMAND-TAIL", "c".repeat(2_048)),
             timeout_ms: DEFAULT_TIMEOUT_MS,
@@ -614,6 +620,7 @@ mod tests {
         };
         let detail = approval_detail(&arguments);
         assert!(detail.len() <= plexmaton_agent::MAX_APPROVAL_DETAIL_BYTES);
+        assert!(detail.starts_with("Command \"COMMAND-HEAD-"));
         assert!(detail.contains("ROOT-HEAD"));
         assert!(detail.contains("ROOT-TAIL"));
         assert!(detail.contains("COMMAND-HEAD"));

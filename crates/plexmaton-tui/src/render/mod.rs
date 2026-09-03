@@ -153,7 +153,7 @@ pub fn render(
                 title: attention_title(state, palette),
                 edges: Edges::All,
             }),
-            SurfaceId::Approval => Some(approval_panel(state, palette)),
+            SurfaceId::Approval => Some(approval_panel(state, palette, bounds)),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -213,10 +213,10 @@ pub fn render(
     surfaces
 }
 
-fn approval_panel(state: &ViewState, palette: &Palette) -> Panel {
+fn approval_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
         body: Body::Whole {
-            lines: content::approval(state, palette),
+            lines: content::approval(state, palette, bounds.height < 15),
             follows_tail: false,
         },
         title: title(

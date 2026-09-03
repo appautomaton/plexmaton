@@ -1,6 +1,6 @@
 ┌ Attention · 2 · 1 unanswered ────────────────────────────────────────────────────────────────────────────────────────────┐
 │  ask   agent-b · Choose whether the overlap study should cover narrow screens.                                           │
-│> seen  agent-a · Run in "/w" (timeout 120000 ms): "cargo test"                                                           │
+│> seen  agent-a · Command "cargo test" · cwd "/Users/ac/dev/agents/coding/plexmaton" · timeout 120000 ms                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ─────────────┐┌ Agent A · primary · running ─────────────────────────────────────────────────────────────────┐
 │○ Agent B · UI study  done││                                                                                              │
@@ -10,21 +10,21 @@
 │Tools                     ││                                                                                              │
 │[?] exec_command          ││                                                                                              │
 │Artifacts                 ││                                                                                              │
-│  none                    ││                                                                                              │
-│Mail                     ┌ Approval required · user opened ─────────────────────────────────────┐                         │
-│<- agent-b               │Agent  agent-a                                                        │                         │
-│  Overlap routing should │Tool   exec_command · command-native-1                                │                         │
-│remain centralized and   │Access read files, change files, run processes                        │                         │
-│z-ordered.               │                                                                      │                         │
-│                         │  Allow once                                                          │                         │
+│  none                   ┌ Approval required · user opened ─────────────────────────────────────┐                         │
+│Mail                     │Agent  agent-a                                                        │                         │
+│<- agent-b               │Tool   exec_command · command-native-1                                │                         │
+│  Overlap routing should │Access read files, change files, run processes                        │                         │
+│remain centralized and   │                                                                      │                         │
+│z-ordered.               │  Allow once                                                          │                         │
 │                         │> Deny                                                                │                         │
 │                         │↑↓ choose · Enter decide                                              │                         │
 │                         │PgUp/PgDn details · Esc keeps pending                                 │                         │
 │                         │                                                                      │                         │
 │                         │Details                                                               │                         │
-│                         │Run in "/w" (timeout 120000 ms): "cargo test"                         │                         │
+│                         │Command "cargo test" · cwd "/Users/ac/dev/agents/coding/plexmaton" ·  │                         │
+│                         │timeout 120000 ms                                                     │                         │
+│                         │                                                                      │                         │
 │                         └──────────────────────────────────────────────────────────────────────┘                         │
-│                          ││                                                                                              │
 │                          ││                                                                                              │
 │                          ││                                                                                              │
 │                          ││                                                                                              │

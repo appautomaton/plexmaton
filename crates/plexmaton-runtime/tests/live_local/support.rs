@@ -208,11 +208,11 @@ fn validate_exact_approval(
                     ToolCapability::ProcessSpawn,
                 ],
                 format!(
-                    "Run in {} (timeout 30000 ms): {}",
-                    serde_json::to_string(root)
-                        .map_err(|error| format!("quote live workspace: {error}"))?,
+                    "Command {} · cwd {} · timeout 30000 ms",
                     serde_json::to_string(EXACT_COMMAND)
-                        .map_err(|error| format!("quote expected command: {error}"))?
+                        .map_err(|error| format!("quote expected command: {error}"))?,
+                    serde_json::to_string(root)
+                        .map_err(|error| format!("quote live workspace: {error}"))?
                 ),
             )
         }

@@ -205,7 +205,8 @@ mod tests {
                     ToolCapability::FileWrite,
                     ToolCapability::ProcessSpawn,
                 ],
-                detail: "Run in \"/w\" (timeout 120000 ms): \"cargo test\"".to_owned(),
+                detail: "Command \"cargo test\" · cwd \"/Users/ac/dev/agents/coding/plexmaton\" · timeout 120000 ms"
+                    .to_owned(),
             },
         });
         conversation
@@ -224,7 +225,13 @@ mod tests {
     fn the_native_approval_frames_match_their_fixtures() {
         let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in NATIVE_APPROVAL_FRAMES {
-            let drawn = draw(&native_approval_state(width, height), width, height);
+            let state = native_approval_state(width, height);
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+            let drawn = region_text(&buffer, Rect::new(0, 0, width, height));
+            let approval = surfaces
+                .get(SurfaceId::Approval)
+                .unwrap_or_else(|| panic!("{name}: approval surface is not registered"));
+            let approval = region_text(&buffer, approval.bounds);
             for signature in [
                 "Approval required",
                 "exec_command",
@@ -236,8 +243,8 @@ mod tests {
                 "cargo test",
             ] {
                 assert!(
-                    drawn.contains(signature),
-                    "{name}: {signature:?} is not on screen"
+                    approval.contains(signature),
+                    "{name}: {signature:?} is not on the approval card"
                 );
             }
             let path = fixture_path(name);
@@ -256,6 +263,33 @@ mod tests {
                 fixture == drawn,
                 "{name} drifted from its fixture at {}",
                 first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    /// APV-4: even the smallest supported terminal shows what will execute before Enter can
+    /// grant it; scrolling is for the remainder, not for discovering the command exists.
+    #[test]
+    fn native_command_is_visible_before_decision_at_the_smallest_terminal() {
+        let (width, height) = (48, 12);
+        let state = native_approval_state(width, height);
+        let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+        let approval = surfaces
+            .get(SurfaceId::Approval)
+            .unwrap_or_else(|| panic!("approval surface is not registered"));
+        let status = surfaces
+            .get(SurfaceId::Status)
+            .unwrap_or_else(|| panic!("status surface is not registered"));
+        assert!(
+            approval.bounds.bottom() <= status.bounds.top(),
+            "the compact modal must not cover the status line"
+        );
+        let approval = region_text(&buffer, approval.bounds);
+
+        for signature in ["Allow once", "> Deny", "Command \"cargo test\""] {
+            assert!(
+                approval.contains(signature),
+                "smallest approval card hid {signature:?}:\n{approval}"
             );
         }
     }

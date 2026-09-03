@@ -40,7 +40,7 @@ pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'stati
 }
 
 /// The bounded decision card opened from an approval item in Attention.
-pub(crate) fn approval(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
+pub(crate) fn approval(state: &ViewState, palette: &Palette, compact: bool) -> Vec<Line<'static>> {
     let Some(approval) = state.approval() else {
         return Vec::new();
     };
@@ -72,23 +72,44 @@ pub(crate) fn approval(state: &ViewState, palette: &Palette) -> Vec<Line<'static
         ])
     };
 
+    let agent = Line::from(vec![
+        Span::styled("Agent  ", palette.style(Role::Muted)),
+        Span::styled(approval.agent_id.to_string(), palette.style(Role::Body)),
+    ]);
+    let mut tool = vec![
+        Span::styled("Tool   ", palette.style(Role::Muted)),
+        Span::styled(approval.tool.to_owned(), palette.style(Role::Body)),
+    ];
+    if !compact {
+        tool.push(Span::styled(
+            format!(" · {}", approval.call_id),
+            palette.style(Role::Muted),
+        ));
+    }
+    let tool = Line::from(tool);
+    let access = Line::from(vec![
+        Span::styled("Access ", palette.style(Role::Muted)),
+        Span::styled(capabilities, palette.style(Role::ActionRequired)),
+    ]);
+    let detail = Line::styled(approval.detail.to_owned(), palette.style(Role::Body));
+
+    if compact {
+        return vec![
+            agent,
+            tool,
+            access,
+            option(ApprovalDecision::AllowOnce, "Allow once"),
+            option(ApprovalDecision::Deny, "Deny"),
+            Line::styled("↑↓ choose · Enter · PgDn · Esc", palette.style(Role::Muted)),
+            Line::styled("Details", palette.style(Role::SectionHeading)),
+            detail,
+        ];
+    }
+
     vec![
-        Line::from(vec![
-            Span::styled("Agent  ", palette.style(Role::Muted)),
-            Span::styled(approval.agent_id.to_string(), palette.style(Role::Body)),
-        ]),
-        Line::from(vec![
-            Span::styled("Tool   ", palette.style(Role::Muted)),
-            Span::styled(approval.tool.to_owned(), palette.style(Role::Body)),
-            Span::styled(
-                format!(" · {}", approval.call_id),
-                palette.style(Role::Muted),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Access ", palette.style(Role::Muted)),
-            Span::styled(capabilities, palette.style(Role::ActionRequired)),
-        ]),
+        agent,
+        tool,
+        access,
         Line::default(),
         option(ApprovalDecision::AllowOnce, "Allow once"),
         option(ApprovalDecision::Deny, "Deny"),
@@ -99,6 +120,6 @@ pub(crate) fn approval(state: &ViewState, palette: &Palette) -> Vec<Line<'static
         ),
         Line::default(),
         Line::styled("Details", palette.style(Role::SectionHeading)),
-        Line::styled(approval.detail.to_owned(), palette.style(Role::Body)),
+        detail,
     ]
 }

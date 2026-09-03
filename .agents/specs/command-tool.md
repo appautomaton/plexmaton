@@ -5,7 +5,7 @@
 | Status | Implemented through Phase 01 stage 2 slice 10 |
 | Owns | Strict command admission, foreground Unix process-group ownership, bounded output capture and typed completion |
 | Depends on | [tool-admission](./tool-admission.md) APV-1 through APV-3; [agent-loop](./agent-loop.md) LOOP-2; Phase 01 §producer |
-| Proven by | `plexmaton-command::{admission,capture,executor}` and `plexmaton-runtime::runtime::tests::tools` tests |
+| Proven by | `plexmaton-command::{admission,capture,executor}`, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::frames` tests |
 
 ## Invariants
 
@@ -18,7 +18,8 @@ ceiling. Admission pins the definition revision, canonical workspace root, norma
 the canonical capability set `[FileRead, FileWrite, ProcessSpawn]`; the executor revalidates all of
 them. It also refuses execution if the root's file identity changed since the tool was constructed
 (APV-1 through APV-3). Approval detail independently bounds the root and command, retaining the
-head, tail and exact omitted-byte count of either.
+head, tail and exact omitted-byte count of either; the command leads so the decision surface shows
+what will execute before secondary context can wrap.
 
 **CMD-2 — The process context is explicit and noninteractive.** One `/bin/sh -c` root starts in its
 own process group, with null stdin and the admitted root as `cwd`. The tool snapshots the owner's
@@ -74,7 +75,7 @@ covered on the host gate; no Windows job-object adapter exists.
 
 | Invariant | Proven by |
 | --- | --- |
-| CMD-1 | `cmd_1_model_schema_is_strict_nullable_and_exposes_timeout_bounds`, `cmd_1_admission_is_strict_canonical_and_pins_the_workspace`, `cmd_1_refuses_every_shape_outside_the_model_contract_and_hard_bounds`, `cmd_1_multibyte_and_escaped_commands_fit_every_advertised_bound`, `cmd_1_approval_detail_keeps_root_and_command_head_tail_separately`, `cmd_1_executor_refuses_a_call_pinned_to_another_workspace`, `cmd_1_changed_workspace_identity_is_refused_before_spawn` |
+| CMD-1 | `cmd_1_model_schema_is_strict_nullable_and_exposes_timeout_bounds`, `cmd_1_admission_is_strict_canonical_and_pins_the_workspace`, `cmd_1_refuses_every_shape_outside_the_model_contract_and_hard_bounds`, `cmd_1_multibyte_and_escaped_commands_fit_every_advertised_bound`, `cmd_1_approval_detail_leads_with_command_and_bounds_root_separately`, `native_command_is_visible_before_decision_at_the_smallest_terminal`, `cmd_1_executor_refuses_a_call_pinned_to_another_workspace`, `cmd_1_changed_workspace_identity_is_refused_before_spawn` |
 | CMD-2 | `cmd_2_and_cmd_4_use_fixed_noninteractive_context_and_typed_exit`, `cmd_2_snapshot_preserves_path_and_home_but_scrubs_private_authority`, `cmd_2_environment_snapshot_preserves_non_unicode_entries`, `cmd_2_environment_snapshot_scrubs_credential_shaped_names`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape` |
 | CMD-3 | `cmd_3_capture_keeps_exact_raw_head_tail_and_omission_across_chunking`, `cmd_3_utf8_projection_keeps_a_character_split_between_head_and_tail`, `cmd_3_drains_one_mibibyte_from_each_pipe_after_retention_fills`, `cmd_3_preserves_invalid_utf8_as_raw_bytes_and_bounds_its_text_view`, `cmd_3_escaped_pipe_holder_is_sealed_and_joined_with_partial_evidence`, `cmd_3_and_cmd_4_model_formatter_is_typed_and_hard_bounded_after_lossy_utf8` |
 | CMD-4 | `cmd_2_and_cmd_4_use_fixed_noninteractive_context_and_typed_exit`, `cmd_3_and_cmd_4_model_formatter_is_typed_and_hard_bounded_after_lossy_utf8`, `cmd_5_timeout_has_a_typed_cause_and_leaves_no_process_group`, `cmd_5_cancellation_gracefully_terms_reaps_and_joins_drains` |

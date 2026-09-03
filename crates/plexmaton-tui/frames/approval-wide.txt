@@ -10,21 +10,21 @@
 │Tools                     │││                                                                                        ││
 │[+] inspect interaction   │││                                                                                        ││
 │fixtures                  │││                                                                                        ││
-│Artifacts                 │││                                                                                        ││
-│@ interaction findings ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
-│  artifact://agent-b/in│Agent  agent-b                                                        │                      ││
-│action-findings        │Tool   edit · tool-b-write                                            │                      ││
-│Mail                   │Access change files                                                   │                      ││
-│  none                 │                                                                      │                      ││
-│                       │  Allow once                                                          │ior.                  ││
-│                       │> Deny                                                                │                      ││
-│                       │↑↓ choose · Enter decide                                              │──────────────────────┘│
-│                       │PgUp/PgDn details · Esc keeps pending                                 │                       │
+│Artifacts              ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
+│@ interaction findings │Agent  agent-b                                                        │                      ││
+│  artifact://agent-b/in│Tool   edit · tool-b-write                                            │                      ││
+│action-findings        │Access change files                                                   │                      ││
+│Mail                   │                                                                      │                      ││
+│  none                 │  Allow once                                                          │                      ││
+│                       │> Deny                                                                │ior.                  ││
+│                       │↑↓ choose · Enter decide                                              │                      ││
+│                       │PgUp/PgDn details · Esc keeps pending                                 │──────────────────────┘│
 │                       │                                                                      │                       │
 │                       │Details                                                               │                       │
 │                       │Change crates/plexmaton-core/src/lib.rs and preserve its current      │                       │
+│                       │revision.                                                             │                       │
+│                       │                                                                      │                       │
 │                       └──────────────────────────────────────────────────────────────────────┘                       │
-│                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │

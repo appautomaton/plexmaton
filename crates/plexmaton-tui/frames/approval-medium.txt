@@ -10,21 +10,21 @@
 │                        │││                                                                 ││
 │                        │││                                                                 ││
 │                        │││                                                                 ││
-│                        │││                                                                 ││
 │          ┌ Approval required · user opened ─────────────────────────────────────┐          ││
 │          │Agent  agent-b                                                        │          ││
 │          │Tool   edit · tool-b-write                                            │          ││
 │          │Access change files                                                   │          ││
-│          │                                                                      │erlap     ││
-│          │  Allow once                                                          │          ││
+│          │                                                                      │          ││
+│          │  Allow once                                                          │erlap     ││
 │          │> Deny                                                                │          ││
-│          │↑↓ choose · Enter decide                                              │──────────┘│
-│          │PgUp/PgDn details · Esc keeps pending                                 │           │
+│          │↑↓ choose · Enter decide                                              │          ││
+│          │PgUp/PgDn details · Esc keeps pending                                 │──────────┘│
 │          │                                                                      │           │
 │          │Details                                                               │           │
 │          │Change crates/plexmaton-core/src/lib.rs and preserve its current      │           │
+│          │revision.                                                             │           │
+│          │                                                                      │           │
 │          └──────────────────────────────────────────────────────────────────────┘           │
-│                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │

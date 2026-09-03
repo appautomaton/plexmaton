@@ -10,7 +10,6 @@
 ┌ Agent A · primary · running · 1 tool · 1 mail ───────────┐
 │                                                          │
 │                                                          │
-│                                                          │
 │ ┌ Approval required · user opened ─────────────────────┐ │
 │ │Agent  agent-a                                        │ │
 │ │Tool   exec_command · command-native-1                │ │
@@ -22,9 +21,10 @@
 │ │PgUp/PgDn details · Esc keeps pending                 │ │
 │ │                                                      │ │
 │ │Details                                               │ │
-│ │Run in "/w" (timeout 120000 ms): "cargo test"         │ │
+│ │Command "cargo test" · cwd                            │ │
+│ │"/Users/ac/dev/agents/coding/plexmaton" · timeout     │ │
+│ │120000 ms                                             │ │
 │ └──────────────────────────────────────────────────────┘ │
-│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

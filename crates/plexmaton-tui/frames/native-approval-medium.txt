@@ -1,11 +1,10 @@
 ┌ Attention · 2 · 1 unanswered ───────────────────────────────────────────────────────────────┐
 │  ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
-│> seen  agent-a · Run in "/w" (timeout 120000 ms): "cargo test"                              │
+│> seen  agent-a · Command "cargo test" · cwd "/Users/ac/dev/agents/coding/plexmaton" ·       │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ───────────┐┌ Agent A · primary · running · 1 tool · 1 mail ────────────────────┐
 │○ Agent B · UI study    ││                                                                   │
 │done                    ││                                                                   │
-│                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
@@ -22,9 +21,10 @@
 │          │PgUp/PgDn details · Esc keeps pending                                 │           │
 │          │                                                                      │           │
 │          │Details                                                               │           │
-│          │Run in "/w" (timeout 120000 ms): "cargo test"                         │           │
+│          │Command "cargo test" · cwd "/Users/ac/dev/agents/coding/plexmaton" ·  │           │
+│          │timeout 120000 ms                                                     │           │
+│          │                                                                      │           │
 │          └──────────────────────────────────────────────────────────────────────┘           │
-│                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │

@@ -10,7 +10,6 @@
 ┌ Agent B · UI study · 1 tool · 1 artifact · esc ──────────┐
 │                                                          │
 │                                                          │
-│                                                          │
 │ ┌ Approval required · user opened ─────────────────────┐ │
 │ │Agent  agent-b                                        │ │
 │ │Tool   edit · tool-b-write                            │ │
@@ -23,8 +22,9 @@
 │ │                                                      │ │
 │ │Details                                               │ │
 │ │Change crates/plexmaton-core/src/lib.rs and preserve  │ │
+│ │its current revision.                                 │ │
+│ │                                                      │ │
 │ └──────────────────────────────────────────────────────┘ │
-│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │
