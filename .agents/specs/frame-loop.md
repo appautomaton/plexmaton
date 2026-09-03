@@ -11,7 +11,9 @@
 
 **FR-1 — A frame is drawn only when something changed.** The projection's revision gates the
 repaint. A terminal resize changes what a frame means without changing the projection, so it
-invalidates the last frame explicitly. Producer traffic that alters nothing visible costs no frame.
+invalidates the last frame explicitly. The quit chord's owned one-shot deadline advances the
+projection once when its visible question expires; it is not an animation clock. Producer traffic
+that alters nothing visible costs no frame.
 
 **FR-2 — A frame's layout work is bounded by its viewport, not by the conversation's length.** What
 a frame wraps and builds is what its viewport reaches (TR-2). Two frames are the exceptions and cost
@@ -95,7 +97,7 @@ a height.
 
 | Invariant | Proven by |
 | --- | --- |
-| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord` |
+| FR-1 | `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both` |
 | FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts` |
 | FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
 | FR-4 | The FR-2 rows assert work counts; `extending_selection_records_every_declared_sample` pins sample accounting; `plexmaton-measure` prints time and asserts none of it |

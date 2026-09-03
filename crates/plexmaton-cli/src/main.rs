@@ -2,6 +2,7 @@ use std::{
     ffi::{OsStr, OsString},
     fs, io,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use anyhow::{Context, bail};
@@ -169,8 +170,12 @@ async fn drive_session(
     let mut terminal_events = EventStream::new();
     loop {
         workspace.draw(terminal).context("draw TUI frame")?;
+        let quit_deadline = workspace.quit_deadline();
 
         tokio::select! {
+            () = wait_for_quit_deadline(quit_deadline) => {
+                workspace.expire_quit(Instant::now());
+            }
             runtime_event = runtime.next_event() => {
                 match runtime_event.context("receive live runtime event")? {
                     Some(event) => workspace.emit(vec![event]),
@@ -216,6 +221,14 @@ async fn drive_session(
         }
     }
     Ok(())
+}
+
+/// Owns the quit chord's one-shot wake without adding an animation clock or background task.
+async fn wait_for_quit_deadline(deadline: Option<Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+        None => std::future::pending().await,
+    }
 }
 
 /// One user input after the TUI has settled both its addressee and delivery boundary.
@@ -906,9 +919,19 @@ mod tests {
             KeyModifiers::CONTROL,
         )));
         assert_eq!(workspace.state().composer().draft(), "");
+        assert_eq!(
+            interrupted.interrupted, None,
+            "clearing a draft must not also stop the running turn"
+        );
+        assert!(agent.is_running());
+
+        let interrupted = workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
         let target = interrupted
             .interrupted
-            .unwrap_or_else(|| panic!("Ctrl-C must name its conversation"));
+            .unwrap_or_else(|| panic!("Ctrl-C on an empty draft must name its conversation"));
         let addressed = route_interrupt(target);
         assert_eq!(addressed.to, agent_id);
         agent.handle(addressed.input);

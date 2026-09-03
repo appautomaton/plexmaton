@@ -102,12 +102,16 @@ other rule about input follows from this one.
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The last row of the screen is the status line.** Full width, under every pane, it says one
   thing at a time: at rest, the working directory; after a key that raised a question, the answer,
-  until the next key. Nothing else on screen lists keys. Rejected: a key-hint strip there, a row of
-  chords nobody read; and the composer's bottom border, which belongs to one conversation, so a
-  question raised from another agent's window was answered in the wrong box.
-- **Quitting is `Ctrl-D` twice.** The first press makes the status line say so, and any other key
-  withdraws it. `Ctrl-C` is the shell's interrupt: it clears the draft under the cursor, and with
-  nothing to clear it points at `Ctrl-D`. It never quits.
+  until its owning transition resolves it. Nothing else on screen lists keys. Rejected: a key-hint
+  strip there, a row of chords nobody read; and the composer's bottom border, which belongs to one
+  conversation, so a question raised from another agent's window was answered in the wrong box.
+- **Quitting is `Ctrl-D` twice within one second.** The first press arms a monotonic one-second
+  window and makes the status line say so; a second press before the deadline leaves, while expiry
+  restores the working directory. Other terminal events neither confirm nor withdraw it. `Ctrl-C`
+  withdraws it explicitly: with a non-empty draft it clears only the draft, and with an empty draft
+  it interrupts only the focused conversation. It never quits. Rejected: an indefinitely armed
+  chord, which lets unrelated later intent become an exit; and cancelling on an unrelated key,
+  pointer event, or resize, which makes the time window depend on incidental input.
 
 Making the input physically live inside the surface it addresses turns "where does this keystroke
 go" into a fact on screen rather than something to remember. Steering by explicit address

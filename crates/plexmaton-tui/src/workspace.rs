@@ -6,6 +6,8 @@
 //! the user gets. The contract is
 //! [`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md).
 
+use std::time::Instant;
+
 use plexmaton_core::{AgentId, SessionEventEnvelope};
 use ratatui::{
     Terminal,
@@ -165,6 +167,25 @@ impl Workspace {
 
     /// Translates one terminal event and applies whatever it asked for.
     pub fn handle(&mut self, event: &Event) -> Outcome {
+        self.handle_at(event, Instant::now())
+    }
+
+    /// The monotonic deadline for a pending quit confirmation.
+    #[must_use]
+    pub fn quit_deadline(&self) -> Option<Instant> {
+        self.state.status().quit_deadline()
+    }
+
+    /// Clears a quit question whose monotonic deadline has passed.
+    ///
+    /// Returns whether the projection changed, so the event-loop owner can distinguish the one
+    /// deadline transition from a stale wakeup (FR-1).
+    pub fn expire_quit(&mut self, now: Instant) -> bool {
+        self.state.expire_quit(now)
+    }
+
+    /// Time-explicit event reduction keeps the chord deterministic under tests and at its boundary.
+    fn handle_at(&mut self, event: &Event, now: Instant) -> Outcome {
         let Self {
             state,
             router,
@@ -182,25 +203,15 @@ impl Workspace {
             selecting: state.selection().is_some(),
         };
         let routed = router.translate(event, &context);
-        // Any key but the two status-owning chords withdraws what the status line asked, bound or
-        // not: the user pressed something else, so the question is answered (INV-7). Interrupt
-        // replaces the note itself when needed; settling it first would turn a repeated `Ctrl-C`
-        // into two revisions whose final projection is unchanged (FR-1).
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
         {
             // Once the user switches to the keyboard, a pointer affordance no longer claims to be
             // the active target. Repeating `None` is free (FR-1).
             state.hover_entry(None);
-            if !matches!(
-                routed,
-                Routed::Intent(TuiIntent::Quit | TuiIntent::Interrupt)
-            ) {
-                state.settle_status();
-            }
         }
         match routed {
-            Routed::Intent(intent) => self.apply(intent),
+            Routed::Intent(intent) => self.apply(intent, now),
             Routed::Ignored(_) => Outcome::default(),
         }
     }
@@ -248,9 +259,9 @@ impl Workspace {
     ///
     /// Intents whose reducer arrives in a later delivery step are listed explicitly rather than
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
-    fn apply(&mut self, intent: TuiIntent) -> Outcome {
+    fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
         match intent {
-            TuiIntent::Quit => match self.state.press_quit() {
+            TuiIntent::Quit => match self.state.press_quit(now) {
                 QuitPress::Confirmed => return Outcome::quit(),
                 QuitPress::Asked => {}
             },
@@ -322,6 +333,8 @@ impl Workspace {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -901,12 +914,13 @@ mod tests {
         );
     }
 
-    /// INV-7: the chord asks first, any other key withdraws the question, and only a second press
-    /// in a row leaves. The status line is where the asking happens, in the composer's border.
+    /// INV-7: the chord asks first and leaves only on a second press before its deadline. Other
+    /// terminal input does not turn an explicit time window into an implicit input sequence.
     #[test]
-    fn the_quit_chord_asks_once_and_leaves_on_the_second_press() {
+    fn the_quit_chord_confirms_only_inside_its_one_second_window() {
         let (mut workspace, mut terminal) = drawn(120, 24);
         workspace.set_working_directory("~/work".to_owned());
+        let started = Instant::now();
         let redraw = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
             workspace
                 .draw(terminal)
@@ -923,7 +937,7 @@ mod tests {
         redraw(&mut workspace, &mut terminal);
         assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
         assert_eq!(
-            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            workspace.handle_at(&press(KeyCode::Char('d'), KeyModifiers::CONTROL), started,),
             Outcome::default(),
             "the first press asks"
         );
@@ -937,31 +951,102 @@ mod tests {
 
         assert_eq!(
             workspace
-                .handle(&press(KeyCode::Tab, KeyModifiers::NONE))
+                .handle_at(
+                    &press(KeyCode::Tab, KeyModifiers::NONE),
+                    started + Duration::from_millis(100),
+                )
                 .flow,
             Flow::Continue
         );
         redraw(&mut workspace, &mut terminal);
-        let withdrawn = painted(&terminal, &workspace, SurfaceId::Status);
+        let still_armed = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(
-            withdrawn.contains("~/work"),
-            "any other key withdraws it: {withdrawn}"
+            still_armed.contains("press Ctrl-D again to quit"),
+            "ordinary input does not withdraw a timed chord: {still_armed}"
+        );
+        workspace.handle_at(
+            &Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 1,
+                row: 1,
+                modifiers: KeyModifiers::NONE,
+            }),
+            started + Duration::from_millis(200),
+        );
+        workspace.handle_at(
+            &Event::Resize(121, 25),
+            started + Duration::from_millis(300),
+        );
+        assert_eq!(
+            workspace.quit_deadline(),
+            Some(started + Duration::from_secs(1)),
+            "pointer motion and resize leave the explicit deadline alone"
         );
 
         assert_eq!(
-            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
-            Outcome::default()
+            workspace.handle_at(
+                &press(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                started + Duration::from_millis(999),
+            ),
+            Outcome::quit(),
+            "the second press inside the one-second window leaves"
+        );
+
+        let (mut expired, _terminal) = drawn(120, 24);
+        expired.handle_at(&press(KeyCode::Char('d'), KeyModifiers::CONTROL), started);
+        assert_eq!(
+            expired.handle_at(
+                &press(KeyCode::Char('d'), KeyModifiers::CONTROL),
+                started + Duration::from_secs(1),
+            ),
+            Outcome::default(),
+            "at the deadline the old question has expired and this press starts a new window"
         );
         assert_eq!(
-            workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
-            Outcome::quit(),
-            "two presses in a row leave"
+            expired.quit_deadline(),
+            Some(started + Duration::from_secs(2))
         );
     }
 
-    /// INV-7: `Ctrl-C` clears the draft, names the addressed turn to interrupt, and never quits.
+    /// FR-1: the one-shot deadline changes the projection once; stale wakes are free.
     #[test]
-    fn ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord() {
+    fn the_quit_deadline_expires_once_and_costs_one_frame() {
+        let (mut workspace, mut terminal) = drawn(120, 24);
+        workspace.set_working_directory("~/work".to_owned());
+        frame(&mut workspace, &mut terminal);
+        let started = Instant::now();
+
+        workspace.handle_at(&press(KeyCode::Char('d'), KeyModifiers::CONTROL), started);
+        frame(&mut workspace, &mut terminal);
+        assert!(!workspace.expire_quit(started + Duration::from_millis(999)));
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "waking before the deadline changes nothing"
+        );
+
+        assert!(workspace.expire_quit(started + Duration::from_secs(1)));
+        frame(&mut workspace, &mut terminal);
+        let settled = painted(&terminal, &workspace, SurfaceId::Status);
+        assert!(
+            settled.contains("~/work"),
+            "deadline restores rest: {settled}"
+        );
+        assert!(!workspace.expire_quit(started + Duration::from_secs(2)));
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "a stale deadline costs no duplicate frame"
+        );
+    }
+
+    /// INV-7: `Ctrl-C` clears a draft or interrupts its conversation, never both and never quits.
+    #[test]
+    fn ctrl_c_clears_a_draft_or_interrupts_but_never_does_both() {
         let (mut workspace, mut terminal) = drawn(120, 24);
         workspace.set_working_directory("~/work".to_owned());
         let composer = bounds(&workspace, SurfaceId::Composer);
@@ -975,12 +1060,18 @@ mod tests {
             workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
         }
         assert_eq!(workspace.state.composer().draft(), "hi");
+        workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
+        assert_ne!(
+            focused(&workspace),
+            Some(SurfaceId::Composer),
+            "the regression requires the addressed draft to have lost its cursor"
+        );
 
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
         assert_eq!(outcome.flow, Flow::Continue, "clearing is not quitting");
         assert_eq!(
-            outcome.interrupted.as_ref().map(AgentId::as_str),
-            Some("agent-a")
+            outcome.interrupted, None,
+            "a cleared draft is not an interrupt"
         );
         assert_eq!(workspace.state.composer().draft(), "");
         workspace
@@ -999,8 +1090,11 @@ mod tests {
         workspace
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
-        let hinted = painted(&terminal, &workspace, SurfaceId::Status);
-        assert!(hinted.contains("Ctrl-D twice to quit"), "{hinted}");
+        let status = painted(&terminal, &workspace, SurfaceId::Status);
+        assert!(
+            status.contains("~/work"),
+            "an ordinary interrupt leaves no quit prompt: {status}"
+        );
 
         let revision = workspace.state.revision();
         let outcome = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
@@ -1012,16 +1106,22 @@ mod tests {
         assert_eq!(
             workspace.state.revision(),
             revision,
-            "the same hint is not a visible change (FR-1)"
+            "repeating an ordinary interrupt is not a visible change (FR-1)"
         );
         assert_eq!(
             workspace
                 .draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
-            "and an unchanged hint costs no duplicate frame"
+            "and an unchanged status costs no duplicate frame"
         );
 
+        workspace.handle(&Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: composer.x.saturating_add(1),
+            row: composer.y.saturating_add(1),
+            modifiers: KeyModifiers::NONE,
+        }));
         workspace.handle(&press(KeyCode::Char('x'), KeyModifiers::NONE));
         workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL));
         let revision = workspace.state.revision();
@@ -1034,13 +1134,27 @@ mod tests {
         assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
         assert_eq!(workspace.state.composer().draft(), "");
         assert_eq!(
-            cleared.interrupted.as_ref().map(AgentId::as_str),
-            Some("agent-a")
+            cleared.interrupted, None,
+            "clearing the draft consumes Ctrl-C without interrupting"
         );
         assert_eq!(
             workspace.handle(&press(KeyCode::Char('d'), KeyModifiers::CONTROL)),
             Outcome::default(),
             "Ctrl-C broke the quit chord, so the next Ctrl-D only asks again"
+        );
+
+        let revision = workspace.state.revision();
+        let interrupted = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(
+            interrupted.interrupted.as_ref().map(AgentId::as_str),
+            Some("agent-a"),
+            "an empty draft routes the interrupt"
+        );
+        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        assert_eq!(
+            workspace.state.revision().get(),
+            revision.get().saturating_add(1),
+            "the same interrupt also withdraws the armed quit question once"
         );
     }
 

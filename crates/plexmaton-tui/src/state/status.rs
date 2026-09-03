@@ -1,8 +1,10 @@
-//! The status line: what the workspace says about itself in the composer's bottom border.
+//! The status line: what the workspace says about itself in the last row.
 //!
-//! One slot, one message at a time. At rest it names where the process runs; after a key that
-//! asked a question, it carries the answer until the next key. Nothing here is session state,
-//! which is why it is not an event: the runtime never has a reason to write to it.
+//! One slot, one message at a time. At rest it names where the process runs; while the quit chord
+//! is armed, it carries that bounded question. Nothing here is session state, which is why it is
+//! not an event: the runtime never has a reason to write to it.
+
+use std::time::{Duration, Instant};
 
 use super::ViewState;
 use crate::surface::SurfaceTree;
@@ -13,11 +15,12 @@ pub enum StatusNote {
     /// Nothing asked: the line shows the working directory.
     #[default]
     Quiet,
-    /// `Ctrl-C` found nothing to clear, so the line says how to leave.
-    QuitHint,
-    /// `Ctrl-D` was pressed once; the next press leaves.
-    QuitArmed,
+    /// `Ctrl-D` was pressed once; another press before `deadline` leaves.
+    QuitArmed { deadline: Instant },
 }
+
+/// How long a first `Ctrl-D` remains eligible for confirmation (INV-7).
+pub const QUIT_CHORD_WINDOW: Duration = Duration::from_secs(1);
 
 /// The status line's state.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -39,6 +42,15 @@ impl Status {
         self.note
     }
 
+    /// When the pending quit question expires, if one exists.
+    #[must_use]
+    pub const fn quit_deadline(&self) -> Option<Instant> {
+        match self.note {
+            StatusNote::Quiet => None,
+            StatusNote::QuitArmed { deadline } => Some(deadline),
+        }
+    }
+
     pub(super) fn set_working_directory(&mut self, path: String) {
         self.working_directory = Some(path);
     }
@@ -58,7 +70,7 @@ impl Status {
 pub enum QuitPress {
     /// The first press: the status line now asks for a second.
     Asked,
-    /// The second press in a row: the user leaves.
+    /// A timely second press: the user leaves.
     Confirmed,
 }
 
@@ -75,23 +87,28 @@ impl ViewState {
         self.touch();
     }
 
-    /// One press of the quit chord: the first asks, the second confirms (INV-7).
+    /// One press of the quit chord: the first asks, a second within one second confirms (INV-7).
     ///
     /// The state does not change on confirmation, because the process is leaving and a repaint
     /// of a screen about to be released is work nobody sees.
-    pub fn press_quit(&mut self) -> QuitPress {
-        if self.status.note() == StatusNote::QuitArmed {
+    pub fn press_quit(&mut self, now: Instant) -> QuitPress {
+        if matches!(
+            self.status.note(),
+            StatusNote::QuitArmed { deadline } if now < deadline
+        ) {
             return QuitPress::Confirmed;
         }
-        self.status.set_note(StatusNote::QuitArmed);
+        self.status.set_note(StatusNote::QuitArmed {
+            deadline: now + QUIT_CHORD_WINDOW,
+        });
         self.touch();
         QuitPress::Asked
     }
 
-    /// `Ctrl-C`: clears the draft under the cursor, names its conversation for interruption, and
-    /// with nothing to clear says how to leave.
+    /// `Ctrl-C`: clears the addressed conversation's draft or names it for interruption.
     ///
-    /// The shell habit may discard a draft and stop work, but it never ends the session.
+    /// Clearing consumes the key, so one press never both discards text and stops work. Either
+    /// path withdraws a pending quit question, and neither path ends the session (INV-7).
     pub fn interrupt(&mut self, surfaces: &SurfaceTree) -> Option<plexmaton_core::AgentId> {
         let target = match self.focus.resolve(surfaces) {
             Some(crate::surface::SurfaceId::Inspector) => {
@@ -99,27 +116,31 @@ impl ViewState {
             }
             _ => self.agents.primary().map(|agent| agent.id.clone()),
         };
-        if let Some(to) = self.text_target(surfaces)
-            && let Some(composer) = self.composers.get_mut(&to)
+        if let Some(to) = target.as_ref()
+            && let Some(composer) = self.composers.get_mut(to)
             && composer.clear()
         {
-            // `Ctrl-C` is another key after an armed quit, so clearing a draft also withdraws the
-            // question. Do both before one touch: they are one user-visible transition (INV-7,
-            // FR-1).
+            // Do both before one touch: they are one user-visible transition (INV-7, FR-1).
             self.status.set_note(StatusNote::Quiet);
             self.touch();
-            return target;
+            return None;
         }
-        if self.status.set_note(StatusNote::QuitHint) {
+        if self.status.set_note(StatusNote::Quiet) {
             self.touch();
         }
         target
     }
 
-    /// Any key that is not the quit chord withdraws what the status line asked.
-    pub fn settle_status(&mut self) {
-        if self.status.set_note(StatusNote::Quiet) {
+    /// Expires the quit question at its monotonic deadline, reporting whether the screen changed.
+    pub fn expire_quit(&mut self, now: Instant) -> bool {
+        if matches!(
+            self.status.note(),
+            StatusNote::QuitArmed { deadline } if now >= deadline
+        ) && self.status.set_note(StatusNote::Quiet)
+        {
             self.touch();
+            return true;
         }
+        false
     }
 }

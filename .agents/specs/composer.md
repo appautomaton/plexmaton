@@ -43,9 +43,10 @@ TextIntent ──▶ ViewState::edit ──▶ Option<Submission>
                                                           ▼
                                             SessionEvent stream ──▶ transcript
 
-Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
-                                               │
-                           UndeliveredInput ────┴──▶ addressed draft
+Ctrl-C ──▶ non-empty draft ──▶ clear
+       └─▶ empty draft ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
+                                                               │
+                                           UndeliveredInput ────┴──▶ addressed draft
 ```
 
 | Fact | Value |
@@ -61,7 +62,7 @@ Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
 | Situation | Response |
 | --- | --- |
 | Blank or whitespace-only draft submitted | Nothing is sent and the draft is kept |
-| `Ctrl-C` on a draft | The draft is discarded, its conversation is named for interruption, and nothing quits (INV-7) |
+| `Ctrl-C` on a non-empty draft | The draft is discarded without interrupting; a later `Ctrl-C` may address the running turn (INV-7) |
 | `Backspace` on an empty draft | No change is reported, so it costs no repaint |
 | Submitting before any agent exists | The text stays in the draft; there is no session to deliver into |
 | Runtime returns text its boundary could not claim | The composition root restores it to the addressed editable draft without inventing a transcript item |

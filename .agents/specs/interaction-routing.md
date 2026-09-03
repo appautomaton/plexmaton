@@ -34,10 +34,11 @@ release produces `Ignored::NoCapture`, never a second drag intent.
 **INV-6 — The Escape ladder resolves one layer per press.** In order: cancel an active drag, then
 drop a selection, then dismiss the topmost dismissible layer, then nothing. `Escape` never quits.
 
-**INV-7 — Quit is a chord pressed twice, and `Ctrl-C` never quits.** `Ctrl-D` asks, then leaves only
-on the next press; any other key withdraws it. `Ctrl-C` clears the focused draft, emits that
-conversation's interrupt, or points at the chord. No bare key quits; rejected alternatives are in
-`ui-ux.md` §input.
+**INV-7 — Quit is a timed chord, and `Ctrl-C` never quits.** `Ctrl-D` asks, then leaves only on a
+second press before its one-second monotonic deadline; expiry clears the question, and unrelated
+terminal events leave the deadline alone. `Ctrl-C` clears the resolved conversation's non-empty
+draft without an interrupt, or interrupts that conversation when its draft is empty; either path
+withdraws the quit question. No bare key quits; rejected alternatives are in `ui-ux.md` §input.
 
 **INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
 is routed to no surface, so the terminal's own selection keeps working over an owned screen.
@@ -71,8 +72,8 @@ Idle ─────────────────────────
 
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
-| `Ctrl-D` | Quit chord: ask, then leave on the second press | The same |
-| `Ctrl-C` | Interrupt; clear the draft or show the quit chord | The same |
+| `Ctrl-D` | Quit chord: arm one second, then leave on a timely second press | The same |
+| `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
@@ -93,7 +94,7 @@ without answering.
 
 | Fact | Value |
 | --- | --- |
-| Status line | The last row, chrome under every pane: the working directory at rest, replaced by what the last key asked until the next key |
+| Status line | The last row, chrome under every pane: the working directory at rest, replaced by an owned question until its transition resolves it |
 
 ## Failure modes
 
@@ -103,7 +104,7 @@ without answering.
 | Pointer press outside every registered surface | `Ignored::OutsideWorkspace`; capture is not taken |
 | Drag or release with no capture held | `Ignored::NoCapture` |
 | `Escape` with nothing on the ladder | `Ignored::NothingToDismiss`, not a quit |
-| `Ctrl-C` with nothing to clear | The status line says `Ctrl-D twice to quit` |
+| `Ctrl-C` with nothing to clear | Interrupt the focused conversation; the status line remains at rest |
 | Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside it |
 | Wheel over no surface | `Ignored::OutsideWorkspace` |
 | Bare pointer motion outside the workspace | A hover intent with no target, clearing prior feedback |
@@ -121,7 +122,7 @@ without answering.
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
-| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_asks_once_and_leaves_on_the_second_press`, `ctrl_c_clears_the_draft_and_with_none_points_at_the_quit_chord`, `ctrl_c_names_the_conversation_it_interrupts` |
+| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |

@@ -185,7 +185,7 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
 /// The status line: the last row of the screen, saying one thing at a time (INV-7).
 ///
 /// At rest it names the working directory, so the row is never blank and later facts about the
-/// session have a place. A question the user's last key raised replaces it until the next key.
+/// session have a place. A pending quit question replaces it until its bounded deadline.
 /// One row under every pane, so the answer is in the same place whichever conversation the key
 /// was pressed in.
 pub(super) fn render_status(
@@ -196,11 +196,10 @@ pub(super) fn render_status(
 ) {
     let status = state.status();
     let (text, role) = match status.note() {
-        StatusNote::QuitArmed => (
+        StatusNote::QuitArmed { .. } => (
             "press Ctrl-D again to quit".to_owned(),
             Role::ActionRequired,
         ),
-        StatusNote::QuitHint => ("Ctrl-D twice to quit".to_owned(), Role::Body),
         StatusNote::Quiet => (
             status.working_directory().unwrap_or_default().to_owned(),
             Role::Muted,

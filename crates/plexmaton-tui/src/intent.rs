@@ -134,11 +134,11 @@ pub enum SelectionIntent {
 /// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
-    /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves on the second,
-    /// so a quit is never one keystroke (INV-7).
+    /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves only when a second
+    /// arrives inside its one-second window, so a quit is never one keystroke (INV-7).
     Quit,
-    /// `Ctrl-C`, the shell's interrupt: clears the draft under the cursor, addresses the focused
-    /// conversation's running turn, and with nothing to clear says how to leave. Never a quit.
+    /// `Ctrl-C`, the shell's interrupt: clears the resolved conversation's draft, or if it is
+    /// empty, addresses that conversation's running turn. Never both, and never a quit.
     Interrupt,
     /// Move keyboard focus one stop around the focus ring.
     CycleFocus(Direction),

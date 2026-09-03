@@ -450,7 +450,35 @@ reasoning_effort = "none"
         on_chrome = click(master, CLICK_IN_STATUS, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
 
-        os.write(master, b"\x04\x04")  # Ctrl-D twice, the quit chord (INV-7)
+        # The first question expires without another input. A later Ctrl-D must re-arm rather than
+        # confirm the stale question; the immediately following press then confirms the new one.
+        os.write(master, b"\x04")
+        drain(master, 1.2, captured)
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        expired_frame_start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        expired_frame = bytes(captured[expired_frame_start:])
+        expired_screen = collapsed(rendered_screen(expired_frame, RESIZED).encode())
+        if collapsed(EXPECTED_ON_FULL_FRAME[0].encode()) not in expired_screen:
+            print(
+                "smoke: the quit-deadline probe did not produce a complete frame",
+                file=sys.stderr,
+            )
+            failures.append("quit deadline frame")
+        elif collapsed(b"press Ctrl-D again to quit") in expired_screen:
+            print(
+                "smoke: the quit question remained visible after its deadline",
+                file=sys.stderr,
+            )
+            failures.append("quit deadline repaint")
+        os.write(master, b"\x04")
+        drain(master, 0.2, captured)
+        if process.poll() is not None:
+            failures.append("expired quit chord")
+        else:
+            os.write(master, b"\x04")
         drain(master, SHUTDOWN_SECONDS, captured)
         exit_code = process.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -526,8 +554,8 @@ reasoning_effort = "none"
         f"smoke: painted the {'answering' if live else 'idle'} live runtime at "
         f"{INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
-        "transcript and none to the status line, accepted the quit chord, and released mouse "
-        "reporting before the alternate screen"
+        "transcript and none to the status line, expired and re-armed the quit chord, and released "
+        "mouse reporting before the alternate screen"
     )
     return 0
 
