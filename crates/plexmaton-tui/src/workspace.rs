@@ -148,6 +148,11 @@ impl Workspace {
         }
     }
 
+    /// Restores user text a runtime returned instead of silently discarding its ownership.
+    pub fn return_input(&mut self, to: AgentId, text: String) {
+        self.state.return_input(to, text);
+    }
+
     /// Translates one terminal event and applies whatever it asked for.
     pub fn handle(&mut self, event: &Event) -> Outcome {
         let Self {

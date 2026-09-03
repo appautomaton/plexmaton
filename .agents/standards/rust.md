@@ -71,15 +71,16 @@ Versions and features are declared once, in `[workspace.dependencies]`. This tab
 manifest cannot express: why each crate is here and what its feature set is allowed to become. Do
 not restate a version here — the second copy is wrong the first time one is bumped.
 
-Audited 2026-08-30 against the graph committed in `Cargo.lock`. A numerically newer release is
+Audited 2026-09-02 against the graph resolved in `Cargo.lock`. A numerically newer release is
 adopted only after its changelog, features, and resolved graph are reviewed.
 
 | Crate | Role | Feature and version decision |
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Use the current modular generation; never downgrade it for an experiment. Prefer the umbrella crate — splitting into `ratatui-core`, `ratatui-widgets`, and `ratatui-crossterm` needs a measured compile-time or boundary benefit |
+| `reqwest` | Pooled streaming HTTP client at the live-runtime boundary | Defaults off; `json`, `stream`, and Rustls only. Redirects are disabled where bearer authority is attached and response bodies stream into the bounded codec. Reqwest's Rustls feature selects `aws-lc-rs`, so this path has a vendored C build but no platform OpenSSL dependency |
 | `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
 | `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
-| `tokio` | Async task and event runtime | Never `full`. Today `rt`, `macros`, `time`; `sync` and `signal` arrive with their first real owner |
+| `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, and `time`, while reqwest's resolved HTTP graph additionally enables `fs`, `io-util`, and `net`. Never `full`; `process`, `rt-multi-thread`, and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
 | `serde` / `serde_json` | Deterministic scenario and snapshot data | `derive` enabled. This is not the durable-session schema |

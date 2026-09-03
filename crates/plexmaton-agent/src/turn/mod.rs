@@ -12,16 +12,19 @@ use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole, TurnId}
 
 use crate::admission::ApprovalPolicy;
 use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
-use crate::model::{ModelEvent, RequestItem, StopReason};
+use crate::model::{ModelCall, ModelStepId, RequestItem};
 use crate::record::Record;
 use crate::step::Step;
-use crate::tools::{Batch, PendingApproval, ToolCall};
+use crate::tools::{Batch, PendingApproval};
 
 mod batch;
 mod input;
 mod lifecycle;
+mod model_input;
+mod usage;
 
 use input::{DeliveryBoundary, InputQueue};
+use usage::UsageAccumulator;
 
 /// How many steps one turn may take before the loop stops it.
 ///
@@ -51,6 +54,8 @@ enum Turn {
         turn_id: TurnId,
         /// Step currently receiving model events.
         step: Step,
+        /// Checked aggregate of reports received during this turn.
+        usage: UsageAccumulator,
     },
     /// The step is over and the calls it made are out being run.
     Working {
@@ -60,6 +65,8 @@ enum Turn {
         batch: Batch,
         /// Which step dispatched them.
         step: u16,
+        /// Checked aggregate carried across the tool boundary.
+        usage: UsageAccumulator,
     },
 }
 
@@ -132,6 +139,17 @@ impl Agent {
         !matches!(self.turn, Turn::Idle)
     }
 
+    /// Exact model step currently accepting provider output, if one is open (LIVE-2).
+    #[must_use]
+    pub fn active_model_step(&self) -> Option<ModelStepId> {
+        match &self.turn {
+            Turn::Streaming { turn_id, step, .. } => {
+                Some(ModelStepId::new(turn_id.clone(), step.index()))
+            }
+            Turn::Idle | Turn::Working { .. } => None,
+        }
+    }
+
     /// The conversation as the model would be shown it right now.
     #[must_use]
     pub fn record(&self) -> &[RequestItem] {
@@ -164,8 +182,16 @@ impl Agent {
         match input {
             Input::Submitted { text } => self.submit(text, &mut reaction),
             Input::Steered { text } => self.steer(text, &mut reaction),
-            Input::Streamed(event) => self.stream(event, &mut reaction),
-            Input::Failed(error) => self.fail(&error, &mut reaction),
+            Input::Streamed { step_id, event } => {
+                if self.accepts_model_input(step_id, &mut reaction) {
+                    self.stream(event, &mut reaction);
+                }
+            }
+            Input::Failed { step_id, error } => {
+                if self.accepts_model_input(step_id, &mut reaction) {
+                    self.fail(&error, &mut reaction);
+                }
+            }
             Input::ToolAdmissionResolved(outcome) => {
                 self.admission_resolved(outcome, &mut reaction);
             }
@@ -211,7 +237,7 @@ impl Agent {
     fn open_turn(&mut self, text: String, reaction: &mut Reaction) {
         self.record_user(text, reaction);
         let turn_id = self.record.next_turn_id();
-        self.open_step(turn_id, 1, reaction);
+        self.open_step(turn_id, 1, UsageAccumulator::default(), reaction);
     }
 
     /// Records user input in both views of the one record: semantic events and model history.
@@ -247,106 +273,44 @@ impl Agent {
     }
 
     /// Asks the model, and says the agent is producing.
-    fn open_step(&mut self, turn_id: TurnId, index: u16, reaction: &mut Reaction) {
+    fn open_step(
+        &mut self,
+        turn_id: TurnId,
+        index: u16,
+        usage: UsageAccumulator,
+        reaction: &mut Reaction,
+    ) {
         self.status(reaction, AgentStatus::Running);
+        let step_id = ModelStepId::new(turn_id.clone(), index);
         self.turn = Turn::Streaming {
             turn_id,
             step: Step::new(index),
+            usage,
         };
-        reaction
-            .effects
-            .push(Effect::CallModel(self.record.request()));
-    }
-
-    fn stream(&mut self, event: ModelEvent, reaction: &mut Reaction) {
-        if !matches!(self.turn, Turn::Streaming { .. }) {
-            self.warn(reaction, "the model produced output with no step open");
-            return;
-        }
-        match event {
-            // An empty delta is a wire artefact, not something the reader or the record should
-            // gain an item for: opening a message on it would paint a blank row that the record
-            // then declines to keep.
-            ModelEvent::TextDelta(delta) if delta.is_empty() => {}
-            ModelEvent::TextDelta(delta) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.append(&mut self.record, reaction, delta);
-                }
-            }
-            ModelEvent::ReasoningDelta(delta) if delta.is_empty() => {}
-            ModelEvent::ReasoningDelta(delta) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.append_reasoning(&mut self.record, reaction, delta);
-                }
-            }
-            ModelEvent::Replay(replay) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.retain_replay(replay);
-                }
-            }
-            ModelEvent::Called(call) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.collect(call);
-                }
-            }
-            ModelEvent::Stopped(reason) => self.stop(reason, reaction),
-        }
-    }
-
-    fn stop(&mut self, reason: StopReason, reaction: &mut Reaction) {
-        match reason {
-            StopReason::EndOfTurn | StopReason::ToolCalls => {}
-            StopReason::OutputLimit => {
-                self.warn(reaction, "the model reached its output limit mid-answer");
-            }
-            StopReason::Refused => self.warn(reaction, "the model declined to answer"),
-            StopReason::Unspecified => {
-                self.warn(reaction, "the model stopped without saying why");
-            }
-        }
-        let Some((turn_id, calls, index)) = self.close_step(reaction) else {
-            return;
-        };
-        if calls.is_empty() {
-            if matches!(reason, StopReason::ToolCalls) {
-                self.warn(
-                    reaction,
-                    "the model stopped for tools without asking for any",
-                );
-            }
-            self.finish_turn(reaction);
-            return;
-        }
-        self.dispatch(turn_id, calls, index, reaction);
-    }
-
-    /// Ends the streaming half of the step, and says what it asked for.
-    fn close_step(&mut self, reaction: &mut Reaction) -> Option<(TurnId, Vec<ToolCall>, u16)> {
-        let Turn::Streaming { turn_id, step } = std::mem::replace(&mut self.turn, Turn::Idle)
-        else {
-            return None;
-        };
-        let index = step.index();
-        Some((turn_id, step.close(&mut self.record, reaction), index))
+        reaction.effects.push(Effect::CallModel(ModelCall {
+            step_id,
+            request: self.record.request(),
+        }));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, SessionEvent, ToolCallId,
-        ToolCallStatus, ToolCapability, ToolDefinitionId, TranscriptRole,
+        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, SessionEvent, TokenCounts,
+        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, TranscriptRole,
     };
 
-    use super::{Agent, Effect, Input, Reaction, TurnBudget};
+    use super::{Agent, Effect, Input, Reaction, Turn, TurnBudget};
     use crate::interface::UndeliveredReason;
     use crate::model::{
-        ModelError, ModelEvent, ProviderCodecId, ProviderReplay, RequestItem, StopReason,
+        ModelError, ModelEvent, ModelStepId, ProviderCodecId, ProviderReplay, RequestItem,
+        StopReason,
     };
     use crate::tools::{ToolCall, ToolCancellationReason, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
-        ApprovalPolicy, CapabilitySet, ToolDefinitionRevision,
+        ApprovalPolicy, CapabilitySet, ModelDeliveryRefusal, ToolDefinitionRevision,
     };
 
     fn agent() -> Agent {
@@ -369,8 +333,29 @@ mod tests {
         })
     }
 
+    fn active_step(agent: &Agent) -> ModelStepId {
+        let Turn::Streaming { turn_id, step, .. } = &agent.turn else {
+            panic!("fixture expected an open model step");
+        };
+        ModelStepId::new(turn_id.clone(), step.index())
+    }
+
+    fn streamed(agent: &mut Agent, event: ModelEvent) -> Reaction {
+        let step_id = active_step(agent);
+        agent.handle(Input::Streamed { step_id, event })
+    }
+
+    fn fail_step(agent: &mut Agent, error: ModelError) -> Reaction {
+        let step_id = active_step(agent);
+        agent.handle(Input::Failed { step_id, error })
+    }
+
     fn delta(agent: &mut Agent, text: &str) -> Reaction {
-        agent.handle(Input::Streamed(ModelEvent::TextDelta(text.to_owned())))
+        streamed(agent, ModelEvent::TextDelta(text.to_owned()))
+    }
+
+    fn usage(agent: &mut Agent, report: TokenUsage) -> Reaction {
+        streamed(agent, ModelEvent::Usage(report))
     }
 
     fn call(agent: &mut Agent, call_id: &str) -> Reaction {
@@ -378,11 +363,14 @@ mod tests {
     }
 
     fn call_named(agent: &mut Agent, call_id: &str, name: &str) -> Reaction {
-        agent.handle(Input::Streamed(ModelEvent::Called(ToolCall {
-            call_id: id(call_id),
-            name: name.to_owned(),
-            arguments: "{}".to_owned(),
-        })))
+        streamed(
+            agent,
+            ModelEvent::Called(ToolCall {
+                call_id: id(call_id),
+                name: name.to_owned(),
+                arguments: "{}".to_owned(),
+            }),
+        )
     }
 
     fn admitted(
@@ -449,7 +437,7 @@ mod tests {
     }
 
     fn stop_before_admission(agent: &mut Agent, reason: StopReason) -> Reaction {
-        agent.handle(Input::Streamed(ModelEvent::Stopped(reason)))
+        streamed(agent, ModelEvent::Stopped(reason))
     }
 
     fn merge(target: &mut Reaction, mut source: Reaction) {
@@ -459,6 +447,9 @@ mod tests {
         target
             .unresolved_approvals
             .append(&mut source.unresolved_approvals);
+        target
+            .undelivered_model
+            .append(&mut source.undelivered_model);
     }
 
     fn events(reaction: &Reaction) -> Vec<SessionEvent> {
@@ -522,12 +513,113 @@ mod tests {
             panic!("one submission asks the model once: {:?}", reaction.effects);
         };
         assert_eq!(
-            request.items,
+            request.request.items,
             [RequestItem::User {
                 text: "hello".into()
             }]
         );
         assert!(agent.is_running());
+    }
+
+    /// LIVE-2: output is accepted only for the exact open step, so a cancelled task cannot append
+    /// to a later turn even when its delta arrives after that turn opened.
+    #[test]
+    fn stale_and_post_cancellation_model_output_is_a_typed_non_delivery() {
+        let mut agent = agent();
+        let first = submit(&mut agent, "first");
+        let [Effect::CallModel(first_call)] = first.effects.as_slice() else {
+            panic!("first turn opens one step");
+        };
+        let first_step = first_call.step_id.clone();
+        agent.handle(Input::Interrupted);
+
+        let second = submit(&mut agent, "second");
+        let [Effect::CallModel(second_call)] = second.effects.as_slice() else {
+            panic!("second turn opens one step");
+        };
+        let second_step = second_call.step_id.clone();
+        let stale = agent.handle(Input::Streamed {
+            step_id: first_step.clone(),
+            event: ModelEvent::TextDelta("too late".to_owned()),
+        });
+
+        assert!(stale.events.is_empty());
+        assert!(matches!(
+            stale.undelivered_model.as_slice(),
+            [undelivered]
+                if undelivered.step_id == first_step
+                    && undelivered.reason
+                        == ModelDeliveryRefusal::WrongStep {
+                            expected: second_step
+                        }
+        ));
+        assert_eq!(agent.record().len(), 2, "the stale text entered no record");
+
+        agent.handle(Input::Interrupted);
+        let after_cancel = agent.handle(Input::Failed {
+            step_id: first_step,
+            error: ModelError::Transport {
+                message: "late failure".to_owned(),
+            },
+        });
+        assert!(matches!(
+            after_cancel.undelivered_model.as_slice(),
+            [undelivered]
+                if undelivered.reason == ModelDeliveryRefusal::NoActiveStep
+        ));
+        assert!(after_cancel.events.is_empty());
+    }
+
+    /// LIVE-4 and LIVE-5: usage belongs to the step that reported it and one turn keeps a checked
+    /// aggregate across its tool boundary without turning an omitted breakdown into zero.
+    #[test]
+    fn reported_step_usage_is_aggregated_for_the_owning_turn() {
+        let mut agent = agent();
+        submit(&mut agent, "read then answer");
+        let first = usage(
+            &mut agent,
+            TokenUsage::Complete(TokenCounts {
+                input: 10,
+                cached_input: Some(4),
+                cache_write_input: Some(1),
+                output: 8,
+                reasoning_output: Some(3),
+                total: 18,
+            }),
+        );
+        call(&mut agent, "one");
+        stop(&mut agent, StopReason::ToolCalls);
+        finish(&mut agent, "one", "contents");
+        let second = usage(
+            &mut agent,
+            TokenUsage::Partial(TokenCounts {
+                input: 20,
+                cached_input: None,
+                cache_write_input: None,
+                output: 5,
+                reasoning_output: Some(2),
+                total: 25,
+            }),
+        );
+
+        assert!(matches!(
+            events(&first).as_slice(),
+            [SessionEvent::TurnUsageUpdated {
+                usage: TokenUsage::Complete(counts),
+                ..
+            }] if counts.total == 18
+        ));
+        assert!(matches!(
+            events(&second).as_slice(),
+            [SessionEvent::TurnUsageUpdated {
+                usage: TokenUsage::Partial(counts),
+                ..
+            }] if counts.input == 30
+                && counts.cached_input == Some(4)
+                && counts.output == 13
+                && counts.reasoning_output == Some(5)
+                && counts.total == 43
+        ));
     }
 
     /// One assistant message per step, opened by the first delta and numbered from there, so a
@@ -661,7 +753,7 @@ mod tests {
             );
         };
         assert_eq!(
-            request.items.len(),
+            request.request.items.len(),
             7,
             "the user's message, three calls and three results"
         );
@@ -702,26 +794,24 @@ mod tests {
         }
     }
 
-    /// The same debt, when the step fails rather than when the user stops it.
+    /// The same debt when the runtime shuts down while tools are still out.
     #[test]
-    fn a_failed_step_pays_what_its_calls_owe() {
+    fn shutdown_pays_what_dispatched_calls_owe() {
         let mut agent = agent();
         submit(&mut agent, "read one file");
         call(&mut agent, "one");
         stop(&mut agent, StopReason::ToolCalls);
 
-        let failed = agent.handle(Input::Failed(ModelError::Transport {
-            message: "connection reset".to_owned(),
-        }));
+        let stopped = agent.handle(Input::ShuttingDown);
 
-        assert_eq!(warnings(&failed).len(), 1);
+        assert!(warnings(&stopped).is_empty());
         assert_eq!(dispatched(&agent), answered(&agent));
         assert_eq!(
             agent.record().last(),
             Some(&RequestItem::ToolResult {
                 call_id: id("one"),
                 outcome: ToolOutcome::Cancelled {
-                    reason: ToolCancellationReason::StepFailed
+                    reason: ToolCancellationReason::Shutdown
                 }
             })
         );
@@ -786,7 +876,7 @@ mod tests {
             panic!("the boundary opens the held turn: {:?}", ended.effects);
         };
         assert_eq!(
-            request.items,
+            request.request.items,
             [
                 RequestItem::User {
                     text: "first".into()
@@ -831,7 +921,7 @@ mod tests {
             );
         };
         assert_eq!(
-            request.items.last(),
+            request.request.items.last(),
             Some(&RequestItem::User {
                 text: "check the cache too".to_owned()
             })
@@ -909,9 +999,12 @@ mod tests {
         let mut failed = agent();
         submit(&mut failed, "first");
         steer(&mut failed, "still mine");
-        let failed_reaction = failed.handle(Input::Failed(ModelError::Transport {
-            message: "offline".to_owned(),
-        }));
+        let failed_reaction = fail_step(
+            &mut failed,
+            ModelError::Transport {
+                message: "offline".to_owned(),
+            },
+        );
         assert!(matches!(
             failed_reaction.undelivered.as_slice(),
             [input]
@@ -976,16 +1069,17 @@ mod tests {
     fn reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation() {
         let mut agent = agent();
         submit(&mut agent, "hello");
-        let reasoning = agent.handle(Input::Streamed(ModelEvent::ReasoningDelta(
-            "bounded thought".to_owned(),
-        )));
+        let reasoning = streamed(
+            &mut agent,
+            ModelEvent::ReasoningDelta("bounded thought".to_owned()),
+        );
         let replay = ProviderReplay::new(
             ProviderCodecId::new("openai_responses")
                 .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
             r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#.to_owned(),
         )
         .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
-        let replay_reaction = agent.handle(Input::Streamed(ModelEvent::Replay(replay.clone())));
+        let replay_reaction = streamed(&mut agent, ModelEvent::Replay(replay.clone()));
         delta(&mut agent, "partial answer");
 
         let interrupted = agent.handle(Input::Interrupted);
@@ -1030,9 +1124,12 @@ mod tests {
         submit(&mut agent, "hello");
         delta(&mut agent, "start");
 
-        let failed = agent.handle(Input::Failed(ModelError::RateLimited {
-            retry_after: Some(30),
-        }));
+        let failed = fail_step(
+            &mut agent,
+            ModelError::RateLimited {
+                retry_after: Some(30),
+            },
+        );
 
         assert_eq!(
             warnings(&failed).len(),
@@ -1071,19 +1168,6 @@ mod tests {
         let mut answered = agent();
         submit(&mut answered, "hello");
         assert!(warnings(&stop(&mut answered, StopReason::EndOfTurn)).is_empty());
-    }
-
-    /// Output with no step open is a producer defect, and the projection refuses invented items,
-    /// so the loop reports it instead of opening one.
-    #[test]
-    fn output_arriving_with_no_step_open_is_reported_and_writes_nothing() {
-        let mut agent = agent();
-
-        let stray = delta(&mut agent, "unasked for");
-
-        assert_eq!(warnings(&stray).len(), 1);
-        assert!(agent.record().is_empty());
-        assert!(!agent.is_running());
     }
 
     /// An outcome for a call this turn never dispatched would put an identity in the conversation
@@ -1202,7 +1286,7 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("denial completes the batch and opens the next step"));
         assert!(matches!(
-            request.items.last(),
+            request.request.items.last(),
             Some(RequestItem::ToolResult {
                 call_id,
                 outcome: ToolOutcome::Denied
@@ -1271,6 +1355,7 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("settled batch opens the next step"));
         let result_ids: Vec<_> = request
+            .request
             .items
             .iter()
             .filter_map(|item| match item {

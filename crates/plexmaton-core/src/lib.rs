@@ -12,6 +12,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod usage;
+
+pub use usage::{TokenCounts, TokenUsage};
+
 /// Rejected stable identifier input.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum IdError {
@@ -266,6 +270,15 @@ pub enum SessionEvent {
         /// State the agent moved to.
         status: AgentStatus,
     },
+    /// Provider-reported usage for the current turn changed after one model step.
+    TurnUsageUpdated {
+        /// Agent whose turn consumed the tokens.
+        agent_id: AgentId,
+        /// Turn the aggregate belongs to.
+        turn_id: TurnId,
+        /// Checked aggregate across the turn's completed model steps.
+        usage: TokenUsage,
+    },
     /// A transcript item was opened and may now receive deltas.
     TranscriptItemStarted {
         /// Agent owning the transcript.
@@ -369,8 +382,9 @@ pub struct SessionEventEnvelope {
 mod tests {
     use super::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest,
-        EventSequence, IdError, MailId, SessionEvent, SessionEventEnvelope, ToolCallId,
-        ToolCallStatus, ToolCapability, TranscriptItemId, TranscriptRole, TurnId,
+        EventSequence, IdError, MailId, SessionEvent, SessionEventEnvelope, TokenCounts,
+        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, TranscriptItemId, TranscriptRole,
+        TurnId,
     };
 
     fn agent(value: &str) -> AgentId {
@@ -420,6 +434,18 @@ mod tests {
             SessionEvent::AgentStatusChanged {
                 agent_id: agent("agent-a"),
                 status: AgentStatus::Cancelled,
+            },
+            SessionEvent::TurnUsageUpdated {
+                agent_id: agent("agent-a"),
+                turn_id: TurnId::new("turn-1").unwrap_or_else(|error| panic!("fixture: {error}")),
+                usage: TokenUsage::Complete(TokenCounts {
+                    input: 10,
+                    cached_input: Some(2),
+                    cache_write_input: Some(1),
+                    output: 4,
+                    reasoning_output: Some(3),
+                    total: 14,
+                }),
             },
             SessionEvent::TranscriptItemStarted {
                 agent_id: agent("agent-a"),

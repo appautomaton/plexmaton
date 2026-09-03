@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive the runnable prototype through a real pseudo-terminal.
+"""Drive the runnable Plexmaton TUI through a real pseudo-terminal.
 
 Ratatui's `TestBackend` cannot prove terminal lifecycle: alternate-screen entry and release, raw
 mode, resize handling, and the crossterm event stream only exist in front of a real terminal.
@@ -42,17 +42,14 @@ from pathlib import Path
 # Both sizes stay in the Wide layout class so the activity column is present throughout.
 INITIAL_SIZE = (40, 120)
 RESIZED = (30, 100)
-# Long enough for the deterministic timeline to reach agent B's completion at tick 17.
-STREAM_SECONDS = 5.0
+# Long enough for the live runtime to announce its idle primary agent; no request reaches a network.
+STREAM_SECONDS = 0.8
 REPAINT_SECONDS = 1.5
 SHUTDOWN_SECONDS = 3.0
 EXPECTED_ON_FULL_FRAME = (
-    "Agent A · primary",
-    "Agent B · UI study",
-    "Agents · !1",
-    "Activity",
-    "Mail",
-    "agent-b",
+    "Plexmaton · idle",
+    "Message Plexmaton",
+    "Agents",
 )
 ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
 # SGR extended mouse mode. Crossterm enables several tracking modes; this is the one that decides
@@ -63,7 +60,13 @@ MOUSE_OFF = b"\x1b[?1006l"
 # row. The status line is chrome, so a press there must route to nothing and repaint nothing.
 CLICK_IN_TRANSCRIPT = (40, 10)
 CLICK_IN_STATUS = (5, RESIZED[0] - 1)
+CLICK_IN_COMPOSER = (50, INITIAL_SIZE[0] - 3)
 CLICK_SETTLE_SECONDS = 0.8
+LIVE_RESPONSE_SECONDS = 30.0
+LIVE_REQUESTS = (
+    (b"What is 137 plus 284? Answer only with the number.\r", "421"),
+    (b"What is 90 minus 17? Answer only with the number.\r", "73"),
+)
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 WHITESPACE = re.compile(r"\s+")
 
@@ -79,7 +82,7 @@ def sgr_press(column: int, row: int) -> bytes:
 
 
 def click(master: int, at: tuple[int, int], sink: bytearray) -> bytes:
-    """Sends a press and returns only the bytes the prototype emitted in response."""
+    """Sends a press and returns only the bytes the TUI emitted in response."""
     before = len(sink)
     os.write(master, sgr_press(*at))
     drain(master, CLICK_SETTLE_SECONDS, sink)
@@ -108,7 +111,36 @@ def collapsed(raw: bytes) -> str:
 
 
 def main() -> int:
+    live = sys.argv[1:] == ["--live"]
+    if sys.argv[1:] not in ([], ["--live"]):
+        print("usage: smoke-tui.py [--live]", file=sys.stderr)
+        return 2
     root = Path(__file__).resolve().parent.parent
+    capture_dir = root / "target" / "smoke"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    child_env = os.environ.copy()
+    if live:
+        if "PLEXMATON_HOME" not in child_env:
+            print("smoke: --live requires PLEXMATON_HOME", file=sys.stderr)
+            return 2
+    else:
+        config_root = capture_dir / "plexmaton-home"
+        config_root.mkdir(exist_ok=True)
+        (config_root / "config.toml").write_text(
+            """active_provider = "smoke"
+
+[providers.smoke]
+kind = "openai_compatible"
+protocol = "responses"
+base_url = "http://127.0.0.1:9/v1"
+model = "gpt-5.6-luna"
+api_key_env = "PLEXMATON_SMOKE_API_KEY"
+reasoning_effort = "none"
+""",
+            encoding="utf-8",
+        )
+        child_env["PLEXMATON_HOME"] = str(config_root)
+        child_env["PLEXMATON_SMOKE_API_KEY"] = "fixture-only"
     subprocess.run(
         ["cargo", "build", "-p", "plexmaton-cli", "--quiet"], cwd=root, check=True
     )
@@ -121,6 +153,7 @@ def main() -> int:
         stdout=slave,
         stderr=slave,
         cwd=root,
+        env=child_env,
         # Without its own session and controlling terminal the child never receives SIGWINCH,
         # so the resize below would be silently ignored and prove nothing.
         start_new_session=True,
@@ -133,14 +166,32 @@ def main() -> int:
     try:
         drain(master, STREAM_SECONDS, captured)
 
+        if live:
+            click(master, CLICK_IN_COMPOSER, captured)
+            for prompt, marker in LIVE_REQUESTS:
+                round_start = len(captured)
+                os.write(master, prompt)
+                deadline = time.monotonic() + LIVE_RESPONSE_SECONDS
+                while (
+                    marker not in collapsed(bytes(captured[round_start:]))
+                    and time.monotonic() < deadline
+                ):
+                    drain(master, 0.2, captured)
+                if marker not in collapsed(bytes(captured[round_start:])):
+                    print(
+                        f"smoke: live answer {marker!r} did not reach the transcript",
+                        file=sys.stderr,
+                    )
+                    failures.append(f"live answer {marker}")
+                    break
+
         # Resizing forces a full repaint, which is the only frame that carries the whole screen.
         full_frame_start = len(captured)
         set_size(master, RESIZED)
         drain(master, REPAINT_SECONDS, captured)
         full_frame = bytes(captured[full_frame_start:])
 
-        # The timeline is drained by now and the projection is static, so any repaint from here on
-        # was caused by the click and nothing else.
+        # The idle live projection is static, so any repaint from here on was caused by the click.
         on_chrome = click(master, CLICK_IN_STATUS, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
 
@@ -149,13 +200,11 @@ def main() -> int:
         exit_code = process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         process.kill()
-        print("smoke: prototype did not exit after the quit key", file=sys.stderr)
+        print("smoke: Plexmaton did not exit after the quit key", file=sys.stderr)
         return 1
     finally:
         os.close(master)
 
-    capture_dir = root / "target" / "smoke"
-    capture_dir.mkdir(parents=True, exist_ok=True)
     (capture_dir / "tui-session.raw").write_bytes(captured)
     (capture_dir / "tui-full-frame.raw").write_bytes(full_frame)
 
@@ -195,14 +244,15 @@ def main() -> int:
         failures.append("mouse off ordering")
 
     if exit_code != 0:
-        print(f"smoke: prototype exited with {exit_code}", file=sys.stderr)
+        print(f"smoke: Plexmaton exited with {exit_code}", file=sys.stderr)
         failures.append("exit code")
 
     if failures:
         return 1
 
     print(
-        f"smoke: painted the canonical timeline at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
+        f"smoke: painted the {'answering' if live else 'idle'} live runtime at "
+        f"{INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
         "transcript and none to the status line, accepted the quit chord, and released mouse "
         "reporting before the alternate screen"

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented for Phase 01 stage 2 slice 5; live transport cancellation waits on slice 6 |
+| Status | Implemented through Phase 01 stage 2 slice 6 |
 | Owns | Configuration, request encoding, streaming decode, reasoning replay, and typed failure at the model-provider boundary |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-1, LOOP-3 and LOOP-4; Phase 01 §producer |
 | Proven by | `plexmaton-provider::{config,codec,sse}` tests, sanitized protocol fixtures, and `plexmaton-agent::turn` tests |
@@ -85,4 +85,4 @@ choice. Rejected: automatic fallback, because replay and failure semantics chang
 | PRV-4 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools` proves stateless full-record replay without a response ID |
 | PRV-5 | `http_rate_limit_is_typed_and_keeps_retry_after`, `context_error_is_classified_by_wire_code`, `prv_5_responses_done_only_refusal_is_visible_and_typed`, and both fixture completion reasons |
 | PRV-6 | `prv_6_parses_a_named_profile_without_inline_authority`, `prv_6_rejects_an_inline_api_key`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted` |
-| PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`; owned live cancellation remains unproven until slice 6 |
+| PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |

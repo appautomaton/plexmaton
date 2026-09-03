@@ -21,6 +21,7 @@ pub(crate) struct Step {
     calls: Vec<ToolCall>,
     /// Which step of the turn this is, counting from one.
     index: u16,
+    usage_reported: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -95,6 +96,7 @@ impl Step {
             replay: Vec::new(),
             calls: Vec::new(),
             index,
+            usage_reported: false,
         }
     }
 
@@ -130,6 +132,11 @@ impl Step {
     /// Holds a call until the step ends, because a step's calls dispatch as one batch.
     pub(crate) fn collect(&mut self, call: ToolCall) {
         self.calls.push(call);
+    }
+
+    /// Accepts exactly one usage report for this provider step (LIVE-4).
+    pub(crate) fn mark_usage_reported(&mut self) -> bool {
+        !std::mem::replace(&mut self.usage_reported, true)
     }
 
     /// Ends the step: finalizes the message, records what it said, hands back what it asked for.

@@ -7,7 +7,7 @@
 use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
 use crate::admission::{AdmissionOutcome, AdmittedToolCall};
-use crate::model::{ModelError, ModelEvent, ModelRequest};
+use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
 use crate::tools::{ToolCall, ToolOutcome};
 
 /// Something the loop is told.
@@ -24,9 +24,19 @@ pub enum Input {
         text: String,
     },
     /// The model produced something.
-    Streamed(ModelEvent),
+    Streamed {
+        /// Step that requested this exact event.
+        step_id: ModelStepId,
+        /// Ordered semantic provider output.
+        event: ModelEvent,
+    },
     /// The step failed before it could finish.
-    Failed(ModelError),
+    Failed {
+        /// Step whose owned provider operation failed.
+        step_id: ModelStepId,
+        /// Typed failure returned by the provider boundary.
+        error: ModelError,
+    },
     /// The trusted catalog answered one explicit admission effect.
     ToolAdmissionResolved(AdmissionOutcome),
     /// A dispatched tool call ended.
@@ -53,7 +63,7 @@ pub enum Input {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Effect {
     /// Ask the model, and feed what it says back in as [`Input::Streamed`].
-    CallModel(ModelRequest),
+    CallModel(ModelCall),
     /// Ask the trusted catalog to validate and canonicalize one raw model call.
     AdmitTool(ToolCall),
     /// Run one admitted call, and feed the result back in as [`Input::ToolFinished`].
@@ -106,6 +116,27 @@ pub struct UndeliveredInput {
     pub reason: UndeliveredReason,
 }
 
+/// Why output from an owned provider operation could not enter the turn record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelDeliveryRefusal {
+    /// No model step is currently open.
+    NoActiveStep,
+    /// A different model step is open, so this output is stale or misrouted.
+    WrongStep {
+        /// Only identity the loop would currently accept.
+        expected: ModelStepId,
+    },
+}
+
+/// Correlated provider output the loop did not accept (LIVE-2).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndeliveredModelInput {
+    /// Identity supplied by the runtime.
+    pub step_id: ModelStepId,
+    /// Typed reason it did not enter state.
+    pub reason: ModelDeliveryRefusal,
+}
+
 impl UndeliveredInput {
     pub(crate) const fn new(text: String, reason: UndeliveredReason) -> Self {
         Self { text, reason }
@@ -124,4 +155,6 @@ pub struct Reaction {
     pub undelivered: Vec<UndeliveredInput>,
     /// Approval decisions that matched no pending request.
     pub unresolved_approvals: Vec<UnresolvedApprovalDecision>,
+    /// Stale or post-cancellation provider output that changed no record or projection.
+    pub undelivered_model: Vec<UndeliveredModelInput>,
 }

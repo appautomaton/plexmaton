@@ -1,5 +1,6 @@
 //! The workspace's single text input.
 
+use plexmaton_core::AgentId;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -79,6 +80,14 @@ impl Composer {
             return None;
         }
         Some(std::mem::take(&mut self.draft))
+    }
+
+    /// Returns text the runtime could not deliver to the editable draft that addressed it.
+    pub(super) fn return_input(&mut self, text: String) {
+        if !self.draft.is_empty() {
+            self.draft.push('\n');
+        }
+        self.draft.push_str(&text);
     }
 
     /// Returns the draft exactly as typed.
@@ -164,6 +173,12 @@ fn wrap_line(line: &str, width: usize) -> Vec<String> {
 }
 
 impl ViewState {
+    /// Restores runtime-returned user text without inventing a transcript item (COM-3, LOOP-6).
+    pub(crate) fn return_input(&mut self, to: AgentId, text: String) {
+        self.composers.entry(to).or_default().return_input(text);
+        self.touch();
+    }
+
     /// Applies one edit to whichever input holds the cursor.
     ///
     /// The returned submission is a *command* for the runtime, never something to write into the

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 done; stage 2 slices 1–5 done 2026-09-02; slice 6 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
+| Status | Active; stage 1 done; stage 2 slices 1–6 done 2026-09-02; slice 7 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -26,6 +26,7 @@ the projection refuses a gap or a repeat.
 | Event | Standing |
 | --- | --- |
 | `AgentCreated`, `AgentStatusChanged` | Durable |
+| `TurnUsageUpdated` | Durable semantic counts; retained off-screen until the on-demand diagnostics surface lands |
 | `TranscriptItemStarted`, `TranscriptDelta`, `TranscriptItemFinalized` | Durable; the cache and the anchors are built on this shape |
 | `ToolCallChanged` | Durable and thin: no arguments, no output, no expand state. Stage 2 grows it |
 | `AttentionRequested`, `AttentionResolved` | Durable; a typed request and the exact identity that stopped being pending |

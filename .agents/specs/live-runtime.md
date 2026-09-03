@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Designed for Phase 01 stage 2 slice 6; unproven |
+| Status | Implemented in Phase 01 stage 2 slice 6 |
 | Owns | Live agent task ownership, model-step correlation, cancellation, reported token usage, and the executable-to-agent composition boundary |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-1, LOOP-4 and LOOP-6; [provider-adapter](./provider-adapter.md) PRV-1, PRV-5 through PRV-7; [frame-loop](./frame-loop.md) FR-1 |
-| Proven by | Unproven; Phase 01 stage 2 slice 6 |
+| Proven by | `plexmaton-runtime` component and opt-in live tests, provider fixtures, agent correlation tests, CLI startup test, and TUI reducer test |
 
 ## Invariants
 
@@ -26,7 +26,7 @@ Exactly one terminal outcome wins a completion/cancellation race, no new request
 shutdown, and dropping the TUI never detaches network work.
 
 **LIVE-4 — Reported usage is exact, step-scoped and turn-aggregated.** A completed provider stream
-emits exactly one `ReportedUsage` before its stop; Chat requests streaming usage explicitly and
+emits exactly one `TokenUsage` before its stop; Chat requests streaming usage explicitly and
 Responses reads it from the terminal response. Counts retain input, cached input, cache-write input,
 output, reasoning output and the provider's total without recomputing subsets; checked addition
 produces the turn total across tool-loop steps.
@@ -48,7 +48,7 @@ TUI intent ─▶ CLI route ─▶ LiveRuntime ─▶ Agent::handle
                                 │              │
                          owned task ◀── CallModel(step)
                                 │
-                  Streamed/Failed(step) + ReportedUsage
+                  Streamed/Failed(step) + TokenUsage
                                 │
                                 └─▶ Agent ─▶ SessionEvent ─▶ TUI
 ```
@@ -73,9 +73,9 @@ Cached input remains a subset of input and reasoning remains a subset of output.
 
 | Invariant | Proven by |
 | --- | --- |
-| LIVE-1 | Unproven; slice 6 deterministic runtime component test and crate-graph gate |
-| LIVE-2 | Unproven; slice 6 late-event and new-turn correlation tests |
-| LIVE-3 | Unproven; slice 6 cancellation-race and shutdown tests |
-| LIVE-4 | Unproven; slice 6 Chat and Responses usage fixtures plus multi-step turn test |
-| LIVE-5 | Unproven; slice 6 omitted-usage, failure and cancellation tests |
-| LIVE-6 | Unproven; slice 6 configuration and pre-terminal startup tests |
+| LIVE-1 | `sequential_turns_stream_and_report_their_own_usage`, `one_local_request_streams_text_and_reported_usage`, `scripts/smoke-tui.py --live`, crate-graph gate |
+| LIVE-2 | `stale_and_post_cancellation_model_output_is_a_typed_non_delivery`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
+| LIVE-3 | `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task`, `a_cancelled_terminal_join_remains_owned_until_interrupt_joins_it`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn`, `deterministic_failure_paths_leave_no_provider_task_alive` |
+| LIVE-4 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `a_combined_chat_terminal_chunk_orders_usage_before_stop`, `reported_step_usage_is_aggregated_for_the_owning_turn`, `usage_is_retained_without_charging_an_invisible_frame` |
+| LIVE-5 | `missing_step_usage_is_never_presented_as_zero`, `responses_null_usage_breakdowns_are_partial_coverage`, `deterministic_failure_paths_leave_no_provider_task_alive`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |
+| LIVE-6 | `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `endpoint_resolution_is_protocol_specific_and_rejects_embedded_authority`, `invalid_configuration_never_takes_over_the_terminal` |

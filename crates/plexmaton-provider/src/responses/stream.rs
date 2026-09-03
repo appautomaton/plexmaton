@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use super::call::CallAssembly;
 use super::text::TextAssembly;
+use super::usage::event_usage;
 use super::wire::{object_field, optional_string, provider_failed, string_field, usize_field};
 use crate::codec::{DecodeError, DecodeLimits, RESPONSES_CODEC_ID, retain_bytes};
 
@@ -294,7 +295,7 @@ impl ResponsesDecoder {
         } else {
             StopReason::ToolCalls
         };
-        Ok(vec![ModelEvent::Stopped(reason)])
+        Ok(vec![event_usage(event)?, ModelEvent::Stopped(reason)])
     }
 
     fn incomplete(&mut self, event: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
@@ -318,7 +319,7 @@ impl ResponsesDecoder {
             other => return Err(DecodeError::UnknownStopReason(other.to_owned())),
         };
         self.stopped = true;
-        Ok(vec![ModelEvent::Stopped(stop)])
+        Ok(vec![event_usage(event)?, ModelEvent::Stopped(stop)])
     }
 
     fn require_no_partial_call(&self) -> Result<(), DecodeError> {

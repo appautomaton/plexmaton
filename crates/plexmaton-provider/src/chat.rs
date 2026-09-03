@@ -1,138 +1,18 @@
 //! Chat Completions request and stream grammar.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use plexmaton_agent::{ModelEvent, ModelRequest, RequestItem, StopReason, ToolCall};
-use plexmaton_core::ToolCallId;
+use plexmaton_agent::{ModelEvent, StopReason, ToolCall};
+use plexmaton_core::{TokenUsage, ToolCallId};
 use serde::Deserialize;
-use serde_json::{Value, json};
 
-use crate::{
-    FunctionTool, ProviderProfile,
-    codec::{DecodeError, DecodeLimits, EncodeError, retain_bytes, tool_output},
-};
+use crate::codec::{DecodeError, DecodeLimits, retain_bytes};
 
-pub(crate) fn encode(
-    profile: &ProviderProfile,
-    request: &ModelRequest,
-    tools: &[FunctionTool],
-    max_output_tokens: Option<u32>,
-) -> Result<Value, EncodeError> {
-    let messages = encode_messages(request)?;
-    let tools: Vec<_> = tools
-        .iter()
-        .map(|tool| {
-            json!({
-                "type": "function",
-                "function": {
-                    "name": tool.name(),
-                    "description": tool.description(),
-                    "parameters": tool.parameters(),
-                    "strict": true,
-                },
-            })
-        })
-        .collect();
-    let mut body = json!({
-        "model": profile.model(),
-        "messages": messages,
-        "stream": true,
-        "reasoning_effort": profile.reasoning_effort().as_str(),
-    });
-    if !tools.is_empty() {
-        body["tools"] = Value::Array(tools);
-        body["tool_choice"] = Value::String("auto".to_owned());
-    }
-    if let Some(limit) = max_output_tokens {
-        body["max_completion_tokens"] = Value::from(limit);
-    }
-    Ok(body)
-}
+mod request;
+mod usage;
 
-#[derive(Default)]
-struct PendingAssistant {
-    reasoning: String,
-    content: Option<String>,
-    calls: Vec<Value>,
-}
-
-impl PendingAssistant {
-    fn is_empty(&self) -> bool {
-        self.reasoning.is_empty() && self.content.is_none() && self.calls.is_empty()
-    }
-
-    fn into_message(self) -> Value {
-        let mut message = json!({
-            "role": "assistant",
-            "content": self.content,
-        });
-        if !self.reasoning.is_empty() {
-            message["reasoning_content"] = Value::String(self.reasoning);
-        }
-        if !self.calls.is_empty() {
-            message["tool_calls"] = Value::Array(self.calls);
-        }
-        message
-    }
-}
-
-fn encode_messages(request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
-    let mut messages = Vec::new();
-    let mut pending = PendingAssistant::default();
-    let mut calls = BTreeSet::new();
-
-    for item in &request.items {
-        match item {
-            RequestItem::Reasoning { text } => {
-                if pending.content.is_some() || !pending.calls.is_empty() {
-                    flush_assistant(&mut messages, &mut pending);
-                }
-                pending.reasoning.push_str(text);
-            }
-            RequestItem::Assistant { text } => {
-                if pending.content.is_some() || !pending.calls.is_empty() {
-                    flush_assistant(&mut messages, &mut pending);
-                }
-                pending.content = Some(text.clone());
-            }
-            RequestItem::ToolCall(call) => {
-                calls.insert(call.call_id.as_str().to_owned());
-                pending.calls.push(json!({
-                    "id": call.call_id.as_str(),
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": call.arguments,
-                    },
-                }));
-            }
-            RequestItem::User { text } => {
-                flush_assistant(&mut messages, &mut pending);
-                messages.push(json!({ "role": "user", "content": text }));
-            }
-            RequestItem::ToolResult { call_id, outcome } => {
-                flush_assistant(&mut messages, &mut pending);
-                if !calls.contains(call_id.as_str()) {
-                    return Err(EncodeError::OrphanToolResult(call_id.to_string()));
-                }
-                messages.push(json!({
-                    "role": "tool",
-                    "tool_call_id": call_id.as_str(),
-                    "content": tool_output(outcome),
-                }));
-            }
-            RequestItem::ProviderReplay(_) => return Err(EncodeError::OpaqueReplayInChat),
-        }
-    }
-    flush_assistant(&mut messages, &mut pending);
-    Ok(messages)
-}
-
-fn flush_assistant(messages: &mut Vec<Value>, pending: &mut PendingAssistant) {
-    if !pending.is_empty() {
-        messages.push(std::mem::take(pending).into_message());
-    }
-}
+pub(crate) use request::encode;
+use usage::ChatUsage;
 
 #[derive(Debug)]
 pub(crate) struct ChatDecoder {
@@ -142,6 +22,7 @@ pub(crate) struct ChatDecoder {
     saw_refusal: bool,
     stopped: bool,
     done: bool,
+    usage_reported: bool,
 }
 
 #[derive(Debug, Default)]
@@ -160,6 +41,7 @@ impl ChatDecoder {
             saw_refusal: false,
             stopped: false,
             done: false,
+            usage_reported: false,
         }
     }
 
@@ -176,9 +58,14 @@ impl ChatDecoder {
                 return Err(DecodeError::DuplicateFinality);
             }
             self.done = true;
-            return Ok(Vec::new());
+            return Ok(if self.usage_reported {
+                Vec::new()
+            } else {
+                self.usage_reported = true;
+                vec![ModelEvent::Usage(TokenUsage::Unavailable)]
+            });
         }
-        if self.stopped || self.done {
+        if self.done {
             return Err(DecodeError::DuplicateFinality);
         }
 
@@ -188,9 +75,19 @@ impl ChatDecoder {
                 "multiple_chat_choices".to_owned(),
             ));
         }
+        let usage = chunk.usage.map(ChatUsage::into_semantic).transpose()?;
         let Some(choice) = chunk.choices.into_iter().next() else {
-            return Ok(Vec::new());
+            let Some(usage) = usage else {
+                return Ok(Vec::new());
+            };
+            if !self.stopped || std::mem::replace(&mut self.usage_reported, true) {
+                return Err(DecodeError::DuplicateUsage);
+            }
+            return Ok(vec![ModelEvent::Usage(usage)]);
         };
+        if self.stopped {
+            return Err(DecodeError::DuplicateFinality);
+        }
         if choice.index != 0 {
             return Err(DecodeError::UnsupportedEvent(format!(
                 "chat_choice_{}",
@@ -218,6 +115,12 @@ impl ChatDecoder {
         }
         for fragment in choice.delta.tool_calls {
             self.tool_fragment(fragment)?;
+        }
+        if let Some(usage) = usage {
+            if std::mem::replace(&mut self.usage_reported, true) {
+                return Err(DecodeError::DuplicateUsage);
+            }
+            events.push(ModelEvent::Usage(usage));
         }
         if let Some(reason) = choice.finish_reason {
             events.extend(self.stop(reason)?);
@@ -355,6 +258,7 @@ fn required(
 struct ChatChunk {
     #[serde(default)]
     choices: Vec<ChatChoice>,
+    usage: Option<ChatUsage>,
 }
 
 #[derive(Deserialize)]

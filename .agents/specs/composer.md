@@ -39,6 +39,8 @@ TextIntent ──▶ ViewState::edit ──▶ Option<Submission>
                                             SessionEvent stream ──▶ transcript
 
 Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
+                                               │
+                           UndeliveredInput ────┴──▶ addressed draft
 ```
 
 | Fact | Value |
@@ -56,6 +58,7 @@ Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
 | `Ctrl-C` on a draft | The draft is discarded, its conversation is named for interruption, and nothing quits (INV-7) |
 | `Backspace` on an empty draft | No change is reported, so it costs no repaint |
 | Submitting before any agent exists | The text stays in the draft; there is no session to deliver into |
+| Runtime returns text its boundary could not claim | The composition root restores it to the addressed editable draft without inventing a transcript item |
 | A text intent arriving under navigation focus | Cannot happen and is not re-checked: the router reads focus from the same state (INV-2) |
 | Draft longer than the visible lines | The newest lines show, because that is where the cursor is |
 
@@ -65,5 +68,5 @@ Ctrl-C ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted
 | --- | --- |
 | COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing` |
-| COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item` |
+| COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text` |
 | COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |

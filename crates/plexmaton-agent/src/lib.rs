@@ -22,12 +22,12 @@ pub use admission::{
     CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
 };
 pub use interface::{
-    ApprovalDecisionRefusal, Effect, Input, Reaction, UndeliveredInput, UndeliveredReason,
-    UnresolvedApprovalDecision,
+    ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, UndeliveredInput,
+    UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
 };
 pub use model::{
-    MAX_PROVIDER_REPLAY_BYTES, ModelError, ModelEvent, ModelRequest, ProviderCodecId,
-    ProviderReplay, ProviderReplayError, RequestItem, StopReason,
+    MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,
+    ProviderCodecId, ProviderReplay, ProviderReplayError, RequestItem, StopReason,
 };
 pub use tools::{PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome};
 pub use turn::{Agent, TurnBudget};

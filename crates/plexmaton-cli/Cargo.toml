@@ -21,14 +21,15 @@ crossterm.workspace = true
 futures-util.workspace = true
 plexmaton-agent = { path = "../plexmaton-agent" }
 plexmaton-core = { path = "../plexmaton-core" }
+plexmaton-provider = { path = "../plexmaton-provider" }
+plexmaton-runtime = { path = "../plexmaton-runtime" }
 plexmaton-sim = { path = "../plexmaton-sim" }
 plexmaton-tui = { path = "../plexmaton-tui" }
 ratatui.workspace = true
 tokio.workspace = true
 
 # The executable translates addressed user actions into the loop's typed `Input` now. Its
-# synthetic adapter reports the operations it cannot perform; slice 7 replaces that adapter with
-# the owner that drives `Agent::handle` and performs the returned effects.
+# live runtime drives `Agent::handle`; the simulator remains the measurement and test producer.
 
 [lints]
 workspace = true

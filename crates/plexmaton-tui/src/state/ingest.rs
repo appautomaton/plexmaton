@@ -125,6 +125,16 @@ impl ViewState {
                 agent.status = status;
                 moved
             }
+            SessionEvent::TurnUsageUpdated {
+                agent_id,
+                turn_id,
+                usage,
+            } => {
+                self.agent_mut(&agent_id)?.set_usage(turn_id, usage);
+                // Usage is retained for the on-demand diagnostics surface. Until that surface
+                // exists it paints no cell, so FR-1 charges it no revision or frame.
+                false
+            }
             SessionEvent::TranscriptItemStarted {
                 agent_id,
                 item_id,
@@ -235,8 +245,8 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, ToolCallId,
-        ToolCallStatus,
+        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, TokenCounts,
+        TokenUsage, ToolCallId, ToolCallStatus, TurnId,
     };
 
     use super::{ApplyOutcome, ReduceError};
@@ -420,6 +430,43 @@ mod tests {
         let waiting = state.revision();
         state.apply(envelope(6, tool(ToolCallStatus::Succeeded)));
         assert!(state.revision() > waiting);
+    }
+
+    /// LIVE-4 and FR-1: reported turn usage is available to a later diagnostics surface, but the
+    /// user's choice to defer that surface means the update paints no permanent chrome today.
+    #[test]
+    fn usage_is_retained_without_charging_an_invisible_frame() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        let before = state.revision();
+        let turn_id = TurnId::new("turn-1").unwrap_or_else(|error| panic!("fixture turn: {error}"));
+
+        assert_eq!(
+            state.apply(envelope(
+                2,
+                SessionEvent::TurnUsageUpdated {
+                    agent_id: agent_id("agent-a"),
+                    turn_id: turn_id.clone(),
+                    usage: TokenUsage::Partial(TokenCounts {
+                        input: 10,
+                        cached_input: Some(2),
+                        cache_write_input: None,
+                        output: 4,
+                        reasoning_output: Some(3),
+                        total: 14,
+                    }),
+                }
+            )),
+            ApplyOutcome::Accepted
+        );
+        assert_eq!(state.revision(), before);
+        assert!(matches!(
+            state
+                .agent(&agent_id("agent-a"))
+                .and_then(|agent| agent.usage()),
+            Some((stored_turn, TokenUsage::Partial(counts)))
+                if stored_turn == &turn_id && counts.total == 14
+        ));
     }
 
     #[test]

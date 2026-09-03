@@ -26,6 +26,6 @@ event: response.output_item.done
 data: {"type":"response.output_item.done","sequence_number":8,"output_index":1,"item":{"id":"fc_fixture_1","type":"function_call","call_id":"call_read_1","name":"read_file","arguments":"{\"path\":\"README.md\"}","status":"completed"}}
 
 event: response.completed
-data: {"type":"response.completed","sequence_number":9,"response":{"id":"resp_fixture_call","status":"completed","output":[],"store":false}}
+data: {"type":"response.completed","sequence_number":9,"response":{"id":"resp_fixture_call","status":"completed","output":[],"store":false,"usage":{"input_tokens":14,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":1},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":20}}}
 
 : fixture eof

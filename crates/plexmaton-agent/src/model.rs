@@ -7,9 +7,34 @@
 
 use std::fmt;
 
-use plexmaton_core::ToolCallId;
+use plexmaton_core::{TokenUsage, ToolCallId, TurnId};
 
 use crate::tools::{ToolCall, ToolOutcome};
+
+/// Stable identity of one model request within a turn (LIVE-2).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ModelStepId {
+    turn_id: TurnId,
+    index: u16,
+}
+
+impl ModelStepId {
+    pub(crate) const fn new(turn_id: TurnId, index: u16) -> Self {
+        Self { turn_id, index }
+    }
+
+    /// Turn that owns this request.
+    #[must_use]
+    pub const fn turn_id(&self) -> &TurnId {
+        &self.turn_id
+    }
+
+    /// One-based position of this model request within its turn.
+    #[must_use]
+    pub const fn index(&self) -> u16 {
+        self.index
+    }
+}
 
 /// What the loop needs the model to be asked.
 ///
@@ -20,6 +45,15 @@ use crate::tools::{ToolCall, ToolOutcome};
 pub struct ModelRequest {
     /// The conversation so far, oldest first.
     pub items: Vec<RequestItem>,
+}
+
+/// One correlated request the runtime must perform.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelCall {
+    /// Stable identity every resulting event or failure must echo.
+    pub step_id: ModelStepId,
+    /// Stateless semantic conversation to encode.
+    pub request: ModelRequest,
 }
 
 /// Maximum opaque provider replay bytes retained for one item.
@@ -154,6 +188,8 @@ pub enum ModelEvent {
     /// Arrives whole. Accumulating argument fragments across wire deltas and deciding when a call
     /// is complete belongs to the adapter, because how a dialect fragments them is the dialect's.
     Called(ToolCall),
+    /// Provider-reported token consumption for this step.
+    Usage(TokenUsage),
     /// The model finished this step, and why.
     Stopped(StopReason),
 }

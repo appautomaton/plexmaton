@@ -1,4 +1,4 @@
-use std::{io, path::Path, time::Duration};
+use std::{fs, io, path::Path};
 
 use anyhow::{Context, bail};
 use crossterm::{
@@ -8,15 +8,14 @@ use crossterm::{
 use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
-use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
+use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
+use plexmaton_runtime::{DispatchReport, LiveRuntime};
 use plexmaton_tui::{ApprovalSubmission, Flow, Submission, SubmissionKind, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
-
-const TICK_INTERVAL: Duration = Duration::from_millis(180);
 
 /// Returns the terminal to the user on every exit path, including error and panic.
 ///
@@ -37,7 +36,8 @@ impl Drop for RestoreTerminal {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    let scenario = Scenario::canonical().context("build the canonical synthetic scenario")?;
+    // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
+    let runtime = live_runtime_from_process()?;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
@@ -46,11 +46,28 @@ async fn main() -> anyhow::Result<()> {
     // SSH or inside tmux is not the machine this process runs on.
     run(
         terminal,
-        ScriptedRuntime::new(scenario),
+        runtime,
         &mut TerminalClipboard::new(io::stdout()),
         working_directory(),
     )
     .await
+}
+
+fn live_runtime_from_process() -> anyhow::Result<LiveRuntime> {
+    let configured_home = std::env::var_os("PLEXMATON_HOME");
+    let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
+        .context("resolve Plexmaton configuration root")?;
+    let path = root.join("config.toml");
+    let source = fs::read_to_string(&path)
+        .with_context(|| format!("read provider configuration at {}", path.display()))?;
+    let config = ProviderConfig::parse(&source).context("parse provider configuration")?;
+    let profile = config.active().clone();
+    let key = resolve_api_key(&profile, std::env::var_os(profile.api_key_env()))
+        .context("resolve provider API key")?;
+    let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
+    LiveRuntime::openai(agent_id, "Plexmaton", profile, key)
+        .context("configure live provider transport")
 }
 
 /// Where the process runs, the way a shell prompt shows it: the home directory as `~`.
@@ -77,7 +94,7 @@ fn working_directory() -> Option<String> {
 /// only a real process can: the terminal, and the async wait on two sources at once.
 async fn run(
     mut terminal: DefaultTerminal,
-    mut runtime: ScriptedRuntime,
+    mut runtime: LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
 ) -> anyhow::Result<()> {
@@ -85,44 +102,55 @@ async fn run(
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
-    let mut tick = 0_u64;
-    let mut ticker = tokio::time::interval(TICK_INTERVAL);
+    let loop_result = drive_session(&mut terminal, &mut runtime, clipboard, &mut workspace).await;
+    let shutdown = runtime.shutdown().await.context("shut down live runtime");
+    loop_result?;
+    let _report = shutdown?;
+    Ok(())
+}
+
+/// Runs the interactive select separately so every error returns to the owner that joins runtime.
+async fn drive_session(
+    terminal: &mut DefaultTerminal,
+    runtime: &mut LiveRuntime,
+    clipboard: &mut impl ClipboardSink,
+    workspace: &mut Workspace,
+) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
-
-    workspace.emit(runtime.ready(tick));
-
     loop {
-        workspace.draw(&mut terminal).context("draw TUI frame")?;
+        workspace.draw(terminal).context("draw TUI frame")?;
 
         tokio::select! {
-            _ = ticker.tick() => {
-                tick = tick.saturating_add(1);
-                workspace.emit(runtime.ready(tick));
+            runtime_event = runtime.next_event() => {
+                match runtime_event.context("receive live runtime event")? {
+                    Some(event) => workspace.emit(vec![event]),
+                    None => break,
+                }
             }
             terminal_event = terminal_events.next() => {
                 match terminal_event {
                     Some(Ok(event)) => {
                         let outcome = workspace.handle(&event);
                         if let Some(submission) = outcome.submitted {
-                            dispatch(
-                                &mut runtime,
-                                &mut workspace,
+                            dispatch_live(
+                                runtime,
+                                workspace,
                                 route_submission(submission),
-                            )?;
+                            ).await?;
                         }
                         if let Some(agent_id) = outcome.interrupted {
-                            dispatch(
-                                &mut runtime,
-                                &mut workspace,
+                            dispatch_live(
+                                runtime,
+                                workspace,
                                 route_interrupt(agent_id),
-                            )?;
+                            ).await?;
                         }
                         if let Some(approval) = outcome.approval {
-                            dispatch(
-                                &mut runtime,
-                                &mut workspace,
+                            dispatch_live(
+                                runtime,
+                                workspace,
                                 route_approval(approval),
-                            )?;
+                            ).await?;
                         }
                         if let Some(request) = outcome.copied {
                             clipboard.copy(&request.text).context("copy to the clipboard")?;
@@ -137,7 +165,6 @@ async fn run(
             }
         }
     }
-
     Ok(())
 }
 
@@ -183,25 +210,51 @@ fn route_approval(approval: ApprovalSubmission) -> AddressedInput {
     }
 }
 
-/// Gives addressed user input to today's synthetic adapter and applies what it emits.
+/// Gives addressed visible input to the live runtime; semantic events return on its event stream.
 ///
 /// The projection is never written directly here. A message reaches the screen as the runtime's
 /// own events or not at all, which is what keeps the transcript to one writer (COM-3).
 ///
-/// The adapter deliberately matches every user-facing [`Input`] variant. The simulator has no turn
-/// machine, so it renders steering as user-authored text and reports an interrupt as unsupported;
-/// slice 6 replaces only this adapter, not the mapping above.
-fn dispatch(
-    runtime: &mut ScriptedRuntime,
+async fn dispatch_live(
+    runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
     addressed: AddressedInput,
 ) -> anyhow::Result<()> {
+    if matches!(
+        addressed.input,
+        Input::Streamed { .. }
+            | Input::Failed { .. }
+            | Input::ToolAdmissionResolved(_)
+            | Input::ToolFinished { .. }
+            | Input::ShuttingDown
+    ) {
+        bail!("the TUI produced an input reserved for the producer");
+    }
+    let to = addressed.to.clone();
+    let report = runtime
+        .submit(addressed.to, addressed.input)
+        .await
+        .context("dispatch user input")?;
+    restore_undelivered(workspace, to, report);
+    Ok(())
+}
+
+fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchReport) {
+    for input in report.undelivered {
+        workspace.return_input(to.clone(), input.text);
+    }
+}
+
+#[cfg(test)]
+fn dispatch_synthetic(
+    runtime: &mut plexmaton_sim::ScriptedRuntime,
+    workspace: &mut Workspace,
+    addressed: AddressedInput,
+) -> anyhow::Result<()> {
+    use plexmaton_sim::RuntimeCommand;
+
     let command = match addressed.input {
-        Input::Submitted { text } => RuntimeCommand::SendMessage {
-            to: addressed.to,
-            text,
-        },
-        Input::Steered { text } => RuntimeCommand::SendMessage {
+        Input::Submitted { text } | Input::Steered { text } => RuntimeCommand::SendMessage {
             to: addressed.to,
             text,
         },
@@ -214,16 +267,13 @@ fn dispatch(
             approval_id,
             decision,
         },
-        Input::Streamed(_)
-        | Input::Failed(_)
+        Input::Streamed { .. }
+        | Input::Failed { .. }
         | Input::ToolAdmissionResolved(_)
         | Input::ToolFinished { .. }
-        | Input::ShuttingDown => {
-            bail!("the TUI produced an input reserved for the producer")
-        }
+        | Input::ShuttingDown => bail!("the TUI produced an input reserved for the producer"),
     };
-    let emitted = runtime.submit(command).context("dispatch user input")?;
-    workspace.emit(emitted);
+    workspace.emit(runtime.submit(command).context("dispatch user input")?);
     Ok(())
 }
 
@@ -238,7 +288,10 @@ mod tests {
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use super::{dispatch, route_approval, route_interrupt, route_submission};
+    use super::{
+        AddressedInput, dispatch_live, dispatch_synthetic, route_approval, route_interrupt,
+        route_submission,
+    };
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
@@ -300,7 +353,7 @@ mod tests {
             "nothing may appear in the transcript until the runtime emits it"
         );
 
-        dispatch(&mut runtime, &mut workspace, route_submission(submission))
+        dispatch_synthetic(&mut runtime, &mut workspace, route_submission(submission))
             .unwrap_or_else(|error| panic!("the runtime accepts the message: {error}"));
 
         let user_items: Vec<_> = workspace
@@ -343,16 +396,25 @@ mod tests {
             "the loop asks the model, and this crate is what would perform it"
         );
         workspace.emit(opened.events);
+        let step_id = agent
+            .active_model_step()
+            .unwrap_or_else(|| panic!("submission opens one model step"));
         for delta in ["hi ", "there"] {
             workspace.emit(
                 agent
-                    .handle(Input::Streamed(ModelEvent::TextDelta(delta.to_owned())))
+                    .handle(Input::Streamed {
+                        step_id: step_id.clone(),
+                        event: ModelEvent::TextDelta(delta.to_owned()),
+                    })
                     .events,
             );
         }
         workspace.emit(
             agent
-                .handle(Input::Streamed(ModelEvent::Stopped(StopReason::EndOfTurn)))
+                .handle(Input::Streamed {
+                    step_id,
+                    event: ModelEvent::Stopped(StopReason::EndOfTurn),
+                })
                 .events,
         );
 
@@ -464,6 +526,59 @@ mod tests {
         );
     }
 
+    /// LOOP-6: ownership returned by the live loop goes back to the addressed editable draft.
+    #[tokio::test]
+    async fn a_live_dispatch_restores_undelivered_user_text() {
+        use std::ffi::OsString;
+
+        use plexmaton_agent::Input;
+        use plexmaton_core::AgentId;
+        use plexmaton_provider::{ProviderConfig, resolve_api_key};
+        use plexmaton_runtime::LiveRuntime;
+
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let config = ProviderConfig::parse(
+            r#"active_provider = "test"
+
+[providers.test]
+kind = "openai_compatible"
+protocol = "responses"
+base_url = "http://127.0.0.1:9/v1"
+model = "fixture"
+api_key_env = "TEST_KEY"
+reasoning_effort = "none"
+"#,
+        )
+        .unwrap_or_else(|error| panic!("test config: {error}"));
+        let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
+            .unwrap_or_else(|error| panic!("test key: {error}"));
+        let mut runtime =
+            LiveRuntime::openai(agent_id.clone(), "Agent A", config.active().clone(), key)
+                .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let mut workspace = Workspace::default();
+        dispatch_live(
+            &mut runtime,
+            &mut workspace,
+            AddressedInput {
+                to: agent_id.clone(),
+                input: Input::Steered {
+                    text: "do not lose this".to_owned(),
+                },
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("dispatch: {error}"));
+
+        assert_eq!(
+            workspace.state().draft(&agent_id).draft(),
+            "do not lose this"
+        );
+        runtime
+            .shutdown()
+            .await
+            .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    }
+
     #[test]
     fn the_synthetic_adapter_reports_an_interrupt_it_cannot_perform() {
         use plexmaton_core::AgentId;
@@ -475,7 +590,7 @@ mod tests {
         workspace.emit(runtime.ready(u64::MAX));
         let before = workspace.state().notices().count();
 
-        dispatch(
+        dispatch_synthetic(
             &mut runtime,
             &mut workspace,
             route_interrupt(

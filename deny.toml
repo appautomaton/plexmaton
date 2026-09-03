@@ -13,15 +13,19 @@ yanked = "deny"
 # carrying anything else fails here on purpose: adding an entry is a review decision.
 allow = [
     "Apache-2.0",
+    "BSD-3-Clause",
     "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
     "MIT",
+    "MIT-0",
     "Unicode-3.0",
     "Zlib",
 ]
 confidence-threshold = 0.93
 
 [licenses.private]
-# The four workspace crates are `publish = false` and carry no licence field. Choosing a licence
+# The seven workspace crates are `publish = false` and carry no licence field. Choosing a licence
 # for them is the owner's decision, not a lint's, so private members are skipped rather than
 # given a placeholder.
 ignore = true

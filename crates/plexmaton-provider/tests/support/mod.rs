@@ -5,7 +5,7 @@ use plexmaton_agent::{
     AdmissionOutcome, AdmittedToolCall, Agent, Effect, Input, ModelEvent, ModelRequest, ToolCall,
     ToolDefinitionRevision, ToolOutcome,
 };
-use plexmaton_core::{AgentId, ToolCapability, ToolDefinitionId};
+use plexmaton_core::{AgentId, TokenUsage, ToolCapability, ToolDefinitionId};
 use plexmaton_provider::{
     DecodeLimits, FunctionTool, Protocol, ProviderConfig, ProviderProfile, drive_sse,
 };
@@ -23,7 +23,10 @@ pub async fn decode_fixture(
         profile.protocol(),
         source,
         DecodeLimits::for_profile(profile),
-        |event| events.push(event),
+        |event| {
+            events.push(event);
+            std::future::ready(())
+        },
     )
     .await
     .unwrap_or_else(|error| panic!("fixture should decode: {error}"));
@@ -43,14 +46,24 @@ pub fn open_agent(text: &str) -> (Agent, ModelRequest) {
             reaction.effects
         );
     };
-    (agent, request.clone())
+    (agent, request.request.clone())
 }
 
 /// Drives decoded provider events through admission and execution into the loop's next request.
 pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str) -> ModelRequest {
     let mut effects = Vec::new();
     for event in events {
-        effects.extend(agent.handle(Input::Streamed(event.clone())).effects);
+        let step_id = agent
+            .active_model_step()
+            .unwrap_or_else(|| panic!("fixture expected an open provider step"));
+        effects.extend(
+            agent
+                .handle(Input::Streamed {
+                    step_id,
+                    event: event.clone(),
+                })
+                .effects,
+        );
     }
     let [Effect::AdmitTool(call)] = effects.as_slice() else {
         panic!("tool step should request one admission: {effects:?}");
@@ -86,12 +99,18 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
             finished.effects
         );
     };
-    request.clone()
+    request.request.clone()
 }
 
 pub fn complete_answer(agent: &mut Agent, events: &[ModelEvent]) {
     for event in events {
-        let reaction = agent.handle(Input::Streamed(event.clone()));
+        let step_id = agent
+            .active_model_step()
+            .unwrap_or_else(|| panic!("fixture expected an open provider step"));
+        let reaction = agent.handle(Input::Streamed {
+            step_id,
+            event: event.clone(),
+        });
         assert!(
             reaction.effects.is_empty(),
             "a final answer should request no work: {:?}",
@@ -143,6 +162,16 @@ pub fn reasoning_text(events: &[ModelEvent]) -> String {
             _ => None,
         })
         .collect()
+}
+
+pub fn reported_usage(events: &[ModelEvent]) -> &TokenUsage {
+    events
+        .iter()
+        .find_map(|event| match event {
+            ModelEvent::Usage(usage) => Some(usage),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("fixture should contain one usage report"))
 }
 
 pub fn read_tool() -> FunctionTool {

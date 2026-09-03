@@ -4,16 +4,19 @@ use futures_util::stream;
 use plexmaton_agent::{
     ModelEvent, ModelRequest, ProviderCodecId, ProviderReplay, RequestItem, StopReason,
 };
+use plexmaton_core::TokenUsage;
 use plexmaton_provider::{
     DecodeLimits, OpenAiCodec, Protocol, SseDecodeError, drive_sse, encode_request,
 };
 use serde_json::Value;
 
 mod support;
+#[path = "provider_fixtures/usage_boundaries.rs"]
+mod usage_boundaries;
 
 use support::{
     ResultTestExt, called, complete_answer, complete_tool_step, decode_fixture, open_agent,
-    profile, read_tool, reasoning_text, visible_text,
+    profile, read_tool, reasoning_text, reported_usage, visible_text,
 };
 
 const CHAT_TOOL_CALL: &str = include_str!("fixtures/chat_tool_call.sse");
@@ -39,18 +42,30 @@ async fn prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip() {
             ModelEvent::ReasoningDelta(_),
             ModelEvent::ReasoningDelta(_),
             ModelEvent::Called(_),
+            ModelEvent::Usage(TokenUsage::Complete(_)),
             ModelEvent::Stopped(StopReason::ToolCalls)
         ]
     ));
     let call = called(&first);
     assert_eq!(call.name, "read_file");
     assert_eq!(call.arguments, r#"{"path":"README.md"}"#);
+    assert!(matches!(
+        reported_usage(&first),
+        TokenUsage::Complete(counts)
+            if counts.input == 12
+                && counts.cached_input == Some(2)
+                && counts.cache_write_input == Some(1)
+                && counts.output == 5
+                && counts.reasoning_output == Some(3)
+                && counts.total == 17
+    ));
 
     let request = complete_tool_step(&mut agent, &first, "Plexmaton");
     let encoded = encode_request(&profile, &request, &[read_tool()], Some(256))
         .unwrap_or_else(|error| panic!("Chat request should encode: {error}"));
     assert_eq!(encoded["model"], "gpt-5.6-luna");
     assert_eq!(encoded["reasoning_effort"], "high");
+    assert_eq!(encoded["stream_options"]["include_usage"], true);
     assert_eq!(encoded["max_completion_tokens"], 256);
     assert_eq!(encoded["messages"][1]["reasoning_content"], "Need README.");
     assert_eq!(encoded["messages"][1]["tool_calls"][0]["id"], "call_read_1");
@@ -61,6 +76,10 @@ async fn prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip() {
     complete_answer(&mut agent, &second);
     assert_eq!(visible_text(&second), "Plexmaton.");
     assert_eq!(reasoning_text(&second), "The file names the project. ");
+    assert!(matches!(
+        reported_usage(&second),
+        TokenUsage::Complete(counts) if counts.total == 28
+    ));
     assert!(matches!(
         second.last(),
         Some(ModelEvent::Stopped(StopReason::EndOfTurn))
@@ -84,6 +103,7 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
         [
             ModelEvent::Replay(_),
             ModelEvent::Called(_),
+            ModelEvent::Usage(TokenUsage::Complete(_)),
             ModelEvent::Stopped(StopReason::ToolCalls)
         ]
     ));
@@ -102,6 +122,16 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
     let call = called(&first);
     assert_eq!(call.name, "read_file");
     assert_eq!(call.arguments, r#"{"path":"README.md"}"#);
+    assert!(matches!(
+        reported_usage(&first),
+        TokenUsage::Complete(counts)
+            if counts.input == 14
+                && counts.cached_input == Some(3)
+                && counts.cache_write_input == Some(1)
+                && counts.output == 6
+                && counts.reasoning_output == Some(4)
+                && counts.total == 20
+    ));
     let request = complete_tool_step(&mut agent, &first, "Plexmaton");
     let recorded_replay = request
         .items
@@ -126,6 +156,10 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
     complete_answer(&mut agent, &second);
     assert!(matches!(second.first(), Some(ModelEvent::Replay(_))));
     assert_eq!(visible_text(&second), "Plexmaton.");
+    assert!(matches!(
+        reported_usage(&second),
+        TokenUsage::Complete(counts) if counts.total == 31
+    ));
     assert!(matches!(
         second.last(),
         Some(ModelEvent::Stopped(StopReason::EndOfTurn))
@@ -165,9 +199,11 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
     let mut limits = DecodeLimits::for_profile(&profile);
     limits.max_retained_output_bytes = 3;
     let source = stream::iter([Ok::<_, Infallible>(CHAT_FINAL_ANSWER.as_bytes())]);
-    let error = drive_sse(profile.protocol(), source, limits, |_| {})
-        .await
-        .unwrap_err_or_else();
+    let error = drive_sse(profile.protocol(), source, limits, |_| {
+        std::future::ready(())
+    })
+    .await
+    .unwrap_err_or_else();
     assert!(matches!(
         error,
         SseDecodeError::Decode(plexmaton_provider::DecodeError::RetainedOutputTooLarge {
@@ -181,7 +217,7 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
         profile.protocol(),
         source,
         DecodeLimits::for_profile(&profile),
-        |_| {},
+        |_| std::future::ready(()),
     )
     .await
     .unwrap_err_or_else();
@@ -205,7 +241,10 @@ async fn prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid() {
         profile.protocol(),
         source,
         DecodeLimits::for_profile(&profile),
-        |event| emitted.push(event),
+        |event| {
+            emitted.push(event);
+            std::future::ready(())
+        },
     )
     .await
     .unwrap_err_or_else();
@@ -300,7 +339,11 @@ fn prv_5_responses_done_only_refusal_is_visible_and_typed() {
     let completed = r#"{"type":"response.completed","response":{"status":"completed"}}"#;
     assert!(matches!(
         codec.push_sse("response.completed", completed),
-        Ok(events) if events == [ModelEvent::Stopped(StopReason::Refused)]
+        Ok(events)
+            if events == [
+                ModelEvent::Usage(TokenUsage::Unavailable),
+                ModelEvent::Stopped(StopReason::Refused),
+            ]
     ));
     codec
         .finish()
@@ -317,7 +360,7 @@ async fn prv_2_sse_framing_rejects_partial_utf8() {
         profile.protocol(),
         source,
         DecodeLimits::for_profile(&profile),
-        |_| {},
+        |_| std::future::ready(()),
     )
     .await
     .unwrap_err_or_else();

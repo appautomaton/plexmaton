@@ -8,6 +8,8 @@ data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"in
 
 data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}
 
+data: {"id":"chat_fixture_call","object":"chat.completion.chunk","choices":[],"usage":{"prompt_tokens":12,"prompt_tokens_details":{"cached_tokens":2,"cache_write_tokens":1},"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":3},"total_tokens":17}}
+
 data: [DONE]
 
 : fixture eof

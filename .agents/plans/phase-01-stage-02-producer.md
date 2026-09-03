@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1–5 of 10 landed 2026-09-02; slice 6 next |
+| Status | Slices 1–6 of 10 landed 2026-09-02; slice 7 next |
 | Blocked | None |
 
 ## Outcome
@@ -52,13 +52,13 @@ admission and approval boundary. This plan owns only the order in which the mech
    (PRV-1 through PRV-7). `~/.plexmaton/config.toml` is the normal root and `PLEXMATON_HOME`
    redirects the whole root for isolated development. *Closes when* sanitized recordings of both
    protocols drive a full tool round trip under `cargo test` with no network.
-6. **Live text and reported usage.** A `plexmaton-runtime` owner drives one real `Agent` through the
+6. **Live text and reported usage.** Landed. A `plexmaton-runtime` owner drives one real `Agent` through the
    selected codec and a pooled HTTP client, with step-correlated output, owned cancellation and
    checked per-turn usage ([live-runtime](../specs/live-runtime.md) LIVE-1 through LIVE-6). No tools
    are advertised yet. *Closes when* sequential real conversations stream through the TUI,
    `Ctrl-C` cancels and joins one in flight, both protocols report usage through sanitized fixtures,
-   deterministic failure tests leave no task alive, and the usage presentation has been viewed by
-   the user at wide, medium and narrow.
+   deterministic failure tests leave no task alive, and the projection retains exact per-turn
+   usage for a later on-demand diagnostics surface without adding permanent chrome.
 7. **Read and search.** A workspace-rooted read capability, exact bounded UTF-8 windows with an
    authoritative observed version, and typed bounded search through an argv-based ripgrep adapter.
    *Closes when* a large file, a giant line, an ignored binary, a symlink escape and more matches

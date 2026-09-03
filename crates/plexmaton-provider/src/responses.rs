@@ -4,6 +4,7 @@ mod call;
 mod request;
 mod stream;
 mod text;
+mod usage;
 mod wire;
 
 pub(crate) use request::encode;

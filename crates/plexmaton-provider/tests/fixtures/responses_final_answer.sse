@@ -26,6 +26,6 @@ event: response.output_item.done
 data: {"type":"response.output_item.done","sequence_number":8,"output_index":1,"item":{"id":"msg_fixture_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Plexmaton.","annotations":[]}],"status":"completed"}}
 
 event: response.completed
-data: {"type":"response.completed","sequence_number":9,"response":{"id":"resp_fixture_answer","status":"completed","output":[],"store":false}}
+data: {"type":"response.completed","sequence_number":9,"response":{"id":"resp_fixture_answer","status":"completed","output":[],"store":false,"usage":{"input_tokens":22,"input_tokens_details":{"cached_tokens":7,"cache_write_tokens":2},"output_tokens":9,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":31}}}
 
 : fixture eof

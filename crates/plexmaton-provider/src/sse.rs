@@ -1,6 +1,8 @@
 //! Bounded SSE framing that drives one explicit provider codec.
 
 use eventsource_stream2::Eventsource;
+use std::future::Future;
+
 use futures_util::{Stream, StreamExt};
 use plexmaton_agent::ModelEvent;
 use thiserror::Error;
@@ -26,7 +28,7 @@ pub enum SseDecodeError<E> {
 /// owns only bounded framing and dialect translation. A semantic stop is withheld until the codec
 /// accepts the stream trailer, so a malformed close cannot become `Stopped` followed by `Failed`
 /// in a caller (PRV-1, PRV-2, PRV-7).
-pub async fn drive_sse<S, B, E, F>(
+pub async fn drive_sse<S, B, E, F, Fut>(
     protocol: Protocol,
     stream: S,
     limits: DecodeLimits,
@@ -35,7 +37,8 @@ pub async fn drive_sse<S, B, E, F>(
 where
     S: Stream<Item = Result<B, E>>,
     B: AsRef<[u8]>,
-    F: FnMut(ModelEvent),
+    F: FnMut(ModelEvent) -> Fut,
+    Fut: Future<Output = ()>,
 {
     let mut guard = EventSizeGuard::new(limits.max_sse_event_bytes);
     let guarded = stream.map(move |item| match item {
@@ -77,7 +80,7 @@ where
                         return Err(SseDecodeError::Decode(DecodeError::DuplicateFinality));
                     }
                 }
-                event => emit(event),
+                event => emit(event).await,
             }
         }
     }
@@ -85,7 +88,7 @@ where
     let Some(reason) = pending_stop else {
         return Err(SseDecodeError::Decode(DecodeError::IncompleteStream));
     };
-    emit(ModelEvent::Stopped(reason));
+    emit(ModelEvent::Stopped(reason)).await;
     Ok(())
 }
 

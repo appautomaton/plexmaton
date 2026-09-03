@@ -8,6 +8,7 @@ use plexmaton_core::{
     ToolCallStatus, TurnId,
 };
 
+use super::usage::UsageAccumulator;
 use super::{Agent, Turn};
 use crate::admission::{AdmissionOutcome, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
@@ -23,6 +24,7 @@ impl Agent {
         turn_id: TurnId,
         calls: Vec<ToolCall>,
         step: u16,
+        usage: UsageAccumulator,
         reaction: &mut Reaction,
     ) {
         for call in &calls {
@@ -35,6 +37,7 @@ impl Agent {
             turn_id,
             batch: Batch::new(calls),
             step,
+            usage,
         };
     }
 
@@ -259,17 +262,18 @@ impl Agent {
             &self.turn,
             Turn::Working { batch, .. } if batch.is_settled()
         );
-        if complete && let Some((turn_id, step)) = self.settle_batch() {
-            self.next_step(turn_id, step, reaction);
+        if complete && let Some((turn_id, step, usage)) = self.settle_batch() {
+            self.next_step(turn_id, step, usage, reaction);
         }
     }
 
     /// Moves the batch's results into the record in model order.
-    pub(super) fn settle_batch(&mut self) -> Option<(TurnId, u16)> {
+    pub(super) fn settle_batch(&mut self) -> Option<(TurnId, u16, UsageAccumulator)> {
         let Turn::Working {
             turn_id,
             batch,
             step,
+            usage,
         } = std::mem::replace(&mut self.turn, Turn::Idle)
         else {
             return None;
@@ -280,11 +284,17 @@ impl Agent {
                 outcome,
             });
         }
-        Some((turn_id, step))
+        Some((turn_id, step, usage))
     }
 
     /// Takes the next step, or ends the turn because there is no budget for one.
-    pub(super) fn next_step(&mut self, turn_id: TurnId, step: u16, reaction: &mut Reaction) {
+    pub(super) fn next_step(
+        &mut self,
+        turn_id: TurnId,
+        step: u16,
+        usage: UsageAccumulator,
+        reaction: &mut Reaction,
+    ) {
         if step >= self.budget.max_steps {
             self.warn(
                 reaction,
@@ -298,7 +308,7 @@ impl Agent {
             return;
         }
         self.claim_next_step_input(reaction);
-        self.open_step(turn_id, step.saturating_add(1), reaction);
+        self.open_step(turn_id, step.saturating_add(1), usage, reaction);
     }
 
     /// Pays every unfinished slot, resolving Attention projections on the way (APV-6).

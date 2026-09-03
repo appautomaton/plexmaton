@@ -1,6 +1,6 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, MailId, ToolCallId, ToolCallStatus, TranscriptItemId,
-    TranscriptRole,
+    AgentId, AgentStatus, ArtifactId, MailId, TokenUsage, ToolCallId, ToolCallStatus,
+    TranscriptItemId, TranscriptRole, TurnId,
 };
 
 use super::{ReduceError, ordered::OrderedById};
@@ -71,6 +71,7 @@ pub struct AgentView {
     tools: OrderedById<ToolCallId, ToolCallView>,
     artifacts: OrderedById<ArtifactId, ArtifactView>,
     inbox: OrderedById<MailId, MailView>,
+    usage: Option<(TurnId, TokenUsage)>,
 }
 
 impl AgentView {
@@ -83,6 +84,7 @@ impl AgentView {
             tools: OrderedById::default(),
             artifacts: OrderedById::default(),
             inbox: OrderedById::default(),
+            usage: None,
         }
     }
 
@@ -104,6 +106,16 @@ impl AgentView {
     /// Iterates delivered mail in arrival order.
     pub fn inbox(&self) -> impl Iterator<Item = &MailView> {
         self.inbox.iter()
+    }
+
+    /// Latest turn usage reported for this agent, retained for on-demand diagnostics.
+    #[must_use]
+    pub fn usage(&self) -> Option<(&TurnId, &TokenUsage)> {
+        self.usage.as_ref().map(|(turn_id, usage)| (turn_id, usage))
+    }
+
+    pub(super) fn set_usage(&mut self, turn_id: TurnId, usage: TokenUsage) {
+        self.usage = Some((turn_id, usage));
     }
 
     /// Opens a transcript item that later deltas will append to.

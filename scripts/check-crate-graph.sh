@@ -79,6 +79,11 @@ forbid plexmaton-provider "an HTTP client, runtime, or terminal" \
     'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui'
 only plexmaton-provider "plexmaton-agent plexmaton-core"
 
+# The runtime is the outward dependency point: it may perform the loop's effects through the
+# selected codec, but it must not reach the projection or the synthetic producer.
+forbid plexmaton-runtime "a terminal or projection" 'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
+only plexmaton-runtime "plexmaton-agent plexmaton-core plexmaton-provider"
+
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'
 

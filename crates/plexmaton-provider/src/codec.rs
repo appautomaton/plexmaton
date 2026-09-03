@@ -4,6 +4,7 @@ use plexmaton_agent::{
     AdmissionRefusal, MAX_ADMITTED_ARGUMENT_BYTES, MAX_PROVIDER_REPLAY_BYTES, ModelError,
     ModelEvent, ModelRequest, ProviderReplayError, ToolCancellationReason, ToolOutcome,
 };
+use plexmaton_core::{TokenCounts, TokenUsage};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -167,6 +168,10 @@ pub enum DecodeError {
     ProviderFailed { code: Option<String> },
     #[error("the provider reported an unknown completion reason `{0}`")]
     UnknownStopReason(String),
+    #[error("provider usage field `{field}` is internally inconsistent")]
+    InvalidUsage { field: &'static str },
+    #[error("the provider reported usage more than once")]
+    DuplicateUsage,
 }
 
 /// One explicitly selected dialect decoder. It cannot fall back or change protocol mid-stream.
@@ -280,6 +285,44 @@ pub(crate) fn retain_bytes(
     }
     *retained = next;
     Ok(())
+}
+
+pub(crate) fn reported_usage(counts: TokenCounts) -> Result<TokenUsage, DecodeError> {
+    if counts
+        .cached_input
+        .is_some_and(|value| value > counts.input)
+    {
+        return Err(DecodeError::InvalidUsage {
+            field: "cached_input",
+        });
+    }
+    if counts
+        .cache_write_input
+        .is_some_and(|value| value > counts.input)
+    {
+        return Err(DecodeError::InvalidUsage {
+            field: "cache_write_input",
+        });
+    }
+    if counts
+        .reasoning_output
+        .is_some_and(|value| value > counts.output)
+    {
+        return Err(DecodeError::InvalidUsage {
+            field: "reasoning_output",
+        });
+    }
+    if counts.input.checked_add(counts.output) != Some(counts.total) {
+        return Err(DecodeError::InvalidUsage { field: "total" });
+    }
+    let complete = counts.cached_input.is_some()
+        && counts.cache_write_input.is_some()
+        && counts.reasoning_output.is_some();
+    Ok(if complete {
+        TokenUsage::Complete(counts)
+    } else {
+        TokenUsage::Partial(counts)
+    })
 }
 
 pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
