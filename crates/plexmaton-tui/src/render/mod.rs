@@ -338,7 +338,7 @@ fn conversation_body(
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
-        TranscriptItemId,
+        ToolCallStatus, ToolPresentation, TranscriptItemId,
     };
     use ratatui::{
         Terminal,
