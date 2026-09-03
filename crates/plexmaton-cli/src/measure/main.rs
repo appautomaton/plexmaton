@@ -6,7 +6,7 @@
 //!
 //! Work counts are deterministic and are asserted by the tests below and in `plexmaton-tui`.
 //! Timings are not: they belong to whichever machine ran the command, which is why the report names
-//! it rather than pretending a number is portable (FR-3).
+//! it rather than pretending a number is portable (FR-4).
 
 #![allow(
     clippy::print_stdout,

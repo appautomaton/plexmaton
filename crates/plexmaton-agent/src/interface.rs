@@ -50,7 +50,7 @@ pub enum Input {
     ApprovalDecided {
         /// Exact pending request being answered.
         approval_id: ApprovalId,
-        /// Once-only decision Slice 4 accepts.
+        /// Once-only decision APV-4 accepts.
         decision: ApprovalDecision,
     },
     /// The user asked the current turn to stop.

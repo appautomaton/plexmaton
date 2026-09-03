@@ -93,7 +93,11 @@ other rule about input follows from this one.
 - While a sub-agent's input is active, the primary composer **collapses to a single row** reading
   `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
-  acceptable and zero costs too much screen on a small terminal.
+  acceptable and zero costs too much screen on a small terminal. The collapsed row omits current
+  work; rejected: squeezing status beside its target and return affordance on a narrow terminal.
+- The primary composer's divider carries at most one current-work label: `Thinking`, `Responding`,
+  `Running <tool>`, or `Approval required`. It is derived from semantic state, action required
+  outranks ambient work, and idle adds no label. It adds no row and owns no animation clock.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The last row of the screen is the status line.** Full width, under every pane, it says one
@@ -212,10 +216,10 @@ The product areas, arranged without assuming they are all permanently visible:
 - Permission, approval, and confirmation surfaces
 
 The inspector is the inspected agent's **conversation**. Tool activity, mail and artifacts are
-entries in the conversation of the agent that produced them (§progressive disclosure, §transcript
-grammar); until that grammar lands, the activity column is their interim home. A composed surface
-beside a conversation, with status and an artifact index, is Phase 03's. The other areas are placed
-provisionally until the phase that builds them.
+entries in the conversation of the agent that produced them, in first-appearance order
+(§progressive disclosure, §transcript grammar); there is no separate Activity surface. A composed
+surface beside a conversation, with status and an artifact index, is Phase 03's. The other areas
+are placed provisionally until the phase that builds them.
 
 ## Surface model
 
@@ -300,13 +304,14 @@ Every layout class preserves the meaning of this journey even when it changes wh
 | --- | --- | --- |
 | Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 132 |
 | Wide | Agent column plus one conversation; a second agent arrives as a shelf | 96 ≤ width < 132 |
-| Medium | The primary conversation dominates; activity compresses to markers | 72 ≤ width < 96 |
+| Medium | A narrow agent column plus the primary conversation | 72 ≤ width < 96 |
 | Narrow | One major surface at a time; looking at an agent is a full-region transition, the window's maximized presentation | width < 72 |
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-- The agent column sits on the left and holds the list of sub-agents over their activity in one
-  box. It is a column from wide up and a band below. Rejected: an activity column on the right,
-  stacked under the conversation at medium, which left the screen whenever a second window opened.
+- The agent navigator is a column from medium up and a band below. Each row carries lifecycle plus
+  compact non-text counts such as `1 tool @1 1 mail`; `@` is the artifact marker, while the
+  conversation title keeps full nouns. Rejected: a separate activity region, which regrouped facts
+  that already belong in each agent's conversation.
 - Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
   cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,
   replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
@@ -325,7 +330,8 @@ carries identity and status but is never the only carrier:
 - User message
 - Assistant message, streaming and final
 - Reasoning summary
-- Tool call: queued, running, succeeded, failed, denied, cancelled, approval required
+- Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
+  `[x] denied`, or `[-] cancelled`
 - Diff and artifact
 - Agent mail
 - Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the
@@ -361,8 +367,8 @@ it (FR-4). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loo
 | Opening a conversation nothing has measured | 20 ms | `cold open`, `open hidden conversation` |
 | Resize recovery | 20 ms | `resize` |
 | Streaming redraw frequency | One frame per changed projection, never per event | FR-1 |
-| Layout work per updated transcript block | One item wrapped, at any history length | `streaming delta` |
-| Memory retained per hidden conversation | One cache entry per message per width drawn, at most two widths | `open inspector` |
+| Layout work per updated transcript block | One entry wrapped, at any history length | `streaming delta` |
+| Memory retained per hidden conversation | One cache entry per transcript entry per width drawn, at most two widths | `open inspector` |
 
 ## Open questions
 

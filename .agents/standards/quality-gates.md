@@ -30,7 +30,7 @@ any single edit:
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the checked-in frames under `crates/plexmaton-tui/frames/`; the diff is the review, and the ordinary test run compares against them |
-| `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-3) |
+| `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 
 Policy is pinned in `rustfmt.toml`, `clippy.toml`, `deny.toml`, `_typos.toml`, and the root
 `[workspace.lints]` table. Document budgets and their escape hatches live in

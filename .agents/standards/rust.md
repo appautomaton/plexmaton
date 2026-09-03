@@ -97,7 +97,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | --- | --- |
 | `ratatui-textarea` | Consumes `crossterm::event::Event`, and exactly one component may (INV-1) |
 | `arboard` | A local clipboard reaches the wrong machine over SSH; OSC 52 reaches the user's terminal |
-| `criterion` | Cannot see work counts, which are the evidence; timings are reported, never asserted (FR-3) |
+| `criterion` | Cannot see work counts, which are the evidence; timings are reported, never asserted (FR-4) |
 
 ## Maintenance
 

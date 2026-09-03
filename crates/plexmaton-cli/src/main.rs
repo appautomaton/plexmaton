@@ -338,7 +338,7 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use plexmaton_core::{ToolCallStatus, TranscriptRole};
+    use plexmaton_core::{ToolCallStatus, ToolDetail, TranscriptRole};
     use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{
         ApprovalSubmission, Submission, SubmissionKind, SurfaceId, TranscriptEntryView,
@@ -1047,11 +1047,21 @@ reasoning_effort = "none"
         assert!(agent.transcript().any(|item| {
             item.role == TranscriptRole::Assistant && item.source.contains("Plexmaton.")
         }));
-        assert!(
-            agent.tool_activity().any(|tool| {
-                tool.label == "read_file" && tool.status == ToolCallStatus::Succeeded
-            })
-        );
+        let read = agent
+            .tool_activity()
+            .find(|tool| tool.label == "read_file")
+            .unwrap_or_else(|| panic!("native read never entered the transcript"));
+        assert_eq!(read.status, ToolCallStatus::Succeeded);
+        assert!(matches!(
+            &read.presentation.invocation,
+            Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                if source.contains("README.md")
+        ));
+        assert!(matches!(
+            &read.presentation.outcome,
+            Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                if source.contains("Plexmaton fixture")
+        ));
         assert!(agent.usage().is_some());
         assert_eq!(
             workspace.state().notices().count(),

@@ -277,7 +277,7 @@ pub enum PolicyDecision {
     Forbidden,
 }
 
-/// Slice 4's stateless policy over typed capabilities.
+/// Stateless policy over typed capabilities (APV-2).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApprovalPolicy {
     approval_required: CapabilitySet,

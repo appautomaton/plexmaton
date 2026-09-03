@@ -2,7 +2,7 @@
 │> ask   agent-b · Choose whether the overlap study should │
 └──────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ─────────────────────────────────────────────┐
-│○ Agent B · UI study  done · 1 tool · 1 artifact · 1 mail │
+│○ Agent B · UI study  done · 1 tool @1 1 mail             │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘

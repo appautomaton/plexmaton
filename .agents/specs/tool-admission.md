@@ -17,11 +17,10 @@ model, a presentation adapter, nor a holder of an already admitted call can cons
 Raw provider arguments stop at 64 KiB; canonical state has a separate bounded 1 KiB structural
 reserve so trusted normalization does not widen the wire boundary.
 
-**APV-2 — Policy reads capabilities, not names.** An admitted call carries its tool-definition
-identity and revision, normalized arguments, a finite set of typed capabilities, and bounded
-decision detail plus a bounded canonical invocation for transcript presentation. Policy returns
-exactly `Allow`, `RequireApproval`, or `Forbidden`; tool names,
-display labels and prompt prose are never authority. The first live policy allows `FileRead`,
+**APV-2 — Policy reads capabilities, not names.** An admitted call carries definition identity and
+revision, normalized arguments, typed capabilities, bounded decision detail and a bounded canonical
+transcript invocation. Policy returns exactly `Allow`, `RequireApproval`, or `Forbidden`; tool
+names, display labels and prompt prose are never authority. The first live policy allows `FileRead`,
 requires approval for `FileWrite` or `ProcessSpawn`, and forbids no capability by default.
 
 **APV-3 — Approval grants permission, not validity.** `AllowOnce` authorizes only the admitted call

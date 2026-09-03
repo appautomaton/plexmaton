@@ -3,7 +3,7 @@
 //! These functions turn the projection into logical lines and nothing else: no rectangle, no
 //! scroll offset, no widget. Keeping measurement and geometry out of them is what lets a viewport
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
-//! other's work — and it is the seam the wrapping cache attaches to in delivery step 5.
+//! other's work — and it is the seam used by the wrapping cache.
 
 use plexmaton_core::{AgentId, AgentStatus, ToolCallStatus, TranscriptRole};
 use ratatui::{
@@ -49,7 +49,7 @@ pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>>
                     format!(
                         "  {}{}",
                         agent_status_label(agent.status),
-                        entry_counts(agent)
+                        agent_row_counts(agent)
                     ),
                     palette.style(agent_role(agent.status)),
                 ),
@@ -194,15 +194,7 @@ pub(crate) fn conversation_placeholder(
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
 /// row and conversation title stay short.
 pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
-    let (tools, artifacts, mail) = agent.entries().fold(
-        (0_usize, 0_usize, 0_usize),
-        |(tools, artifacts, mail), entry| match entry {
-            TranscriptEntryView::Text(_) => (tools, artifacts, mail),
-            TranscriptEntryView::Tool(_) => (tools.saturating_add(1), artifacts, mail),
-            TranscriptEntryView::Artifact(_) => (tools, artifacts.saturating_add(1), mail),
-            TranscriptEntryView::Mail(_) => (tools, artifacts, mail.saturating_add(1)),
-        },
-    );
+    let (tools, artifacts, mail) = count_entries(agent);
     let mut parts = String::new();
     for (count, one, many) in [
         (tools, "tool", "tools"),
@@ -215,6 +207,47 @@ pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
         }
     }
     parts
+}
+
+/// Compact counts for the narrow agent rail; `@` is the transcript's artifact marker.
+fn agent_row_counts(agent: &crate::AgentView) -> String {
+    let (tools, artifacts, mail) = count_entries(agent);
+    let mut parts = String::new();
+    if tools > 0 {
+        parts.push_str(&format!(
+            "{tools} tool{}",
+            if tools == 1 { "" } else { "s" }
+        ));
+    }
+    if artifacts > 0 {
+        if !parts.is_empty() {
+            parts.push(' ');
+        }
+        parts.push_str(&format!("@{artifacts}"));
+    }
+    if mail > 0 {
+        if !parts.is_empty() {
+            parts.push(' ');
+        }
+        parts.push_str(&format!("{mail} mail"));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!(" · {parts}")
+    }
+}
+
+fn count_entries(agent: &crate::AgentView) -> (usize, usize, usize) {
+    agent.entries().fold(
+        (0_usize, 0_usize, 0_usize),
+        |(tools, artifacts, mail), entry| match entry {
+            TranscriptEntryView::Text(_) => (tools, artifacts, mail),
+            TranscriptEntryView::Tool(_) => (tools.saturating_add(1), artifacts, mail),
+            TranscriptEntryView::Artifact(_) => (tools, artifacts.saturating_add(1), mail),
+            TranscriptEntryView::Mail(_) => (tools, artifacts, mail.saturating_add(1)),
+        },
+    )
 }
 
 /// The one row the primary composer keeps while a sub-agent's input is active (INS-5).
@@ -323,6 +356,7 @@ const fn tool_status_label(status: ToolCallStatus) -> &'static str {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId};
+    use ratatui::widgets::{Paragraph, Wrap};
 
     use super::{agents, transcript_entry};
     use crate::{ToolCallView, TranscriptEntryView, test_support::canonical_state, theme::Palette};
@@ -371,7 +405,13 @@ mod tests {
             .to_string();
 
         assert!(agent_b.contains("1 tool"), "{agent_b:?}");
-        assert!(agent_b.contains("1 artifact"), "{agent_b:?}");
+        assert!(agent_b.contains("@1"), "{agent_b:?}");
         assert!(agent_b.contains("1 mail"), "{agent_b:?}");
+        for width in [26, 24] {
+            let physical_rows = Paragraph::new(agent_b.clone())
+                .wrap(Wrap { trim: false })
+                .line_count(width);
+            assert_eq!(physical_rows, 2, "{width} cells: {agent_b:?}");
+        }
     }
 }

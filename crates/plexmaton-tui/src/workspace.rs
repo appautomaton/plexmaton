@@ -71,7 +71,7 @@ impl Outcome {
 /// What one frame cost, in work rather than in time.
 ///
 /// Work is the half of a performance claim that is the same on every machine, so it is what tests
-/// assert and what a report prints beside its timings (FR-3).
+/// assert and what a report prints beside its timings (FR-4).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FrameWork {
     /// Transcript entries whose height had to be wrapped for this frame.

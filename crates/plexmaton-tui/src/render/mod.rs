@@ -393,7 +393,7 @@ mod tests {
         ink(palette.style(role))
     }
 
-    /// The proposed current-work vocabulary is emitted exactly and idle contributes no suffix.
+    /// COM-5: the accepted current-work vocabulary is exact and idle contributes no suffix.
     #[test]
     fn the_composer_boundary_names_each_current_work_state() {
         let palette = Palette::default();
@@ -1085,7 +1085,7 @@ mod tests {
             "domain entries have no second panel"
         );
         assert!(rendered.contains("1 tool"));
-        assert!(rendered.contains("1 artifact"));
+        assert!(rendered.contains("@1"), "compact artifact count");
         assert!(rendered.contains("1 mail"));
         assert!(rendered.contains("Message Agent A"));
         assert!(

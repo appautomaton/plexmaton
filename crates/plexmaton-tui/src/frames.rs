@@ -67,7 +67,7 @@ mod tests {
     const TOOL_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
 
-    /// Compact composer-only candidates for work states absent from the canonical frames.
+    /// Compact composer-only frames for work states absent from the canonical frames.
     const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
 
@@ -102,9 +102,9 @@ mod tests {
         region_text(&buffer, composer.bounds)
     }
 
-    /// Slice 4 candidates: every proposed ambient label can be reviewed at all three widths.
+    /// COM-5: every accepted ambient label is frozen at all three widths.
     #[test]
-    fn the_current_work_candidate_frames_match_their_fixtures() {
+    fn the_current_work_frames_match_their_fixtures() {
         let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         let states = [
             ("responding", current_responding_state(), "Responding"),
@@ -120,7 +120,7 @@ mod tests {
                 let drawn = composer_frame(&state, width, height);
                 assert!(
                     drawn.contains(&format!(" · {label}")),
-                    "{name}: the candidate label is visible"
+                    "{name}: the accepted label is visible"
                 );
                 assert_eq!(
                     drawn.lines().count(),

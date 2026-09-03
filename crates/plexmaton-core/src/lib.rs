@@ -148,7 +148,7 @@ pub enum ToolCapability {
     ProcessSpawn,
 }
 
-/// The decisions Slice 4 accepts for one pending approval.
+/// The decisions APV-4 accepts for one pending approval.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalDecision {
@@ -321,9 +321,9 @@ pub enum SessionEvent {
         item_id: TranscriptItemId,
         /// Identity of the delivered mail.
         mail_id: MailId,
-        /// Sending agent. Part of the product contract, so recipients must retain it.
+        /// Sending agent and owner of this transcript item.
         from: AgentId,
-        /// Receiving agent, whose inbox gains the item.
+        /// Receiving agent retained as the delivery endpoint; the sender owns this transcript item.
         to: AgentId,
         /// Bounded summary. Bulk findings stay in artifacts or the sender's session.
         summary: String,

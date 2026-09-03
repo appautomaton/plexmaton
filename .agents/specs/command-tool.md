@@ -14,13 +14,11 @@ requires `cmd` and nullable `timeout_ms`, and refuses additional properties. Adm
 required non-empty `cmd` string bounded to 6,144 Unicode scalars and 24 KiB of UTF-8, plus a
 missing, null or non-zero `timeout_ms` no greater than the hard ceiling. Those limits leave room
 for worst-case JSON escaping and the bounded root inside the 64 KiB raw-call and 65 KiB canonical
-ceilings. Admission pins the definition revision, root, timeout and capability set
-`[FileRead, FileWrite, ProcessSpawn]`; the executor revalidates all of
-them. It also refuses execution if the root's file identity changed since the tool was constructed
-(APV-1 through APV-3). Approval detail independently bounds the root and command, retaining the
-head, tail and exact omitted-byte count of either; the command leads so the decision surface shows
-what will execute before secondary context can wrap. The transcript invocation separately retains
-the complete canonical command, root and timeout under the admitted-state bounds.
+ceilings. Admission pins the definition revision, root, timeout and
+`[FileRead, FileWrite, ProcessSpawn]`; the executor revalidates them and the root's file identity
+(APV-1 through APV-3). Approval detail bounds each root and command with head, tail and exact
+omitted-byte count; the command leads so execution is visible before context wraps. Transcript
+invocation retains the canonical command, root and timeout within admitted-state bounds.
 
 **CMD-2 — The process context is explicit and noninteractive.** One `/bin/sh -c` root starts in its
 own process group, with null stdin and the admitted root as `cwd`. The tool snapshots the owner's
@@ -38,9 +36,8 @@ keep reading after retention fills. Each retains at most 64 KiB of raw-byte head
 exact bytes read and omitted-byte count. After root and owned-group completion, EOF gets a bounded
 grace; expiry seals both drains cooperatively and returns the partial captures instead of waiting
 forever on an escaped pipe holder. A second aggregate byte bound applies after lossy UTF-8
-conversion, so invalid input cannot expand the model result past its limit. The transcript outcome
-is that exact model text plus explicit omission metadata. Output becomes observable only in that
-final typed result.
+conversion, so invalid input cannot expand the model result past its limit. Only the final typed
+result exposes output; transcript detail is the exact model text plus omission metadata.
 
 **CMD-4 — Completion is typed.** A result distinguishes an exit code, a Unix signal, timeout and
 cancellation. Text and numeric conventions are presentation, never lifecycle control flow.
