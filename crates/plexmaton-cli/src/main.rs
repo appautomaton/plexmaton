@@ -467,6 +467,12 @@ mod tests {
                         Err(error) => return Err(format!("accept fixture request: {error}")),
                     }
                 };
+                // BSD-derived kernels propagate O_NONBLOCK from the listener to an accepted
+                // socket. The listener polls so it can enforce its own deadline; request reads
+                // use SO_RCVTIMEO and therefore need the accepted socket back in blocking mode.
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|error| format!("make fixture connection blocking: {error}"))?;
                 stream
                     .set_read_timeout(Some(Duration::from_secs(5)))
                     .map_err(|error| format!("set fixture read timeout: {error}"))?;
