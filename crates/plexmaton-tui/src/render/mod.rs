@@ -54,9 +54,9 @@ pub fn render(
     );
     let stacking = Stacking::of(&surfaces);
     let focused = state.focused(&surfaces);
-    // Both are asked once, before anything is painted, and both come from the projection: whether
-    // the inspector has an input is a fact about state and geometry, not a decision a draw call
-    // gets to make. The renderer then has one answer to obey rather than a second to derive.
+    // Both are resolved before anything is painted, and both come from the projection: whether the
+    // inspector has an input is a fact about state and geometry, not a decision a draw call gets to
+    // make. The renderer then has one answer to obey rather than a second to derive.
     let steer = state.steer_input(&surfaces);
     let cursor_owner = (state.keyboard_focus(&surfaces) == KeyboardFocus::TextInput)
         .then_some(focused)
@@ -74,9 +74,12 @@ pub fn render(
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (INS-5). What is left is what its
         // conversation is drawn into, so the two are laid out before either is built.
-        let bounds = match (id, &steer) {
-            (SurfaceId::Inspector, Some((split, _))) => split.conversation,
-            _ => bounds,
+        let bounds = if id == SurfaceId::Inspector {
+            state
+                .inspector_conversation_bounds(&surfaces)
+                .unwrap_or(bounds)
+        } else {
+            bounds
         };
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.

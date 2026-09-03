@@ -2144,6 +2144,24 @@ mod tests {
             .state
             .steer_input(&workspace.surfaces)
             .unwrap_or_else(|| panic!("entering the inspector draws its input"));
+        assert_eq!(
+            workspace
+                .state
+                .inspector_conversation_bounds(&workspace.surfaces),
+            Some(split.conversation),
+            "painting and row hit resolution share the inspector's content rectangle"
+        );
+        assert_eq!(
+            workspace.entry_target_at(
+                SurfaceId::Inspector,
+                Point {
+                    x: split.input.x.saturating_add(1),
+                    y: split.input.y.saturating_add(1),
+                },
+            ),
+            None,
+            "the input strip is not also a transcript row"
+        );
         let primary = measured(&workspace, SurfaceId::Transcript).offset;
         let inspected = measured(&workspace, SurfaceId::Inspector).offset;
         assert!(

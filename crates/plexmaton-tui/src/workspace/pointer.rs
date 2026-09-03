@@ -59,12 +59,11 @@ impl Workspace {
         if !matches!(surface, SurfaceId::Transcript | SurfaceId::Inspector) {
             return None;
         }
-        let mut bounds = self.surfaces.get(surface)?.bounds;
-        if surface == SurfaceId::Inspector
-            && let Some((split, _)) = self.state.steer_input(&self.surfaces)
-        {
-            bounds = split.conversation;
-        }
+        let bounds = match surface {
+            SurfaceId::Inspector => self.state.inspector_conversation_bounds(&self.surfaces)?,
+            SurfaceId::Transcript => self.surfaces.get(surface)?.bounds,
+            _ => return None,
+        };
         if at.x <= bounds.x || at.x >= bounds.right().saturating_sub(1) {
             return None;
         }

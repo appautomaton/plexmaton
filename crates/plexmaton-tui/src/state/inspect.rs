@@ -8,6 +8,7 @@
 //! so, or change nothing and say that.
 
 use plexmaton_core::AgentId;
+use ratatui::layout::Rect;
 
 use crate::{
     intent::{Direction, InspectorIntent, PointerIntent},
@@ -42,6 +43,20 @@ impl ViewState {
         let agent = self.inspector()?.agent;
         let wanted = self.draft(&agent).requested_rows(inner_width(bounds.width));
         layout::steer_split(bounds, wanted).map(|split| (split, agent))
+    }
+
+    /// The rectangle occupied by the inspector's conversation for the supplied frame geometry.
+    ///
+    /// The inspector surface also owns its entered input strip (INS-5). Painting and semantic-row
+    /// hit resolution must use this same smaller rectangle without pretending the surface itself
+    /// has generic clipping semantics (SURF-2).
+    #[must_use]
+    pub(crate) fn inspector_conversation_bounds(&self, surfaces: &SurfaceTree) -> Option<Rect> {
+        let bounds = surfaces.get(SurfaceId::Inspector)?.bounds;
+        Some(
+            self.steer_input(surfaces)
+                .map_or(bounds, |(split, _)| split.conversation),
+        )
     }
 
     /// What layout needs in order to place the inspector.
@@ -201,7 +216,7 @@ impl ViewState {
 /// A stored maximize flag cannot answer this: narrow and short layouts maximize by geometry, and
 /// ultrawide gives the window a tiled column. The shelf is the only Inspector registered above the
 /// base layer, matching ui-ux §drag scope.
-fn shelf_bounds(surfaces: &SurfaceTree) -> Option<ratatui::layout::Rect> {
+fn shelf_bounds(surfaces: &SurfaceTree) -> Option<Rect> {
     surfaces
         .get(SurfaceId::Inspector)
         .filter(|surface| surface.z_index > 0)
