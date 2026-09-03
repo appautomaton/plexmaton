@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 10 |
+| Status | Implemented through Phase 01 stage 3 slice 1 |
 | Owns | Live agent ownership, model-step correlation, native-tool scheduling, cancellation, reported token usage, and the executable-to-agent composition boundary |
 | Depends on | [agent-loop](./agent-loop.md), [tool-admission](./tool-admission.md), [provider-adapter](./provider-adapter.md), [workspace-files](./workspace-files.md), [command-tool](./command-tool.md), [frame-loop](./frame-loop.md) |
 | Proven by | `plexmaton-runtime` component and opt-in live tests, provider fixtures, agent correlation tests, CLI startup test, and TUI reducer test |

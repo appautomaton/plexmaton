@@ -12,7 +12,7 @@ use ratatui::{
 };
 
 use crate::{
-    NoticeView, TranscriptItemView, ViewState,
+    NoticeView, TranscriptItemView, TranscriptTextKind, ViewState,
     state::Selected,
     surface::SurfaceId,
     theme::{Palette, Role, agent_role, tool_role},
@@ -91,11 +91,18 @@ pub(crate) fn transcript_item(
     palette: &Palette,
     selected: bool,
 ) -> Vec<Line<'static>> {
-    let author = match item.role {
-        TranscriptRole::User => "you",
-        TranscriptRole::Assistant => "assistant",
-        TranscriptRole::Reasoning => "reasoning",
-        TranscriptRole::System => "system",
+    let (author, default_heading) = match item.kind {
+        TranscriptTextKind::Message => (
+            match item.role {
+                TranscriptRole::User => "you",
+                TranscriptRole::Assistant => "assistant",
+                TranscriptRole::Reasoning => "reasoning",
+                TranscriptRole::System => "system",
+            },
+            Role::SectionHeading,
+        ),
+        TranscriptTextKind::Warning => ("warning", Role::ActionRequired),
+        TranscriptTextKind::Error => ("error", Role::Failure),
     };
     // Selection replaces the body role rather than adding to it: what is selected has to be
     // legible as one block, and a message whose text kept its own colour while the heading did not
@@ -103,7 +110,7 @@ pub(crate) fn transcript_item(
     let (heading, body) = if selected {
         (Role::Selection, Role::Selection)
     } else {
-        (Role::SectionHeading, Role::Body)
+        (default_heading, Role::Body)
     };
     vec![
         Line::styled(author, palette.style(heading)),
@@ -136,7 +143,7 @@ pub(crate) fn activity_counts(agent: &crate::AgentView) -> String {
     for (count, one, many) in [
         (agent.tool_activity().count(), "tool", "tools"),
         (agent.artifacts().count(), "artifact", "artifacts"),
-        (agent.inbox().count(), "mail", "mail"),
+        (agent.mail().count(), "mail", "mail"),
     ] {
         if count > 0 {
             let noun = if count == 1 { one } else { many };
@@ -176,7 +183,7 @@ pub(crate) fn composer_collapsed(state: &ViewState, palette: &Palette) -> Vec<Li
     ])]
 }
 
-/// Tools, then artifacts, then mail — the order a selection index means.
+/// Tools, then mail, then artifacts — the order a selection index means.
 ///
 /// `selected` is consulted against a running entry counter, and that counter walks the three groups
 /// in exactly the order [`ViewState::sources`](crate::ViewState) builds them. Two orders here would
@@ -214,6 +221,25 @@ fn detail(agent: &crate::AgentView, palette: &Palette, selected: Selected) -> Ve
         lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
 
+    lines.push(Line::styled("Mail", palette.style(Role::SectionHeading)));
+    let mut mail = 0_usize;
+    for item in agent.mail() {
+        mail = mail.saturating_add(1);
+        next(
+            &mut lines,
+            vec![
+                Line::from(vec![
+                    Span::styled("-> ", palette.style(Role::NewInformation)),
+                    Span::styled(item.to.to_string(), palette.style(Role::Body)),
+                ]),
+                Line::styled(format!("  {}", item.summary), palette.style(Role::Muted)),
+            ],
+        );
+    }
+    if mail == 0 {
+        lines.push(Line::styled("  none", palette.style(Role::Muted)));
+    }
+
     lines.push(Line::styled(
         "Artifacts",
         palette.style(Role::SectionHeading),
@@ -238,25 +264,6 @@ fn detail(agent: &crate::AgentView, palette: &Palette, selected: Selected) -> Ve
     if artifacts == 0 {
         lines.push(Line::styled("  none", palette.style(Role::Muted)));
     }
-
-    lines.push(Line::styled("Mail", palette.style(Role::SectionHeading)));
-    let mut mail = 0_usize;
-    for item in agent.inbox() {
-        mail = mail.saturating_add(1);
-        next(
-            &mut lines,
-            vec![
-                Line::from(vec![
-                    Span::styled("<- ", palette.style(Role::NewInformation)),
-                    Span::styled(item.from.to_string(), palette.style(Role::Body)),
-                ]),
-                Line::styled(format!("  {}", item.summary), palette.style(Role::Muted)),
-            ],
-        );
-    }
-    if mail == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
     lines
 }
 
@@ -266,9 +273,6 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
         .notices()
         .map(|notice| {
             let (marker, role, text) = match notice {
-                NoticeView::RuntimeWarning { message } => {
-                    ("[warn] ", Role::ActionRequired, message.clone())
-                }
                 NoticeView::SequenceGap { expected, received } => (
                     "[gap]  ",
                     Role::ActionRequired,

@@ -457,11 +457,12 @@ mod tests {
             .collect()
     }
 
-    fn warnings(reaction: &Reaction) -> Vec<String> {
+    fn runtime_messages(reaction: &Reaction) -> Vec<String> {
         events(reaction)
             .into_iter()
             .filter_map(|event| match event {
-                SessionEvent::RuntimeWarning { message } => Some(message),
+                SessionEvent::RuntimeWarning { message, .. }
+                | SessionEvent::RuntimeError { message, .. } => Some(message),
                 _ => None,
             })
             .collect()
@@ -725,6 +726,39 @@ mod tests {
             }
         )));
         assert_eq!(dispatched(&agent), ["one", "two"]);
+        let tool_events: Vec<_> = events(&dispatching)
+            .into_iter()
+            .filter_map(|event| match event {
+                SessionEvent::ToolCallChanged {
+                    item_id,
+                    item_revision,
+                    call_id,
+                    status,
+                    ..
+                } => Some((
+                    call_id.to_string(),
+                    item_id.to_string(),
+                    item_revision,
+                    status,
+                )),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tool_events
+                .iter()
+                .map(|(call, _, revision, status)| (call.as_str(), *revision, *status))
+                .collect::<Vec<_>>(),
+            [
+                ("one", 0, ToolCallStatus::Queued),
+                ("two", 0, ToolCallStatus::Queued),
+                ("one", 1, ToolCallStatus::Running),
+                ("two", 1, ToolCallStatus::Running),
+            ]
+        );
+        assert_eq!(tool_events[0].1, tool_events[2].1);
+        assert_eq!(tool_events[1].1, tool_events[3].1);
+        assert_ne!(tool_events[0].1, tool_events[1].1);
         assert!(agent.is_running(), "waiting on a tool is still a turn");
     }
 
@@ -801,7 +835,7 @@ mod tests {
 
         let stopped = agent.handle(Input::ShuttingDown);
 
-        assert!(warnings(&stopped).is_empty());
+        assert!(runtime_messages(&stopped).is_empty());
         assert_eq!(dispatched(&agent), answered(&agent));
         assert_eq!(
             agent.record().last(),
@@ -845,7 +879,11 @@ mod tests {
             }
             asked = finish(&mut agent, &call_id, "done");
             if !agent.is_running() {
-                assert_eq!(warnings(&asked).len(), 1, "the budget is spent out loud");
+                assert_eq!(
+                    runtime_messages(&asked).len(),
+                    1,
+                    "the budget is spent out loud"
+                );
                 break;
             }
             assert!(round < 8, "the budget never stopped the turn");
@@ -1114,9 +1152,9 @@ mod tests {
         );
     }
 
-    /// A failed step is degradation the user can see, and the turn ends rather than hanging.
+    /// A failed step is an error the user can see, and the turn ends rather than hanging.
     #[test]
-    fn a_failed_step_is_a_visible_notice_and_ends_the_turn() {
+    fn a_failed_step_is_a_visible_error_and_ends_the_turn() {
         let mut agent = agent();
         submit(&mut agent, "hello");
         delta(&mut agent, "start");
@@ -1129,9 +1167,9 @@ mod tests {
         );
 
         assert_eq!(
-            warnings(&failed).len(),
+            runtime_messages(&failed).len(),
             1,
-            "one notice, not none and not two"
+            "one error, not none and not two"
         );
         assert!(!agent.is_running());
         assert!(
@@ -1156,7 +1194,7 @@ mod tests {
             submit(&mut agent, "hello");
 
             assert_eq!(
-                warnings(&stop(&mut agent, reason)).len(),
+                runtime_messages(&stop(&mut agent, reason)).len(),
                 1,
                 "{reason:?} ended a turn without saying so"
             );
@@ -1164,7 +1202,7 @@ mod tests {
 
         let mut answered = agent();
         submit(&mut answered, "hello");
-        assert!(warnings(&stop(&mut answered, StopReason::EndOfTurn)).is_empty());
+        assert!(runtime_messages(&stop(&mut answered, StopReason::EndOfTurn)).is_empty());
     }
 
     /// An outcome for a call this turn never dispatched would put an identity in the conversation
@@ -1178,7 +1216,7 @@ mod tests {
 
         let stray = finish(&mut agent, "elsewhere", "stray");
 
-        assert_eq!(warnings(&stray).len(), 1);
+        assert_eq!(runtime_messages(&stray).len(), 1);
         assert!(answered(&agent).is_empty());
         assert!(agent.is_running(), "and the batch is still waiting");
     }

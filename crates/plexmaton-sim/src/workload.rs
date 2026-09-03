@@ -5,8 +5,8 @@
 //! scripted story with named moments — and these stay what they are, traffic at a stated volume.
 
 use plexmaton_core::{
-    AgentId, AgentStatus, IdError, SessionEvent, ToolCallId, ToolCallStatus, TranscriptItemId,
-    TranscriptRole,
+    AgentId, AgentStatus, IdError, SessionEvent, ToolCallId, ToolCallStatus, ToolPresentation,
+    TranscriptItemId, TranscriptRole,
 };
 
 use crate::{Scenario, ScenarioStep};
@@ -117,13 +117,12 @@ fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<SessionE
 fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<SessionEvent, IdError> {
     Ok(SessionEvent::ToolCallChanged {
         agent_id: agent_id.clone(),
+        item_id: TranscriptItemId::new(format!("tool-entry-{agent}-{item}"))?,
+        item_revision: 0,
         call_id: ToolCallId::new(format!("tool-{agent}-{item}"))?,
         label: format!("inspect fixture {item}"),
-        status: if item.is_multiple_of(16) {
-            ToolCallStatus::Running
-        } else {
-            ToolCallStatus::Succeeded
-        },
+        status: ToolCallStatus::Queued,
+        presentation: ToolPresentation::default(),
     })
 }
 

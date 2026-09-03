@@ -34,7 +34,7 @@ async fn deterministic_failure_paths_leave_no_provider_task_alive() {
         assert!(
             events
                 .iter()
-                .any(|envelope| matches!(envelope.event, SessionEvent::RuntimeWarning { .. }))
+                .any(|envelope| matches!(envelope.event, SessionEvent::RuntimeError { .. }))
         );
     }
 }

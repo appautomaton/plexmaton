@@ -69,7 +69,7 @@ ordering.
 | Tool catalog | Native read, search, create, edit and command definitions declare schemas, capabilities and bounded details | Phase 02 adds MCP definitions behind the same admission boundary |
 | Approval policy | Stateless policy over the admitted call; reads run, while writes and process spawning ask once | Phase 02 may add session- and workspace-scoped grants behind a durable policy store |
 | Decision vocabulary | `AllowOnce`, `Deny` | A stored grant is a policy operation, not an `ApproveAll` answer smuggled through the UI |
-| Presentation | Attention requested and resolved are projections of loop state | The user-reviewed decision surface may vary by transport without owning pending state |
+| Presentation | One revisioned transcript entry follows the call lifecycle; Attention projects the pending decision separately | The user-reviewed decision surface may vary by transport without owning pending state |
 | Executor | The live runtime sends only admitted, allowed calls to filesystem and process adapters, which enforce their own hard constraints | Network and MCP adapters enter through the same boundary |
 
 ## Failure modes

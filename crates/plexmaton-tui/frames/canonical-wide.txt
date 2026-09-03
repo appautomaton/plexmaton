@@ -8,13 +8,13 @@
 ├ Activity ────────────────┤│                                                                                          │
 │Tools                     ││                                                                                          │
 │  none                    ││                                                                                          │
+│Mail                      ││                                                                                          │
+│  none                    ││                                                                                          │
 │Artifacts                 ││                                                                                          │
 │  none                    ││                                                                                          │
-│Mail                      ││                                                                                          │
-│<- agent-b                ││                                                                                          │
-│  Overlap routing should  ││                                                                                          │
-│remain centralized and    ││                                                                                          │
-│z-ordered.                ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │

@@ -340,7 +340,10 @@ mod tests {
 
     use plexmaton_core::{ToolCallStatus, TranscriptRole};
     use plexmaton_sim::{Scenario, ScriptedRuntime};
-    use plexmaton_tui::{ApprovalSubmission, Submission, SubmissionKind, SurfaceId, Workspace};
+    use plexmaton_tui::{
+        ApprovalSubmission, Submission, SubmissionKind, SurfaceId, TranscriptEntryView,
+        TranscriptTextKind, Workspace,
+    };
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -614,6 +617,160 @@ mod tests {
                 (TranscriptRole::Assistant, "hi there".to_owned()),
             ]
         );
+    }
+
+    /// ENT-2: every production lifecycle branch agrees with the projection's entry revisions.
+    #[test]
+    fn production_tool_lifecycles_replay_as_one_entry_each() {
+        use plexmaton_agent::{
+            AdmissionRefusal, Agent, Effect, Input, ModelEvent, StopReason, ToolCall,
+            ToolDefinitionRevision, ToolOutcome,
+        };
+        use plexmaton_core::{
+            AgentId, ApprovalDecision, ToolCallId, ToolCapability, ToolDefinitionId,
+        };
+
+        let mut agent =
+            Agent::new(AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")));
+        let mut workspace = Workspace::default();
+        workspace.emit(agent.announce("Agent A").events);
+        workspace.emit(
+            agent
+                .handle(Input::Submitted {
+                    text: "exercise every tool ending".to_owned(),
+                })
+                .events,
+        );
+        let step_id = agent
+            .active_model_step()
+            .unwrap_or_else(|| panic!("submission opens one model step"));
+        for call_id in ["success", "refused", "denied", "cancelled", "approved"] {
+            let reaction = agent.handle(Input::Streamed {
+                step_id: step_id.clone(),
+                event: ModelEvent::Called(ToolCall {
+                    call_id: ToolCallId::new(call_id)
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    name: call_id.to_owned(),
+                    arguments: "{}".to_owned(),
+                }),
+            });
+            assert!(reaction.events.is_empty());
+        }
+        let mut dispatched = agent.handle(Input::Streamed {
+            step_id,
+            event: ModelEvent::Stopped(StopReason::ToolCalls),
+        });
+        workspace.emit(std::mem::take(&mut dispatched.events));
+        let mut requests = dispatched
+            .effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::AdmitTool(request) => Some(request),
+                Effect::CallModel(_) | Effect::RunTool(_) => None,
+            });
+        for (expected, capability) in [
+            ("success", Some(ToolCapability::FileRead)),
+            ("refused", None),
+            ("denied", Some(ToolCapability::FileWrite)),
+            ("cancelled", Some(ToolCapability::FileRead)),
+            ("approved", Some(ToolCapability::FileWrite)),
+        ] {
+            let request = requests
+                .next()
+                .unwrap_or_else(|| panic!("admission request for {expected}"));
+            assert_eq!(request.requested().call_id.as_str(), expected);
+            let outcome = match capability {
+                Some(capability) => request
+                    .admit(
+                        ToolDefinitionId::new(format!("{expected}-v1"))
+                            .unwrap_or_else(|error| panic!("fixture: {error}")),
+                        ToolDefinitionRevision::new(1)
+                            .unwrap_or_else(|| panic!("fixture revision")),
+                        [capability],
+                        "{}".to_owned(),
+                        format!("{expected} fixture"),
+                    )
+                    .unwrap_or_else(|error| panic!("admit {expected}: {error:?}")),
+                None => request.refuse(AdmissionRefusal::UnknownTool),
+            };
+            workspace.emit(agent.handle(Input::ToolAdmissionResolved(outcome)).events);
+        }
+        assert!(requests.next().is_none());
+        let approvals: Vec<_> = agent
+            .pending_approvals()
+            .map(|pending| {
+                (
+                    pending.admitted().requested().call_id.clone(),
+                    pending.approval_id().clone(),
+                )
+            })
+            .collect();
+        let approval_id = |call_id: &str| {
+            approvals
+                .iter()
+                .find(|(pending_call_id, _)| pending_call_id.as_str() == call_id)
+                .map(|(_, approval_id)| approval_id.clone())
+                .unwrap_or_else(|| panic!("{call_id} awaits approval"))
+        };
+        let mut allowed = agent.handle(Input::ApprovalDecided {
+            approval_id: approval_id("approved"),
+            decision: ApprovalDecision::AllowOnce,
+        });
+        assert!(matches!(
+            allowed.effects.as_slice(),
+            [Effect::RunTool(call)] if call.requested().call_id.as_str() == "approved"
+        ));
+        workspace.emit(std::mem::take(&mut allowed.events));
+        workspace.emit(
+            agent
+                .handle(Input::ToolFinished {
+                    call_id: ToolCallId::new("approved")
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    outcome: ToolOutcome::Succeeded {
+                        output: "approved done".to_owned(),
+                    },
+                })
+                .events,
+        );
+        workspace.emit(
+            agent
+                .handle(Input::ApprovalDecided {
+                    approval_id: approval_id("denied"),
+                    decision: ApprovalDecision::Deny,
+                })
+                .events,
+        );
+        workspace.emit(
+            agent
+                .handle(Input::ToolFinished {
+                    call_id: ToolCallId::new("success")
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                    outcome: ToolOutcome::Succeeded {
+                        output: "done".to_owned(),
+                    },
+                })
+                .events,
+        );
+        workspace.emit(agent.handle(Input::Interrupted).events);
+
+        let tools: Vec<_> = workspace
+            .state()
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .tool_activity()
+            .map(|tool| (tool.id.as_str(), tool.revision, tool.status))
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("success", 2, ToolCallStatus::Succeeded),
+                ("refused", 1, ToolCallStatus::Failed),
+                ("denied", 2, ToolCallStatus::Denied),
+                ("cancelled", 2, ToolCallStatus::Cancelled),
+                ("approved", 3, ToolCallStatus::Succeeded),
+            ]
+        );
+        assert_eq!(workspace.state().notices().count(), 0);
     }
 
     /// LOOP-6 and INV-7 at the composition boundary: the visible input chooses the agent input,
@@ -906,7 +1063,10 @@ reasoning_effort = "none"
         );
         let mut workspace = Workspace::default();
         workspace.emit(runtime.ready(u64::MAX));
-        let before = workspace.state().notices().count();
+        let before = workspace
+            .state()
+            .primary_agent()
+            .map_or(0, |agent| agent.entries().count());
 
         dispatch_synthetic(
             &mut runtime,
@@ -917,10 +1077,17 @@ reasoning_effort = "none"
         )
         .unwrap_or_else(|error| panic!("the adapter must report its limitation: {error}"));
 
-        assert_eq!(
-            workspace.state().notices().count(),
-            before.saturating_add(1)
-        );
+        let agent = workspace
+            .state()
+            .primary_agent()
+            .unwrap_or_else(|| panic!("canonical scenario creates the primary agent"));
+        assert_eq!(agent.entries().count(), before.saturating_add(1));
+        assert!(matches!(
+            agent.entries().last(),
+            Some(TranscriptEntryView::Text(item))
+                if item.kind == TranscriptTextKind::Warning
+                    && item.source.contains("cannot interrupt")
+        ));
     }
 
     /// With no agent there is no cursor, so there is nothing to submit in the first place.

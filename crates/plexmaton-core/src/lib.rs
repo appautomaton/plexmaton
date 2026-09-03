@@ -1,7 +1,7 @@
 //! Semantic contracts shared by Plexmaton runtimes and projections.
 //!
-//! Phase 00 deliberately exposes only the event vocabulary required by the synthetic
-//! multi-agent experience. Provider wire events and terminal input do not belong here.
+//! Provider wire events, terminal input, persistence records and animation ticks do not belong
+//! here; runtime facts cross this boundary as one typed session-event vocabulary.
 //!
 //! Every field carries an invariant that a producer or a projection can get wrong, so this crate
 //! documents them; the rest of the workspace does not enforce field-level documentation.
@@ -12,8 +12,10 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod transcript;
 mod usage;
 
+pub use transcript::{ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole};
 pub use usage::{TokenCounts, TokenUsage};
 
 /// Rejected stable identifier input.
@@ -128,40 +130,6 @@ pub enum AgentStatus {
     /// Stopped by an error it could not recover from.
     Failed,
     /// Stopped by an explicit user or parent decision rather than by failure.
-    Cancelled,
-}
-
-/// Semantic author of a transcript item.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TranscriptRole {
-    /// Authored by the person using the workspace.
-    User,
-    /// Authored by the agent that owns this transcript.
-    Assistant,
-    /// Provider-returned reasoning kept distinct from the final answer.
-    Reasoning,
-    /// Runtime-authored notice that belongs in the transcript rather than in the notice log.
-    System,
-}
-
-/// Lifecycle of one visible tool call.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolCallStatus {
-    /// Admitted by the scheduler but not started.
-    Queued,
-    /// Admitted, but parked until the user answers its approval request.
-    AwaitingApproval,
-    /// Executing now.
-    Running,
-    /// Finished and produced a usable result.
-    Succeeded,
-    /// Finished without a usable result.
-    Failed,
-    /// Finished without running because the user declined it.
-    Denied,
-    /// Stopped before completion by an explicit decision.
     Cancelled,
 }
 
@@ -311,16 +279,23 @@ pub enum SessionEvent {
     },
     /// A tool call was created or moved to a new lifecycle state.
     ///
-    /// Repeating a `call_id` updates that tool call in place rather than adding a second one.
+    /// Repeating the entry identity with its next revision updates that tool call in place
+    /// (ENT-2); the call identity remains a correlation rather than its transcript position.
     ToolCallChanged {
         /// Agent running the tool.
         agent_id: AgentId,
+        /// Transcript position assigned when the call first appeared.
+        item_id: TranscriptItemId,
+        /// Per-entry revision. The queued first appearance is zero; each transition adds one.
+        item_revision: u64,
         /// Identity of the tool call being created or updated.
         call_id: ToolCallId,
         /// Display label for the tool call.
         label: String,
         /// Lifecycle state the tool call moved to.
         status: ToolCallStatus,
+        /// Bounded semantic detail used by open and copy presentations.
+        presentation: ToolPresentation,
     },
     /// A background agent needs a user decision.
     ///
@@ -342,6 +317,8 @@ pub enum SessionEvent {
     },
     /// Typed mail was delivered from one session to another.
     MailDelivered {
+        /// Transcript position assigned to this delivery.
+        item_id: TranscriptItemId,
         /// Identity of the delivered mail.
         mail_id: MailId,
         /// Sending agent. Part of the product contract, so recipients must retain it.
@@ -355,6 +332,8 @@ pub enum SessionEvent {
     ArtifactAnnounced {
         /// Agent that produced the artifact.
         agent_id: AgentId,
+        /// Transcript position assigned to this announcement.
+        item_id: TranscriptItemId,
         /// Identity of the artifact.
         artifact_id: ArtifactId,
         /// Display label for the artifact.
@@ -364,7 +343,20 @@ pub enum SessionEvent {
     },
     /// The producer reported a condition the user should see but that blocks nothing.
     RuntimeWarning {
+        /// Agent whose transcript owns the warning.
+        agent_id: AgentId,
+        /// Transcript position assigned to this warning.
+        item_id: TranscriptItemId,
         /// Human-readable description of the condition.
+        message: String,
+    },
+    /// The producer reported a failed operation in the owning agent's transcript.
+    RuntimeError {
+        /// Agent whose transcript owns the error.
+        agent_id: AgentId,
+        /// Transcript position assigned to this error.
+        item_id: TranscriptItemId,
+        /// Human-readable description of the failure.
         message: String,
     },
 }
@@ -383,8 +375,8 @@ mod tests {
     use super::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest,
         EventSequence, IdError, MailId, SessionEvent, SessionEventEnvelope, TokenCounts,
-        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, TranscriptItemId, TranscriptRole,
-        TurnId,
+        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail, ToolPresentation,
+        TranscriptItemId, TranscriptRole, TurnId,
     };
 
     fn agent(value: &str) -> AgentId {
@@ -466,10 +458,22 @@ mod tests {
             },
             SessionEvent::ToolCallChanged {
                 agent_id: agent("agent-a"),
+                item_id: TranscriptItemId::new("item-tool-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                item_revision: 0,
                 call_id: ToolCallId::new("tool-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 label: "read".into(),
                 status: ToolCallStatus::Queued,
+                presentation: ToolPresentation {
+                    invocation: Some(ToolDetail::Text {
+                        source: "path: src/lib.rs".into(),
+                        omitted_bytes: 7,
+                    }),
+                    outcome: Some(ToolDetail::Diff {
+                        patch: "-old\n+new\n".into(),
+                    }),
+                },
             },
             SessionEvent::AttentionRequested {
                 agent_id: agent("agent-b"),
@@ -491,6 +495,8 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             },
             SessionEvent::MailDelivered {
+                item_id: TranscriptItemId::new("item-mail-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 mail_id: MailId::new("mail-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 from: agent("agent-b"),
@@ -499,13 +505,24 @@ mod tests {
             },
             SessionEvent::ArtifactAnnounced {
                 agent_id: agent("agent-b"),
+                item_id: TranscriptItemId::new("item-artifact-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 artifact_id: super::ArtifactId::new("artifact-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 label: "findings".into(),
                 pointer: "artifact://agent-b/findings".into(),
             },
             SessionEvent::RuntimeWarning {
+                agent_id: agent("agent-a"),
+                item_id: TranscriptItemId::new("item-warning-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 message: "degraded".into(),
+            },
+            SessionEvent::RuntimeError {
+                agent_id: agent("agent-a"),
+                item_id: TranscriptItemId::new("item-error-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                message: "failed".into(),
             },
         ];
 
@@ -532,13 +549,16 @@ mod tests {
         // The tag is what an out-of-process producer writes. Renaming a variant without noticing
         // would be a silent wire break, so one tag is pinned here as the canary for the scheme.
         let encoded = serde_json::to_string(&SessionEvent::RuntimeWarning {
+            agent_id: agent("agent-a"),
+            item_id: TranscriptItemId::new("item-warning-1")
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             message: "degraded".into(),
         })
         .unwrap_or_else(|error| panic!("serialize: {error}"));
 
         assert_eq!(
             encoded,
-            r#"{"type":"runtime_warning","message":"degraded"}"#
+            r#"{"type":"runtime_warning","agent_id":"agent-a","item_id":"item-warning-1","message":"degraded"}"#
         );
     }
 }

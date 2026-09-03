@@ -5,7 +5,10 @@
 //! the collection that holds it. Keeping them apart is what stops "is this event well formed" and
 //! "where is the reader" from sharing one file and one set of reasons to change.
 
-use plexmaton_core::{AgentId, AttentionId, SessionEvent, SessionEventEnvelope, TranscriptItemId};
+use plexmaton_core::{
+    AgentId, AttentionId, SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus,
+    TranscriptItemId,
+};
 use thiserror::Error;
 
 use super::{AgentView, AttentionView, NoticeView, ViewState};
@@ -39,6 +42,24 @@ pub enum ReduceError {
         item_id: TranscriptItemId,
         expected: u64,
         received: u64,
+    },
+    #[error("transcript entry changed kind: {0}")]
+    EntryKindChanged(TranscriptItemId),
+    #[error("transcript entry {item_id} belongs to {expected}, not {received}")]
+    EntryOwnerMismatch {
+        item_id: TranscriptItemId,
+        expected: AgentId,
+        received: AgentId,
+    },
+    #[error("tool correlation changed for transcript entry: {0}")]
+    ToolCorrelationChanged(TranscriptItemId),
+    #[error("tool call already has a transcript entry: {0}")]
+    DuplicateToolCall(ToolCallId),
+    #[error("invalid tool transition for {call_id}: {from:?} -> {to:?}")]
+    InvalidToolTransition {
+        call_id: ToolCallId,
+        from: ToolCallStatus,
+        to: ToolCallStatus,
     },
 }
 
@@ -82,9 +103,9 @@ impl ViewState {
 
         let outcome = match self.apply_event(envelope.event) {
             Ok(changed) => {
-                // Accepted is not the same as changed. A producer that re-sends an agent's current
-                // status or a tool's current state is reporting rather than transitioning, and
-                // FR-1 says traffic that alters nothing visible costs no frame at all.
+                // Accepted is not the same as changed. Re-sending an agent's current status is a
+                // report rather than a transition, and FR-1 says it costs no frame at all. Entry
+                // updates instead carry exact revisions and reject repeats (ENT-2).
                 if changed {
                     self.touch();
                 }
@@ -140,7 +161,10 @@ impl ViewState {
                 item_id,
                 role,
             } => {
-                self.agent_mut(&agent_id)?.start_item(item_id, role)?;
+                self.validate_entry_owner(&agent_id, &item_id)?;
+                self.agent_mut(&agent_id)?
+                    .start_item(item_id.clone(), role)?;
+                self.remember_entry_owner(item_id, agent_id);
                 true
             }
             SessionEvent::TranscriptDelta {
@@ -149,6 +173,7 @@ impl ViewState {
                 item_revision,
                 text,
             } => {
+                self.validate_entry_owner(&agent_id, &item_id)?;
                 self.agent_mut(&agent_id)?
                     .append_delta(&item_id, item_revision, &text)?;
                 true
@@ -158,18 +183,32 @@ impl ViewState {
                 item_id,
                 item_revision,
             } => {
+                self.validate_entry_owner(&agent_id, &item_id)?;
                 self.agent_mut(&agent_id)?
                     .finalize_item(&item_id, item_revision)?;
                 true
             }
             SessionEvent::ToolCallChanged {
                 agent_id,
+                item_id,
+                item_revision,
                 call_id,
                 label,
                 status,
-            } => self
-                .agent_mut(&agent_id)?
-                .set_tool_activity(call_id, label, status),
+                presentation,
+            } => {
+                self.validate_entry_owner(&agent_id, &item_id)?;
+                let changed = self.agent_mut(&agent_id)?.set_tool_activity(
+                    item_id.clone(),
+                    item_revision,
+                    call_id,
+                    label,
+                    status,
+                    presentation,
+                )?;
+                self.remember_entry_owner(item_id, agent_id);
+                changed
+            }
             SessionEvent::AttentionRequested {
                 agent_id,
                 attention_id,
@@ -209,25 +248,87 @@ impl ViewState {
                 removed || restored
             }
             SessionEvent::MailDelivered {
+                item_id,
                 mail_id,
                 from,
                 to,
                 summary,
-            } => self.agent_mut(&to)?.deliver_mail(mail_id, from, summary),
+            } => self.apply_mail(item_id, mail_id, from, to, summary)?,
             SessionEvent::ArtifactAnnounced {
                 agent_id,
+                item_id,
                 artifact_id,
                 label,
                 pointer,
-            } => self
-                .agent_mut(&agent_id)?
-                .announce_artifact(artifact_id, label, pointer),
-            SessionEvent::RuntimeWarning { message } => {
-                // A notice is visible, and pushing one repaints on its own account.
-                self.push_notice(NoticeView::RuntimeWarning { message });
-                false
-            }
+            } => self.apply_artifact(agent_id, item_id, artifact_id, label, pointer)?,
+            SessionEvent::RuntimeWarning {
+                agent_id,
+                item_id,
+                message,
+            } => self.apply_runtime_message(agent_id, item_id, message, false)?,
+            SessionEvent::RuntimeError {
+                agent_id,
+                item_id,
+                message,
+            } => self.apply_runtime_message(agent_id, item_id, message, true)?,
         };
+        Ok(changed)
+    }
+
+    fn apply_mail(
+        &mut self,
+        item_id: TranscriptItemId,
+        mail_id: plexmaton_core::MailId,
+        from: AgentId,
+        to: AgentId,
+        summary: String,
+    ) -> Result<bool, ReduceError> {
+        if !self.agents.contains(&to) {
+            return Err(ReduceError::UnknownAgent(to));
+        }
+        self.validate_entry_owner(&from, &item_id)?;
+        let changed = self.agent_mut(&from)?.deliver_mail(
+            item_id.clone(),
+            mail_id,
+            from.clone(),
+            to,
+            summary,
+        )?;
+        self.remember_entry_owner(item_id, from);
+        Ok(changed)
+    }
+
+    fn apply_artifact(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        artifact_id: plexmaton_core::ArtifactId,
+        label: String,
+        pointer: String,
+    ) -> Result<bool, ReduceError> {
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = self.agent_mut(&agent_id)?.announce_artifact(
+            item_id.clone(),
+            artifact_id,
+            label,
+            pointer,
+        )?;
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
+    fn apply_runtime_message(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        message: String,
+        error: bool,
+    ) -> Result<bool, ReduceError> {
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed =
+            self.agent_mut(&agent_id)?
+                .runtime_message(item_id.clone(), message, error)?;
+        self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
     }
 
@@ -235,6 +336,27 @@ impl ViewState {
         self.notices.push(notice);
         // A notice is visible, so recording one is a change the renderer has to repaint for.
         self.touch();
+    }
+
+    fn validate_entry_owner(
+        &self,
+        received: &AgentId,
+        item_id: &TranscriptItemId,
+    ) -> Result<(), ReduceError> {
+        if let Some(expected) = self.entry_owners.get(item_id)
+            && expected != received
+        {
+            return Err(ReduceError::EntryOwnerMismatch {
+                item_id: item_id.clone(),
+                expected: expected.clone(),
+                received: received.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    fn remember_entry_owner(&mut self, item_id: TranscriptItemId, agent_id: AgentId) {
+        self.entry_owners.entry(item_id).or_insert(agent_id);
     }
 
     fn agent_mut(&mut self, agent_id: &AgentId) -> Result<&mut AgentView, ReduceError> {
@@ -245,13 +367,14 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, TokenCounts,
-        TokenUsage, ToolCallId, ToolCallStatus, TurnId,
+        AgentId, AgentStatus, ArtifactId, EventSequence, MailId, SessionEvent,
+        SessionEventEnvelope, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus,
+        ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
     };
 
     use super::{ApplyOutcome, ReduceError};
     use crate::{
-        NoticeView, ViewState,
+        NoticeView, TranscriptEntryView, TranscriptTextKind, ViewState,
         test_support::{canonical_runtime, canonical_state},
     };
 
@@ -274,6 +397,23 @@ mod tests {
         }
     }
 
+    fn item_id(value: &str) -> TranscriptItemId {
+        TranscriptItemId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
+    }
+
+    fn tool_event(entry: &str, call: &str, revision: u64, status: ToolCallStatus) -> SessionEvent {
+        SessionEvent::ToolCallChanged {
+            agent_id: agent_id("agent-a"),
+            item_id: item_id(entry),
+            item_revision: revision,
+            call_id: ToolCallId::new(call)
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+            label: call.to_owned(),
+            status,
+            presentation: ToolPresentation::default(),
+        }
+    }
+
     #[test]
     fn every_step_of_the_canonical_scenario_is_accepted() {
         // The shared fixture ignores the outcome so a degraded projection is still constructible.
@@ -287,15 +427,162 @@ mod tests {
     }
 
     #[test]
-    fn mail_retains_sender_identity() {
+    fn mail_retains_both_endpoints_and_lives_with_its_producer() {
         let state = canonical_state();
-        let primary = state
-            .primary_agent()
-            .unwrap_or_else(|| panic!("canonical scenario creates a primary agent"));
-        let mail: Vec<_> = primary.inbox().collect();
+        let producer = state
+            .agent(&agent_id("agent-b"))
+            .unwrap_or_else(|| panic!("canonical scenario creates the sender"));
+        let mail: Vec<_> = producer.mail().collect();
 
         assert_eq!(mail.len(), 1);
         assert_eq!(mail[0].from.as_str(), "agent-b");
+        assert_eq!(mail[0].to.as_str(), "agent-a");
+        assert_eq!(
+            state
+                .primary_agent()
+                .map_or(0, |agent| agent.mail().count()),
+            0,
+            "delivery does not move the sender's entry into the recipient transcript"
+        );
+    }
+
+    /// Stage 3 entry spine: domain facts share one order without losing their typed payloads.
+    #[test]
+    fn every_transcript_category_enters_one_ordered_projection() {
+        let mut state = ViewState::default();
+        let agent = agent_id("agent-a");
+        state.apply(envelope(1, created("agent-a")));
+        state.apply(envelope(2, created("agent-b")));
+        state.apply(envelope(
+            3,
+            SessionEvent::TranscriptItemStarted {
+                agent_id: agent.clone(),
+                item_id: item_id("text"),
+                role: TranscriptRole::System,
+            },
+        ));
+        state.apply(envelope(
+            4,
+            tool_event("tool", "tool-1", 0, ToolCallStatus::Queued),
+        ));
+        state.apply(envelope(
+            5,
+            SessionEvent::ArtifactAnnounced {
+                agent_id: agent.clone(),
+                item_id: item_id("artifact"),
+                artifact_id: ArtifactId::new("artifact-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                label: "patch".to_owned(),
+                pointer: "artifact://patch".to_owned(),
+            },
+        ));
+        state.apply(envelope(
+            6,
+            SessionEvent::MailDelivered {
+                item_id: item_id("mail"),
+                mail_id: MailId::new("mail-1").unwrap_or_else(|error| panic!("fixture: {error}")),
+                from: agent.clone(),
+                to: agent_id("agent-b"),
+                summary: "findings".to_owned(),
+            },
+        ));
+        state.apply(envelope(
+            7,
+            SessionEvent::RuntimeWarning {
+                agent_id: agent.clone(),
+                item_id: item_id("warning"),
+                message: "degraded".to_owned(),
+            },
+        ));
+        state.apply(envelope(
+            8,
+            SessionEvent::RuntimeError {
+                agent_id: agent,
+                item_id: item_id("error"),
+                message: "failed".to_owned(),
+            },
+        ));
+
+        let entries: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .entries()
+            .map(|entry| match entry {
+                TranscriptEntryView::Text(item) => match item.kind {
+                    TranscriptTextKind::Message => "text",
+                    TranscriptTextKind::Warning => "warning",
+                    TranscriptTextKind::Error => "error",
+                },
+                TranscriptEntryView::Tool(_) => "tool",
+                TranscriptEntryView::Artifact(_) => "artifact",
+                TranscriptEntryView::Mail(_) => "mail",
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            ["text", "tool", "artifact", "mail", "warning", "error"]
+        );
+        assert_eq!(
+            state.notices().count(),
+            0,
+            "semantic entries are not defects"
+        );
+    }
+
+    /// ENT-3: replaying the same envelopes is a pure reduction with no hidden projection state.
+    #[test]
+    fn two_fresh_projections_of_the_same_envelopes_are_equal() {
+        let mut runtime = canonical_runtime();
+        let envelopes = runtime.ready(u64::MAX);
+        let mut first = ViewState::default();
+        let mut second = ViewState::default();
+
+        for envelope in envelopes {
+            assert_eq!(first.apply(envelope.clone()), ApplyOutcome::Accepted);
+            assert_eq!(second.apply(envelope), ApplyOutcome::Accepted);
+        }
+
+        assert_eq!(first, second);
+    }
+
+    /// Completion order changes state, never the stable positions established by model order.
+    #[test]
+    fn shuffled_tool_completions_update_their_original_entries() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        let events = [
+            tool_event("entry-a", "call-a", 0, ToolCallStatus::Queued),
+            tool_event("entry-b", "call-b", 0, ToolCallStatus::Queued),
+            tool_event("entry-a", "call-a", 1, ToolCallStatus::Running),
+            tool_event("entry-b", "call-b", 1, ToolCallStatus::Running),
+            tool_event("entry-b", "call-b", 2, ToolCallStatus::Succeeded),
+            tool_event("entry-a", "call-a", 2, ToolCallStatus::Succeeded),
+        ];
+        for (index, event) in events.into_iter().enumerate() {
+            assert_eq!(
+                state.apply(envelope(index as u64 + 2, event)),
+                ApplyOutcome::Accepted
+            );
+        }
+
+        let entries: Vec<_> = state
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .entries()
+            .filter_map(|entry| match entry {
+                TranscriptEntryView::Tool(tool) => {
+                    Some((tool.entry_id.as_str(), tool.id.as_str(), tool.status))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                ("entry-a", "call-a", ToolCallStatus::Succeeded),
+                ("entry-b", "call-b", ToolCallStatus::Succeeded),
+            ]
+        );
     }
 
     #[test]
@@ -344,6 +631,40 @@ mod tests {
         );
     }
 
+    /// ENT-1: an entry identity fixes its owner as well as its position.
+    #[test]
+    fn an_entry_identity_cannot_move_between_agents() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+        state.apply(envelope(2, created("agent-b")));
+        state.apply(envelope(
+            3,
+            SessionEvent::TranscriptItemStarted {
+                agent_id: agent_id("agent-a"),
+                item_id: item_id("shared"),
+                role: TranscriptRole::Assistant,
+            },
+        ));
+
+        assert!(matches!(
+            state.apply(envelope(
+                4,
+                SessionEvent::TranscriptDelta {
+                    agent_id: agent_id("agent-b"),
+                    item_id: item_id("shared"),
+                    item_revision: 1,
+                    text: "wrong owner".to_owned(),
+                }
+            )),
+            ApplyOutcome::Rejected(ReduceError::EntryOwnerMismatch { .. })
+        ));
+        let source = state
+            .agent(&agent_id("agent-a"))
+            .and_then(|agent| agent.transcript().next())
+            .map(|item| item.source.as_str());
+        assert_eq!(source, Some(""));
+    }
+
     #[test]
     fn rejected_event_does_not_block_the_rest_of_the_stream() {
         let mut state = ViewState::default();
@@ -386,27 +707,15 @@ mod tests {
     }
 
     /// FR-1: producer traffic that alters nothing visible costs no frame at all.
-    ///
-    /// A real runtime polls. It re-reports an agent that is still running and a tool that is still
-    /// executing, and until now every one of those forced a repaint — so a workspace watching four
-    /// busy agents redrew continuously while saying exactly the same thing.
     #[test]
-    fn a_repeated_status_or_tool_state_costs_no_frame() {
+    fn a_repeated_agent_status_costs_no_frame() {
         let mut state = ViewState::default();
         state.apply(envelope(1, created("agent-a")));
-        let tool = |status| SessionEvent::ToolCallChanged {
-            agent_id: agent_id("agent-a"),
-            call_id: ToolCallId::new("tool-1")
-                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
-            label: "read".to_owned(),
-            status,
-        };
-        state.apply(envelope(2, tool(ToolCallStatus::Running)));
         let quiet = state.revision();
 
         assert_eq!(
             state.apply(envelope(
-                3,
+                2,
                 SessionEvent::AgentStatusChanged {
                     agent_id: agent_id("agent-a"),
                     status: AgentStatus::Running,
@@ -415,21 +724,79 @@ mod tests {
             ApplyOutcome::Accepted,
             "the event is well formed, so it is accepted; what it is not is a change"
         );
-        state.apply(envelope(4, tool(ToolCallStatus::Running)));
         assert_eq!(state.revision(), quiet);
 
-        // The same two events carrying an actual transition must still repaint.
         state.apply(envelope(
-            5,
+            3,
             SessionEvent::AgentStatusChanged {
                 agent_id: agent_id("agent-a"),
                 status: AgentStatus::Waiting,
             },
         ));
         assert!(state.revision() > quiet);
-        let waiting = state.revision();
-        state.apply(envelope(6, tool(ToolCallStatus::Succeeded)));
-        assert!(state.revision() > waiting);
+    }
+
+    /// A replay can only advance a tool entry one revision along its declared lifecycle.
+    #[test]
+    fn tool_updates_refuse_revision_gaps_and_invalid_transitions() {
+        let mut state = ViewState::default();
+        state.apply(envelope(1, created("agent-a")));
+
+        assert_eq!(
+            state.apply(envelope(
+                2,
+                tool_event("entry-1", "tool-1", 0, ToolCallStatus::Queued)
+            )),
+            ApplyOutcome::Accepted
+        );
+        assert!(matches!(
+            state.apply(envelope(
+                3,
+                tool_event("entry-1", "tool-1", 2, ToolCallStatus::Running)
+            )),
+            ApplyOutcome::Rejected(ReduceError::ItemRevisionGap { expected: 1, .. })
+        ));
+        assert!(matches!(
+            state.apply(envelope(
+                4,
+                tool_event("entry-1", "tool-1", 1, ToolCallStatus::Succeeded)
+            )),
+            ApplyOutcome::Rejected(ReduceError::InvalidToolTransition { .. })
+        ));
+        assert!(matches!(
+            state.apply(envelope(
+                5,
+                tool_event("entry-1", "tool-other", 1, ToolCallStatus::Running)
+            )),
+            ApplyOutcome::Rejected(ReduceError::ToolCorrelationChanged(_))
+        ));
+        assert!(matches!(
+            state.apply(envelope(
+                6,
+                tool_event("entry-other", "tool-1", 0, ToolCallStatus::Queued)
+            )),
+            ApplyOutcome::Rejected(ReduceError::DuplicateToolCall(_))
+        ));
+        assert_eq!(
+            state.apply(envelope(
+                7,
+                tool_event("entry-1", "tool-1", 1, ToolCallStatus::Running)
+            )),
+            ApplyOutcome::Accepted
+        );
+        assert_eq!(
+            state.apply(envelope(
+                8,
+                tool_event("entry-1", "tool-1", 2, ToolCallStatus::Succeeded)
+            )),
+            ApplyOutcome::Accepted
+        );
+        let stored = state
+            .primary_agent()
+            .and_then(|agent| agent.tool_activity().next())
+            .unwrap_or_else(|| panic!("tool entry was projected"));
+        assert_eq!(stored.revision, 2);
+        assert_eq!(stored.status, ToolCallStatus::Succeeded);
     }
 
     /// LIVE-4 and FR-1: reported turn usage is available to a later diagnostics surface, but the

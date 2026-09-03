@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1 and 2 done; stage 3 planned, slice 1 ready |
+| Status | Active; stages 1 and 2 done; stage 3 slice 1 done, slices 2–4 ready |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -28,10 +28,10 @@ the projection refuses a gap or a repeat.
 | `AgentCreated`, `AgentStatusChanged` | Durable |
 | `TurnUsageUpdated` | Durable semantic counts; retained off-screen until the on-demand diagnostics surface lands |
 | `TranscriptItemStarted`, `TranscriptDelta`, `TranscriptItemFinalized` | Durable; the cache and the anchors are built on this shape |
-| `ToolCallChanged` | Durable and thin: no arguments, no output, no expand state. Stage 3 grows it |
+| `ToolCallChanged` | Durable; one transcript identity and revisioned lifecycle, with typed invocation/outcome presentation whose population begins in stage 3 slice 2 |
 | `AttentionRequested`, `AttentionResolved` | Durable; a typed request and the exact identity that stopped being pending |
-| `MailDelivered`, `ArtifactAnnounced` | Provisional: a bounded summary and a pointer, no body |
-| `RuntimeWarning` | Durable; the degradation path |
+| `MailDelivered`, `ArtifactAnnounced` | Provisional: one transcript identity with a bounded summary or pointer, no body |
+| `RuntimeWarning`, `RuntimeError` | Durable transcript entries; projection-contract defects alone use the notice log |
 
 Known limits carried in: `plexmaton-sim` is a scripted timeline that echoes user text and visibly
 declines interrupts because it owns no turn; it is not a runtime command design. The Attention
@@ -60,7 +60,10 @@ queue has no eviction; nothing removes a transcript item, so cache pruning has n
    under the selection to its detail; a diff painting added and removed lines distinctly;
    reasoning, system, warning and error rows each with one treatment readable without colour.
    Entry heights keyed by revision, width and open state (TR-1 grows). Copy returns a tool's
-   detail and a mail's summary.
+   detail and a mail's summary. The replayable entry spine is done: every category shares one
+   ordered projection, and tool lifecycle updates preserve first appearance while model results
+   retain model order. Native presentation facts and the first visible grammar are ready to run in
+   parallel.
 
 Each stage is sliced in a plan when it starts, and ends with frames at three widths looked at by
 the user.

@@ -12,6 +12,7 @@
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::AgentId;
     use plexmaton_sim::{RuntimeCommand, Scenario, ScriptedRuntime};
     use ratatui::{
         Terminal,
@@ -21,6 +22,10 @@ mod tests {
     };
 
     use crate::{Outcome, SurfaceId, Workspace, test_support::region_text};
+
+    fn agent(value: &str) -> AgentId {
+        AgentId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
+    }
 
     /// The workspace, its terminal, and the runtime feeding it, stepped the way the binary steps
     /// them: one event, then the frame it justifies.
@@ -310,16 +315,25 @@ mod tests {
         // 9. B finishes: a tool result, an artifact pointer, and typed mail back to A.
         journey.advance(17);
         assert_eq!(journey.workspace.state().attention_count(), 1);
-        assert!(
+        assert_eq!(
             journey
-                .painted(SurfaceId::Activity)
-                .contains("Overlap routing"),
-            "A's inbox carries the mail B sent it"
+                .workspace
+                .state()
+                .agent(&agent("agent-b"))
+                .map_or(0, |agent| agent.mail().count()),
+            1,
+            "the producer's conversation retains the delivered mail"
         );
 
         // The user chooses to go to the agent that asked. Nothing before this moved them there.
         journey.focus(SurfaceId::Attention).key(KeyCode::Enter);
         assert_eq!(journey.selected(), "agent-b");
+        assert!(
+            journey
+                .painted(SurfaceId::Activity)
+                .contains("Routing stays"),
+            "looking at B reveals the mail B sent"
+        );
         assert_eq!(journey.workspace.state().attention_pending(), 0);
         assert_eq!(
             journey.workspace.state().attention_count(),

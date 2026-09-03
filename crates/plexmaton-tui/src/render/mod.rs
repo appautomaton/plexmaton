@@ -361,6 +361,7 @@ fn conversation_body(
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::{AgentId, SessionEvent, TranscriptItemId};
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -380,7 +381,8 @@ mod tests {
         render,
         surface::{SurfaceId, SurfaceTree},
         test_support::{
-            Session, canonical_state, degraded_state, draw, draw_frame, draw_with, region_text,
+            Conversation, Session, canonical_state, degraded_state, draw, draw_frame, draw_with,
+            region_text,
         },
         theme::{Palette, Role},
     };
@@ -602,8 +604,8 @@ mod tests {
     /// TR-5: each conversation keeps its own reading position (canonical journey, step 4).
     #[test]
     fn each_conversation_keeps_its_own_reading_position() {
-        let agent_b = plexmaton_core::AgentId::new("agent-b")
-            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let mut session = Session::canonical(60, 20);
         session.conversation.extend(10);
         session.conversation.extend_agent(&agent_b, 10);
@@ -750,8 +752,8 @@ mod tests {
     #[test]
     fn the_composer_names_its_target_while_another_agent_is_selected() {
         let mut state = canonical_state();
-        let agent_b = plexmaton_core::AgentId::new("agent-b")
-            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         state
             .select_agent(&agent_b)
             .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
@@ -890,21 +892,56 @@ mod tests {
 
     #[test]
     fn wide_projection_shows_transcript_and_reduced_domain_data() {
-        let rendered = draw(&canonical_state(), 120, 24);
+        let (surfaces, buffer) = draw_frame(&canonical_state(), &Palette::default(), 120, 24);
+        let rendered = region_text(&buffer, *buffer.area());
 
         assert!(rendered.contains("Agent A · primary"));
         assert!(rendered.contains("Agents · !1"));
         assert!(rendered.contains("remains interactive"));
-        // Mail, artifacts, and tool activity are reduced for agent A's inspector; a projection
-        // that silently dropped them would still render a plausible-looking transcript.
-        assert!(rendered.contains("agent-b"), "mail sender must be visible");
+        let activity = region_text(
+            &buffer,
+            surfaces
+                .get(SurfaceId::Activity)
+                .unwrap_or_else(|| panic!("wide layout has activity"))
+                .bounds,
+        );
+        assert!(activity.contains("Mail"));
+        assert!(
+            !activity.contains("agent-b"),
+            "B's outgoing mail must not be projected as mail owned by A"
+        );
+    }
+
+    /// ENT-1: warning and error remain visibly distinct without relying on colour.
+    #[test]
+    fn monochrome_transcript_names_warning_and_error_separately() {
+        let mut conversation = Conversation::canonical();
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(SessionEvent::RuntimeWarning {
+            agent_id: agent_id.clone(),
+            item_id: TranscriptItemId::new("warning-visible")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            message: "retrying the request".to_owned(),
+        });
+        conversation.emit(SessionEvent::RuntimeError {
+            agent_id,
+            item_id: TranscriptItemId::new("error-visible")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            message: "request failed".to_owned(),
+        });
+
+        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        assert!(rendered.contains("warning"));
+        assert!(rendered.contains("error"));
+        assert!(rendered.contains("retrying the request"));
+        assert!(rendered.contains("request failed"));
     }
 
     #[test]
     fn activity_panel_renders_tools_and_artifacts_of_the_selected_agent() {
         let mut state = canonical_state();
-        let agent_b = plexmaton_core::AgentId::new("agent-b")
-            .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         state
             .select_agent(&agent_b)
             .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
@@ -922,8 +959,8 @@ mod tests {
 
         assert!(rendered.contains("Agents"));
         assert!(
-            rendered.contains("1 mail") && !rendered.contains("Activity"),
-            "below wide the activity column is counts in the conversation's title"
+            !rendered.contains("Activity") && !rendered.contains("1 mail"),
+            "the primary title counts only entries the primary produced"
         );
         assert!(rendered.contains("Message Agent A"));
         assert!(

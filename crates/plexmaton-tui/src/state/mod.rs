@@ -2,6 +2,7 @@ mod agent;
 mod approval;
 mod attention;
 mod composer;
+mod entry;
 mod focus;
 mod ingest;
 mod inspect;
@@ -17,10 +18,14 @@ use std::collections::BTreeMap;
 
 use plexmaton_core::{AgentId, EventSequence};
 
-pub use agent::{AgentView, ArtifactView, MailView, ToolCallView, TranscriptItemView};
+pub use agent::AgentView;
 pub use approval::{ApprovalSubmission, ApprovalView};
 pub use attention::AttentionView;
 pub use composer::Composer;
+pub use entry::{
+    ArtifactView, MailView, ToolCallView, TranscriptEntryView, TranscriptItemView,
+    TranscriptTextKind,
+};
 pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::NoticeView;
@@ -63,6 +68,8 @@ pub struct ViewState {
     revision: ViewRevision,
     last_sequence: Option<EventSequence>,
     agents: Roster,
+    /// Ownership index for globally stable transcript identities (ENT-1).
+    entry_owners: BTreeMap<plexmaton_core::TranscriptItemId, AgentId>,
     attention: AttentionQueue,
     approval: ApprovalSurface,
     notices: NoticeLog,

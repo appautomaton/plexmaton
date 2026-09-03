@@ -10,14 +10,14 @@
 │Tools                     │││                                                                                        ││
 │[+] inspect interaction   │││                                                                                        ││
 │fixtures                  │││                                                                                        ││
-│Artifacts              ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
-│@ interaction findings │Agent  agent-b                                                        │                      ││
-│  artifact://agent-b/in│Tool   edit · tool-b-write                                            │                      ││
-│action-findings        │Access change files                                                   │                      ││
-│Mail                   │                                                                      │                      ││
-│  none                 │  Allow once                                                          │                      ││
-│                       │> Deny                                                                │ior.                  ││
-│                       │↑↓ choose · Enter decide                                              │                      ││
+│Mail                   ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
+│-> agent-a             │Agent  agent-b                                                        │                      ││
+│  Routing stays        │Tool   edit · tool-b-write                                            │                      ││
+│centralized and z-order│Access change files                                                   │                      ││
+│Artifacts              │                                                                      │                      ││
+│@ interaction findings │  Allow once                                                          │                      ││
+│  artifact://agent-b/in│> Deny                                                                │ior.                  ││
+│action-findings        │↑↓ choose · Enter decide                                              │                      ││
 │                       │PgUp/PgDn details · Esc keeps pending                                 │──────────────────────┘│
 │                       │                                                                      │                       │
 │                       │Details                                                               │                       │

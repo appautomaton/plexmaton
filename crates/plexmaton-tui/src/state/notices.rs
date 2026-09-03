@@ -12,11 +12,9 @@ use super::ReduceError;
 /// oldest entries and reports the discarded count rather than growing without limit.
 const CAPACITY: usize = 32;
 
-/// A runtime notice surfaced without interrupting the user's work.
+/// A producer-contract defect surfaced without interrupting the user's work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NoticeView {
-    /// Warning reported by the event producer.
-    RuntimeWarning { message: String },
     /// Events were lost before the received sequence; the projection resynchronized forward.
     SequenceGap { expected: u64, received: u64 },
     /// One event violated the projection contract and was dropped.
@@ -65,15 +63,22 @@ mod tests {
     fn the_log_is_bounded_and_reports_what_it_discarded() {
         let mut log = NoticeLog::default();
         for index in 0..CAPACITY + 8 {
-            log.push(NoticeView::RuntimeWarning {
-                message: format!("warning {index}"),
+            log.push(NoticeView::SequenceGap {
+                expected: index as u64,
+                received: index as u64 + 2,
             });
         }
 
         assert_eq!(log.iter().count(), CAPACITY);
         assert_eq!(log.dropped(), 8);
         assert!(
-            matches!(log.iter().next(), Some(NoticeView::RuntimeWarning { message }) if message == "warning 8"),
+            matches!(
+                log.iter().next(),
+                Some(NoticeView::SequenceGap {
+                    expected: 8,
+                    received: 10
+                })
+            ),
             "the oldest survivor must be the one after the last discard"
         );
     }

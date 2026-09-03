@@ -11,7 +11,7 @@ use crate::{
 
 impl Agent {
     pub(super) fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
-        self.warn(reaction, &error.message());
+        self.error(reaction, &error.message());
         if self.is_running() {
             self.abort_turn(
                 UndeliveredReason::StepFailed,
@@ -89,7 +89,20 @@ impl Agent {
     }
 
     pub(super) fn warn(&mut self, reaction: &mut Reaction, message: &str) {
+        let item_id = self.record.next_item_id();
         let event = SessionEvent::RuntimeWarning {
+            agent_id: self.record.agent_id().clone(),
+            item_id,
+            message: message.to_owned(),
+        };
+        self.record.emit(reaction, event);
+    }
+
+    fn error(&mut self, reaction: &mut Reaction, message: &str) {
+        let item_id = self.record.next_item_id();
+        let event = SessionEvent::RuntimeError {
+            agent_id: self.record.agent_id().clone(),
+            item_id,
             message: message.to_owned(),
         };
         self.record.emit(reaction, event);

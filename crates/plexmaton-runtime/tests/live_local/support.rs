@@ -175,7 +175,7 @@ pub(super) fn observe_output(
             evidence.assistant_text.push_str(&text);
         }
         SessionEvent::TurnUsageUpdated { usage, .. } => evidence.usage = Some(usage),
-        SessionEvent::RuntimeWarning { message } => evidence.warnings.push(message),
+        SessionEvent::RuntimeWarning { message, .. } => evidence.warnings.push(message),
         event => return Some(event),
     }
     None

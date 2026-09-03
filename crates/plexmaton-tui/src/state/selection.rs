@@ -227,7 +227,7 @@ impl ViewState {
                 .tool_activity()
                 .count()
                 .saturating_add(agent.artifacts().count())
-                .saturating_add(agent.inbox().count()),
+                .saturating_add(agent.mail().count()),
             _ => 0,
         }
     }
@@ -259,15 +259,15 @@ impl ViewState {
             SurfaceId::Activity => agent
                 .tool_activity()
                 .map(|tool| tool.label.clone())
-                // The stable reference, not the label: the label is what got truncated on screen.
-                .chain(agent.artifacts().map(|artifact| artifact.pointer.clone()))
-                // Sender travels with the summary because a recipient must retain it, and a
-                // summary alone would lose which agent said it.
+                // Recipient travels with the summary because the entry belongs to its producer,
+                // and a summary alone would lose where the mail went.
                 .chain(
                     agent
-                        .inbox()
-                        .map(|mail| format!("{}: {}", mail.from, mail.summary)),
+                        .mail()
+                        .map(|mail| format!("{}: {}", mail.to, mail.summary)),
                 )
+                // The stable reference, not the label: the label is what got truncated on screen.
+                .chain(agent.artifacts().map(|artifact| artifact.pointer.clone()))
                 .skip(first)
                 .take(count)
                 .collect(),

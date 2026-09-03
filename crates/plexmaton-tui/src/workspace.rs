@@ -1833,8 +1833,8 @@ mod tests {
             "while the panel is still showing the label, which is the point"
         );
 
-        // One more entry back takes in the tool above it, in list order rather than in the order
-        // the two ends were chosen.
+        // One more entry back takes in the outgoing mail above it, in list order rather than in
+        // the order the two ends were chosen.
         step(
             &mut workspace,
             &mut terminal,
@@ -1846,7 +1846,7 @@ mod tests {
             .unwrap_or_else(|| panic!("a selection must copy to something"));
         assert_eq!(
             copied.text,
-            "inspect interaction fixtures\nartifact://agent-b/interaction-findings"
+            "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/interaction-findings"
         );
     }
 

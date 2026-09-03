@@ -5,7 +5,7 @@ mod workload;
 
 use plexmaton_core::{
     AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, IdError, MailId, SessionEvent,
-    ToolCallId, ToolCallStatus, TranscriptItemId, TranscriptRole,
+    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
 pub use runtime::{RuntimeCommand, ScriptedRuntime};
@@ -33,6 +33,7 @@ impl Scenario {
         let agent_b = AgentId::new("agent-b")?;
         let item_a = TranscriptItemId::new("item-a-1")?;
         let item_b = TranscriptItemId::new("item-b-1")?;
+        let tool_b = TranscriptItemId::new("item-b-tool-1")?;
 
         let events = vec![
             (
@@ -105,13 +106,12 @@ impl Scenario {
                 },
             ),
             (
+                9,
+                canonical_tool(&agent_b, &tool_b, 0, ToolCallStatus::Queued)?,
+            ),
+            (
                 10,
-                SessionEvent::ToolCallChanged {
-                    agent_id: agent_b.clone(),
-                    call_id: ToolCallId::new("tool-b-1")?,
-                    label: "inspect interaction fixtures".into(),
-                    status: ToolCallStatus::Running,
-                },
+                canonical_tool(&agent_b, &tool_b, 1, ToolCallStatus::Running)?,
             ),
             (
                 12,
@@ -126,17 +126,13 @@ impl Scenario {
             ),
             (
                 14,
-                SessionEvent::ToolCallChanged {
-                    agent_id: agent_b.clone(),
-                    call_id: ToolCallId::new("tool-b-1")?,
-                    label: "inspect interaction fixtures".into(),
-                    status: ToolCallStatus::Succeeded,
-                },
+                canonical_tool(&agent_b, &tool_b, 2, ToolCallStatus::Succeeded)?,
             ),
             (
                 15,
                 SessionEvent::ArtifactAnnounced {
                     agent_id: agent_b.clone(),
+                    item_id: TranscriptItemId::new("item-b-artifact-1")?,
                     artifact_id: ArtifactId::new("artifact-b-1")?,
                     label: "interaction findings".into(),
                     pointer: "artifact://agent-b/interaction-findings".into(),
@@ -145,10 +141,11 @@ impl Scenario {
             (
                 16,
                 SessionEvent::MailDelivered {
+                    item_id: TranscriptItemId::new("item-b-mail-1")?,
                     mail_id: MailId::new("mail-b-a-1")?,
                     from: agent_b.clone(),
                     to: agent_a.clone(),
-                    summary: "Overlap routing should remain centralized and z-ordered.".into(),
+                    summary: "Routing stays centralized and z-ordered.".into(),
                 },
             ),
             (
@@ -179,6 +176,23 @@ impl Scenario {
     pub fn into_steps(self) -> Vec<ScenarioStep> {
         self.steps
     }
+}
+
+fn canonical_tool(
+    agent_id: &AgentId,
+    item_id: &TranscriptItemId,
+    item_revision: u64,
+    status: ToolCallStatus,
+) -> Result<SessionEvent, IdError> {
+    Ok(SessionEvent::ToolCallChanged {
+        agent_id: agent_id.clone(),
+        item_id: item_id.clone(),
+        item_revision,
+        call_id: ToolCallId::new("tool-b-1")?,
+        label: "inspect interaction fixtures".into(),
+        status,
+        presentation: ToolPresentation::default(),
+    })
 }
 
 #[cfg(test)]

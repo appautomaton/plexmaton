@@ -254,6 +254,9 @@ pub fn degraded_state() -> ViewState {
         // A stale sequence: the canonical scenario has already advanced well past 1.
         sequence: EventSequence::new(1),
         event: SessionEvent::RuntimeWarning {
+            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            item_id: TranscriptItemId::new("stale-warning")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
             message: "producer replayed an old event".into(),
         },
     });

@@ -132,7 +132,7 @@ async fn real_model_completes_read_observed_edit_and_command_with_exact_approval
     .await;
     let shutdown = tokio::time::timeout(SHUTDOWN_TIMEOUT, runtime.shutdown()).await;
     while let Some(envelope) = runtime.try_next_event() {
-        if let SessionEvent::RuntimeWarning { message } = envelope.event {
+        if let SessionEvent::RuntimeWarning { message, .. } = envelope.event {
             evidence.warnings.push(message);
         }
     }

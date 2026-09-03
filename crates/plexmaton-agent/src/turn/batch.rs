@@ -1,11 +1,12 @@
 //! The agent's dealings with one step's batch of tool calls.
 //!
 //! Admission, approval, execution, settling and cancellation live together because each is one
-//! state of the same per-call slot. No future or presentation queue owns the transition (LOOP-5).
+//! state of the same per-call slot. No future or presentation queue owns the transition (LOOP-5),
+//! and that slot advances the entry revision paired with the call (ENT-2).
 
 use plexmaton_core::{
     AgentStatus, ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId,
-    ToolCallStatus, TurnId,
+    ToolCallStatus, ToolPresentation, TurnId,
 };
 
 use super::usage::UsageAccumulator;
@@ -27,7 +28,21 @@ impl Agent {
         usage: UsageAccumulator,
         reaction: &mut Reaction,
     ) {
-        for call in &calls {
+        let calls_with_entries: Vec<_> = calls
+            .into_iter()
+            .map(|call| (call, self.record.next_item_id()))
+            .collect();
+        let dispatched: Vec<_> = calls_with_entries
+            .iter()
+            .map(|(call, _)| call.clone())
+            .collect();
+        self.turn = Turn::Working {
+            turn_id,
+            batch: Batch::new(calls_with_entries),
+            step,
+            usage,
+        };
+        for call in &dispatched {
             self.record.push(RequestItem::ToolCall(call.clone()));
             self.emit_tool_status(call.call_id.clone(), ToolCallStatus::Queued, reaction);
             reaction
@@ -35,12 +50,6 @@ impl Agent {
                 .push(Effect::AdmitTool(AdmissionRequest::new(call.clone())));
         }
         self.status(reaction, AgentStatus::Waiting);
-        self.turn = Turn::Working {
-            turn_id,
-            batch: Batch::new(calls),
-            step,
-            usage,
-        };
     }
 
     /// Applies one catalog result to the exact call still awaiting admission.
@@ -236,11 +245,24 @@ impl Agent {
         status: ToolCallStatus,
         reaction: &mut Reaction,
     ) {
+        let entry = match &self.turn {
+            Turn::Working { batch, .. } => batch
+                .entry(&call_id)
+                .map(|(item_id, revision)| (item_id.clone(), revision)),
+            Turn::Idle | Turn::Streaming { .. } => None,
+        };
+        let Some((item_id, item_revision)) = entry else {
+            self.warn(reaction, "tool state changed without its transcript entry");
+            return;
+        };
         let changed = SessionEvent::ToolCallChanged {
             agent_id: self.record.agent_id().clone(),
+            item_id,
+            item_revision,
             label: self.record.label_of(&call_id),
             call_id,
             status,
+            presentation: ToolPresentation::default(),
         };
         self.record.emit(reaction, changed);
     }

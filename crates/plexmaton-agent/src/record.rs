@@ -121,9 +121,12 @@ mod tests {
         let mut reaction = Reaction::default();
 
         for _ in 0..3 {
+            let item_id = record.next_item_id();
             record.emit(
                 &mut reaction,
                 SessionEvent::RuntimeWarning {
+                    agent_id: record.agent_id().clone(),
+                    item_id,
                     message: "noticed".to_owned(),
                 },
             );

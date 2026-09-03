@@ -13,7 +13,7 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
-        ToolCallStatus, ToolCapability,
+        ToolCallStatus, ToolCapability, ToolPresentation, TranscriptItemId,
     };
     use ratatui::{buffer::Buffer, layout::Rect};
 
@@ -183,12 +183,27 @@ mod tests {
 
     fn native_approval_state(width: u16, height: u16) -> ViewState {
         let mut conversation = Conversation::canonical();
+        let item_id = TranscriptItemId::new("agent-a-command-native-1")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
         conversation.emit(SessionEvent::ToolCallChanged {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            item_id: item_id.clone(),
+            item_revision: 0,
+            call_id: ToolCallId::new("command-native-1")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            label: "exec_command".to_owned(),
+            status: ToolCallStatus::Queued,
+            presentation: ToolPresentation::default(),
+        });
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            item_id,
+            item_revision: 1,
             call_id: ToolCallId::new("command-native-1")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             label: "exec_command".to_owned(),
             status: ToolCallStatus::AwaitingApproval,
+            presentation: ToolPresentation::default(),
         });
         conversation.emit(SessionEvent::AttentionRequested {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),

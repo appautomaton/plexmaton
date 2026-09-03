@@ -1,7 +1,7 @@
 ┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
 │> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents · !1 ───────────┐┌ Agent A · primary · running · 1 mail ─────────────────────────────┐
+┌ Agents · !1 ───────────┐┌ Agent A · primary · running ──────────────────────────────────────┐
 │○ Agent B · UI study    ││                                                                   │
 │done                    ││                                                                   │
 │                        ││                                                                   │

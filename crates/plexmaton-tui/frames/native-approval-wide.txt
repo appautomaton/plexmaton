@@ -9,13 +9,13 @@
 ├ Activity ────────────────┤│                                                                                              │
 │Tools                     ││                                                                                              │
 │[?] exec_command          ││                                                                                              │
-│Artifacts                 ││                                                                                              │
+│Mail                      ││                                                                                              │
 │  none                   ┌ Approval required · user opened ─────────────────────────────────────┐                         │
-│Mail                     │Agent  agent-a                                                        │                         │
-│<- agent-b               │Tool   exec_command · command-native-1                                │                         │
-│  Overlap routing should │Access read files, change files, run processes                        │                         │
-│remain centralized and   │                                                                      │                         │
-│z-ordered.               │  Allow once                                                          │                         │
+│Artifacts                │Agent  agent-a                                                        │                         │
+│  none                   │Tool   exec_command · command-native-1                                │                         │
+│                         │Access read files, change files, run processes                        │                         │
+│                         │                                                                      │                         │
+│                         │  Allow once                                                          │                         │
 │                         │> Deny                                                                │                         │
 │                         │↑↓ choose · Enter decide                                              │                         │
 │                         │PgUp/PgDn details · Esc keeps pending                                 │                         │

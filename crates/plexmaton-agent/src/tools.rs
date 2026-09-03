@@ -6,7 +6,7 @@
 //! than the mistake, which is why the rule lives in a type rather than in a reviewer's memory.
 
 use plexmaton_core::{
-    ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, TurnId,
+    ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, TranscriptItemId, TurnId,
 };
 
 use crate::admission::{AdmissionRefusal, AdmittedToolCall};
@@ -140,6 +140,8 @@ enum CallState {
 struct CallSlot {
     requested: ToolCall,
     state: CallState,
+    entry_id: TranscriptItemId,
+    entry_revision: u64,
 }
 
 pub(crate) enum ApprovalResolution {
@@ -170,16 +172,26 @@ pub(crate) struct Batch {
 
 impl Batch {
     /// Opens a batch over the calls one step produced, in the order it produced them.
-    pub(crate) fn new(calls: Vec<ToolCall>) -> Self {
+    pub(crate) fn new(calls: Vec<(ToolCall, TranscriptItemId)>) -> Self {
         Self {
             slots: calls
                 .into_iter()
-                .map(|requested| CallSlot {
+                .map(|(requested, entry_id)| CallSlot {
                     requested,
                     state: CallState::AwaitingAdmission,
+                    entry_id,
+                    entry_revision: 0,
                 })
                 .collect(),
         }
+    }
+
+    /// Entry identity and revision paired with a call's current lifecycle state.
+    pub(crate) fn entry(&self, call_id: &ToolCallId) -> Option<(&TranscriptItemId, u64)> {
+        self.slots
+            .iter()
+            .find(|slot| &slot.requested.call_id == call_id)
+            .map(|slot| (&slot.entry_id, slot.entry_revision))
     }
 
     pub(crate) fn requested(&self, call_id: &ToolCallId) -> Option<&ToolCall> {
@@ -204,6 +216,7 @@ impl Batch {
             return false;
         }
         slot.state = CallState::Running(admitted);
+        slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
 
@@ -222,6 +235,7 @@ impl Batch {
             return false;
         }
         slot.state = CallState::AwaitingApproval(pending);
+        slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
 
@@ -237,6 +251,7 @@ impl Batch {
             return false;
         }
         slot.state = CallState::Finished(outcome);
+        slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
 
@@ -262,15 +277,19 @@ impl Batch {
             ApprovalDecision::AllowOnce => {
                 let admitted = pending.admitted;
                 slot.state = CallState::Running(admitted.clone());
+                slot.entry_revision = slot.entry_revision.saturating_add(1);
                 Some(ApprovalResolution::Run {
                     attention_id,
                     admitted,
                 })
             }
-            ApprovalDecision::Deny => Some(ApprovalResolution::Denied {
-                attention_id,
-                call_id: slot.requested.call_id.clone(),
-            }),
+            ApprovalDecision::Deny => {
+                slot.entry_revision = slot.entry_revision.saturating_add(1);
+                Some(ApprovalResolution::Denied {
+                    attention_id,
+                    call_id: slot.requested.call_id.clone(),
+                })
+            }
         }
     }
 
@@ -295,6 +314,7 @@ impl Batch {
             return false;
         }
         slot.state = CallState::Finished(outcome);
+        slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
 
@@ -321,6 +341,7 @@ impl Batch {
                 }
             };
             slot.state = CallState::Finished(ToolOutcome::Cancelled { reason });
+            slot.entry_revision = slot.entry_revision.saturating_add(1);
             abandoned.push(AbandonedCall {
                 call_id: slot.requested.call_id.clone(),
                 attention_id,
@@ -441,11 +462,22 @@ mod tests {
     }
 
     fn running_batch(calls: Vec<ToolCall>) -> Batch {
-        use plexmaton_core::{ToolCapability, ToolDefinitionId};
+        use plexmaton_core::{ToolCapability, ToolDefinitionId, TranscriptItemId};
 
         use crate::{AdmittedToolCall, ToolDefinitionRevision};
 
-        let mut batch = Batch::new(calls.clone());
+        let entries = calls
+            .iter()
+            .enumerate()
+            .map(|(index, call)| {
+                (
+                    call.clone(),
+                    TranscriptItemId::new(format!("tool-entry-{index}"))
+                        .unwrap_or_else(|error| panic!("fixture: {error}")),
+                )
+            })
+            .collect();
+        let mut batch = Batch::new(entries);
         for call in calls {
             let admitted = AdmittedToolCall::new(
                 call,

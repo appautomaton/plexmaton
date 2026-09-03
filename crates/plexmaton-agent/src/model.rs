@@ -239,7 +239,7 @@ pub enum ModelError {
 }
 
 impl ModelError {
-    /// Text for the notice a user sees. Presentation, never control flow.
+    /// Text for the transcript error a user sees. Presentation, never control flow.
     #[must_use]
     pub fn message(&self) -> String {
         match self {

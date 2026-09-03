@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 3 |
 | Contract | [UI/UX](../ui-ux.md) §progressive disclosure, §readability, §transcript grammar, §state matrix |
-| Status | Planned; slice 1 of 7 ready |
+| Status | Slice 1 of 7 done; slices 2–4 ready |
 | Blocked | None |
 
 ## Outcome
@@ -36,7 +36,7 @@ maintain a second live/replay UI.
 
 ## Slices
 
-1. **Replayable entry spine.** Land the serial foundation: the producer-assigned identity, owner,
+1. **Replayable entry spine — done.** Landed the serial foundation: the producer-assigned identity, owner,
    order, revision and typed presentation envelope for every Stage 3 category. Text, tool,
    artifact, mail, system, warning and error facts all enter one typed model; contract violations
    remain in the notice log. A call creates one position and every later state, including `Denied`,

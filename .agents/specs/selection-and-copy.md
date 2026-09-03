@@ -44,7 +44,7 @@ focused surface + its agent ──▶ entries ──▶ Selection { surface, age
 | Surface | Entries, in order | What one copies as |
 | --- | --- | --- |
 | Conversation, Inspector | Transcript items | The item's source text |
-| Activity | Tool activity, then artifacts, then mail | A tool's label; an artifact's pointer; a mail's sender and summary |
+| Activity | Tool activity, then mail, then artifacts | A tool's label; a mail's recipient and summary; an artifact's pointer |
 
 The order is the order the content functions draw, so one index names one entry in both places. The
 bindings are in the routing spec's key grammar; the selection chords resolve before keyboard focus

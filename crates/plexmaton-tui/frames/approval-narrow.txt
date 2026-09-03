@@ -7,7 +7,7 @@
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent B · UI study · 1 tool · 1 artifact · esc ──────────┐
+┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ─┐
 │                                                          │
 │                                                          │
 │ ┌ Approval required · user opened ─────────────────────┐ │

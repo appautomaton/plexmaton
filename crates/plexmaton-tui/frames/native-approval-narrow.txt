@@ -7,7 +7,7 @@
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent A · primary · running · 1 tool · 1 mail ───────────┐
+┌ Agent A · primary · running · 1 tool ────────────────────┐
 │                                                          │
 │                                                          │
 │ ┌ Approval required · user opened ─────────────────────┐ │

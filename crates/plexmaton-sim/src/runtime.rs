@@ -49,7 +49,7 @@ pub enum RuntimeCommand {
 pub struct ScriptedRuntime {
     scheduled: VecDeque<ScenarioStep>,
     next_sequence: u64,
-    submitted: u64,
+    next_item: u64,
 }
 
 impl ScriptedRuntime {
@@ -60,7 +60,7 @@ impl ScriptedRuntime {
             scheduled: scenario.into_steps().into(),
             // Producers conventionally begin at one, and the projection expects that.
             next_sequence: 1,
-            submitted: 0,
+            next_item: 0,
         }
     }
 
@@ -90,8 +90,7 @@ impl ScriptedRuntime {
     ) -> Result<Vec<SessionEventEnvelope>, IdError> {
         match command {
             RuntimeCommand::SendMessage { to, text } => {
-                self.submitted = self.submitted.saturating_add(1);
-                let item_id = TranscriptItemId::new(format!("user-{}", self.submitted))?;
+                let item_id = self.next_item_id("user")?;
                 Ok(vec![
                     self.envelope(SessionEvent::TranscriptItemStarted {
                         agent_id: to.clone(),
@@ -112,7 +111,10 @@ impl ScriptedRuntime {
                 ])
             }
             RuntimeCommand::Interrupt { to } => {
+                let item_id = self.next_item_id("warning")?;
                 Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                    agent_id: to.clone(),
+                    item_id,
                     message: format!(
                         "the synthetic runtime cannot interrupt {to}; no real turn is running"
                     ),
@@ -122,11 +124,16 @@ impl ScriptedRuntime {
                 to,
                 approval_id,
                 decision,
-            } => Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
-                message: format!(
-                    "the synthetic runtime cannot apply {decision:?} to {approval_id} for {to}; no real turn owns that approval"
-                ),
-            })]),
+            } => {
+                let item_id = self.next_item_id("warning")?;
+                Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                    agent_id: to.clone(),
+                    item_id,
+                    message: format!(
+                        "the synthetic runtime cannot apply {decision:?} to {approval_id} for {to}; no real turn owns that approval"
+                    ),
+                })])
+            }
         }
     }
 
@@ -140,6 +147,11 @@ impl ScriptedRuntime {
         let sequence = EventSequence::new(self.next_sequence);
         self.next_sequence = self.next_sequence.saturating_add(1);
         SessionEventEnvelope { sequence, event }
+    }
+
+    fn next_item_id(&mut self, kind: &str) -> Result<TranscriptItemId, IdError> {
+        self.next_item = self.next_item.saturating_add(1);
+        TranscriptItemId::new(format!("synthetic-{kind}-{}", self.next_item))
     }
 }
 
@@ -243,7 +255,7 @@ mod tests {
             [event]
                 if matches!(
                     &event.event,
-                    SessionEvent::RuntimeWarning { message }
+                    SessionEvent::RuntimeWarning { message, .. }
                         if message.contains("agent-a") && message.contains("cannot interrupt")
                 )
         ));
@@ -267,7 +279,7 @@ mod tests {
             [event]
                 if matches!(
                     &event.event,
-                    SessionEvent::RuntimeWarning { message }
+                    SessionEvent::RuntimeWarning { message, .. }
                         if message.contains("approval-1") && message.contains("cannot apply")
                 )
         ));

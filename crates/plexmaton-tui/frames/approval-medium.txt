@@ -2,8 +2,8 @@
 │  ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
 │> seen  agent-b · Change crates/plexmaton-core/src/lib.rs and preserve its current revision. │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents · !1 ───────────┐┌ Agent A · primary · running · 1 mail ─────────────────────────────┐
-│● Agent B · UI study    ││┌ Agent B · UI study · 1 tool · 1 artifact · esc ─────────────────┐│
+┌ Agents · !1 ───────────┐┌ Agent A · primary · running ──────────────────────────────────────┐
+│● Agent B · UI study    ││┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ────────┐│
 │done                    │││                                                                 ││
 │                        │││                                                                 ││
 │                        │││                                                                 ││
