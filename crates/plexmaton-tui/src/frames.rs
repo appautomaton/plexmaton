@@ -12,8 +12,9 @@ mod tests {
     use std::path::PathBuf;
 
     use plexmaton_core::{
-        AgentId, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
-        ToolCallStatus, ToolCapability, ToolPresentation, TranscriptItemId,
+        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence,
+        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability,
+        ToolPresentation, TranscriptItemId,
     };
     use ratatui::{buffer::Buffer, layout::Rect};
 
@@ -45,6 +46,23 @@ mod tests {
         ("native-approval-medium", 95, 40),
         ("native-approval-narrow", 60, 40),
     ];
+
+    const TOOL_STATES: [(ToolCallStatus, &str, &str); 7] = [
+        (ToolCallStatus::Queued, "queued", "queued"),
+        (
+            ToolCallStatus::AwaitingApproval,
+            "approval-required",
+            "approval required",
+        ),
+        (ToolCallStatus::Running, "running", "running"),
+        (ToolCallStatus::Succeeded, "succeeded", "succeeded"),
+        (ToolCallStatus::Failed, "failed", "failed"),
+        (ToolCallStatus::Denied, "denied", "denied"),
+        (ToolCallStatus::Cancelled, "cancelled", "cancelled"),
+    ];
+
+    const TOOL_WIDTHS: [(&str, u16, u16); 3] =
+        [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -111,6 +129,112 @@ mod tests {
                  PLEXMATON_WRITE_FRAMES=1 and review the diff",
                 first_difference(&fixture, &drawn)
             );
+        }
+    }
+
+    fn tool_state(status: ToolCallStatus) -> ViewState {
+        let agent_id =
+            AgentId::new("agent-primary").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let item_id =
+            TranscriptItemId::new("tool-entry").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call_id =
+            ToolCallId::new("tool-call").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let mut state = ViewState::default();
+        let mut sequence = 0_u64;
+        let mut apply = |state: &mut ViewState, event| {
+            sequence = sequence.saturating_add(1);
+            let outcome = state.apply(SessionEventEnvelope {
+                sequence: EventSequence::new(sequence),
+                event,
+            });
+            assert!(
+                matches!(outcome, crate::ApplyOutcome::Accepted),
+                "tool-state fixture was rejected: {outcome:?}"
+            );
+        };
+        apply(
+            &mut state,
+            SessionEvent::AgentCreated {
+                agent_id: agent_id.clone(),
+                label: "Plexmaton".to_owned(),
+                status: AgentStatus::Running,
+            },
+        );
+        let mut revision = 0_u64;
+        let mut move_tool = |state: &mut ViewState, next| {
+            apply(
+                state,
+                SessionEvent::ToolCallChanged {
+                    agent_id: agent_id.clone(),
+                    item_id: item_id.clone(),
+                    item_revision: revision,
+                    call_id: call_id.clone(),
+                    label: "read_file".to_owned(),
+                    status: next,
+                    presentation: ToolPresentation::default(),
+                },
+            );
+            revision = revision.saturating_add(1);
+        };
+        move_tool(&mut state, ToolCallStatus::Queued);
+        match status {
+            ToolCallStatus::Queued => {}
+            ToolCallStatus::AwaitingApproval => {
+                move_tool(&mut state, ToolCallStatus::AwaitingApproval);
+            }
+            ToolCallStatus::Running => move_tool(&mut state, ToolCallStatus::Running),
+            ToolCallStatus::Succeeded | ToolCallStatus::Failed | ToolCallStatus::Cancelled => {
+                move_tool(&mut state, ToolCallStatus::Running);
+                move_tool(&mut state, status);
+            }
+            ToolCallStatus::Denied => {
+                move_tool(&mut state, ToolCallStatus::AwaitingApproval);
+                move_tool(&mut state, ToolCallStatus::Denied);
+            }
+        }
+        state.set_working_directory("~/plexmaton".to_owned());
+        state
+    }
+
+    /// ENT-2/TR-2: all seven compact states remain legible at wide, medium and narrow.
+    #[test]
+    fn the_tool_state_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (status, state_name, status_text) in TOOL_STATES {
+            let state = tool_state(status);
+            for (width_name, width, height) in TOOL_WIDTHS {
+                let name = format!("tool-{state_name}-{width_name}");
+                let drawn = draw(&state, width, height);
+                for signature in ["read_file", status_text, "Message Plexmaton", "~/plexmaton"] {
+                    assert!(
+                        drawn.contains(signature),
+                        "{name}: {signature:?} is not on screen"
+                    );
+                }
+                assert!(
+                    !drawn.contains("Activity"),
+                    "{name}: the retired detail surface returned"
+                );
+                assert_eq!(drawn.lines().count(), usize::from(height));
+
+                let path = fixture_path(&name);
+                if write {
+                    std::fs::write(&path, &drawn)
+                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                    continue;
+                }
+                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                    panic!(
+                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                        path.display()
+                    )
+                });
+                assert!(
+                    fixture == drawn,
+                    "{name} drifted from its fixture at {}",
+                    first_difference(&fixture, &drawn)
+                );
+            }
         }
     }
 

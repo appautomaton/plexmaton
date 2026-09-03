@@ -21,9 +21,6 @@ use crate::surface::SurfaceTree;
 const MIN_PANEL_HEIGHT: u16 = 3;
 
 /// Rows the conversation keeps before an optional region may take its preferred height.
-///
-/// Deliberately above the bare minimum: activity detail must not win rows off the transcript down
-/// to a single readable line, which is what a plain "does it fit" test would allow.
 const TRANSCRIPT_COMFORT: u16 = 8;
 
 /// Preferred heights of the regions that yield on a short terminal.
@@ -51,7 +48,7 @@ pub enum LayoutClass {
     TooSmall,
     /// One column; every region becomes a stacked band.
     Narrow,
-    /// Agent column plus conversation; activity compresses to markers.
+    /// Agent column plus conversation.
     Medium,
     /// Agent column and conversation; a second agent arrives as a shelf over the conversation.
     Wide,
@@ -93,8 +90,6 @@ pub struct WorkspaceInput {
     pub composer_rows: u16,
     /// The open inspector, if one is open.
     pub inspector: Option<InspectorRequest>,
-    /// How many sub-agents the list holds, which is what decides the list's share of its column.
-    pub sub_agents: usize,
 }
 
 impl Default for WorkspaceInput {
@@ -106,7 +101,6 @@ impl Default for WorkspaceInput {
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
-            sub_agents: 0,
         }
     }
 }
@@ -176,13 +170,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         rest.saturating_add(composer_height),
     );
 
-    let regions = body_regions(
-        area,
-        body,
-        input.inspector,
-        input.sub_agents,
-        composer_height,
-    );
+    let regions = body_regions(area, body, input.inspector, composer_height);
 
     registration::surface_tree(area, input.approval, status, notices, attention, regions)
 }
@@ -227,7 +215,6 @@ pub(super) struct BodyRegions {
     pub(super) inspector: Option<Rect>,
     /// Whether the second window floats over the conversation rather than tiling beside it.
     pub(super) inspector_floats: bool,
-    pub(super) activity: Option<Rect>,
     /// The composer, at the bottom of the conversation's column. Always present: the body was
     /// sized so that typing survives every other region.
     pub(super) composer: Rect,
@@ -237,15 +224,12 @@ fn body_regions(
     area: Rect,
     body: Rect,
     inspector: Option<InspectorRequest>,
-    sub_agents: usize,
     composer_height: u16,
 ) -> BodyRegions {
     let class = LayoutClass::for_size(area.width, area.height);
     let mut base = match class {
-        LayoutClass::Ultrawide => column::beside_conversation(body, 28, sub_agents),
-        LayoutClass::Wide => column::beside_conversation(body, 28, sub_agents),
-        // Below wide there is no activity column: the conversation stays dominant and the tools,
-        // artifacts and mail compress to counts in its title (`ui-ux.md` §layout classes).
+        LayoutClass::Ultrawide => column::beside_conversation(body, 28),
+        LayoutClass::Wide => column::beside_conversation(body, 28),
         LayoutClass::Medium => {
             let [agents, transcript] =
                 Layout::horizontal([Constraint::Length(26), Constraint::Min(24)]).areas(body);
@@ -255,7 +239,6 @@ fn body_regions(
                 inspector: None,
                 inspector_floats: false,
                 composer: Rect::default(),
-                activity: None,
             }
         }
         // `TooSmall` returned before layout began, so it cannot reach here.
@@ -272,7 +255,6 @@ fn body_regions(
                 inspector: None,
                 inspector_floats: false,
                 composer: Rect::default(),
-                activity: None,
             }
         }
     };
@@ -508,7 +490,6 @@ mod tests {
         for id in [
             SurfaceId::Agents,
             SurfaceId::Transcript,
-            SurfaceId::Activity,
             SurfaceId::Notices,
             SurfaceId::Composer,
         ] {
@@ -526,9 +507,8 @@ mod tests {
     /// the part the user builds muscle memory on, so that is the part held fixed.
     #[test]
     fn the_focus_ring_loses_stops_without_ever_reordering() {
-        const CANONICAL: [SurfaceId; 7] = [
+        const CANONICAL: [SurfaceId; 6] = [
             SurfaceId::Agents,
-            SurfaceId::Activity,
             SurfaceId::Transcript,
             SurfaceId::Inspector,
             SurfaceId::Composer,
@@ -564,21 +544,24 @@ mod tests {
         }
     }
 
-    /// The workspace sheds detail before identity, and never sheds the conversation.
+    /// Stage 3 retires the second agent-column surface; the rail keeps the full column.
     #[test]
-    fn below_wide_the_activity_column_folds_into_the_conversation() {
+    fn the_agent_column_is_one_surface_at_every_width() {
         for (width, height) in [(48, 12), (60, 30), (86, 40), (95, 40)] {
             let tree = workspace(Rect::new(0, 0, width, height), input(false));
             assert!(tree.get(SurfaceId::Transcript).is_some());
-            assert!(
-                tree.get(SurfaceId::Activity).is_none(),
-                "{width}x{height}: the conversation stays dominant; activity is counts in its title"
-            );
         }
         let wide = workspace(Rect::new(0, 0, 96, 30), input(false));
-        assert!(
-            wide.get(SurfaceId::Activity).is_some(),
-            "and from wide up it is a column of its own"
+        let agents = wide
+            .get(SurfaceId::Agents)
+            .unwrap_or_else(|| panic!("wide keeps the agent rail"));
+        let composer = wide
+            .get(SurfaceId::Composer)
+            .unwrap_or_else(|| panic!("wide keeps the composer"));
+        assert_eq!(
+            agents.bounds.bottom(),
+            composer.bounds.bottom(),
+            "the rail owns the entire body beside the conversation and composer"
         );
     }
 

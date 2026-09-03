@@ -4,19 +4,19 @@
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ───────────┐┌ Agent A · primary · running ──────────────────────────────────────┐
 │● Agent B · UI study    ││┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ────────┐│
-│done                    │││                                                                 ││
-│                        │││                                                                 ││
+│done · 1 tool · 1       │││                                                                 ││
+│artifact · 1 mail       │││                                                                 ││
 │                        │││                                                                 ││
 │                        │││                                                                 ││
 │                        │││                                                                 ││
 │                        │││                                                                 ││
 │          ┌ Approval required · user opened ─────────────────────────────────────┐          ││
 │          │Agent  agent-b                                                        │          ││
-│          │Tool   edit · tool-b-write                                            │          ││
+│          │Tool   edit · tool-b-write                                            │erlap     ││
 │          │Access change files                                                   │          ││
 │          │                                                                      │          ││
-│          │  Allow once                                                          │erlap     ││
-│          │> Deny                                                                │          ││
+│          │  Allow once                                                          │          ││
+│          │> Deny                                                                │-findings ││
 │          │↑↓ choose · Enter decide                                              │          ││
 │          │PgUp/PgDn details · Esc keeps pending                                 │──────────┘│
 │          │                                                                      │           │

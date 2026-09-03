@@ -98,22 +98,14 @@ pub(super) fn attention_role(state: &ViewState) -> Role {
     }
 }
 
-pub(super) fn transcript_title(
-    state: &ViewState,
-    palette: &Palette,
-    with_counts: bool,
-) -> Line<'static> {
+pub(super) fn transcript_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     state.primary_agent().map_or_else(
         || title(palette, "Transcript", Role::SectionHeading, ""),
         |agent| {
             let rest = format!(
                 " · {}{}{}",
                 content::agent_status_label(agent.status),
-                if with_counts {
-                    content::activity_counts(agent)
-                } else {
-                    String::new()
-                },
+                content::entry_counts(agent),
                 selected_suffix(state, SurfaceId::Transcript)
             );
             title(palette, agent.label.clone(), Role::SectionHeading, rest)
@@ -136,11 +128,7 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 }
 
 /// The title names the agent and the way out.
-pub(super) fn inspector_title(
-    state: &ViewState,
-    palette: &Palette,
-    with_counts: bool,
-) -> Line<'static> {
+pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     // The surface is registered only while an agent is open, so this is no title rather than a
     // word the user would otherwise never see (phase 01 §scope 1).
     let Some(open) = state.inspector() else {
@@ -154,11 +142,7 @@ pub(super) fn inspector_title(
             " · esc",
         );
     };
-    let counts = if with_counts {
-        content::activity_counts(agent)
-    } else {
-        String::new()
-    };
+    let counts = content::entry_counts(agent);
     let selected = selected_suffix(state, SurfaceId::Inspector);
     title(
         palette,

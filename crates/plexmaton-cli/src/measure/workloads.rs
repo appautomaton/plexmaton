@@ -18,7 +18,7 @@ use super::{COLD_SAMPLES, Harness, RESIZES, Run, SAMPLES, SIZE};
 /// The first frame on a conversation nothing has measured.
 ///
 /// The one frame that is deliberately proportional to history: knowing how tall a conversation is
-/// means wrapping every item once, and that is what makes every later frame cheap (TR-1).
+/// means wrapping every entry once, and that is what makes every later frame cheap (TR-1).
 pub(super) fn cold_open(items: usize) -> anyhow::Result<Run> {
     let mut run = Run::new("cold open");
     let mut last = None;
@@ -123,7 +123,10 @@ pub(super) fn resize(items: usize) -> anyhow::Result<Run> {
 pub(super) fn inspector(items: usize) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
     harness.warm(usize::MAX)?;
-    for code in [KeyCode::Down, KeyCode::Up] {
+    // Pay for the inspected conversation once before timing starts, then close it. With one
+    // sub-agent a second arrow is clamped and changes nothing; Escape is the operation that
+    // actually closes the window (INS-1).
+    for code in [KeyCode::Down, KeyCode::Esc] {
         harness
             .workspace
             .handle(&Event::Key(KeyEvent::new(code, KeyModifiers::NONE)));
@@ -135,7 +138,7 @@ pub(super) fn inspector(items: usize) -> anyhow::Result<Run> {
         let code = if sample.is_multiple_of(2) {
             KeyCode::Down
         } else {
-            KeyCode::Up
+            KeyCode::Esc
         };
         let event = Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
         let started = Instant::now();
@@ -304,8 +307,8 @@ mod tests {
 
     /// SEL-1 through the harness: selecting changes a style, so it re-measures nothing.
     ///
-    /// The cache keys heights on item revision and panel width, and a selection is neither. If a
-    /// height ever depended on selection, every arrow press would invalidate the item under it and
+    /// The cache keys heights on entry revision and panel width, and a selection is neither. If a
+    /// height ever depended on selection, every arrow press would invalidate the entry under it and
     /// the cheapest gesture in the workspace would become one of the more expensive ones.
     #[test]
     fn extending_a_selection_costs_no_measurement() {
@@ -389,12 +392,24 @@ mod tests {
         }
     }
 
+    /// The surface-open workload must actually open and close the second window.
+    ///
+    /// One sub-agent makes a second arrow press a clamped no-op, so this guards the driver itself:
+    /// the recorded samples would otherwise all be zero while the report appeared green.
+    #[test]
+    fn opening_and_closing_the_inspector_records_every_sample() {
+        let run = super::inspector(30).unwrap_or_else(|error| panic!("workload: {error}"));
+
+        assert_eq!(run.latencies.len(), super::SAMPLES);
+        assert_eq!(run.wrapped, 0, "the inspected transcript was warmed first");
+    }
+
     /// TR-1's expensive case, measured rather than assumed: a resize re-measures everything once.
     ///
     /// This is the workload that justifies the cache existing. If a resize cost less than one pass
-    /// the heights would not be width-keyed, and the reader would land on the wrong message.
+    /// the heights would not be width-keyed, and the reader would land on the wrong entry.
     #[test]
-    fn the_resize_workload_re_measures_every_item_exactly_once() {
+    fn the_resize_workload_re_measures_every_entry_exactly_once() {
         let mut harness = harness(300);
         let items = harness.items_on_screen();
         assert!(items >= 300, "the fixture streamed its messages");
@@ -407,7 +422,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("a resize always forces a frame"));
             assert_eq!(
                 work.items_wrapped, items,
-                "a resize at {size:?} must re-measure each item once and no item twice"
+                "a resize at {size:?} must re-measure each entry once and no entry twice"
             );
         }
     }

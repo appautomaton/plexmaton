@@ -223,11 +223,6 @@ impl Session {
         self.draw()
     }
 
-    /// Whether the last frame registered a surface at all.
-    pub fn is_registered(&self, surface_id: SurfaceId) -> bool {
-        self.surfaces.get(surface_id).is_some()
-    }
-
     /// The text painted inside one surface by the last frame.
     pub fn region(&self, surface_id: SurfaceId) -> String {
         region_text(&self.buffer, self.bounds(surface_id))

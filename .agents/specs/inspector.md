@@ -38,11 +38,11 @@ while it is active the primary composer collapses to one row that stays clickabl
 focus stop. A rectangle with no room for both keeps the conversation and shows no input.
 
 **INS-6 — What the window shows is a conversation.** The looked-at agent's, through the same cache
-and reading position the main conversation uses (TR-1, TR-3, TR-5), keyed by agent. Tool activity,
-mail and artifacts become entries in it when the transcript grammar lands (Phase 01); until then the
-activity column under the list (ui-ux §layout classes) shows them for the selected agent. Rejected:
-composing status and an artifact index into the window now, which needs sub-region scroll ownership
-and an expand model the transcript lacks; that surface is Phase 03's.
+and reading position the main conversation uses (TR-1, TR-3, TR-5), keyed by agent. Text, tools,
+mail and artifacts share its first-appearance order and one viewport; there is no parallel detail
+surface or regrouped order. Rejected: composing status and an artifact index into the window now,
+which needs sub-region scroll ownership and an expand model the transcript lacks; that surface is
+Phase 03's.
 
 **INS-7 — A window with no room for its input is a navigation surface.** No input, no cursor, no
 text target, no draft. One geometry function, called by the renderer and by focus, answers all

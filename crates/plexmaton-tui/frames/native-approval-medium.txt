@@ -4,8 +4,8 @@
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ───────────┐┌ Agent A · primary · running · 1 tool ─────────────────────────────┐
 │○ Agent B · UI study    ││                                                                   │
-│done                    ││                                                                   │
-│                        ││                                                                   │
+│done · 1 tool · 1       ││                                                                   │
+│artifact · 1 mail       ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
@@ -28,12 +28,12 @@
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
-│                        ││                                                                   │
 │                        ││assistant                                                          │
 │                        ││I will inspect the workspace and delegate the focused UI study.    │
 │                        ││Agent B is running independently; this transcript remains          │
 │                        ││interactive.                                                       │
 │                        ││                                                                   │
+│                        ││[?] exec_command · approval required                               │
 │                        │├ Message Agent A · primary ────────────────────────────────────────┤
 │                        ││Type a message · ⇥ to focus                                        │
 └────────────────────────┘└───────────────────────────────────────────────────────────────────┘

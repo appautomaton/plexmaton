@@ -12,8 +12,7 @@ use ratatui::{
 };
 
 use crate::{
-    NoticeView, TranscriptItemView, TranscriptTextKind, ViewState,
-    state::Selected,
+    NoticeView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewState,
     surface::SurfaceId,
     theme::{Palette, Role, agent_role, tool_role},
 };
@@ -47,7 +46,11 @@ pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>>
                 Span::styled(format!("{marker} "), palette.style(marker_role)),
                 Span::styled(agent.label.clone(), palette.style(Role::Body)),
                 Span::styled(
-                    format!("  {}", agent_status_label(agent.status)),
+                    format!(
+                        "  {}{}",
+                        agent_status_label(agent.status),
+                        entry_counts(agent)
+                    ),
                     palette.style(agent_role(agent.status)),
                 ),
             ])
@@ -81,12 +84,56 @@ pub(crate) fn agent_at_row(
     None
 }
 
-/// One transcript item, as the logical lines a viewport measures and paints.
+/// One transcript entry, as the logical lines a viewport measures and paints.
 ///
-/// Per item rather than per conversation, because both the height cache and the visible range are
-/// expressed in items: a frame that asks for one item's rows must get exactly the rows that item
-/// contributes to the whole (TR-1).
-pub(crate) fn transcript_item(
+/// Per entry rather than per conversation, because both the height cache and the visible range are
+/// expressed in entries: a frame that asks for one entry's rows must get exactly the rows that
+/// entry contributes to the whole (TR-1). Tools stay one logical line in every lifecycle state;
+/// wrapping that line at a narrow width loses no semantic content.
+pub(crate) fn transcript_entry(
+    entry: &TranscriptEntryView,
+    palette: &Palette,
+    selected: bool,
+) -> Vec<Line<'static>> {
+    match entry {
+        TranscriptEntryView::Text(item) => transcript_text(item, palette, selected),
+        TranscriptEntryView::Tool(tool) => {
+            let line = Line::from(vec![
+                Span::styled(
+                    format!("{} ", tool_marker(tool.status)),
+                    palette.style(tool_role(tool.status)),
+                ),
+                Span::styled(tool.label.clone(), palette.style(Role::Body)),
+                Span::styled(
+                    format!(" · {}", tool_status_label(tool.status)),
+                    palette.style(tool_role(tool.status)),
+                ),
+            ]);
+            vec![select_line(line, palette, selected)]
+        }
+        TranscriptEntryView::Artifact(artifact) => {
+            let line = Line::from(vec![
+                Span::styled("@ ", palette.style(Role::NewInformation)),
+                Span::styled(artifact.label.clone(), palette.style(Role::Body)),
+                Span::styled(
+                    format!(" · {}", artifact.pointer),
+                    palette.style(Role::Muted),
+                ),
+            ]);
+            vec![select_line(line, palette, selected)]
+        }
+        TranscriptEntryView::Mail(mail) => {
+            let line = Line::from(vec![
+                Span::styled("-> ", palette.style(Role::NewInformation)),
+                Span::styled(mail.to.to_string(), palette.style(Role::Body)),
+                Span::styled(format!(" · {}", mail.summary), palette.style(Role::Muted)),
+            ]);
+            vec![select_line(line, palette, selected)]
+        }
+    }
+}
+
+fn transcript_text(
     item: &TranscriptItemView,
     palette: &Palette,
     selected: bool,
@@ -119,6 +166,14 @@ pub(crate) fn transcript_item(
     ]
 }
 
+fn select_line(line: Line<'static>, palette: &Palette, selected: bool) -> Line<'static> {
+    if selected {
+        Line::styled(line.to_string(), palette.style(Role::Selection))
+    } else {
+        line
+    }
+}
+
 /// What a conversation says when it has no items to show.
 ///
 /// An empty panel, a panel waiting for its first event, and a panel whose agent has gone all look
@@ -136,9 +191,9 @@ pub(crate) fn conversation_placeholder(
     vec![Line::styled(message, palette.style(Role::Muted))]
 }
 
-/// Counts of an agent's tools, artifacts and mail, for a title that has no activity column beside
-/// it. Empty when there is nothing to count, so a quiet agent's title stays short.
-pub(crate) fn activity_counts(agent: &crate::AgentView) -> String {
+/// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
+/// row and conversation title stay short.
+pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
     let mut parts = String::new();
     for (count, one, many) in [
         (agent.tool_activity().count(), "tool", "tools"),
@@ -151,18 +206,6 @@ pub(crate) fn activity_counts(agent: &crate::AgentView) -> String {
         }
     }
     parts
-}
-
-/// Tools, artifacts, and mail belonging to the agent being looked at, else the primary.
-pub(crate) fn activity(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
-    let Some(agent) = state.activity_agent() else {
-        return vec![Line::styled("No agents yet.", palette.style(Role::Muted))];
-    };
-    detail(
-        agent,
-        palette,
-        state.selected_in(SurfaceId::Activity, &agent.id),
-    )
 }
 
 /// The one row the primary composer keeps while a sub-agent's input is active (INS-5).
@@ -181,90 +224,6 @@ pub(crate) fn composer_collapsed(state: &ViewState, palette: &Palette) -> Vec<Li
         Span::styled(" ⇥ ", palette.style(Role::KeyHint)),
         Span::styled(" to return", palette.style(Role::Muted)),
     ])]
-}
-
-/// Tools, then mail, then artifacts — the order a selection index means.
-///
-/// `selected` is consulted against a running entry counter, and that counter walks the three groups
-/// in exactly the order [`ViewState::sources`](crate::ViewState) builds them. Two orders here would
-/// select one thing and copy another, which is the failure the shared order exists to prevent.
-fn detail(agent: &crate::AgentView, palette: &Palette, selected: Selected) -> Vec<Line<'static>> {
-    let mut entry = 0_usize;
-    let mut next = |lines: &mut Vec<Line<'static>>, rows: Vec<Line<'static>>| {
-        let mark = selected.contains(entry);
-        entry = entry.saturating_add(1);
-        for row in rows {
-            lines.push(if mark {
-                Line::styled(row.to_string(), palette.style(Role::Selection))
-            } else {
-                row
-            });
-        }
-    };
-
-    let mut lines = vec![Line::styled("Tools", palette.style(Role::SectionHeading))];
-    let mut tools = 0_usize;
-    for tool in agent.tool_activity() {
-        tools = tools.saturating_add(1);
-        next(
-            &mut lines,
-            vec![Line::from(vec![
-                Span::styled(
-                    format!("{} ", tool_marker(tool.status)),
-                    palette.style(tool_role(tool.status)),
-                ),
-                Span::styled(tool.label.clone(), palette.style(Role::Body)),
-            ])],
-        );
-    }
-    if tools == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-
-    lines.push(Line::styled("Mail", palette.style(Role::SectionHeading)));
-    let mut mail = 0_usize;
-    for item in agent.mail() {
-        mail = mail.saturating_add(1);
-        next(
-            &mut lines,
-            vec![
-                Line::from(vec![
-                    Span::styled("-> ", palette.style(Role::NewInformation)),
-                    Span::styled(item.to.to_string(), palette.style(Role::Body)),
-                ]),
-                Line::styled(format!("  {}", item.summary), palette.style(Role::Muted)),
-            ],
-        );
-    }
-    if mail == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-
-    lines.push(Line::styled(
-        "Artifacts",
-        palette.style(Role::SectionHeading),
-    ));
-    let mut artifacts = 0_usize;
-    for artifact in agent.artifacts() {
-        artifacts = artifacts.saturating_add(1);
-        next(
-            &mut lines,
-            vec![
-                Line::from(vec![
-                    Span::styled("@ ", palette.style(Role::NewInformation)),
-                    Span::styled(artifact.label.clone(), palette.style(Role::Body)),
-                ]),
-                Line::styled(
-                    format!("  {}", artifact.pointer),
-                    palette.style(Role::Muted),
-                ),
-            ],
-        );
-    }
-    if artifacts == 0 {
-        lines.push(Line::styled("  none", palette.style(Role::Muted)));
-    }
-    lines
 }
 
 /// Producer defects, oldest first. The strip opens at its newest entry.
@@ -337,5 +296,73 @@ const fn tool_marker(status: ToolCallStatus) -> &'static str {
         ToolCallStatus::Failed => "[!]",
         ToolCallStatus::Denied => "[x]",
         ToolCallStatus::Cancelled => "[-]",
+    }
+}
+
+const fn tool_status_label(status: ToolCallStatus) -> &'static str {
+    match status {
+        ToolCallStatus::Queued => "queued",
+        ToolCallStatus::AwaitingApproval => "approval required",
+        ToolCallStatus::Running => "running",
+        ToolCallStatus::Succeeded => "succeeded",
+        ToolCallStatus::Failed => "failed",
+        ToolCallStatus::Denied => "denied",
+        ToolCallStatus::Cancelled => "cancelled",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId};
+
+    use super::{agents, transcript_entry};
+    use crate::{ToolCallView, TranscriptEntryView, test_support::canonical_state, theme::Palette};
+
+    /// ENT-2: every state uses one stable, monochrome-readable compact grammar.
+    #[test]
+    fn every_tool_status_is_one_named_logical_line() {
+        let palette = Palette::monochrome();
+        for (status, marker, label) in [
+            (ToolCallStatus::Queued, "[ ]", "queued"),
+            (ToolCallStatus::AwaitingApproval, "[?]", "approval required"),
+            (ToolCallStatus::Running, "[~]", "running"),
+            (ToolCallStatus::Succeeded, "[+]", "succeeded"),
+            (ToolCallStatus::Failed, "[!]", "failed"),
+            (ToolCallStatus::Denied, "[x]", "denied"),
+            (ToolCallStatus::Cancelled, "[-]", "cancelled"),
+        ] {
+            let entry = TranscriptEntryView::Tool(ToolCallView {
+                entry_id: TranscriptItemId::new("entry")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                id: ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}")),
+                label: "read_file".to_owned(),
+                status,
+                presentation: ToolPresentation::default(),
+                revision: 0,
+            });
+
+            let lines = transcript_entry(&entry, &palette, false);
+            assert_eq!(lines.len(), 1, "{status:?} stopped being compact");
+            let rendered = lines[0].to_string();
+            assert!(rendered.contains(marker), "{status:?}: {rendered:?}");
+            assert!(rendered.contains(label), "{status:?}: {rendered:?}");
+            assert!(rendered.contains("read_file"), "{status:?}: {rendered:?}");
+        }
+    }
+
+    /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
+    #[test]
+    fn an_agent_row_carries_its_tool_artifact_and_mail_counts() {
+        let state = canonical_state();
+        let rows = agents(&state, &Palette::monochrome());
+        let agent_b = rows
+            .iter()
+            .find(|line| line.to_string().contains("Agent B"))
+            .unwrap_or_else(|| panic!("canonical state includes Agent B"))
+            .to_string();
+
+        assert!(agent_b.contains("1 tool"), "{agent_b:?}");
+        assert!(agent_b.contains("1 artifact"), "{agent_b:?}");
+        assert!(agent_b.contains("1 mail"), "{agent_b:?}");
     }
 }

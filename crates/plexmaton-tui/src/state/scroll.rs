@@ -271,7 +271,7 @@ mod tests {
         let view = viewport(4, 10, 0);
 
         assert!(!view.is_scrollable());
-        assert!(!scroll.scroll_panel(SurfaceId::Activity, view, ScrollDirection::Down));
-        assert_eq!(scroll.panel(SurfaceId::Activity), None);
+        assert!(!scroll.scroll_panel(SurfaceId::Agents, view, ScrollDirection::Down));
+        assert_eq!(scroll.panel(SurfaceId::Agents), None);
     }
 }

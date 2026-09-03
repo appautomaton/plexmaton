@@ -49,12 +49,6 @@ pub(super) fn surface_tree(
     );
     register(
         &mut tree,
-        SurfaceId::Activity,
-        regions.activity,
-        SurfaceKind::Panel,
-    );
-    register(
-        &mut tree,
         SurfaceId::Composer,
         Some(regions.composer),
         SurfaceKind::Composer,

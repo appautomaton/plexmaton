@@ -123,7 +123,7 @@ impl Harness {
         self.workspace
             .state()
             .primary_agent()
-            .map_or(0, |agent| agent.transcript().count())
+            .map_or(0, |agent| agent.entries().count())
     }
 
     /// Applies every scheduled event and paints the frame that shows them.

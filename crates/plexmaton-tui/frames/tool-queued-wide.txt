@@ -1,10 +1,5 @@
-┌ Attention · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.                                       │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents · !1 ─────────────┐┌ Agent A · primary · running ─────────────────────────────────────────────────────────────┐
-│○ Agent B · UI study  done││                                                                                          │
-│· 1 tool · 1 artifact · 1 ││                                                                                          │
-│mail                      ││                                                                                          │
+┌ Agents ──────────────────┐┌ Plexmaton · running · 1 tool ────────────────────────────────────────────────────────────┐
+│No sub-agents yet.        ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
@@ -30,11 +25,16 @@
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
-│                          ││assistant                                                                                 │
-│                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running        │
-│                          ││independently; this transcript remains interactive.                                       │
 │                          ││                                                                                          │
-│                          │├ Message Agent A · primary ───────────────────────────────────────────────────────────────┤
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││[ ] read_file · queued                                                                    │
+│                          │├ Message Plexmaton ───────────────────────────────────────────────────────────────────────┤
 │                          ││Type a message · ⇥ to focus                                                               │
 └──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘
  ~/plexmaton                                                                                                            

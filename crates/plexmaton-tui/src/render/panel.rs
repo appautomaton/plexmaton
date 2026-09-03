@@ -76,10 +76,10 @@ pub(super) enum Body {
         /// Whether an untouched viewport opens at the end of its content rather than the start.
         follows_tail: bool,
     },
-    /// A conversation, measured item by item and built only where the viewport reaches (TR-2).
+    /// A conversation, measured entry by entry and built only where the viewport reaches (TR-2).
     Window {
         lines: Vec<Line<'static>>,
-        /// Rows to skip inside the first built item.
+        /// Rows to skip inside the first built entry.
         skip_rows: u16,
         viewport: Viewport,
     },
@@ -131,7 +131,7 @@ pub(super) fn render_steer(
 ///
 /// A whole body is measured by the same `Paragraph` that paints it, so the wrap deciding how tall
 /// the content is and the wrap putting it on screen are one computation. A windowed body arrives
-/// already measured, and scrolls by the rows into its first item rather than by rows into a history
+/// already measured, and scrolls by the rows into its first entry rather than by rows into a history
 /// it never built.
 pub(super) fn draw_panel(
     frame: &mut Frame<'_>,

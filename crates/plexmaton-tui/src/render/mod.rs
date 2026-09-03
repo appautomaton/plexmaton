@@ -51,7 +51,6 @@ pub fn render(
             approval: state.approval().is_some(),
             composer_rows: state.composer_rows(area.width),
             inspector: state.inspector_request(),
-            sub_agents: state.sub_agents().count(),
         },
     );
     let stacking = Stacking::of(&surfaces);
@@ -63,8 +62,6 @@ pub fn render(
     let cursor_owner = (state.keyboard_focus(&surfaces) == KeyboardFocus::TextInput)
         .then_some(focused)
         .flatten();
-    // Below wide there is no activity column, so each conversation's title carries its counts.
-    let counts_in_titles = surfaces.get(SurfaceId::Activity).is_none();
     // Identities first, so each surface's viewport can be recorded as it is measured; painted
     // bottom layer first, so a surface above another covers it rather than the reverse.
     let mut drawn: Vec<(u32, SurfaceId, Rect)> = surfaces
@@ -91,11 +88,7 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: agents_title(state, palette),
-                edges: if stacking.sidebar {
-                    Edges::Upper
-                } else {
-                    Edges::All
-                },
+                edges: Edges::All,
             }),
             SurfaceId::Transcript => Some(Panel {
                 body: conversation_body(
@@ -106,11 +99,11 @@ pub fn render(
                     id,
                     stacking.over_composer(SurfaceId::Transcript),
                 ),
-                title: transcript_title(state, palette, counts_in_titles),
+                title: transcript_title(state, palette),
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
-            // The inspected agent's conversation, not a second copy of the activity column: the
-            // workspace shows one conversation, and the canonical journey needs it to show two.
+            // The inspected agent's conversation uses the same unified entry grammar as the
+            // primary: the workspace shows one conversation, and the journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
                 body: conversation_body(
                     state,
@@ -120,20 +113,8 @@ pub fn render(
                     id,
                     stacking.over_composer(SurfaceId::Inspector),
                 ),
-                title: inspector_title(state, palette, counts_in_titles),
+                title: inspector_title(state, palette),
                 edges: stacking.over_composer(SurfaceId::Inspector),
-            }),
-            SurfaceId::Activity => Some(Panel {
-                body: Body::Whole {
-                    lines: content::activity(state, palette),
-                    follows_tail: false,
-                },
-                title: title(palette, "Activity", Role::SectionHeading, ""),
-                edges: if stacking.sidebar {
-                    Edges::Lower
-                } else {
-                    Edges::All
-                },
             }),
             SurfaceId::Notices => Some(Panel {
                 body: Body::Whole {
@@ -231,13 +212,10 @@ fn approval_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
 
 /// Which surfaces share one outline this frame.
 ///
-/// Two surfaces stacked in one column share a box instead of each drawing one: the list over the
-/// activity (ui-ux §layout classes), and a conversation over the composer that addresses it
-/// (`ui-ux.md` §input —
+/// A conversation and the composer it addresses share one outline (`ui-ux.md` §input —
 /// the input lives inside the surface it addresses). Read from geometry rather than from layout
 /// class, so the painter and the layout cannot disagree about what is stacked.
 struct Stacking {
-    sidebar: bool,
     composer_under: Option<SurfaceId>,
 }
 
@@ -257,10 +235,7 @@ impl Stacking {
         } else {
             None
         };
-        Self {
-            sidebar: stacked(SurfaceId::Agents, SurfaceId::Activity),
-            composer_under,
-        }
+        Self { composer_under }
     }
 
     /// The edges of a conversation that may have the composer beneath it.
@@ -361,7 +336,9 @@ fn conversation_body(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, SessionEvent, TranscriptItemId};
+    use plexmaton_core::{
+        AgentId, SessionEvent, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+    };
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -442,7 +419,6 @@ mod tests {
                         session.bounds(SurfaceId::Transcript),
                         viewport,
                         height,
-                        !session.is_registered(SurfaceId::Activity),
                     ),
                     "virtualized and whole disagreed at {width}x{height}, {notches} notches up"
                 );
@@ -458,13 +434,12 @@ mod tests {
         bounds: Rect,
         viewport: crate::Viewport,
         height: u16,
-        counts: bool,
     ) -> String {
         let lines: Vec<_> = state
             .primary_agent()
             .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
-            .transcript()
-            .flat_map(|item| crate::content::transcript_item(item, palette, false))
+            .entries()
+            .flat_map(|item| crate::content::transcript_entry(item, palette, false))
             .collect();
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -472,7 +447,7 @@ mod tests {
             // same open bottom edge.
             .block(block(
                 palette,
-                transcript_title(state, palette, counts),
+                transcript_title(state, palette),
                 false,
                 Edges::Upper,
             ))
@@ -809,8 +784,7 @@ mod tests {
                 role_ink(&palette, Role::Border)
             );
 
-            // Two steps: the activity sits under the list in the same box, then the conversation.
-            state.cycle_focus(&surfaces, Direction::Forward);
+            // One step: the conversation follows the one agent-column surface.
             state.cycle_focus(&surfaces, Direction::Forward);
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(
@@ -835,8 +809,8 @@ mod tests {
 
         assert_eq!(
             surfaces.len(),
-            7,
-            "a degraded workspace registers all seven"
+            6,
+            "a degraded workspace registers its six visible surfaces"
         );
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
@@ -844,7 +818,6 @@ mod tests {
             let signature = match surface.id {
                 SurfaceId::Agents => "Agents",
                 SurfaceId::Transcript => "Agent A · primary",
-                SurfaceId::Activity => "Artifacts",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
@@ -892,22 +865,14 @@ mod tests {
 
     #[test]
     fn wide_projection_shows_transcript_and_reduced_domain_data() {
-        let (surfaces, buffer) = draw_frame(&canonical_state(), &Palette::default(), 120, 24);
+        let (_surfaces, buffer) = draw_frame(&canonical_state(), &Palette::default(), 120, 24);
         let rendered = region_text(&buffer, *buffer.area());
 
         assert!(rendered.contains("Agent A · primary"));
         assert!(rendered.contains("Agents · !1"));
         assert!(rendered.contains("remains interactive"));
-        let activity = region_text(
-            &buffer,
-            surfaces
-                .get(SurfaceId::Activity)
-                .unwrap_or_else(|| panic!("wide layout has activity"))
-                .bounds,
-        );
-        assert!(activity.contains("Mail"));
         assert!(
-            !activity.contains("agent-b"),
+            !rendered.contains("Routing stays"),
             "B's outgoing mail must not be projected as mail owned by A"
         );
     }
@@ -938,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn activity_panel_renders_tools_and_artifacts_of_the_selected_agent() {
+    fn inspected_transcript_renders_tools_artifacts_and_mail_in_one_conversation() {
         let mut state = canonical_state();
         let agent_b =
             AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
@@ -951,6 +916,89 @@ mod tests {
         assert!(rendered.contains("[+]"), "succeeded tool marker");
         assert!(rendered.contains("interaction findings"), "artifact label");
         assert!(rendered.contains("artifact://"), "artifact pointer");
+        assert!(rendered.contains("Routing stays"), "outgoing mail summary");
+    }
+
+    /// ENT-1/ENT-2: render order is first appearance, never sibling completion order.
+    #[test]
+    fn interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order() {
+        let mut conversation = Conversation::canonical();
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let tool = |entry: &str, call: &str, label: &str, revision, status| {
+            SessionEvent::ToolCallChanged {
+                agent_id: agent_id.clone(),
+                item_id: TranscriptItemId::new(entry)
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                item_revision: revision,
+                call_id: ToolCallId::new(call).unwrap_or_else(|error| panic!("fixture: {error}")),
+                label: label.to_owned(),
+                status,
+                presentation: ToolPresentation::default(),
+            }
+        };
+        conversation.emit(tool(
+            "entry-a",
+            "call-a",
+            "first tool",
+            0,
+            ToolCallStatus::Queued,
+        ));
+        conversation.extend(1);
+        conversation.emit(tool(
+            "entry-b",
+            "call-b",
+            "second tool",
+            0,
+            ToolCallStatus::Queued,
+        ));
+        for event in [
+            tool(
+                "entry-a",
+                "call-a",
+                "first tool",
+                1,
+                ToolCallStatus::Running,
+            ),
+            tool(
+                "entry-b",
+                "call-b",
+                "second tool",
+                1,
+                ToolCallStatus::Running,
+            ),
+            tool(
+                "entry-b",
+                "call-b",
+                "second tool",
+                2,
+                ToolCallStatus::Succeeded,
+            ),
+            tool(
+                "entry-a",
+                "call-a",
+                "first tool",
+                2,
+                ToolCallStatus::Succeeded,
+            ),
+        ] {
+            conversation.emit(event);
+        }
+
+        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        let first = rendered
+            .find("first tool")
+            .unwrap_or_else(|| panic!("first tool is visible:\n{rendered}"));
+        let text = rendered
+            .find("Filler message 1")
+            .unwrap_or_else(|| panic!("interleaved message is visible:\n{rendered}"));
+        let second = rendered
+            .find("second tool")
+            .unwrap_or_else(|| panic!("second tool is visible:\n{rendered}"));
+        assert!(
+            first < text && text < second,
+            "first appearance was reordered:\n{rendered}"
+        );
+        assert_eq!(rendered.matches("· succeeded").count(), 2);
     }
 
     #[test]
@@ -959,9 +1007,12 @@ mod tests {
 
         assert!(rendered.contains("Agents"));
         assert!(
-            !rendered.contains("Activity") && !rendered.contains("1 mail"),
-            "the primary title counts only entries the primary produced"
+            !rendered.contains("Activity"),
+            "domain entries have no second panel"
         );
+        assert!(rendered.contains("1 tool"));
+        assert!(rendered.contains("1 artifact"));
+        assert!(rendered.contains("1 mail"));
         assert!(rendered.contains("Message Agent A"));
         assert!(
             rendered.contains("~/plexmaton"),

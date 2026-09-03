@@ -65,15 +65,9 @@ pub(super) fn place_inspector(
         return base;
     };
     match presentation(class, request.maximized, conversation.height) {
-        // The secondary column, in place of activity rather than beside it (ui-ux §layout classes):
-        // exactly
-        // one. The inspector does not carry what that column was showing — it is a conversation
-        // (INS-6) — so the selected agent's tools, artifacts and mail are off screen until
-        // this closes. Recorded as a Phase 00 limitation rather than worked around here.
         // The second conversation earns a column of its own beside the first (ui-ux §layout
-        // classes), and the two
-        // are equals: ultrawide is sized for two conversations of the same width, and the agent
-        // column and its activity are untouched.
+        // classes), and the two are equals: ultrawide is sized for two conversations of the same
+        // width, and the agent column is untouched.
         Presentation::Column => {
             let [transcript, inspector] =
                 Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
@@ -343,8 +337,8 @@ mod tests {
             "and it is the one surface above the base layer"
         );
         assert!(
-            shelf.get(SurfaceId::Activity).is_some(),
-            "and leaves the activity column alone"
+            shelf.get(SurfaceId::Agents).is_some(),
+            "and leaves the agent column alone"
         );
 
         // Narrow is "one major surface at a time": inspection is a full-region transition.
@@ -354,7 +348,7 @@ mod tests {
 
         // Ultrawide gives the second agent a column of its own beside the conversation (ui-ux
         // §layout classes);
-        // the agent column, list and activity stacked, is untouched (ui-ux §layout classes).
+        // the agent column is untouched (ui-ux §layout classes).
         let ultrawide = open(140, 40, InspectorRequest::default());
         let conversation = ultrawide
             .get(SurfaceId::Transcript)
@@ -371,8 +365,8 @@ mod tests {
         assert_eq!(second.bounds.y, conversation.y);
         assert_eq!(second.z_index, 0, "a column tiles; only a shelf floats");
         assert!(
-            ultrawide.get(SurfaceId::Activity).is_some(),
-            "and the activity stays in the agent column"
+            ultrawide.get(SurfaceId::Agents).is_some(),
+            "and the agent column stays beside both conversations"
         );
 
         let maximized = open(

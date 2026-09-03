@@ -1,12 +1,9 @@
-┌ Attention · 1 ───────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should │
-└──────────────────────────────────────────────────────────┘
-┌ Agents · !1 ─────────────────────────────────────────────┐
-│○ Agent B · UI study  done · 1 tool · 1 artifact · 1 mail │
+┌ Agents ──────────────────────────────────────────────────┐
+│No sub-agents yet.                                        │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent A · primary · running ─────────────────────────────┐
+┌ Plexmaton · running · 1 tool ────────────────────────────┐
 │                                                          │
 │                                                          │
 │                                                          │
@@ -29,12 +26,15 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│assistant                                                 │
-│I will inspect the workspace and delegate the focused UI  │
-│study. Agent B is running independently; this transcript  │
-│remains interactive.                                      │
 │                                                          │
-├ Message Agent A · primary ───────────────────────────────┤
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│[~] read_file · running                                   │
+├ Message Plexmaton ───────────────────────────────────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘
  ~/plexmaton                                                

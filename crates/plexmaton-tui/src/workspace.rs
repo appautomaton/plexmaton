@@ -344,8 +344,8 @@ mod tests {
     };
 
     use plexmaton_core::{
-        AgentId, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest, SessionEvent,
-        ToolCallId, ToolCapability,
+        AgentId, ApprovalDecision, ApprovalId, ArtifactId, AttentionId, AttentionRequest,
+        SessionEvent, ToolCallId, ToolCapability, TranscriptItemId,
     };
 
     use super::{Flow, Outcome, Workspace};
@@ -594,28 +594,21 @@ mod tests {
         assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
 
         workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
-        assert_eq!(
-            focused(&workspace),
-            Some(SurfaceId::Activity),
-            "the ring runs down the agent column first"
-        );
-        workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
         assert_eq!(focused(&workspace), Some(SurfaceId::Transcript));
 
         workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
-        workspace.handle(&press(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
 
-        let activity = bounds(&workspace, SurfaceId::Activity);
+        let transcript = bounds(&workspace, SurfaceId::Transcript);
         workspace.handle(&Event::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: activity.x,
-            row: activity.y,
+            column: transcript.x,
+            row: transcript.y,
             modifiers: KeyModifiers::NONE,
         }));
         assert_eq!(
             focused(&workspace),
-            Some(SurfaceId::Activity),
+            Some(SurfaceId::Transcript),
             "a press focuses the surface it hit"
         );
     }
@@ -1179,8 +1172,8 @@ mod tests {
             .agent(agent)
             .unwrap_or_else(|| panic!("the fixture created {agent}"));
         let lines: Vec<_> = agent
-            .transcript()
-            .flat_map(|item| crate::content::transcript_item(item, &palette, false))
+            .entries()
+            .flat_map(|item| crate::content::transcript_entry(item, &palette, false))
             .collect();
         let rows = ratatui::widgets::Paragraph::new(lines)
             .wrap(ratatui::widgets::Wrap { trim: false })
@@ -1423,8 +1416,8 @@ mod tests {
     /// The canonical journey's step 5: two agents streaming into independent conversations.
     ///
     /// This is the phase's hardest declared requirement and it had never been exercised — the
-    /// inspector drew the same tools, artifacts and mail the activity column already showed for the
-    /// selected agent, so there was only ever one conversation on screen. Independence is the part
+    /// second window once drew a regrouped detail list instead of the selected agent's conversation,
+    /// so there was only ever one conversation on screen. Independence is the part
     /// worth asserting: the reading position belongs to the conversation rather than to the panel
     /// (TR-5), and with two panels that stops being a distinction without a difference.
     #[test]
@@ -1808,14 +1801,33 @@ mod tests {
     /// indented pointer on the next, and the pointer is what a paste has to contain.
     #[test]
     fn copying_an_artifact_returns_its_pointer_rather_than_its_label() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
-        // Agent B is the one with a tool and an artifact.
+        let mut conversation = Conversation::canonical();
+        conversation.emit(SessionEvent::ArtifactAnnounced {
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            item_id: TranscriptItemId::new("artifact-copy")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            artifact_id: ArtifactId::new("artifact-copy")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            label: "copy source".to_owned(),
+            pointer: "artifact://agent-b/copy-source".to_owned(),
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        // Agent B owns the newest artifact entry in its conversation.
         step(
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
         );
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Activity);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
         step(
             &mut workspace,
             &mut terminal,
@@ -1826,15 +1838,14 @@ mod tests {
             .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
             .copied
             .unwrap_or_else(|| panic!("a selection must copy to something"));
-        assert_eq!(copied.text, "artifact://agent-b/interaction-findings");
+        assert_eq!(copied.text, "artifact://agent-b/copy-source");
         assert_eq!(copied.entries, 1);
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Activity).contains("interaction findings"),
-            "while the panel is still showing the label, which is the point"
+            painted(&terminal, &workspace, SurfaceId::Inspector).contains("copy source"),
+            "while the conversation is still showing the label, which is the point"
         );
 
-        // One more entry back takes in the outgoing mail above it, in list order rather than in
-        // the order the two ends were chosen.
+        // One more entry back takes in the preceding outgoing mail in first-appearance order.
         step(
             &mut workspace,
             &mut terminal,
@@ -1846,7 +1857,7 @@ mod tests {
             .unwrap_or_else(|| panic!("a selection must copy to something"));
         assert_eq!(
             copied.text,
-            "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/interaction-findings"
+            "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/copy-source"
         );
     }
 

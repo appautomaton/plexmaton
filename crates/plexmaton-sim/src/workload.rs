@@ -113,7 +113,7 @@ fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<SessionE
     ])
 }
 
-/// A tool moving between running and succeeded, so the activity column has traffic too.
+/// A tool appearing among messages, so the unified conversation has mixed entry traffic too.
 fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<SessionEvent, IdError> {
     Ok(SessionEvent::ToolCallChanged {
         agent_id: agent_id.clone(),

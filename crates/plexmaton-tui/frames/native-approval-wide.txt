@@ -2,17 +2,17 @@
 │  ask   agent-b · Choose whether the overlap study should cover narrow screens.                                           │
 │> seen  agent-a · Command "cargo test" · cwd "/Users/ac/dev/agents/coding/plexmaton" · timeout 120000 ms                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents · !1 ─────────────┐┌ Agent A · primary · running ─────────────────────────────────────────────────────────────────┐
+┌ Agents · !1 ─────────────┐┌ Agent A · primary · running · 1 tool ────────────────────────────────────────────────────────┐
 │○ Agent B · UI study  done││                                                                                              │
+│· 1 tool · 1 artifact · 1 ││                                                                                              │
+│mail                      ││                                                                                              │
 │                          ││                                                                                              │
 │                          ││                                                                                              │
-├ Activity ────────────────┤│                                                                                              │
-│Tools                     ││                                                                                              │
-│[?] exec_command          ││                                                                                              │
-│Mail                      ││                                                                                              │
-│  none                   ┌ Approval required · user opened ─────────────────────────────────────┐                         │
-│Artifacts                │Agent  agent-a                                                        │                         │
-│  none                   │Tool   exec_command · command-native-1                                │                         │
+│                          ││                                                                                              │
+│                          ││                                                                                              │
+│                         ┌ Approval required · user opened ─────────────────────────────────────┐                         │
+│                         │Agent  agent-a                                                        │                         │
+│                         │Tool   exec_command · command-native-1                                │                         │
 │                         │Access read files, change files, run processes                        │                         │
 │                         │                                                                      │                         │
 │                         │  Allow once                                                          │                         │
@@ -29,11 +29,11 @@
 │                          ││                                                                                              │
 │                          ││                                                                                              │
 │                          ││                                                                                              │
-│                          ││                                                                                              │
 │                          ││assistant                                                                                     │
 │                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running            │
 │                          ││independently; this transcript remains interactive.                                           │
 │                          ││                                                                                              │
+│                          ││[?] exec_command · approval required                                                          │
 │                          │├ Message Agent A · primary ───────────────────────────────────────────────────────────────────┤
 │                          ││Type a message · ⇥ to focus                                                                   │
 └──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────┘

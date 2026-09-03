@@ -39,7 +39,7 @@ import termios
 import time
 from pathlib import Path
 
-# Every size stays in the Wide layout class so the activity column is present throughout.
+# Every size stays in the Wide layout class so the agent column is present throughout.
 INITIAL_SIZE = (40, 120)
 RESIZED = (30, 100)
 REPAINT_PROBE_SIZE = (31, 101)

@@ -3,21 +3,21 @@
 │> seen  agent-b · Change crates/plexmaton-core/src/lib.rs and preserve its current revision.                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ─────────────┐┌ Agent A · primary · running ─────────────────────────────────────────────────────────────┐
-│● Agent B · UI study  done││┌ Agent B · UI study · esc ──────────────────────────────────────────────────────────────┐│
+│● Agent B · UI study  done││┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ───────────────────────────────┐│
+│· 1 tool · 1 artifact · 1 │││                                                                                        ││
+│mail                      │││                                                                                        ││
 │                          │││                                                                                        ││
 │                          │││                                                                                        ││
-├ Activity ────────────────┤││                                                                                        ││
-│Tools                     │││                                                                                        ││
-│[+] inspect interaction   │││                                                                                        ││
-│fixtures                  │││                                                                                        ││
-│Mail                   ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
-│-> agent-a             │Agent  agent-b                                                        │                      ││
-│  Routing stays        │Tool   edit · tool-b-write                                            │                      ││
-│centralized and z-order│Access change files                                                   │                      ││
-│Artifacts              │                                                                      │                      ││
-│@ interaction findings │  Allow once                                                          │                      ││
-│  artifact://agent-b/in│> Deny                                                                │ior.                  ││
-│action-findings        │↑↓ choose · Enter decide                                              │                      ││
+│                          │││                                                                                        ││
+│                          │││                                                                                        ││
+│                       ┌ Approval required · user opened ─────────────────────────────────────┐                      ││
+│                       │Agent  agent-b                                                        │                      ││
+│                       │Tool   edit · tool-b-write                                            │                      ││
+│                       │Access change files                                                   │ior.                  ││
+│                       │                                                                      │                      ││
+│                       │  Allow once                                                          │                      ││
+│                       │> Deny                                                                │                      ││
+│                       │↑↓ choose · Enter decide                                              │                      ││
 │                       │PgUp/PgDn details · Esc keeps pending                                 │──────────────────────┘│
 │                       │                                                                      │                       │
 │                       │Details                                                               │                       │

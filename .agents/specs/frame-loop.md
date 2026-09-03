@@ -15,7 +15,7 @@ invalidates the last frame explicitly. Producer traffic that alters nothing visi
 
 **FR-2 — A frame's layout work is bounded by its viewport, not by the conversation's length.** What
 a frame wraps and builds is what its viewport reaches (TR-2). Two frames are the exceptions and cost
-one wrap per item: the first frame on a conversation, and the first frame at a new width.
+one wrap per entry: the first frame on a conversation, and the first frame at a new width.
 
 **FR-3 — An event resolves against the frame that was drawn.** Hit testing, wheel targeting, and
 scroll anchoring read the registry and the heights the last frame produced. Before the first frame
@@ -47,29 +47,30 @@ methods, so a measured frame is the frame the user gets.
 ### Cost, measured
 
 Layout work per frame is flat in the conversation's length; total frame cost is not. A frame walks
-the item list twice in full, to check every cached height is still valid and to sum them, and three
-times partially, to resolve the anchor, locate the window, and reach the first item it builds. That
-is arithmetic, not wrapping, and it becomes the budget somewhere around fifty thousand messages,
+the entry list twice in full, to check every cached height is still valid and to sum them, and three
+times partially, to resolve the anchor, locate the window, and reach the first entry it builds. That
+is arithmetic, not wrapping, and it becomes the budget somewhere around fifty thousand entries,
 which is where to look first and not before.
 
 Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
-machine, release profile, 120 × 40, over a 5,000-message conversation:
+machine, release profile, 120 × 40, over a 5,000-message conversation with its 625 interleaved tool
+entries:
 
 | Workload | Observed | Work |
 | --- | --- | --- |
-| `streaming delta` | 0.9 ms p50, 1.2 ms max | 1 item wrapped, 27 lines built, at any history length |
-| `wheel` | 0.9 ms p50, 1.0 ms max | 0 wrapped |
-| `open inspector` | 1.3 ms p50, 1.5 ms max | 0 wrapped |
-| `two conversations` | 1.4 ms p50, 1.5 ms max | 0 wrapped |
-| `extend selection` | 1.2 ms p50, 1.5 ms max | 0 wrapped |
-| `cold open`, `open hidden conversation` | 12.6 to 12.9 ms p50, 13.4 ms max | 5,000 wrapped, once |
-| `resize` | 12.4 ms p50, 14.3 ms max | 5,000 wrapped, once per width |
-| retained | 10,000 entries for two 5,000-message conversations; at most two widths per conversation (TR-1) | |
+| `streaming delta` | 1.7 ms p50, 2.2 ms max | 1 entry wrapped, 31 lines built, at any history length |
+| `wheel` | 1.7 ms p50, 2.0 ms max | 0 wrapped |
+| `open inspector` | 4.2 ms p50, 4.6 ms max | 0 wrapped |
+| `two conversations` | 4.3 ms p50, 5.1 ms max | 0 wrapped |
+| `extend selection` | 2.0 ms p50, 2.3 ms max | 0 wrapped |
+| `cold open`, `open hidden conversation` | 14.3 to 16.8 ms p50, 17.5 ms max | 5,625 wrapped, once |
+| `resize` | 14.3 ms p50, 18.1 ms max | 5,625 wrapped, once per width |
+| retained | 11,250 entries for two 5,625-entry conversations; at most two widths per conversation (TR-1) | |
 
 Read the timings as an order of magnitude: the same binary on the same laptop under compile load
 measured roughly double every row, and a third machine under its own load reported 25.9 ms and
 29.1 ms for the two cold rows. The three rows that scale with history are one cost, measuring every
-item once; when it matters, the fix is a retention limit or a lazily measured tail, not a faster
+entry once; when it matters, the fix is a retention limit or a lazily measured tail, not a faster
 wrap. Opening the window and selecting measure nothing, because only a change of width invalidates
 a height.
 
@@ -89,6 +90,6 @@ a height.
 | Invariant | Proven by |
 | --- | --- |
 | FR-1 | `a_frame_is_drawn_only_when_something_changed`, `the_quit_chord_asks_once_and_leaves_on_the_second_press` |
-| FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `the_resize_workload_re_measures_every_item_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground` |
+| FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground` |
 | FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
 | FR-4 | The FR-2 rows assert work counts; `plexmaton-measure` prints time and asserts none of it |

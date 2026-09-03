@@ -216,7 +216,7 @@ mod tests {
         assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
         assert!(
             inspected.contains("surface-routing boundary"),
-            "the inspector holds B's conversation, not a second copy of the activity column"
+            "the second window holds B's conversation, not a regrouped detail list"
         );
         assert!(
             !conversation.contains("surface-routing boundary"),
@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(journey.selected(), "agent-b");
         assert!(
             journey
-                .painted(SurfaceId::Activity)
+                .painted(SurfaceId::Inspector)
                 .contains("Routing stays"),
             "looking at B reveals the mail B sent"
         );
@@ -342,16 +342,19 @@ mod tests {
         );
 
         // 10. Copy evidence: the artifact's stable pointer, not the label on screen.
-        journey.focus(SurfaceId::Activity);
+        journey.press(KeyCode::Up, KeyModifiers::SHIFT);
         journey.press(KeyCode::Up, KeyModifiers::SHIFT);
         let copied = journey
             .press(KeyCode::Char('y'), KeyModifiers::CONTROL)
             .copied
             .unwrap_or_else(|| panic!("a selection must copy to something"));
-        assert_eq!(copied.text, "artifact://agent-b/interaction-findings");
+        assert_eq!(
+            copied.text,
+            "artifact://agent-b/interaction-findings\nagent-a: Routing stays centralized and z-ordered."
+        );
         assert!(
             journey
-                .painted(SurfaceId::Activity)
+                .painted(SurfaceId::Inspector)
                 .contains("interaction findings"),
             "while the label is what was painted"
         );

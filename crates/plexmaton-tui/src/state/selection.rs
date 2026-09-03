@@ -1,14 +1,14 @@
 //! What the user has selected, and what copying it returns.
 //!
-//! A selection is a range over a surface's *entries* — messages in a conversation, tools, artifacts
-//! and mail in a detail panel — and never a rectangle of cells. That is the whole design: because a
+//! A selection is a range over a conversation's semantic entries and never a rectangle of cells.
+//! That is the whole design: because a
 //! range names content, scrolling it out of view, resizing the terminal, or re-wrapping the text
 //! cannot change what is selected or what copying it returns. The contract is
 //! [`specs/selection-and-copy.md`](../../../../.agents/specs/selection-and-copy.md).
 
 use plexmaton_core::AgentId;
 
-use super::{AgentView, ViewState};
+use super::{AgentView, TranscriptEntryView, ViewState};
 use crate::{
     intent::Direction,
     surface::{SurfaceId, SurfaceTree},
@@ -106,9 +106,8 @@ impl ViewState {
     /// Extends the selection by one entry, starting one if there is none.
     ///
     /// With nothing selected this takes the newest entry, because everything in this workspace is
-    /// append-ordered and the newest is what the surface is showing. One rule for both kinds of
-    /// list; the alternative — start at the end the arrow came from — reads sensibly in a
-    /// conversation and absurdly in a detail panel.
+    /// append-ordered and the newest is what the surface is showing. Starting at the end the arrow
+    /// came from would make the same conversation select differently in its two presentations.
     pub fn select(&mut self, surfaces: &SurfaceTree, direction: Direction) {
         let Some((surface, agent_id)) = self.content_target(surfaces) else {
             return;
@@ -180,7 +179,6 @@ impl ViewState {
         match surface {
             SurfaceId::Inspector => self.agents.peeked().map(|agent| agent.id.clone()),
             SurfaceId::Transcript => self.agents.primary().map(|agent| agent.id.clone()),
-            SurfaceId::Activity => self.activity_agent().map(|agent| agent.id.clone()),
             _ => None,
         }
     }
@@ -222,12 +220,7 @@ impl ViewState {
             return 0;
         };
         match surface {
-            SurfaceId::Transcript | SurfaceId::Inspector => agent.transcript().count(),
-            SurfaceId::Activity => agent
-                .tool_activity()
-                .count()
-                .saturating_add(agent.artifacts().count())
-                .saturating_add(agent.mail().count()),
+            SurfaceId::Transcript | SurfaceId::Inspector => agent.entries().count(),
             _ => 0,
         }
     }
@@ -251,28 +244,26 @@ impl ViewState {
     ) -> Vec<String> {
         match surface {
             SurfaceId::Transcript | SurfaceId::Inspector => agent
-                .transcript()
+                .entries()
                 .skip(first)
                 .take(count)
-                .map(|item| item.source.clone())
-                .collect(),
-            SurfaceId::Activity => agent
-                .tool_activity()
-                .map(|tool| tool.label.clone())
-                // Recipient travels with the summary because the entry belongs to its producer,
-                // and a summary alone would lose where the mail went.
-                .chain(
-                    agent
-                        .mail()
-                        .map(|mail| format!("{}: {}", mail.to, mail.summary)),
-                )
-                // The stable reference, not the label: the label is what got truncated on screen.
-                .chain(agent.artifacts().map(|artifact| artifact.pointer.clone()))
-                .skip(first)
-                .take(count)
+                .map(entry_source)
                 .collect(),
             _ => Vec::new(),
         }
+    }
+}
+
+fn entry_source(entry: &TranscriptEntryView) -> String {
+    match entry {
+        TranscriptEntryView::Text(item) => item.source.clone(),
+        // Slice 5 promotes retained invocation/outcome detail to the selectable source. Until then,
+        // preserving the former compact behavior means a tool copies its stable label.
+        TranscriptEntryView::Tool(tool) => tool.label.clone(),
+        // The pointer, not the human label: the pointer is the stable artifact value (SEL-2).
+        TranscriptEntryView::Artifact(artifact) => artifact.pointer.clone(),
+        // Recipient travels with the summary because the entry belongs to its producer.
+        TranscriptEntryView::Mail(mail) => format!("{}: {}", mail.to, mail.summary),
     }
 }
 
@@ -289,7 +280,33 @@ mod tests {
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
-    use crate::{Workspace, state::Selection, surface::SurfaceId};
+    use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_state};
+
+    /// ENT-1 and SEL-2: copy follows the unified first-appearance order across entry kinds.
+    #[test]
+    fn copying_a_conversation_preserves_interleaved_entry_sources() {
+        let mut state = canonical_state();
+        let agent = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let count = state.agent(&agent).map_or(0, |view| view.entries().count());
+        state.selection = Some(Selection {
+            surface: SurfaceId::Inspector,
+            agent,
+            anchor: 0,
+            focus: count.saturating_sub(1),
+        });
+
+        let copied = state
+            .copy()
+            .unwrap_or_else(|| panic!("the selected conversation has semantic source"));
+        assert_eq!(copied.entries, 4);
+        assert_eq!(
+            copied.text,
+            "I found the surface-routing boundary and am checking overlap behavior.\n\
+             inspect interaction fixtures\n\
+             artifact://agent-b/interaction-findings\n\
+             agent-a: Routing stays centralized and z-ordered."
+        );
+    }
 
     /// SEL-3: a selection cannot outlive the surface having stopped showing its agent.
     ///

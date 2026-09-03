@@ -111,9 +111,6 @@ impl SurfaceKind {
 pub enum SurfaceId {
     /// The list of sub-agents, carrying the attention count.
     Agents,
-    /// Tools, artifacts, and mail belonging to the agent being looked at, stacked under the list
-    /// in the same box (ui-ux §layout classes).
-    Activity,
     /// The primary agent's conversation.
     Transcript,
     /// The second window: one sub-agent's conversation, open while one is selected (INS-1).

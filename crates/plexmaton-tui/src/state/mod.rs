@@ -205,13 +205,6 @@ impl ViewState {
         self.agents.sub_agents()
     }
 
-    /// The agent whose tools, artifacts and mail are on screen: the one being looked at, else the
-    /// primary.
-    #[must_use]
-    pub fn activity_agent(&self) -> Option<&AgentView> {
-        self.agents.selected().or_else(|| self.agents.primary())
-    }
-
     /// Returns one agent by identity, for a surface showing an agent that is not selected.
     #[must_use]
     pub fn agent(&self, agent_id: &AgentId) -> Option<&AgentView> {
@@ -438,7 +431,7 @@ mod tests {
         let mut state = canonical_state();
         let mut seen = Vec::new();
 
-        for _ in 0..5 {
+        for _ in 0..4 {
             seen.push(state.focused(&surfaces));
             state.cycle_focus(&surfaces, Direction::Forward);
         }
@@ -447,12 +440,11 @@ mod tests {
             seen,
             [
                 Some(SurfaceId::Agents),
-                Some(SurfaceId::Activity),
                 Some(SurfaceId::Transcript),
                 Some(SurfaceId::Composer),
                 Some(SurfaceId::Agents),
             ],
-            "the ring runs down the agent column, then the conversation and its input, and wraps"
+            "the ring runs from the agent column through the conversation and its input, and wraps"
         );
     }
 

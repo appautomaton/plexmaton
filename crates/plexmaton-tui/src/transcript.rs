@@ -1,10 +1,10 @@
 //! How tall a conversation is, which part of it a frame has to build, and where its reader is.
 //!
 //! Wrapping a whole history in order to paint twenty rows of it is the cost this module removes.
-//! Heights are measured one item at a time and kept until that item's revision or the panel's width
+//! Heights are measured one entry at a time and kept until that entry's revision or the panel's width
 //! changes (TR-1) — per width, because two surfaces can draw one conversation at two sizes in the
-//! same frame — and a frame builds lines only for the items its viewport reaches (TR-2). Because
-//! those heights are also what turn an item into a row number, this is where a reading position is
+//! same frame — and a frame builds lines only for the entries its viewport reaches (TR-2). Because
+//! those heights are also what turn an entry into a row number, this is where a reading position is
 //! resolved (TR-3). The contract is
 //! [`specs/transcript-layout.md`](../../../.agents/specs/transcript-layout.md).
 
@@ -16,31 +16,31 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::{AgentView, TranscriptItemView, content, state::Selected, theme::Palette};
+use crate::{AgentView, TranscriptEntryView, content, state::Selected, theme::Palette};
 
 /// Where a reader is parked in one conversation.
 ///
-/// An item and a row inside it, never a row into the whole history: how many rows precede an item
+/// An entry and a row inside it, never a row into the whole history: how many rows precede an entry
 /// depends on the panel's width, so a stored row names different text at every terminal size
 /// (TR-3).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TranscriptPosition {
     /// Following the newest line, wherever the conversation ends up.
     Tail,
-    /// The top visible row is `rows` rows into `item`.
+    /// The top visible row is `rows` rows into the entry named by `item`.
     At {
-        /// The item at the top of the viewport.
+        /// The entry at the top of the viewport.
         item: TranscriptItemId,
-        /// How far into that item the viewport starts.
+        /// How far into that entry the viewport starts.
         rows: u16,
     },
 }
 
-/// One item's wrapped height, and what it was measured against.
+/// One entry's wrapped height, and what it was measured against.
 ///
-/// The identity is stored alongside the height so a slot can be checked rather than trusted: items
-/// only ever arrive at the end today, and an entry that has drifted from the item at its position
-/// is re-measured instead of silently describing a different message.
+/// The identity is stored alongside the height so a slot can be checked rather than trusted:
+/// entries only ever arrive at the end today, and a measured slot that has drifted from the entry
+/// at its position is re-measured instead of silently describing a different fact.
 ///
 /// The width is not here: it is the key of the set this entry belongs to, so heights measured at
 /// two widths sit side by side rather than overwriting each other.
@@ -70,13 +70,13 @@ struct AtWidth {
 /// is the work count in `two_widths_of_one_conversation_do_not_invalidate_each_other`.
 const MEASURED_WIDTHS: usize = 2;
 
-/// Wrapped item heights, retained across frames and keyed by agent and width.
+/// Wrapped entry heights, retained across frames and keyed by agent and width.
 ///
 /// It cannot live in `ViewState`, because the renderer takes the projection by shared reference and
 /// keeping it that way is what makes "rendering never mutates state" checkable. It cannot live in
 /// the renderer either: a cache that dies with the frame is not one. So the composition root owns
 /// it, lends it to the frame that measures, and lends it to the scroll path, which needs the same
-/// heights to turn a row back into an item.
+/// heights to turn a row back into an entry.
 #[derive(Debug, Default)]
 pub struct TranscriptMetrics {
     by_agent: BTreeMap<AgentId, Vec<AtWidth>>,
@@ -85,9 +85,9 @@ pub struct TranscriptMetrics {
 }
 
 impl TranscriptMetrics {
-    /// Measures one agent's items at `width`, reusing every height that is still valid.
+    /// Measures one agent's entries at `width`, reusing every height that is still valid.
     ///
-    /// Returns how many items the conversation now has. A streaming delta bumps one item's revision
+    /// Returns how many entries the conversation now has. A streaming delta bumps one entry's revision
     /// and costs one wrap; a resize changes the width and costs one pass; an unchanged frame costs
     /// none.
     pub(crate) fn measure(&mut self, agent: &AgentView, palette: &Palette, width: u16) -> usize {
@@ -110,19 +110,19 @@ impl TranscriptMetrics {
         }
         cached.truncate(MEASURED_WIDTHS);
         // The match above always leaves this width at the front, so the fallback is unreachable
-        // rather than a case: reporting no items is what a caller can safely draw if it ever is.
+        // rather than a case: reporting no entries is what a caller can safely draw if it ever is.
         let Some(entries) = cached.first_mut().map(|entry| &mut entry.items) else {
             return 0;
         };
         let mut count = 0_usize;
-        for item in agent.transcript() {
+        for item in agent.entries() {
             let reusable = entries
                 .get(count)
-                .is_some_and(|entry| entry.id == item.id && entry.revision == item.revision);
+                .is_some_and(|entry| &entry.id == item.id() && entry.revision == item.revision());
             if !reusable {
                 let measured = Measured {
-                    id: item.id.clone(),
-                    revision: item.revision,
+                    id: item.id().clone(),
+                    revision: item.revision(),
                     rows: wrap_rows(item, palette, width),
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
@@ -133,9 +133,9 @@ impl TranscriptMetrics {
             }
             count = count.saturating_add(1);
         }
-        // Nothing removes a transcript item in Phase 00, so this only ever runs when an entry was
+        // Nothing removes a transcript entry yet, so this only ever runs when an entry was
         // left by a longer conversation under the same identity. It is here so the cache cannot
-        // describe more items than the conversation has.
+        // describe more entries than the conversation has.
         entries.truncate(count);
         count
     }
@@ -151,7 +151,7 @@ impl TranscriptMetrics {
             .fold(0_u16, |total, item| total.saturating_add(item.rows))
     }
 
-    /// Which items a viewport starting at `offset` and `visible_rows` deep actually reaches.
+    /// Which entries a viewport starting at `offset` and `visible_rows` deep actually reaches.
     ///
     /// An empty range when the offset is past the end, which is what an unmeasured conversation and
     /// an offset clamped wrongly both look like — neither is a reason to draw something arbitrary.
@@ -182,10 +182,10 @@ impl TranscriptMetrics {
         }
     }
 
-    /// The position naming the item that row `offset` falls inside, at `width`.
+    /// The position naming the entry that row `offset` falls inside, at `width`.
     ///
     /// `None` when nothing has been measured at that width or the row is past the end: an anchor
-    /// naming no item would be a position nothing can resolve.
+    /// naming no entry would be a position nothing can resolve.
     pub(crate) fn anchor_at(
         &self,
         agent_id: &AgentId,
@@ -199,14 +199,14 @@ impl TranscriptMetrics {
 
     /// The row a position resolves to at `width`.
     ///
-    /// An anchor whose item is gone resolves to the tail. Nothing removes an item in Phase 00, so
+    /// An anchor whose entry is gone resolves to the tail. Nothing removes an entry yet, so
     /// this is the answer prepared for a future that trims history: rejoining the live conversation
     /// is the least surprising place to land when the text someone was reading no longer exists.
     ///
-    /// The row inside the item is clamped to that item's height at *this* width. The item is the
+    /// The row inside the entry is clamped to that entry's height at *this* width. The entry is the
     /// durable half of an anchor; how many rows into it a reader was is width-dependent like every
-    /// other row count, and an unclamped one would overshoot a message that wrapped shorter and put
-    /// the next message on screen instead.
+    /// other row count, and an unclamped one would overshoot an entry that wrapped shorter and put
+    /// the next entry on screen instead.
     pub(crate) fn offset_of(
         &self,
         agent_id: &AgentId,
@@ -228,7 +228,7 @@ impl TranscriptMetrics {
         max_offset
     }
 
-    /// Builds the lines for the items a window names.
+    /// Builds the lines for the entries a window names.
     ///
     /// Building lives here rather than in the renderer so that measuring and building a
     /// conversation are one module's job, and so the count below cannot be forgotten at a call
@@ -241,25 +241,25 @@ impl TranscriptMetrics {
         selected: Selected,
     ) -> Vec<Line<'static>> {
         let lines: Vec<_> = agent
-            .transcript()
+            .entries()
             .enumerate()
             .skip(window.items.start)
             .take(window.items.len())
-            // The index is the item's position in the whole conversation, not in this window: a
+            // The index is the entry's position in the whole conversation, not in this window: a
             // selection names entries, and a window is only which of them this frame paints.
             .flat_map(|(index, item)| {
-                content::transcript_item(item, palette, selected.contains(index))
+                content::transcript_entry(item, palette, selected.contains(index))
             })
             .collect();
         self.built = self.built.saturating_add(lines.len());
         lines
     }
 
-    /// How many items have been wrapped since this cache was created.
+    /// How many entries have been wrapped since this cache was created.
     ///
     /// Instrumentation, not bookkeeping: TR-1 is a claim about work done, and a claim about work
     /// can only be tested by something that counts it. [`Self::lines_built`] is the same idea for
-    /// TR-2, and the two answer different questions — a cold frame must wrap every item to know how
+    /// TR-2, and the two answer different questions — a cold frame must wrap every entry to know how
     /// tall the conversation is, and must still build only the lines its viewport reaches.
     #[must_use]
     pub fn wrapped(&self) -> usize {
@@ -272,7 +272,7 @@ impl TranscriptMetrics {
         self.built
     }
 
-    /// Cached item heights held across every conversation and width, on screen or not.
+    /// Cached entry heights held across every conversation and width, on screen or not.
     ///
     /// This is what the renderer retains per hidden conversation. The transcript itself belongs to
     /// the projection and is there regardless, so counting entries here is the honest answer to
@@ -286,7 +286,7 @@ impl TranscriptMetrics {
             .sum()
     }
 
-    /// The item index containing row `offset`, and how far into that item the row is.
+    /// The entry index containing row `offset`, and how far into that entry the row is.
     fn locate(&self, agent_id: &AgentId, width: u16, offset: u16) -> Option<(usize, u16)> {
         let mut start = 0_u16;
         for (index, item) in self.items(agent_id, width).iter().enumerate() {
@@ -311,7 +311,7 @@ impl TranscriptMetrics {
 /// The slice of a conversation one viewport reaches.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Window {
-    /// Items to build, in arrival order.
+    /// Entries to build, in arrival order.
     pub(crate) items: Range<usize>,
     /// Rows to skip inside the first of them, because the viewport starts partway through it.
     pub(crate) skip_rows: u16,
@@ -327,24 +327,25 @@ impl Window {
     }
 }
 
-/// Wraps one item at the panel's inner width.
+/// Wraps one entry at the panel's inner width.
 ///
 /// No block is attached: `Paragraph::line_count` adds a block's border rows when one is set, and an
-/// item's height is the item alone. It is still the renderer's own wrapper, so measuring and
+/// entry's height is the entry alone. It is still the renderer's own wrapper, so measuring and
 /// painting stay one computation (surface-model §viewports).
-fn wrap_rows(item: &TranscriptItemView, palette: &Palette, width: u16) -> u16 {
+fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16) -> u16 {
     if width == 0 {
         return 0;
     }
     // Measured unselected, deliberately: selection changes a style and never a character, so a
     // height that depended on it would invalidate the cache on every arrow press for no reason.
     let paragraph =
-        Paragraph::new(content::transcript_item(item, palette, false)).wrap(Wrap { trim: false });
+        Paragraph::new(content::transcript_entry(item, palette, false)).wrap(Wrap { trim: false });
     u16::try_from(paragraph.line_count(width)).unwrap_or(u16::MAX)
 }
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId};
     use ratatui::widgets::{Paragraph, Wrap};
 
     use super::{MEASURED_WIDTHS, TranscriptMetrics, TranscriptPosition};
@@ -359,7 +360,7 @@ mod tests {
             .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
     }
 
-    fn anchored_item(position: &TranscriptPosition) -> &plexmaton_core::TranscriptItemId {
+    fn anchored_item(position: &TranscriptPosition) -> &TranscriptItemId {
         match position {
             TranscriptPosition::At { item, .. } => item,
             TranscriptPosition::Tail => panic!("this position was expected to name an item"),
@@ -419,6 +420,48 @@ mod tests {
         );
     }
 
+    /// ENT-2 and TR-1: a tool completion invalidates its stable entry and no sibling.
+    #[test]
+    fn a_tool_transition_remeasures_only_its_original_entry() {
+        let palette = Palette::default();
+        let mut conversation = Conversation::canonical();
+        let agent_id = agent(&conversation.state).id.clone();
+        let item_id = TranscriptItemId::new("primary-tool")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call_id = ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let event = |revision, status| plexmaton_core::SessionEvent::ToolCallChanged {
+            agent_id: agent_id.clone(),
+            item_id: item_id.clone(),
+            item_revision: revision,
+            call_id: call_id.clone(),
+            label: "read_file".to_owned(),
+            status,
+            presentation: ToolPresentation::default(),
+        };
+        conversation.emit(event(0, ToolCallStatus::Queued));
+
+        let mut metrics = TranscriptMetrics::default();
+        let entries = metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        assert!(
+            entries > 1,
+            "a sibling entry is needed to expose a full rewrap"
+        );
+
+        let before = metrics.wrapped();
+        conversation.emit(event(1, ToolCallStatus::Running));
+        metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        assert_eq!(metrics.wrapped().saturating_sub(before), 1);
+
+        let before = metrics.wrapped();
+        conversation.emit(event(2, ToolCallStatus::Succeeded));
+        metrics.measure(agent(&conversation.state), &palette, WIDTH);
+        assert_eq!(
+            metrics.wrapped().saturating_sub(before),
+            1,
+            "completion moved state on the original entry instead of rebuilding the conversation"
+        );
+    }
+
     /// TR-1's arithmetic premise: per-item heights sum to the height of the whole.
     ///
     /// Wrapping is per logical line, so an item's rows do not depend on its neighbours. That is what
@@ -434,8 +477,8 @@ mod tests {
         for width in [24_u16, 46, 118] {
             metrics.measure(agent(state), &palette, width);
             let whole: Vec<_> = agent(state)
-                .transcript()
-                .flat_map(|item| content::transcript_item(item, &palette, false))
+                .entries()
+                .flat_map(|item| content::transcript_entry(item, &palette, false))
                 .collect();
             let together = Paragraph::new(whole)
                 .wrap(Wrap { trim: false })

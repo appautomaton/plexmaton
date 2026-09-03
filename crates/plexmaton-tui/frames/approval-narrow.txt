@@ -3,7 +3,7 @@
 │cover narrow screens.                                     │
 └──────────────────────────────────────────────────────────┘
 ┌ Agents · !1 ─────────────────────────────────────────────┐
-│● Agent B · UI study  done                                │
+│● Agent B · UI study  done · 1 tool · 1 artifact · 1 mail │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
@@ -26,14 +26,14 @@
 │ │                                                      │ │
 │ └──────────────────────────────────────────────────────┘ │
 │                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
 │assistant                                                 │
 │I found the surface-routing boundary and am checking      │
 │overlap behavior.                                         │
 │                                                          │
+│[+] inspect interaction fixtures · succeeded              │
+│@ interaction findings ·                                  │
+│artifact://agent-b/interaction-findings                   │
+│-> agent-a · Routing stays centralized and z-ordered.     │
 ├ Message Agent A · primary ───────────────────────────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘
