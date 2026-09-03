@@ -24,7 +24,7 @@ use ratatui::{Terminal, backend::TestBackend, crossterm::event::Event, layout::R
 /// The terminal the workloads run at, unless one of them is about changing it.
 pub(crate) const SIZE: (u16, u16) = (120, 40);
 
-/// Conversation lengths every workload is run at.
+/// Assistant-message counts every workload is run at; tool entries are added by the fixture.
 ///
 /// Two, because the shape of the curve is the finding. One size cannot distinguish a frame whose
 /// cost is bounded by the viewport from one that is merely fast today.
@@ -46,16 +46,16 @@ use workloads::{
 
 fn main() -> anyhow::Result<()> {
     let mut runs = Vec::new();
-    for items in SCALES {
-        runs.push(cold_open(items)?);
-        runs.push(streaming(items)?);
-        runs.push(interleaved(items)?);
-        runs.push(wheel(items)?);
-        runs.push(resize(items)?);
-        runs.push(inspector(items)?);
-        runs.push(hidden_conversation(items)?);
-        runs.push(two_conversations(items)?);
-        runs.push(select(items)?);
+    for messages in SCALES {
+        runs.push(cold_open(messages)?);
+        runs.push(streaming(messages)?);
+        runs.push(interleaved(messages)?);
+        runs.push(wheel(messages)?);
+        runs.push(resize(messages)?);
+        runs.push(inspector(messages)?);
+        runs.push(hidden_conversation(messages)?);
+        runs.push(two_conversations(messages)?);
+        runs.push(select(messages)?);
     }
     report(&runs);
     Ok(())
@@ -118,8 +118,8 @@ impl Harness {
         )
     }
 
-    /// Items in the primary's conversation, which is the one always on screen.
-    pub(crate) fn items_on_screen(&self) -> usize {
+    /// Entries in the primary's conversation, which is the one always on screen.
+    pub(crate) fn entries_on_screen(&self) -> usize {
         self.workspace
             .state()
             .primary_agent()
@@ -137,7 +137,7 @@ impl Harness {
 /// One workload's result.
 pub(crate) struct Run {
     workload: &'static str,
-    items: usize,
+    entries: usize,
     wrapped: usize,
     built: usize,
     retained: usize,
@@ -148,7 +148,7 @@ impl Run {
     pub(crate) fn new(workload: &'static str) -> Self {
         Self {
             workload,
-            items: 0,
+            entries: 0,
             wrapped: 0,
             built: 0,
             retained: 0,
@@ -165,13 +165,13 @@ impl Run {
             // Nothing painted, so there is no frame to attribute this time to.
             return;
         };
-        self.wrapped = self.wrapped.max(work.items_wrapped);
+        self.wrapped = self.wrapped.max(work.entries_wrapped);
         self.built = self.built.max(work.lines_built);
         self.latencies.push(elapsed);
     }
 
     pub(crate) fn finish(mut self, harness: &Harness) -> Self {
-        self.items = harness.items_on_screen();
+        self.entries = harness.entries_on_screen();
         self.retained = harness.workspace.metrics().retained();
         self.latencies.sort_unstable();
         self
@@ -205,18 +205,18 @@ fn report(runs: &[Run]) {
     println!("  timings   this machine only; work columns are the same everywhere");
     println!();
     println!(
-        "| {:<24} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
-        "workload", "items", "samples", "wraps", "lines", "retained", "p50", "p95", "max"
+        "| {:<24} | {:>7} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
+        "workload", "entries", "samples", "wraps", "lines", "retained", "p50", "p95", "max"
     );
     println!(
-        "| {:-<24} | {:->6} | {:->7} | {:->6} | {:->6} | {:->8} | {:->8} | {:->8} | {:->8} |",
+        "| {:-<24} | {:->7} | {:->7} | {:->6} | {:->6} | {:->8} | {:->8} | {:->8} | {:->8} |",
         "", "", "", "", "", "", "", "", ""
     );
     for run in runs {
         println!(
-            "| {:<24} | {:>6} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
+            "| {:<24} | {:>7} | {:>7} | {:>6} | {:>6} | {:>8} | {:>8} | {:>8} | {:>8} |",
             run.workload,
-            run.items,
+            run.entries,
             run.latencies.len(),
             run.wrapped,
             run.built,

@@ -74,8 +74,8 @@ impl Outcome {
 /// assert and what a report prints beside its timings (FR-3).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FrameWork {
-    /// Transcript items whose height had to be wrapped for this frame.
-    pub items_wrapped: usize,
+    /// Transcript entries whose height had to be wrapped for this frame.
+    pub entries_wrapped: usize,
     /// Conversation lines this frame built.
     pub lines_built: usize,
 }
@@ -220,7 +220,7 @@ impl Workspace {
         self.painted = Some(self.state.revision());
         self.frames = self.frames.saturating_add(1);
         Ok(Some(FrameWork {
-            items_wrapped: self.metrics.wrapped().saturating_sub(wrapped),
+            entries_wrapped: self.metrics.wrapped().saturating_sub(wrapped),
             lines_built: self.metrics.lines_built().saturating_sub(built),
         }))
     }
@@ -672,38 +672,38 @@ mod tests {
     /// the comparison is the test and the absolute numbers are not.
     ///
     /// The cold frame is the deliberate exception, asserted rather than hidden: knowing how tall a
-    /// conversation is means wrapping every item once, and that is what buys every later frame.
+    /// conversation is means wrapping every entry once, and that is what buys every later frame.
     #[test]
     fn frame_work_is_bounded_by_the_viewport_and_not_by_the_history() {
         let mut steady = Vec::new();
-        for items in [200_usize, 2000] {
+        for messages in [200_usize, 2000] {
             let mut workspace = Workspace::default();
             let mut terminal = Terminal::new(TestBackend::new(80, 24))
                 .unwrap_or_else(|error| panic!("test terminal: {error}"));
             let mut conversation = Conversation::canonical();
-            conversation.extend(items);
+            conversation.extend(messages);
             workspace.emit(conversation.drain());
 
             let cold = frame(&mut workspace, &mut terminal);
             assert_eq!(
-                cold.items_wrapped,
-                items.saturating_add(1),
-                "a cold frame measures every item exactly once, the canonical opener included"
+                cold.entries_wrapped,
+                messages.saturating_add(1),
+                "a cold frame measures every entry exactly once, the canonical opener included"
             );
 
-            // A streaming delta into the newest item, which is the frame that has to stay cheap.
+            // A streaming delta into the newest entry, which is the frame that has to stay cheap.
             conversation.append(" One more sentence of streamed text arrives.");
             workspace.emit(conversation.drain());
             let delta = frame(&mut workspace, &mut terminal);
             assert_eq!(
-                delta.items_wrapped, 1,
-                "a delta re-measures the item it changed and nothing behind it"
+                delta.entries_wrapped, 1,
+                "a delta re-measures the entry it changed and nothing behind it"
             );
 
             assert_eq!(
                 workspace.metrics().retained(),
-                items.saturating_add(1),
-                "the cache holds one entry per item and no more"
+                messages.saturating_add(1),
+                "the cache holds one height per entry and no more"
             );
             steady.push((delta.lines_built, cold.lines_built));
         }
@@ -743,7 +743,7 @@ mod tests {
                 modifiers: KeyModifiers::NONE,
             }));
             assert_eq!(
-                frame(&mut workspace, &mut terminal).items_wrapped,
+                frame(&mut workspace, &mut terminal).entries_wrapped,
                 0,
                 "the wheel must read cached heights, never recompute them"
             );
@@ -1221,7 +1221,7 @@ mod tests {
         workspace.emit(conversation.drain());
         let work = frame(&mut workspace, &mut terminal);
         assert_eq!(
-            work.items_wrapped, 1,
+            work.entries_wrapped, 1,
             "a delta costs one wrap at the width its conversation is drawn at; a whole history is the defect"
         );
     }

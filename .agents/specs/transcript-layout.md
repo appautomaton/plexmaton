@@ -56,7 +56,7 @@ overshot. An anchor whose entry no longer exists resolves to the tail. The heigh
 `TranscriptMetrics`, held by the [frame loop](./frame-loop.md) and keyed by agent and width; the
 width a surface's rows were measured at travels on `Viewport::content_width`.
 
-| Change | Items wrapped |
+| Change | Entries wrapped |
 | --- | --- |
 | A delta on one entry | 1 |
 | A new entry | 1 |

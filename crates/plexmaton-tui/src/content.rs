@@ -194,11 +194,20 @@ pub(crate) fn conversation_placeholder(
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
 /// row and conversation title stay short.
 pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
+    let (tools, artifacts, mail) = agent.entries().fold(
+        (0_usize, 0_usize, 0_usize),
+        |(tools, artifacts, mail), entry| match entry {
+            TranscriptEntryView::Text(_) => (tools, artifacts, mail),
+            TranscriptEntryView::Tool(_) => (tools.saturating_add(1), artifacts, mail),
+            TranscriptEntryView::Artifact(_) => (tools, artifacts.saturating_add(1), mail),
+            TranscriptEntryView::Mail(_) => (tools, artifacts, mail.saturating_add(1)),
+        },
+    );
     let mut parts = String::new();
     for (count, one, many) in [
-        (agent.tool_activity().count(), "tool", "tools"),
-        (agent.artifacts().count(), "artifact", "artifacts"),
-        (agent.mail().count(), "mail", "mail"),
+        (tools, "tool", "tools"),
+        (artifacts, "artifact", "artifacts"),
+        (mail, "mail", "mail"),
     ] {
         if count > 0 {
             let noun = if count == 1 { one } else { many };

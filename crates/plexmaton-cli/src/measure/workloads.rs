@@ -19,11 +19,11 @@ use super::{COLD_SAMPLES, Harness, RESIZES, Run, SAMPLES, SIZE};
 ///
 /// The one frame that is deliberately proportional to history: knowing how tall a conversation is
 /// means wrapping every entry once, and that is what makes every later frame cheap (TR-1).
-pub(super) fn cold_open(items: usize) -> anyhow::Result<Run> {
+pub(super) fn cold_open(messages: usize) -> anyhow::Result<Run> {
     let mut run = Run::new("cold open");
     let mut last = None;
     for _ in 0..COLD_SAMPLES {
-        let mut harness = Harness::new(Scenario::streaming(items)?, SIZE)?;
+        let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
         harness.advance_to(u64::MAX);
         let started = Instant::now();
         let work = harness.draw()?;
@@ -37,14 +37,14 @@ pub(super) fn cold_open(items: usize) -> anyhow::Result<Run> {
 }
 
 /// One conversation streaming, a frame per event.
-pub(super) fn streaming(items: usize) -> anyhow::Result<Run> {
-    let scenario = Scenario::streaming(items.saturating_add(SAMPLES))?;
+pub(super) fn streaming(messages: usize) -> anyhow::Result<Run> {
+    let scenario = Scenario::streaming(messages.saturating_add(SAMPLES))?;
     sample_events("streaming delta", scenario, SIZE)
 }
 
 /// Four conversations streaming with tool activity, one of them on screen.
-pub(super) fn interleaved(items: usize) -> anyhow::Result<Run> {
-    let scenario = Scenario::interleaved(4, items.saturating_add(SAMPLES))?;
+pub(super) fn interleaved(messages: usize) -> anyhow::Result<Run> {
+    let scenario = Scenario::interleaved(4, messages.saturating_add(SAMPLES))?;
     sample_events("four agents", scenario, SIZE)
 }
 
@@ -69,8 +69,8 @@ pub(super) fn sample_events(
 }
 
 /// The wheel over the conversation, which must read cached heights and recompute none.
-pub(super) fn wheel(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::streaming(items)?, SIZE)?;
+pub(super) fn wheel(messages: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     let (column, row) = harness.inside(SurfaceId::Transcript);
 
@@ -97,8 +97,8 @@ pub(super) fn wheel(items: usize) -> anyhow::Result<Run> {
 }
 
 /// Wide, medium, and narrow in turn. Every height is width-dependent, so each one re-measures.
-pub(super) fn resize(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::streaming(items)?, SIZE)?;
+pub(super) fn resize(messages: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
 
     let mut run = Run::new("resize");
@@ -115,13 +115,13 @@ pub(super) fn resize(items: usize) -> anyhow::Result<Run> {
 /// Looking at the other agent and back, which opens and closes the second window (INS-1) and is
 /// both canonical journey step 4 and the surface open and close budget.
 ///
-/// A shelf splits the conversation region vertically, so the conversation keeps its width and every
-/// cached height stays valid. Opening therefore costs a relayout and a repaint and no wrapping at
+/// A shelf floats over the conversation without changing its width, so every cached height stays
+/// valid. Opening therefore costs a relayout and a repaint and no wrapping at
 /// all, which is what the wraps column is here to show rather than assert in prose. The other
 /// conversation is measured once before timing starts; paying for it cold is `open hidden
 /// conversation`'s job.
-pub(super) fn inspector(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
+pub(super) fn inspector(messages: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Pay for the inspected conversation once before timing starts, then close it. With one
     // sub-agent a second arrow is clamped and changes nothing; Escape is the operation that
@@ -157,11 +157,11 @@ pub(super) fn inspector(items: usize) -> anyhow::Result<Run> {
 /// width. That is the same deliberate cost as a cold open (TR-1), paid here by a surface appearing
 /// rather than by a process starting — and it is the number the surface-open budget was quietly not
 /// measuring while an inspector held a detail panel.
-pub(super) fn hidden_conversation(items: usize) -> anyhow::Result<Run> {
+pub(super) fn hidden_conversation(messages: usize) -> anyhow::Result<Run> {
     let mut run = Run::new("open hidden conversation");
     let mut last = None;
     for _ in 0..COLD_SAMPLES {
-        let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
+        let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
         harness.warm(usize::MAX)?;
         // Look at the second agent with no frame in between, so nothing measures its
         // conversation until the timed draw.
@@ -184,11 +184,11 @@ pub(super) fn hidden_conversation(items: usize) -> anyhow::Result<Run> {
 /// *two visible independently scrolling transcripts*.
 ///
 /// The claim under it is that neither reader costs the other anything: heights are keyed by agent
-/// and width, a shelf splits vertically so both panels share one width, and a wheel moves one
+/// and width, a shelf overlays at the primary conversation's width, and a wheel moves one
 /// stored position. So the wraps column must read zero here exactly as it does for one panel — the
 /// second conversation is paid for once, when it is opened, and never again.
-pub(super) fn two_conversations(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::interleaved(2, items)?, SIZE)?;
+pub(super) fn two_conversations(messages: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Looking at the second agent opens its conversation over the first's (INS-1).
     harness.workspace.handle(&Event::Key(KeyEvent::new(
@@ -232,8 +232,8 @@ pub(super) fn two_conversations(items: usize) -> anyhow::Result<Run> {
 /// heights the cache holds were measured unselected and stay valid. That is the claim the wraps
 /// column checks. What it cannot see is the other half — copying is bounded by the selection rather
 /// than by the history, which `sources` gets by ranging its iterators instead of a finished vector.
-pub(super) fn select(items: usize) -> anyhow::Result<Run> {
-    let mut harness = Harness::new(Scenario::streaming(items)?, SIZE)?;
+pub(super) fn select(messages: usize) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Onto the conversation, which is the list with a history worth selecting through.
     harness
@@ -272,9 +272,9 @@ mod tests {
     /// Running the workloads here rather than only under the command is what keeps the harness
     /// honest: a driver whose numbers nothing checks will happily report that a broken renderer is
     /// fast.
-    fn harness(items: usize) -> Harness {
-        let scenario =
-            Scenario::streaming(items).unwrap_or_else(|error| panic!("workload fixture: {error}"));
+    fn harness(messages: usize) -> Harness {
+        let scenario = Scenario::streaming(messages)
+            .unwrap_or_else(|error| panic!("workload fixture: {error}"));
         let mut harness = Harness::new(scenario, SIZE)
             .unwrap_or_else(|error| panic!("measurement terminal: {error}"));
         harness
@@ -301,7 +301,10 @@ mod tests {
                 .draw()
                 .unwrap_or_else(|error| panic!("measured frame: {error}"))
                 .unwrap_or_else(|| panic!("a scroll is a visible change"));
-            assert_eq!(work.items_wrapped, 0, "scrolling must not re-wrap anything");
+            assert_eq!(
+                work.entries_wrapped, 0,
+                "scrolling must not re-wrap anything"
+            );
         }
     }
 
@@ -328,7 +331,10 @@ mod tests {
                 .draw()
                 .unwrap_or_else(|error| panic!("measured frame: {error}"))
                 .unwrap_or_else(|| panic!("a selection is a visible change"));
-            assert_eq!(work.items_wrapped, 0, "selecting must not re-wrap anything");
+            assert_eq!(
+                work.entries_wrapped, 0,
+                "selecting must not re-wrap anything"
+            );
         }
         assert!(
             harness.workspace.state().selection().is_some(),
@@ -386,7 +392,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("measured frame: {error}"))
                 .unwrap_or_else(|| panic!("a scroll is a visible change"));
             assert_eq!(
-                work.items_wrapped, 0,
+                work.entries_wrapped, 0,
                 "scrolling either conversation must re-wrap neither"
             );
         }
@@ -411,8 +417,8 @@ mod tests {
     #[test]
     fn the_resize_workload_re_measures_every_entry_exactly_once() {
         let mut harness = harness(300);
-        let items = harness.items_on_screen();
-        assert!(items >= 300, "the fixture streamed its messages");
+        let entries = harness.entries_on_screen();
+        assert!(entries >= 300, "the fixture streamed its messages");
 
         for size in RESIZES {
             harness.resize(size);
@@ -421,7 +427,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("measured frame: {error}"))
                 .unwrap_or_else(|| panic!("a resize always forces a frame"));
             assert_eq!(
-                work.items_wrapped, items,
+                work.entries_wrapped, entries,
                 "a resize at {size:?} must re-measure each entry once and no entry twice"
             );
         }
@@ -430,7 +436,7 @@ mod tests {
     /// A background conversation's traffic must not cost the foreground a re-measure.
     ///
     /// The bound is derived rather than chosen: a message arrives as four events, each of which
-    /// bumps its item's revision and so costs one wrap, and only the conversation on screen is
+    /// bumps its entry's revision and so costs one wrap, and only the conversation on screen is
     /// measured at all. With four agents taking turns, a renderer that measured whichever
     /// conversation an event named would land near four times this number.
     #[test]
@@ -450,7 +456,7 @@ mod tests {
 
         // Nothing is looked at, so the primary is on screen alone and three quarters of the
         // remaining traffic belongs to somebody else.
-        let before = harness.items_on_screen();
+        let before_entries = harness.entries_on_screen();
 
         let mut foreground = 0;
         for _ in 0..WINDOW {
@@ -459,20 +465,20 @@ mod tests {
                 .draw()
                 .unwrap_or_else(|error| panic!("measured frame: {error}"))
             {
-                foreground += work.items_wrapped;
+                foreground += work.entries_wrapped;
             }
         }
 
-        let own = harness.items_on_screen().saturating_sub(before);
+        let own_entries = harness.entries_on_screen().saturating_sub(before_entries);
         assert!(
-            own > 0,
+            own_entries > 0,
             "the primary's conversation has to grow, or this proves nothing"
         );
-        // One message of slack, because the window can open and close part-way through one.
-        let allowed = own.saturating_add(1).saturating_mul(PER_MESSAGE);
+        // One entry of slack, because the window can open and close part-way through one message.
+        let allowed = own_entries.saturating_add(1).saturating_mul(PER_MESSAGE);
         assert!(
             foreground <= allowed,
-            "{WINDOW} events across four agents grew the primary's conversation by {own} messages \
+            "{WINDOW} events across four agents grew the primary's conversation by {own_entries} entries \
              and cost it {foreground} wraps, more than the {allowed} its own traffic can explain"
         );
     }

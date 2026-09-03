@@ -21,7 +21,7 @@ one wrap per entry: the first frame on a conversation, and the first frame at a 
 scroll anchoring read the registry and the heights the last frame produced. Before the first frame
 nothing is registered, so a pointer event resolves to nothing rather than a guessed region (SURF-1).
 
-**FR-4 — Work is asserted; time is reported.** Items wrapped, lines built, frames painted, and
+**FR-4 — Work is asserted; time is reported.** Entries wrapped, lines built, frames painted, and
 cache entries retained are identical on every machine, so they are test assertions and a regression
 fails a build. Wall-clock latency belongs to the machine that ran the command and is recorded beside
 it, never asserted. Rejected: asserting wall-clock budgets, a flaky test wearing a budget's clothes;
@@ -46,11 +46,14 @@ methods, so a measured frame is the frame the user gets.
 
 ### Cost, measured
 
-Layout work per frame is flat in the conversation's length; total frame cost is not. A frame walks
-the entry list twice in full, to check every cached height is still valid and to sum them, and three
-times partially, to resolve the anchor, locate the window, and reach the first entry it builds. That
-is arithmetic, not wrapping, and it becomes the budget somewhere around fifty thousand entries,
-which is where to look first and not before.
+Layout work per frame is flat in the conversation's length; total frame cost is not. Each visible
+conversation currently takes one full semantic-entry pass to validate cached heights and another
+to derive the counts in its title. Each sub-agent row takes one count pass, and an inspected
+conversation's title takes its own. The cached heights are walked once in full to sum rows, then
+partially to resolve the anchor and window; building reaches the visible entries through the
+semantic iterator. The planned Phase 01 stage 3 slice 4 current-work label adds one primary-entry
+scan. These passes are arithmetic, not wrapping, and become the budget somewhere around fifty
+thousand entries, which is where to look first and not before.
 
 Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
 machine, release profile, 120 × 40, over a 5,000-message conversation with its 625 interleaved tool
@@ -58,13 +61,13 @@ entries:
 
 | Workload | Observed | Work |
 | --- | --- | --- |
-| `streaming delta` | 1.7 ms p50, 2.2 ms max | 1 entry wrapped, 31 lines built, at any history length |
-| `wheel` | 1.7 ms p50, 2.0 ms max | 0 wrapped |
-| `open inspector` | 4.2 ms p50, 4.6 ms max | 0 wrapped |
-| `two conversations` | 4.3 ms p50, 5.1 ms max | 0 wrapped |
-| `extend selection` | 2.0 ms p50, 2.3 ms max | 0 wrapped |
-| `cold open`, `open hidden conversation` | 14.3 to 16.8 ms p50, 17.5 ms max | 5,625 wrapped, once |
-| `resize` | 14.3 ms p50, 18.1 ms max | 5,625 wrapped, once per width |
+| `streaming delta` | 1.1 ms p50, 1.6 ms max | 1 entry wrapped, 31 lines built, at any history length |
+| `wheel` | 1.1 ms p50, 1.5 ms max | 0 wrapped |
+| `open inspector` | 2.3 ms p50, 2.7 ms max | 0 wrapped |
+| `two conversations` | 2.5 ms p50, 3.5 ms max | 0 wrapped |
+| `extend selection` | 1.4 ms p50, 1.8 ms max | 0 wrapped |
+| `cold open`, `open hidden conversation` | 14.2 to 15.2 ms p50, 16.0 ms max | 5,625 wrapped, once |
+| `resize` | 14.2 ms p50, 16.6 ms max | 5,625 wrapped, once per width |
 | retained | 11,250 entries for two 5,625-entry conversations; at most two widths per conversation (TR-1) | |
 
 Read the timings as an order of magnitude: the same binary on the same laptop under compile load
