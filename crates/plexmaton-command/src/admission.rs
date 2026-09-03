@@ -6,9 +6,9 @@ use std::{
 
 use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall,
-    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision, bounded_tool_text,
 };
-use plexmaton_core::{ToolCapability, ToolDefinitionId};
+use plexmaton_core::{ToolCapability, ToolDefinitionId, ToolDetail};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -202,6 +202,7 @@ impl CommandTool {
             return request.refuse(AdmissionRefusal::InvalidArguments);
         };
         let detail = approval_detail(&canonical);
+        let invocation = invocation_detail(&canonical);
         let call_id = request.requested().call_id.clone();
         match request.admit(
             self.definition_id.clone(),
@@ -209,6 +210,7 @@ impl CommandTool {
             CAPABILITIES,
             canonical_arguments,
             detail,
+            Some(invocation),
         ) {
             Ok(outcome) => outcome,
             Err(_) => AdmissionOutcome::Refused {
@@ -316,6 +318,22 @@ fn approval_detail(arguments: &CanonicalArguments) -> String {
     format!("{prefix}{command}{context}")
 }
 
+fn invocation_detail(arguments: &CanonicalArguments) -> ToolDetail {
+    let quoted_root = serde_json::to_string(&arguments.workspace_root).unwrap_or_else(|error| {
+        unreachable!("serializing an already-owned workspace root cannot fail: {error}")
+    });
+    let quoted_command = serde_json::to_string(&arguments.cmd).unwrap_or_else(|error| {
+        unreachable!("serializing an already-owned command string cannot fail: {error}")
+    });
+    bounded_tool_text(
+        &format!(
+            "Command {quoted_command}\ncwd: {quoted_root}\ntimeout_ms: {}",
+            arguments.timeout_ms
+        ),
+        0,
+    )
+}
+
 fn bounded_head_tail(text: &str, limit: usize) -> String {
     const MARKER_RESERVE: usize = 64;
     if text.len() <= limit {
@@ -349,7 +367,7 @@ mod tests {
         AdmissionOutcome, AdmissionRefusal, AdmissionRequest, Agent, Effect, Input, ModelEvent,
         StopReason, ToolCall,
     };
-    use plexmaton_core::{AgentId, ToolCallId, ToolCapability};
+    use plexmaton_core::{AgentId, ToolCallId, ToolCapability, ToolDetail};
     use tokio_util::sync::CancellationToken;
 
     use super::{
@@ -447,6 +465,20 @@ mod tests {
             )
         );
         assert!(admitted.detail().len() <= plexmaton_agent::MAX_APPROVAL_DETAIL_BYTES);
+        assert!(matches!(
+            admitted.invocation(),
+            Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                if source.starts_with("Command \"printf hello\"\ncwd: ")
+                    && source.ends_with(&format!("\ntimeout_ms: {DEFAULT_TIMEOUT_MS}"))
+                    && source.contains(
+                        &serde_json::to_string(
+                            canonical_root
+                                .to_str()
+                                .unwrap_or_else(|| panic!("UTF-8 root"))
+                        )
+                        .unwrap_or_else(|error| panic!("serialize fixture root: {error}"))
+                    )
+        ));
         assert_eq!(
             admitted.capabilities().iter().collect::<Vec<_>>(),
             vec![

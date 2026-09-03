@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 10 |
+| Status | Implemented through Phase 01 stage 3 slice 2 |
 | Owns | How an untrusted model tool request becomes an admitted call, how policy decides it, and how an approval decision names it |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-2 through LOOP-5; [attention](./attention.md) ATT-1 and ATT-3; Phase 01 §producer |
 | Proven by | `plexmaton-agent::{admission,tools,turn}`, native-tool admission, `plexmaton-runtime::runtime::tests::tools`, and `plexmaton-tui::{approval,workspace,frames}` tests |
@@ -19,7 +19,8 @@ reserve so trusted normalization does not widen the wire boundary.
 
 **APV-2 — Policy reads capabilities, not names.** An admitted call carries its tool-definition
 identity and revision, normalized arguments, a finite set of typed capabilities, and bounded
-decision detail. Policy returns exactly `Allow`, `RequireApproval`, or `Forbidden`; tool names,
+decision detail plus a bounded canonical invocation for transcript presentation. Policy returns
+exactly `Allow`, `RequireApproval`, or `Forbidden`; tool names,
 display labels and prompt prose are never authority. The first live policy allows `FileRead`,
 requires approval for `FileWrite` or `ProcessSpawn`, and forbids no capability by default.
 
@@ -92,5 +93,5 @@ ordering.
 | APV-2 | `capabilities_are_a_canonical_set`, `policy_uses_capabilities_and_forbidden_wins`, `cmd_1_admission_is_strict_canonical_and_pins_the_workspace`, `cmd_1_approval_detail_leads_with_command_and_bounds_root_separately`, `denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sibling` |
 | APV-3 | `forbidden_and_admission_refusal_finish_without_approval_or_execution`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `real_model_completes_read_observed_edit_and_command_with_exact_approvals`, `stale_edit_preserves_the_concurrent_writer`, `malformed_canonical_and_cancelled_mutations_fail_closed`, `cmd_1_executor_refuses_a_call_pinned_to_another_workspace` |
 | APV-4 | `a_protected_call_waits_as_state_and_allow_once_resumes_that_exact_call`, `deny_pays_the_call_debt_and_a_duplicate_decision_is_typed`, `a_decision_echoes_the_open_request_and_cannot_recompute_policy`, `production_mapping_preserves_message_steering_interrupt_and_approval`, `real_model_completes_read_observed_edit_and_command_with_exact_approvals`, `the_native_approval_frames_match_their_fixtures`, `native_command_is_visible_before_decision_at_the_smallest_terminal` |
-| APV-5 | `a_safe_sibling_runs_while_a_protected_call_waits_and_results_keep_model_order`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished`, `denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sibling` |
-| APV-6 | `interrupt_and_shutdown_cancel_pending_approval_as_explicit_state`, `abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone`; durable restore remains unproven until Phase 02 |
+| APV-5 | `a_safe_sibling_runs_while_a_protected_call_waits_and_results_keep_model_order`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished`, `denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sibling`, `tool_status_updates_accumulate_invocation_and_outcome_presentation` |
+| APV-6 | `interrupt_and_shutdown_cancel_pending_approval_as_explicit_state`, `cancellation_before_admission_has_outcome_without_invocation`, `abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone`; durable restore remains unproven until Phase 02 |

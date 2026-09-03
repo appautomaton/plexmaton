@@ -78,6 +78,7 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
             [ToolCapability::FileRead],
             call.arguments.clone(),
             "read README.md".to_owned(),
+            None,
         )
         .unwrap_or_else(|error| panic!("fixture admission: {error:?}"));
     let admitted_reaction = agent.handle(Input::ToolAdmissionResolved(admitted));
@@ -88,9 +89,12 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
 
     let finished = agent.handle(Input::ToolFinished {
         call_id: call.call_id,
-        outcome: ToolOutcome::Succeeded {
-            output: output.to_owned(),
-        },
+        result: plexmaton_agent::ToolExecutionResult::new(
+            ToolOutcome::Succeeded {
+                output: output.to_owned(),
+            },
+            None,
+        ),
     });
     let [Effect::CallModel(request)] = finished.effects.as_slice() else {
         panic!(

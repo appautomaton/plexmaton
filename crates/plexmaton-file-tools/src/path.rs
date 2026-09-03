@@ -13,7 +13,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 pub(crate) const MAX_PATH_CHARACTERS: usize = 4096;
-const MAX_PATH_BYTES: usize = 4096;
+pub(crate) const MAX_PATH_BYTES: usize = 4096;
 
 /// Canonical directory from which every file-tool path is resolved (WFS-1).
 #[derive(Clone, Debug)]

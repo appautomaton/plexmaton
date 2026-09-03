@@ -8,7 +8,8 @@ use std::{
 
 use futures_util::{FutureExt as _, StreamExt as _, future::BoxFuture, stream::FuturesUnordered};
 use plexmaton_agent::{
-    AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall, ToolOutcome,
+    AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall, ToolExecutionResult,
+    ToolOutcome, bounded_tool_text,
 };
 use plexmaton_core::ToolCallId;
 
@@ -84,18 +85,18 @@ impl ToolTasks {
         let future = AssertUnwindSafe(future)
             .catch_unwind()
             .map(move |result| {
-                let outcome = match result {
-                    Ok(outcome) => outcome,
-                    Err(_) => ToolOutcome::Failed {
-                        message: "worker: native tool future terminated unexpectedly".to_owned(),
-                    },
+                let result = match result {
+                    Ok(result) => result,
+                    Err(_) => failed_execution(
+                        "worker: native tool future terminated unexpectedly".to_owned(),
+                    ),
                 };
                 ToolCompletion {
                     call_id: completion_id,
                     phase: ToolPhase::Execution,
                     resolution: ToolResolution::Execution {
                         call_id: resolution_id,
-                        outcome,
+                        result,
                     },
                 }
             })
@@ -237,9 +238,9 @@ fn failed_completion(call_id: ToolCallId, phase: ToolPhase) -> ToolCompletion {
         }),
         ToolPhase::Execution => ToolResolution::Execution {
             call_id: call_id.clone(),
-            outcome: ToolOutcome::Failed {
-                message: "worker: native tool worker terminated unexpectedly".to_owned(),
-            },
+            result: failed_execution(
+                "worker: native tool worker terminated unexpectedly".to_owned(),
+            ),
         },
     };
     ToolCompletion {
@@ -253,7 +254,7 @@ pub(super) enum ToolResolution {
     Admission(AdmissionOutcome),
     Execution {
         call_id: ToolCallId,
-        outcome: ToolOutcome,
+        result: ToolExecutionResult,
     },
 }
 
@@ -278,11 +279,14 @@ impl ToolResolution {
                 call_id: returned, ..
             } if returned != expected => Self::Execution {
                 call_id: expected,
-                outcome: ToolOutcome::Failed {
-                    message: "worker: tool completion identity changed".to_owned(),
-                },
+                result: failed_execution("worker: tool completion identity changed".to_owned()),
             },
             resolution => resolution,
         }
     }
+}
+
+fn failed_execution(message: String) -> ToolExecutionResult {
+    let presentation = Some(bounded_tool_text(&message, 0));
+    ToolExecutionResult::new(ToolOutcome::Failed { message }, presentation)
 }

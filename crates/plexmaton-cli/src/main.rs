@@ -359,6 +359,15 @@ mod tests {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
+    fn succeeded_tool_result(output: &str) -> plexmaton_agent::ToolExecutionResult {
+        plexmaton_agent::ToolExecutionResult::new(
+            plexmaton_agent::ToolOutcome::Succeeded {
+                output: output.to_owned(),
+            },
+            None,
+        )
+    }
+
     struct FixtureWorkspace(PathBuf);
 
     impl FixtureWorkspace {
@@ -624,7 +633,7 @@ mod tests {
     fn production_tool_lifecycles_replay_as_one_entry_each() {
         use plexmaton_agent::{
             AdmissionRefusal, Agent, Effect, Input, ModelEvent, StopReason, ToolCall,
-            ToolDefinitionRevision, ToolOutcome,
+            ToolDefinitionRevision,
         };
         use plexmaton_core::{
             AgentId, ApprovalDecision, ToolCallId, ToolCapability, ToolDefinitionId,
@@ -689,6 +698,7 @@ mod tests {
                         [capability],
                         "{}".to_owned(),
                         format!("{expected} fixture"),
+                        None,
                     )
                     .unwrap_or_else(|error| panic!("admit {expected}: {error:?}")),
                 None => request.refuse(AdmissionRefusal::UnknownTool),
@@ -726,9 +736,7 @@ mod tests {
                 .handle(Input::ToolFinished {
                     call_id: ToolCallId::new("approved")
                         .unwrap_or_else(|error| panic!("fixture: {error}")),
-                    outcome: ToolOutcome::Succeeded {
-                        output: "approved done".to_owned(),
-                    },
+                    result: succeeded_tool_result("approved done"),
                 })
                 .events,
         );
@@ -745,9 +753,7 @@ mod tests {
                 .handle(Input::ToolFinished {
                     call_id: ToolCallId::new("success")
                         .unwrap_or_else(|error| panic!("fixture: {error}")),
-                    outcome: ToolOutcome::Succeeded {
-                        output: "done".to_owned(),
-                    },
+                    result: succeeded_tool_result("done"),
                 })
                 .events,
         );

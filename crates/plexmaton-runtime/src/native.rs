@@ -8,7 +8,8 @@ use std::{
 
 use futures_util::future::{BoxFuture, FutureExt as _};
 use plexmaton_agent::{
-    AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall, ToolOutcome,
+    AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall, ToolExecutionResult,
+    ToolOutcome, bounded_tool_text,
 };
 use plexmaton_command::{
     COMMAND_DEFINITION_ID, COMMAND_DESCRIPTION, COMMAND_TOOL_NAME, CommandTool,
@@ -142,7 +143,7 @@ impl NativeToolCatalog {
         &self,
         call: AdmittedToolCall,
         cancellation: NativeCancellation,
-    ) -> BoxFuture<'static, ToolOutcome> {
+    ) -> BoxFuture<'static, ToolExecutionResult> {
         if call.definition_id().as_str() == COMMAND_DEFINITION_ID {
             let command = Arc::clone(&self.command);
             return async move {
@@ -150,12 +151,15 @@ impl NativeToolCatalog {
                     .execute(&call, cancellation.async_token.child_token())
                     .await
                 {
-                    Ok(output) => ToolOutcome::Succeeded {
-                        output: output.to_model_text(),
-                    },
+                    Ok(output) => ToolExecutionResult::new(
+                        ToolOutcome::Succeeded {
+                            output: output.to_model_text(),
+                        },
+                        Some(output.to_transcript_detail()),
+                    ),
                     Err(error) => bounded_failure("command_execution", &error.to_string()),
                 };
-                bound_outcome(outcome)
+                bound_result(outcome)
             }
             .boxed();
         }
@@ -177,7 +181,7 @@ impl NativeToolCatalog {
                     Ok(outcome) => outcome,
                     Err(_) => bounded_failure("worker", "file tool worker terminated unexpectedly"),
                 };
-            bound_outcome(outcome)
+            bound_result(outcome)
         }
         .boxed()
     }
@@ -204,25 +208,26 @@ impl NativeCancellation {
     }
 }
 
-fn bound_outcome(outcome: ToolOutcome) -> ToolOutcome {
-    match outcome {
-        ToolOutcome::Succeeded { output } if output.len() > MAX_NATIVE_TOOL_RESULT_BYTES => {
-            bounded_failure(
-                "result_too_large",
-                "native tool result exceeded its hard byte bound",
-            )
-        }
-        ToolOutcome::Failed { message } if message.len() > MAX_NATIVE_TOOL_RESULT_BYTES => {
-            bounded_failure(
-                "failure_too_large",
-                "native tool failure exceeded its hard byte bound",
-            )
-        }
-        outcome => outcome,
+fn bound_result(result: ToolExecutionResult) -> ToolExecutionResult {
+    let replacement = match result.outcome() {
+        ToolOutcome::Succeeded { output } if output.len() > MAX_NATIVE_TOOL_RESULT_BYTES => Some((
+            "result_too_large",
+            "native tool result exceeded its hard byte bound",
+        )),
+        ToolOutcome::Failed { message } if message.len() > MAX_NATIVE_TOOL_RESULT_BYTES => Some((
+            "failure_too_large",
+            "native tool failure exceeded its hard byte bound",
+        )),
+        _ => None,
+    };
+    if let Some((kind, message)) = replacement {
+        bounded_failure(kind, message)
+    } else {
+        result
     }
 }
 
-fn bounded_failure(kind: &str, message: &str) -> ToolOutcome {
+fn bounded_failure(kind: &str, message: &str) -> ToolExecutionResult {
     let available = MAX_NATIVE_TOOL_RESULT_BYTES
         .saturating_sub(kind.len())
         .saturating_sub(2);
@@ -230,23 +235,26 @@ fn bounded_failure(kind: &str, message: &str) -> ToolOutcome {
     while !message.is_char_boundary(end) {
         end = end.saturating_sub(1);
     }
-    ToolOutcome::Failed {
-        message: format!("{kind}: {}", &message[..end]),
-    }
+    let message = format!("{kind}: {}", &message[..end]);
+    let presentation = Some(bounded_tool_text(&message, 0));
+    ToolExecutionResult::new(ToolOutcome::Failed { message }, presentation)
 }
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_agent::ToolOutcome;
+    use plexmaton_agent::{ToolExecutionResult, ToolOutcome};
 
-    use super::{MAX_NATIVE_TOOL_RESULT_BYTES, bound_outcome};
+    use super::{MAX_NATIVE_TOOL_RESULT_BYTES, bound_result};
 
     #[test]
     fn live_1_native_outcomes_are_bounded_before_the_loop_can_retain_them() {
-        let outcome = bound_outcome(ToolOutcome::Succeeded {
-            output: "x".repeat(MAX_NATIVE_TOOL_RESULT_BYTES + 1),
-        });
-        let ToolOutcome::Failed { message } = outcome else {
+        let result = bound_result(ToolExecutionResult::new(
+            ToolOutcome::Succeeded {
+                output: "x".repeat(MAX_NATIVE_TOOL_RESULT_BYTES + 1),
+            },
+            None,
+        ));
+        let ToolOutcome::Failed { message } = result.outcome() else {
             panic!("oversized output must become a bounded failure");
         };
         assert!(message.len() <= MAX_NATIVE_TOOL_RESULT_BYTES);

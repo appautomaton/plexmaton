@@ -139,6 +139,7 @@ impl ModelDriver for FakeDriver {
 
 mod cancellation;
 mod lifecycle;
+mod presentation;
 mod tools;
 
 fn agent_id() -> AgentId {

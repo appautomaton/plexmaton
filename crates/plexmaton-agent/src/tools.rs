@@ -6,10 +6,15 @@
 //! than the mistake, which is why the rule lives in a type rather than in a reviewer's memory.
 
 use plexmaton_core::{
-    ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, TranscriptItemId, TurnId,
+    ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, ToolDetail,
+    ToolPresentation, TranscriptItemId, TurnId,
 };
 
 use crate::admission::{AdmissionRefusal, AdmittedToolCall};
+
+mod presentation;
+pub(crate) use presentation::detail_fits_text_bound;
+pub use presentation::{MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolExecutionResult, bounded_tool_text};
 
 /// A call the model asked for.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -142,6 +147,7 @@ struct CallSlot {
     state: CallState,
     entry_id: TranscriptItemId,
     entry_revision: u64,
+    presentation: ToolPresentation,
 }
 
 pub(crate) enum ApprovalResolution {
@@ -181,17 +187,21 @@ impl Batch {
                     state: CallState::AwaitingAdmission,
                     entry_id,
                     entry_revision: 0,
+                    presentation: ToolPresentation::default(),
                 })
                 .collect(),
         }
     }
 
     /// Entry identity and revision paired with a call's current lifecycle state.
-    pub(crate) fn entry(&self, call_id: &ToolCallId) -> Option<(&TranscriptItemId, u64)> {
+    pub(crate) fn entry(
+        &self,
+        call_id: &ToolCallId,
+    ) -> Option<(&TranscriptItemId, u64, &ToolPresentation)> {
         self.slots
             .iter()
             .find(|slot| &slot.requested.call_id == call_id)
-            .map(|slot| (&slot.entry_id, slot.entry_revision))
+            .map(|slot| (&slot.entry_id, slot.entry_revision, &slot.presentation))
     }
 
     pub(crate) fn requested(&self, call_id: &ToolCallId) -> Option<&ToolCall> {
@@ -215,6 +225,7 @@ impl Batch {
         {
             return false;
         }
+        slot.presentation.invocation = admitted.invocation().cloned();
         slot.state = CallState::Running(admitted);
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
@@ -234,12 +245,18 @@ impl Batch {
         {
             return false;
         }
+        slot.presentation.invocation = admitted.invocation().cloned();
         slot.state = CallState::AwaitingApproval(pending);
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
 
-    pub(crate) fn finish_before_run(&mut self, call_id: &ToolCallId, outcome: ToolOutcome) -> bool {
+    pub(crate) fn finish_before_run(
+        &mut self,
+        call_id: &ToolCallId,
+        outcome: ToolOutcome,
+        invocation: Option<ToolDetail>,
+    ) -> bool {
         let Some(slot) = self
             .slots
             .iter_mut()
@@ -250,6 +267,8 @@ impl Batch {
         if !matches!(slot.state, CallState::AwaitingAdmission) {
             return false;
         }
+        slot.presentation.invocation = invocation;
+        slot.presentation.outcome = presentation::unexecuted_outcome(&outcome);
         slot.state = CallState::Finished(outcome);
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
@@ -276,6 +295,7 @@ impl Batch {
         match decision {
             ApprovalDecision::AllowOnce => {
                 let admitted = pending.admitted;
+                slot.presentation.invocation = admitted.invocation().cloned();
                 slot.state = CallState::Running(admitted.clone());
                 slot.entry_revision = slot.entry_revision.saturating_add(1);
                 Some(ApprovalResolution::Run {
@@ -284,6 +304,7 @@ impl Batch {
                 })
             }
             ApprovalDecision::Deny => {
+                slot.presentation.outcome = presentation::unexecuted_outcome(&ToolOutcome::Denied);
                 slot.entry_revision = slot.entry_revision.saturating_add(1);
                 Some(ApprovalResolution::Denied {
                     attention_id,
@@ -302,7 +323,7 @@ impl Batch {
 
     /// Records one outcome. `false` when no dispatched call has that identity, which is a defect
     /// in whoever ran it rather than something to answer the model with.
-    pub(crate) fn settle(&mut self, call_id: &ToolCallId, outcome: ToolOutcome) -> bool {
+    pub(crate) fn settle(&mut self, call_id: &ToolCallId, result: ToolExecutionResult) -> bool {
         let Some(slot) = self
             .slots
             .iter_mut()
@@ -313,6 +334,8 @@ impl Batch {
         if !matches!(slot.state, CallState::Running(_)) {
             return false;
         }
+        let (outcome, presentation) = result.into_parts();
+        slot.presentation.outcome = presentation;
         slot.state = CallState::Finished(outcome);
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
@@ -340,7 +363,9 @@ impl Batch {
                     None
                 }
             };
-            slot.state = CallState::Finished(ToolOutcome::Cancelled { reason });
+            let outcome = ToolOutcome::Cancelled { reason };
+            slot.presentation.outcome = presentation::unexecuted_outcome(&outcome);
+            slot.state = CallState::Finished(outcome);
             slot.entry_revision = slot.entry_revision.saturating_add(1);
             abandoned.push(AbandonedCall {
                 call_id: slot.requested.call_id.clone(),
@@ -369,9 +394,42 @@ impl Batch {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{ToolCallId, ToolCallStatus};
+    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolDetail};
 
-    use super::{Batch, ToolCall, ToolCancellationReason, ToolOutcome};
+    use super::{
+        Batch, MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolCall, ToolCancellationReason,
+        ToolExecutionResult, ToolOutcome, bounded_tool_text,
+    };
+
+    /// ENT-4: bounded text preserves valid UTF-8 at both ends and counts both earlier and local
+    /// omissions without asking the renderer to infer truncation.
+    #[test]
+    fn bounded_presentation_text_carries_exact_omission_metadata() {
+        let source = format!("head-{}-tail", "λ".repeat(MAX_TOOL_PRESENTATION_TEXT_BYTES));
+        let ToolDetail::Text {
+            source: retained,
+            omitted_bytes,
+        } = bounded_tool_text(&source, 17)
+        else {
+            panic!("plain text presenter changed detail kind");
+        };
+
+        assert!(retained.len() <= MAX_TOOL_PRESENTATION_TEXT_BYTES);
+        assert!(retained.starts_with("head-"));
+        assert!(retained.ends_with("-tail"));
+        let marker_start = retained
+            .find("\n...[")
+            .unwrap_or_else(|| panic!("omission marker"));
+        let marker_end = retained[marker_start..]
+            .find("]...\n")
+            .map(|relative| marker_start + relative + "]...\n".len())
+            .unwrap_or_else(|| panic!("omission marker end"));
+        let retained_payload_bytes = retained.len() - (marker_end - marker_start);
+        assert_eq!(
+            omitted_bytes,
+            17 + (source.len() - retained_payload_bytes) as u64
+        );
+    }
 
     fn call(id: &str) -> ToolCall {
         ToolCall {
@@ -387,6 +445,10 @@ mod tests {
         }
     }
 
+    fn result(output: &str) -> ToolExecutionResult {
+        ToolExecutionResult::new(done(output), None)
+    }
+
     fn ids(results: &[(ToolCall, ToolOutcome)]) -> Vec<String> {
         results
             .iter()
@@ -399,10 +461,10 @@ mod tests {
     fn results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished() {
         let mut batch = running_batch(vec![call("one"), call("two"), call("three")]);
 
-        assert!(batch.settle(&call("three").call_id, done("third")));
-        assert!(batch.settle(&call("one").call_id, done("first")));
+        assert!(batch.settle(&call("three").call_id, result("third")));
+        assert!(batch.settle(&call("one").call_id, result("first")));
         assert!(!batch.is_settled(), "one call is still outstanding");
-        assert!(batch.settle(&call("two").call_id, done("second")));
+        assert!(batch.settle(&call("two").call_id, result("second")));
         assert!(batch.is_settled());
 
         let results = batch.into_results();
@@ -417,7 +479,7 @@ mod tests {
     #[test]
     fn abandoning_answers_everything_outstanding_and_leaves_settled_calls_alone() {
         let mut batch = running_batch(vec![call("one"), call("two"), call("three")]);
-        batch.settle(&call("two").call_id, done("kept"));
+        batch.settle(&call("two").call_id, result("kept"));
 
         let abandoned = batch.abandon(ToolCancellationReason::Interrupted);
 
@@ -445,7 +507,7 @@ mod tests {
     fn an_outcome_for_a_call_that_was_never_dispatched_is_refused() {
         let mut batch = running_batch(vec![call("one")]);
 
-        assert!(!batch.settle(&call("elsewhere").call_id, done("stray")));
+        assert!(!batch.settle(&call("elsewhere").call_id, result("stray")));
         assert!(!batch.is_settled());
     }
 
@@ -486,6 +548,7 @@ mod tests {
                 [ToolCapability::FileRead],
                 "{}".to_owned(),
                 "fixture".to_owned(),
+                None,
             )
             .unwrap_or_else(|error| panic!("fixture: {error:?}"));
             assert!(batch.run(admitted));

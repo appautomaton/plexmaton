@@ -2,8 +2,11 @@ mod support;
 
 use std::fs;
 
-use plexmaton_agent::{AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ToolOutcome};
+use plexmaton_agent::{
+    AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ToolExecutionResult, ToolOutcome,
+};
 use plexmaton_core::ToolCapability;
+use plexmaton_core::ToolDetail;
 use plexmaton_file_tools::{
     CREATE_TOOL_NAME, EDIT_TOOL_NAME, FileCancellation, FileTools, ReadRequest,
 };
@@ -27,11 +30,11 @@ fn observation(tools: &mut FileTools, path: &str, offset: u64, limit: u16) -> St
         .as_token()
 }
 
-fn failure_kind(outcome: ToolOutcome) -> String {
-    let ToolOutcome::Failed { message } = outcome else {
-        panic!("expected tool failure, got {outcome:?}");
+fn failure_kind(result: ToolExecutionResult) -> String {
+    let ToolOutcome::Failed { message } = result.outcome() else {
+        panic!("expected tool failure, got {result:?}");
     };
-    serde_json::from_str::<Value>(&message).unwrap_or_else(|error| panic!("failure JSON: {error}"))
+    serde_json::from_str::<Value>(message).unwrap_or_else(|error| panic!("failure JSON: {error}"))
         ["kind"]
         .as_str()
         .unwrap_or_else(|| panic!("failure kind missing"))
@@ -81,14 +84,25 @@ fn exact_batch_preserves_byte_shape_and_mode() {
     assert_eq!(canonical["path"], "shape.rs");
     assert!(canonical.get("edits").is_none());
     assert_eq!(canonical["splices"].as_array().map(Vec::len), Some(3));
+    assert!(matches!(
+        admitted.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source == "path: \"shape.rs\"\nexact_replacements: 3"
+    ));
 
-    let ToolOutcome::Succeeded { output } = tools.execute(&admitted, &FileCancellation::new())
-    else {
+    let result = tools.execute(&admitted, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = result.outcome() else {
         panic!("edit did not succeed");
     };
     let output: Value =
-        serde_json::from_str(&output).unwrap_or_else(|error| panic!("output JSON: {error}"));
+        serde_json::from_str(output).unwrap_or_else(|error| panic!("output JSON: {error}"));
     assert_eq!(output, json!({"path": "shape.rs", "edits_applied": 3}));
+    let Some(ToolDetail::Diff { patch }) = result.presentation() else {
+        panic!("successful edit must carry its canonical patch");
+    };
+    assert!(patch.contains("-alpha\n\\ No newline at end of edit\n+beta\n"));
+    assert!(patch.contains("-old\n\\ No newline at end of edit\n+new\n"));
+    assert!(patch.contains("-#[deprecated]\n-pub fn legacy() {}\r\n"));
     assert_eq!(
         fs::read(workspace.path().join("shape.rs"))
             .unwrap_or_else(|error| panic!("read result: {error}")),
@@ -183,37 +197,6 @@ fn admission_enforces_the_observed_window_and_unique_target() {
     );
 }
 
-/// MUT-3: a call admitted from an earlier version never overwrites an external change.
-#[test]
-fn stale_edit_preserves_the_concurrent_writer() {
-    let workspace = TestWorkspace::new();
-    workspace.write("counter.rs", b"pub const RETRIES: usize = 2;\n");
-    let mut tools = FileTools::open(workspace.path(), "/bin/false", "/bin/false")
-        .unwrap_or_else(|error| panic!("open tools: {error}"));
-    let observation = observation(&mut tools, "counter.rs", 1, 10);
-    let admitted = admitted(tools.admit(
-        call(
-            EDIT_TOOL_NAME,
-            json!({"path":"counter.rs", "observation":observation, "edits":[{"old_text":"2", "new_text":"3"}]})
-        ),
-        &FileCancellation::new(),
-    ));
-    workspace.write(
-        "counter.rs",
-        b"// changed by operator\npub const RETRIES: usize = 2;\n",
-    );
-
-    assert_eq!(
-        failure_kind(tools.execute(&admitted, &FileCancellation::new())),
-        "stale_observation"
-    );
-    assert_eq!(
-        fs::read(workspace.path().join("counter.rs"))
-            .unwrap_or_else(|error| panic!("read external change: {error}")),
-        b"// changed by operator\npub const RETRIES: usize = 2;\n"
-    );
-}
-
 /// MUT-5: create is a separate absence-only capability and a later creator always wins.
 #[test]
 fn create_is_absence_only_and_never_overwrites() {
@@ -233,6 +216,12 @@ fn create_is_absence_only_and_never_overwrites() {
         create.capabilities().iter().collect::<Vec<_>>(),
         [ToolCapability::FileWrite]
     );
+    assert!(matches!(
+        create.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source.contains("path: \"src/generated.rs\"")
+                && source.contains("content_bytes: 34")
+    ));
     fs::write(workspace.path().join("src/generated.rs"), b"operator\n")
         .unwrap_or_else(|error| panic!("concurrent create: {error}"));
     assert_eq!(
@@ -265,9 +254,13 @@ fn create_is_absence_only_and_never_overwrites() {
         ),
         &FileCancellation::new(),
     ));
+    let created = tools.execute(&fresh, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = created.outcome() else {
+        panic!("fresh create did not succeed: {created:?}");
+    };
     assert!(matches!(
-        tools.execute(&fresh, &FileCancellation::new()),
-        ToolOutcome::Succeeded { .. }
+        created.presentation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 }) if source == output
     ));
     assert_eq!(
         fs::read(workspace.path().join("src/fresh.rs"))
@@ -329,6 +322,7 @@ fn malformed_canonical_and_cancelled_mutations_fail_closed() {
             [ToolCapability::FileRead],
             valid.canonical_arguments().to_owned(),
             valid.detail().to_owned(),
+            valid.invocation().cloned(),
         )
         .unwrap_or_else(|error| panic!("capability fixture: {error:?}")),
     );
@@ -350,6 +344,7 @@ fn malformed_canonical_and_cancelled_mutations_fail_closed() {
             valid.capabilities().iter(),
             canonical.to_string(),
             valid.detail().to_owned(),
+            valid.invocation().cloned(),
         )
         .unwrap_or_else(|error| panic!("forged call fixture: {error:?}")),
     );

@@ -6,7 +6,7 @@
 
 use plexmaton_core::{
     AgentStatus, ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId,
-    ToolCallStatus, ToolPresentation, TurnId,
+    ToolCallStatus, TurnId,
 };
 
 use super::usage::UsageAccumulator;
@@ -15,7 +15,8 @@ use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::model::RequestItem;
 use crate::tools::{
-    ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome,
+    ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason,
+    ToolExecutionResult, ToolOutcome,
 };
 
 impl Agent {
@@ -128,9 +129,11 @@ impl Agent {
                     }
                     PolicyDecision::Forbidden => {
                         let accepted = match &mut self.turn {
-                            Turn::Working { batch, .. } => {
-                                batch.finish_before_run(&call_id, ToolOutcome::Forbidden)
-                            }
+                            Turn::Working { batch, .. } => batch.finish_before_run(
+                                &call_id,
+                                ToolOutcome::Forbidden,
+                                admitted.invocation().cloned(),
+                            ),
                             Turn::Idle | Turn::Streaming { .. } => false,
                         };
                         if !accepted {
@@ -144,9 +147,11 @@ impl Agent {
             }
             AdmissionOutcome::Refused { call_id, reason } => {
                 let accepted = match &mut self.turn {
-                    Turn::Working { batch, .. } => {
-                        batch.finish_before_run(&call_id, ToolOutcome::AdmissionRefused { reason })
-                    }
+                    Turn::Working { batch, .. } => batch.finish_before_run(
+                        &call_id,
+                        ToolOutcome::AdmissionRefused { reason },
+                        None,
+                    ),
                     Turn::Idle | Turn::Streaming { .. } => false,
                 };
                 if !accepted {
@@ -205,13 +210,13 @@ impl Agent {
     pub(super) fn tool_finished(
         &mut self,
         call_id: &ToolCallId,
-        outcome: ToolOutcome,
+        result: ToolExecutionResult,
         reaction: &mut Reaction,
     ) {
-        let status = outcome.status();
+        let status = result.outcome().status();
         let settled = match &mut self.turn {
             Turn::Working { batch, .. } => {
-                if batch.settle(call_id, outcome) {
+                if batch.settle(call_id, result) {
                     Some(batch.is_settled())
                 } else {
                     None
@@ -246,12 +251,16 @@ impl Agent {
         reaction: &mut Reaction,
     ) {
         let entry = match &self.turn {
-            Turn::Working { batch, .. } => batch
-                .entry(&call_id)
-                .map(|(item_id, revision)| (item_id.clone(), revision)),
+            Turn::Working { batch, .. } => {
+                batch
+                    .entry(&call_id)
+                    .map(|(item_id, revision, presentation)| {
+                        (item_id.clone(), revision, presentation.clone())
+                    })
+            }
             Turn::Idle | Turn::Streaming { .. } => None,
         };
-        let Some((item_id, item_revision)) = entry else {
+        let Some((item_id, item_revision, presentation)) = entry else {
             self.warn(reaction, "tool state changed without its transcript entry");
             return;
         };
@@ -262,7 +271,7 @@ impl Agent {
             label: self.record.label_of(&call_id),
             call_id,
             status,
-            presentation: ToolPresentation::default(),
+            presentation,
         };
         self.record.emit(reaction, changed);
     }

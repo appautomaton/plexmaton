@@ -2,6 +2,8 @@
 
 use std::io;
 
+use plexmaton_agent::bounded_tool_text;
+use plexmaton_core::ToolDetail;
 use thiserror::Error;
 use tokio::task::JoinError;
 
@@ -52,6 +54,17 @@ impl CommandOutput {
     /// The final UTF-8 byte length is hard-bounded after replacement of invalid input bytes.
     #[must_use]
     pub fn to_model_text(&self) -> String {
+        self.model_text_with_omissions().0
+    }
+
+    /// Returns the exact model text with every deliberate capture/format omission counted (ENT-4).
+    #[must_use]
+    pub fn to_transcript_detail(&self) -> ToolDetail {
+        let (source, omitted_bytes) = self.model_text_with_omissions();
+        bounded_tool_text(&source, omitted_bytes)
+    }
+
+    fn model_text_with_omissions(&self) -> (String, u64) {
         let mut rendered = String::new();
         match self.cause {
             ExitCause::Exited { code } => {
@@ -67,9 +80,14 @@ impl CommandOutput {
             ExitCause::TimedOut => rendered.push_str("status: timed_out\n"),
             ExitCause::Cancelled => rendered.push_str("status: cancelled\n"),
         }
-        append_model_stream(&mut rendered, "stdout", &self.stdout);
-        append_model_stream(&mut rendered, "stderr", &self.stderr);
-        truncate_utf8_middle(&rendered, MAX_MODEL_OUTPUT_BYTES)
+        let mut omitted_bytes = append_model_stream(&mut rendered, "stdout", &self.stdout);
+        omitted_bytes = omitted_bytes.saturating_add(append_model_stream(
+            &mut rendered,
+            "stderr",
+            &self.stderr,
+        ));
+        let (source, formatting_omitted) = truncate_utf8_middle(&rendered, MAX_MODEL_OUTPUT_BYTES);
+        (source, omitted_bytes.saturating_add(formatting_omitted))
     }
 }
 
@@ -147,7 +165,7 @@ pub enum CommandExecutionError {
     ProcessGroupSurvived,
 }
 
-fn append_model_stream(rendered: &mut String, label: &str, stream: &CapturedStream) {
+fn append_model_stream(rendered: &mut String, label: &str, stream: &CapturedStream) -> u64 {
     rendered.push_str(label);
     rendered.push_str("_bytes: ");
     rendered.push_str(&stream.total_bytes().to_string());
@@ -164,19 +182,25 @@ fn append_model_stream(rendered: &mut String, label: &str, stream: &CapturedStre
     rendered.push_str(":\n");
     if stream.total_bytes() == 0 {
         rendered.push_str("[empty]\n");
+        0
     } else {
         let text = stream.to_lossy_utf8();
-        rendered.push_str(&truncate_utf8_middle(&text, MODEL_STREAM_TEXT_BYTES));
+        let (bounded, formatting_omitted) = truncate_utf8_middle(&text, MODEL_STREAM_TEXT_BYTES);
+        rendered.push_str(&bounded);
         rendered.push('\n');
+        stream.omitted_bytes().saturating_add(formatting_omitted)
     }
 }
 
-fn truncate_utf8_middle(text: &str, limit: usize) -> String {
+fn truncate_utf8_middle(text: &str, limit: usize) -> (String, u64) {
     if text.len() <= limit {
-        return text.to_owned();
+        return (text.to_owned(), 0);
     }
     if limit <= MODEL_TRUNCATION_MARKER.len() {
-        return MODEL_TRUNCATION_MARKER[..limit].to_owned();
+        return (
+            MODEL_TRUNCATION_MARKER[..limit].to_owned(),
+            text.len() as u64,
+        );
     }
     let retained = limit - MODEL_TRUNCATION_MARKER.len();
     let mut head_end = retained / 2;
@@ -191,11 +215,17 @@ fn truncate_utf8_middle(text: &str, limit: usize) -> String {
     bounded.push_str(&text[..head_end]);
     bounded.push_str(MODEL_TRUNCATION_MARKER);
     bounded.push_str(&text[tail_start..]);
-    bounded
+    let omitted = text
+        .len()
+        .saturating_sub(head_end)
+        .saturating_sub(text.len().saturating_sub(tail_start));
+    (bounded, omitted as u64)
 }
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_core::ToolDetail;
+
     use super::{CommandOutput, ExitCause, MAX_MODEL_OUTPUT_BYTES};
     use crate::capture::{CapturedStream, MAX_RETAINED_STREAM_BYTES};
 
@@ -222,6 +252,15 @@ mod tests {
                 sent_sigkill: false,
             };
             let model = output.to_model_text();
+            let ToolDetail::Text {
+                source,
+                omitted_bytes,
+            } = output.to_transcript_detail()
+            else {
+                panic!("command output presenter changed detail kind");
+            };
+            assert_eq!(source, model, "presentation preserves exact model bytes");
+            assert!(omitted_bytes > 0, "bounded invalid stream was truncated");
             assert!(model.starts_with(expected));
             assert!(model.contains("stdout:\n"));
             assert!(model.contains("stderr:\ndistinct stderr"));

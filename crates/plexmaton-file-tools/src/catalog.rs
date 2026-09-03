@@ -6,17 +6,17 @@ mod outcome;
 
 use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall, ToolDefinitionRevision,
-    ToolOutcome,
+    ToolExecutionResult, bounded_tool_text,
 };
-use plexmaton_core::{ToolCapability, ToolDefinitionId};
+use plexmaton_core::{ToolCapability, ToolDefinitionId, ToolDetail};
 
 use crate::{
     FileCancellation, FileTools,
     mutation::{self, MutationError},
 };
 use arguments::{
-    canonical_create, canonical_edit, canonical_read, canonical_search, parse_create, parse_edit,
-    parse_read, parse_search,
+    ReadArguments, SearchArguments, canonical_create, canonical_edit, canonical_read,
+    canonical_search, parse_create, parse_edit, parse_read, parse_search,
 };
 use definitions::{
     CREATE_DEFINITION_ID, DEFINITION_REVISION, EDIT_DEFINITION_ID, READ_DEFINITION_ID,
@@ -64,6 +64,7 @@ fn admit_read(request: AdmissionRequest) -> AdmissionOutcome {
         [ToolCapability::FileRead],
         canonical_read(&arguments),
         format!("read {}", bounded_detail(&arguments.path, 900)),
+        Some(read_invocation(&arguments)),
     )
 }
 
@@ -81,6 +82,7 @@ fn admit_search(request: AdmissionRequest) -> AdmissionOutcome {
             bounded_detail(&arguments.pattern, 400),
             bounded_detail(&arguments.path, 400)
         ),
+        Some(search_invocation(&arguments)),
     )
 }
 
@@ -113,7 +115,7 @@ fn admit_edit(
         EDIT_DEFINITION_ID,
         [ToolCapability::FileRead, ToolCapability::FileWrite],
         canonical_edit(&canonical),
-        detail,
+        (detail, Some(edit_invocation(&canonical))),
         cancellation,
         before_resolution,
     )
@@ -138,7 +140,7 @@ fn admit_create(
         CREATE_DEFINITION_ID,
         [ToolCapability::FileWrite],
         canonical_create(&canonical),
-        detail,
+        (detail, Some(create_invocation(&canonical))),
         cancellation,
         before_resolution,
     )
@@ -149,7 +151,7 @@ fn admit_mutation_call(
     definition: &'static str,
     capabilities: impl IntoIterator<Item = ToolCapability>,
     canonical_arguments: Option<String>,
-    detail: String,
+    presentation: (String, Option<ToolDetail>),
     cancellation: &FileCancellation,
     before_resolution: impl FnOnce(),
 ) -> AdmissionOutcome {
@@ -157,12 +159,14 @@ fn admit_mutation_call(
     if cancellation.is_cancelled() {
         return request.refuse(AdmissionRefusal::Cancelled);
     }
+    let (detail, invocation) = presentation;
     admit_call(
         request,
         definition,
         capabilities,
         canonical_arguments,
         detail,
+        invocation,
     )
 }
 
@@ -172,6 +176,7 @@ fn admit_call(
     capabilities: impl IntoIterator<Item = ToolCapability>,
     canonical_arguments: Option<String>,
     detail: String,
+    invocation: Option<ToolDetail>,
 ) -> AdmissionOutcome {
     let Some(definition_id) = ToolDefinitionId::new(definition).ok() else {
         return request.refuse(AdmissionRefusal::DefinitionUnavailable);
@@ -189,6 +194,7 @@ fn admit_call(
         capabilities,
         canonical_arguments,
         detail,
+        invocation,
     ) {
         Ok(outcome) => outcome,
         Err(_) => AdmissionOutcome::Refused {
@@ -213,6 +219,7 @@ fn refusal_for_mutation(error: &MutationError) -> AdmissionRefusal {
         MutationError::InvalidArguments
         | MutationError::SourceTooLarge
         | MutationError::ResultTooLarge
+        | MutationError::PresentationTooLarge
         | MutationError::InvalidUtf8
         | MutationError::Binary
         | MutationError::Path(_) => AdmissionRefusal::InvalidArguments,
@@ -223,7 +230,7 @@ pub(crate) fn execute(
     tools: &mut FileTools,
     call: &AdmittedToolCall,
     cancellation: &FileCancellation,
-) -> ToolOutcome {
+) -> ToolExecutionResult {
     if call.definition_revision().get() != DEFINITION_REVISION {
         return definition_mismatch();
     }
@@ -249,11 +256,68 @@ pub(crate) fn execute(
     }
 }
 
-fn definition_mismatch() -> ToolOutcome {
+fn definition_mismatch() -> ToolExecutionResult {
     failed_json(
         "definition_mismatch",
         "the admitted definition revision or capabilities do not match this catalog",
     )
+}
+
+fn read_invocation(arguments: &ReadArguments) -> ToolDetail {
+    bounded_tool_text(
+        &format!(
+            "path: {}\nstart_line: {}\nline_limit: {}",
+            quoted(&arguments.path),
+            arguments.offset,
+            arguments.limit
+        ),
+        0,
+    )
+}
+
+fn search_invocation(arguments: &SearchArguments) -> ToolDetail {
+    let glob = arguments
+        .glob
+        .as_deref()
+        .map(quoted)
+        .unwrap_or_else(|| "null".to_owned());
+    bounded_tool_text(
+        &format!(
+            "pattern: {}\npath: {}\nglob: {glob}\nmatch_limit: {}",
+            quoted(&arguments.pattern),
+            quoted(&arguments.path),
+            arguments.limit
+        ),
+        0,
+    )
+}
+
+fn edit_invocation(canonical: &mutation::CanonicalEdit) -> ToolDetail {
+    bounded_tool_text(
+        &format!(
+            "path: {}\nexact_replacements: {}",
+            quoted(&canonical.path),
+            canonical.splices.len()
+        ),
+        0,
+    )
+}
+
+fn create_invocation(canonical: &mutation::CreateArguments) -> ToolDetail {
+    bounded_tool_text(
+        &format!(
+            "path: {}\ncontent_bytes: {}",
+            quoted(&canonical.path),
+            canonical.content.len()
+        ),
+        0,
+    )
+}
+
+fn quoted(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|error| {
+        unreachable!("serializing an owned UTF-8 string cannot fail: {error}")
+    })
 }
 
 fn bounded_detail(value: &str, max: usize) -> &str {

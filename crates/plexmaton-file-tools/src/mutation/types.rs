@@ -11,6 +11,14 @@ pub const MAX_MUTATION_ARGUMENT_CHARACTERS: usize = 48 * 1024;
 pub const MAX_MUTATION_ARGUMENT_BYTES: usize = 48 * 1024;
 pub const MAX_MUTATION_EDITS: usize = 16;
 pub const MAX_MUTATION_SOURCE_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum complete canonical patch retained for one successful edit.
+///
+/// MUT-6 bounds the changed text, path and edit count independently. Prefixing every changed line
+/// can at most double the 48 KiB text budget; the remainder covers one 4 KiB path plus bounded
+/// headers and no-final-newline markers for sixteen edits. The 8 MiB source limit is deliberately
+/// absent because unchanged file bytes never enter the patch.
+pub const MAX_EDIT_PRESENTATION_BYTES: usize =
+    (MAX_MUTATION_ARGUMENT_BYTES * 2) + crate::path::MAX_PATH_BYTES + (4 * 1024);
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -58,6 +66,12 @@ pub(crate) struct ByteSplice {
     pub(crate) replacement: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AppliedEdit {
+    pub(crate) edits_applied: usize,
+    pub(crate) patch: String,
+}
+
 /// Why a model-requested file mutation could not become or execute a canonical change.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum MutationError {
@@ -75,6 +89,8 @@ pub enum MutationError {
     SourceTooLarge,
     #[error("the resulting file exceeds its byte bound")]
     ResultTooLarge,
+    #[error("the complete canonical edit patch exceeds its hard byte bound")]
+    PresentationTooLarge,
     #[error("the target is not valid UTF-8 text")]
     InvalidUtf8,
     #[error("the target contains a NUL byte and is treated as binary")]
@@ -103,6 +119,7 @@ impl MutationError {
             Self::OverlappingEdits => "overlapping_edits",
             Self::SourceTooLarge => "source_too_large",
             Self::ResultTooLarge => "result_too_large",
+            Self::PresentationTooLarge => "presentation_too_large",
             Self::InvalidUtf8 => "invalid_utf8",
             Self::Binary => "binary",
             Self::CreateCollision => "create_collision",

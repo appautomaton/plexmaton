@@ -195,8 +195,8 @@ impl Agent {
             Input::ToolAdmissionResolved(outcome) => {
                 self.admission_resolved(outcome, &mut reaction);
             }
-            Input::ToolFinished { call_id, outcome } => {
-                self.tool_finished(&call_id, outcome, &mut reaction);
+            Input::ToolFinished { call_id, result } => {
+                self.tool_finished(&call_id, result, &mut reaction);
             }
             Input::ApprovalDecided {
                 approval_id,
@@ -298,7 +298,8 @@ impl Agent {
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, AttentionRequest, SessionEvent, TokenCounts,
-        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, TranscriptRole,
+        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, ToolDetail,
+        TranscriptRole,
     };
 
     use super::{Agent, Effect, Input, Reaction, Turn, TurnBudget};
@@ -307,7 +308,7 @@ mod tests {
         ModelError, ModelEvent, ModelStepId, ProviderCodecId, ProviderReplay, RequestItem,
         StopReason,
     };
-    use crate::tools::{ToolCall, ToolCancellationReason, ToolOutcome};
+    use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
         ApprovalPolicy, CapabilitySet, ModelDeliveryRefusal, ToolDefinitionRevision,
@@ -390,6 +391,10 @@ mod tests {
             capabilities,
             "{}".to_owned(),
             format!("{name} fixture"),
+            Some(ToolDetail::Text {
+                source: format!("{name} invocation"),
+                omitted_bytes: 0,
+            }),
         )
         .unwrap_or_else(|error| panic!("fixture: {error:?}"))
     }
@@ -397,9 +402,12 @@ mod tests {
     fn finish(agent: &mut Agent, call_id: &str, output: &str) -> Reaction {
         agent.handle(Input::ToolFinished {
             call_id: id(call_id),
-            outcome: ToolOutcome::Succeeded {
-                output: output.to_owned(),
-            },
+            result: ToolExecutionResult::new(
+                ToolOutcome::Succeeded {
+                    output: output.to_owned(),
+                },
+                None,
+            ),
         })
     }
 
@@ -423,6 +431,7 @@ mod tests {
                     [ToolCapability::FileRead],
                     "{}".to_owned(),
                     "read fixture".to_owned(),
+                    None,
                 )
                 .unwrap_or_else(|error| panic!("fixture: {error:?}"));
             merge(
@@ -1285,6 +1294,91 @@ mod tests {
         ));
     }
 
+    /// ENT-2/ENT-4: later lifecycle updates advance one entry without erasing presentation facts
+    /// already produced at admission or execution.
+    #[test]
+    fn tool_status_updates_accumulate_invocation_and_outcome_presentation() {
+        let mut agent = agent();
+        submit(&mut agent, "change the file");
+        call_named(&mut agent, "write-1", "edit");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+
+        let waiting = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        let waiting_presentation = events(&waiting)
+            .into_iter()
+            .find_map(|event| match event {
+                SessionEvent::ToolCallChanged {
+                    status: ToolCallStatus::AwaitingApproval,
+                    presentation,
+                    ..
+                } => Some(presentation),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("awaiting-approval presentation"));
+        assert!(waiting_presentation.invocation.is_some());
+        assert!(waiting_presentation.outcome.is_none());
+
+        let approval_id = agent
+            .pending_approvals()
+            .next()
+            .map(|pending| pending.approval_id().clone())
+            .unwrap_or_else(|| panic!("pending approval"));
+        let running = agent.handle(Input::ApprovalDecided {
+            approval_id,
+            decision: ApprovalDecision::AllowOnce,
+        });
+        let running_presentation = events(&running)
+            .into_iter()
+            .find_map(|event| match event {
+                SessionEvent::ToolCallChanged {
+                    status: ToolCallStatus::Running,
+                    presentation,
+                    ..
+                } => Some(presentation),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("running presentation"));
+        assert_eq!(running_presentation, waiting_presentation);
+
+        let outcome = ToolDetail::Diff {
+            patch: "*** Begin Patch\n*** End Patch\n".to_owned(),
+        };
+        let finished = agent.handle(Input::ToolFinished {
+            call_id: id("write-1"),
+            result: ToolExecutionResult::new(
+                ToolOutcome::Succeeded {
+                    output: "unchanged model result".to_owned(),
+                },
+                Some(outcome.clone()),
+            ),
+        });
+        let terminal_presentation = events(&finished)
+            .into_iter()
+            .find_map(|event| match event {
+                SessionEvent::ToolCallChanged {
+                    status: ToolCallStatus::Succeeded,
+                    presentation,
+                    ..
+                } => Some(presentation),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("terminal presentation"));
+        assert_eq!(
+            terminal_presentation.invocation,
+            waiting_presentation.invocation
+        );
+        assert_eq!(terminal_presentation.outcome, Some(outcome));
+        assert!(matches!(
+            agent.record().iter().find_map(|item| match item {
+                RequestItem::ToolResult { outcome, .. } => Some(outcome),
+                _ => None,
+            }),
+            Some(ToolOutcome::Succeeded { output }) if output == "unchanged model result"
+        ));
+    }
+
     /// APV-4 and LOOP-2: denial resolves Attention, never executes, and is still a tool result in
     /// the next model request. Reusing the same approval ID is a typed non-decision.
     #[test]
@@ -1327,6 +1421,19 @@ mod tests {
                 outcome: ToolOutcome::Denied
             }) if call_id == &id("write-1")
         ));
+        assert!(events(&denied).iter().any(|event| matches!(
+            event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Denied,
+                presentation,
+                ..
+            } if presentation.invocation.is_some()
+                && matches!(
+                    &presentation.outcome,
+                    Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                        if source == "denied by user"
+                )
+        )));
 
         let duplicate = agent.handle(Input::ApprovalDecided {
             approval_id: approval_id.clone(),
@@ -1438,6 +1545,19 @@ mod tests {
             }),
             Some(ToolOutcome::Forbidden)
         ));
+        assert!(events(&forbidden_result).iter().any(|event| matches!(
+            event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Failed,
+                presentation,
+                ..
+            } if presentation.invocation.is_some()
+                && matches!(
+                    &presentation.outcome,
+                    Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                        if source == "forbidden by policy"
+                )
+        )));
 
         let mut refused = agent();
         submit(&mut refused, "unknown");
@@ -1463,6 +1583,19 @@ mod tests {
                 reason: AdmissionRefusal::UnknownTool
             })
         ));
+        assert!(events(&refused_result).iter().any(|event| matches!(
+            event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Failed,
+                presentation,
+                ..
+            } if presentation.invocation.is_none()
+                && matches!(
+                    &presentation.outcome,
+                    Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                        if source == "admission refused: unknown_tool"
+                )
+        )));
     }
 
     /// APV-6: no hidden waiter survives cancellation. Both interrupt and shutdown resolve the
@@ -1502,7 +1635,46 @@ mod tests {
                     ..
                 }) if *reason == expected
             ));
+            assert!(events(&cancelled).iter().any(|event| matches!(
+                event,
+                SessionEvent::ToolCallChanged {
+                    status: ToolCallStatus::Cancelled,
+                    presentation,
+                    ..
+                } if presentation.invocation.is_some()
+                    && matches!(
+                        &presentation.outcome,
+                        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                            if source.starts_with("cancelled: ")
+                    )
+            )));
         }
+    }
+
+    /// ENT-4: cancellation before admission still records a typed terminal explanation; there is
+    /// no fabricated invocation because canonical admission never completed.
+    #[test]
+    fn cancellation_before_admission_has_outcome_without_invocation() {
+        let mut agent = agent();
+        submit(&mut agent, "read one file");
+        call(&mut agent, "read-1");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+
+        let cancelled = agent.handle(Input::Interrupted);
+
+        assert!(events(&cancelled).iter().any(|event| matches!(
+            event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Cancelled,
+                presentation,
+                ..
+            } if presentation.invocation.is_none()
+                && matches!(
+                    &presentation.outcome,
+                    Some(ToolDetail::Text { source, omitted_bytes: 0 })
+                        if source == "cancelled: interrupted"
+                )
+        )));
     }
 
     /// An interrupt stops work; it does not start any.

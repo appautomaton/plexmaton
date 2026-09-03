@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 3 slice 1; detail population remains unproven |
+| Status | Implemented through Phase 01 stage 3 slice 2 |
 | Owns | Stable transcript identity, first-appearance order, entry revisions, tool lifecycle updates, typed presentation, and replay reduction |
 | Depends on | [transcript-layout](./transcript-layout.md) TR-1 and [tool-admission](./tool-admission.md) APV-5/APV-6 |
 | Proven by | `plexmaton-core::transcript`, `plexmaton-agent::{record,tools,turn}`, and `plexmaton-tui::state::{agent,ingest}` tests |
@@ -29,7 +29,10 @@ facts. A restored pending approval remains subject to APV-6.
 
 **ENT-4 — Open and copy project retained semantic detail.** Tool presentation distinguishes text
 from a canonical diff, distinguishes omitted bytes from empty text, and keeps invocation separate
-from outcome. Population and byte-bound evidence are unproven until Phase 01 stage 3 slice 2.
+from outcome. Admission contributes a bounded canonical invocation; every later lifecycle update
+retains it, and execution or a no-run terminal contributes a bounded outcome. Plain text retains
+at most 64 KiB with explicit omitted-byte metadata. A successful exact edit retains its complete
+canonical patch under the bound derived by MUT-6; unchanged file bytes never enter it.
 
 ## Model
 
@@ -63,4 +66,4 @@ as mail and artifacts stay at revision zero because they have no update vocabula
 | ENT-1 | `every_transcript_identity_is_new_and_names_its_agent`, `every_transcript_category_enters_one_ordered_projection`, `mail_retains_both_endpoints_and_lives_with_its_producer`, `an_entry_identity_cannot_move_between_agents`, `shuffled_tool_completions_update_their_original_entries` |
 | ENT-2 | `a_step_that_asked_for_tools_dispatches_them_and_waits`, `production_tool_lifecycles_replay_as_one_entry_each`, `tool_lifecycle_allows_only_forward_declared_transitions`, `tool_updates_refuse_revision_gaps_and_invalid_transitions`, `results_are_assembled_in_the_order_the_model_asked_and_not_the_order_they_finished` |
 | ENT-3 | `every_event_variant_survives_a_json_round_trip`, `two_fresh_projections_of_the_same_envelopes_are_equal`, `rejected_event_does_not_block_the_rest_of_the_stream`, crate-graph gate |
-| ENT-4 | Unproven until Phase 01 stage 3 slice 2 |
+| ENT-4 | `bounded_presentation_text_carries_exact_omission_metadata`, `tool_status_updates_accumulate_invocation_and_outcome_presentation`, `cancellation_before_admission_has_outcome_without_invocation`, `maximum_valid_edit_retains_a_complete_bounded_patch`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request` |

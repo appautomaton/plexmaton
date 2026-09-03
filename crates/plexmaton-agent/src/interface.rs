@@ -8,7 +8,7 @@ use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCal
 
 use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
-use crate::tools::ToolOutcome;
+use crate::tools::ToolExecutionResult;
 
 /// Something the loop is told.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -43,8 +43,8 @@ pub enum Input {
     ToolFinished {
         /// The call being answered.
         call_id: ToolCallId,
-        /// How it ended.
-        outcome: ToolOutcome,
+        /// Model-facing outcome plus the executor's bounded presentation fact.
+        result: ToolExecutionResult,
     },
     /// The user answered one pending approval request.
     ApprovalDecided {

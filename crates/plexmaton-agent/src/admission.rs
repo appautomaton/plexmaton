@@ -6,9 +6,9 @@
 
 use std::num::NonZeroU64;
 
-use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId};
+use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId, ToolDetail};
 
-use crate::tools::ToolCall;
+use crate::tools::{ToolCall, detail_fits_text_bound};
 
 /// Maximum raw JSON argument bytes accepted from one model tool call.
 pub const MAX_REQUESTED_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
@@ -100,6 +100,8 @@ pub enum AdmittedCallError {
     ArgumentsTooLarge,
     /// Approval detail exceeded the presentation bound.
     DetailTooLarge,
+    /// Canonical invocation presentation exceeded the retained text bound.
+    PresentationTooLarge,
 }
 
 /// One exact loop-issued request a trusted catalog may consume to resolve admission (APV-1).
@@ -130,6 +132,7 @@ impl AdmissionRequest {
         capabilities: impl IntoIterator<Item = ToolCapability>,
         canonical_arguments: String,
         detail: String,
+        invocation: Option<ToolDetail>,
     ) -> Result<AdmissionOutcome, AdmittedCallError> {
         AdmittedToolCall::new(
             self.requested,
@@ -138,6 +141,7 @@ impl AdmissionRequest {
             capabilities,
             canonical_arguments,
             detail,
+            invocation,
         )
         .map(AdmissionOutcome::Admitted)
     }
@@ -168,6 +172,7 @@ pub struct AdmittedToolCall {
     capabilities: CapabilitySet,
     canonical_arguments: String,
     detail: String,
+    invocation: Option<ToolDetail>,
 }
 
 impl AdmittedToolCall {
@@ -179,12 +184,19 @@ impl AdmittedToolCall {
         capabilities: impl IntoIterator<Item = ToolCapability>,
         canonical_arguments: String,
         detail: String,
+        invocation: Option<ToolDetail>,
     ) -> Result<Self, AdmittedCallError> {
         if canonical_arguments.len() > MAX_ADMITTED_ARGUMENT_BYTES {
             return Err(AdmittedCallError::ArgumentsTooLarge);
         }
         if detail.len() > MAX_APPROVAL_DETAIL_BYTES {
             return Err(AdmittedCallError::DetailTooLarge);
+        }
+        if invocation
+            .as_ref()
+            .is_some_and(|detail| !detail_fits_text_bound(detail))
+        {
+            return Err(AdmittedCallError::PresentationTooLarge);
         }
         Ok(Self {
             requested,
@@ -193,6 +205,7 @@ impl AdmittedToolCall {
             capabilities: CapabilitySet::new(capabilities),
             canonical_arguments,
             detail,
+            invocation,
         })
     }
 
@@ -230,6 +243,12 @@ impl AdmittedToolCall {
     #[must_use]
     pub fn detail(&self) -> &str {
         &self.detail
+    }
+
+    /// Bounded semantic description of the canonical invocation, when safe to expose.
+    #[must_use]
+    pub const fn invocation(&self) -> Option<&ToolDetail> {
+        self.invocation.as_ref()
     }
 }
 
@@ -299,7 +318,7 @@ impl Default for ApprovalPolicy {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId};
+    use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId, ToolDetail};
 
     use super::{
         AdmittedCallError, AdmittedToolCall, ApprovalPolicy, CapabilitySet,
@@ -321,6 +340,7 @@ mod tests {
             capabilities,
             "{}".to_owned(),
             "fixture operation".to_owned(),
+            None,
         )
         .unwrap_or_else(|error| panic!("fixture admitted call: {error:?}"))
     }
@@ -377,6 +397,7 @@ mod tests {
                 [],
                 "x".repeat(MAX_ADMITTED_ARGUMENT_BYTES),
                 String::new(),
+                None,
             )
             .is_ok()
         );
@@ -388,8 +409,21 @@ mod tests {
                 [],
                 "x".repeat(MAX_ADMITTED_ARGUMENT_BYTES + 1),
                 String::new(),
+                None,
             ),
             Err(AdmittedCallError::ArgumentsTooLarge)
+        );
+        assert_eq!(
+            AdmittedToolCall::new(
+                request.clone(),
+                definition.clone(),
+                revision,
+                [],
+                String::new(),
+                "x".repeat(MAX_APPROVAL_DETAIL_BYTES + 1),
+                None,
+            ),
+            Err(AdmittedCallError::DetailTooLarge)
         );
         assert_eq!(
             AdmittedToolCall::new(
@@ -398,9 +432,13 @@ mod tests {
                 revision,
                 [],
                 String::new(),
-                "x".repeat(MAX_APPROVAL_DETAIL_BYTES + 1),
+                String::new(),
+                Some(ToolDetail::Text {
+                    source: "x".repeat(crate::MAX_TOOL_PRESENTATION_TEXT_BYTES + 1),
+                    omitted_bytes: 0,
+                }),
             ),
-            Err(AdmittedCallError::DetailTooLarge)
+            Err(AdmittedCallError::PresentationTooLarge)
         );
     }
 }

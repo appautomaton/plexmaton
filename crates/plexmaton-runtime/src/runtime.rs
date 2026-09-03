@@ -361,8 +361,8 @@ impl LiveRuntime {
             ToolResolution::Admission(outcome) => {
                 self.agent.handle(Input::ToolAdmissionResolved(outcome))
             }
-            ToolResolution::Execution { call_id, outcome } => {
-                self.agent.handle(Input::ToolFinished { call_id, outcome })
+            ToolResolution::Execution { call_id, result } => {
+                self.agent.handle(Input::ToolFinished { call_id, result })
             }
         };
         self.apply_reaction(reaction)

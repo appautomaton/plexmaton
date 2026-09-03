@@ -1,4 +1,5 @@
-use plexmaton_agent::{AdmittedToolCall, ToolOutcome};
+use plexmaton_agent::{AdmittedToolCall, ToolExecutionResult, ToolOutcome, bounded_tool_text};
+use plexmaton_core::ToolDetail;
 use serde_json::{Value, json};
 
 use crate::{
@@ -13,7 +14,7 @@ pub(super) fn execute_read(
     call: &AdmittedToolCall,
     tools: &mut FileTools,
     cancellation: &FileCancellation,
-) -> ToolOutcome {
+) -> ToolExecutionResult {
     let Some(arguments) = parse_read(call.canonical_arguments()) else {
         return canonical_failure("read");
     };
@@ -43,7 +44,7 @@ pub(super) fn execute_search(
     call: &AdmittedToolCall,
     tools: &FileTools,
     cancellation: &FileCancellation,
-) -> ToolOutcome {
+) -> ToolExecutionResult {
     let Some(arguments) = parse_search(call.canonical_arguments()) else {
         return canonical_failure("search");
     };
@@ -75,16 +76,25 @@ pub(super) fn execute_edit(
     call: &AdmittedToolCall,
     tools: &FileTools,
     cancellation: &FileCancellation,
-) -> ToolOutcome {
+) -> ToolExecutionResult {
     let Some(canonical) = parse_canonical_edit(call.canonical_arguments()) else {
         return canonical_failure("edit");
     };
     let path = canonical.path.clone();
     match mutation::execute_edit(&tools.root, &tools.observations, canonical, cancellation) {
-        Ok(edits_applied) => succeeded_json(json!({
-            "path": path,
-            "edits_applied": edits_applied,
-        })),
+        Ok(applied) => {
+            let output = json!({
+                "path": path,
+                "edits_applied": applied.edits_applied,
+            })
+            .to_string();
+            ToolExecutionResult::new(
+                ToolOutcome::Succeeded { output },
+                Some(ToolDetail::Diff {
+                    patch: applied.patch,
+                }),
+            )
+        }
         Err(error) => mutation_failure(&error),
     }
 }
@@ -93,7 +103,7 @@ pub(super) fn execute_create(
     call: &AdmittedToolCall,
     tools: &FileTools,
     cancellation: &FileCancellation,
-) -> ToolOutcome {
+) -> ToolExecutionResult {
     let Some(arguments): Option<CreateArguments> = parse_create(call.canonical_arguments()) else {
         return canonical_failure("create");
     };
@@ -106,27 +116,27 @@ pub(super) fn execute_create(
     }
 }
 
-fn mutation_failure(error: &MutationError) -> ToolOutcome {
+fn mutation_failure(error: &MutationError) -> ToolExecutionResult {
     failed_json(error.kind(), &error.to_string())
 }
 
-fn canonical_failure(operation: &str) -> ToolOutcome {
+fn canonical_failure(operation: &str) -> ToolExecutionResult {
     failed_json(
         "canonical_arguments",
         &format!("canonical {operation} arguments are invalid"),
     )
 }
 
-fn succeeded_json(value: Value) -> ToolOutcome {
-    ToolOutcome::Succeeded {
-        output: value.to_string(),
-    }
+fn succeeded_json(value: Value) -> ToolExecutionResult {
+    let output = value.to_string();
+    let presentation = Some(bounded_tool_text(&output, 0));
+    ToolExecutionResult::new(ToolOutcome::Succeeded { output }, presentation)
 }
 
-pub(super) fn failed_json(kind: &str, message: &str) -> ToolOutcome {
-    ToolOutcome::Failed {
-        message: json!({ "kind": kind, "message": message }).to_string(),
-    }
+pub(super) fn failed_json(kind: &str, message: &str) -> ToolExecutionResult {
+    let message = json!({ "kind": kind, "message": message }).to_string();
+    let presentation = Some(bounded_tool_text(&message, 0));
+    ToolExecutionResult::new(ToolOutcome::Failed { message }, presentation)
 }
 
 fn read_completion(completion: ReadCompletion) -> &'static str {

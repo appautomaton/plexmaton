@@ -14,7 +14,7 @@ use plexmaton_command::MAX_MODEL_OUTPUT_BYTES;
 use plexmaton_core::{ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId};
 use rustix::{io::Errno, process::Pid};
 
-use super::{FakeDriver, Script, agent_id, complete_usage, finish_active};
+use super::{FakeDriver, Script, agent_id, complete_usage, finish_active, presentation};
 use crate::{LiveRuntime, NativeToolCatalog, runtime::ModelDriver};
 
 struct TestWorkspace(PathBuf);
@@ -179,7 +179,7 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
     submit(&mut runtime, "update the note").await;
     let approval = next_approval(&mut runtime).await;
     allow_once(&mut runtime, approval).await;
-    let _events = finish_active(&mut runtime).await;
+    let events = finish_active(&mut runtime).await;
 
     assert_eq!(
         std::fs::read_to_string(workspace.0.join("note.txt"))
@@ -190,6 +190,7 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
     assert_eq!(calls.len(), 3);
     assert!(succeeded_output(&calls[1], "read-1").contains("obs-0000000000000001"));
     assert!(succeeded_output(&calls[2], "edit-1").contains("edits_applied"));
+    presentation::assert_edit(&events);
 }
 
 /// LIVE-1: command capture stays bounded in both the record and exact next request.
@@ -219,7 +220,7 @@ async fn maximal_command_result_stays_bounded_in_the_next_model_request() {
     submit(&mut runtime, "run the check").await;
     let approval = next_approval(&mut runtime).await;
     allow_once(&mut runtime, approval).await;
-    let _events = finish_active(&mut runtime).await;
+    let events = finish_active(&mut runtime).await;
 
     let calls = driver.calls().await;
     assert_eq!(calls.len(), 2);
@@ -227,6 +228,7 @@ async fn maximal_command_result_stays_bounded_in_the_next_model_request() {
     assert!(result.len() <= MAX_MODEL_OUTPUT_BYTES);
     assert!(result.contains("stdout_bytes: 1048576"));
     assert!(result.contains("stderr_bytes: 1048576"));
+    presentation::assert_command(&events, result);
 }
 
 /// LIVE-1, LOOP-3 and APV-5: denial pays only its slot, never runs it, and sibling results keep

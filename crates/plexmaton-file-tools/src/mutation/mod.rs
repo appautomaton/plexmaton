@@ -6,9 +6,11 @@ mod types;
 
 use std::{fs::File, io::Read as _};
 
+pub use types::MAX_EDIT_PRESENTATION_BYTES;
 pub(crate) use types::{
-    ByteSplice, CanonicalEdit, CreateArguments, EditArguments, MAX_MUTATION_ARGUMENT_BYTES,
-    MAX_MUTATION_ARGUMENT_CHARACTERS, MAX_MUTATION_EDITS, MAX_MUTATION_SOURCE_BYTES, MutationError,
+    AppliedEdit, ByteSplice, CanonicalEdit, CreateArguments, EditArguments,
+    MAX_MUTATION_ARGUMENT_BYTES, MAX_MUTATION_ARGUMENT_CHARACTERS, MAX_MUTATION_EDITS,
+    MAX_MUTATION_SOURCE_BYTES, MutationError,
 };
 
 use crate::{
@@ -66,7 +68,7 @@ pub(crate) fn execute_edit(
     observations: &ObservationStore,
     mut canonical: CanonicalEdit,
     cancellation: &FileCancellation,
-) -> Result<usize, MutationError> {
+) -> Result<AppliedEdit, MutationError> {
     execute_edit_with(
         root,
         observations,
@@ -82,7 +84,7 @@ fn execute_edit_with(
     canonical: &mut CanonicalEdit,
     cancellation: &FileCancellation,
     hooks: PublishHooks<'_>,
-) -> Result<usize, MutationError> {
+) -> Result<AppliedEdit, MutationError> {
     if cancellation.is_cancelled() {
         return Err(MutationError::Cancelled);
     }
@@ -110,6 +112,7 @@ fn execute_edit_with(
     {
         return Err(MutationError::StaleObservation);
     }
+    let patch = canonical_patch(canonical)?;
     let final_bytes = apply_splices(&source, &canonical.splices)?;
     publish_replace(
         &target,
@@ -120,7 +123,49 @@ fn execute_edit_with(
         cancellation,
         hooks,
     )?;
-    Ok(canonical.splices.len())
+    Ok(AppliedEdit {
+        edits_applied: canonical.splices.len(),
+        patch,
+    })
+}
+
+fn canonical_patch(canonical: &CanonicalEdit) -> Result<String, MutationError> {
+    let mut patch = String::new();
+    patch.push_str("*** Begin Patch\n*** Update File: ");
+    patch.push_str(&canonical.path);
+    patch.push('\n');
+    for splice in &canonical.splices {
+        patch.push_str(&format!(
+            "@@ bytes {}..{}; old_bytes={}; new_bytes={} @@\n",
+            splice.start,
+            splice.end,
+            splice.expected.len(),
+            splice.replacement.len()
+        ));
+        push_patch_lines(&mut patch, '-', &splice.expected);
+        push_patch_lines(&mut patch, '+', &splice.replacement);
+    }
+    patch.push_str("*** End Patch\n");
+    if patch.len() > MAX_EDIT_PRESENTATION_BYTES {
+        return Err(MutationError::PresentationTooLarge);
+    }
+    Ok(patch)
+}
+
+fn push_patch_lines(patch: &mut String, prefix: char, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    for line in text.split_inclusive('\n') {
+        patch.push(prefix);
+        patch.push_str(line);
+        if !line.ends_with('\n') {
+            patch.push('\n');
+        }
+    }
+    if !text.ends_with('\n') {
+        patch.push_str("\\ No newline at end of edit\n");
+    }
 }
 
 pub(crate) fn execute_create(

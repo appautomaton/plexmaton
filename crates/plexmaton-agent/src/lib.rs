@@ -30,5 +30,8 @@ pub use model::{
     MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,
     ProviderCodecId, ProviderReplay, ProviderReplayError, RequestItem, StopReason,
 };
-pub use tools::{PendingApproval, ToolCall, ToolCancellationReason, ToolOutcome};
+pub use tools::{
+    MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,
+    ToolExecutionResult, ToolOutcome, bounded_tool_text,
+};
 pub use turn::{Agent, TurnBudget};

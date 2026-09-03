@@ -3,7 +3,7 @@ mod support;
 use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ToolDefinitionRevision, ToolOutcome,
 };
-use plexmaton_core::ToolCapability;
+use plexmaton_core::{ToolCapability, ToolDetail};
 use plexmaton_file_tools::{
     CREATE_TOOL_NAME, EDIT_TOOL_NAME, FileCancellation, FileTools, READ_TOOL_NAME, SEARCH_TOOL_NAME,
 };
@@ -156,6 +156,11 @@ fn admission_is_strict_and_canonical() {
             .unwrap_or_else(|error| panic!("canonical arguments: {error}")),
         json!({"path": "file", "offset": 1, "limit": 200})
     );
+    assert!(matches!(
+        read.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source == "path: \"file\"\nstart_line: 1\nline_limit: 200"
+    ));
     let search = admitted(tools.admit(
         call(SEARCH_TOOL_NAME, json!({"pattern": "value"})),
         &FileCancellation::new(),
@@ -166,6 +171,12 @@ fn admission_is_strict_and_canonical() {
             .unwrap_or_else(|error| panic!("canonical arguments: {error}")),
         json!({"pattern": "value", "path": ".", "limit": 100})
     );
+    assert!(matches!(
+        search.invocation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if source
+                == "pattern: \"value\"\npath: \".\"\nglob: null\nmatch_limit: 100"
+    ));
 }
 
 /// WFS-5: execution trusts the admitted definition identity, never the requested model name.
@@ -187,18 +198,24 @@ fn execution_dispatches_by_admitted_definition() {
                 admitted_call.capabilities().iter(),
                 admitted_call.canonical_arguments().to_owned(),
                 admitted_call.detail().to_owned(),
+                admitted_call.invocation().cloned(),
             )
             .unwrap_or_else(|error| panic!("admitted fixture: {error:?}")),
     );
 
-    let outcome = tools.execute(&mismatched_name, &FileCancellation::new());
-    let ToolOutcome::Succeeded { output } = outcome else {
-        panic!("read definition did not execute: {outcome:?}");
+    let result = tools.execute(&mismatched_name, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = result.outcome() else {
+        panic!("read definition did not execute: {result:?}");
     };
     let output: Value =
-        serde_json::from_str(&output).unwrap_or_else(|error| panic!("tool output: {error}"));
+        serde_json::from_str(output).unwrap_or_else(|error| panic!("tool output: {error}"));
     assert_eq!(output["content"], "exact\r\n");
     assert_eq!(output["completion"], "end_of_file");
+    assert!(matches!(
+        result.presentation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if serde_json::from_str::<Value>(source).ok().as_ref() == Some(&output)
+    ));
 }
 
 /// WFS-5: stale revisions and forged capability facts cannot reuse a current executor.
@@ -231,11 +248,12 @@ fn execution_rechecks_revision_and_capabilities() {
                     capabilities,
                     admitted_call.canonical_arguments().to_owned(),
                     admitted_call.detail().to_owned(),
+                    admitted_call.invocation().cloned(),
                 )
                 .unwrap_or_else(|error| panic!("admitted fixture: {error:?}")),
         );
         assert!(matches!(
-            tools.execute(&forged, &FileCancellation::new()),
+            tools.execute(&forged, &FileCancellation::new()).outcome(),
             ToolOutcome::Failed { .. }
         ));
     }
@@ -253,12 +271,17 @@ fn search_execution_accepts_its_own_canonical_arguments() {
         &FileCancellation::new(),
     ));
 
-    let outcome = tools.execute(&call, &FileCancellation::new());
-    let ToolOutcome::Succeeded { output } = outcome else {
-        panic!("search definition did not execute: {outcome:?}");
+    let result = tools.execute(&call, &FileCancellation::new());
+    let ToolOutcome::Succeeded { output } = result.outcome() else {
+        panic!("search definition did not execute: {result:?}");
     };
     let output: Value =
-        serde_json::from_str(&output).unwrap_or_else(|error| panic!("tool output: {error}"));
+        serde_json::from_str(output).unwrap_or_else(|error| panic!("tool output: {error}"));
     assert_eq!(output["matches"][0]["path"], "file");
     assert_eq!(output["matches"][0]["preview"], "needle");
+    assert!(matches!(
+        result.presentation(),
+        Some(ToolDetail::Text { source, omitted_bytes: 0 })
+            if serde_json::from_str::<Value>(source).ok().as_ref() == Some(&output)
+    ));
 }

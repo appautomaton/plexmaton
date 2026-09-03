@@ -20,7 +20,7 @@ pub use search::{
 };
 
 use observation::ObservationStore;
-use plexmaton_agent::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall, ToolOutcome};
+use plexmaton_agent::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall, ToolExecutionResult};
 
 /// One workspace filesystem boundary and the bounded observations it has issued.
 pub struct FileTools {
@@ -135,7 +135,7 @@ impl FileTools {
         &mut self,
         call: &AdmittedToolCall,
         cancellation: &FileCancellation,
-    ) -> ToolOutcome {
+    ) -> ToolExecutionResult {
         catalog::execute(self, call, cancellation)
     }
 }
@@ -143,6 +143,7 @@ pub use catalog::{
     CREATE_TOOL_NAME, EDIT_TOOL_NAME, FileToolDefinition, READ_TOOL_NAME, SEARCH_TOOL_NAME,
 };
 pub use driver::run_search_driver;
+pub use mutation::MAX_EDIT_PRESENTATION_BYTES;
 
 #[cfg(test)]
 mod tests {
