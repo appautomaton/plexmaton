@@ -1,0 +1,40 @@
+┌ Attention · 2 · 1 unanswered ────────────────────────────┐
+│  ask   agent-b · Choose whether the overlap study should │
+│cover narrow screens.                                     │
+└──────────────────────────────────────────────────────────┘
+┌ Agents · !1 ─────────────────────────────────────────────┐
+│○ Agent B · UI study  done                                │
+│                                                          │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+┌ Agent A · primary · running · 1 tool · 1 mail ───────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│ ┌ Approval required · user opened ─────────────────────┐ │
+│ │Agent  agent-a                                        │ │
+│ │Tool   exec_command · command-native-1                │ │
+│ │Access read files, change files, run processes        │ │
+│ │                                                      │ │
+│ │  Allow once                                          │ │
+│ │> Deny                                                │ │
+│ │↑↓ choose · Enter decide                              │ │
+│ │PgUp/PgDn details · Esc keeps pending                 │ │
+│ │                                                      │ │
+│ │Details                                               │ │
+│ │Run in "/w" (timeout 120000 ms): "cargo test"         │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│assistant                                                 │
+│I will inspect the workspace and delegate the focused UI  │
+│study. Agent B is running independently; this transcript  │
+│remains interactive.                                      │
+│                                                          │
+├ Message Agent A · primary ───────────────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                

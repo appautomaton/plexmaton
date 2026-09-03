@@ -368,7 +368,7 @@ fn classify(status: ExitStatus) -> Result<ExitCause, CommandExecutionError> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use std::ffi::{OsStr, OsString};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
     use std::time::Duration;
@@ -478,7 +478,7 @@ mod tests {
         }
 
         fn tool(&self) -> CommandTool {
-            CommandTool::new(&self.0)
+            CommandTool::new(&self.0, "TEST_KEY")
                 .unwrap_or_else(|error| panic!("command tool fixture: {error}"))
         }
     }
@@ -754,6 +754,38 @@ mod tests {
             )
             .as_bytes()
         );
+    }
+
+    #[tokio::test]
+    async fn cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape() {
+        let workspace = TestWorkspace::new();
+        let environment = CommandEnvironment::from_pairs_excluding(
+            [
+                (
+                    OsString::from("MODEL_AUTH"),
+                    OsString::from("must-not-leak"),
+                ),
+                (OsString::from("MODEL_REGION"), OsString::from("local")),
+            ],
+            OsStr::new("MODEL_AUTH"),
+        );
+        let arguments = crate::admission::CanonicalArguments {
+            cmd: r#"printf '%s|%s' "${MODEL_AUTH-unset}" "$MODEL_REGION""#.to_owned(),
+            timeout_ms: 5_000,
+            workspace_root: workspace.0.to_string_lossy().into_owned(),
+        };
+
+        let output = execute(
+            &workspace.0,
+            arguments,
+            &environment,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("execute selected credential fixture: {error}"));
+
+        assert_eq!(output.cause, ExitCause::Exited { code: 0 });
+        assert_eq!(output.stdout.head(), b"unset|local");
     }
 
     #[tokio::test]

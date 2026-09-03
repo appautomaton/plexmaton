@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_agent::{ModelEvent, ProviderCodecId, ProviderReplay, StopReason};
+use plexmaton_core::ToolCallId;
 use serde_json::Value;
 
 use super::call::CallAssembly;
@@ -21,6 +22,7 @@ pub(crate) struct ResponsesDecoder {
     text_parts: BTreeMap<(usize, usize), TextAssembly>,
     finished_items: BTreeSet<usize>,
     finished_calls: BTreeSet<usize>,
+    completed_call_ids: BTreeSet<ToolCallId>,
     saw_refusal: bool,
     stopped: bool,
 }
@@ -36,6 +38,7 @@ impl ResponsesDecoder {
             text_parts: BTreeMap::new(),
             finished_items: BTreeSet::new(),
             finished_calls: BTreeSet::new(),
+            completed_call_ids: BTreeSet::new(),
             saw_refusal: false,
             stopped: false,
         }
@@ -239,8 +242,14 @@ impl ResponsesDecoder {
                 index,
                 field: "call",
             })?;
+        let call = call.finish(index)?;
+        if !self.completed_call_ids.insert(call.call_id.clone()) {
+            return Err(DecodeError::DuplicateToolCallId {
+                call_id: call.call_id,
+            });
+        }
         self.finished_calls.insert(index);
-        Ok(vec![ModelEvent::Called(call.finish(index)?)])
+        Ok(vec![ModelEvent::Called(call)])
     }
 
     fn reasoning_replay(&mut self, item: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
@@ -367,10 +376,13 @@ impl ResponsesDecoder {
                 field: "fragment_after_output_item_done",
             });
         }
-        if !self.calls.contains_key(&index) && self.calls.len() >= self.limits.max_tool_calls {
-            return Err(DecodeError::TooManyToolCalls {
-                limit: self.limits.max_tool_calls,
-            });
+        if !self.calls.contains_key(&index) {
+            let tracked = self.finished_calls.len().saturating_add(self.calls.len());
+            if tracked >= self.limits.max_tool_calls {
+                return Err(DecodeError::TooManyToolCalls {
+                    limit: self.limits.max_tool_calls,
+                });
+            }
         }
         Ok(self.calls.entry(index).or_default())
     }

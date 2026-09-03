@@ -1,6 +1,7 @@
 //! Direct-argv ripgrep with bounded acquisition, retention, cancellation, and joining.
 
 use std::{
+    ffi::OsString,
     path::PathBuf,
     process::{Child, ExitStatus},
     time::{Duration, Instant},
@@ -28,8 +29,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 #[derive(Clone, Debug)]
 pub struct SearchRunner {
     executable: PathBuf,
-    directory_driver: PathBuf,
+    directory_driver: DirectoryDriver,
     timeout: Duration,
+}
+
+#[derive(Clone, Debug)]
+struct DirectoryDriver {
+    program: PathBuf,
+    prefix: Vec<OsString>,
 }
 
 impl SearchRunner {
@@ -37,9 +44,19 @@ impl SearchRunner {
     pub fn new(executable: impl Into<PathBuf>, directory_driver: impl Into<PathBuf>) -> Self {
         Self {
             executable: executable.into(),
-            directory_driver: directory_driver.into(),
+            directory_driver: DirectoryDriver {
+                program: directory_driver.into(),
+                prefix: Vec::new(),
+            },
             timeout: SEARCH_TIMEOUT,
         }
+    }
+
+    /// Installs fixed trusted arguments which precede ripgrep's executable in driver invocations.
+    #[must_use]
+    pub fn with_directory_driver_prefix(mut self, prefix: Vec<OsString>) -> Self {
+        self.directory_driver.prefix = prefix;
+        self
     }
 
     /// Overrides the trusted executor deadline; model arguments cannot change this policy.
@@ -66,7 +83,7 @@ impl SearchRunner {
         if target.file.is_some() && request.glob.is_some() {
             return Err(SearchError::InvalidArguments);
         }
-        if target.file.is_none() && !self.directory_driver.is_absolute() {
+        if target.file.is_none() && !self.directory_driver.program.is_absolute() {
             return Err(SearchError::UntrustedExecutable);
         }
         let validation = self.search_input(

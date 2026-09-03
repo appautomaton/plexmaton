@@ -21,6 +21,7 @@ crossterm.workspace = true
 futures-util.workspace = true
 plexmaton-agent = { path = "../plexmaton-agent" }
 plexmaton-core = { path = "../plexmaton-core" }
+plexmaton-file-tools = { path = "../plexmaton-file-tools" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 plexmaton-runtime = { path = "../plexmaton-runtime" }
 plexmaton-sim = { path = "../plexmaton-sim" }

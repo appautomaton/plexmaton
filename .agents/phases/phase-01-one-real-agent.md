@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 done; stage 2 slices 1–9 done 2026-09-03; slice 10 next in [phase-01-stage-02-producer](../plans/phase-01-stage-02-producer.md) |
+| Status | Active; stage 1 done; stage 2 slice 10 implemented and awaiting three-width user review |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -28,7 +28,7 @@ the projection refuses a gap or a repeat.
 | `AgentCreated`, `AgentStatusChanged` | Durable |
 | `TurnUsageUpdated` | Durable semantic counts; retained off-screen until the on-demand diagnostics surface lands |
 | `TranscriptItemStarted`, `TranscriptDelta`, `TranscriptItemFinalized` | Durable; the cache and the anchors are built on this shape |
-| `ToolCallChanged` | Durable and thin: no arguments, no output, no expand state. Stage 2 grows it |
+| `ToolCallChanged` | Durable and thin: no arguments, no output, no expand state. Stage 3 grows it |
 | `AttentionRequested`, `AttentionResolved` | Durable; a typed request and the exact identity that stopped being pending |
 | `MailDelivered`, `ArtifactAnnounced` | Provisional: a bounded summary and a pointer, no body |
 | `RuntimeWarning` | Durable; the degradation path |
@@ -49,9 +49,9 @@ queue has no eviction; nothing removes a transcript item, so cache pruning has n
 2. **The producer.** One provider adapter behind the semantic boundary: streaming, tool calls, a
    bounded tool set (read, search, create and edit a file, run a command), the loop that executes a
    call and continues until the model stops asking, and trusted admission plus approval before a
-   policy-protected call. It emits `SessionEvent`,
-   growing the vocabulary only where it must: a reasoning role, a typed tool detail (text or diff,
-   bounded), an awaiting-approval tool state, a resolution for an attention item. The executable
+   policy-protected call. It emits `SessionEvent`, growing the vocabulary only where this stage
+   must: a reasoning role, an awaiting-approval tool state, and a resolution for an attention item. The
+   executable
    runs it; the simulator stays the test producer. The provider is chosen at the start of this
    stage, and the choice is recorded beside the adapter's spec with what it rejected, once it has survived use.
 3. **The transcript grammar, against real output.** Tool calls, mail and artifacts as entries

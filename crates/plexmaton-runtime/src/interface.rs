@@ -3,7 +3,7 @@
 use plexmaton_agent::{
     ModelStepId, UndeliveredInput, UndeliveredModelInput, UnresolvedApprovalDecision,
 };
-use plexmaton_core::AgentId;
+use plexmaton_core::{AgentId, ToolCallId};
 use thiserror::Error;
 
 /// Non-event results retained when an input could not enter the loop boundary it named.
@@ -39,13 +39,22 @@ pub enum RuntimeError {
         /// New operation the loop requested.
         requested: ModelStepId,
     },
-    /// An owned provider task sent more than one terminal outcome.
+    /// An owned provider operation sent more than one terminal outcome.
     #[error("model step `{0:?}` queued more than one terminal outcome")]
     DuplicateModelTerminal(ModelStepId),
-    /// Slice 6 advertises no tools, so no run effect can be valid yet.
-    #[error("the live text runtime received a tool run effect")]
-    UnexpectedToolRun,
-    /// A cancelled or terminal provider task panicked instead of joining normally.
-    #[error("provider task `{0:?}` terminated unexpectedly")]
-    ProviderTaskFailed(ModelStepId),
+    /// A call tried to start another admission or execution before its owned worker completed.
+    #[error("tool call `{0}` already has active runtime work")]
+    ToolAlreadyActive(ToolCallId),
+    /// A retained tool future completed without the matching owned call and phase.
+    #[error("tool call `{0}` completed without a matching runtime owner")]
+    UnexpectedToolCompletion(ToolCallId),
+    /// The tool future set and its ownership table diverged.
+    #[error("one or more owned tool futures disappeared before completion")]
+    ToolTaskLost,
+    /// The agent requested a model step before every tool future in its batch had joined.
+    #[error("a model step started while native tool work was still active")]
+    ModelStartedWithToolWork,
+    /// A cancelled or terminal provider future panicked instead of settling normally.
+    #[error("provider future `{0:?}` terminated unexpectedly")]
+    ProviderFutureFailed(ModelStepId),
 }

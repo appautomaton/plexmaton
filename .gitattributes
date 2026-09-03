@@ -1,0 +1,2 @@
+# Ratatui frame fixtures are fixed-width cell grids; trailing spaces are semantic data.
+crates/plexmaton-tui/frames/*.txt -whitespace

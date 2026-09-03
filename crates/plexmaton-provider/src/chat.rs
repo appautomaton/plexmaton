@@ -1,6 +1,6 @@
 //! Chat Completions request and stream grammar.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_agent::{ModelEvent, StopReason, ToolCall};
 use plexmaton_core::{TokenUsage, ToolCallId};
@@ -19,6 +19,7 @@ pub(crate) struct ChatDecoder {
     limits: DecodeLimits,
     retained: usize,
     calls: BTreeMap<usize, CallAssembly>,
+    completed_call_ids: BTreeSet<ToolCallId>,
     saw_refusal: bool,
     stopped: bool,
     done: bool,
@@ -38,6 +39,7 @@ impl ChatDecoder {
             limits,
             retained: 0,
             calls: BTreeMap::new(),
+            completed_call_ids: BTreeSet::new(),
             saw_refusal: false,
             stopped: false,
             done: false,
@@ -201,9 +203,17 @@ impl ChatDecoder {
 
         let mut events = Vec::new();
         if stop == StopReason::ToolCalls {
+            let mut completed = Vec::with_capacity(self.calls.len());
             for (index, call) in std::mem::take(&mut self.calls) {
-                events.push(ModelEvent::Called(finish_call(index, call)?));
+                let call = finish_call(index, call)?;
+                if !self.completed_call_ids.insert(call.call_id.clone()) {
+                    return Err(DecodeError::DuplicateToolCallId {
+                        call_id: call.call_id,
+                    });
+                }
+                completed.push(ModelEvent::Called(call));
             }
+            events.extend(completed);
         }
         self.stopped = true;
         events.push(ModelEvent::Stopped(stop));

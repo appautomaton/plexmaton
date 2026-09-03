@@ -1,54 +1,32 @@
-//! One live agent, its bounded provider channel, and its one owned model task.
+//! One live agent, its bounded provider channel, and every retained outside operation.
 
 use std::{collections::VecDeque, sync::Arc};
 
-use futures_util::future::BoxFuture;
 use plexmaton_agent::{
-    AdmissionRefusal, Agent, Effect, Input, ModelCall, ModelError, ModelEvent, ModelStepId,
-    Reaction,
+    Agent, Effect, Input, ModelCall, ModelError, ModelEvent, ModelStepId, Reaction,
 };
 use plexmaton_core::{AgentId, SessionEventEnvelope, TokenUsage};
 use plexmaton_provider::{ApiKey, ProviderProfile};
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{DispatchReport, HttpSetupError, RuntimeError, http::OpenAiHttp};
+use crate::{DispatchReport, HttpSetupError, NativeToolCatalog, RuntimeError, http::OpenAiHttp};
 
+mod model;
 mod terminal;
+mod tools;
 
+use model::RetainedModelFuture;
+pub(crate) use model::{ModelDriver, ModelSignal};
 use terminal::QueuedTerminal;
+use tools::{ToolResolution, ToolTasks};
 
 const MODEL_SIGNAL_CAPACITY: usize = 32;
-
-pub(crate) trait ModelDriver: Send + Sync + 'static {
-    fn drive(
-        &self,
-        call: ModelCall,
-        signals: mpsc::Sender<ModelSignal>,
-        cancellation: CancellationToken,
-    ) -> BoxFuture<'static, ()>;
-}
-
-#[derive(Debug)]
-pub(crate) enum ModelSignal {
-    Event {
-        step_id: ModelStepId,
-        event: ModelEvent,
-    },
-    Terminal {
-        step_id: ModelStepId,
-        event: ModelEvent,
-    },
-    Failed {
-        step_id: ModelStepId,
-        error: ModelError,
-    },
-}
 
 struct ActiveModel {
     step_id: ModelStepId,
     cancellation: CancellationToken,
-    task: JoinHandle<()>,
+    future: RetainedModelFuture,
     usage_reported: bool,
     terminal: Option<QueuedTerminal>,
 }
@@ -62,6 +40,7 @@ pub struct LiveRuntime {
     signals: mpsc::Sender<ModelSignal>,
     signal_rx: mpsc::Receiver<ModelSignal>,
     active: Option<ActiveModel>,
+    tools: ToolTasks,
     report: DispatchReport,
     shutting_down: bool,
 }
@@ -73,12 +52,22 @@ impl LiveRuntime {
         label: impl Into<String>,
         profile: ProviderProfile,
         key: ApiKey,
+        tools: NativeToolCatalog,
     ) -> Result<Self, HttpSetupError> {
-        let driver = Arc::new(OpenAiHttp::new(profile, key)?);
-        Ok(Self::with_driver(agent_id, label.into(), driver))
+        if !tools.matches_api_key_environment(profile.api_key_env()) {
+            return Err(HttpSetupError::ToolCredentialEnvironmentMismatch);
+        }
+        let definitions = tools.provider_definitions();
+        let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
+        Ok(Self::with_driver(agent_id, label.into(), driver, tools))
     }
 
-    fn with_driver(agent_id: AgentId, label: String, driver: Arc<dyn ModelDriver>) -> Self {
+    fn with_driver(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+    ) -> Self {
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id: agent_id.clone(),
@@ -88,6 +77,7 @@ impl LiveRuntime {
             signals,
             signal_rx,
             active: None,
+            tools: ToolTasks::new(tools),
             report: DispatchReport::default(),
             shutting_down: false,
         };
@@ -121,6 +111,7 @@ impl LiveRuntime {
         self.apply_reaction(reaction)?;
         if interrupted {
             self.cancel_active().await?;
+            self.tools.cancel_and_join().await?;
         }
         Ok(self.take_report())
     }
@@ -136,27 +127,37 @@ impl LiveRuntime {
             if let Some(event) = self.try_next_event() {
                 return Ok(Some(event));
             }
-            if self.shutting_down && self.active.is_none() {
+            if self.shutting_down && !self.has_active_work() {
                 return Ok(None);
             }
-            match self.wait_for_model().await {
-                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal).await?,
+            match self.wait_for_work().await {
+                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal)?,
                 WaitOutcome::Signal(None) => return Ok(None),
-                WaitOutcome::TaskEnded(result) => self.task_ended(result)?,
+                WaitOutcome::ModelEnded(result) => self.model_ended(result)?,
+                WaitOutcome::Tool(result) => {
+                    if let Some(resolution) = result? {
+                        self.apply_tool_resolution(resolution)?;
+                    }
+                }
             }
         }
     }
 
-    /// Begins orderly shutdown, settles the agent first, then cancels and joins its exact task.
+    /// Begins orderly shutdown, settles the agent first, then cancels and joins all owned work.
+    ///
+    /// Cancellation of this future does not make shutdown look complete: calling it again resumes
+    /// the retained provider and tool cleanup.
     pub async fn shutdown(&mut self) -> Result<DispatchReport, RuntimeError> {
-        if self.shutting_down {
-            return Ok(self.take_report());
+        if !self.shutting_down {
+            self.shutting_down = true;
+            self.supply_missing_usage()?;
+            let reaction = self.agent.handle(Input::ShuttingDown);
+            self.apply_reaction(reaction)?;
         }
-        self.shutting_down = true;
-        self.supply_missing_usage()?;
-        let reaction = self.agent.handle(Input::ShuttingDown);
-        self.apply_reaction(reaction)?;
-        self.cancel_active().await?;
+        let provider = self.cancel_active().await;
+        let tools = self.tools.cancel_and_join().await;
+        provider?;
+        tools?;
         Ok(self.take_report())
     }
 
@@ -166,23 +167,40 @@ impl LiveRuntime {
         self.active.is_some()
     }
 
+    /// Whether this runtime still owns provider, admission, or execution work.
+    #[must_use]
+    pub fn has_active_work(&self) -> bool {
+        self.active.is_some() || !self.tools.is_empty()
+    }
+
     /// Takes non-event delivery results accumulated while provider traffic was processed.
     pub fn take_report(&mut self) -> DispatchReport {
         std::mem::take(&mut self.report)
     }
 
-    async fn wait_for_model(&mut self) -> WaitOutcome {
-        let Some(active) = self.active.as_mut() else {
-            return WaitOutcome::Signal(self.signal_rx.recv().await);
-        };
-        tokio::select! {
-            biased;
-            signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
-            ended = &mut active.task => WaitOutcome::TaskEnded(ended),
+    async fn wait_for_work(&mut self) -> WaitOutcome {
+        match (self.active.as_mut(), self.tools.is_empty()) {
+            (Some(active), false) => tokio::select! {
+                biased;
+                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
+                ended = &mut active.future => WaitOutcome::ModelEnded(ended),
+                tool = self.tools.next() => WaitOutcome::Tool(tool),
+            },
+            (Some(active), true) => tokio::select! {
+                biased;
+                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
+                ended = &mut active.future => WaitOutcome::ModelEnded(ended),
+            },
+            (None, false) => tokio::select! {
+                biased;
+                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
+                tool = self.tools.next() => WaitOutcome::Tool(tool),
+            },
+            (None, true) => WaitOutcome::Signal(self.signal_rx.recv().await),
         }
     }
 
-    async fn apply_signal(&mut self, signal: ModelSignal) -> Result<(), RuntimeError> {
+    fn apply_signal(&mut self, signal: ModelSignal) -> Result<(), RuntimeError> {
         match signal {
             ModelSignal::Event { step_id, event } => {
                 if self.active_matches(&step_id)
@@ -213,22 +231,20 @@ impl LiveRuntime {
         }
     }
 
-    fn task_ended(
-        &mut self,
-        result: Result<(), tokio::task::JoinError>,
-    ) -> Result<(), RuntimeError> {
+    fn model_ended(&mut self, result: Result<(), ()>) -> Result<(), RuntimeError> {
+        self.drain_ready_signals()?;
         let Some(active) = self.active.take() else {
             return Ok(());
         };
         self.supply_missing_usage_for(active.step_id.clone(), active.usage_reported)?;
         if result.is_err() {
-            return self.fail_owned_step(active.step_id, "provider task terminated unexpectedly");
+            return self.fail_owned_step(active.step_id, "provider future terminated unexpectedly");
         }
         match active.terminal {
             Some(terminal) => self.deliver_terminal(active.step_id, terminal),
             None => self.fail_owned_step(
                 active.step_id,
-                "provider task ended without terminal output",
+                "provider future ended without terminal output",
             ),
         }
     }
@@ -261,12 +277,8 @@ impl LiveRuntime {
             for effect in reaction.effects {
                 match effect {
                     Effect::CallModel(call) => self.spawn_model(call)?,
-                    Effect::AdmitTool(request) => {
-                        reactions.push_back(self.agent.handle(Input::ToolAdmissionResolved(
-                            request.refuse(AdmissionRefusal::DefinitionUnavailable),
-                        )));
-                    }
-                    Effect::RunTool(_) => return Err(RuntimeError::UnexpectedToolRun),
+                    Effect::AdmitTool(request) => self.tools.start_admission(request)?,
+                    Effect::RunTool(call) => self.tools.start_execution(call)?,
                 }
             }
         }
@@ -283,6 +295,9 @@ impl LiveRuntime {
                 requested: call.step_id,
             });
         }
+        if !self.tools.is_empty() {
+            return Err(RuntimeError::ModelStartedWithToolWork);
+        }
         let step_id = call.step_id.clone();
         let cancellation = CancellationToken::new();
         let future = self
@@ -291,7 +306,7 @@ impl LiveRuntime {
         self.active = Some(ActiveModel {
             step_id,
             cancellation,
-            task: tokio::spawn(future),
+            future: RetainedModelFuture::new(future),
             usage_reported: false,
             terminal: None,
         });
@@ -333,20 +348,39 @@ impl LiveRuntime {
             .as_ref()
             .is_some_and(|active| active.step_id == *step_id)
     }
+
+    fn drain_ready_signals(&mut self) -> Result<(), RuntimeError> {
+        while let Ok(signal) = self.signal_rx.try_recv() {
+            self.apply_signal(signal)?;
+        }
+        Ok(())
+    }
+
+    fn apply_tool_resolution(&mut self, resolution: ToolResolution) -> Result<(), RuntimeError> {
+        let reaction = match resolution {
+            ToolResolution::Admission(outcome) => {
+                self.agent.handle(Input::ToolAdmissionResolved(outcome))
+            }
+            ToolResolution::Execution { call_id, outcome } => {
+                self.agent.handle(Input::ToolFinished { call_id, outcome })
+            }
+        };
+        self.apply_reaction(reaction)
+    }
 }
 
 impl Drop for LiveRuntime {
     fn drop(&mut self) {
         if let Some(active) = self.active.take() {
             active.cancellation.cancel();
-            active.task.abort();
         }
     }
 }
 
 enum WaitOutcome {
     Signal(Option<ModelSignal>),
-    TaskEnded(Result<(), tokio::task::JoinError>),
+    ModelEnded(Result<(), ()>),
+    Tool(Result<Option<ToolResolution>, RuntimeError>),
 }
 
 #[cfg(test)]

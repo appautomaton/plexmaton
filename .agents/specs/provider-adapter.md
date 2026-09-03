@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented through Phase 01 stage 2 slice 6 |
+| Status | Implemented through Phase 01 stage 2 slice 10 |
 | Owns | Configuration, request encoding, streaming decode, reasoning replay, and typed failure at the model-provider boundary |
 | Depends on | [agent-loop](./agent-loop.md) LOOP-1, LOOP-3 and LOOP-4; Phase 01 §producer |
-| Proven by | `plexmaton-provider::{config,codec,sse}` tests, sanitized protocol fixtures, and `plexmaton-agent::turn` tests |
+| Proven by | `plexmaton-provider::{config,codec,sse}` tests, sanitized protocol fixtures, `plexmaton-runtime::http` tests, and `plexmaton-agent::turn` tests |
 
 ## Invariants
 
@@ -16,7 +16,8 @@ tool scheduler or approval path. Protocol selection is explicit and never change
 **PRV-2 — Streaming assembly is bounded and finality is explicit.** Text deltas pass through in
 order; tool identity and argument fragments assemble under per-call and per-step byte/count bounds,
 and only a protocol completion event emits one whole call. Partial UTF-8, an unfinished call,
-duplicate finality or a conflicting fragment is a typed malformed response, never guessed content.
+duplicate call identity, duplicate finality or a conflicting fragment is a typed malformed
+response, never guessed content.
 A semantic stop is released only after the stream trailer passes validation.
 
 **PRV-3 — Reasoning and replay are exact but separate.** Chat `reasoning_content` is retained as
@@ -37,7 +38,8 @@ an unknown content-bearing event fails rather than silently losing output.
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` selects a named
 profile, protocol, base URL, model, reasoning effort and the environment-variable name holding its
 key. `PLEXMATON_HOME` redirects the whole root for isolated development; keys never enter the file,
-diagnostics or repository, and an absent/invalid selection fails before network work begins.
+diagnostics, repository or a native command's environment, and an absent/invalid selection fails
+before network work begins.
 Rejected: project-local `.plexmaton/` discovery; project instructions and skills belong to the
 repository's `.agents/` corpus, while provider authority remains user-owned.
 
@@ -79,10 +81,10 @@ choice. Rejected: automatic fallback, because replay and failure semantics chang
 
 | Invariant | Proven by |
 | --- | --- |
-| PRV-1 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_1_protocol_selection_never_falls_back_across_replay_grammars` |
-| PRV-2 | Both fixture round trips, `prv_2_rejects_tool_arguments_before_they_can_reach_admission`, `prv_2_bounds_even_empty_responses_output_items`, `prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy`, `prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid`, `prv_2_sse_framing_rejects_partial_utf8` |
+| PRV-1 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_1_protocol_selection_never_falls_back_across_replay_grammars`, `native_catalog_is_exact_unique_and_advertised_by_both_protocols` |
+| PRV-2 | Both fixture round trips, `prv_2_rejects_duplicate_chat_tool_call_ids_before_emission`, `prv_2_rejects_incremental_duplicate_responses_tool_call_ids`, `prv_2_responses_counts_incrementally_completed_calls_toward_the_step_bound`, `prv_2_rejects_tool_arguments_before_they_can_reach_admission`, `prv_2_bounds_even_empty_responses_output_items`, `prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy`, `prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid`, `prv_2_sse_framing_rejects_partial_utf8` |
 | PRV-3 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_3_rejects_opaque_replay_before_step_state_can_grow`, `reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation`, `provider_replay_is_named_and_bounded_before_turn_state_can_retain_it` |
 | PRV-4 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools` proves stateless full-record replay without a response ID |
 | PRV-5 | `http_rate_limit_is_typed_and_keeps_retry_after`, `context_error_is_classified_by_wire_code`, `prv_5_responses_done_only_refusal_is_visible_and_typed`, and both fixture completion reasons |
-| PRV-6 | `prv_6_parses_a_named_profile_without_inline_authority`, `prv_6_rejects_an_inline_api_key`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted` |
+| PRV-6 | `prv_6_parses_a_named_profile_without_inline_authority`, `prv_6_rejects_an_inline_api_key`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape` |
 | PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |

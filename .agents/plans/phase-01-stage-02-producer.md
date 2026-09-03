@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1–9 of 10 landed 2026-09-03; slice 10 next |
+| Status | Slice 10 reviewed; three-width user review remains |
 | Blocked | None |
 
 ## Outcome

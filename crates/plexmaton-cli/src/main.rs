@@ -1,4 +1,8 @@
-use std::{fs, io, path::Path};
+use std::{
+    ffi::{OsStr, OsString},
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, bail};
 use crossterm::{
@@ -9,13 +13,15 @@ use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
-use plexmaton_runtime::{DispatchReport, LiveRuntime};
+use plexmaton_runtime::{DispatchReport, LiveRuntime, NativeToolCatalog};
 use plexmaton_tui::{ApprovalSubmission, Flow, Submission, SubmissionKind, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
+
+const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
 
 /// Returns the terminal to the user on every exit path, including error and panic.
 ///
@@ -36,8 +42,12 @@ impl Drop for RestoreTerminal {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
+    if std::env::args_os().nth(1).as_deref() == Some(OsStr::new(INTERNAL_RG_DRIVER)) {
+        return plexmaton_file_tools::run_search_driver(std::env::args_os().skip(2))
+            .context("run internal descriptor-rooted ripgrep driver");
+    }
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let runtime = live_runtime_from_process()?;
+    let (runtime, workspace_root) = live_runtime_from_process()?;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
@@ -48,14 +58,14 @@ async fn main() -> anyhow::Result<()> {
         terminal,
         runtime,
         &mut TerminalClipboard::new(io::stdout()),
-        working_directory(),
+        working_directory(&workspace_root),
     )
     .await
 }
 
-fn live_runtime_from_process() -> anyhow::Result<LiveRuntime> {
+fn live_runtime_from_process() -> anyhow::Result<(LiveRuntime, PathBuf)> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
-    let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let user_home = std::env::var_os("HOME").map(PathBuf::from);
     let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
         .context("resolve Plexmaton configuration root")?;
     let path = root.join("config.toml");
@@ -65,18 +75,35 @@ fn live_runtime_from_process() -> anyhow::Result<LiveRuntime> {
     let profile = config.active().clone();
     let key = resolve_api_key(&profile, std::env::var_os(profile.api_key_env()))
         .context("resolve provider API key")?;
+    let workspace_root = std::env::current_dir()
+        .context("resolve tool workspace")?
+        .canonicalize()
+        .context("canonicalize tool workspace")?;
+    let ripgrep = resolve_path_executable("rg", std::env::var_os("PATH").as_deref())?;
+    let driver = std::env::current_exe()
+        .context("resolve Plexmaton executable for the search driver")?
+        .canonicalize()
+        .context("canonicalize Plexmaton search driver")?;
+    let tools = NativeToolCatalog::open(
+        &workspace_root,
+        profile.api_key_env(),
+        ripgrep,
+        driver,
+        vec![OsString::from(INTERNAL_RG_DRIVER)],
+    )
+    .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    LiveRuntime::openai(agent_id, "Plexmaton", profile, key)
-        .context("configure live provider transport")
+    let runtime = LiveRuntime::openai(agent_id, "Plexmaton", profile, key, tools)
+        .context("configure live provider transport")?;
+    Ok((runtime, workspace_root))
 }
 
 /// Where the process runs, the way a shell prompt shows it: the home directory as `~`.
 ///
 /// `None` when the directory cannot be read, which the status line shows as nothing rather than
 /// as an error: it is a label, and a session does not fail over a label.
-fn working_directory() -> Option<String> {
-    let current = std::env::current_dir().ok()?;
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+fn working_directory(current: &Path) -> Option<String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
     let shown = match home
         .as_deref()
         .and_then(|home| current.strip_prefix(home).ok())
@@ -86,6 +113,29 @@ fn working_directory() -> Option<String> {
         None => current.display().to_string(),
     };
     Some(shown)
+}
+
+fn resolve_path_executable(name: &str, path: Option<&OsStr>) -> anyhow::Result<PathBuf> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let Some(path) = path else {
+        bail!("cannot find `{name}` because PATH is absent");
+    };
+    for directory in std::env::split_paths(path) {
+        if !directory.is_absolute() {
+            continue;
+        }
+        let candidate = directory.join(name);
+        let Ok(metadata) = fs::metadata(&candidate) else {
+            continue;
+        };
+        if metadata.is_file() && metadata.permissions().mode() & 0o111 != 0 {
+            return candidate
+                .canonicalize()
+                .with_context(|| format!("canonicalize `{name}` at {}", candidate.display()));
+        }
+    }
+    bail!("cannot find executable `{name}` in absolute PATH entries")
 }
 
 /// The event loop: producer events, terminal events, and the frames they justify.
@@ -279,7 +329,16 @@ fn dispatch_synthetic(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::TranscriptRole;
+    use std::{
+        io::{Read as _, Write as _},
+        net::{TcpListener, TcpStream},
+        path::{Path, PathBuf},
+        sync::atomic::{AtomicU64, Ordering},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use plexmaton_core::{ToolCallStatus, TranscriptRole};
     use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{ApprovalSubmission, Submission, SubmissionKind, SurfaceId, Workspace};
     use ratatui::{
@@ -295,6 +354,124 @@ mod tests {
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    struct FixtureWorkspace(PathBuf);
+
+    impl FixtureWorkspace {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            loop {
+                let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir().join(format!(
+                    "plexmaton-cli-live-tools-{}-{suffix}",
+                    std::process::id()
+                ));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => panic!("create fixture workspace: {error}"),
+                }
+            }
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for FixtureWorkspace {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0)
+                .unwrap_or_else(|error| panic!("remove fixture workspace: {error}"));
+        }
+    }
+
+    type FixtureServer = thread::JoinHandle<Result<Vec<Vec<u8>>, String>>;
+
+    fn fixture_http_server(responses: [&'static str; 2]) -> (String, FixtureServer) {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .unwrap_or_else(|error| panic!("bind fixture HTTP server: {error}"));
+        listener
+            .set_nonblocking(true)
+            .unwrap_or_else(|error| panic!("make fixture HTTP server nonblocking: {error}"));
+        let address = listener
+            .local_addr()
+            .unwrap_or_else(|error| panic!("read fixture HTTP address: {error}"));
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut requests = Vec::with_capacity(responses.len());
+            for response in responses {
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _peer)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            if Instant::now() >= deadline {
+                                return Err("timed out waiting for fixture request".to_owned());
+                            }
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => return Err(format!("accept fixture request: {error}")),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .map_err(|error| format!("set fixture read timeout: {error}"))?;
+                requests.push(read_http_request(&mut stream)?);
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response.len()
+                );
+                stream
+                    .write_all(headers.as_bytes())
+                    .and_then(|()| stream.write_all(response.as_bytes()))
+                    .map_err(|error| format!("write fixture response: {error}"))?;
+            }
+            Ok(requests)
+        });
+        (format!("http://{address}/v1"), handle)
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> Result<Vec<u8>, String> {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let (body_start, content_length) = loop {
+            let read = stream
+                .read(&mut buffer)
+                .map_err(|error| format!("read fixture request: {error}"))?;
+            if read == 0 {
+                return Err("fixture request ended before its headers".to_owned());
+            }
+            request.extend_from_slice(&buffer[..read]);
+            let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+            else {
+                continue;
+            };
+            let body_start = header_end + 4;
+            let headers = std::str::from_utf8(&request[..header_end])
+                .map_err(|error| format!("fixture request headers were not UTF-8: {error}"))?;
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>())
+                })
+                .transpose()
+                .map_err(|error| format!("parse fixture content length: {error}"))?
+                .ok_or_else(|| "fixture request omitted Content-Length".to_owned())?;
+            break (body_start, length);
+        };
+        while request.len() < body_start.saturating_add(content_length) {
+            let read = stream
+                .read(&mut buffer)
+                .map_err(|error| format!("read fixture request body: {error}"))?;
+            if read == 0 {
+                return Err("fixture request ended before its body".to_owned());
+            }
+            request.extend_from_slice(&buffer[..read]);
+        }
+        Ok(request[body_start..body_start + content_length].to_vec())
     }
 
     /// COM-1 to COM-3 through the executable: typing reaches the runtime and comes back as a
@@ -534,7 +711,7 @@ mod tests {
         use plexmaton_agent::Input;
         use plexmaton_core::AgentId;
         use plexmaton_provider::{ProviderConfig, resolve_api_key};
-        use plexmaton_runtime::LiveRuntime;
+        use plexmaton_runtime::{LiveRuntime, NativeToolCatalog};
 
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         let config = ProviderConfig::parse(
@@ -552,9 +729,24 @@ reasoning_effort = "none"
         .unwrap_or_else(|error| panic!("test config: {error}"));
         let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
             .unwrap_or_else(|error| panic!("test key: {error}"));
-        let mut runtime =
-            LiveRuntime::openai(agent_id.clone(), "Agent A", config.active().clone(), key)
-                .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let workspace =
+            std::env::current_dir().unwrap_or_else(|error| panic!("test workspace: {error}"));
+        let tools = NativeToolCatalog::open(
+            &workspace,
+            config.active().api_key_env(),
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("test native tools: {error}"));
+        let mut runtime = LiveRuntime::openai(
+            agent_id.clone(),
+            "Agent A",
+            config.active().clone(),
+            key,
+            tools,
+        )
+        .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
         dispatch_live(
             &mut runtime,
@@ -577,6 +769,132 @@ reasoning_effort = "none"
             .shutdown()
             .await
             .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    }
+
+    /// LIVE-1: the production HTTP, loop, native-read, and projection boundaries compose without
+    /// a sequence or item-revision refusal.
+    #[tokio::test]
+    async fn a_native_tool_round_trip_is_a_stream_the_projection_accepts() {
+        use std::ffi::OsString;
+
+        use plexmaton_agent::Input;
+        use plexmaton_core::AgentId;
+        use plexmaton_provider::{ProviderConfig, resolve_api_key};
+        use plexmaton_runtime::{LiveRuntime, NativeToolCatalog};
+
+        let fixture = FixtureWorkspace::new();
+        std::fs::write(fixture.path().join("README.md"), "Plexmaton fixture\n")
+            .unwrap_or_else(|error| panic!("write fixture file: {error}"));
+        let (base_url, server) = fixture_http_server([
+            include_str!("../../plexmaton-provider/tests/fixtures/chat_tool_call.sse"),
+            include_str!("../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"),
+        ]);
+        let config = ProviderConfig::parse(&format!(
+            r#"active_provider = "test"
+
+[providers.test]
+kind = "openai_compatible"
+protocol = "chat_completions"
+base_url = "{base_url}"
+model = "fixture"
+api_key_env = "TEST_KEY"
+reasoning_effort = "none"
+"#
+        ))
+        .unwrap_or_else(|error| panic!("test config: {error}"));
+        let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
+            .unwrap_or_else(|error| panic!("test key: {error}"));
+        let tools = NativeToolCatalog::open(
+            fixture.path(),
+            config.active().api_key_env(),
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("test native tools: {error}"));
+        let agent_id =
+            AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture agent: {error}"));
+        let mut runtime = LiveRuntime::openai(
+            agent_id.clone(),
+            "Agent A",
+            config.active().clone(),
+            key,
+            tools,
+        )
+        .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let mut workspace = Workspace::default();
+        while let Some(event) = runtime.try_next_event() {
+            workspace.emit(vec![event]);
+        }
+
+        dispatch_live(
+            &mut runtime,
+            &mut workspace,
+            AddressedInput {
+                to: agent_id,
+                input: Input::Submitted {
+                    text: "Read the project name.".to_owned(),
+                },
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("dispatch fixture request: {error}"));
+        while runtime.has_active_work() {
+            if let Some(event) = tokio::time::timeout(Duration::from_secs(5), runtime.next_event())
+                .await
+                .unwrap_or_else(|_| panic!("fixture runtime timed out"))
+                .unwrap_or_else(|error| panic!("fixture runtime event: {error}"))
+            {
+                workspace.emit(vec![event]);
+            }
+        }
+        while let Some(event) = runtime.try_next_event() {
+            workspace.emit(vec![event]);
+        }
+        runtime
+            .shutdown()
+            .await
+            .unwrap_or_else(|error| panic!("shutdown fixture runtime: {error}"));
+        while let Some(event) = runtime.try_next_event() {
+            workspace.emit(vec![event]);
+        }
+
+        let requests = server
+            .join()
+            .unwrap_or_else(|_| panic!("fixture HTTP server panicked"))
+            .unwrap_or_else(|error| panic!("fixture HTTP server: {error}"));
+        assert_eq!(requests.len(), 2);
+        for request in &requests {
+            let request = std::str::from_utf8(request)
+                .unwrap_or_else(|error| panic!("fixture request body: {error}"));
+            for name in [
+                "read_file",
+                "search",
+                "edit_file",
+                "create_file",
+                "exec_command",
+            ] {
+                assert!(request.contains(name), "request omitted native tool {name}");
+            }
+        }
+        let agent = workspace
+            .state()
+            .primary_agent()
+            .unwrap_or_else(|| panic!("runtime never announced its agent"));
+        assert!(agent.transcript().any(|item| {
+            item.role == TranscriptRole::Assistant && item.source.contains("Plexmaton.")
+        }));
+        assert!(
+            agent.tool_activity().any(|tool| {
+                tool.label == "read_file" && tool.status == ToolCallStatus::Succeeded
+            })
+        );
+        assert!(agent.usage().is_some());
+        assert_eq!(
+            workspace.state().notices().count(),
+            0,
+            "the production native-tool stream violated the projection contract"
+        );
     }
 
     #[test]

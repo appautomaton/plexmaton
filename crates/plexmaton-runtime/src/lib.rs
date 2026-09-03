@@ -6,8 +6,10 @@
 
 mod http;
 mod interface;
+mod native;
 mod runtime;
 
 pub use http::HttpSetupError;
 pub use interface::{DispatchReport, RuntimeError};
+pub use native::{MAX_NATIVE_TOOL_RESULT_BYTES, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::LiveRuntime;

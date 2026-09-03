@@ -8,12 +8,18 @@ publish.workspace = true
 [dependencies]
 futures-util.workspace = true
 plexmaton-agent = { path = "../plexmaton-agent" }
+plexmaton-command = { path = "../plexmaton-command" }
 plexmaton-core = { path = "../plexmaton-core" }
+plexmaton-file-tools = { path = "../plexmaton-file-tools" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 reqwest.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+
+[dev-dependencies]
+rustix.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

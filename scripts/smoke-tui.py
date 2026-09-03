@@ -39,9 +39,10 @@ import termios
 import time
 from pathlib import Path
 
-# Both sizes stay in the Wide layout class so the activity column is present throughout.
+# Every size stays in the Wide layout class so the activity column is present throughout.
 INITIAL_SIZE = (40, 120)
 RESIZED = (30, 100)
+REPAINT_PROBE_SIZE = (31, 101)
 # Long enough for the live runtime to announce its idle primary agent; no request reaches a network.
 STREAM_SECONDS = 0.8
 REPAINT_SECONDS = 1.5
@@ -64,9 +65,16 @@ CLICK_IN_COMPOSER = (50, INITIAL_SIZE[0] - 3)
 CLICK_SETTLE_SECONDS = 0.8
 LIVE_RESPONSE_SECONDS = 30.0
 LIVE_REQUESTS = (
-    (b"What is 137 plus 284? Answer only with the number.\r", "421"),
-    (b"What is 90 minus 17? Answer only with the number.\r", "73"),
+    (
+        b"Use the native file-reading tool on README.md, then reply with the project name alone.\r",
+        "Plexmaton",
+    ),
+    (
+        b"Use the native pattern-matching tool to find 'native tools' in README.md. Only after it succeeds, answer twenty-three plus nineteen as digits.\r",
+        "42",
+    ),
 )
+LIVE_TOOL_MARKERS = ("[+]read_file", "[+]search")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 WHITESPACE = re.compile(r"\s+")
 
@@ -108,6 +116,13 @@ def drain(master: int, seconds: float, sink: bytearray) -> None:
 def collapsed(raw: bytes) -> str:
     """Strips escape sequences and whitespace so cursor-move gaps do not break comparison."""
     return WHITESPACE.sub("", ANSI.sub("", raw.decode("utf-8", errors="replace")))
+
+
+def frame_is_settled(raw: bytes, live: bool) -> bool:
+    """Recognizes one full repaint after the live agent has returned to idle."""
+    painted = collapsed(raw)
+    expected = EXPECTED_ON_FULL_FRAME + (LIVE_TOOL_MARKERS if live else ())
+    return all(collapsed(text.encode()) in painted for text in expected)
 
 
 def main() -> int:
@@ -190,6 +205,18 @@ reasoning_effort = "none"
         set_size(master, RESIZED)
         drain(master, REPAINT_SECONDS, captured)
         full_frame = bytes(captured[full_frame_start:])
+        if live:
+            repaint_deadline = time.monotonic() + LIVE_RESPONSE_SECONDS
+            while not frame_is_settled(full_frame, live) and time.monotonic() < repaint_deadline:
+                # A streamed answer precedes its idle status event. If that event lands during a
+                # repaint, the byte range contains a full `running` frame plus only an incremental
+                # `idle` patch. Toggle through another Wide size until one full frame is settled.
+                set_size(master, REPAINT_PROBE_SIZE)
+                drain(master, 0.2, captured)
+                full_frame_start = len(captured)
+                set_size(master, RESIZED)
+                drain(master, REPAINT_SECONDS, captured)
+                full_frame = bytes(captured[full_frame_start:])
 
         # The idle live projection is static, so any repaint from here on was caused by the click.
         on_chrome = click(master, CLICK_IN_STATUS, captured)
@@ -217,6 +244,14 @@ reasoning_effort = "none"
         if collapsed(text.encode()) not in painted:
             print(f"smoke: repainted frame is missing {text!r}", file=sys.stderr)
             failures.append(text)
+    if live:
+        for marker in LIVE_TOOL_MARKERS:
+            if marker not in painted:
+                print(
+                    f"smoke: live tool result {marker!r} is absent from the full frame",
+                    file=sys.stderr,
+                )
+                failures.append(marker)
 
     if MOUSE_ON not in captured:
         print("smoke: mouse reporting was never enabled", file=sys.stderr)

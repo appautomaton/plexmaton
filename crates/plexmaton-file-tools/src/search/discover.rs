@@ -9,8 +9,8 @@ use std::{
 };
 
 use super::{
-    CHANNEL_CAPACITY, FileCancellation, MAX_RG_STDERR_BYTES, MAX_SEARCH_FILES, POLL_INTERVAL,
-    SearchCompletion, SearchError,
+    CHANNEL_CAPACITY, DirectoryDriver, FileCancellation, MAX_RG_STDERR_BYTES, MAX_SEARCH_FILES,
+    POLL_INTERVAL, SearchCompletion, SearchError,
     pump::{DiscoveryEvent, collect_bounded, pump_paths},
     reap, successful_rg_status,
 };
@@ -23,15 +23,31 @@ pub(super) struct DiscoveryResult {
 
 pub(super) fn discover(
     executable: &Path,
-    driver: &Path,
+    driver: &DirectoryDriver,
     directory: File,
     glob: Option<&str>,
     cancellation: &FileCancellation,
     deadline: Instant,
     byte_limit: usize,
 ) -> Result<DiscoveryResult, SearchError> {
-    let mut command = Command::new(driver);
+    let mut command = discovery_command(executable, driver, glob);
     command
+        .stdin(Stdio::from(directory))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| SearchError::Spawn(error.kind()))?;
+    collect(&mut child, cancellation, deadline, byte_limit)
+}
+
+fn discovery_command(executable: &Path, driver: &DirectoryDriver, glob: Option<&str>) -> Command {
+    let mut command = Command::new(&driver.program);
+    command
+        .env_clear()
+        .env("NO_COLOR", "1")
+        .env("TERM", "dumb")
+        .args(&driver.prefix)
         .arg(executable)
         .args([
             "--files",
@@ -39,18 +55,12 @@ pub(super) fn discover(
             "--no-config",
             "--no-require-git",
             "--no-follow",
-        ])
-        .stdin(Stdio::from(directory))
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        ]);
     if let Some(glob) = glob {
         command.arg("--glob").arg(glob);
     }
     command.arg("--").arg(".");
-    let mut child = command
-        .spawn()
-        .map_err(|error| SearchError::Spawn(error.kind()))?;
-    collect(&mut child, cancellation, deadline, byte_limit)
+    command
 }
 
 fn collect(
@@ -162,4 +172,48 @@ fn collect(
         completion,
         transport_bytes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt as _, path::Path, path::PathBuf};
+
+    use super::{DirectoryDriver, discovery_command};
+
+    /// WFS-4: the trusted driver prefix is exact argv before ripgrep and model-derived arguments.
+    #[test]
+    fn directory_driver_prefix_precedes_rg_and_model_arguments_exactly() {
+        let fixed_non_utf8_path = OsString::from_vec(b"/trusted/fixed-\xff-path".to_vec());
+        let driver = DirectoryDriver {
+            program: PathBuf::from("/trusted/bin/plexmaton"),
+            prefix: vec![
+                OsString::from("--internal-rg-driver"),
+                fixed_non_utf8_path.clone(),
+            ],
+        };
+        let command = discovery_command(
+            Path::new("/trusted/bin/rg"),
+            &driver,
+            Some("*.rs; touch should-not-run"),
+        );
+
+        assert_eq!(command.get_program(), "/trusted/bin/plexmaton");
+        assert_eq!(
+            command.get_args().map(OsString::from).collect::<Vec<_>>(),
+            vec![
+                OsString::from("--internal-rg-driver"),
+                fixed_non_utf8_path,
+                OsString::from("/trusted/bin/rg"),
+                OsString::from("--files"),
+                OsString::from("--null"),
+                OsString::from("--no-config"),
+                OsString::from("--no-require-git"),
+                OsString::from("--no-follow"),
+                OsString::from("--glob"),
+                OsString::from("*.rs; touch should-not-run"),
+                OsString::from("--"),
+                OsString::from("."),
+            ]
+        );
+    }
 }

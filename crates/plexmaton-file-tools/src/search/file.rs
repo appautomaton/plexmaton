@@ -94,6 +94,9 @@ impl SearchRunner {
         }
         let mut command = Command::new(&self.executable);
         command
+            .env_clear()
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb")
             .args([
                 "--json",
                 "--no-config",

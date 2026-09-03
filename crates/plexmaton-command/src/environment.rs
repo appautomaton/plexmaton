@@ -13,22 +13,28 @@ const FALLBACK_LOCALE: &str = "C.UTF-8";
 
 /// Session-owned environment inherited by foreground commands.
 ///
-/// Capture happens once when the command tool is constructed. Provider credentials and private
-/// Plexmaton authority are removed at that boundary; non-Unicode variables remain byte-exact.
+/// Capture happens once when the command tool is constructed. When its owner names a selected
+/// provider credential, that exact variable is removed alongside credential-shaped variables and
+/// private Plexmaton authority; non-Unicode variables remain byte-exact.
 #[derive(Clone)]
 pub(crate) struct CommandEnvironment {
     inherited: BTreeMap<OsString, OsString>,
 }
 
 impl CommandEnvironment {
-    pub(crate) fn capture() -> Self {
-        Self::from_iter(std::env::vars_os())
+    pub(crate) fn capture_excluding(api_key_environment: &OsStr) -> Self {
+        Self::from_iter(std::env::vars_os(), Some(api_key_environment))
     }
 
-    fn from_iter(entries: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
+    fn from_iter(
+        entries: impl IntoIterator<Item = (OsString, OsString)>,
+        api_key_environment: Option<&OsStr>,
+    ) -> Self {
         let inherited = entries
             .into_iter()
-            .filter(|(key, _)| !is_private_environment_key(key))
+            .filter(|(key, _)| {
+                api_key_environment != Some(key.as_os_str()) && !is_private_environment_key(key)
+            })
             .collect();
         Self { inherited }
     }
@@ -57,7 +63,15 @@ impl CommandEnvironment {
 
     #[cfg(test)]
     pub(crate) fn from_pairs(entries: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
-        Self::from_iter(entries)
+        Self::from_iter(entries, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_pairs_excluding(
+        entries: impl IntoIterator<Item = (OsString, OsString)>,
+        api_key_environment: &OsStr,
+    ) -> Self {
+        Self::from_iter(entries, Some(api_key_environment))
     }
 }
 

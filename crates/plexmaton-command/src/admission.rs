@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
 };
@@ -111,9 +112,22 @@ struct WorkspaceIdentity {
 }
 
 impl CommandTool {
-    /// Resolves and pins an existing directory as this definition's execution root.
-    pub fn new(workspace_root: impl AsRef<Path>) -> Result<Self, CommandToolConfigurationError> {
-        let supplied = workspace_root.as_ref();
+    /// Pins an execution root and excludes the selected provider API-key variable from commands.
+    pub fn new(
+        workspace_root: impl AsRef<Path>,
+        api_key_environment: impl AsRef<OsStr>,
+    ) -> Result<Self, CommandToolConfigurationError> {
+        Self::open(
+            workspace_root.as_ref(),
+            CommandEnvironment::capture_excluding(api_key_environment.as_ref()),
+        )
+    }
+
+    fn open(
+        workspace_root: &Path,
+        environment: CommandEnvironment,
+    ) -> Result<Self, CommandToolConfigurationError> {
+        let supplied = workspace_root;
         let root = std::fs::canonicalize(supplied).map_err(|source| {
             CommandToolConfigurationError::Canonicalize {
                 path: supplied.to_path_buf(),
@@ -147,7 +161,7 @@ impl CommandTool {
                 device: metadata.dev(),
                 inode: metadata.ino(),
             },
-            environment: CommandEnvironment::capture(),
+            environment,
             definition_id,
             definition_revision,
         })
@@ -398,7 +412,7 @@ mod tests {
     #[test]
     fn cmd_1_admission_is_strict_canonical_and_pins_the_workspace() {
         let directory = TestDirectory::new();
-        let tool = CommandTool::new(&directory.0)
+        let tool = CommandTool::new(&directory.0, "TEST_KEY")
             .unwrap_or_else(|error| panic!("command tool fixture: {error}"));
         let canonical_root = std::fs::canonicalize(&directory.0)
             .unwrap_or_else(|error| panic!("canonical fixture root: {error}"));
@@ -472,7 +486,7 @@ mod tests {
     #[test]
     fn cmd_1_refuses_every_shape_outside_the_model_contract_and_hard_bounds() {
         let directory = TestDirectory::new();
-        let tool = CommandTool::new(&directory.0)
+        let tool = CommandTool::new(&directory.0, "TEST_KEY")
             .unwrap_or_else(|error| panic!("command tool fixture: {error}"));
         let cases = [
             (
@@ -552,7 +566,7 @@ mod tests {
     #[test]
     fn cmd_1_multibyte_and_escaped_commands_fit_every_advertised_bound() {
         let directory = TestDirectory::new();
-        let tool = CommandTool::new(&directory.0)
+        let tool = CommandTool::new(&directory.0, "TEST_KEY")
             .unwrap_or_else(|error| panic!("command tool fixture: {error}"));
         let multibyte = "🦀".repeat(MAX_COMMAND_CHARACTERS);
         assert_eq!(multibyte.len(), MAX_COMMAND_BYTES);
@@ -610,7 +624,7 @@ mod tests {
     #[tokio::test]
     async fn cmd_1_changed_workspace_identity_is_refused_before_spawn() {
         let directory = TestDirectory::new();
-        let tool = CommandTool::new(&directory.0)
+        let tool = CommandTool::new(&directory.0, "TEST_KEY")
             .unwrap_or_else(|error| panic!("command tool fixture: {error}"));
         let AdmissionOutcome::Admitted(call) = tool.admit(request(
             COMMAND_TOOL_NAME,

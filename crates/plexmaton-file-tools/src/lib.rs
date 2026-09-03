@@ -36,10 +36,21 @@ impl FileTools {
         executable: impl Into<std::path::PathBuf>,
         directory_driver: impl Into<std::path::PathBuf>,
     ) -> Result<Self, PathError> {
+        Self::open_with_directory_driver_prefix(root, executable, directory_driver, Vec::new())
+    }
+
+    /// Pins one root and a directory driver with fixed trusted arguments before ripgrep's path.
+    pub fn open_with_directory_driver_prefix(
+        root: impl AsRef<std::path::Path>,
+        executable: impl Into<std::path::PathBuf>,
+        directory_driver: impl Into<std::path::PathBuf>,
+        directory_driver_prefix: Vec<std::ffi::OsString>,
+    ) -> Result<Self, PathError> {
         Ok(Self {
             root: WorkspaceRoot::open(root)?,
             observations: ObservationStore::default(),
-            search: SearchRunner::new(executable, directory_driver),
+            search: SearchRunner::new(executable, directory_driver)
+                .with_directory_driver_prefix(directory_driver_prefix),
         })
     }
 

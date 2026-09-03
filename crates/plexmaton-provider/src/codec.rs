@@ -4,7 +4,7 @@ use plexmaton_agent::{
     AdmissionRefusal, MAX_ADMITTED_ARGUMENT_BYTES, MAX_PROVIDER_REPLAY_BYTES, ModelError,
     ModelEvent, ModelRequest, ProviderReplayError, ToolCancellationReason, ToolOutcome,
 };
-use plexmaton_core::{TokenCounts, TokenUsage};
+use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -143,6 +143,8 @@ pub enum DecodeError {
     ToolArgumentsTooLarge { index: usize, limit: usize },
     #[error("the response exceeded its {limit}-call tool bound")]
     TooManyToolCalls { limit: usize },
+    #[error("the provider completed tool call id `{call_id}` more than once in one model step")]
+    DuplicateToolCallId { call_id: ToolCallId },
     #[error("retained model output exceeded {limit} bytes")]
     RetainedOutputTooLarge { limit: usize },
     #[error("retained provider replay exceeded {limit} bytes")]

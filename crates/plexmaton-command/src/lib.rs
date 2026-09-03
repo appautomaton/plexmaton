@@ -1,9 +1,9 @@
 //! Admission and foreground execution for the native `exec_command` tool.
 //!
-//! This crate deliberately stops short of a tool catalog or live-runtime registration. A caller
-//! admits a model request, applies policy, then drives [`CommandTool::execute`] to completion with
-//! an owned cancellation token. Partial output, background jobs, PTYs and interactive sessions are
-//! outside this boundary (CMD-6).
+//! The live runtime registers this executor in its concrete native catalog, but this crate owns no
+//! catalog, policy, or runtime state. A caller admits a model request, applies policy, then drives
+//! [`CommandTool::execute`] to completion with an owned cancellation token. Partial output,
+//! background jobs, PTYs and interactive sessions are outside this boundary (CMD-6).
 #![deny(missing_docs)]
 #![cfg_attr(not(unix), allow(dead_code))]
 

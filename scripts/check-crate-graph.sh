@@ -70,7 +70,7 @@ forbid plexmaton-core "either side's machinery" \
 # The projection consumes events and emits intents. It calls no producer, and the phase's exit
 # gate says so; this is where that sentence is enforced rather than asserted.
 forbid plexmaton-tui "a producer, a runtime, or a network client" \
-    'tokio|reqwest|hyper|plexmaton-agent|plexmaton-provider|plexmaton-runtime|plexmaton-sim'
+    'tokio|reqwest|hyper|plexmaton-agent|plexmaton-command|plexmaton-file-tools|plexmaton-provider|plexmaton-runtime|plexmaton-sim'
 only plexmaton-tui "plexmaton-core"
 
 # Wire codecs parse and encode. The live runtime owns HTTP, TLS, cancellation and task lifecycle;
@@ -92,9 +92,10 @@ forbid plexmaton-command "a provider adapter, composition root, simulator, or te
 only plexmaton-command "plexmaton-agent plexmaton-core"
 
 # The runtime is the outward dependency point: it may perform the loop's effects through the
-# selected codec, but it must not reach the projection or the synthetic producer.
-forbid plexmaton-runtime "a terminal or projection" 'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
-only plexmaton-runtime "plexmaton-agent plexmaton-core plexmaton-provider"
+# selected codec and native executors, but it must not reach the projection or synthetic producer.
+forbid plexmaton-runtime "a terminal, projection, or synthetic producer" \
+    'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
+only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-provider"
 
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'

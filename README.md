@@ -1,18 +1,20 @@
 # Plexmaton
 
-Plexmaton is an early-stage Rust agentic harness with a responsive Ratatui workspace for
-steering and observing multiple agents.
+Plexmaton is an early-stage Rust agentic harness with a Ratatui workspace for steering and
+observing agents.
 
-The executable runs one real text-only agent through an explicitly selected OpenAI-compatible
-Responses or Chat Completions endpoint. File and command tools are not advertised yet; the
-deterministic simulator remains the test and measurement producer.
+The executable runs one real agent through an explicitly selected OpenAI-compatible Responses or
+Chat Completions endpoint. It advertises native tools to read, search, create, and edit files and
+run a foreground command.
 
 ## Workspace
 
 - `plexmaton-core`: semantic contracts shared by producers and projections
 - `plexmaton-agent`: provider-independent turn, step, input, and approval state machine
 - `plexmaton-provider`: bounded OpenAI-compatible request and SSE codecs
-- `plexmaton-runtime`: owned HTTP stream, cancellation, and live agent composition
+- `plexmaton-file-tools`: descriptor-rooted reads, searches, observations, and mutations
+- `plexmaton-command`: bounded foreground Unix command execution
+- `plexmaton-runtime`: owned HTTP and native-tool work, cancellation, and live composition
 - `plexmaton-sim`: deterministic synthetic scenarios, the test producer
 - `plexmaton-tui`: explicit view state, reducer, surfaces, and rendering
 - `plexmaton-cli`: terminal lifecycle and executable composition root
@@ -36,7 +38,14 @@ reasoning_effort = "medium"
 ```
 
 For isolated development, set `PLEXMATON_HOME` to a directory containing `config.toml`. Invalid
-configuration or a missing key fails before Plexmaton takes over the terminal.
+startup inputs fail before Plexmaton takes over the terminal.
+
+The directory where `plexmaton` starts is the one canonical native-tool workspace. File tools
+refuse absolute paths, parent traversal, and symlinks. Directory search re-enters the same
+executable as an internal descriptor-rooted `rg` driver, and both search child paths receive a
+cleared environment. Read and search run without approval; create, edit, and command calls wait for
+an exact **Allow Once** or **Deny** decision. Commands are not OS-sandboxed; their cleared child
+environment omits the selected key plus Plexmaton-private and credential-shaped variables.
 
 ```console
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
@@ -48,8 +57,8 @@ cargo test --workspace
 
 Press `Ctrl-D` twice to leave the TUI; the first press says so in the status line, and
 any other key withdraws it. `Ctrl-C` clears the draft, addresses the focused conversation's
-interrupt, cancels and joins its live model request, and never quits. `Esc` backs out one layer at
-a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
+interrupt, cancels and joins its live model or native-tool work, and never quits. `Esc` backs out
+one layer at a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 
@@ -58,6 +67,9 @@ cargo deny check
 cargo machete
 typos
 ./scripts/check-file-length.sh
+./scripts/check-crate-graph.sh
+./scripts/check-citations.sh
+./scripts/check-doc-budget.sh
 ```
 
 Terminal lifecycle cannot be proven by Ratatui's `TestBackend`. To exercise alternate-screen
@@ -68,7 +80,7 @@ entry and release, resize handling, and the quit key in front of a real pseudo-t
 ```
 
 With a local profile and its named key environment variable already set, the opt-in live lane also
-submits one request and waits for its streamed answer in the PTY:
+submits two safe tool-backed requests and waits for their streamed answers in the PTY:
 
 ```console
 PLEXMATON_HOME=.local/plexmaton ./scripts/smoke-tui.py --live

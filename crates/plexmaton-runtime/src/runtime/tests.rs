@@ -14,7 +14,8 @@ use plexmaton_core::{
 use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use super::{LiveRuntime, ModelDriver, ModelSignal};
+use super::{LiveRuntime, ModelDriver, ModelSignal, WaitOutcome};
+use crate::NativeToolCatalog;
 
 enum Script {
     Events(Vec<ModelEvent>),
@@ -33,13 +34,19 @@ enum Script {
 
 struct FakeDriver {
     scripts: Arc<Mutex<VecDeque<Script>>>,
+    calls: Arc<Mutex<Vec<ModelCall>>>,
 }
 
 impl FakeDriver {
     fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
         Arc::new(Self {
             scripts: Arc::new(Mutex::new(scripts.into_iter().collect())),
+            calls: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    async fn calls(&self) -> Vec<ModelCall> {
+        self.calls.lock().await.clone()
     }
 }
 
@@ -51,7 +58,9 @@ impl ModelDriver for FakeDriver {
         cancellation: CancellationToken,
     ) -> BoxFuture<'static, ()> {
         let scripts = Arc::clone(&self.scripts);
+        let calls = Arc::clone(&self.calls);
         async move {
+            calls.lock().await.push(call.clone());
             let script = scripts
                 .lock()
                 .await
@@ -129,13 +138,25 @@ impl ModelDriver for FakeDriver {
 }
 
 mod cancellation;
+mod lifecycle;
+mod tools;
 
 fn agent_id() -> AgentId {
     AgentId::new("agent-live").unwrap_or_else(|error| panic!("fixture agent: {error}"))
 }
 
 fn runtime(driver: Arc<dyn ModelDriver>) -> LiveRuntime {
-    LiveRuntime::with_driver(agent_id(), "Plexmaton".to_owned(), driver)
+    let workspace =
+        std::env::current_dir().unwrap_or_else(|error| panic!("resolve test workspace: {error}"));
+    let tools = NativeToolCatalog::open(
+        &workspace,
+        "TEST_KEY",
+        "/bin/false",
+        "/bin/false",
+        Vec::new(),
+    )
+    .unwrap_or_else(|error| panic!("open test tool catalog: {error}"));
+    LiveRuntime::with_driver(agent_id(), "Plexmaton".to_owned(), driver, tools)
 }
 
 fn complete_usage(input: u64, output: u64) -> ModelEvent {
@@ -158,7 +179,7 @@ fn take_ready(runtime: &mut LiveRuntime, events: &mut Vec<SessionEventEnvelope>)
 async fn finish_active(runtime: &mut LiveRuntime) -> Vec<SessionEventEnvelope> {
     let mut events = Vec::new();
     take_ready(runtime, &mut events);
-    while runtime.has_active_model() {
+    while runtime.has_active_work() {
         if let Some(event) = runtime
             .next_event()
             .await
@@ -283,7 +304,7 @@ async fn interrupt_and_shutdown_cancel_and_join_the_exact_provider_task() {
         assert!(!runtime.has_active_model());
         assert!(
             finished.load(Ordering::SeqCst),
-            "the task joined before either stop path returned"
+            "the provider future settled before either stop path returned"
         );
         assert!(events.iter().any(|envelope| matches!(
             envelope.event,
@@ -321,9 +342,13 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
         )
         .await
         .unwrap_or_else(|error| panic!("submission: {error}"));
-    ready.notified().await;
+    assert!(matches!(
+        runtime.wait_for_work().await,
+        WaitOutcome::ModelEnded(Ok(()))
+    ));
+    assert!(ready.notified().now_or_never().is_some());
 
-    runtime
+    let interrupted = runtime
         .submit(agent_id(), Input::Interrupted)
         .await
         .unwrap_or_else(|error| panic!("interrupt: {error}"));
@@ -340,55 +365,18 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
     while let Ok(signal) = runtime.signal_rx.try_recv() {
         runtime
             .apply_signal(signal)
-            .await
             .unwrap_or_else(|error| panic!("apply late signal: {error}"));
     }
     let late = runtime.take_report();
 
     assert!(runtime.has_active_model());
     assert_eq!(runtime.pending.len(), pending_before);
-    assert_eq!(late.undelivered_model.len(), 2);
+    assert_eq!(
+        interrupted.undelivered_model.len() + late.undelivered_model.len(),
+        2
+    );
     runtime
         .shutdown()
         .await
         .unwrap_or_else(|error| panic!("shutdown: {error}"));
-}
-
-/// LIVE-3 and LIVE-5: both an explicit transport failure and a task that returns without a
-/// terminal signal leave no task alive and produce an unavailable usage state.
-#[tokio::test]
-async fn deterministic_failure_paths_leave_no_provider_task_alive() {
-    for script in [
-        Script::Fail(ModelError::Transport {
-            message: "offline".to_owned(),
-        }),
-        Script::EndWithoutTerminal,
-    ] {
-        let mut runtime = runtime(FakeDriver::new([script]));
-        let _announced = runtime.try_next_event();
-        runtime
-            .submit(
-                agent_id(),
-                Input::Submitted {
-                    text: "begin".to_owned(),
-                },
-            )
-            .await
-            .unwrap_or_else(|error| panic!("submission: {error}"));
-        let events = finish_active(&mut runtime).await;
-
-        assert!(!runtime.has_active_model());
-        assert!(events.iter().any(|envelope| matches!(
-            envelope.event,
-            SessionEvent::TurnUsageUpdated {
-                usage: TokenUsage::Unavailable,
-                ..
-            }
-        )));
-        assert!(
-            events
-                .iter()
-                .any(|envelope| matches!(envelope.event, SessionEvent::RuntimeWarning { .. }))
-        );
-    }
 }

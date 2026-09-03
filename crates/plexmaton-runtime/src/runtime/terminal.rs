@@ -1,4 +1,4 @@
-//! Terminal provider outcomes held until their exact task has joined.
+//! Terminal provider outcomes held until their exact retained future has settled.
 
 use plexmaton_agent::{Input, ModelError, ModelEvent, ModelStepId};
 
@@ -48,9 +48,10 @@ impl LiveRuntime {
         };
         active.cancellation.cancel();
         let step_id = active.step_id.clone();
-        let joined = (&mut active.task)
+        let joined = (&mut active.future)
             .await
-            .map_err(|_| RuntimeError::ProviderTaskFailed(step_id.clone()));
+            .map_err(|_| RuntimeError::ProviderFutureFailed(step_id.clone()));
+        self.drain_ready_signals()?;
         let active = self
             .active
             .take()

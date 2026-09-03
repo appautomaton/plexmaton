@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
 use plexmaton_agent::{ModelCall, ModelError, ModelEvent};
 use plexmaton_provider::{
-    ApiKey, DecodeLimits, Protocol, ProviderProfile, SseDecodeError, classify_http_error,
-    drive_sse, encode_request,
+    ApiKey, DecodeLimits, FunctionTool, Protocol, ProviderProfile, SseDecodeError,
+    classify_http_error, drive_sse, encode_request,
 };
 use reqwest::{Client, Url, header};
 use thiserror::Error;
@@ -20,6 +20,8 @@ const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 /// Invalid transport configuration rejected before terminal or network ownership (LIVE-6).
 #[derive(Debug, Error)]
 pub enum HttpSetupError {
+    #[error("native tool credential environment does not match the selected provider")]
+    ToolCredentialEnvironmentMismatch,
     #[error("provider base URL is invalid: {0}")]
     InvalidBaseUrl(String),
     #[error("provider base URL cannot contain credentials, a query, or a fragment")]
@@ -37,10 +39,15 @@ pub(crate) struct OpenAiHttp {
     endpoint: Url,
     profile: ProviderProfile,
     key: Arc<ApiKey>,
+    tools: Arc<[FunctionTool]>,
 }
 
 impl OpenAiHttp {
-    pub(crate) fn new(profile: ProviderProfile, key: ApiKey) -> Result<Self, HttpSetupError> {
+    pub(crate) fn new(
+        profile: ProviderProfile,
+        key: ApiKey,
+        tools: Arc<[FunctionTool]>,
+    ) -> Result<Self, HttpSetupError> {
         let endpoint = endpoint(&profile)?;
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(15))
@@ -52,11 +59,12 @@ impl OpenAiHttp {
             endpoint,
             profile,
             key: Arc::new(key),
+            tools,
         })
     }
 
     async fn perform(&self, call: ModelCall, signals: mpsc::Sender<ModelSignal>) {
-        let body = match encode_request(&self.profile, &call.request, &[], None) {
+        let body = match encode_request(&self.profile, &call.request, &self.tools, None) {
             Ok(body) => body,
             Err(error) => {
                 send_failure(
@@ -144,6 +152,7 @@ impl ModelDriver for OpenAiHttp {
             endpoint: self.endpoint.clone(),
             profile: self.profile.clone(),
             key: Arc::clone(&self.key),
+            tools: Arc::clone(&self.tools),
         };
         async move {
             tokio::select! {
@@ -221,9 +230,14 @@ async fn send_failure(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_provider::{Protocol, ProviderConfig};
+    use std::collections::BTreeSet;
 
-    use super::{HttpSetupError, endpoint};
+    use plexmaton_agent::ModelRequest;
+    use plexmaton_core::AgentId;
+    use plexmaton_provider::{Protocol, ProviderConfig, encode_request, resolve_api_key};
+
+    use super::{HttpSetupError, OpenAiHttp, endpoint};
+    use crate::{LiveRuntime, NativeToolCatalog};
 
     fn profile(base_url: &str, protocol: Protocol) -> plexmaton_provider::ProviderProfile {
         let protocol = match protocol {
@@ -275,6 +289,111 @@ reasoning_effort = "low"
         assert!(matches!(
             endpoint(&profile("ftp://example.test/v1", Protocol::Responses)),
             Err(HttpSetupError::UnsupportedScheme(scheme)) if scheme == "ftp"
+        ));
+    }
+
+    /// LIVE-1/PRV-1: the live HTTP edge publishes one exact, unique native catalog through either
+    /// selected wire dialect; neither dialect invents or loses a definition.
+    #[test]
+    fn native_catalog_is_exact_unique_and_advertised_by_both_protocols() {
+        let workspace = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("resolve test workspace: {error}"));
+        let catalog = NativeToolCatalog::open(
+            workspace,
+            "TEST_KEY",
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("open native catalog: {error}"));
+        let definitions = catalog.provider_definitions();
+        let request = ModelRequest { items: Vec::new() };
+        let mut bodies = Vec::new();
+
+        for protocol in [Protocol::Responses, Protocol::ChatCompletions] {
+            let profile = profile("http://127.0.0.1:8317/v1", protocol);
+            let key = resolve_api_key(&profile, Some("fixture-secret".into()))
+                .unwrap_or_else(|error| panic!("resolve fixture key: {error}"));
+            let http = OpenAiHttp::new(profile, key, definitions.clone())
+                .unwrap_or_else(|error| panic!("open HTTP edge: {error}"));
+            bodies.push(
+                encode_request(&http.profile, &request, &http.tools, None)
+                    .unwrap_or_else(|error| panic!("encode native catalog: {error}")),
+            );
+        }
+
+        let responses = bodies[0]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("Responses tools must be an array"));
+        let chat = bodies[1]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("Chat tools must be an array"));
+        let expected = [
+            "read_file",
+            "search",
+            "edit_file",
+            "create_file",
+            "exec_command",
+        ];
+        let response_names: Vec<_> = responses
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(response_names, expected);
+        assert_eq!(
+            response_names
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len(),
+            expected.len(),
+            "provider-visible tool names must be unique"
+        );
+        assert_eq!(chat.len(), expected.len());
+
+        for (response_tool, chat_tool) in responses.iter().zip(chat) {
+            let chat_function = &chat_tool["function"];
+            assert_eq!(chat_function["name"], response_tool["name"]);
+            assert_eq!(chat_function["description"], response_tool["description"]);
+            assert_eq!(chat_function["parameters"], response_tool["parameters"]);
+            assert_eq!(response_tool["type"], "function");
+            assert_eq!(chat_tool["type"], "function");
+            assert_eq!(response_tool["strict"], true);
+            assert_eq!(chat_function["strict"], true);
+            assert_eq!(response_tool["parameters"]["type"], "object");
+            assert_eq!(response_tool["parameters"]["additionalProperties"], false);
+            assert!(
+                response_tool["description"]
+                    .as_str()
+                    .is_some_and(|description| !description.is_empty())
+            );
+        }
+        assert_eq!(bodies[0]["tool_choice"], "auto");
+        assert_eq!(bodies[1]["tool_choice"], "auto");
+    }
+
+    /// LIVE-6: the runtime cannot combine one provider with another credential environment.
+    #[test]
+    fn catalog_key_identity_must_match_profile() {
+        let workspace = std::env::current_dir()
+            .unwrap_or_else(|error| panic!("resolve test workspace: {error}"));
+        let catalog = NativeToolCatalog::open(
+            workspace,
+            "OTHER_KEY",
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("open mismatched catalog: {error}"));
+        let profile = profile("http://127.0.0.1:8317/v1", Protocol::Responses);
+        let key = resolve_api_key(&profile, Some("fixture-secret".into()))
+            .unwrap_or_else(|error| panic!("resolve fixture key: {error}"));
+        let agent = AgentId::new("catalog-key-fixture")
+            .unwrap_or_else(|error| panic!("fixture agent id: {error}"));
+
+        assert!(matches!(
+            LiveRuntime::openai(agent, "fixture", profile, key, catalog),
+            Err(HttpSetupError::ToolCredentialEnvironmentMismatch)
         ));
     }
 }

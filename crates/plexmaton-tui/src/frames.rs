@@ -1,7 +1,7 @@
 //! The composition, frozen: what the canonical scenario looks like at each width, and which words
 //! the screen is allowed to say.
 //!
-//! Every other render test proves one mechanism. These two prove the whole frame, because a
+//! Every other render test proves one mechanism. These families prove the whole frame, because a
 //! layout can satisfy every mechanism and still not be the contract's composition. The fixtures
 //! under `frames/` are text, so a reviewer reads the diff; colour is proven by the role tests.
 //! Refresh them with `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames`, and review the
@@ -13,7 +13,7 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
-        ToolCapability,
+        ToolCallStatus, ToolCapability,
     };
     use ratatui::{buffer::Buffer, layout::Rect};
 
@@ -37,6 +37,13 @@ mod tests {
         ("approval-wide", 120, 40),
         ("approval-medium", 95, 40),
         ("approval-narrow", 60, 40),
+    ];
+
+    /// Slice 10's live primary-agent command approval, across the same product widths.
+    const NATIVE_APPROVAL_FRAMES: [(&str, u16, u16); 3] = [
+        ("native-approval-wide", 124, 40),
+        ("native-approval-medium", 95, 40),
+        ("native-approval-narrow", 60, 40),
     ];
 
     fn fixture_path(name: &str) -> PathBuf {
@@ -148,6 +155,85 @@ mod tests {
                 "Allow once",
                 "> Deny",
                 "Esc keeps pending",
+            ] {
+                assert!(
+                    drawn.contains(signature),
+                    "{name}: {signature:?} is not on screen"
+                );
+            }
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
+                first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    fn native_approval_state(width: u16, height: u16) -> ViewState {
+        let mut conversation = Conversation::canonical();
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            call_id: ToolCallId::new("command-native-1")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            label: "exec_command".to_owned(),
+            status: ToolCallStatus::AwaitingApproval,
+        });
+        conversation.emit(SessionEvent::AttentionRequested {
+            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: AttentionId::new("attention-a-command")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            request: AttentionRequest::Approval {
+                approval_id: ApprovalId::new("approval-a-command")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("command-native-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "exec_command".to_owned(),
+                capabilities: vec![
+                    ToolCapability::FileRead,
+                    ToolCapability::FileWrite,
+                    ToolCapability::ProcessSpawn,
+                ],
+                detail: "Run in \"/w\" (timeout 120000 ms): \"cargo test\"".to_owned(),
+            },
+        });
+        conversation
+            .state
+            .set_working_directory("~/plexmaton".to_owned());
+        let (surfaces, _) = draw_frame(&conversation.state, &Palette::default(), width, height);
+        conversation
+            .state
+            .attend(&surfaces, AttentionIntent::Move(Direction::Forward));
+        conversation.state.attend(&surfaces, AttentionIntent::GoTo);
+        conversation.state
+    }
+
+    /// LIVE-1 and APV-4: the concrete native command decision remains legible at every width.
+    #[test]
+    fn the_native_approval_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width, height) in NATIVE_APPROVAL_FRAMES {
+            let drawn = draw(&native_approval_state(width, height), width, height);
+            for signature in [
+                "Approval required",
+                "exec_command",
+                "read files",
+                "change files",
+                "run processes",
+                "Allow once",
+                "> Deny",
+                "cargo test",
             ] {
                 assert!(
                     drawn.contains(signature),
