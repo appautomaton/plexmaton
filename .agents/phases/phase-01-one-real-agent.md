@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 done; stage 2 slice 10 implemented and awaiting three-width user review |
+| Status | Active; stages 1 and 2 done; stage 3 not started |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -46,14 +46,14 @@ queue has no eviction; nothing removes a transcript item, so cache pruning has n
    painted chrome. Three frames of the canonical scenario, at wide, medium and narrow, live in
    `crates/plexmaton-tui/frames/`, compared cell by cell on every test run, and were read by the
    user on 2026-09-02.
-2. **The producer.** One provider adapter behind the semantic boundary: streaming, tool calls, a
-   bounded tool set (read, search, create and edit a file, run a command), the loop that executes a
-   call and continues until the model stops asking, and trusted admission plus approval before a
-   policy-protected call. It emits `SessionEvent`, growing the vocabulary only where this stage
-   must: a reasoning role, an awaiting-approval tool state, and a resolution for an attention item. The
-   executable
-   runs it; the simulator stays the test producer. The provider is chosen at the start of this
-   stage, and the choice is recorded beside the adapter's spec with what it rejected, once it has survived use.
+2. **The producer.** Done. One provider adapter behind the semantic boundary streams text and tool
+   calls; a bounded catalog reads, searches, creates and edits files, and runs foreground commands.
+   The loop continues until the model stops asking, with trusted admission and approval before a
+   protected call. It emits `SessionEvent`, adding only a reasoning role, awaiting-approval state,
+   and attention resolution. The executable runs it; the simulator stays the test producer. The
+   selected provider and rejected alternatives live beside the adapter spec. Checked-in wide,
+   medium and narrow frames cover the integrated approval surface; after a live smoke, the user
+   accepted that composition and closed the stage on 2026-09-03.
 3. **The transcript grammar, against real output.** Tool calls, mail and artifacts as entries
    in the owning agent's conversation, in arrival order, which retires the Activity panel and
    moves its counts to the agent row; a tool entry one compact row with a state marker, opening

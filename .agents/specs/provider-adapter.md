@@ -65,7 +65,9 @@ ModelRequest + profile + tool schemas
 
 The development profile is an OpenAI-compatible proxy at `http://127.0.0.1:8317/v1`, model
 `gpt-5.6-luna`, with Responses the default codec and Chat Completions an explicit compatibility
-choice. Rejected: automatic fallback, because replay and failure semantics change across dialects.
+choice. Rejected: xAI as the first provider, because it is not the endpoint Plexmaton's local
+development loop exercises. Rejected: automatic fallback, because replay and failure semantics
+change across dialects.
 
 ## Failure modes
 
