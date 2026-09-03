@@ -3,6 +3,7 @@ members = [
     "crates/plexmaton-agent",
     "crates/plexmaton-cli",
     "crates/plexmaton-core",
+    "crates/plexmaton-file-tools",
     "crates/plexmaton-provider",
     "crates/plexmaton-runtime",
     "crates/plexmaton-sim",
@@ -31,6 +32,7 @@ proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 # lockfile means an unstable API change surfaces at a reviewed bump, never silently.
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls", "stream"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.20"

@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 2 |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §progressive disclosure, §state matrix |
-| Status | Slices 1–6 of 10 landed 2026-09-02; slice 7 next |
+| Status | Slices 1–7 of 10 landed 2026-09-02; slice 8 next |
 | Blocked | None |
 
 ## Outcome
@@ -59,7 +59,7 @@ admission and approval boundary. This plan owns only the order in which the mech
    `Ctrl-C` cancels and joins one in flight, both protocols report usage through sanitized fixtures,
    deterministic failure tests leave no task alive, and the projection retains exact per-turn
    usage for a later on-demand diagnostics surface without adding permanent chrome.
-7. **Read and search.** A workspace-rooted read capability, exact bounded UTF-8 windows with an
+7. **Read and search.** Landed. A workspace-rooted read capability, exact bounded UTF-8 windows with an
    authoritative observed version, and typed bounded search through an argv-based ripgrep adapter.
    *Closes when* a large file, a giant line, an ignored binary, a symlink escape and more matches
    than fit all end as bounded typed results without scanning or retaining unbounded work.

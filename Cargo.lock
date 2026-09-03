@@ -1075,6 +1075,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "plexmaton-file-tools"
+version = "0.0.0"
+dependencies = [
+ "plexmaton-agent",
+ "plexmaton-core",
+ "rustix",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "plexmaton-provider"
 version = "0.0.0"
 dependencies = [

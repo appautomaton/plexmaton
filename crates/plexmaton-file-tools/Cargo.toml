@@ -1,0 +1,17 @@
+[package]
+name = "plexmaton-file-tools"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+plexmaton-agent = { path = "../plexmaton-agent" }
+plexmaton-core = { path = "../plexmaton-core" }
+rustix.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

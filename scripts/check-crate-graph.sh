@@ -79,6 +79,12 @@ forbid plexmaton-provider "an HTTP client, runtime, or terminal" \
     'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui'
 only plexmaton-provider "plexmaton-agent plexmaton-core"
 
+# Native file tools know the loop's admission vocabulary and shared capability identities. They
+# perform local bounded I/O, but do not own HTTP, async runtime tasks, terminal state, or composition.
+forbid plexmaton-file-tools "a provider, runtime, network client, terminal, or composition root" \
+    'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui|plexmaton-cli|plexmaton-provider|plexmaton-runtime|plexmaton-sim|plexmaton-tui'
+only plexmaton-file-tools "plexmaton-agent plexmaton-core"
+
 # The runtime is the outward dependency point: it may perform the loop's effects through the
 # selected codec, but it must not reach the projection or the synthetic producer.
 forbid plexmaton-runtime "a terminal or projection" 'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
