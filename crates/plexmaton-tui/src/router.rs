@@ -193,6 +193,10 @@ impl Router {
             // everywhere else for as long as a resize handle is held.
             MouseEventKind::ScrollUp => scroll(at, ScrollDirection::Up, context),
             MouseEventKind::ScrollDown => scroll(at, ScrollDirection::Down, context),
+            MouseEventKind::Moved => Routed::Intent(TuiIntent::Hover {
+                surface: context.surfaces.hit_test(at),
+                at,
+            }),
             _ => Routed::Ignored(Ignored::Unbound),
         }
     }
@@ -298,6 +302,7 @@ fn selection_chord(key: KeyEvent) -> Option<TuiIntent> {
     let intent = match key.code {
         KeyCode::Down if shift && !control => SelectionIntent::Extend(Direction::Forward),
         KeyCode::Up if shift && !control => SelectionIntent::Extend(Direction::Backward),
+        KeyCode::Char('o') if control && !shift => SelectionIntent::ToggleOpen,
         KeyCode::Char('y') if control && !shift => SelectionIntent::Copy,
         _ => return None,
     };
@@ -372,8 +377,8 @@ mod tests {
     use super::{Ignored, KeyboardFocus, Routed, Router, RouterContext};
     use crate::{
         intent::{
-            ApprovalIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection, TextIntent,
-            TuiIntent,
+            ApprovalIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
+            SelectionIntent, TextIntent, TuiIntent,
         },
         surface::{Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, Viewport},
     };
@@ -638,6 +643,47 @@ mod tests {
             Routed::Ignored(Ignored::OutsideWorkspace)
         );
         assert_eq!(router.capture(), None, "hover must not take capture");
+    }
+
+    /// INV-3: bare motion names only the topmost surface under the pointer and names `None` when it
+    /// leaves the workspace, so the reducer can clear a previous visual hover without guessing.
+    #[test]
+    fn pointer_motion_routes_a_hover_without_capture_or_focus() {
+        let surfaces = tree();
+        let context = context(&surfaces, KeyboardFocus::Navigation, false);
+        let mut router = Router::default();
+
+        assert_eq!(
+            router.translate(&mouse(MouseEventKind::Moved, 12, 4), &context),
+            Routed::Intent(TuiIntent::Hover {
+                surface: Some(OVERLAY),
+                at: Point { x: 12, y: 4 },
+            })
+        );
+        assert_eq!(
+            router.translate(&mouse(MouseEventKind::Moved, 99, 99), &context),
+            Routed::Intent(TuiIntent::Hover {
+                surface: None,
+                at: Point { x: 99, y: 99 },
+            })
+        );
+        assert_eq!(router.capture(), None);
+    }
+
+    /// ENT-4: disclosure is a global selection chord, including while a text input owns the
+    /// cursor; the reducer decides whether the selection's moving end is foldable.
+    #[test]
+    fn ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes() {
+        let surfaces = tree();
+        let mut router = Router::default();
+        let chord = key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+
+        for focus in [KeyboardFocus::Navigation, KeyboardFocus::TextInput] {
+            assert_eq!(
+                router.translate(&chord, &context(&surfaces, focus, false)),
+                Routed::Intent(TuiIntent::Selection(SelectionIntent::ToggleOpen))
+            );
+        }
     }
 
     /// INV-3: eligibility is whether a viewport can move, not what is on top.

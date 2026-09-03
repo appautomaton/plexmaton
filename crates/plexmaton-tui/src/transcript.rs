@@ -16,7 +16,12 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
-use crate::{AgentView, TranscriptEntryView, content, state::Selected, theme::Palette};
+use crate::{
+    AgentView, TranscriptEntryView, ViewState, content,
+    state::{DisclosureState, EntryAppearance},
+    surface::SurfaceId,
+    theme::Palette,
+};
 
 /// Where a reader is parked in one conversation.
 ///
@@ -32,7 +37,7 @@ pub(crate) enum TranscriptPosition {
         /// The entry at the top of the viewport.
         item: TranscriptItemId,
         /// How far into that entry the viewport starts.
-        rows: u16,
+        rows: usize,
     },
 }
 
@@ -48,7 +53,9 @@ pub(crate) enum TranscriptPosition {
 struct Measured {
     id: TranscriptItemId,
     revision: u64,
-    rows: u16,
+    open: bool,
+    compact_rows: usize,
+    rows: usize,
 }
 
 /// One conversation's heights at one panel width.
@@ -85,12 +92,24 @@ pub struct TranscriptMetrics {
 }
 
 impl TranscriptMetrics {
+    /// Measures the compact projection, used by callers with no disclosure state.
+    #[cfg(test)]
+    pub(crate) fn measure(&mut self, agent: &AgentView, palette: &Palette, width: u16) -> usize {
+        self.measure_with(agent, palette, width, &DisclosureState::default())
+    }
+
     /// Measures one agent's entries at `width`, reusing every height that is still valid.
     ///
     /// Returns how many entries the conversation now has. A streaming delta bumps one entry's revision
     /// and costs one wrap; a resize changes the width and costs one pass; an unchanged frame costs
     /// none.
-    pub(crate) fn measure(&mut self, agent: &AgentView, palette: &Palette, width: u16) -> usize {
+    pub(crate) fn measure_with(
+        &mut self,
+        agent: &AgentView,
+        palette: &Palette,
+        width: u16,
+        disclosure: &DisclosureState,
+    ) -> usize {
         let cached = self.by_agent.entry(agent.id.clone()).or_default();
         // Front is most recently measured, so the width a frame stopped drawing at is the one
         // evicted. Both live widths are measured every frame, so neither can evict the other.
@@ -116,14 +135,22 @@ impl TranscriptMetrics {
         };
         let mut count = 0_usize;
         for item in agent.entries() {
-            let reusable = entries
-                .get(count)
-                .is_some_and(|entry| &entry.id == item.id() && entry.revision == item.revision());
+            let open = disclosure.is_open(item.id());
+            let reusable = entries.get(count).is_some_and(|entry| {
+                &entry.id == item.id() && entry.revision == item.revision() && entry.open == open
+            });
             if !reusable {
+                let compact_rows = wrap_rows(item, palette, width, false);
                 let measured = Measured {
                     id: item.id().clone(),
                     revision: item.revision(),
-                    rows: wrap_rows(item, palette, width),
+                    open,
+                    compact_rows,
+                    rows: if open {
+                        wrap_rows(item, palette, width, true)
+                    } else {
+                        compact_rows
+                    },
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
                 match entries.get_mut(count) {
@@ -142,13 +169,12 @@ impl TranscriptMetrics {
 
     /// Total rows a conversation occupies at `width`.
     ///
-    /// Saturating rather than widening: a viewport offset is a `u16` because that is what the
-    /// terminal can address, so a conversation taller than that is already past what scrolling can
-    /// reach.
-    pub(crate) fn total_rows(&self, agent_id: &AgentId, width: u16) -> u16 {
+    /// Terminal coordinates remain `u16`, but the semantic row space must reach every retained
+    /// line and every entry after it.
+    pub(crate) fn total_rows(&self, agent_id: &AgentId, width: u16) -> usize {
         self.items(agent_id, width)
             .iter()
-            .fold(0_u16, |total, item| total.saturating_add(item.rows))
+            .fold(0_usize, |total, item| total.saturating_add(item.rows))
     }
 
     /// Which entries a viewport starting at `offset` and `visible_rows` deep actually reaches.
@@ -159,26 +185,27 @@ impl TranscriptMetrics {
         &self,
         agent_id: &AgentId,
         width: u16,
-        offset: u16,
+        offset: usize,
         visible_rows: u16,
     ) -> Window {
         let items = self.items(agent_id, width);
         let Some((first, skip_rows)) = self.locate(agent_id, width, offset) else {
-            return Window::empty(items.len());
+            return Window::empty(items.len(), width);
         };
 
         let mut last = first;
-        let mut built = 0_u16;
+        let mut built = 0_usize;
         for item in items.get(first..).unwrap_or_default() {
             built = built.saturating_add(item.rows);
             last = last.saturating_add(1);
-            if built.saturating_sub(skip_rows) >= visible_rows {
+            if built.saturating_sub(skip_rows) >= usize::from(visible_rows) {
                 break;
             }
         }
         Window {
             items: first..last,
             skip_rows,
+            width,
         }
     }
 
@@ -190,11 +217,23 @@ impl TranscriptMetrics {
         &self,
         agent_id: &AgentId,
         width: u16,
-        offset: u16,
+        offset: usize,
     ) -> Option<TranscriptPosition> {
         let (index, rows) = self.locate(agent_id, width, offset)?;
         let item = self.items(agent_id, width).get(index)?.id.clone();
         Some(TranscriptPosition::At { item, rows })
+    }
+
+    /// The semantic entry containing `row`, using the heights the last frame measured.
+    pub(crate) fn compact_entry_at_row(
+        &self,
+        agent_id: &AgentId,
+        width: u16,
+        row: usize,
+    ) -> Option<usize> {
+        let (index, inside) = self.locate(agent_id, width, row)?;
+        let measured = self.items(agent_id, width).get(index)?;
+        (inside < measured.compact_rows).then_some(index)
     }
 
     /// The row a position resolves to at `width`.
@@ -212,12 +251,12 @@ impl TranscriptMetrics {
         agent_id: &AgentId,
         width: u16,
         position: &TranscriptPosition,
-        max_offset: u16,
-    ) -> u16 {
+        max_offset: usize,
+    ) -> usize {
         let TranscriptPosition::At { item, rows } = position else {
             return max_offset;
         };
-        let mut start = 0_u16;
+        let mut start = 0_usize;
         for entry in self.items(agent_id, width) {
             if &entry.id == item {
                 let inside = (*rows).min(entry.rows.saturating_sub(1));
@@ -238,9 +277,11 @@ impl TranscriptMetrics {
         agent: &AgentView,
         palette: &Palette,
         window: &Window,
-        selected: Selected,
-    ) -> Vec<Line<'static>> {
-        let lines: Vec<_> = agent
+        state: &ViewState,
+        surface: SurfaceId,
+    ) -> (Vec<Line<'static>>, u16) {
+        let selected = state.selected_in(surface, &agent.id);
+        let mut lines: Vec<_> = agent
             .entries()
             .enumerate()
             .skip(window.items.start)
@@ -248,11 +289,18 @@ impl TranscriptMetrics {
             // The index is the entry's position in the whole conversation, not in this window: a
             // selection names entries, and a window is only which of them this frame paints.
             .flat_map(|(index, item)| {
-                content::transcript_entry(item, palette, selected.contains(index))
+                let appearance = state.entry_appearance(
+                    surface,
+                    &agent.id,
+                    item.id(),
+                    selected.contains(index),
+                );
+                content::transcript_entry(item, palette, appearance)
             })
             .collect();
         self.built = self.built.saturating_add(lines.len());
-        lines
+        let skip_rows = trim_scroll_prefix(&mut lines, window.skip_rows, window.width);
+        (lines, skip_rows)
     }
 
     /// How many entries have been wrapped since this cache was created.
@@ -287,8 +335,8 @@ impl TranscriptMetrics {
     }
 
     /// The entry index containing row `offset`, and how far into that entry the row is.
-    fn locate(&self, agent_id: &AgentId, width: u16, offset: u16) -> Option<(usize, u16)> {
-        let mut start = 0_u16;
+    fn locate(&self, agent_id: &AgentId, width: u16, offset: usize) -> Option<(usize, usize)> {
+        let mut start = 0_usize;
         for (index, item) in self.items(agent_id, width).iter().enumerate() {
             let end = start.saturating_add(item.rows);
             if end > offset {
@@ -314,15 +362,18 @@ pub(crate) struct Window {
     /// Entries to build, in arrival order.
     pub(crate) items: Range<usize>,
     /// Rows to skip inside the first of them, because the viewport starts partway through it.
-    pub(crate) skip_rows: u16,
+    pub(crate) skip_rows: usize,
+    /// Width at which `skip_rows` was measured.
+    width: u16,
 }
 
 impl Window {
     /// A window that reaches nothing, positioned past the end of the conversation.
-    const fn empty(len: usize) -> Self {
+    const fn empty(len: usize, width: u16) -> Self {
         Self {
             items: len..len,
             skip_rows: 0,
+            width,
         }
     }
 }
@@ -332,24 +383,67 @@ impl Window {
 /// No block is attached: `Paragraph::line_count` adds a block's border rows when one is set, and an
 /// entry's height is the entry alone. It is still the renderer's own wrapper, so measuring and
 /// painting stay one computation (surface-model §viewports).
-fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16) -> u16 {
+fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16, open: bool) -> usize {
     if width == 0 {
         return 0;
     }
     // Measured unselected, deliberately: selection changes a style and never a character, so a
     // height that depended on it would invalidate the cache on every arrow press for no reason.
-    let paragraph =
-        Paragraph::new(content::transcript_entry(item, palette, false)).wrap(Wrap { trim: false });
-    u16::try_from(paragraph.line_count(width)).unwrap_or(u16::MAX)
+    let paragraph = Paragraph::new(content::transcript_entry(
+        item,
+        palette,
+        EntryAppearance {
+            open,
+            ..EntryAppearance::default()
+        },
+    ))
+    .wrap(Wrap { trim: false });
+    paragraph.line_count(width)
+}
+
+/// Removes complete logical lines before a large semantic scroll offset until Ratatui's `u16`
+/// widget scroll can express the remainder. The semantic viewport keeps the full `usize` offset;
+/// this is only an adapter at the terminal boundary.
+fn trim_scroll_prefix(lines: &mut Vec<Line<'static>>, mut skip_rows: usize, width: u16) -> u16 {
+    if width == 0 {
+        return 0;
+    }
+    let mut remove = 0_usize;
+    while skip_rows > usize::from(u16::MAX) {
+        let Some(line) = lines.get(remove) else {
+            break;
+        };
+        let rows = Paragraph::new(line.clone())
+            .wrap(Wrap { trim: false })
+            .line_count(width)
+            .max(1);
+        if rows > skip_rows {
+            break;
+        }
+        skip_rows = skip_rows.saturating_sub(rows);
+        remove = remove.saturating_add(1);
+    }
+    if remove > 0 {
+        lines.drain(..remove);
+    }
+    u16::try_from(skip_rows).unwrap_or(u16::MAX)
 }
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId};
+    use plexmaton_core::{
+        SessionEvent, ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId,
+    };
     use ratatui::widgets::{Paragraph, Wrap};
 
     use super::{MEASURED_WIDTHS, TranscriptMetrics, TranscriptPosition};
-    use crate::{AgentView, ViewState, content, test_support::Conversation, theme::Palette};
+    use crate::{
+        AgentView, ViewState, content,
+        state::{EntryAppearance, EntryTarget},
+        surface::{SurfaceId, SurfaceTree},
+        test_support::Conversation,
+        theme::Palette,
+    };
 
     /// The width the canonical conversation is measured at in these tests.
     const WIDTH: u16 = 46;
@@ -429,7 +523,7 @@ mod tests {
         let item_id = TranscriptItemId::new("primary-tool")
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         let call_id = ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}"));
-        let event = |revision, status| plexmaton_core::SessionEvent::ToolCallChanged {
+        let event = |revision, status| SessionEvent::ToolCallChanged {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: revision,
@@ -478,14 +572,16 @@ mod tests {
             metrics.measure(agent(state), &palette, width);
             let whole: Vec<_> = agent(state)
                 .entries()
-                .flat_map(|item| content::transcript_entry(item, &palette, false))
+                .flat_map(|item| {
+                    content::transcript_entry(item, &palette, EntryAppearance::compact(false))
+                })
                 .collect();
             let together = Paragraph::new(whole)
                 .wrap(Wrap { trim: false })
                 .line_count(width);
 
             assert_eq!(
-                usize::from(metrics.total_rows(&agent(state).id, width)),
+                metrics.total_rows(&agent(state).id, width),
                 together,
                 "measuring item by item disagreed with measuring the conversation at width {width}"
             );
@@ -526,7 +622,7 @@ mod tests {
         for offset in 0..total {
             let window = metrics.window(id, WIDTH, offset, visible);
             let last_row = offset
-                .saturating_add(visible)
+                .saturating_add(usize::from(visible))
                 .saturating_sub(1)
                 .min(total.saturating_sub(1));
             let (needed, _) = metrics
@@ -703,5 +799,116 @@ mod tests {
 
         assert_eq!(metrics.window(&id, WIDTH, 0, 10).items, 0..0);
         assert_eq!(metrics.anchor_at(&id, WIDTH, 0), None);
+    }
+
+    /// ENT-4/TR-2: the maximum retained text can contain more logical lines than a terminal
+    /// coordinate can name. Semantic offsets still reach its tail and every later entry; only the
+    /// final widget scroll is narrowed after complete logical lines are removed.
+    #[test]
+    fn maximum_newline_detail_and_the_entry_after_it_remain_reachable() {
+        const MAX_RETAINED_TEXT_BYTES: usize = 64 * 1024;
+
+        let mut conversation = Conversation::canonical();
+        let agent_id = agent(&conversation.state).id.clone();
+        let item = TranscriptItemId::new("maximum-newline-tool")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call = ToolCallId::new("maximum-newline-tool")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent_id.clone(),
+            item_id: item.clone(),
+            item_revision: 0,
+            call_id: call.clone(),
+            label: "exec_command".to_owned(),
+            status: ToolCallStatus::Queued,
+            presentation: ToolPresentation::default(),
+        });
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent_id.clone(),
+            item_id: item.clone(),
+            item_revision: 1,
+            call_id: call,
+            label: "exec_command".to_owned(),
+            status: ToolCallStatus::Running,
+            presentation: ToolPresentation {
+                invocation: Some(ToolDetail::Text {
+                    source: "\n".repeat(MAX_RETAINED_TEXT_BYTES),
+                    omitted_bytes: 0,
+                }),
+                outcome: None,
+            },
+        });
+        conversation.extend(1);
+        let mut state = conversation.state;
+        let mut metrics = TranscriptMetrics::default();
+        let target_index = agent(&state)
+            .entries()
+            .position(|entry| entry.id() == &item)
+            .unwrap_or_else(|| panic!("the tool is in the semantic transcript"));
+        state.toggle_pointer_entry(
+            &SurfaceTree::default(),
+            &metrics,
+            EntryTarget {
+                surface: SurfaceId::Transcript,
+                agent: agent_id.clone(),
+                item: item.clone(),
+                index: target_index,
+            },
+        );
+        let palette = Palette::default();
+        let count = metrics.measure_with(agent(&state), &palette, WIDTH, state.disclosure());
+        let total = metrics.total_rows(&agent_id, WIDTH);
+        assert!(total > usize::from(u16::MAX));
+
+        let measured = metrics.items(&agent_id, WIDTH);
+        let tool_index = measured
+            .iter()
+            .position(|entry| entry.id == item)
+            .unwrap_or_else(|| panic!("the tool was measured"));
+        let tool_start = measured[..tool_index]
+            .iter()
+            .map(|entry| entry.rows)
+            .sum::<usize>();
+        let deep = tool_start.saturating_add(usize::from(u16::MAX) + 1);
+        let deep_window = metrics.window(&agent_id, WIDTH, deep, 1);
+        assert!(deep_window.skip_rows > usize::from(u16::MAX));
+        let (deep_lines, widget_scroll) = metrics.build(
+            agent(&state),
+            &palette,
+            &deep_window,
+            &state,
+            SurfaceId::Transcript,
+        );
+        assert!(!deep_lines.is_empty());
+        assert_eq!(widget_scroll, u16::MAX);
+        assert_eq!(
+            deep_lines.len(),
+            MAX_RETAINED_TEXT_BYTES + 2,
+            "one complete logical line was removed before narrowing the widget scroll"
+        );
+
+        let tail = metrics.window(
+            &agent_id,
+            WIDTH,
+            total.saturating_sub(usize::from(6_u16)),
+            6,
+        );
+        assert_eq!(
+            tail.items.end, count,
+            "the entry after the large tool is reachable"
+        );
+        let (tail_lines, _) = metrics.build(
+            agent(&state),
+            &palette,
+            &tail,
+            &state,
+            SurfaceId::Transcript,
+        );
+        assert!(
+            tail_lines
+                .iter()
+                .any(|line| line.to_string().contains("Filler")),
+            "the transcript tail includes the semantic entry after the maximum detail"
+        );
     }
 }

@@ -151,11 +151,8 @@ pub(super) fn draw_panel(
     // the newest content is always at the bottom, so what a window floating over the top covers
     // is empty rows or rows already read, never what the user is reading (`ui-ux.md` §shelf).
     if let Body::Window { viewport, .. } = &panel.body {
-        let slack = viewport.visible_rows.saturating_sub(viewport.content_rows);
-        lines.splice(
-            0..0,
-            std::iter::repeat_n(Line::default(), usize::from(slack)),
-        );
+        let slack = usize::from(viewport.visible_rows).saturating_sub(viewport.content_rows);
+        lines.splice(0..0, std::iter::repeat_n(Line::default(), slack));
     }
     let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
     paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
@@ -165,15 +162,15 @@ pub(super) fn draw_panel(
             // `line_count` wraps at exactly the width it is given and then adds the block's border
             // rows, so it is asked for the inner width and those rows are taken back off.
             let inner_width = area.width.saturating_sub(frame_columns);
-            let measured = u16::try_from(paragraph.line_count(inner_width)).unwrap_or(u16::MAX);
+            let measured = paragraph.line_count(inner_width);
             let mut viewport = Viewport {
-                content_rows: measured.saturating_sub(frame_rows),
+                content_rows: measured.saturating_sub(usize::from(frame_rows)),
                 content_width: inner_width,
                 visible_rows: area.height.saturating_sub(frame_rows),
                 offset: 0,
             };
             viewport.offset = resolve_offset(parked, *follows_tail, viewport.max_offset());
-            (viewport, viewport.offset)
+            (viewport, u16::try_from(viewport.offset).unwrap_or(u16::MAX))
         }
         Body::Window {
             skip_rows,
@@ -193,8 +190,8 @@ pub(super) fn draw_panel(
 const fn resolve_offset(
     parked: Option<ScrollPosition>,
     follows_tail: bool,
-    max_offset: u16,
-) -> u16 {
+    max_offset: usize,
+) -> usize {
     match parked {
         Some(position) => position.offset(max_offset),
         None if follows_tail => max_offset,

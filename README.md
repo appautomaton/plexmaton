@@ -59,6 +59,9 @@ Press `Ctrl-D` twice to leave the TUI; the first press says so in the status lin
 any other key withdraws it. `Ctrl-C` clears the draft, addresses the focused conversation's
 interrupt, cancels and joins its live model or native-tool work, and never quits. `Esc` backs out
 one layer at a time — a selection, then an open second window — and does not quit (INV-6, INV-7).
+In a conversation, `Shift-↑` / `Shift-↓` selects semantic entries, `Ctrl-O` opens or closes retained
+tool detail at the moving end, and `Ctrl-Y` copies producer source rather than painted cells. A
+single click on a foldable tool row selects and toggles the same detail.
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 

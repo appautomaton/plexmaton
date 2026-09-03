@@ -145,7 +145,7 @@ pub enum SurfaceId {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Viewport {
     /// Rows the content occupies once wrapped to this surface's width.
-    pub content_rows: u16,
+    pub content_rows: usize,
     /// The width those rows were wrapped at, borders excluded.
     ///
     /// It travels with the row count because it is what makes the row count mean anything: the same
@@ -156,14 +156,14 @@ pub struct Viewport {
     /// Rows of the surface that show content, borders excluded.
     pub visible_rows: u16,
     /// Rows scrolled past the top. Always within `0..=max_offset`.
-    pub offset: u16,
+    pub offset: usize,
 }
 
 impl Viewport {
     /// The furthest the viewport can travel and still show content.
     #[must_use]
-    pub const fn max_offset(self) -> u16 {
-        self.content_rows.saturating_sub(self.visible_rows)
+    pub const fn max_offset(self) -> usize {
+        self.content_rows.saturating_sub(self.visible_rows as usize)
     }
 
     /// Whether this viewport can move at all.

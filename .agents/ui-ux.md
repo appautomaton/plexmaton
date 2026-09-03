@@ -193,8 +193,15 @@ scroll without moving the transcript behind it.
 - Mouse capture never makes transcript, tool output, paths, mail, or equations uncopyable.
 - A selection is a range over a surface's *entries*, never a rectangle of cells, so it extends past
   the viewport by construction and copying is unaffected by width, scroll position, and decoration.
+- A foldable tool row uses the accent role while the pointer is over it. A completed single click
+  selects that entry and toggles its retained detail; `Ctrl-O` toggles the moving end of the current
+  selection. Hover changes no focus, selection, scroll, or semantic state, and keyboard and pointer
+  disclosure address the same stable entry. Open detail grows inside the conversation and uses its
+  existing viewport. Rejected: a nested tool-output surface, whose second scroll owner makes the
+  same wheel gesture depend on an invisible boundary.
 - Copy is an explicit keyboard action that returns the semantic source: an equation's exact source,
-  an artifact's stable value rather than its truncated label, never border glyphs or clipped cells.
+  an artifact's stable value rather than its truncated label, and a tool's retained invocation then
+  outcome, never disclosure headings, gutters, border glyphs, or clipped cells.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Rejected: character selection, which changes what is copied at a second width; a local clipboard
@@ -267,6 +274,8 @@ surface has a reason to be somewhere other than where the layout puts it.
 ## Input and event-routing contract
 
 - Pointer events route to the topmost visible surface whose clipped hit region contains the event.
+- Bare pointer motion may change only a foldable row's visual accent; it never redirects input or
+  takes pointer capture, and leaving the row clears it.
 - Wheel events use hover routing: the topmost eligible viewport under the mouse scrolls without
   changing keyboard focus, and a consumed wheel event scrolls only its target.
 - Drag begins with pointer capture and continues to the captured surface until release or
@@ -331,7 +340,7 @@ carries identity and status but is never the only carrier:
 - Assistant message, streaming and final
 - Reasoning summary
 - Tool call: `[ ] queued`, `[~] running`, `[?] approval required`, `[+] succeeded`, `[!] failed`,
-  `[x] denied`, or `[-] cancelled`
+  `[x] denied`, or `[-] cancelled`; retained invocation and outcome disclose beneath the same row
 - Diff and artifact
 - Agent mail
 - Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the

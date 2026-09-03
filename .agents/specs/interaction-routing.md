@@ -5,7 +5,7 @@
 | Status | Implemented |
 | Owns | Translation from terminal events to typed intents, pointer capture, and the Escape ladder |
 | Depends on | The locked input decisions in [`ui-ux.md`](../ui-ux.md) §input, and its §input and event-routing contract |
-| Proven by | `plexmaton-tui::router` tests |
+| Proven by | `plexmaton-tui::{router,workspace}` tests |
 
 ## Invariants
 
@@ -19,10 +19,10 @@ indistinguishable from a routing defect.
 a text input holds keyboard focus; under navigation focus the same key is a command or unbound.
 There is no third case, because there is never more than one cursor.
 
-**INV-3 — Wheel events never change focus, and resolve by eligibility.** A wheel event produces a
-scroll intent and never a focus- or selection-changing one. Its target is the topmost surface under
-the pointer whose viewport can move: a surface with nothing to scroll is transparent, while one at
-its boundary is still the target and consumes the event (ui-ux §nested scrolling).
+**INV-3 — Hover never redirects input.** Bare motion changes only the visual target under the
+topmost surface, takes no capture, and repeats for free. Wheel motion changes only the topmost
+eligible viewport; an immovable surface is transparent and an exhausted one still consumes the
+event. Neither path changes focus, selection, or semantic entries (`ui-ux.md` §nested scrolling).
 
 **INV-4 — Capture wins for the drag gesture.** While pointer capture is held, button and motion
 events route to the capturing surface regardless of position, and hit testing is not consulted.
@@ -34,13 +34,10 @@ release produces `Ignored::NoCapture`, never a second drag intent.
 **INV-6 — The Escape ladder resolves one layer per press.** In order: cancel an active drag, then
 drop a selection, then dismiss the topmost dismissible layer, then nothing. `Escape` never quits.
 
-**INV-7 — Quit is a chord pressed twice, and `Ctrl-C` never quits.** `Ctrl-D` asks on the first
-press, in the status line, and leaves on the second in a row; any other key withdraws the question.
-`Ctrl-C` clears the draft, emits an interrupt to that conversation, or points at the chord.
-No bare key quits; a printable `q` is text under a cursor and unbound elsewhere.
-Rejected: `Escape` as quit, which the reflex that closes an overlay would trigger one
-press later; a bare `q`, which ended the session the first time a message was typed one `Tab` too
-early; and `Ctrl-C` as a one-press exit, which ended sessions a shell habit meant to interrupt.
+**INV-7 — Quit is a chord pressed twice, and `Ctrl-C` never quits.** `Ctrl-D` asks, then leaves only
+on the next press; any other key withdraws it. `Ctrl-C` clears the focused draft, emits that
+conversation's interrupt, or points at the chord. No bare key quits; rejected alternatives are in
+`ui-ux.md` §input.
 
 **INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
 is routed to no surface, so the terminal's own selection keeps working over an owned screen.
@@ -60,9 +57,8 @@ crossterm::Event ──▶ Router::translate(event, RouterContext) ──▶ Rou
                                                                   └─ Ignored(reason)
 ```
 
-`RouterContext` is a read-only snapshot: whether a cursor exists, which surface holds focus,
-whether a dismissible layer or a selection is open, and the `SurfaceTree` the last frame registered.
-The router mutates only its own capture.
+`RouterContext` is a read-only snapshot of input mode, focus, dismissible state, selection, and the
+last frame's `SurfaceTree`. The router mutates only its capture.
 
 ```text
         Down(left) on a surface          Up | Escape
@@ -85,15 +81,15 @@ Idle ─────────────────────────
 | `Ctrl-F` | Maximize the second window | Maximize the second window |
 | `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the second window | Shrink, grow the second window |
 | `Shift-↑` / `Shift-↓` | Extend the selection; with none, select the newest entry (SEL-1) | The same |
+| `Ctrl-O` | Toggle retained detail for the selection's moving end (ENT-4) | The same |
 | `Ctrl-Y` | Copy (SEL-4) | Copy |
 | Printable character | Unbound unless bound above | Insert |
 | `Backspace` | Unbound | Delete backward |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-Control chords are never text (INV-2), and reducers decide whether their target exists. `Enter`
-submits under a cursor; key releases are ignored. The approval modal overrides both columns:
-`↑`/`↓` chooses, `Enter` decides, `PageUp`/`PageDown` scrolls detail, and `Escape` closes it without
-answering. Quit and interrupt stay global; other chords cannot reach the covered workspace.
+Control chords are never text (INV-2); reducers decide whether their target exists. The approval
+modal owns non-global keys: arrows choose, `Enter` decides, paging scrolls, and `Escape` closes
+without answering.
 
 | Fact | Value |
 | --- | --- |
@@ -110,6 +106,7 @@ answering. Quit and interrupt stay global; other chords cannot reach the covered
 | `Ctrl-C` with nothing to clear | The status line says `Ctrl-D twice to quit` |
 | Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside it |
 | Wheel over no surface | `Ignored::OutsideWorkspace` |
+| Bare pointer motion outside the workspace | A hover intent with no target, clearing prior feedback |
 | Pointer event with `Shift` held | `Ignored::TerminalSelection` (INV-8) |
 | `Event::Paste` | Declined; nothing in the journey pastes |
 | Key release or repeat | Release ignored; repeat treated as a press |
@@ -119,8 +116,8 @@ answering. Quit and interrupt stay global; other chords cannot reach the covered
 | Invariant | Proven by |
 | --- | --- |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
-| INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter` |
-| INV-3 | `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
+| INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
+| INV-3 | `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
@@ -128,6 +125,3 @@ answering. Quit and interrupt stay global; other chords cannot reach the covered
 | INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
-
-Every intent has a consumer in the executable and is reachable from a keyboard alone, which the
-canonical journey exercises end to end in `plexmaton-tui::journey`.

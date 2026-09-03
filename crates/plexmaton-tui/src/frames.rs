@@ -13,14 +13,15 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence,
-        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability,
+        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
         ToolPresentation, TranscriptItemId,
     };
     use ratatui::{buffer::Buffer, layout::Rect};
 
     use crate::{
-        ViewState,
+        TranscriptMetrics, ViewState,
         intent::{AttentionIntent, Direction, InspectorIntent},
+        state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
         test_support::{
             Conversation, canonical_state, current_responding_state, current_running_tool_state,
@@ -66,6 +67,13 @@ mod tests {
 
     const TOOL_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
+
+    /// One disclosed native-tool entry across the same product widths.
+    const DISCLOSURE_FRAMES: [(&str, u16, u16); 3] = [
+        ("tool-open-wide", 120, 40),
+        ("tool-open-medium", 95, 40),
+        ("tool-open-narrow", 60, 40),
+    ];
 
     /// Compact composer-only frames for work states absent from the canonical frames.
     const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
@@ -195,6 +203,14 @@ mod tests {
     }
 
     fn tool_state(status: ToolCallStatus) -> ViewState {
+        tool_state_with_presentation(status, "read_file", ToolPresentation::default())
+    }
+
+    fn tool_state_with_presentation(
+        status: ToolCallStatus,
+        label: &str,
+        final_presentation: ToolPresentation,
+    ) -> ViewState {
         let agent_id =
             AgentId::new("agent-primary").unwrap_or_else(|error| panic!("fixture: {error}"));
         let item_id =
@@ -224,6 +240,11 @@ mod tests {
         );
         let mut revision = 0_u64;
         let mut move_tool = |state: &mut ViewState, next| {
+            let presentation = if next == status {
+                final_presentation.clone()
+            } else {
+                ToolPresentation::default()
+            };
             apply(
                 state,
                 SessionEvent::ToolCallChanged {
@@ -231,9 +252,9 @@ mod tests {
                     item_id: item_id.clone(),
                     item_revision: revision,
                     call_id: call_id.clone(),
-                    label: "read_file".to_owned(),
+                    label: label.to_owned(),
                     status: next,
-                    presentation: ToolPresentation::default(),
+                    presentation,
                 },
             );
             revision = revision.saturating_add(1);
@@ -255,6 +276,41 @@ mod tests {
             }
         }
         state.set_working_directory("~/plexmaton".to_owned());
+        state
+    }
+
+    fn disclosed_tool_state(width: u16, height: u16) -> ViewState {
+        let agent =
+            AgentId::new("agent-primary").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let item =
+            TranscriptItemId::new("tool-entry").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let mut state = tool_state_with_presentation(
+            ToolCallStatus::Succeeded,
+            "exec_command",
+            ToolPresentation {
+                invocation: Some(ToolDetail::Text {
+                    source: "Command \"cargo test -p plexmaton-tui\"\ncwd: \"~/plexmaton\"\ntimeout_ms: 120000"
+                        .to_owned(),
+                    omitted_bytes: 0,
+                }),
+                outcome: Some(ToolDetail::Text {
+                    source: "status: exited\nexit_code: 0\nstdout:\n197 tests passed\nstderr:\n[empty]"
+                        .to_owned(),
+                    omitted_bytes: 0,
+                }),
+            },
+        );
+        let (surfaces, _) = draw_frame(&state, &Palette::default(), width, height);
+        state.toggle_pointer_entry(
+            &surfaces,
+            &TranscriptMetrics::default(),
+            EntryTarget {
+                surface: SurfaceId::Transcript,
+                agent,
+                item,
+                index: 0,
+            },
+        );
         state
     }
 
@@ -297,6 +353,43 @@ mod tests {
                     first_difference(&fixture, &drawn)
                 );
             }
+        }
+    }
+
+    /// ENT-4: one expanded entry remains part of its conversation at every product width.
+    #[test]
+    fn the_open_tool_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width, height) in DISCLOSURE_FRAMES {
+            let drawn = draw(&disclosed_tool_state(width, height), width, height);
+            for signature in [
+                "exec_command · succeeded",
+                "invocation",
+                "cargo test -p plexmaton-tui",
+                "outcome",
+                "197 tests passed",
+            ] {
+                assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            assert_eq!(drawn.lines().count(), usize::from(height));
+
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
+                first_difference(&fixture, &drawn)
+            );
         }
     }
 

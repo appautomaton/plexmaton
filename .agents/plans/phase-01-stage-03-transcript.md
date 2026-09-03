@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 01 — One real agent](../phases/phase-01-one-real-agent.md) §scope 3 |
 | Contract | [UI/UX](../ui-ux.md) §progressive disclosure, §readability, §transcript grammar, §state matrix |
-| Status | Slices 1–4 done; slice 5 ready |
+| Status | Slices 1–5 done; slice 6 ready |
 | Blocked | None |
 
 ## Outcome
@@ -63,7 +63,7 @@ maintain a second live/replay UI.
    input do not jump. *Closes when* priority is table-tested, repeated facts cost no frame, no timer
    exists, and the user has reviewed wide/medium/narrow frames before accepted copy enters UI/UX.
 
-5. **Disclosure, pointer feedback and copy.** A selected entry opens in place and participates in
+5. **Disclosure, pointer feedback and copy — done.** A selected entry opens in place and participates in
    its parent transcript's scrolling; no nested surface or viewport exists. Pointer move may
    highlight a compact foldable row but changes no focus or semantic state, and lands only with a
    user-reviewed frame. Copy returns retained source without gutters, clipping or decoration.

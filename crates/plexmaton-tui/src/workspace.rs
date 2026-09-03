@@ -14,18 +14,18 @@ use ratatui::{
 };
 
 use crate::{
-    content,
-    intent::{PointerIntent, SelectionIntent, TuiIntent},
+    intent::{SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{
-        ApprovalSubmission, CopyRequest, QuitPress, Submission, ViewRevision, ViewState,
-        inner_width,
-    },
-    surface::{Point, SurfaceId, SurfaceTree},
+    state::{ApprovalSubmission, CopyRequest, QuitPress, Submission, ViewRevision, ViewState},
+    surface::SurfaceTree,
     theme::Palette,
     transcript::TranscriptMetrics,
 };
+
+mod pointer;
+
+use pointer::PressedEntry;
 
 /// Whether the event loop continues after an intent.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -95,6 +95,8 @@ pub struct Workspace {
     palette: Palette,
     painted: Option<ViewRevision>,
     frames: u64,
+    /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
+    pressed_entry: Option<PressedEntry>,
 }
 
 impl Workspace {
@@ -143,14 +145,22 @@ impl Workspace {
     /// reason to tear down the user's terminal (`state::notices`), so nothing is returned to check
     /// here.
     pub fn emit(&mut self, events: Vec<SessionEventEnvelope>) {
+        let before = self.state.revision();
         for envelope in events {
             let _outcome = self.state.apply(envelope);
+        }
+        if self.state.revision() != before {
+            // Producer changes can move rows under a stationary pointer. The next motion resolves
+            // a fresh frame target; keeping the old identity would make the accent move with it.
+            self.state.hover_entry(None);
         }
     }
 
     /// Restores user text a runtime returned instead of silently discarding its ownership.
     pub fn return_input(&mut self, to: AgentId, text: String) {
         self.state.return_input(to, text);
+        // Composer growth can change the transcript viewport beneath a stationary pointer.
+        self.state.hover_entry(None);
     }
 
     /// Translates one terminal event and applies whatever it asked for.
@@ -178,12 +188,16 @@ impl Workspace {
         // into two revisions whose final projection is unchanged (FR-1).
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
-            && !matches!(
+        {
+            // Once the user switches to the keyboard, a pointer affordance no longer claims to be
+            // the active target. Repeating `None` is free (FR-1).
+            state.hover_entry(None);
+            if !matches!(
                 routed,
                 Routed::Intent(TuiIntent::Quit | TuiIntent::Interrupt)
-            )
-        {
-            state.settle_status();
+            ) {
+                state.settle_status();
+            }
         }
         match routed {
             Routed::Intent(intent) => self.apply(intent),
@@ -255,6 +269,10 @@ impl Workspace {
             TuiIntent::Selection(SelectionIntent::Extend(direction)) => {
                 self.state.select(&self.surfaces, direction);
             }
+            TuiIntent::Selection(SelectionIntent::ToggleOpen) => {
+                self.state
+                    .toggle_selected_entry(&self.surfaces, &self.metrics);
+            }
             TuiIntent::Selection(SelectionIntent::Copy) => {
                 return Outcome {
                     copied: self.state.copy(),
@@ -263,19 +281,7 @@ impl Workspace {
             }
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
-            // A press focuses what it hit; every step of the gesture then reaches the reducer,
-            // which is where an edge drag becomes a height.
-            TuiIntent::Pointer(pointer) => {
-                if let PointerIntent::Press { surface, at } = pointer {
-                    self.state.focus_surface(&self.surfaces, surface);
-                    // A click in the list is looking at that agent (INS-1), which is what opens
-                    // the second window. Read against the painted rows, not the roster's index.
-                    if surface == SurfaceId::Agents {
-                        self.click_agent(at);
-                    }
-                }
-                self.state.drag(&self.surfaces, pointer);
-            }
+            TuiIntent::Pointer(pointer) => self.pointer(pointer),
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::Approval(approval) => {
@@ -291,48 +297,26 @@ impl Workspace {
             }
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
-            TuiIntent::TerminalResized { .. } => self.painted = None,
+            TuiIntent::TerminalResized { .. } => {
+                self.state.hover_entry(None);
+                self.pressed_entry = None;
+                self.painted = None;
+            }
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus
             // (INV-3). Which surface that is was already decided by viewport eligibility.
             TuiIntent::Scroll { surface, direction } => {
+                // The row under a stationary pointer may change when its viewport moves. Clear the
+                // old semantic target rather than highlighting it at its new location.
+                self.state.hover_entry(None);
                 self.state
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
+            TuiIntent::Hover { surface, at } => {
+                let target = surface.and_then(|surface| self.entry_target_at(surface, at));
+                self.state.hover_entry(target);
+            }
         }
         Outcome::default()
-    }
-
-    /// Selects the agent painted under a press in the list, if the press landed on one.
-    fn click_agent(&mut self, at: Point) {
-        let Some(bounds) = self
-            .surfaces
-            .get(SurfaceId::Agents)
-            .map(|surface| surface.bounds)
-        else {
-            return;
-        };
-        // Inside the border, then past whatever the list is scrolled by.
-        let Some(row) = at.y.checked_sub(bounds.y.saturating_add(1)) else {
-            return;
-        };
-        if row >= bounds.height.saturating_sub(2) {
-            return;
-        }
-        let offset = self
-            .surfaces
-            .viewport(SurfaceId::Agents)
-            .map_or(0, |viewport| viewport.offset);
-        let width = inner_width(bounds.width);
-        if let Some(agent) = content::agent_at_row(
-            &self.state,
-            &self.palette,
-            width,
-            row.saturating_add(offset),
-        ) {
-            // The agent came from the roster one line ago, so an unknown one is a race with
-            // nothing, and selecting it again is the no-op the reducer already makes it.
-            let _known = self.state.select_agent(&agent);
-        }
     }
 }
 
@@ -350,7 +334,8 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, ArtifactId, AttentionId,
-        AttentionRequest, SessionEvent, ToolCallId, ToolCapability, TranscriptItemId,
+        AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
+        ToolPresentation, TranscriptItemId,
     };
 
     use super::{Flow, Outcome, Workspace};
@@ -372,6 +357,83 @@ mod tests {
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         (workspace, terminal)
+    }
+
+    struct FoldableTool {
+        workspace: Workspace,
+        terminal: Terminal<TestBackend>,
+        conversation: Conversation,
+        agent: AgentId,
+        item: TranscriptItemId,
+        call: ToolCallId,
+        invocation: ToolPresentation,
+    }
+
+    /// A running tool with retained invocation detail, newest in the primary conversation.
+    fn foldable_tool() -> FoldableTool {
+        foldable_tool_on(SurfaceId::Transcript)
+    }
+
+    /// A running tool in the conversation drawn by `surface`.
+    fn foldable_tool_on(surface: SurfaceId) -> FoldableTool {
+        let mut conversation = Conversation::canonical();
+        let agent = match surface {
+            SurfaceId::Transcript => conversation.state.primary_agent(),
+            SurfaceId::Inspector => conversation.state.sub_agents().next(),
+            _ => None,
+        }
+        .map(|agent| agent.id.clone())
+        .unwrap_or_else(|| panic!("the canonical timeline creates an agent for {surface:?}"));
+        let item = TranscriptItemId::new("foldable-tool")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let call =
+            ToolCallId::new("foldable-tool").unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent.clone(),
+            item_id: item.clone(),
+            item_revision: 0,
+            call_id: call.clone(),
+            label: "read_file".to_owned(),
+            status: ToolCallStatus::Queued,
+            presentation: ToolPresentation::default(),
+        });
+        let invocation = ToolPresentation {
+            invocation: Some(ToolDetail::Text {
+                source: "path: crates/plexmaton-tui/src/content.rs".to_owned(),
+                omitted_bytes: 0,
+            }),
+            outcome: None,
+        };
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent.clone(),
+            item_id: item.clone(),
+            item_revision: 1,
+            call_id: call.clone(),
+            label: "read_file".to_owned(),
+            status: ToolCallStatus::Running,
+            presentation: invocation.clone(),
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+        if surface == SurfaceId::Inspector {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Down, KeyModifiers::NONE),
+            );
+        }
+        FoldableTool {
+            workspace,
+            terminal,
+            conversation,
+            agent,
+            item,
+            call,
+            invocation,
+        }
     }
 
     fn press(code: KeyCode, modifiers: KeyModifiers) -> Event {
@@ -457,6 +519,336 @@ mod tests {
             "a resize changes no projection state, and must still force the next frame"
         );
         assert_eq!(workspace.frames(), 2, "exactly two frames reached a screen");
+    }
+
+    /// ENT-4/TR-1/TR-3: disclosure addresses the moving end of a semantic range, preserves the
+    /// reader's top anchor, and invalidates only that entry at every retained width.
+    #[test]
+    fn ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width() {
+        let FoldableTool {
+            mut workspace,
+            mut terminal,
+            mut conversation,
+            agent,
+            item,
+            ..
+        } = foldable_tool();
+        conversation.extend(1);
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        // Warm the second cache width before disclosure, then return to the first.
+        terminal.backend_mut().resize(95, 40);
+        workspace.handle(&Event::Resize(95, 40));
+        frame(&mut workspace, &mut terminal);
+        terminal.backend_mut().resize(120, 40);
+        workspace.handle(&Event::Resize(120, 40));
+        frame(&mut workspace, &mut terminal);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+
+        // The newest filler is the anchor; the second backward extension leaves a two-entry range
+        // whose moving end is the preceding tool.
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        assert_eq!(
+            workspace
+                .state
+                .selection()
+                .map(|selection| selection.entries()),
+            Some(2)
+        );
+        let viewport = workspace
+            .surfaces
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the transcript has a measured viewport"));
+        let anchor = workspace
+            .metrics
+            .anchor_at(&agent, viewport.content_width, viewport.offset)
+            .unwrap_or_else(|| panic!("the visible conversation has a top anchor"));
+
+        workspace.handle(&press(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        let opened = frame(&mut workspace, &mut terminal);
+        assert_eq!(opened.entries_wrapped, 1);
+        assert!(workspace.state.disclosure().is_open(&item));
+        assert_eq!(workspace.state.conversation_position(&agent), Some(&anchor));
+        assert!(
+            painted(&terminal, &workspace, SurfaceId::Transcript)
+                .contains("path: crates/plexmaton-tui/src/content.rs")
+        );
+
+        terminal.backend_mut().resize(95, 40);
+        workspace.handle(&Event::Resize(95, 40));
+        assert_eq!(
+            frame(&mut workspace, &mut terminal).entries_wrapped,
+            1,
+            "the already-cached second width invalidates only the disclosed item"
+        );
+    }
+
+    /// INV-3/FR-1: bare pointer motion is presentation only, and repeating its resolved target is
+    /// free. Selection, focus, scroll, and the semantic entry all remain byte-for-byte unchanged.
+    #[test]
+    fn hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing() {
+        let FoldableTool {
+            mut workspace,
+            mut terminal,
+            mut conversation,
+            agent,
+            item,
+            ..
+        } = foldable_tool();
+        let at = point_on(&terminal, &workspace, SurfaceId::Transcript, "read_file");
+        let focus = focused(&workspace);
+        let selection = workspace.state.selection().cloned();
+        let position = workspace.state.conversation_position(&agent).cloned();
+        let semantic = workspace
+            .state
+            .agent(&agent)
+            .cloned()
+            .unwrap_or_else(|| panic!("the primary agent exists"));
+
+        workspace.handle(&mouse(MouseEventKind::Moved, at.x, at.y));
+        let hovered = frame(&mut workspace, &mut terminal);
+        assert_eq!(hovered.entries_wrapped, 0, "style does not change height");
+        assert_eq!(focused(&workspace), focus);
+        assert_eq!(workspace.state.selection(), selection.as_ref());
+        assert_eq!(
+            workspace.state.conversation_position(&agent),
+            position.as_ref()
+        );
+        assert_eq!(workspace.state.agent(&agent), Some(&semantic));
+        assert_eq!(
+            terminal.backend().buffer()[(at.x, at.y)].style().fg,
+            workspace.palette.style(Role::Accent).fg,
+            "the compact row advertises that it can be opened"
+        );
+
+        let wrapped = workspace.metrics.wrapped();
+        workspace.handle(&mouse(MouseEventKind::Moved, at.x, at.y));
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "the same hover target is not another visible fact"
+        );
+        assert_eq!(workspace.metrics.wrapped(), wrapped);
+
+        conversation.extend(1);
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+        assert!(
+            !workspace
+                .state
+                .entry_appearance(SurfaceId::Transcript, &agent, &item, false)
+                .hovered,
+            "producer-driven relayout invalidates the stale under-pointer identity"
+        );
+    }
+
+    /// ENT-4/FR-3: one click opens the item from the frame pressed, even when focusing an
+    /// inspector inserts its input strip before release. `Ctrl-O` then closes that same identity;
+    /// a drag is not a click.
+    #[test]
+    fn pointer_and_ctrl_o_toggle_the_same_item_while_drag_cancels_disclosure() {
+        let FoldableTool {
+            mut workspace,
+            mut terminal,
+            item,
+            ..
+        } = foldable_tool_on(SurfaceId::Inspector);
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+        let at = point_on(&terminal, &workspace, SurfaceId::Inspector, "read_file");
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y),
+        );
+        assert!(
+            workspace.state.disclosure().is_open(&item),
+            "the first click survives the focus-driven relayout"
+        );
+        assert_eq!(
+            workspace
+                .state
+                .selection()
+                .map(|selection| selection.entries()),
+            Some(1)
+        );
+        let selected_at = point_on(&terminal, &workspace, SurfaceId::Inspector, "read_file");
+        workspace.handle(&mouse(MouseEventKind::Moved, selected_at.x, selected_at.y));
+        assert_eq!(
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("test render: {error}")),
+            None,
+            "hover masked by the selected style is not retained as an invisible frame"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        assert!(
+            !workspace.state.disclosure().is_open(&item),
+            "the keyboard addresses the pointer's one-entry selection"
+        );
+
+        let at = point_on(&terminal, &workspace, SurfaceId::Inspector, "read_file");
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                at.x.saturating_add(1),
+                at.y,
+            ),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(
+                MouseEventKind::Up(MouseButton::Left),
+                at.x.saturating_add(1),
+                at.y,
+            ),
+        );
+        assert!(!workspace.state.disclosure().is_open(&item));
+    }
+
+    /// ENT-4/SEL-4: disclosure never changes clipboard source, and neither width, scroll, nor a
+    /// palette substitution can make copied tool text inherit terminal decoration.
+    #[test]
+    fn tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome() {
+        let FoldableTool {
+            mut workspace,
+            mut terminal,
+            invocation,
+            ..
+        } = foldable_tool();
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        let copy = |workspace: &mut Workspace| {
+            workspace
+                .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+                .copied
+                .unwrap_or_else(|| panic!("the selected tool has retained source"))
+        };
+        let compact = copy(&mut workspace);
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        let open = copy(&mut workspace);
+        terminal.backend_mut().resize(60, 24);
+        workspace.handle(&Event::Resize(60, 24));
+        frame(&mut workspace, &mut terminal);
+        let transcript = bounds(&workspace, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(
+                MouseEventKind::ScrollUp,
+                transcript.x.saturating_add(1),
+                transcript.y.saturating_add(1),
+            ),
+        );
+        let resized = copy(&mut workspace);
+        workspace.palette = Palette::monochrome();
+        workspace.painted = None;
+        frame(&mut workspace, &mut terminal);
+        let monochrome = copy(&mut workspace);
+
+        assert_eq!(compact, open);
+        assert_eq!(compact, resized);
+        assert_eq!(compact, monochrome);
+        let ToolPresentation {
+            invocation: Some(ToolDetail::Text { source, .. }),
+            ..
+        } = invocation
+        else {
+            panic!("fixture keeps a text invocation");
+        };
+        assert_eq!(compact.text, source);
+        assert!(!compact.text.contains("invocation"));
+        assert!(!compact.text.contains('│'));
+    }
+
+    /// ENT-4: lifecycle replacement keeps view-owned disclosure on the stable transcript item.
+    #[test]
+    fn tool_completion_preserves_the_users_open_state() {
+        let FoldableTool {
+            mut workspace,
+            mut terminal,
+            mut conversation,
+            agent,
+            item,
+            call,
+            invocation,
+        } = foldable_tool();
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+
+        let presentation = ToolPresentation {
+            invocation: invocation.invocation,
+            outcome: Some(ToolDetail::Text {
+                source: "status: exited\nexit_code: 0\nstdout:\n188 tests passed\nstderr:\n[empty]"
+                    .to_owned(),
+                omitted_bytes: 0,
+            }),
+        };
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent,
+            item_id: item.clone(),
+            item_revision: 2,
+            call_id: call,
+            label: "read_file".to_owned(),
+            status: ToolCallStatus::Succeeded,
+            presentation,
+        });
+        workspace.emit(conversation.drain());
+        assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 1);
+
+        assert!(workspace.state.disclosure().is_open(&item));
+        let drawn = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(drawn.contains("succeeded"));
+        assert!(drawn.contains("188 tests passed"));
     }
 
     /// FR-1: the derived current-work fact occupies chrome, not another row or another revision.
@@ -846,6 +1238,25 @@ mod tests {
         surface_id: SurfaceId,
     ) -> String {
         crate::test_support::region_text(terminal.backend().buffer(), bounds(workspace, surface_id))
+    }
+
+    fn point_on(
+        terminal: &Terminal<TestBackend>,
+        workspace: &Workspace,
+        surface: SurfaceId,
+        text: &str,
+    ) -> Point {
+        let bounds = bounds(workspace, surface);
+        let row = painted(terminal, workspace, surface)
+            .lines()
+            .position(|line| line.contains(text))
+            .unwrap_or_else(|| panic!("{text:?} must be painted in {surface:?}"));
+        Point {
+            x: bounds.x.saturating_add(1),
+            y: bounds
+                .y
+                .saturating_add(u16::try_from(row).unwrap_or(u16::MAX)),
+        }
     }
 
     /// Resolved against the frame that was drawn, which is the only focus a key can act on (FR-3).
@@ -1285,7 +1696,7 @@ mod tests {
     }
 
     /// The rows one agent's whole conversation wraps to at `width`, measured the un-virtualized way.
-    fn whole_conversation_rows(workspace: &Workspace, agent: &AgentId, width: u16) -> u16 {
+    fn whole_conversation_rows(workspace: &Workspace, agent: &AgentId, width: u16) -> usize {
         let palette = Palette::default();
         let agent = workspace
             .state
@@ -1293,12 +1704,17 @@ mod tests {
             .unwrap_or_else(|| panic!("the fixture created {agent}"));
         let lines: Vec<_> = agent
             .entries()
-            .flat_map(|item| crate::content::transcript_entry(item, &palette, false))
+            .flat_map(|item| {
+                crate::content::transcript_entry(
+                    item,
+                    &palette,
+                    crate::state::EntryAppearance::compact(false),
+                )
+            })
             .collect();
-        let rows = ratatui::widgets::Paragraph::new(lines)
+        ratatui::widgets::Paragraph::new(lines)
             .wrap(ratatui::widgets::Wrap { trim: false })
-            .line_count(width);
-        u16::try_from(rows).unwrap_or(u16::MAX)
+            .line_count(width)
     }
 
     /// TR-1 through the executable: each panel's rows belong to the width that panel was drawn at.

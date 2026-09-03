@@ -49,7 +49,7 @@ impl AgentView {
     }
 
     /// Iterates tool calls in arrival order.
-    pub fn tool_activity(&self) -> impl Iterator<Item = &ToolCallView> {
+    pub fn tools(&self) -> impl Iterator<Item = &ToolCallView> {
         self.entries.iter().filter_map(|entry| match entry {
             TranscriptEntryView::Tool(tool) => Some(tool),
             _ => None,
@@ -151,7 +151,7 @@ impl AgentView {
     ///
     /// Creation requires queued revision zero; an update must carry the next revision and a valid
     /// lifecycle transition (ENT-2).
-    pub(super) fn set_tool_activity(
+    pub(super) fn set_tool_entry(
         &mut self,
         entry_id: TranscriptItemId,
         item_revision: u64,
@@ -190,7 +190,7 @@ impl AgentView {
         if item_revision != 0 || status != ToolCallStatus::Queued {
             return Err(ReduceError::UnknownTranscriptItem(entry_id));
         }
-        if self.tool_activity().any(|tool| tool.id == id) {
+        if self.tools().any(|tool| tool.id == id) {
             return Err(ReduceError::DuplicateToolCall(id));
         }
         let _added = self.entries.upsert(
@@ -322,7 +322,7 @@ mod tests {
 
     fn start_tool(agent: &mut AgentView, entry: &str, call: &str, label: &str) {
         agent
-            .set_tool_activity(
+            .set_tool_entry(
                 item(entry),
                 0,
                 tool(call),
@@ -342,7 +342,7 @@ mod tests {
         status: ToolCallStatus,
     ) {
         agent
-            .set_tool_activity(
+            .set_tool_entry(
                 item(entry),
                 revision,
                 tool(call),
@@ -424,12 +424,12 @@ mod tests {
     }
 
     #[test]
-    fn tool_activity_iterates_in_arrival_order_not_identifier_order() {
+    fn tools_iterate_in_arrival_order_not_identifier_order() {
         let mut agent = agent();
         start_tool(&mut agent, "entry-z", "tool-z", "z");
         start_tool(&mut agent, "entry-a", "tool-a", "a");
 
-        let labels: Vec<_> = agent.tool_activity().map(|t| t.label.as_str()).collect();
+        let labels: Vec<_> = agent.tools().map(|t| t.label.as_str()).collect();
         assert_eq!(labels, ["z", "a"]);
     }
 
@@ -456,7 +456,7 @@ mod tests {
         );
 
         let tools: Vec<_> = agent
-            .tool_activity()
+            .tools()
             .map(|t| (t.label.as_str(), t.status))
             .collect();
         assert_eq!(

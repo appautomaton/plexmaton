@@ -122,6 +122,8 @@ pub enum ApprovalIntent {
 pub enum SelectionIntent {
     /// Extend the selection one entry, starting one if there is none.
     Extend(Direction),
+    /// Toggle disclosure for the entry at the moving end of the selection.
+    ToggleOpen,
     /// Put the selected content on the clipboard.
     Copy,
 }
@@ -158,6 +160,13 @@ pub enum TuiIntent {
         surface: SurfaceId,
         /// Wheel direction.
         direction: ScrollDirection,
+    },
+    /// Point at one cell without changing focus or taking capture.
+    Hover {
+        /// Topmost surface under the pointer, or none outside the workspace.
+        surface: Option<SurfaceId>,
+        /// Terminal-cell position of the pointer.
+        at: Point,
     },
     /// One step of a pointer gesture.
     Pointer(PointerIntent),

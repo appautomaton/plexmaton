@@ -5,7 +5,7 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam used by the wrapping cache.
 
-use plexmaton_core::{AgentId, AgentStatus, ToolCallStatus, TranscriptRole};
+use plexmaton_core::{AgentId, AgentStatus, TranscriptRole};
 use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -13,12 +13,14 @@ use ratatui::{
 
 use crate::{
     NoticeView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewState,
+    state::EntryAppearance,
     surface::SurfaceId,
-    theme::{Palette, Role, agent_role, tool_role},
+    theme::{Palette, Role, agent_role},
 };
 
 #[path = "content_approval.rs"]
 mod approval_presentation;
+mod tool;
 
 pub(crate) use approval_presentation::{approval, attention};
 
@@ -67,9 +69,9 @@ pub(crate) fn agent_at_row(
     state: &ViewState,
     palette: &Palette,
     width: u16,
-    row: u16,
+    row: usize,
 ) -> Option<AgentId> {
-    let target = usize::from(row);
+    let target = row;
     let mut first = 0_usize;
     for (agent, line) in state.sub_agents().zip(agents(state, palette)) {
         let rows = Paragraph::new(line)
@@ -93,24 +95,11 @@ pub(crate) fn agent_at_row(
 pub(crate) fn transcript_entry(
     entry: &TranscriptEntryView,
     palette: &Palette,
-    selected: bool,
+    appearance: EntryAppearance,
 ) -> Vec<Line<'static>> {
     match entry {
-        TranscriptEntryView::Text(item) => transcript_text(item, palette, selected),
-        TranscriptEntryView::Tool(tool) => {
-            let line = Line::from(vec![
-                Span::styled(
-                    format!("{} ", tool_marker(tool.status)),
-                    palette.style(tool_role(tool.status)),
-                ),
-                Span::styled(tool.label.clone(), palette.style(Role::Body)),
-                Span::styled(
-                    format!(" · {}", tool_status_label(tool.status)),
-                    palette.style(tool_role(tool.status)),
-                ),
-            ]);
-            vec![select_line(line, palette, selected)]
-        }
+        TranscriptEntryView::Text(item) => transcript_text(item, palette, appearance.selected),
+        TranscriptEntryView::Tool(tool) => tool::entry(tool, palette, appearance),
         TranscriptEntryView::Artifact(artifact) => {
             let line = Line::from(vec![
                 Span::styled("@ ", palette.style(Role::NewInformation)),
@@ -120,7 +109,7 @@ pub(crate) fn transcript_entry(
                     palette.style(Role::Muted),
                 ),
             ]);
-            vec![select_line(line, palette, selected)]
+            vec![select_line(line, palette, appearance.selected)]
         }
         TranscriptEntryView::Mail(mail) => {
             let line = Line::from(vec![
@@ -128,7 +117,7 @@ pub(crate) fn transcript_entry(
                 Span::styled(mail.to.to_string(), palette.style(Role::Body)),
                 Span::styled(format!(" · {}", mail.summary), palette.style(Role::Muted)),
             ]);
-            vec![select_line(line, palette, selected)]
+            vec![select_line(line, palette, appearance.selected)]
         }
     }
 }
@@ -328,70 +317,12 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-/// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
-const fn tool_marker(status: ToolCallStatus) -> &'static str {
-    match status {
-        ToolCallStatus::Queued => "[ ]",
-        ToolCallStatus::AwaitingApproval => "[?]",
-        ToolCallStatus::Running => "[~]",
-        ToolCallStatus::Succeeded => "[+]",
-        ToolCallStatus::Failed => "[!]",
-        ToolCallStatus::Denied => "[x]",
-        ToolCallStatus::Cancelled => "[-]",
-    }
-}
-
-const fn tool_status_label(status: ToolCallStatus) -> &'static str {
-    match status {
-        ToolCallStatus::Queued => "queued",
-        ToolCallStatus::AwaitingApproval => "approval required",
-        ToolCallStatus::Running => "running",
-        ToolCallStatus::Succeeded => "succeeded",
-        ToolCallStatus::Failed => "failed",
-        ToolCallStatus::Denied => "denied",
-        ToolCallStatus::Cancelled => "cancelled",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId};
     use ratatui::widgets::{Paragraph, Wrap};
 
-    use super::{agents, transcript_entry};
-    use crate::{ToolCallView, TranscriptEntryView, test_support::canonical_state, theme::Palette};
-
-    /// ENT-2: every state uses one stable, monochrome-readable compact grammar.
-    #[test]
-    fn every_tool_status_is_one_named_logical_line() {
-        let palette = Palette::monochrome();
-        for (status, marker, label) in [
-            (ToolCallStatus::Queued, "[ ]", "queued"),
-            (ToolCallStatus::AwaitingApproval, "[?]", "approval required"),
-            (ToolCallStatus::Running, "[~]", "running"),
-            (ToolCallStatus::Succeeded, "[+]", "succeeded"),
-            (ToolCallStatus::Failed, "[!]", "failed"),
-            (ToolCallStatus::Denied, "[x]", "denied"),
-            (ToolCallStatus::Cancelled, "[-]", "cancelled"),
-        ] {
-            let entry = TranscriptEntryView::Tool(ToolCallView {
-                entry_id: TranscriptItemId::new("entry")
-                    .unwrap_or_else(|error| panic!("fixture: {error}")),
-                id: ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}")),
-                label: "read_file".to_owned(),
-                status,
-                presentation: ToolPresentation::default(),
-                revision: 0,
-            });
-
-            let lines = transcript_entry(&entry, &palette, false);
-            assert_eq!(lines.len(), 1, "{status:?} stopped being compact");
-            let rendered = lines[0].to_string();
-            assert!(rendered.contains(marker), "{status:?}: {rendered:?}");
-            assert!(rendered.contains(label), "{status:?}: {rendered:?}");
-            assert!(rendered.contains("read_file"), "{status:?}: {rendered:?}");
-        }
-    }
+    use super::agents;
+    use crate::{test_support::canonical_state, theme::Palette};
 
     /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
     #[test]

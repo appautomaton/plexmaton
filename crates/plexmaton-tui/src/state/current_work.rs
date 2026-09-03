@@ -57,8 +57,8 @@ impl<'a> CurrentWork<'a> {
             }
         }
         // The Attention band names other outstanding requests. They still suppress ambient work
-        // here, because action required must not compete with a background label, but this slice
-        // does not invent a second word for them.
+        // here, because action required must not compete with a background label; the Attention
+        // band already carries their exact request vocabulary.
         if action_required {
             return None;
         }
@@ -119,7 +119,7 @@ mod tests {
         let call_id = ToolCallId::new(format!("call-{name}"))
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         agent
-            .set_tool_activity(
+            .set_tool_entry(
                 entry_id.clone(),
                 0,
                 call_id.clone(),
@@ -130,7 +130,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         if status != ToolCallStatus::Queued {
             agent
-                .set_tool_activity(
+                .set_tool_entry(
                     entry_id,
                     1,
                     call_id,

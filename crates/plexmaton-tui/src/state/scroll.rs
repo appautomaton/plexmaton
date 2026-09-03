@@ -14,7 +14,7 @@ use crate::{
 ///
 /// Three rather than one, because a wheel notch on every platform already represents several lines
 /// of intent, and a one-row response makes a long transcript feel stuck.
-const WHEEL_ROWS: u16 = 3;
+const WHEEL_ROWS: usize = 3;
 
 /// Where a surface is parked.
 ///
@@ -27,12 +27,12 @@ pub enum ScrollPosition {
     /// Pinned to the newest content, wherever the content ends up.
     Tail,
     /// Parked this many rows from the start of the content.
-    Row(u16),
+    Row(usize),
 }
 
 impl ScrollPosition {
     /// The row offset this position resolves to against a viewport of the given depth.
-    pub(crate) const fn offset(self, max_offset: u16) -> u16 {
+    pub(crate) const fn offset(self, max_offset: usize) -> usize {
         match self {
             Self::Tail => max_offset,
             Self::Row(row) => {
@@ -78,6 +78,11 @@ impl ScrollState {
     /// Returns where the reader of this conversation is, if they have ever moved.
     pub(super) fn conversation(&self, agent_id: &AgentId) -> Option<&TranscriptPosition> {
         self.conversations.get(agent_id)
+    }
+
+    /// Parks a conversation at one semantic anchor before an entry changes height (TR-3).
+    pub(super) fn park_conversation(&mut self, agent_id: AgentId, position: TranscriptPosition) {
+        self.conversations.insert(agent_id, position);
     }
 
     /// Moves one panel's viewport by a wheel notch, clamped to its content.
@@ -154,7 +159,7 @@ impl ScrollState {
 }
 
 /// One wheel notch from `current`, or `None` if it would not move.
-fn step(current: u16, direction: ScrollDirection, max_offset: u16) -> Option<u16> {
+fn step(current: usize, direction: ScrollDirection, max_offset: usize) -> Option<usize> {
     let next = match direction {
         ScrollDirection::Up => current.saturating_sub(WHEEL_ROWS),
         ScrollDirection::Down => current.saturating_add(WHEEL_ROWS),
@@ -171,7 +176,7 @@ mod tests {
         surface::{SurfaceId, Viewport},
     };
 
-    fn viewport(content_rows: u16, visible_rows: u16, offset: u16) -> Viewport {
+    fn viewport(content_rows: usize, visible_rows: u16, offset: usize) -> Viewport {
         Viewport {
             content_rows,
             visible_rows,

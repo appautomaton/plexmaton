@@ -6,7 +6,7 @@
 //! cannot change what is selected or what copying it returns. The contract is
 //! [`specs/selection-and-copy.md`](../../../../.agents/specs/selection-and-copy.md).
 
-use plexmaton_core::AgentId;
+use plexmaton_core::{AgentId, ToolDetail};
 
 use super::{AgentView, TranscriptEntryView, ViewState};
 use crate::{
@@ -30,7 +30,7 @@ pub struct Selection {
 }
 
 impl Selection {
-    const fn at(surface: SurfaceId, agent: AgentId, index: usize) -> Self {
+    pub(super) const fn at(surface: SurfaceId, agent: AgentId, index: usize) -> Self {
         Self {
             surface,
             agent,
@@ -57,6 +57,11 @@ impl Selection {
     pub const fn entries(&self) -> usize {
         let (first, last) = self.bounds();
         last.saturating_sub(first).saturating_add(1)
+    }
+
+    /// The moving end of the range, which is the entry a disclosure command addresses.
+    pub(super) const fn focus_index(&self) -> usize {
+        self.focus
     }
 }
 
@@ -247,31 +252,49 @@ impl ViewState {
                 .entries()
                 .skip(first)
                 .take(count)
-                .map(entry_source)
+                .filter_map(entry_source)
                 .collect(),
             _ => Vec::new(),
         }
     }
 }
 
-fn entry_source(entry: &TranscriptEntryView) -> String {
+fn entry_source(entry: &TranscriptEntryView) -> Option<String> {
     match entry {
-        TranscriptEntryView::Text(item) => item.source.clone(),
-        // Slice 5 promotes retained invocation/outcome detail to the selectable source. Until then,
-        // preserving the former compact behavior means a tool copies its stable label.
-        TranscriptEntryView::Tool(tool) => tool.label.clone(),
+        TranscriptEntryView::Text(item) => Some(item.source.clone()),
+        TranscriptEntryView::Tool(tool) => tool_source(&tool.presentation),
         // The pointer, not the human label: the pointer is the stable artifact value (SEL-2).
-        TranscriptEntryView::Artifact(artifact) => artifact.pointer.clone(),
+        TranscriptEntryView::Artifact(artifact) => Some(artifact.pointer.clone()),
         // Recipient travels with the summary because the entry belongs to its producer.
-        TranscriptEntryView::Mail(mail) => format!("{}: {}", mail.to, mail.summary),
+        TranscriptEntryView::Mail(mail) => Some(format!("{}: {}", mail.to, mail.summary)),
+    }
+}
+
+/// Invocation then outcome, exactly as retained and with only the selection's neutral separator.
+fn tool_source(presentation: &plexmaton_core::ToolPresentation) -> Option<String> {
+    let parts: Vec<_> = [
+        presentation.invocation.as_ref(),
+        presentation.outcome.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(detail_source)
+    .collect();
+    (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
+const fn detail_source(detail: &ToolDetail) -> &str {
+    match detail {
+        ToolDetail::Text { source, .. } => source.as_str(),
+        ToolDetail::Diff { patch } => patch.as_str(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId,
-        TranscriptRole,
+        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, ToolDetail,
+        ToolPresentation, TranscriptItemId, TranscriptRole,
     };
     use proptest::{collection::vec, prelude::*};
     use ratatui::{
@@ -280,6 +303,7 @@ mod tests {
         crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     };
 
+    use super::tool_source;
     use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_state};
 
     /// ENT-1 and SEL-2: copy follows the unified first-appearance order across entry kinds.
@@ -298,14 +322,37 @@ mod tests {
         let copied = state
             .copy()
             .unwrap_or_else(|| panic!("the selected conversation has semantic source"));
-        assert_eq!(copied.entries, 4);
+        assert_eq!(
+            copied.entries, 3,
+            "a tool with no retained detail contributes no invented label"
+        );
         assert_eq!(
             copied.text,
             "I found the surface-routing boundary and am checking overlap behavior.\n\
-             inspect interaction fixtures\n\
              artifact://agent-b/interaction-findings\n\
              agent-a: Routing stays centralized and z-ordered."
         );
+    }
+
+    /// ENT-4 and SEL-2: tool copy is the retained invocation then outcome, without UI labels.
+    #[test]
+    fn tool_copy_preserves_every_retained_source_in_producer_order() {
+        let invocation = "path: crates/plexmaton-tui/src/content.rs";
+        let outcome = "head\n...[7 bytes omitted]...\ntail";
+        let copied = tool_source(&ToolPresentation {
+            invocation: Some(ToolDetail::Diff {
+                patch: invocation.to_owned(),
+            }),
+            outcome: Some(ToolDetail::Text {
+                source: outcome.to_owned(),
+                omitted_bytes: 7,
+            }),
+        })
+        .unwrap_or_else(|| panic!("retained tool detail has a copy source"));
+
+        assert_eq!(copied, format!("{invocation}\n{outcome}"));
+        assert!(!copied.contains("invocation:"));
+        assert!(!copied.contains("outcome:"));
     }
 
     /// SEL-3: a selection cannot outlive the surface having stopped showing its agent.

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1 and 2 done; stage 3 slices 1–4 done, slice 5 ready |
+| Status | Active; stages 1 and 2 done; stage 3 slices 1–5 done, slice 6 ready |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | The mechanisms and the layout Phase 00 delivered, each mechanism with a spec in [`specs/`](../specs/) |
@@ -63,8 +63,9 @@ queue has no eviction; nothing removes a transcript item, so cache pruning has n
    detail and a mail's summary. The replayable entry spine and native presentation facts are done:
    every category shares one ordered projection, tool lifecycle updates preserve first appearance,
    and model results retain model order. The compact transcript and static current-work grammar
-   were independently reviewed and accepted by the user on 2026-09-03; disclosure and diff work
-   follow.
+   were independently reviewed and accepted by the user on 2026-09-03. Disclosure, hover and
+   semantic tool copy are also done, with their wide, medium and narrow frames reviewed on
+   2026-09-03; diff and remaining row treatments follow.
 
 Each stage is sliced in a plan when it starts, and ends with frames at three widths looked at by
 the user.

@@ -763,7 +763,7 @@ mod tests {
             .state()
             .primary_agent()
             .unwrap_or_else(|| panic!("agent was projected"))
-            .tool_activity()
+            .tools()
             .map(|tool| (tool.id.as_str(), tool.revision, tool.status))
             .collect();
         assert_eq!(
@@ -1048,7 +1048,7 @@ reasoning_effort = "none"
             item.role == TranscriptRole::Assistant && item.source.contains("Plexmaton.")
         }));
         let read = agent
-            .tool_activity()
+            .tools()
             .find(|tool| tool.label == "read_file")
             .unwrap_or_else(|| panic!("native read never entered the transcript"));
         assert_eq!(read.status, ToolCallStatus::Succeeded);

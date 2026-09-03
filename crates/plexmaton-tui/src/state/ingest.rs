@@ -198,7 +198,7 @@ impl ViewState {
                 presentation,
             } => {
                 self.validate_entry_owner(&agent_id, &item_id)?;
-                let changed = self.agent_mut(&agent_id)?.set_tool_activity(
+                let changed = self.agent_mut(&agent_id)?.set_tool_entry(
                     item_id.clone(),
                     item_revision,
                     call_id,
@@ -800,7 +800,7 @@ mod tests {
         );
         let stored = state
             .primary_agent()
-            .and_then(|agent| agent.tool_activity().next())
+            .and_then(|agent| agent.tools().next())
             .unwrap_or_else(|| panic!("tool entry was projected"));
         assert_eq!(stored.revision, 2);
         assert_eq!(stored.status, ToolCallStatus::Succeeded);

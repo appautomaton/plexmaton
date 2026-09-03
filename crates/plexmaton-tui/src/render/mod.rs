@@ -300,7 +300,7 @@ fn conversation_body(
     // Every height below belongs to this width, and the viewport carries it out of the frame so the
     // scroll path resolves against the same one rather than against whatever was measured last.
     let width = inner_width(area.width);
-    if metrics.measure(agent, palette, width) == 0 {
+    if metrics.measure_with(agent, palette, width, state.disclosure()) == 0 {
         return Body::Whole {
             lines: content::conversation_placeholder(palette, surface, true),
             follows_tail: false,
@@ -320,15 +320,11 @@ fn conversation_body(
         |position| metrics.offset_of(&agent.id, width, position, viewport.max_offset()),
     );
     let window = metrics.window(&agent.id, width, viewport.offset, visible_rows);
+    let (lines, skip_rows) = metrics.build(agent, palette, &window, state, surface);
 
     Body::Window {
-        lines: metrics.build(
-            agent,
-            palette,
-            &window,
-            state.selected_in(surface, &agent.id),
-        ),
-        skip_rows: window.skip_rows,
+        lines,
+        skip_rows,
         viewport,
     }
 }
@@ -556,7 +552,13 @@ mod tests {
             .primary_agent()
             .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
             .entries()
-            .flat_map(|item| crate::content::transcript_entry(item, palette, false))
+            .flat_map(|item| {
+                crate::content::transcript_entry(
+                    item,
+                    palette,
+                    crate::state::EntryAppearance::compact(false),
+                )
+            })
             .collect();
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
@@ -568,7 +570,11 @@ mod tests {
                 false,
                 Edges::Upper,
             ))
-            .scroll((viewport.offset, 0));
+            .scroll((
+                u16::try_from(viewport.offset)
+                    .unwrap_or_else(|_| panic!("reference fixture offset fits the terminal")),
+                0,
+            ));
 
         let mut terminal =
             Terminal::new(TestBackend::new(bounds.right().max(bounds.width), height))

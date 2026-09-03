@@ -3,6 +3,7 @@ mod approval;
 mod attention;
 mod composer;
 mod current_work;
+mod disclosure;
 mod entry;
 mod focus;
 mod ingest;
@@ -24,6 +25,7 @@ pub use approval::{ApprovalSubmission, ApprovalView};
 pub use attention::AttentionView;
 pub use composer::Composer;
 pub(crate) use current_work::CurrentWork;
+pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
 pub use entry::{
     ArtifactView, MailView, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind,
@@ -32,7 +34,6 @@ pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::NoticeView;
 pub use scroll::ScrollPosition;
-pub(crate) use selection::Selected;
 pub use selection::{CopyRequest, Selection};
 pub use status::{QuitPress, Status, StatusNote};
 
@@ -85,6 +86,8 @@ pub struct ViewState {
     /// which of them has the cursor (COM-1).
     composers: BTreeMap<AgentId, Composer>,
     inspector: Inspector,
+    /// Which semantic entries the user opened, plus the one under the pointer.
+    disclosure: DisclosureState,
     /// What the user has selected for copying, expressed in entries rather than in cells.
     selection: Option<Selection>,
     status: Status,
