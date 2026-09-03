@@ -43,9 +43,11 @@ identity, then uses a no-replace hard link as its publication point. A target cr
 any time wins unchanged; edit failure never falls back to creation or whole-file overwrite.
 
 **MUT-6 — Work and retained state are bounded and cancellable.** One mutation has at most 16 edits,
-48 KiB of aggregate model content, an 8 MiB source and result, one staging file, and 8 KiB write
-chunks. Invalid UTF-8/NUL source, NUL creation, over-bound input, cancellation, and injected write
-failure are typed outcomes which publish neither a partial target nor unbounded diagnostics.
+48 KiB of decoded aggregate UTF-8 model content, an 8 MiB source and result, one staging file, and
+8 KiB write chunks. Schema `maxLength` uses its character-count meaning and field descriptions name
+the decoded mutation byte guard. Canonical splice structure has a 1 KiB reserve over the 64 KiB
+raw-call ceiling. Invalid UTF-8/NUL source, NUL creation, over-bound input, cancellation, and
+injected write failure publish neither a partial target nor unbounded diagnostics.
 
 ## Selected model surface
 
@@ -83,4 +85,4 @@ provider dialects translate that one semantic catalog rather than owning mutatio
 | MUT-3 | `stale_edit_preserves_the_concurrent_writer`, `writer_before_replace_publication_is_preserved`, `symlink_swap_before_replace_is_refused` |
 | MUT-4 | `exact_batch_preserves_byte_shape_and_mode`, `replacement_faults_leave_no_partial_target_or_staging_file`, `replaced_or_modified_staging_entry_is_never_published_or_wrongly_deleted`, `malformed_canonical_and_cancelled_mutations_fail_closed` |
 | MUT-5 | `create_is_absence_only_and_never_overwrites`, `create_faults_and_collision_never_publish_staging_bytes`, `mutation_paths_allow_a_missing_leaf_but_not_a_missing_parent` |
-| MUT-6 | `mutation_bounds_hold_at_their_exact_edges`, `admission_never_returns_a_trusted_call_after_final_cancellation`, `catalog_never_publishes_a_trusted_call_after_final_cancellation`, `malformed_canonical_and_cancelled_mutations_fail_closed`, `replacement_faults_leave_no_partial_target_or_staging_file`, `create_faults_and_collision_never_publish_staging_bytes` |
+| MUT-6 | `mutation_bounds_hold_at_their_exact_edges`, `escaped_edit_within_raw_and_mutation_bounds_survives_canonicalization`, `maximum_edit_canonical_structure_fits_the_one_kibibyte_reserve`, `admission_never_returns_a_trusted_call_after_final_cancellation`, `catalog_never_publishes_a_trusted_call_after_final_cancellation`, `malformed_canonical_and_cancelled_mutations_fail_closed`, `replacement_faults_leave_no_partial_target_or_staging_file`, `create_faults_and_collision_never_publish_staging_bytes` |

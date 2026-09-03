@@ -134,3 +134,55 @@ where
 {
     Option::<u16>::deserialize(deserializer).map(|value| value.unwrap_or_else(default_search_limit))
 }
+
+#[cfg(test)]
+mod tests {
+    use plexmaton_agent::{MAX_ADMITTED_ARGUMENT_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES};
+    use serde_json::json;
+
+    use super::canonical_edit;
+    use crate::mutation::{
+        ByteSplice, CanonicalEdit, MAX_MUTATION_EDITS, MAX_MUTATION_SOURCE_BYTES,
+    };
+
+    /// MUT-6: the retained reserve covers the greatest structural expansion of sixteen frozen
+    /// splices; string escaping is identical on the raw and canonical sides.
+    #[test]
+    fn maximum_edit_canonical_structure_fits_the_one_kibibyte_reserve() {
+        let observation = "obs-0123456789abcdef";
+        let edits = (0..MAX_MUTATION_EDITS)
+            .map(|_| json!({"old_text": "a", "new_text": ""}))
+            .collect::<Vec<_>>();
+        let raw = json!({
+            "path": "p",
+            "observation": observation,
+            "edits": edits,
+        })
+        .to_string();
+        let canonical = CanonicalEdit {
+            path: "p".to_owned(),
+            observation: observation.to_owned(),
+            source_len: MAX_MUTATION_SOURCE_BYTES,
+            splices: (0..MAX_MUTATION_EDITS)
+                .map(|_| ByteSplice {
+                    start: MAX_MUTATION_SOURCE_BYTES - 1,
+                    end: MAX_MUTATION_SOURCE_BYTES,
+                    expected: "a".to_owned(),
+                    replacement: String::new(),
+                })
+                .collect(),
+        };
+        let canonical = canonical_edit(&canonical)
+            .unwrap_or_else(|| panic!("serialize maximal canonical structure"));
+        let expansion = canonical
+            .len()
+            .checked_sub(raw.len())
+            .unwrap_or_else(|| panic!("canonical structure should be the larger shape"));
+
+        assert_eq!(
+            MAX_ADMITTED_ARGUMENT_BYTES - MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
+            1024
+        );
+        assert!(expansion < 1024, "structural expansion was {expansion}");
+    }
+}

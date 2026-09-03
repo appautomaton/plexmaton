@@ -14,7 +14,10 @@ use crate::{PathError, path::validate_search_path};
 
 pub const DEFAULT_SEARCH_MATCHES: u16 = 100;
 pub const MAX_SEARCH_MATCHES: u16 = 500;
+pub(crate) const MAX_PATTERN_CHARACTERS: usize = 8 * 1024;
 pub const MAX_PATTERN_BYTES: usize = 8 * 1024;
+pub(crate) const MAX_GLOB_CHARACTERS: usize = 4096;
+const MAX_GLOB_BYTES: usize = 4096;
 pub const MAX_PREVIEW_BYTES: usize = 2 * 1024;
 pub const MAX_RG_RECORD_BYTES: usize = 64 * 1024;
 pub const MAX_RG_STDOUT_BYTES: usize = 1024 * 1024;
@@ -48,7 +51,7 @@ impl SearchRequest {
             || pattern.len() > MAX_PATTERN_BYTES
             || glob
                 .as_ref()
-                .is_some_and(|value| value.is_empty() || value.len() > 4096)
+                .is_some_and(|value| value.is_empty() || value.len() > MAX_GLOB_BYTES)
             || limit == 0
             || limit > MAX_SEARCH_MATCHES
         {
@@ -60,6 +63,27 @@ impl SearchRequest {
             glob,
             limit,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SearchError, SearchRequest};
+
+    #[test]
+    fn search_text_enforces_decoded_utf8_byte_bounds() {
+        assert!(SearchRequest::new("🦀".repeat(2048), None, None, None).is_ok());
+        assert_eq!(
+            SearchRequest::new("🦀".repeat(2049), None, None, None),
+            Err(SearchError::InvalidArguments)
+        );
+        assert!(
+            SearchRequest::new("pattern".to_owned(), None, Some("🦀".repeat(1024)), None).is_ok()
+        );
+        assert_eq!(
+            SearchRequest::new("pattern".to_owned(), None, Some("🦀".repeat(1025)), None),
+            Err(SearchError::InvalidArguments)
+        );
     }
 }
 

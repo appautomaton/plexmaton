@@ -1,7 +1,7 @@
 //! Shared OpenAI-compatible codec seam and its bounded vocabulary.
 
 use plexmaton_agent::{
-    AdmissionRefusal, MAX_ADMITTED_ARGUMENT_BYTES, MAX_PROVIDER_REPLAY_BYTES, ModelError,
+    AdmissionRefusal, MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ModelError,
     ModelEvent, ModelRequest, ProviderReplayError, ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
@@ -42,7 +42,7 @@ impl DecodeLimits {
         Self {
             max_retained_output_bytes: profile.max_retained_output_bytes(),
             max_sse_event_bytes: 512 * 1024,
-            max_tool_argument_bytes: MAX_ADMITTED_ARGUMENT_BYTES,
+            max_tool_argument_bytes: MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
             max_tool_calls: 64,
             max_replay_bytes: MAX_PROVIDER_REPLAY_BYTES,
             max_replay_items: 16,

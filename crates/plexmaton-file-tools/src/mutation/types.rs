@@ -5,6 +5,9 @@ use thiserror::Error;
 
 use crate::{ObservationId, PathError};
 
+/// JSON Schema character ceiling for each mutation text field.
+pub const MAX_MUTATION_ARGUMENT_CHARACTERS: usize = 48 * 1024;
+/// Aggregate UTF-8 byte ceiling across one mutation's model-supplied text.
 pub const MAX_MUTATION_ARGUMENT_BYTES: usize = 48 * 1024;
 pub const MAX_MUTATION_EDITS: usize = 16;
 pub const MAX_MUTATION_SOURCE_BYTES: usize = 8 * 1024 * 1024;

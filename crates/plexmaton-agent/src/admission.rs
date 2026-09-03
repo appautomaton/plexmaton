@@ -10,8 +10,13 @@ use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId};
 
 use crate::tools::ToolCall;
 
+/// Maximum raw JSON argument bytes accepted from one model tool call.
+pub const MAX_REQUESTED_TOOL_ARGUMENT_BYTES: usize = 64 * 1024;
 /// Maximum canonical argument bytes one admitted call may retain in turn state.
-pub const MAX_ADMITTED_ARGUMENT_BYTES: usize = 64 * 1024;
+///
+/// The extra KiB is reserved for trusted catalogs that replace raw syntax with bounded canonical
+/// structure; it does not widen the provider input boundary.
+pub const MAX_ADMITTED_ARGUMENT_BYTES: usize = MAX_REQUESTED_TOOL_ARGUMENT_BYTES + 1024;
 
 /// Maximum concrete operation detail shown in an approval request.
 pub const MAX_APPROVAL_DETAIL_BYTES: usize = 1024;
@@ -363,6 +368,18 @@ mod tests {
         let definition = base.definition_id().clone();
         let revision = base.definition_revision();
 
+        assert_eq!(MAX_ADMITTED_ARGUMENT_BYTES, 65 * 1024);
+        assert!(
+            AdmittedToolCall::new(
+                request.clone(),
+                definition.clone(),
+                revision,
+                [],
+                "x".repeat(MAX_ADMITTED_ARGUMENT_BYTES),
+                String::new(),
+            )
+            .is_ok()
+        );
         assert_eq!(
             AdmittedToolCall::new(
                 request.clone(),

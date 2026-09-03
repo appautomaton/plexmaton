@@ -8,7 +8,7 @@ use std::{fs::File, io::Read as _};
 
 pub(crate) use types::{
     ByteSplice, CanonicalEdit, CreateArguments, EditArguments, MAX_MUTATION_ARGUMENT_BYTES,
-    MAX_MUTATION_EDITS, MAX_MUTATION_SOURCE_BYTES, MutationError,
+    MAX_MUTATION_ARGUMENT_CHARACTERS, MAX_MUTATION_EDITS, MAX_MUTATION_SOURCE_BYTES, MutationError,
 };
 
 use crate::{

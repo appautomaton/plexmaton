@@ -43,12 +43,59 @@ fn catalog_definitions_are_strict_and_bounded() {
         500
     );
     assert_eq!(
+        definitions[0].parameters()["properties"]["path"]["minLength"],
+        1
+    );
+    for definition in &definitions {
+        assert_eq!(
+            definition.parameters()["properties"]["path"]["maxLength"],
+            4096
+        );
+        assert!(
+            definition.parameters()["properties"]["path"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("4 KiB of UTF-8 bytes"))
+        );
+    }
+    assert_eq!(
+        definitions[1].parameters()["properties"]["pattern"]["maxLength"],
+        8192
+    );
+    assert!(
+        definitions[1].parameters()["properties"]["pattern"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("8 KiB of UTF-8 bytes"))
+    );
+    assert_eq!(
+        definitions[1].parameters()["properties"]["glob"]["maxLength"],
+        4096
+    );
+    assert!(
+        definitions[1].parameters()["properties"]["glob"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("4 KiB of UTF-8 bytes"))
+    );
+    assert_eq!(
         definitions[2].parameters()["properties"]["edits"]["maxItems"],
         16
     );
     assert_eq!(
+        definitions[2].parameters()["properties"]["edits"]["items"]["properties"]["old_text"]["maxLength"],
+        49_152
+    );
+    assert!(
+        definitions[2].parameters()["properties"]["edits"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("48 KiB of UTF-8 bytes"))
+    );
+    assert_eq!(
         definitions[3].parameters()["properties"]["content"]["maxLength"],
         49_152
+    );
+    assert!(
+        definitions[3].parameters()["properties"]["content"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("48 KiB of UTF-8 bytes"))
     );
 }
 

@@ -20,7 +20,7 @@ mod turn;
 pub use admission::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedCallError, AdmittedToolCall,
     ApprovalPolicy, CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, MAX_APPROVAL_DETAIL_BYTES,
-    PolicyDecision, ToolDefinitionRevision,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
 };
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, UndeliveredInput,

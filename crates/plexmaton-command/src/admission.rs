@@ -6,7 +6,7 @@ use std::{
 
 use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall,
-    MAX_ADMITTED_ARGUMENT_BYTES, ToolDefinitionRevision,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision,
 };
 use plexmaton_core::{ToolCapability, ToolDefinitionId};
 use serde::{Deserialize, Serialize};
@@ -179,7 +179,7 @@ impl CommandTool {
         if request.requested().name != COMMAND_TOOL_NAME {
             return request.refuse(AdmissionRefusal::UnknownTool);
         }
-        if request.requested().arguments.len() > MAX_ADMITTED_ARGUMENT_BYTES {
+        if request.requested().arguments.len() > MAX_REQUESTED_TOOL_ARGUMENT_BYTES {
             return request.refuse(AdmissionRefusal::InvalidArguments);
         }
         let Ok(arguments) = serde_json::from_str::<ModelArguments>(&request.requested().arguments)
@@ -589,7 +589,7 @@ mod tests {
         let escaped_command = format!("x{}", "\u{1}".repeat(MAX_COMMAND_CHARACTERS - 1));
         let escaped_arguments =
             serde_json::json!({ "cmd": escaped_command, "timeout_ms": null }).to_string();
-        assert!(escaped_arguments.len() <= plexmaton_agent::MAX_ADMITTED_ARGUMENT_BYTES);
+        assert!(escaped_arguments.len() <= plexmaton_agent::MAX_REQUESTED_TOOL_ARGUMENT_BYTES);
         let AdmissionOutcome::Admitted(escaped) =
             tool.admit(request(COMMAND_TOOL_NAME, escaped_arguments))
         else {

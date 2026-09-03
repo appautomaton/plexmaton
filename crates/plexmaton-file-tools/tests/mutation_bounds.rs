@@ -1,6 +1,9 @@
 mod support;
 
-use plexmaton_agent::{AdmissionOutcome, AdmissionRefusal};
+use plexmaton_agent::{
+    AdmissionOutcome, AdmissionRefusal, MAX_ADMITTED_ARGUMENT_BYTES,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
+};
 use plexmaton_file_tools::{
     CREATE_TOOL_NAME, EDIT_TOOL_NAME, FileCancellation, FileTools, ReadRequest,
 };
@@ -57,6 +60,27 @@ fn mutation_bounds_hold_at_their_exact_edges() {
         admission_request(
             CREATE_TOOL_NAME,
             json!({"path":"create-over-limit", "content":"x".repeat(ARGUMENT_BYTES + 1)})
+        ),
+        &FileCancellation::new()
+    )));
+    let unicode_at_limit = "🦀".repeat(ARGUMENT_BYTES / 4);
+    assert_eq!(unicode_at_limit.len(), ARGUMENT_BYTES);
+    assert!(matches!(
+        tools.admit(
+            admission_request(
+                CREATE_TOOL_NAME,
+                json!({"path":"unicode-at-limit", "content":unicode_at_limit})
+            ),
+            &FileCancellation::new()
+        ),
+        AdmissionOutcome::Admitted(_)
+    ));
+    let unicode_over_limit = "🦀".repeat(ARGUMENT_BYTES / 4 + 1);
+    assert_eq!(unicode_over_limit.chars().count(), ARGUMENT_BYTES / 4 + 1);
+    assert!(is_invalid(tools.admit(
+        admission_request(
+            CREATE_TOOL_NAME,
+            json!({"path":"unicode-over-limit", "content":unicode_over_limit})
         ),
         &FileCancellation::new()
     )));
@@ -138,4 +162,36 @@ fn mutation_bounds_hold_at_their_exact_edges() {
         ),
         &FileCancellation::new()
     )));
+}
+
+/// MUT-6: a provider-valid escaped edit remains admissible after trusted canonicalization adds
+/// splice offsets and field names.
+#[test]
+fn escaped_edit_within_raw_and_mutation_bounds_survives_canonicalization() {
+    let workspace = TestWorkspace::new();
+    let old_text = "\"".repeat(16_350);
+    let new_text = "\\".repeat(16_351);
+    assert!(old_text.len() + new_text.len() < 48 * 1024);
+    workspace.write("escaped", old_text.as_bytes());
+    let mut tools = FileTools::open(workspace.path(), "/bin/false", "/bin/false")
+        .unwrap_or_else(|error| panic!("open tools: {error}"));
+    let observed = observation(&mut tools, "escaped", 1);
+    let arguments = json!({
+        "path": "escaped",
+        "observation": observed,
+        "edits": [{"old_text": old_text, "new_text": new_text}],
+    });
+    let raw = arguments.to_string();
+    assert_eq!(raw.len(), 65_497);
+    assert!(raw.len() <= MAX_REQUESTED_TOOL_ARGUMENT_BYTES);
+
+    let outcome = tools.admit(
+        admission_request(EDIT_TOOL_NAME, arguments),
+        &FileCancellation::new(),
+    );
+    let AdmissionOutcome::Admitted(call) = outcome else {
+        panic!("canonical expansion refused a provider-valid edit: {outcome:?}");
+    };
+    assert_eq!(call.canonical_arguments().len(), 65_543);
+    assert!(call.canonical_arguments().len() <= MAX_ADMITTED_ARGUMENT_BYTES);
 }

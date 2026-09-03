@@ -1,6 +1,10 @@
 use serde_json::{Value, json};
 
-use crate::mutation::{MAX_MUTATION_ARGUMENT_BYTES, MAX_MUTATION_EDITS};
+use crate::{
+    mutation::{MAX_MUTATION_ARGUMENT_CHARACTERS, MAX_MUTATION_EDITS},
+    path::MAX_PATH_CHARACTERS,
+    search::{MAX_GLOB_CHARACTERS, MAX_PATTERN_CHARACTERS},
+};
 
 pub const READ_TOOL_NAME: &str = "read_file";
 pub const SEARCH_TOOL_NAME: &str = "search";
@@ -55,7 +59,7 @@ fn read_definition() -> FileToolDefinition {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "path": { "type": "string", "maxLength": 4096, "description": "Workspace-relative file path." },
+                "path": { "type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARACTERS, "description": "Workspace-relative file path, limited after decoding to 4 KiB of UTF-8 bytes." },
                 "offset": { "type": ["integer", "null"], "minimum": 1, "description": "First line to return; null means 1." },
                 "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000, "description": "Maximum lines to return; null means 200." }
             },
@@ -72,9 +76,9 @@ fn search_definition() -> FileToolDefinition {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "pattern": { "type": "string", "description": "Regular expression to search for." },
-                "path": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096, "description": "Workspace-relative file or directory; null means the workspace root." },
-                "glob": { "type": ["string", "null"], "description": "Ripgrep glob filter for a directory search; null applies no filter." },
+                "pattern": { "type": "string", "minLength": 1, "maxLength": MAX_PATTERN_CHARACTERS, "description": "Regular expression, limited after decoding to 8 KiB of UTF-8 bytes." },
+                "path": { "type": ["string", "null"], "minLength": 1, "maxLength": MAX_PATH_CHARACTERS, "description": "Workspace-relative file or directory, limited after decoding to 4 KiB of UTF-8 bytes; null means the workspace root." },
+                "glob": { "type": ["string", "null"], "minLength": 1, "maxLength": MAX_GLOB_CHARACTERS, "description": "Ripgrep glob filter, limited after decoding to 4 KiB of UTF-8 bytes; null applies no filter." },
                 "limit": { "type": ["integer", "null"], "minimum": 1, "maximum": 500, "description": "Maximum matches to return; null means 100." }
             },
             "required": ["pattern", "path", "glob", "limit"]
@@ -90,18 +94,19 @@ fn edit_definition() -> FileToolDefinition {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "path": { "type": "string", "minLength": 1, "maxLength": 4096, "description": "Workspace-relative path returned by read_file." },
+                "path": { "type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARACTERS, "description": "Workspace-relative path returned by read_file, limited after decoding to 4 KiB of UTF-8 bytes." },
                 "observation": { "type": "string", "minLength": 20, "maxLength": 20, "pattern": "^obs-[0-9a-f]{16}$", "description": "Opaque observation returned by read_file for this exact file window." },
                 "edits": {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": MAX_MUTATION_EDITS,
+                    "description": "Across the batch, decoded old_text plus new_text may contain at most 48 KiB of UTF-8 bytes.",
                     "items": {
                         "type": "object",
                         "additionalProperties": false,
                         "properties": {
-                            "old_text": { "type": "string", "minLength": 1, "maxLength": MAX_MUTATION_ARGUMENT_BYTES, "description": "Exact observed UTF-8 text with enough context to be unique in the returned window." },
-                            "new_text": { "type": "string", "maxLength": MAX_MUTATION_ARGUMENT_BYTES, "description": "Exact replacement text; empty deletes old_text." }
+                            "old_text": { "type": "string", "minLength": 1, "maxLength": MAX_MUTATION_ARGUMENT_CHARACTERS, "description": "Exact observed UTF-8 text with enough context to be unique in the returned window." },
+                            "new_text": { "type": "string", "maxLength": MAX_MUTATION_ARGUMENT_CHARACTERS, "description": "Exact replacement text; empty deletes old_text." }
                         },
                         "required": ["old_text", "new_text"]
                     }
@@ -120,8 +125,8 @@ fn create_definition() -> FileToolDefinition {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "path": { "type": "string", "minLength": 1, "maxLength": 4096, "description": "Workspace-relative path whose parents already exist." },
-                "content": { "type": "string", "maxLength": MAX_MUTATION_ARGUMENT_BYTES, "description": "Exact UTF-8 file contents." }
+                "path": { "type": "string", "minLength": 1, "maxLength": MAX_PATH_CHARACTERS, "description": "Workspace-relative path whose parents already exist, limited after decoding to 4 KiB of UTF-8 bytes." },
+                "content": { "type": "string", "maxLength": MAX_MUTATION_ARGUMENT_CHARACTERS, "description": "Exact UTF-8 file contents, limited after decoding to 48 KiB of UTF-8 bytes." }
             },
             "required": ["path", "content"]
         }),

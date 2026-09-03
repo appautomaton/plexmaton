@@ -10,6 +10,8 @@ use plexmaton_provider::{
 };
 use serde_json::Value;
 
+#[path = "provider_fixtures/argument_boundaries.rs"]
+mod argument_boundaries;
 mod support;
 #[path = "provider_fixtures/usage_boundaries.rs"]
 mod usage_boundaries;

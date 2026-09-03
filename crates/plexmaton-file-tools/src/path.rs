@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
+pub(crate) const MAX_PATH_CHARACTERS: usize = 4096;
 const MAX_PATH_BYTES: usize = 4096;
 
 /// Canonical directory from which every file-tool path is resolved (WFS-1).
@@ -375,7 +376,7 @@ mod tests {
         sync::atomic::{AtomicU64, Ordering},
     };
 
-    use super::{PathError, WorkspaceRoot};
+    use super::{PathError, WorkspaceRoot, validate_file_path};
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
 
@@ -387,6 +388,15 @@ mod tests {
         ));
         fs::create_dir(&directory).unwrap_or_else(|error| panic!("create fixture: {error}"));
         directory
+    }
+
+    #[test]
+    fn model_paths_enforce_the_decoded_utf8_byte_bound() {
+        assert!(validate_file_path(&"é".repeat(2048)).is_ok());
+        assert_eq!(
+            validate_file_path(&"é".repeat(2049)),
+            Err(PathError::TooLong)
+        );
     }
 
     #[test]

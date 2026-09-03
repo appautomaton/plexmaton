@@ -18,7 +18,8 @@ order; tool identity and argument fragments assemble under per-call and per-step
 and only a protocol completion event emits one whole call. Partial UTF-8, an unfinished call,
 duplicate call identity, duplicate finality or a conflicting fragment is a typed malformed
 response, never guessed content.
-A semantic stop is released only after the stream trailer passes validation.
+The production raw-call ceiling remains 64 KiB even when trusted canonical state reserves more;
+a semantic stop is released only after the stream trailer passes validation.
 
 **PRV-3 — Reasoning and replay are exact but separate.** Chat `reasoning_content` is retained as
 bounded reasoning text; a Responses reasoning item retains its summary and encrypted content
@@ -82,7 +83,7 @@ choice. Rejected: automatic fallback, because replay and failure semantics chang
 | Invariant | Proven by |
 | --- | --- |
 | PRV-1 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_1_protocol_selection_never_falls_back_across_replay_grammars`, `native_catalog_is_exact_unique_and_advertised_by_both_protocols` |
-| PRV-2 | Both fixture round trips, `prv_2_rejects_duplicate_chat_tool_call_ids_before_emission`, `prv_2_rejects_incremental_duplicate_responses_tool_call_ids`, `prv_2_responses_counts_incrementally_completed_calls_toward_the_step_bound`, `prv_2_rejects_tool_arguments_before_they_can_reach_admission`, `prv_2_bounds_even_empty_responses_output_items`, `prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy`, `prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid`, `prv_2_sse_framing_rejects_partial_utf8` |
+| PRV-2 | Both fixture round trips, `prv_2_production_tool_argument_limit_remains_64_kibibytes`, `prv_2_rejects_duplicate_chat_tool_call_ids_before_emission`, `prv_2_rejects_incremental_duplicate_responses_tool_call_ids`, `prv_2_responses_counts_incrementally_completed_calls_toward_the_step_bound`, `prv_2_rejects_tool_arguments_before_they_can_reach_admission`, `prv_2_bounds_even_empty_responses_output_items`, `prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy`, `prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid`, `prv_2_sse_framing_rejects_partial_utf8` |
 | PRV-3 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_3_rejects_opaque_replay_before_step_state_can_grow`, `reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation`, `provider_replay_is_named_and_bounded_before_turn_state_can_retain_it` |
 | PRV-4 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools` proves stateless full-record replay without a response ID |
 | PRV-5 | `http_rate_limit_is_typed_and_keeps_retry_after`, `context_error_is_classified_by_wire_code`, `prv_5_responses_done_only_refusal_is_visible_and_typed`, and both fixture completion reasons |

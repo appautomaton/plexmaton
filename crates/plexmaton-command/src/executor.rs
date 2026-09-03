@@ -130,7 +130,13 @@ async fn execute_with_operations<O: ProcessOperations>(
     }
     // Both handles are awaited even when process supervision failed. Once a child has started,
     // no error path may turn either owned drain into a detached task (CMD-5 and CMD-6).
-    let drains = join_drains(stdout_drain, stderr_drain, &drain_seal).await;
+    let drains = join_drains(
+        stdout_drain,
+        stderr_drain,
+        &drain_seal,
+        tokio::time::sleep(DRAIN_GRACE),
+    )
+    .await;
     let (cause, termination) = supervision?;
     #[cfg(not(test))]
     let _ = termination;
@@ -200,19 +206,18 @@ async fn terminate_and_reap(
         tokio::time::sleep(GROUP_POLL_INTERVAL).await;
     }
 
-    if process_group_exists(operations, process_group)? {
-        signal_group(operations, process_group, Signal::KILL, "SIGKILL")?;
-    }
+    let mut sent_sigkill = kill_group_if_present(operations, process_group)?;
     if !root_reaped {
         // The root may itself have escaped the process group. It remains an owned child even when
         // descendants outside that group are beyond this executor's containment claim.
         child.start_kill().map_err(CommandExecutionError::Wait)?;
+        sent_sigkill = true;
         wait_for_child(child, operations)
             .await
             .map_err(CommandExecutionError::Wait)?;
     }
     await_group_disappearance(operations, process_group).await?;
-    Ok(TerminationReport { sent_sigkill: true })
+    Ok(TerminationReport { sent_sigkill })
 }
 
 async fn terminate_remaining_descendants(
@@ -240,14 +245,28 @@ async fn terminate_group(
         }
         tokio::time::sleep(GROUP_POLL_INTERVAL).await;
     }
-    signal_group(operations, process_group, Signal::KILL, "SIGKILL")?;
+    let sent_sigkill = kill_group_if_present(operations, process_group)?;
     await_group_disappearance(operations, process_group).await?;
-    Ok(TerminationReport { sent_sigkill: true })
+    Ok(TerminationReport { sent_sigkill })
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct TerminationReport {
     sent_sigkill: bool,
+}
+
+fn kill_group_if_present(
+    operations: &impl ProcessOperations,
+    process_group: Pid,
+) -> Result<bool, CommandExecutionError> {
+    match operations.kill_process_group(process_group, Signal::KILL) {
+        Ok(()) => Ok(true),
+        Err(Errno::SRCH) => Ok(false),
+        Err(error) => Err(CommandExecutionError::SignalGroup {
+            signal: "SIGKILL",
+            source: io::Error::from(error),
+        }),
+    }
 }
 
 async fn await_group_disappearance(
@@ -322,26 +341,42 @@ fn process_group_exists(
     match operations.test_kill_process_group(process_group) {
         Ok(()) => Ok(true),
         Err(Errno::SRCH) => Ok(false),
+        // Like process probes, signal 0 uses EPERM to report an existing target for which the
+        // caller lacks signal permission. It is existence evidence, not an inspection failure.
+        Err(Errno::PERM) => Ok(true),
         Err(error) => Err(CommandExecutionError::InspectGroup(io::Error::from(error))),
     }
 }
 
-async fn join_drains(
+async fn join_drains<D>(
     mut stdout: JoinHandle<Result<CapturedStream, CommandExecutionError>>,
     mut stderr: JoinHandle<Result<CapturedStream, CommandExecutionError>>,
     seal: &CancellationToken,
-) -> Result<(CapturedStream, CapturedStream), CommandExecutionError> {
-    let results = tokio::select! {
-        results = async { tokio::join!(&mut stdout, &mut stderr) } => results,
-        () = tokio::time::sleep(DRAIN_GRACE) => {
-            // A deliberately escaped group may retain inherited writers indefinitely. Sealing
-            // makes both owned readers return their partial evidence and then joins them (CMD-3,
-            // CMD-6); no task is aborted or detached.
-            seal.cancel();
-            tokio::join!(&mut stdout, &mut stderr)
+    deadline: D,
+) -> Result<(CapturedStream, CapturedStream), CommandExecutionError>
+where
+    D: Future<Output = ()>,
+{
+    tokio::pin!(deadline);
+    let mut stdout_result = None;
+    let mut stderr_result = None;
+    let mut sealed = false;
+    while stdout_result.is_none() || stderr_result.is_none() {
+        tokio::select! {
+            biased;
+            result = &mut stdout, if stdout_result.is_none() => stdout_result = Some(result),
+            result = &mut stderr, if stderr_result.is_none() => stderr_result = Some(result),
+            () = &mut deadline, if !sealed => {
+                // An escaped group may retain inherited writers indefinitely. Sealing makes both
+                // readers return partial evidence; completed handles remain consumed exactly once.
+                sealed = true;
+                seal.cancel();
+            }
         }
+    }
+    let (Some(stdout), Some(stderr)) = (stdout_result, stderr_result) else {
+        unreachable!("the drain loop exits only after retaining both join results")
     };
-    let (stdout, stderr) = results;
     let stdout = stdout.map_err(|source| CommandExecutionError::DrainTask {
         stream: OutputStream::Stdout,
         source,
@@ -384,7 +419,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        CommandEnvironment, ExitCause, ProcessOperations, execute, execute_with_operations,
+        CapturedStream, CommandEnvironment, ExitCause, ProcessOperations, execute,
+        execute_with_operations, join_drains,
     };
     use crate::admission::{COMMAND_TOOL_NAME, CommandTool};
     use crate::capture::MAX_RETAINED_STREAM_BYTES;
@@ -404,6 +440,33 @@ mod tests {
         failure: InjectedFailure,
         fired: AtomicBool,
         spawned_group: AtomicI32,
+    }
+
+    struct MissingGroupOperations {
+        kill_called: AtomicBool,
+    }
+
+    struct PermissionDeniedProbeOperations;
+
+    impl ProcessOperations for MissingGroupOperations {
+        fn kill_process_group(&self, _process_group: Pid, _signal: Signal) -> Result<(), Errno> {
+            self.kill_called.store(true, Ordering::SeqCst);
+            Err(Errno::SRCH)
+        }
+
+        fn test_kill_process_group(&self, _process_group: Pid) -> Result<(), Errno> {
+            Err(Errno::SRCH)
+        }
+    }
+
+    impl ProcessOperations for PermissionDeniedProbeOperations {
+        fn kill_process_group(&self, _process_group: Pid, _signal: Signal) -> Result<(), Errno> {
+            Ok(())
+        }
+
+        fn test_kill_process_group(&self, _process_group: Pid) -> Result<(), Errno> {
+            Err(Errno::PERM)
+        }
     }
 
     impl InjectingProcessOperations {
@@ -443,7 +506,7 @@ mod tests {
 
         fn test_kill_process_group(&self, process_group: Pid) -> Result<(), Errno> {
             if self.fail_once(InjectedFailure::Inspect) {
-                return Err(Errno::PERM);
+                return Err(Errno::IO);
             }
             test_kill_process_group(process_group)
         }
@@ -832,6 +895,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cmd_3_completed_drain_is_not_polled_again_when_the_sibling_is_sealed() {
+        let seal = CancellationToken::new();
+        let stdout = tokio::spawn(async {
+            Ok::<_, super::CommandExecutionError>(CapturedStream::from_bytes(b"stdout"))
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !stdout.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("stdout fixture did not reach its explicit ready state"));
+        assert!(stdout.is_finished());
+        let stderr_seal = seal.clone();
+        let stderr = tokio::spawn(async move {
+            stderr_seal.cancelled().await;
+            Ok::<_, super::CommandExecutionError>(CapturedStream::from_bytes(b"stderr"))
+        });
+        let mut first_poll = true;
+        let deadline = std::future::poll_fn(move |context| {
+            if std::mem::take(&mut first_poll) {
+                context.waker().wake_by_ref();
+                std::task::Poll::Pending
+            } else {
+                std::task::Poll::Ready(())
+            }
+        });
+
+        let (stdout, stderr) = join_drains(stdout, stderr, &seal, deadline)
+            .await
+            .unwrap_or_else(|error| panic!("join drains: {error}"));
+
+        assert_eq!(stdout.head(), b"stdout");
+        assert_eq!(stderr.head(), b"stderr");
+    }
+
+    #[tokio::test]
     async fn cmd_3_preserves_invalid_utf8_as_raw_bytes_and_bounds_its_text_view() {
         let workspace = TestWorkspace::new();
         let tool = workspace.tool();
@@ -913,6 +1013,43 @@ mod tests {
         )
         .await;
         assert!(matches!(trigger, super::Trigger::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn cmd_5_deadline_wins_when_completion_is_already_ready() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let trigger = super::wait_for_trigger(
+            &CancellationToken::new(),
+            std::future::ready(()),
+            std::future::ready(Ok(std::process::ExitStatus::from_raw(0))),
+        )
+        .await;
+        assert!(matches!(trigger, super::Trigger::TimedOut));
+    }
+
+    #[test]
+    fn cmd_5_group_disappearing_at_sigkill_does_not_report_it_sent() {
+        let operations = MissingGroupOperations {
+            kill_called: AtomicBool::new(false),
+        };
+        let process_group = Pid::from_raw(1).unwrap_or_else(|| panic!("fixture process group"));
+
+        let sent = super::kill_group_if_present(&operations, process_group)
+            .unwrap_or_else(|error| panic!("inspect missing group: {error}"));
+
+        assert!(!sent);
+        assert!(operations.kill_called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn cmd_5_permission_denied_probe_still_reports_an_existing_group() {
+        let process_group = Pid::from_raw(1).unwrap_or_else(|| panic!("fixture process group"));
+
+        assert!(matches!(
+            super::process_group_exists(&PermissionDeniedProbeOperations, process_group),
+            Ok(true)
+        ));
     }
 
     #[tokio::test]
