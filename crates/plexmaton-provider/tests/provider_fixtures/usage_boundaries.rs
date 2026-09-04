@@ -1,6 +1,6 @@
 use plexmaton_agent::{ModelEvent, StopReason};
 use plexmaton_core::TokenUsage;
-use plexmaton_provider::{DecodeLimits, ModelApi, OpenAiCodec};
+use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, OpenAiCodec};
 
 use super::support::profile;
 
@@ -41,5 +41,20 @@ fn responses_null_usage_breakdowns_are_partial_coverage() {
                 && counts.cached_input.is_none()
                 && counts.cache_write_input.is_none()
                 && counts.reasoning_output.is_none())
+    ));
+}
+
+/// TIM-3: cached and cache-written tokens are disjoint input subsets, never two overlapping bills.
+#[test]
+fn combined_input_breakdowns_cannot_exceed_provider_input() {
+    let profile = profile(ModelApi::OpenaiChatCompletions);
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
+    let invalid = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10,"prompt_tokens_details":{"cached_tokens":6,"cache_write_tokens":4},"completion_tokens_details":{"reasoning_tokens":0}}}"#;
+
+    assert!(matches!(
+        codec.push_sse("message", invalid),
+        Err(DecodeError::InvalidUsage {
+            field: "input_breakdown"
+        })
     ));
 }

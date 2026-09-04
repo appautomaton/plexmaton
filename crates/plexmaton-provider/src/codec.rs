@@ -339,6 +339,19 @@ pub(crate) fn reported_usage(counts: TokenCounts) -> Result<TokenUsage, DecodeEr
         });
     }
     if counts
+        .cached_input
+        .zip(counts.cache_write_input)
+        .is_some_and(|(cached, written)| {
+            cached
+                .checked_add(written)
+                .is_none_or(|combined| combined > counts.input)
+        })
+    {
+        return Err(DecodeError::InvalidUsage {
+            field: "input_breakdown",
+        });
+    }
+    if counts
         .reasoning_output
         .is_some_and(|value| value > counts.output)
     {
