@@ -5,12 +5,13 @@
 //! and that slot advances the entry revision paired with the call (ENT-2).
 
 use plexmaton_core::{
-    AgentStatus, ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId,
-    ToolCallStatus, TurnId,
+    ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus,
+    TurnId,
 };
 
 use super::usage::UsageAccumulator;
 use super::{Agent, Turn};
+use crate::ActiveTurnStatus;
 use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::journal::JournalEntryPayload;
@@ -41,7 +42,7 @@ impl Agent {
             .map(|(call, _)| call.clone())
             .collect();
         self.turn = Turn::Working {
-            turn_id,
+            turn_id: turn_id.clone(),
             batch: Batch::new(calls_with_entries),
             step,
             usage,
@@ -52,7 +53,7 @@ impl Agent {
                 .effects
                 .push(Effect::AdmitTool(AdmissionRequest::new(call.clone())));
         }
-        self.status(reaction, AgentStatus::Waiting);
+        self.status(turn_id, reaction, ActiveTurnStatus::Waiting);
     }
 
     /// Applies one catalog result to the exact call still awaiting admission.
@@ -297,10 +298,10 @@ impl Agent {
                 UndeliveredReason::StepBudgetReached,
                 reaction,
             );
-            self.finish_turn(reaction);
+            self.finish_turn(turn_id, crate::TurnOutcome::StepBudgetReached, reaction);
             return;
         }
-        self.claim_next_step_input(reaction);
+        self.claim_next_step_input(&turn_id, reaction);
         self.open_step(turn_id, step.saturating_add(1), usage, reaction);
     }
 

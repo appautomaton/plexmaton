@@ -1,13 +1,117 @@
 mod support;
+#[path = "jsonl/timing.rs"]
+mod timing;
 
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use plexmaton_agent::{JournalRecord, JournalSequence};
-use plexmaton_core::{HeadName, JournalRecordId};
+use plexmaton_agent::{JournalEntryPayload, JournalError, JournalRecord, JournalSequence};
+use plexmaton_core::{
+    AgentId, AgentStatus, HeadName, JournalRecordId, TranscriptItemId, TranscriptRole,
+};
 use plexmaton_session_store::{JournalFile, JournalRecovery, StoreError};
 
-use support::{TestDir, agent_created, id, session};
+use support::{TestDir, agent_created, append, id, session};
+
+fn append_raw(path: &std::path::Path, record: &JournalRecord) {
+    let value = serde_json::to_value(record)
+        .unwrap_or_else(|error| panic!("encode raw record value: {error}"));
+    append_raw_value(path, &value);
+}
+
+fn append_raw_value(path: &std::path::Path, value: &serde_json::Value) {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(path)
+        .unwrap_or_else(|error| panic!("open raw journal: {error}"));
+    serde_json::to_writer(&mut file, value)
+        .unwrap_or_else(|error| panic!("encode raw record: {error}"));
+    file.write_all(b"\n")
+        .unwrap_or_else(|error| panic!("terminate raw record: {error}"));
+}
+
+/// TIM-1/JRN-4: file loading rejects wire shapes that bypass typed turn chronology.
+#[test]
+fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
+    let directory = TestDir::new("unscoped-turn-wire");
+    let agent_id = id("agent-a", AgentId::new);
+
+    let running_path = directory.path().join("running-agent.jsonl");
+    let running = JournalFile::create(&running_path, session("running-agent"))
+        .unwrap_or_else(|error| panic!("create running fixture: {error}"));
+    let invalid = append(
+        running.journal(),
+        1,
+        JournalEntryPayload::AgentCreated {
+            agent_id: agent_id.clone(),
+            label: "Agent A".to_owned(),
+            status: AgentStatus::Running,
+        },
+    );
+    drop(running);
+    append_raw(&running_path, &invalid);
+    assert!(matches!(
+        JournalFile::open(&running_path),
+        Err(StoreError::RejectedRecord {
+            reason: JournalError::InvalidInitialAgentStatus(_),
+            ..
+        })
+    ));
+
+    let status_path = directory.path().join("unscoped-status.jsonl");
+    let mut status = JournalFile::create(&status_path, session("unscoped-status"))
+        .unwrap_or_else(|error| panic!("create status fixture: {error}"));
+    status
+        .append(agent_created(status.journal(), 1))
+        .unwrap_or_else(|failure| panic!("announce status fixture: {failure:?}"));
+    let template = append(
+        status.journal(),
+        2,
+        JournalEntryPayload::RuntimeWarning {
+            agent_id: agent_id.clone(),
+            item_id: id("status-placeholder", TranscriptItemId::new),
+            message: "placeholder".to_owned(),
+        },
+    );
+    let mut invalid_status = serde_json::to_value(template)
+        .unwrap_or_else(|error| panic!("encode status template: {error}"));
+    invalid_status["entry"]["payload"] = serde_json::json!({
+        "type": "agent_status_changed",
+        "agent_id": "agent-a",
+        "status": "waiting"
+    });
+    drop(status);
+    append_raw_value(&status_path, &invalid_status);
+    assert!(matches!(
+        JournalFile::open(&status_path),
+        Err(StoreError::MalformedLine { line: 3, .. })
+    ));
+
+    let user_path = directory.path().join("timeless-user.jsonl");
+    let mut user = JournalFile::create(&user_path, session("timeless-user"))
+        .unwrap_or_else(|error| panic!("create user fixture: {error}"));
+    user.append(agent_created(user.journal(), 1))
+        .unwrap_or_else(|failure| panic!("announce user fixture: {failure:?}"));
+    let invalid_user = append(
+        user.journal(),
+        2,
+        JournalEntryPayload::Message {
+            agent_id,
+            item_id: id("timeless-user-item", TranscriptItemId::new),
+            role: TranscriptRole::User,
+            text: "missing chronology".to_owned(),
+        },
+    );
+    drop(user);
+    append_raw(&user_path, &invalid_user);
+    assert!(matches!(
+        JournalFile::open(&user_path),
+        Err(StoreError::RejectedRecord {
+            reason: JournalError::TimelessUserMessage(_),
+            ..
+        })
+    ));
+}
 
 /// JRN-4: append returns only after another handle can read the complete record.
 #[test]
@@ -214,6 +318,35 @@ fn jrn_4_unknown_format_version_is_refused() {
     assert!(matches!(
         JournalFile::open(&path),
         Err(StoreError::UnsupportedVersion(99))
+    ));
+}
+
+/// TIM-1/JRN-4: pre-chronology journals are rejected at the header boundary.
+#[test]
+fn tim_1_format_one_is_rejected_before_loading_timeless_records() {
+    let directory = TestDir::new("old-chronology-format");
+    let path = directory.path().join("session.jsonl");
+    let store = JournalFile::create(&path, session("session-a"))
+        .unwrap_or_else(|error| panic!("create store: {error}"));
+    drop(store);
+    let source =
+        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read header: {error}"));
+    let mut header: serde_json::Value = serde_json::from_str(source.trim_end())
+        .unwrap_or_else(|error| panic!("decode header: {error}"));
+    header["version"] = serde_json::Value::from(1);
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string(&header)
+                .unwrap_or_else(|error| panic!("encode old header: {error}"))
+        ),
+    )
+    .unwrap_or_else(|error| panic!("write old header: {error}"));
+
+    assert!(matches!(
+        JournalFile::open(&path),
+        Err(StoreError::UnsupportedVersion(1))
     ));
 }
 

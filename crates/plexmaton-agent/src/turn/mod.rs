@@ -8,10 +8,11 @@
 //! back with; the turn ends at the first step that stops for anything else, when its tools are
 //! answered and the budget is spent, or when the user interrupts it.
 
-use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole, TurnId};
+use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TurnId};
 
+use crate::UnixMillis;
 use crate::admission::ApprovalPolicy;
-use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
+use crate::interface::{Effect, Input, Reaction};
 use crate::journal::{JournalEntryPayload, SessionJournal};
 use crate::model::{ModelCall, ModelStepId, RequestItem};
 use crate::record::Record;
@@ -24,6 +25,7 @@ mod lifecycle;
 mod model_input;
 mod tool_projection;
 mod usage;
+mod user_input;
 
 use input::{DeliveryBoundary, InputQueue};
 use usage::UsageAccumulator;
@@ -158,7 +160,7 @@ impl Agent {
     pub fn announce(&mut self, label: impl Into<String>) -> Reaction {
         let mut reaction = Reaction::default();
         self.announce_into(label.into(), &mut reaction);
-        reaction
+        reaction.into_output()
     }
 
     fn announce_into(&mut self, label: String, reaction: &mut Reaction) {
@@ -240,9 +242,9 @@ impl Agent {
         .flatten()
     }
 
-    /// Advances the machine by one input.
-    pub fn handle(&mut self, input: Input) -> Reaction {
-        let mut reaction = Reaction::default();
+    /// Advances the machine with a wall observation supplied by its runtime owner (TIM-1).
+    pub fn handle_at(&mut self, input: Input, observed_at: UnixMillis) -> Reaction {
+        let mut reaction = Reaction::at(observed_at);
         self.announce_into(self.record.agent_id().to_string(), &mut reaction);
         match input {
             Input::Submitted { text } => self.submit(text, &mut reaction),
@@ -270,79 +272,12 @@ impl Agent {
             Input::Interrupted => self.interrupt(&mut reaction),
             Input::ShuttingDown => self.shutdown(&mut reaction),
         }
-        reaction
+        reaction.into_output()
     }
 
-    /// A submission starts an idle turn or waits for the next turn boundary (LOOP-6).
-    fn submit(&mut self, text: String, reaction: &mut Reaction) {
-        if self.is_running() {
-            self.queue(DeliveryBoundary::NextTurn, text, reaction);
-            return;
-        }
-        self.open_turn(text, reaction);
-    }
-
-    /// Steering belongs to the turn already in flight and can only enter at its next step.
-    fn steer(&mut self, text: String, reaction: &mut Reaction) {
-        if !self.is_running() {
-            reaction
-                .undelivered
-                .push(UndeliveredInput::new(text, UndeliveredReason::NoActiveTurn));
-            return;
-        }
-        self.queue(DeliveryBoundary::NextStep, text, reaction);
-    }
-
-    fn queue(&mut self, boundary: DeliveryBoundary, text: String, reaction: &mut Reaction) {
-        if let Some(undelivered) = self.input.queue(boundary, text) {
-            reaction.undelivered.push(undelivered);
-        }
-    }
-
-    fn open_turn(&mut self, text: String, reaction: &mut Reaction) {
-        let turn_id = self.record.next_turn_id();
-        self.record_user(text, reaction);
-        self.open_step(turn_id, 1, UsageAccumulator::default(), reaction);
-    }
-
-    /// Records user input in both views of the one record: semantic events and model history.
-    fn record_user(&mut self, text: String, reaction: &mut Reaction) {
-        let item = self.record.next_item_id();
-        let agent_id = self.record.agent_id().clone();
-        self.record.commit(
-            JournalEntryPayload::Message {
-                agent_id: agent_id.clone(),
-                item_id: item.clone(),
-                role: TranscriptRole::User,
-                text: text.clone(),
-            },
-            reaction,
-        );
-        self.record.emit(
-            reaction,
-            SessionEvent::TranscriptItemStarted {
-                agent_id: agent_id.clone(),
-                item_id: item.clone(),
-                role: TranscriptRole::User,
-            },
-        );
-        self.record.emit(
-            reaction,
-            SessionEvent::TranscriptDelta {
-                agent_id: agent_id.clone(),
-                item_id: item.clone(),
-                item_revision: 1,
-                text: text.clone(),
-            },
-        );
-        self.record.emit(
-            reaction,
-            SessionEvent::TranscriptItemFinalized {
-                agent_id,
-                item_id: item,
-                item_revision: 2,
-            },
-        );
+    #[cfg(test)]
+    pub(crate) fn handle(&mut self, input: Input) -> Reaction {
+        self.handle_at(input, UnixMillis::EPOCH)
     }
 
     /// Asks the model, and says the agent is producing.
@@ -353,7 +288,9 @@ impl Agent {
         usage: UsageAccumulator,
         reaction: &mut Reaction,
     ) {
-        self.status(reaction, AgentStatus::Running);
+        if index > 1 {
+            self.status(turn_id.clone(), reaction, crate::ActiveTurnStatus::Running);
+        }
         let step_id = ModelStepId::new(turn_id.clone(), index);
         self.turn = Turn::Streaming {
             turn_id,
@@ -385,7 +322,7 @@ mod tests {
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
         ApprovalPolicy, CapabilitySet, JournalEntryPayload, JournalRecord, ModelDeliveryRefusal,
-        SessionJournal, ToolDefinitionRevision,
+        SessionJournal, ToolDefinitionRevision, TurnFinishedAt, TurnOutcome, UnixMillis,
     };
 
     fn bare_agent() -> Agent {
@@ -612,6 +549,211 @@ mod tests {
             }]
         );
         assert!(agent.is_running());
+    }
+
+    /// TIM-1/TIM-4: chronology survives in the journal without changing provider context or the
+    /// semantic head when the turn becomes terminal.
+    #[test]
+    fn tim_1_turn_boundaries_are_durable_and_terminal_time_does_not_advance_the_head() {
+        let mut agent = agent();
+        let opened = agent.handle_at(
+            Input::Submitted {
+                text: "hello".to_owned(),
+            },
+            UnixMillis::new(100),
+        );
+        let started = opened.records.iter().find_map(|record| match record {
+            JournalRecord::AppendEntry { entry, .. }
+                if matches!(entry.payload, JournalEntryPayload::TurnStarted { .. }) =>
+            {
+                Some(entry.as_ref())
+            }
+            _ => None,
+        });
+        let Some(crate::SessionEntry {
+            payload:
+                JournalEntryPayload::TurnStarted {
+                    turn_id,
+                    accepted_at,
+                    opened_at,
+                    ..
+                },
+            ..
+        }) = started
+        else {
+            panic!("submission did not append an atomic turn start")
+        };
+        assert_eq!(*accepted_at, UnixMillis::new(100));
+        assert_eq!(*opened_at, UnixMillis::new(100));
+        let head = HeadName::new("main").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let target_before = agent
+            .journal()
+            .head_target(&head)
+            .map(|target| target.cloned());
+        let revision_before = agent.journal().head_revision(&head);
+        let request_before = agent.record();
+        let step_id = active_step(&agent);
+
+        let finished = agent.handle_at(
+            Input::Streamed {
+                step_id,
+                event: ModelEvent::Stopped(StopReason::EndOfTurn),
+            },
+            UnixMillis::new(250),
+        );
+        assert!(finished.records.iter().any(|record| matches!(
+            record,
+            JournalRecord::TurnFinished { fact, .. }
+                if &fact.turn_id == turn_id
+                    && fact.outcome == TurnOutcome::Completed
+                    && fact.at == TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(250)
+                    }
+        )));
+        assert_eq!(
+            agent
+                .journal()
+                .head_target(&head)
+                .map(|target| target.cloned()),
+            target_before
+        );
+        assert_eq!(agent.journal().head_revision(&head), revision_before);
+        assert_eq!(agent.record(), request_before);
+    }
+
+    /// TIM-1/LOOP-6: accepted time follows queued input until its actual semantic boundary opens.
+    #[test]
+    fn tim_1_queued_turn_and_steering_keep_their_original_accepted_time() {
+        let mut agent = agent();
+        agent.handle_at(
+            Input::Submitted {
+                text: "first".to_owned(),
+            },
+            UnixMillis::new(10),
+        );
+        agent.handle_at(
+            Input::Submitted {
+                text: "second".to_owned(),
+            },
+            UnixMillis::new(20),
+        );
+        let step_id = active_step(&agent);
+        let boundary = agent.handle_at(
+            Input::Streamed {
+                step_id,
+                event: ModelEvent::Stopped(StopReason::EndOfTurn),
+            },
+            UnixMillis::new(30),
+        );
+        assert!(boundary.records.iter().any(|record| matches!(
+            record,
+            JournalRecord::AppendEntry { entry, .. }
+                if matches!(
+                    entry.payload,
+                    JournalEntryPayload::TurnStarted {
+                        accepted_at,
+                        opened_at,
+                        ref text,
+                        ..
+                    } if text == "second"
+                        && accepted_at == UnixMillis::new(20)
+                        && opened_at == UnixMillis::new(30)
+                )
+        )));
+
+        agent.handle_at(
+            Input::Steered {
+                text: "also inspect tests".to_owned(),
+            },
+            UnixMillis::new(40),
+        );
+        call(&mut agent, "queued-steering");
+        stop(&mut agent, StopReason::ToolCalls);
+        let claimed = agent.handle_at(
+            Input::ToolFinished {
+                call_id: id("queued-steering"),
+                result: ToolExecutionResult::new(
+                    ToolOutcome::Succeeded {
+                        output: "done".to_owned(),
+                    },
+                    None,
+                ),
+            },
+            UnixMillis::new(70),
+        );
+        assert!(claimed.records.iter().any(|record| matches!(
+            record,
+            JournalRecord::AppendEntry { entry, .. }
+                if matches!(
+                    entry.payload,
+                    JournalEntryPayload::SteeringAccepted {
+                        accepted_at,
+                        ref text,
+                        ..
+                    } if text == "also inspect tests" && accepted_at == UnixMillis::new(40)
+                )
+        )));
+    }
+
+    /// TIM-1: every live terminal route records its semantic outcome instead of inferring it later.
+    #[test]
+    fn tim_1_every_live_turn_terminal_path_has_a_typed_outcome() {
+        fn outcome(reaction: &Reaction) -> TurnOutcome {
+            reaction
+                .records
+                .iter()
+                .find_map(|record| match record {
+                    JournalRecord::TurnFinished { fact, .. } => Some(fact.outcome),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("terminal transition omitted TurnFinished"))
+        }
+
+        let mut completed = agent();
+        submit(&mut completed, "complete");
+        assert_eq!(
+            outcome(&stop(&mut completed, StopReason::EndOfTurn)),
+            TurnOutcome::Completed
+        );
+
+        let mut interrupted = agent();
+        submit(&mut interrupted, "interrupt");
+        assert_eq!(
+            outcome(&interrupted.handle(Input::Interrupted)),
+            TurnOutcome::Interrupted
+        );
+
+        let mut failed = agent();
+        submit(&mut failed, "fail");
+        assert_eq!(
+            outcome(&fail_step(
+                &mut failed,
+                ModelError::Transport {
+                    message: "offline".to_owned(),
+                },
+            )),
+            TurnOutcome::Failed
+        );
+
+        let mut shutdown = agent();
+        submit(&mut shutdown, "shutdown");
+        assert_eq!(
+            outcome(&shutdown.handle(Input::ShuttingDown)),
+            TurnOutcome::Shutdown
+        );
+
+        let mut budgeted = Agent::with_budget(
+            AgentId::new("agent-budget").unwrap_or_else(|error| panic!("fixture: {error}")),
+            TurnBudget { max_steps: 1 },
+        );
+        let _announcement = budgeted.announce("Budgeted");
+        submit(&mut budgeted, "use a tool");
+        call(&mut budgeted, "budget-call");
+        stop(&mut budgeted, StopReason::ToolCalls);
+        assert_eq!(
+            outcome(&finish(&mut budgeted, "budget-call", "done")),
+            TurnOutcome::StepBudgetReached
+        );
     }
 
     /// JRN-6: a projection rebuild cannot erase provider state that has not become canonical.
@@ -1939,7 +2081,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("restore agent: {error:?}"));
         let recovered = resumed
-            .recover_after_process_death()
+            .recover_after_process_death_at(UnixMillis::new(999))
             .unwrap_or_else(|| panic!("unfinished turn was not recovered"));
 
         assert!(recovered.effects.is_empty());
@@ -1949,6 +2091,14 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event.event, SessionEvent::AttentionResolved { .. }))
         );
+        assert!(recovered.records.iter().any(|record| matches!(
+            record,
+            JournalRecord::TurnFinished { fact, .. }
+                if fact.outcome == TurnOutcome::ProcessDied
+                    && fact.at == TurnFinishedAt::Recovered {
+                        recovery_observed_at: UnixMillis::new(999)
+                    }
+        )));
         assert!(recovered.events.iter().any(|event| matches!(
             event.event,
             SessionEvent::ToolCallChanged {
@@ -1985,9 +2135,9 @@ mod tests {
         assert!(resumed.recover_after_process_death().is_none());
     }
 
-    /// JRN-5: a process can die between records in one transition without hiding the open turn.
+    /// TIM-1/JRN-5: a durable atomic turn start is enough to identify process-orphaned work.
     #[test]
-    fn a_user_message_written_before_its_running_status_is_still_recovered_as_interrupted() {
+    fn an_atomic_turn_start_is_recovered_as_interrupted() {
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
         let session_id =
             SessionId::new("partial-transition").unwrap_or_else(|error| panic!("session: {error}"));

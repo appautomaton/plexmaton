@@ -6,6 +6,7 @@
 
 use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
+use crate::UnixMillis;
 use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::journal::JournalRecord;
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
@@ -172,8 +173,9 @@ impl ReleasedInput {
 }
 
 /// What one input produced.
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Reaction {
+    observed_at: UnixMillis,
     /// Canonical mutations accepted by this transition, in append order (JRN-6).
     pub records: Vec<JournalRecord>,
     /// Queued user text removed by this transition, carrying original arrival order.
@@ -190,4 +192,34 @@ pub struct Reaction {
     pub unresolved_approvals: Vec<UnresolvedApprovalDecision>,
     /// Stale or post-cancellation provider output that changed no record or projection.
     pub undelivered_model: Vec<UndeliveredModelInput>,
+}
+
+impl Default for Reaction {
+    fn default() -> Self {
+        Self::at(UnixMillis::EPOCH)
+    }
+}
+
+impl Reaction {
+    pub(crate) const fn at(observed_at: UnixMillis) -> Self {
+        Self {
+            observed_at,
+            records: Vec::new(),
+            released_inputs: Vec::new(),
+            events: Vec::new(),
+            effects: Vec::new(),
+            undelivered: Vec::new(),
+            unresolved_approvals: Vec::new(),
+            undelivered_model: Vec::new(),
+        }
+    }
+
+    pub(crate) const fn observed_at(&self) -> UnixMillis {
+        self.observed_at
+    }
+
+    pub(crate) fn into_output(mut self) -> Self {
+        self.observed_at = UnixMillis::EPOCH;
+        self
+    }
 }

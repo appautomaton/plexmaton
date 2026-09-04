@@ -458,6 +458,16 @@ mod tests {
         route_interrupt, route_submission, surface_shutdown_report,
     };
 
+    trait AgentTestExt {
+        fn handle(&mut self, input: plexmaton_agent::Input) -> plexmaton_agent::Reaction;
+    }
+
+    impl AgentTestExt for plexmaton_agent::Agent {
+        fn handle(&mut self, input: plexmaton_agent::Input) -> plexmaton_agent::Reaction {
+            self.handle_at(input, plexmaton_agent::UnixMillis::EPOCH)
+        }
+    }
+
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }

@@ -84,11 +84,13 @@ fn jrn_5_duplicate_transcript_identity_is_rejected_before_projection() {
     append(
         &mut journal,
         1,
-        JournalEntryPayload::Message {
+        JournalEntryPayload::TurnStarted {
             agent_id: agent(),
             item_id: item_id.clone(),
-            role: TranscriptRole::User,
+            turn_id: id("turn-1", plexmaton_core::TurnId::new),
             text: "visible once".to_owned(),
+            accepted_at: crate::UnixMillis::EPOCH,
+            opened_at: crate::UnixMillis::EPOCH,
         },
     );
     append(

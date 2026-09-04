@@ -140,6 +140,8 @@ impl JournalStore for ControlledStore {
                 if matches!(
                     &entry.payload,
                     JournalEntryPayload::Message { text, .. }
+                        | JournalEntryPayload::TurnStarted { text, .. }
+                        | JournalEntryPayload::SteeringAccepted { text, .. }
                         if self
                             .fail_text
                             .lock()
@@ -251,6 +253,18 @@ impl StoreControl {
 }
 
 async fn runtime(controlled: ControlledStore, driver: Arc<FakeDriver>) -> LiveRuntime {
+    let clock = Arc::new(
+        crate::runtime::clock::SystemWallClock::new()
+            .unwrap_or_else(|error| panic!("test wall clock: {error}")),
+    );
+    runtime_with_clock(controlled, driver, clock).await
+}
+
+async fn runtime_with_clock(
+    controlled: ControlledStore,
+    driver: Arc<FakeDriver>,
+    clock: Arc<dyn crate::runtime::clock::WallClock>,
+) -> LiveRuntime {
     let workspace =
         std::env::current_dir().unwrap_or_else(|error| panic!("resolve workspace: {error}"));
     let tools = NativeToolCatalog::open(
@@ -261,13 +275,14 @@ async fn runtime(controlled: ControlledStore, driver: Arc<FakeDriver>) -> LiveRu
         Vec::new(),
     )
     .unwrap_or_else(|error| panic!("open tools: {error}"));
-    LiveRuntime::with_driver_and_store(
+    LiveRuntime::with_driver_store_and_clock(
         agent_id(),
         "Plexmaton".to_owned(),
         driver,
         tools,
         SessionId::new("session-durable").unwrap_or_else(|error| panic!("session id: {error}")),
         Box::new(controlled),
+        clock,
     )
     .await
     .unwrap_or_else(|error| panic!("open durable runtime: {error}"))

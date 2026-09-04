@@ -19,10 +19,11 @@ pub enum JournalEntryPayload {
         label: String,
         status: AgentStatus,
     },
-    /// An agent changed lifecycle state.
-    AgentStatusChanged {
+    /// A non-terminal status change scoped to one already-open turn (TIM-1).
+    TurnStatusChanged {
         agent_id: AgentId,
-        status: AgentStatus,
+        turn_id: TurnId,
+        status: crate::ActiveTurnStatus,
     },
     /// Provider-reported aggregate usage changed for one turn.
     TurnUsageUpdated {
@@ -30,7 +31,24 @@ pub enum JournalEntryPayload {
         turn_id: TurnId,
         usage: TokenUsage,
     },
-    /// One complete visible message.
+    /// Initial user input and the turn boundary it starts atomically (TIM-1).
+    TurnStarted {
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        turn_id: TurnId,
+        text: String,
+        accepted_at: crate::UnixMillis,
+        opened_at: crate::UnixMillis,
+    },
+    /// User steering claimed by an already-open turn boundary (TIM-1, LOOP-6).
+    SteeringAccepted {
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        turn_id: TurnId,
+        text: String,
+        accepted_at: crate::UnixMillis,
+    },
+    /// One complete non-user visible message; user input has typed chronology variants.
     Message {
         agent_id: AgentId,
         item_id: TranscriptItemId,

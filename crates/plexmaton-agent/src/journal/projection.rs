@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{
     AgentId, AttentionId, EventSequence, HeadName, SessionEvent, SessionEventEnvelope, ToolCallId,
-    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
+    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
 };
 
-use super::{JournalEntryPayload, SessionJournal};
+use super::{JournalEntryPayload, SessionEntry, SessionJournal};
 use crate::{ModelRequest, RequestItem, ToolCall, ToolOutcome};
 
 #[cfg(test)]
@@ -44,6 +44,7 @@ struct Projector {
     pending: Vec<ToolCallId>,
     batch_transitioned: bool,
     recovery: Option<RecoveryProjection>,
+    turns: BTreeMap<TurnId, AgentId>,
 }
 
 impl Projector {
@@ -59,6 +60,7 @@ impl Projector {
             pending: Vec::new(),
             batch_transitioned: false,
             recovery: None,
+            turns: BTreeMap::new(),
         }
     }
 
@@ -153,6 +155,74 @@ impl Projector {
             TranscriptRole::System => {}
         }
         Ok(())
+    }
+
+    fn turn_started(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        turn_id: TurnId,
+        text: String,
+    ) -> Result<(), JournalProjectionError> {
+        self.message(agent_id.clone(), item_id, TranscriptRole::User, text)?;
+        if self
+            .turns
+            .insert(turn_id.clone(), agent_id.clone())
+            .is_some()
+        {
+            return Err(JournalProjectionError::DuplicateTurn(turn_id));
+        }
+        self.emit(SessionEvent::AgentStatusChanged {
+            agent_id,
+            status: plexmaton_core::AgentStatus::Running,
+        })
+    }
+
+    fn steering(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        turn_id: TurnId,
+        text: String,
+    ) -> Result<(), JournalProjectionError> {
+        let Some(expected) = self.turns.get(&turn_id) else {
+            return Err(JournalProjectionError::MissingTurn(turn_id));
+        };
+        if expected != &agent_id {
+            return Err(JournalProjectionError::WrongTurnAgent(turn_id));
+        }
+        self.message(agent_id, item_id, TranscriptRole::User, text)
+    }
+
+    fn turn_finished(&mut self, fact: &crate::TurnFinished) -> Result<(), JournalProjectionError> {
+        let Some(expected) = self.turns.get(&fact.turn_id) else {
+            return Err(JournalProjectionError::MissingTurn(fact.turn_id.clone()));
+        };
+        if expected != &fact.agent_id {
+            return Err(JournalProjectionError::WrongTurnAgent(fact.turn_id.clone()));
+        }
+        self.emit(SessionEvent::AgentStatusChanged {
+            agent_id: fact.agent_id.clone(),
+            status: plexmaton_core::AgentStatus::Idle,
+        })
+    }
+
+    fn turn_status(
+        &mut self,
+        agent_id: AgentId,
+        turn_id: TurnId,
+        status: crate::ActiveTurnStatus,
+    ) -> Result<(), JournalProjectionError> {
+        let Some(expected) = self.turns.get(&turn_id) else {
+            return Err(JournalProjectionError::MissingTurn(turn_id));
+        };
+        if expected != &agent_id {
+            return Err(JournalProjectionError::WrongTurnAgent(turn_id));
+        }
+        self.emit(SessionEvent::AgentStatusChanged {
+            agent_id,
+            status: status.agent_status(),
+        })
     }
 
     fn request_tool(
@@ -292,8 +362,7 @@ impl Projector {
                     return Err(JournalProjectionError::DuplicateAgent(agent_id.clone()));
                 }
             }
-            JournalEntryPayload::AgentStatusChanged { agent_id, .. }
-            | JournalEntryPayload::TurnUsageUpdated { agent_id, .. } => {
+            JournalEntryPayload::TurnUsageUpdated { agent_id, .. } => {
                 self.require_agent(agent_id)?;
             }
             JournalEntryPayload::AttentionRequested {
@@ -337,6 +406,9 @@ impl Projector {
                 self.claim_entry(item_id, agent_id)?;
             }
             JournalEntryPayload::Message { .. }
+            | JournalEntryPayload::TurnStatusChanged { .. }
+            | JournalEntryPayload::TurnStarted { .. }
+            | JournalEntryPayload::SteeringAccepted { .. }
             | JournalEntryPayload::ProviderReplay(_)
             | JournalEntryPayload::ToolCallRequested { .. }
             | JournalEntryPayload::ToolCallChanged { .. } => {
@@ -368,8 +440,34 @@ impl SessionJournal {
     /// Rebuilds both consumers from one selected immutable path (JRN-5).
     pub fn project(&self, head: &HeadName) -> Result<JournalProjection, JournalProjectionError> {
         let mut projector = Projector::new();
-        for entry in self.path(head)? {
-            project_entry(&mut projector, entry.payload.clone())?;
+        let path = self.path(head)?;
+        let selected: BTreeSet<_> = path.iter().map(|entry| entry.id.clone()).collect();
+        let mut ordered = Vec::with_capacity(path.len().saturating_mul(2));
+        for entry in path {
+            let sequence = self
+                .entry_sequences
+                .get(&entry.id)
+                .copied()
+                .unwrap_or_else(|| {
+                    unreachable!("every accepted entry retains its journal sequence")
+                });
+            ordered.push((sequence, SelectedFact::Entry(entry)));
+            if let JournalEntryPayload::TurnStarted { turn_id, .. } = &entry.payload
+                && let Some(finished) = self.turn_finishes.get(turn_id)
+                && selected.contains(&finished.fact.semantic_boundary)
+            {
+                ordered.push((
+                    finished.sequence,
+                    SelectedFact::TurnFinished(&finished.fact),
+                ));
+            }
+        }
+        ordered.sort_by_key(|(sequence, _)| *sequence);
+        for (_, fact) in ordered {
+            match fact {
+                SelectedFact::Entry(entry) => project_entry(&mut projector, entry.payload.clone())?,
+                SelectedFact::TurnFinished(fact) => projector.turn_finished(fact)?,
+            }
         }
         projector.finish_batch(true)?;
         Ok(JournalProjection {
@@ -380,6 +478,11 @@ impl SessionJournal {
             recovery: projector.recovery,
         })
     }
+}
+
+enum SelectedFact<'a> {
+    Entry(&'a SessionEntry),
+    TurnFinished(&'a crate::TurnFinished),
 }
 
 const fn terminal(status: ToolCallStatus) -> bool {
@@ -397,12 +500,38 @@ fn project_entry(
     payload: JournalEntryPayload,
 ) -> Result<(), JournalProjectionError> {
     match payload {
+        JournalEntryPayload::TurnStarted {
+            agent_id,
+            item_id,
+            turn_id,
+            text,
+            ..
+        } => projector.turn_started(agent_id, item_id, turn_id, text),
+        JournalEntryPayload::SteeringAccepted {
+            agent_id,
+            item_id,
+            turn_id,
+            text,
+            ..
+        } => projector.steering(agent_id, item_id, turn_id, text),
+        JournalEntryPayload::TurnStatusChanged {
+            agent_id,
+            turn_id,
+            status,
+        } => projector.turn_status(agent_id, turn_id, status),
         JournalEntryPayload::Message {
             agent_id,
             item_id,
             role,
             text,
-        } => projector.message(agent_id, item_id, role, text),
+        } => {
+            debug_assert_ne!(
+                role,
+                TranscriptRole::User,
+                "journal validation rejects this"
+            );
+            projector.message(agent_id, item_id, role, text)
+        }
         JournalEntryPayload::ProviderReplay(replay) => {
             projector.finish_batch(false)?;
             projector.items.push(RequestItem::ProviderReplay(replay));

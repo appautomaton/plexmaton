@@ -3,6 +3,7 @@
 use plexmaton_core::{SessionEvent, TokenUsage, TurnId};
 
 use super::{Agent, Turn, usage::UsageAccumulator};
+use crate::TurnOutcome;
 use crate::interface::{ModelDeliveryRefusal, Reaction, UndeliveredModelInput};
 use crate::journal::JournalEntryPayload;
 use crate::model::{ModelEvent, ModelStepId, StopReason};
@@ -133,7 +134,7 @@ impl Agent {
                     "the model stopped for tools without asking for any",
                 );
             }
-            self.finish_turn(reaction);
+            self.finish_turn(turn_id, TurnOutcome::Completed, reaction);
             return;
         }
         self.dispatch(turn_id, calls, index, usage, reaction);

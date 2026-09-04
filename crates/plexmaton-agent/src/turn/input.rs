@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use crate::UnixMillis;
 use crate::interface::{UndeliveredInput, UndeliveredReason};
 
 /// A burst of input is bounded independently of transcript history. The value is deliberately
@@ -21,6 +22,7 @@ pub(super) struct QueuedInput {
     pub(super) order: u64,
     pub(super) boundary: DeliveryBoundary,
     pub(super) text: String,
+    pub(super) accepted_at: UnixMillis,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -36,6 +38,7 @@ impl InputQueue {
         &mut self,
         boundary: DeliveryBoundary,
         text: String,
+        accepted_at: UnixMillis,
     ) -> Option<UndeliveredInput> {
         let Some(next_bytes) = self.bytes.checked_add(text.len()) else {
             return Some(UndeliveredInput::new(text, UndeliveredReason::QueueFull));
@@ -50,6 +53,7 @@ impl InputQueue {
             order: self.next_order,
             boundary,
             text,
+            accepted_at,
         });
         self.next_order = next_order;
         self.bytes = next_bytes;
@@ -103,7 +107,7 @@ impl InputQueue {
 #[cfg(test)]
 mod tests {
     use super::{DeliveryBoundary, InputQueue, MAX_QUEUED_BYTES, MAX_QUEUED_INPUTS};
-    use crate::UndeliveredReason;
+    use crate::{UndeliveredReason, UnixMillis};
 
     /// LOOP-6 includes the resource boundary: overflow returns ownership instead of growing the
     /// queue or dropping the payload.
@@ -112,13 +116,21 @@ mod tests {
         let mut queue = InputQueue::default();
         for index in 0..MAX_QUEUED_INPUTS {
             assert_eq!(
-                queue.queue(DeliveryBoundary::NextTurn, format!("message {index}")),
+                queue.queue(
+                    DeliveryBoundary::NextTurn,
+                    format!("message {index}"),
+                    UnixMillis::EPOCH,
+                ),
                 None
             );
         }
 
         let overflow = queue
-            .queue(DeliveryBoundary::NextStep, "keep me".to_owned())
+            .queue(
+                DeliveryBoundary::NextStep,
+                "keep me".to_owned(),
+                UnixMillis::EPOCH,
+            )
             .unwrap_or_else(|| panic!("the bounded queue accepted one too many inputs"));
 
         assert_eq!(overflow.text, "keep me");
@@ -133,10 +145,26 @@ mod tests {
     #[test]
     fn each_boundary_claims_only_its_inputs_in_arrival_order() {
         let mut queue = InputQueue::default();
-        queue.queue(DeliveryBoundary::NextTurn, "turn one".to_owned());
-        queue.queue(DeliveryBoundary::NextStep, "step one".to_owned());
-        queue.queue(DeliveryBoundary::NextTurn, "turn two".to_owned());
-        queue.queue(DeliveryBoundary::NextStep, "step two".to_owned());
+        queue.queue(
+            DeliveryBoundary::NextTurn,
+            "turn one".to_owned(),
+            UnixMillis::new(1),
+        );
+        queue.queue(
+            DeliveryBoundary::NextStep,
+            "step one".to_owned(),
+            UnixMillis::new(2),
+        );
+        queue.queue(
+            DeliveryBoundary::NextTurn,
+            "turn two".to_owned(),
+            UnixMillis::new(3),
+        );
+        queue.queue(
+            DeliveryBoundary::NextStep,
+            "step two".to_owned(),
+            UnixMillis::new(4),
+        );
 
         assert_eq!(
             queue
@@ -163,7 +191,7 @@ mod tests {
         let text = "x".repeat(MAX_QUEUED_BYTES.saturating_add(1));
 
         let overflow = queue
-            .queue(DeliveryBoundary::NextTurn, text.clone())
+            .queue(DeliveryBoundary::NextTurn, text.clone(), UnixMillis::EPOCH)
             .unwrap_or_else(|| panic!("the byte budget accepted an oversized payload"));
 
         assert_eq!(overflow.text, text, "the rejected payload stays exact");

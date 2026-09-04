@@ -5,6 +5,7 @@ use plexmaton_agent::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReas
 use super::{
     LiveRuntime,
     journal::{CommitError, CommitReply, JournalWriterError, finish_commit},
+    rejected_user_input,
 };
 use crate::{PersistenceFailure, RuntimeError};
 
@@ -60,7 +61,7 @@ impl LiveRuntime {
         rejected_input: Option<UndeliveredInput>,
         after: AfterCommit,
     ) -> Result<(), RuntimeError> {
-        let reaction = self.agent.handle(input);
+        let reaction = self.agent.handle_at(input, self.clock.now());
         let rejected_inputs = failure_inputs(&reaction, rejected_input);
         self.begin_transition(reaction, rejected_inputs, after)?;
         self.finish_transition().await
@@ -70,7 +71,7 @@ impl LiveRuntime {
         &mut self,
         input: Input,
     ) -> Result<(), RuntimeError> {
-        let reaction = self.agent.handle(input);
+        let reaction = self.agent.handle_at(input, self.clock.now());
         let rejected_inputs = failure_inputs(&reaction, None);
         self.begin_transition(reaction, rejected_inputs, AfterCommit::None)?;
         self.finish_pending_transition().await
@@ -83,11 +84,46 @@ impl LiveRuntime {
         after: AfterCommit,
     ) -> Result<(), RuntimeError> {
         let mut reaction = Reaction::default();
-        self.stage_missing_usage(&mut reaction);
-        merge_reaction(&mut reaction, self.agent.handle(input));
+        let observed_at = self.clock.now();
+        self.stage_missing_usage_at(&mut reaction, observed_at);
+        merge_reaction(&mut reaction, self.agent.handle_at(input, observed_at));
         let rejected_inputs = failure_inputs(&reaction, rejected_input);
         self.begin_transition(reaction, rejected_inputs, after)?;
         self.finish_transition().await
+    }
+
+    pub(super) async fn finish_pending_inputs(&mut self) -> Result<(), RuntimeError> {
+        self.finish_transition().await?;
+        while !self.journal_failed {
+            let Some(pending) = self.pending_inputs.pop_front() else {
+                break;
+            };
+            let reaction = if matches!(&pending.input, Input::Interrupted) {
+                let mut reaction = Reaction::default();
+                self.stage_missing_usage_at(&mut reaction, pending.observed_at);
+                merge_reaction(
+                    &mut reaction,
+                    self.agent.handle_at(pending.input, pending.observed_at),
+                );
+                reaction
+            } else {
+                self.agent.handle_at(pending.input, pending.observed_at)
+            };
+            let rejected_inputs = failure_inputs(&reaction, pending.rejected_input);
+            self.begin_transition(reaction, rejected_inputs, pending.after)?;
+            self.finish_transition().await?;
+        }
+        if self.journal_failed {
+            while let Some(pending) = self.pending_inputs.pop_front() {
+                if let Some(input) =
+                    rejected_user_input(&pending.input, UndeliveredReason::PersistenceFailed)
+                {
+                    self.report.undelivered.push(input);
+                    self.report.persistence_failure = Some(PersistenceFailure::NotWritten);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn begin_transition(

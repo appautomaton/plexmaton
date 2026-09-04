@@ -7,9 +7,9 @@ async fn durable_transition_starts_no_effect_before_append_ack() {
     let driver = FakeDriver::new([Script::EndWithoutTerminal]);
     let mut runtime = runtime(store, Arc::clone(&driver)).await;
     let _announcement = runtime.try_next_event();
-    // A fresh submission appends its message and running status. Hold the second record so this
-    // test fails if the runtime starts the provider after merely the first successful append.
-    control.block_after(2);
+    // TIM-1 makes the user item and Running boundary one record. Hold that record so the test
+    // fails if the provider starts before its one atomic start is acknowledged.
+    control.block_after(1);
     {
         let entered = control.gate.entered.notified();
         let submit = runtime.submit(agent_id(), submission());

@@ -541,9 +541,12 @@ reasoning_effort = "none"
         );
         for record in agent.announce("Plexmaton").records.into_iter().chain(
             agent
-                .handle(Input::Submitted {
-                    text: "answer after recovery".to_owned(),
-                })
+                .handle_at(
+                    Input::Submitted {
+                        text: "answer after recovery".to_owned(),
+                    },
+                    plexmaton_agent::UnixMillis::EPOCH,
+                )
                 .records,
         ) {
             file.append(record)

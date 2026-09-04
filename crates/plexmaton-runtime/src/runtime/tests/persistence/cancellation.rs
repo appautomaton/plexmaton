@@ -1,5 +1,80 @@
 use super::*;
 
+struct IncrementingClock(AtomicUsize);
+
+impl crate::runtime::clock::WallClock for IncrementingClock {
+    fn now(&self) -> plexmaton_agent::UnixMillis {
+        let value = self.0.fetch_add(1, Ordering::SeqCst);
+        plexmaton_agent::UnixMillis::new(
+            u64::try_from(value).unwrap_or_else(|error| panic!("clock value: {error}")),
+        )
+    }
+}
+
+/// TIM-1/JRN-7: input is timestamped and runtime-owned before an older commit can suspend it.
+#[tokio::test]
+async fn cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([
+        Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+        Script::EndWithoutTerminal,
+    ]);
+    let clock = Arc::new(IncrementingClock(AtomicUsize::new(100)));
+    let mut runtime = runtime_with_clock(store, driver, clock).await;
+    let _announcement = runtime.try_next_event();
+    control.block_after(1);
+
+    {
+        let entered = control.gate.entered.notified();
+        let first = runtime.submit(agent_id(), submission());
+        tokio::pin!(first);
+        tokio::select! {
+            result = &mut first => panic!("first submit completed before append ack: {result:?}"),
+            () = entered => {}
+        }
+    }
+    {
+        let second = runtime.submit(
+            agent_id(),
+            Input::Submitted {
+                text: "retained behind the first commit".to_owned(),
+            },
+        );
+        tokio::pin!(second);
+        tokio::select! {
+            biased;
+            result = &mut second => panic!("second submit completed while first was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    control.gate.release();
+
+    loop {
+        let has_second = runtime.agent.journal().records().iter().any(|record| {
+            matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(
+                        &entry.payload,
+                        JournalEntryPayload::TurnStarted {
+                            text,
+                            accepted_at,
+                            ..
+                        } if text == "retained behind the first commit"
+                            && *accepted_at == plexmaton_agent::UnixMillis::new(101)
+                    )
+            )
+        });
+        if has_second {
+            break;
+        }
+        tokio::time::timeout(Duration::from_secs(5), runtime.next_update())
+            .await
+            .unwrap_or_else(|_| panic!("retained submission did not reach its boundary"))
+            .unwrap_or_else(|error| panic!("drive retained submission: {error}"));
+    }
+}
+
 /// JRN-7: cancelling the waiter leaves the accepted transition owned by the runtime.
 #[tokio::test]
 async fn cancelled_submit_keeps_commit_owned_until_next_poll() {
@@ -267,6 +342,55 @@ async fn cancelled_shutdown_drains_every_accepted_record_before_writer_exit() {
         runtime.agent.journal().records(),
         "the joined writer and authoritative in-memory journal must end on the same prefix"
     );
+}
+
+/// JRN-7/LOOP-6: a cancelled shutdown owns its cleanup and refuses later text unchanged.
+#[tokio::test]
+async fn submit_after_cancelled_shutdown_returns_text_without_a_record_or_effect() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _announcement = runtime.try_next_event();
+    runtime
+        .submit(agent_id(), submission())
+        .await
+        .unwrap_or_else(|error| panic!("open durable turn: {error}"));
+    control.block_after(1);
+
+    {
+        let entered = control.gate.entered.notified();
+        let shutdown = runtime.shutdown();
+        tokio::pin!(shutdown);
+        tokio::select! {
+            result = &mut shutdown => panic!("shutdown completed before append ack: {result:?}"),
+            () = entered => {}
+        }
+    }
+    let records_before = runtime.agent.journal().records().len();
+    let calls_before = driver.calls().await.len();
+    let report = runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "return after shutdown".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("shutdown refusal is a report: {error}"));
+    assert!(matches!(
+        report.undelivered.as_slice(),
+        [input]
+            if input.text == "return after shutdown"
+                && input.reason == UndeliveredReason::Shutdown
+    ));
+    assert_eq!(runtime.agent.journal().records().len(), records_before);
+    assert_eq!(driver.calls().await.len(), calls_before);
+
+    control.gate.release();
+    runtime
+        .shutdown()
+        .await
+        .unwrap_or_else(|error| panic!("resume shutdown: {error}"));
 }
 
 /// JRN-7/LOOP-6: failed shutdown joins work and returns queued text in original arrival order.

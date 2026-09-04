@@ -1,12 +1,12 @@
 use plexmaton_core::{
     AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionEvent, SessionId,
-    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
+    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
 };
 
 use super::super::{
     HeadRevision, JournalEntryPayload, JournalRecord, SessionEntry, SessionJournal,
 };
-use crate::{RequestItem, ToolCall, ToolOutcome};
+use crate::{RequestItem, ToolCall, ToolOutcome, UnixMillis};
 
 pub(super) fn id<T>(
     value: &str,
@@ -61,12 +61,51 @@ pub(super) fn append(journal: &mut SessionJournal, ordinal: u64, payload: Journa
 }
 
 pub(super) fn message(role: TranscriptRole, ordinal: u64, text: &str) -> JournalEntryPayload {
+    if role == TranscriptRole::User {
+        return JournalEntryPayload::TurnStarted {
+            agent_id: agent(),
+            item_id: id(&format!("item-{ordinal}"), TranscriptItemId::new),
+            turn_id: id(&format!("turn-{ordinal}"), TurnId::new),
+            text: text.to_owned(),
+            accepted_at: UnixMillis::EPOCH,
+            opened_at: UnixMillis::EPOCH,
+        };
+    }
     JournalEntryPayload::Message {
         agent_id: agent(),
         item_id: id(&format!("item-{ordinal}"), TranscriptItemId::new),
         role,
         text: text.to_owned(),
     }
+}
+
+fn finish_turn(journal: &mut SessionJournal, ordinal: u64) {
+    let main = head("main");
+    let boundary = journal
+        .head_target(&main)
+        .unwrap_or_else(|error| panic!("main target: {error:?}"))
+        .cloned()
+        .unwrap_or_else(|| panic!("turn has a semantic boundary"));
+    let revision = journal
+        .head_revision(&main)
+        .unwrap_or_else(|error| panic!("main revision: {error:?}"));
+    journal
+        .apply(JournalRecord::TurnFinished {
+            sequence: journal.next_sequence(),
+            record_id: id(&format!("turn-finish-{ordinal}"), JournalRecordId::new),
+            head: main,
+            expected_head_revision: revision,
+            fact: crate::TurnFinished {
+                agent_id: agent(),
+                turn_id: id(&format!("turn-{ordinal}"), TurnId::new),
+                semantic_boundary: boundary,
+                outcome: crate::TurnOutcome::Completed,
+                at: crate::TurnFinishedAt::Observed {
+                    completed_at: UnixMillis::EPOCH,
+                },
+            },
+        })
+        .unwrap_or_else(|error| panic!("finish fixture turn: {error:?}"));
 }
 
 pub(super) fn announce(journal: &mut SessionJournal) {
@@ -277,6 +316,7 @@ fn jrn_5_named_heads_project_only_their_selected_ancestry() {
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
     announce(&mut journal);
     append(&mut journal, 1, message(TranscriptRole::User, 1, "root"));
+    finish_turn(&mut journal, 1);
     let root = journal
         .head_target(&head("main"))
         .unwrap_or_else(|error| panic!("main target: {error:?}"))

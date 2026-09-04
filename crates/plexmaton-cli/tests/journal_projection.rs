@@ -1,12 +1,23 @@
 use plexmaton_agent::{
     Agent, Effect, Input, JournalEntryPayload, JournalRecord, ModelError, ModelEvent, RequestItem,
-    SessionEntry, SessionJournal, StopReason, ToolCall, ToolOutcome,
+    SessionEntry, SessionJournal, StopReason, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
     AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenUsage,
     ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
+    TurnId,
 };
 use plexmaton_tui::{ApplyOutcome, TranscriptEntryView, ViewState};
+
+trait AgentTestExt {
+    fn handle(&mut self, input: Input) -> plexmaton_agent::Reaction;
+}
+
+impl AgentTestExt for Agent {
+    fn handle(&mut self, input: Input) -> plexmaton_agent::Reaction {
+        self.handle_at(input, UnixMillis::EPOCH)
+    }
+}
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -111,11 +122,13 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
     append(
         &mut journal,
         2,
-        JournalEntryPayload::Message {
+        JournalEntryPayload::TurnStarted {
             agent_id: agent_id.clone(),
             item_id: id("user-item", TranscriptItemId::new),
-            role: TranscriptRole::User,
+            turn_id: id("turn-1", TurnId::new),
             text: "inspect the workspace".to_owned(),
+            accepted_at: UnixMillis::EPOCH,
+            opened_at: UnixMillis::EPOCH,
         },
     );
     append(

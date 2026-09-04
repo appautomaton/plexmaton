@@ -5,12 +5,10 @@
 //! counter numbers transient live events, including provider deltas that are deliberately not
 //! durable session facts (JRN-5, JRN-6).
 
-use std::collections::BTreeMap;
-
 use plexmaton_core::{
-    AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence, HeadName,
-    JournalRecordId, SessionEntryId, SessionEvent, SessionEventEnvelope, SessionId, ToolCallId,
-    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
+    AgentId, AgentStatus, ApprovalId, AttentionId, EventSequence, HeadName, JournalRecordId,
+    SessionEntryId, SessionEvent, SessionEventEnvelope, SessionId, ToolCallId, TranscriptItemId,
+    TranscriptRole, TurnId,
 };
 
 use crate::interface::Reaction;
@@ -19,20 +17,7 @@ use crate::journal::{
 };
 use crate::model::{ModelRequest, RequestItem};
 
-pub(crate) struct RecoverableTool {
-    pub(crate) call_id: ToolCallId,
-    pub(crate) item_id: TranscriptItemId,
-    pub(crate) item_revision: u64,
-    pub(crate) label: String,
-    pub(crate) status: ToolCallStatus,
-    pub(crate) presentation: ToolPresentation,
-    pub(crate) attention_id: Option<AttentionId>,
-}
-
-pub(crate) struct InterruptedTurnRecovery {
-    pub(crate) tools: Vec<RecoverableTool>,
-    pub(crate) needs_marker: bool,
-}
+mod recovery;
 
 /// One agent's canonical journal plus its transient live-event delivery cursor.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -105,122 +90,6 @@ impl Record {
 
     pub(crate) const fn is_announced(&self) -> bool {
         self.announced
-    }
-
-    pub(crate) fn interrupted_turn(&self) -> Option<InterruptedTurnRecovery> {
-        let projection = self
-            .journal
-            .project(&self.head)
-            .unwrap_or_else(|error| unreachable!("loaded journal remains projectable: {error:?}"));
-        let mut status = None;
-        let mut order = Vec::new();
-        let mut tools = BTreeMap::<ToolCallId, RecoverableTool>::new();
-        let mut approvals = BTreeMap::<ToolCallId, AttentionId>::new();
-        for envelope in projection.events() {
-            match &envelope.event {
-                SessionEvent::AgentCreated {
-                    agent_id,
-                    status: next,
-                    ..
-                }
-                | SessionEvent::AgentStatusChanged {
-                    agent_id,
-                    status: next,
-                } if agent_id == &self.agent_id => status = Some(*next),
-                SessionEvent::ToolCallChanged {
-                    agent_id,
-                    item_id,
-                    item_revision,
-                    call_id,
-                    label,
-                    status,
-                    presentation,
-                } if agent_id == &self.agent_id => {
-                    if !tools.contains_key(call_id) {
-                        order.push(call_id.clone());
-                    }
-                    tools.insert(
-                        call_id.clone(),
-                        RecoverableTool {
-                            call_id: call_id.clone(),
-                            item_id: item_id.clone(),
-                            item_revision: *item_revision,
-                            label: label.clone(),
-                            status: *status,
-                            presentation: presentation.clone(),
-                            attention_id: None,
-                        },
-                    );
-                }
-                SessionEvent::AttentionRequested {
-                    agent_id,
-                    attention_id,
-                    request: AttentionRequest::Approval { call_id, .. },
-                    ..
-                } if agent_id == &self.agent_id => {
-                    approvals.insert(call_id.clone(), attention_id.clone());
-                }
-                SessionEvent::AttentionResolved {
-                    agent_id,
-                    attention_id,
-                } if agent_id == &self.agent_id => {
-                    approvals.retain(|_, pending| pending != attention_id);
-                }
-                _ => {}
-            }
-        }
-        let path = self
-            .journal
-            .path(&self.head)
-            .unwrap_or_else(|error| unreachable!("loaded head remains valid: {error:?}"));
-        let last_user = path.iter().rposition(|entry| {
-            matches!(
-                entry.payload,
-                JournalEntryPayload::Message {
-                    role: TranscriptRole::User,
-                    ..
-                }
-            )
-        });
-        let last_recovery = path.iter().rposition(|entry| {
-            matches!(
-                entry.payload,
-                JournalEntryPayload::TurnInterruptedByRecovery { .. }
-            )
-        });
-        let needs_marker =
-            last_recovery.is_none_or(|done| last_user.is_none_or(|user| done < user));
-        let incomplete_request = (matches!(
-            projection.request().items.last(),
-            Some(RequestItem::User { .. })
-        ) && needs_marker)
-            || projection.recovery().is_some();
-        if !matches!(status, Some(AgentStatus::Running | AgentStatus::Waiting))
-            && !incomplete_request
-        {
-            return None;
-        }
-        let interrupted = order
-            .into_iter()
-            .filter_map(|call_id| tools.remove(&call_id))
-            .filter(|tool| {
-                !matches!(
-                    tool.status,
-                    ToolCallStatus::Succeeded
-                        | ToolCallStatus::Failed
-                        | ToolCallStatus::Denied
-                        | ToolCallStatus::Cancelled
-                )
-            })
-            .map(|mut tool| {
-                tool.attention_id = approvals.remove(&tool.call_id);
-                tool
-            })
-            .collect();
-        Some(InterruptedTurnRecovery {
-            tools: interrupted,
-            needs_marker,
-        })
     }
 
     /// The conversation rebuilt from the same journal path persistence receives (JRN-5).
@@ -305,6 +174,53 @@ impl Record {
         reaction.records.push(record);
     }
 
+    pub(crate) fn finish_turn(
+        &mut self,
+        turn_id: TurnId,
+        outcome: crate::TurnOutcome,
+        at: crate::TurnFinishedAt,
+        reaction: &mut Reaction,
+    ) {
+        let sequence = self.journal.next_sequence();
+        let session_id = self.journal.session_id();
+        let record_id = JournalRecordId::new(format!("{session_id}-record-{}", sequence.get()))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let semantic_boundary = self
+            .journal
+            .head_target(&self.head)
+            .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"))
+            .cloned()
+            .unwrap_or_else(|| unreachable!("a started turn has a semantic entry"));
+        let expected_head_revision = self
+            .journal
+            .head_revision(&self.head)
+            .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"));
+        let record = JournalRecord::TurnFinished {
+            sequence,
+            record_id,
+            head: self.head.clone(),
+            expected_head_revision,
+            fact: crate::TurnFinished {
+                agent_id: self.agent_id.clone(),
+                turn_id,
+                semantic_boundary,
+                outcome,
+                at,
+            },
+        };
+        self.journal.apply(record.clone()).unwrap_or_else(|error| {
+            unreachable!("a locally prepared terminal fact is valid: {error:?}")
+        });
+        reaction.records.push(record);
+        self.emit(
+            reaction,
+            SessionEvent::AgentStatusChanged {
+                agent_id: self.agent_id.clone(),
+                status: AgentStatus::Idle,
+            },
+        );
+    }
+
     /// Numbers one transient or journal-derived event for the live projection.
     pub(crate) fn emit(&mut self, reaction: &mut Reaction, event: SessionEvent) {
         let sequence = EventSequence::new(self.next_event);
@@ -366,9 +282,10 @@ impl Record {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole};
+    use plexmaton_core::{AgentId, AgentStatus, SessionEvent};
 
     use super::Record;
+    use crate::UnixMillis;
     use crate::interface::Reaction;
     use crate::journal::JournalEntryPayload;
     use crate::model::RequestItem;
@@ -443,11 +360,13 @@ mod tests {
             &mut reaction,
         );
         record.commit(
-            JournalEntryPayload::Message {
+            JournalEntryPayload::TurnStarted {
                 agent_id: record.agent_id().clone(),
                 item_id: record.next_item_id(),
-                role: TranscriptRole::User,
+                turn_id: record.next_turn_id(),
                 text: "hello".to_owned(),
+                accepted_at: UnixMillis::EPOCH,
+                opened_at: UnixMillis::EPOCH,
             },
             &mut reaction,
         );

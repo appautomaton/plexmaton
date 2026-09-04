@@ -36,9 +36,12 @@ pub fn open_agent(text: &str) -> (Agent, ModelRequest) {
     let mut agent = Agent::new(
         AgentId::new("fixture-agent").unwrap_or_else(|error| panic!("fixture agent id: {error}")),
     );
-    let reaction = agent.handle(Input::Submitted {
-        text: text.to_owned(),
-    });
+    let reaction = agent.handle_at(
+        Input::Submitted {
+            text: text.to_owned(),
+        },
+        plexmaton_agent::UnixMillis::EPOCH,
+    );
     let [Effect::CallModel(request)] = reaction.effects.as_slice() else {
         panic!(
             "submission should open one model request: {:?}",
@@ -57,10 +60,13 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
             .unwrap_or_else(|| panic!("fixture expected an open provider step"));
         effects.extend(
             agent
-                .handle(Input::Streamed {
-                    step_id,
-                    event: event.clone(),
-                })
+                .handle_at(
+                    Input::Streamed {
+                        step_id,
+                        event: event.clone(),
+                    },
+                    plexmaton_agent::UnixMillis::EPOCH,
+                )
                 .effects,
         );
     }
@@ -81,21 +87,27 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
             None,
         )
         .unwrap_or_else(|error| panic!("fixture admission: {error:?}"));
-    let admitted_reaction = agent.handle(Input::ToolAdmissionResolved(admitted));
+    let admitted_reaction = agent.handle_at(
+        Input::ToolAdmissionResolved(admitted),
+        plexmaton_agent::UnixMillis::EPOCH,
+    );
     assert!(matches!(
         admitted_reaction.effects.as_slice(),
         [Effect::RunTool(running)] if running.requested() == &call
     ));
 
-    let finished = agent.handle(Input::ToolFinished {
-        call_id: call.call_id,
-        result: plexmaton_agent::ToolExecutionResult::new(
-            ToolOutcome::Succeeded {
-                output: output.to_owned(),
-            },
-            None,
-        ),
-    });
+    let finished = agent.handle_at(
+        Input::ToolFinished {
+            call_id: call.call_id,
+            result: plexmaton_agent::ToolExecutionResult::new(
+                ToolOutcome::Succeeded {
+                    output: output.to_owned(),
+                },
+                None,
+            ),
+        },
+        plexmaton_agent::UnixMillis::EPOCH,
+    );
     let [Effect::CallModel(request)] = finished.effects.as_slice() else {
         panic!(
             "tool result should open the next model step: {:?}",
@@ -110,10 +122,13 @@ pub fn complete_answer(agent: &mut Agent, events: &[ModelEvent]) {
         let step_id = agent
             .active_model_step()
             .unwrap_or_else(|| panic!("fixture expected an open provider step"));
-        let reaction = agent.handle(Input::Streamed {
-            step_id,
-            event: event.clone(),
-        });
+        let reaction = agent.handle_at(
+            Input::Streamed {
+                step_id,
+                event: event.clone(),
+            },
+            plexmaton_agent::UnixMillis::EPOCH,
+        );
         assert!(
             reaction.effects.is_empty(),
             "a final answer should request no work: {:?}",

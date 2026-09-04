@@ -6,7 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId, SessionId};
+use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TurnId};
+
+use crate::TurnFinished;
 
 mod error;
 mod payload;
@@ -14,6 +16,7 @@ mod payload;
 mod payload_tests;
 mod projection;
 mod record;
+mod turns;
 #[cfg(test)]
 mod validation_tests;
 
@@ -27,6 +30,19 @@ pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
 struct HeadState {
     target: Option<SessionEntryId>,
     revision: HeadRevision,
+    open_turn: Option<TurnId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TurnStartState {
+    agent_id: AgentId,
+    entry_id: SessionEntryId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TurnFinishState {
+    sequence: JournalSequence,
+    fact: TurnFinished,
 }
 
 /// Deterministic in-memory reduction of one session's ordered records.
@@ -37,8 +53,13 @@ pub struct SessionJournal {
     records: Vec<JournalRecord>,
     record_ids: BTreeSet<JournalRecordId>,
     entries: BTreeMap<SessionEntryId, SessionEntry>,
+    entry_sequences: BTreeMap<SessionEntryId, JournalSequence>,
+    stable_entries: BTreeSet<SessionEntryId>,
+    unstable_entry_turns: BTreeMap<SessionEntryId, TurnId>,
     heads: BTreeMap<HeadName, HeadState>,
     retired_heads: BTreeSet<HeadName>,
+    turn_starts: BTreeMap<TurnId, TurnStartState>,
+    turn_finishes: BTreeMap<TurnId, TurnFinishState>,
 }
 
 impl SessionJournal {
@@ -53,14 +74,20 @@ impl SessionJournal {
             records: Vec::new(),
             record_ids: BTreeSet::new(),
             entries: BTreeMap::new(),
+            entry_sequences: BTreeMap::new(),
+            stable_entries: BTreeSet::new(),
+            unstable_entry_turns: BTreeMap::new(),
             heads: BTreeMap::from([(
                 main,
                 HeadState {
                     target: None,
                     revision: HeadRevision::new(0),
+                    open_turn: None,
                 },
             )]),
             retired_heads: BTreeSet::new(),
+            turn_starts: BTreeMap::new(),
+            turn_finishes: BTreeMap::new(),
         }
     }
 
@@ -111,15 +138,48 @@ impl SessionJournal {
     pub fn apply(&mut self, record: JournalRecord) -> Result<(), JournalError> {
         let next_sequence = self.validate(&record)?;
         match &record {
-            JournalRecord::AppendEntry { head, entry, .. } => {
+            JournalRecord::AppendEntry {
+                sequence,
+                head,
+                entry,
+                ..
+            } => {
+                let prior_open_turn = self
+                    .heads
+                    .get(head)
+                    .and_then(|state| state.open_turn.clone());
+                if let JournalEntryPayload::TurnStarted {
+                    agent_id, turn_id, ..
+                } = &entry.payload
+                {
+                    self.turn_starts.insert(
+                        turn_id.clone(),
+                        TurnStartState {
+                            agent_id: agent_id.clone(),
+                            entry_id: entry.id.clone(),
+                        },
+                    );
+                }
                 self.entries
                     .insert(entry.id.clone(), entry.as_ref().clone());
+                self.entry_sequences.insert(entry.id.clone(), *sequence);
+                let next_open_turn = match &entry.payload {
+                    JournalEntryPayload::TurnStarted { turn_id, .. } => Some(turn_id.clone()),
+                    _ => prior_open_turn,
+                };
+                if next_open_turn.is_none() {
+                    self.stable_entries.insert(entry.id.clone());
+                } else if let Some(turn_id) = &next_open_turn {
+                    self.unstable_entry_turns
+                        .insert(entry.id.clone(), turn_id.clone());
+                }
                 let state = self
                     .heads
                     .get_mut(head)
                     .unwrap_or_else(|| unreachable!("validated head must remain present"));
                 state.target = Some(entry.id.clone());
                 state.revision = HeadRevision::new(state.revision.get() + 1);
+                state.open_turn = next_open_turn;
             }
             JournalRecord::CreateHead { head, at, .. } => {
                 self.heads.insert(
@@ -127,6 +187,7 @@ impl SessionJournal {
                     HeadState {
                         target: at.clone(),
                         revision: HeadRevision::new(0),
+                        open_turn: None,
                     },
                 );
             }
@@ -137,6 +198,7 @@ impl SessionJournal {
                     .unwrap_or_else(|| unreachable!("validated head must remain present"));
                 state.target = to.clone();
                 state.revision = HeadRevision::new(state.revision.get() + 1);
+                state.open_turn = None;
             }
             JournalRecord::RenameHead { head, renamed, .. } => {
                 let mut state = self
@@ -150,6 +212,26 @@ impl SessionJournal {
             JournalRecord::AbandonHead { head, .. } => {
                 self.heads.remove(head);
                 self.retired_heads.insert(head.clone());
+            }
+            JournalRecord::TurnFinished {
+                sequence,
+                head,
+                fact,
+                ..
+            } => {
+                self.turn_finishes.insert(
+                    fact.turn_id.clone(),
+                    TurnFinishState {
+                        sequence: *sequence,
+                        fact: fact.clone(),
+                    },
+                );
+                self.stable_entries.insert(fact.semantic_boundary.clone());
+                self.unstable_entry_turns.remove(&fact.semantic_boundary);
+                self.heads
+                    .get_mut(head)
+                    .unwrap_or_else(|| unreachable!("validated head remains present"))
+                    .open_turn = None;
             }
         }
         self.record_ids.insert(record.record_id().clone());
@@ -199,11 +281,41 @@ impl SessionJournal {
                         actual: entry.parent_id.clone(),
                     });
                 }
+                match &entry.payload {
+                    JournalEntryPayload::AgentCreated {
+                        agent_id, status, ..
+                    } if *status != plexmaton_core::AgentStatus::Idle => {
+                        return Err(JournalError::InvalidInitialAgentStatus(agent_id.clone()));
+                    }
+                    JournalEntryPayload::Message {
+                        item_id,
+                        role: plexmaton_core::TranscriptRole::User,
+                        ..
+                    } => {
+                        return Err(JournalError::TimelessUserMessage(item_id.clone()));
+                    }
+                    JournalEntryPayload::TurnStarted { turn_id, .. } => {
+                        if self.turn_starts.contains_key(turn_id) {
+                            return Err(JournalError::DuplicateTurn(turn_id.clone()));
+                        }
+                        if let Some(open_turn) = &state.open_turn {
+                            return Err(JournalError::UnstableTurnTarget(open_turn.clone()));
+                        }
+                    }
+                    JournalEntryPayload::SteeringAccepted {
+                        agent_id, turn_id, ..
+                    } => self.validate_steering(agent_id, turn_id, state.open_turn.as_ref())?,
+                    JournalEntryPayload::TurnStatusChanged {
+                        agent_id, turn_id, ..
+                    } => self.validate_turn_status(agent_id, turn_id, state.open_turn.as_ref())?,
+                    _ => {}
+                }
                 self.validate_revision_increment(head, state.revision)?;
             }
             JournalRecord::CreateHead { head, at, .. } => {
                 self.validate_available_head(head)?;
                 self.validate_target(at.as_ref())?;
+                self.validate_stable_target(at.as_ref())?;
             }
             JournalRecord::MoveHead {
                 head,
@@ -213,6 +325,7 @@ impl SessionJournal {
             } => {
                 let state = self.validate_head(head, *expected_head_revision)?;
                 self.validate_target(to.as_ref())?;
+                self.validate_stable_target(to.as_ref())?;
                 self.validate_revision_increment(head, state.revision)?;
             }
             JournalRecord::RenameHead {
@@ -230,7 +343,23 @@ impl SessionJournal {
                 expected_head_revision,
                 ..
             } => {
-                self.validate_head(head, *expected_head_revision)?;
+                let state = self.validate_head(head, *expected_head_revision)?;
+                self.validate_stable_target(state.target.as_ref())?;
+            }
+            JournalRecord::TurnFinished {
+                head,
+                expected_head_revision,
+                fact,
+                ..
+            } => {
+                let state = self.validate_head(head, *expected_head_revision)?;
+                if state.target.as_ref() != Some(&fact.semantic_boundary) {
+                    return Err(JournalError::InvalidTurnBoundary {
+                        turn_id: fact.turn_id.clone(),
+                        boundary: fact.semantic_boundary.clone(),
+                    });
+                }
+                self.validate_turn_finished(fact, state.open_turn.as_ref())?;
             }
         }
         Ok(next_sequence)
@@ -291,7 +420,7 @@ impl SessionJournal {
 mod tests {
     use plexmaton_core::{
         AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId,
-        TranscriptRole,
+        TranscriptRole, TurnId,
     };
 
     use super::{
@@ -299,6 +428,7 @@ mod tests {
         SessionEntry, SessionJournal,
     };
     use crate::{MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderReplay};
+    use crate::{TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
 
     fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
         build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -323,7 +453,7 @@ mod tests {
             payload: JournalEntryPayload::Message {
                 agent_id: id("agent-a", AgentId::new),
                 item_id: id(&format!("item-{value}"), TranscriptItemId::new),
-                role: TranscriptRole::User,
+                role: TranscriptRole::Assistant,
                 text: text.to_owned(),
             },
         }
@@ -342,6 +472,53 @@ mod tests {
             head: self::head(head),
             expected_head_revision: HeadRevision::new(revision),
             entry: Box::new(entry),
+        }
+    }
+
+    fn turn_entry(
+        value: &str,
+        parent_id: Option<SessionEntryId>,
+        turn_id: &str,
+        agent_id: &str,
+        text: &str,
+    ) -> SessionEntry {
+        SessionEntry {
+            id: id(value, SessionEntryId::new),
+            parent_id,
+            payload: JournalEntryPayload::TurnStarted {
+                agent_id: id(agent_id, AgentId::new),
+                item_id: id(&format!("item-{value}"), TranscriptItemId::new),
+                turn_id: id(turn_id, TurnId::new),
+                text: text.to_owned(),
+                accepted_at: UnixMillis::new(10),
+                opened_at: UnixMillis::new(12),
+            },
+        }
+    }
+
+    fn finish_record(
+        journal: &SessionJournal,
+        record_id: &str,
+        turn_id: &str,
+        agent_id: &str,
+        boundary: &str,
+    ) -> JournalRecord {
+        JournalRecord::TurnFinished {
+            sequence: journal.next_sequence(),
+            record_id: record(record_id),
+            head: head("main"),
+            expected_head_revision: journal
+                .head_revision(&head("main"))
+                .unwrap_or_else(|error| panic!("head revision: {error:?}")),
+            fact: TurnFinished {
+                agent_id: id(agent_id, AgentId::new),
+                turn_id: id(turn_id, TurnId::new),
+                semantic_boundary: id(boundary, SessionEntryId::new),
+                outcome: TurnOutcome::Completed,
+                at: TurnFinishedAt::Observed {
+                    completed_at: UnixMillis::new(20),
+                },
+            },
         }
     }
 
@@ -402,6 +579,435 @@ mod tests {
             Err(JournalError::MissingHead(head("kept")))
         );
         assert_eq!(journal.records().len(), 6);
+    }
+
+    /// TIM-1/TIM-4: terminal chronology is canonical without becoming semantic ancestry.
+    #[test]
+    fn tim_1_turn_terminal_round_trips_without_advancing_its_head() {
+        let mut journal = session();
+        let started = turn_entry("turn-entry", None, "turn-1", "agent-a", "hello");
+        journal
+            .apply(append(1, "record-1", "main", 0, started.clone()))
+            .unwrap_or_else(|error| panic!("start turn: {error:?}"));
+        let before_target = journal
+            .head_target(&head("main"))
+            .map(|target| target.cloned());
+        let before_revision = journal.head_revision(&head("main"));
+        let finished = finish_record(&journal, "record-2", "turn-1", "agent-a", "turn-entry");
+        let json = serde_json::to_string(&finished)
+            .unwrap_or_else(|error| panic!("encode terminal: {error}"));
+        let decoded: JournalRecord =
+            serde_json::from_str(&json).unwrap_or_else(|error| panic!("decode terminal: {error}"));
+        assert_eq!(decoded, finished);
+        journal
+            .apply(finished)
+            .unwrap_or_else(|error| panic!("finish turn: {error:?}"));
+
+        assert_eq!(
+            journal
+                .head_target(&head("main"))
+                .map(|target| target.cloned()),
+            before_target
+        );
+        assert_eq!(journal.head_revision(&head("main")), before_revision);
+        assert_eq!(journal.path(&head("main")), Ok(vec![&started]));
+    }
+
+    fn open_turn_fixture() -> (SessionJournal, SessionEntry) {
+        let mut journal = session();
+        let started = turn_entry("turn-entry", None, "turn-1", "agent-a", "hello");
+        journal
+            .apply(append(1, "record-1", "main", 0, started.clone()))
+            .unwrap_or_else(|error| panic!("start turn: {error:?}"));
+        (journal, started)
+    }
+
+    /// TIM-1/JRN-2: branch operations cannot select a partial turn, while rename retains it.
+    #[test]
+    fn tim_1_partial_head_mutations_preserve_or_refuse_the_open_turn() {
+        let (mut journal, started) = open_turn_fixture();
+        let open = journal.clone();
+        let invalid = [
+            JournalRecord::CreateHead {
+                sequence: journal.next_sequence(),
+                record_id: record("partial-create"),
+                head: head("partial"),
+                at: Some(started.id.clone()),
+            },
+            JournalRecord::MoveHead {
+                sequence: journal.next_sequence(),
+                record_id: record("partial-move"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+                to: Some(started.id.clone()),
+            },
+            JournalRecord::AbandonHead {
+                sequence: journal.next_sequence(),
+                record_id: record("partial-abandon"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+            },
+        ];
+        for record in invalid {
+            assert!(journal.apply(record).is_err());
+            assert_eq!(journal, open);
+        }
+
+        journal
+            .apply(JournalRecord::RenameHead {
+                sequence: JournalSequence::new(2),
+                record_id: record("partial-rename"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+                renamed: head("continued"),
+            })
+            .unwrap_or_else(|error| panic!("rename partial head: {error:?}"));
+        journal
+            .apply(JournalRecord::TurnFinished {
+                sequence: JournalSequence::new(3),
+                record_id: record("finish-renamed"),
+                head: head("continued"),
+                expected_head_revision: HeadRevision::new(2),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: started.id,
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(30),
+                    },
+                },
+            })
+            .unwrap_or_else(|error| panic!("finish renamed turn: {error:?}"));
+    }
+
+    /// TIM-1/JRN-2: malformed terminal facts mutate nothing and a turn finishes once.
+    #[test]
+    fn tim_1_invalid_terminal_records_change_nothing() {
+        let (mut journal, started) = open_turn_fixture();
+        let open = journal.clone();
+        let invalid = [
+            finish_record(&journal, "wrong-owner", "turn-1", "agent-b", "turn-entry"),
+            finish_record(
+                &journal,
+                "missing-turn",
+                "turn-missing",
+                "agent-a",
+                "turn-entry",
+            ),
+            JournalRecord::TurnFinished {
+                sequence: journal.next_sequence(),
+                record_id: record("missing-head"),
+                head: head("missing"),
+                expected_head_revision: HeadRevision::new(1),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: started.id.clone(),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(20),
+                    },
+                },
+            },
+            JournalRecord::TurnFinished {
+                sequence: journal.next_sequence(),
+                record_id: record("stale-head"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(0),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: started.id.clone(),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(20),
+                    },
+                },
+            },
+            JournalRecord::TurnFinished {
+                sequence: journal.next_sequence(),
+                record_id: record("bad-boundary"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: id("outside-turn", SessionEntryId::new),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(20),
+                    },
+                },
+            },
+            JournalRecord::TurnFinished {
+                sequence: journal.next_sequence(),
+                record_id: record("observed-process-death"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: started.id.clone(),
+                    outcome: TurnOutcome::ProcessDied,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(20),
+                    },
+                },
+            },
+            JournalRecord::TurnFinished {
+                sequence: journal.next_sequence(),
+                record_id: record("recovered-completed"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(1),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: started.id.clone(),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Recovered {
+                        recovery_observed_at: UnixMillis::new(20),
+                    },
+                },
+            },
+        ];
+        for record in invalid {
+            assert!(journal.apply(record).is_err());
+            assert_eq!(journal, open);
+        }
+
+        let finished = finish_record(&journal, "valid-finish", "turn-1", "agent-a", "turn-entry");
+        journal
+            .apply(finished)
+            .unwrap_or_else(|error| panic!("valid finish: {error:?}"));
+        let closed = journal.clone();
+        assert!(
+            journal
+                .apply(finish_record(
+                    &journal,
+                    "duplicate-finish",
+                    "turn-1",
+                    "agent-a",
+                    "turn-entry",
+                ))
+                .is_err()
+        );
+        assert_eq!(journal, closed);
+    }
+
+    /// TIM-1/TIM-4: sibling branches share completed ancestry but never one another's later audit.
+    #[test]
+    fn tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals() {
+        let mut journal = session();
+        let created = entry("created", None, "ignored");
+        let created = SessionEntry {
+            payload: JournalEntryPayload::AgentCreated {
+                agent_id: id("agent-a", AgentId::new),
+                label: "Agent A".to_owned(),
+                status: plexmaton_core::AgentStatus::Idle,
+            },
+            ..created
+        };
+        journal
+            .apply(append(1, "record-1", "main", 0, created.clone()))
+            .unwrap_or_else(|error| panic!("announce: {error:?}"));
+        let shared = turn_entry(
+            "shared",
+            Some(created.id.clone()),
+            "turn-shared",
+            "agent-a",
+            "shared",
+        );
+        journal
+            .apply(append(2, "record-2", "main", 1, shared.clone()))
+            .unwrap_or_else(|error| panic!("shared start: {error:?}"));
+        journal
+            .apply(finish_record(
+                &journal,
+                "record-3",
+                "turn-shared",
+                "agent-a",
+                "shared",
+            ))
+            .unwrap_or_else(|error| panic!("shared finish: {error:?}"));
+        journal
+            .apply(JournalRecord::CreateHead {
+                sequence: JournalSequence::new(4),
+                record_id: record("record-4"),
+                head: head("branch"),
+                at: Some(shared.id.clone()),
+            })
+            .unwrap_or_else(|error| panic!("create sibling: {error:?}"));
+
+        let main = turn_entry(
+            "main-turn",
+            Some(shared.id.clone()),
+            "turn-main",
+            "agent-a",
+            "main",
+        );
+        journal
+            .apply(append(5, "record-5", "main", 2, main))
+            .unwrap_or_else(|error| panic!("main start: {error:?}"));
+        journal
+            .apply(finish_record(
+                &journal,
+                "record-6",
+                "turn-main",
+                "agent-a",
+                "main-turn",
+            ))
+            .unwrap_or_else(|error| panic!("main finish: {error:?}"));
+
+        let branch = turn_entry(
+            "branch-turn",
+            Some(shared.id),
+            "turn-branch",
+            "agent-a",
+            "branch",
+        );
+        journal
+            .apply(append(7, "record-7", "branch", 0, branch))
+            .unwrap_or_else(|error| panic!("branch start: {error:?}"));
+        journal
+            .apply(JournalRecord::TurnFinished {
+                sequence: JournalSequence::new(8),
+                record_id: record("record-8"),
+                head: head("branch"),
+                expected_head_revision: HeadRevision::new(1),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-branch", TurnId::new),
+                    semantic_boundary: id("branch-turn", SessionEntryId::new),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(30),
+                    },
+                },
+            })
+            .unwrap_or_else(|error| panic!("branch finish: {error:?}"));
+
+        for (head_name, expected) in [
+            ("main", ["shared", "main"]),
+            ("branch", ["shared", "branch"]),
+        ] {
+            let projection = journal
+                .project(&head(head_name))
+                .unwrap_or_else(|error| panic!("project {head_name}: {error:?}"));
+            assert_eq!(
+                projection
+                    .request()
+                    .items
+                    .iter()
+                    .filter_map(|item| match item {
+                        crate::RequestItem::User { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                projection
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(
+                        event.event,
+                        plexmaton_core::SessionEvent::AgentStatusChanged {
+                            status: plexmaton_core::AgentStatus::Idle,
+                            ..
+                        }
+                    ))
+                    .count(),
+                2,
+                "{head_name} received its sibling's terminal audit"
+            );
+        }
+    }
+
+    /// TIM-1: long linear reload retains one derived stability lookup per terminal boundary.
+    #[test]
+    fn tim_1_long_turn_history_reduces_with_indexed_stability() {
+        let mut journal = session();
+        for ordinal in 1..=1_024_u64 {
+            let parent = journal
+                .head_target(&head("main"))
+                .unwrap_or_else(|error| panic!("head target: {error:?}"))
+                .cloned();
+            let entry_name = format!("entry-{ordinal}");
+            let turn_name = format!("turn-{ordinal}");
+            let started = turn_entry(&entry_name, parent, &turn_name, "agent-a", "hello");
+            let sequence = journal.next_sequence();
+            let revision = journal
+                .head_revision(&head("main"))
+                .unwrap_or_else(|error| panic!("head revision: {error:?}"));
+            journal
+                .apply(append(
+                    sequence.get(),
+                    &format!("start-{ordinal}"),
+                    "main",
+                    revision.get(),
+                    started,
+                ))
+                .unwrap_or_else(|error| panic!("start turn {ordinal}: {error:?}"));
+            let finished = finish_record(
+                &journal,
+                &format!("finish-{ordinal}"),
+                &turn_name,
+                "agent-a",
+                &entry_name,
+            );
+            journal
+                .apply(finished)
+                .unwrap_or_else(|error| panic!("finish turn {ordinal}: {error:?}"));
+        }
+
+        let parent = journal
+            .head_target(&head("main"))
+            .unwrap_or_else(|error| panic!("head target: {error:?}"))
+            .cloned();
+        journal
+            .apply(append(
+                journal.next_sequence().get(),
+                "start-open-tail",
+                "main",
+                journal
+                    .head_revision(&head("main"))
+                    .unwrap_or_else(|error| panic!("head revision: {error:?}"))
+                    .get(),
+                turn_entry(
+                    "entry-open-tail",
+                    parent,
+                    "turn-open-tail",
+                    "agent-a",
+                    "still running",
+                ),
+            ))
+            .unwrap_or_else(|error| panic!("start open tail: {error:?}"));
+        let open = journal.clone();
+        assert_eq!(
+            journal.apply(JournalRecord::CreateHead {
+                sequence: journal.next_sequence(),
+                record_id: record("branch-open-tail"),
+                head: head("invalid-branch"),
+                at: journal
+                    .head_target(&head("main"))
+                    .unwrap_or_else(|error| panic!("head target: {error:?}"))
+                    .cloned(),
+            }),
+            Err(JournalError::UnstableTurnTarget(id(
+                "turn-open-tail",
+                TurnId::new
+            )))
+        );
+        assert_eq!(journal, open);
+        assert_eq!(journal.turn_starts.len(), 1_025);
+        assert_eq!(journal.turn_finishes.len(), 1_024);
+        assert_eq!(journal.stable_entries.len(), 1_024);
+        assert_eq!(journal.unstable_entry_turns.len(), 1);
+        assert_eq!(
+            journal.open_turn_on_path(&head("main")),
+            Some(id("turn-open-tail", TurnId::new))
+        );
     }
 
     /// JRN-2: every refusal is transactional at the reducer boundary.
@@ -497,7 +1103,7 @@ mod tests {
             .iter()
             .filter_map(|entry| match &entry.payload {
                 JournalEntryPayload::Message {
-                    role: TranscriptRole::User,
+                    role: TranscriptRole::Assistant,
                     text,
                     ..
                 } => Some(text.as_str()),
@@ -562,6 +1168,21 @@ mod tests {
                 record_id: self::record("abandon"),
                 head: head("main"),
                 expected_head_revision: HeadRevision::new(0),
+            },
+            JournalRecord::TurnFinished {
+                sequence: JournalSequence::new(1),
+                record_id: self::record("turn-finished"),
+                head: head("main"),
+                expected_head_revision: HeadRevision::new(0),
+                fact: TurnFinished {
+                    agent_id: id("agent-a", AgentId::new),
+                    turn_id: id("turn-1", TurnId::new),
+                    semantic_boundary: id("entry-1", SessionEntryId::new),
+                    outcome: TurnOutcome::Completed,
+                    at: TurnFinishedAt::Observed {
+                        completed_at: UnixMillis::new(123),
+                    },
+                },
             },
         ];
         for variant in variants {

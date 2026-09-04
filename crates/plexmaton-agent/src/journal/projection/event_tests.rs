@@ -32,7 +32,7 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
         JournalEntryPayload::AgentCreated {
             agent_id: agent_id.clone(),
             label: "Plexmaton".to_owned(),
-            status: AgentStatus::Running,
+            status: AgentStatus::Idle,
         },
     );
     append(

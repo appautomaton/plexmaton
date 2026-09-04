@@ -7,8 +7,9 @@ use plexmaton_core::{AgentId, SessionEventEnvelope};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{CleanupFailure, DispatchReport, PersistenceFailure, RuntimeError, RuntimeUpdate};
+use crate::{CleanupFailure, DispatchReport, RuntimeError, RuntimeUpdate};
 
+mod clock;
 mod construction;
 mod journal;
 mod model;
@@ -16,6 +17,7 @@ mod terminal;
 mod tools;
 mod transition;
 
+use clock::WallClock;
 use model::RetainedModelFuture;
 pub(crate) use model::{ModelDriver, ModelSignal};
 use terminal::QueuedTerminal;
@@ -23,6 +25,15 @@ use tools::{ToolResolution, ToolTasks};
 use transition::{AfterCommit, PendingCommit};
 
 use journal::JournalWriter;
+
+const PENDING_INPUT_CAPACITY: usize = 32;
+
+struct PendingInput {
+    input: Input,
+    observed_at: plexmaton_agent::UnixMillis,
+    rejected_input: Option<UndeliveredInput>,
+    after: AfterCommit,
+}
 
 struct ActiveModel {
     step_id: ModelStepId,
@@ -46,8 +57,10 @@ pub struct LiveRuntime {
     journal: Option<JournalWriter>,
     pending_commit: Option<PendingCommit>,
     after_commit: Option<AfterCommit>,
+    pending_inputs: VecDeque<PendingInput>,
     journal_failed: bool,
     shutting_down: bool,
+    clock: Arc<dyn WallClock>,
 }
 
 impl LiveRuntime {
@@ -63,6 +76,20 @@ impl LiveRuntime {
                 received: to,
             });
         }
+        if self.shutting_down {
+            if let Some(input) = rejected_user_input(&input, UndeliveredReason::Shutdown) {
+                self.report.undelivered.push(input);
+                return Ok(self.take_report());
+            }
+            return Err(RuntimeError::ShuttingDown);
+        }
+        if self.pending_inputs.len() == PENDING_INPUT_CAPACITY {
+            if let Some(input) = rejected_user_input(&input, UndeliveredReason::QueueFull) {
+                self.report.undelivered.push(input);
+                return Ok(self.take_report());
+            }
+            return Err(RuntimeError::RuntimeInputQueueFull);
+        }
         let rejected_input = match &input {
             Input::Submitted { text } | Input::Steered { text } => Some(UndeliveredInput {
                 text: text.clone(),
@@ -76,35 +103,26 @@ impl LiveRuntime {
             | Input::Interrupted
             | Input::ShuttingDown => None,
         };
-        self.finish_transition().await?;
+        let after = if matches!(&input, Input::Interrupted) {
+            AfterCommit::Interrupt
+        } else {
+            AfterCommit::None
+        };
+        let observed_at = self.clock.now();
+        self.pending_inputs.push_back(PendingInput {
+            input,
+            observed_at,
+            rejected_input,
+            after,
+        });
+        self.finish_pending_inputs().await?;
         if self.journal_failed {
             self.finish_failed_owners().await;
-            if let Some(input) = rejected_input {
-                self.report.undelivered.push(input);
-                if self.report.persistence_failure.is_none() {
-                    self.report.persistence_failure = Some(PersistenceFailure::NotWritten);
-                }
-            }
             return if self.report.is_empty() {
                 Err(RuntimeError::JournalRequiresReopen)
             } else {
                 Ok(self.take_report())
             };
-        }
-        if self.shutting_down {
-            return Err(RuntimeError::ShuttingDown);
-        }
-        let interrupted = matches!(input, Input::Interrupted);
-        let after = if interrupted {
-            AfterCommit::Interrupt
-        } else {
-            AfterCommit::None
-        };
-        if interrupted {
-            self.apply_agent_input_after_usage(input, rejected_input, after)
-                .await?;
-        } else {
-            self.apply_agent_input(input, rejected_input, after).await?;
         }
         if self.journal_failed {
             self.finish_failed_owners().await;
@@ -135,7 +153,7 @@ impl LiveRuntime {
 
     /// Waits cancellation-safely for the next event, non-event report, or final completion.
     pub async fn next_update(&mut self) -> Result<RuntimeUpdate, RuntimeError> {
-        self.finish_transition().await?;
+        self.finish_pending_inputs().await?;
         loop {
             if self.journal_failed {
                 self.finish_failed_owners().await;
@@ -167,7 +185,7 @@ impl LiveRuntime {
     /// Cancellation of this future does not make shutdown look complete: calling it again resumes
     /// the retained provider and tool cleanup.
     pub async fn shutdown(&mut self) -> Result<DispatchReport, RuntimeError> {
-        if let Err(error) = self.finish_transition().await {
+        if let Err(error) = self.finish_pending_inputs().await {
             return self.shutdown_after_journal_failure(error).await;
         }
         if self.journal_failed {
@@ -252,7 +270,8 @@ impl LiveRuntime {
     /// Whether this runtime still owns a durable transition, provider, admission, or execution.
     #[must_use]
     pub fn has_active_work(&self) -> bool {
-        self.pending_commit.is_some()
+        !self.pending_inputs.is_empty()
+            || self.pending_commit.is_some()
             || self.after_commit.is_some()
             || self.active.is_some()
             || !self.tools.is_empty()
@@ -296,6 +315,16 @@ impl LiveRuntime {
             }
         };
         self.apply_agent_input(input, None, AfterCommit::None).await
+    }
+}
+
+fn rejected_user_input(input: &Input, reason: UndeliveredReason) -> Option<UndeliveredInput> {
+    match input {
+        Input::Submitted { text } | Input::Steered { text } => Some(UndeliveredInput {
+            text: text.clone(),
+            reason,
+        }),
+        _ => None,
     }
 }
 

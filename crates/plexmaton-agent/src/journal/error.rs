@@ -1,4 +1,6 @@
-use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
+use plexmaton_core::{
+    AgentId, HeadName, JournalRecordId, SessionEntryId, TranscriptItemId, TurnId,
+};
 
 use super::{HeadRevision, JournalSequence};
 
@@ -36,4 +38,31 @@ pub enum JournalError {
     SequenceExhausted,
     /// No later revision can be represented for this head.
     RevisionExhausted(HeadName),
+    /// A second semantic start reused one turn identity.
+    DuplicateTurn(TurnId),
+    /// Agent creation tried to bypass the idle initial lifecycle boundary.
+    InvalidInitialAgentStatus(AgentId),
+    /// A generic message tried to bypass the typed user-input boundary.
+    TimelessUserMessage(TranscriptItemId),
+    /// A terminal fact named no semantic turn start.
+    MissingTurn(TurnId),
+    /// A terminal fact moved a turn between agent owners.
+    WrongTurnAgent {
+        turn_id: TurnId,
+        expected: AgentId,
+        actual: AgentId,
+    },
+    /// A second terminal fact tried to finish one turn again.
+    DuplicateTurnFinish(TurnId),
+    /// A terminal fact named a boundary outside its turn ancestry.
+    InvalidTurnBoundary {
+        turn_id: TurnId,
+        boundary: SessionEntryId,
+    },
+    /// Steering named a turn that had already reached its terminal fact.
+    ClosedTurnInput(TurnId),
+    /// Recovery observation and outcome contradicted one another.
+    InvalidTurnFinishTime(TurnId),
+    /// A branch operation targeted semantic work whose turn is not terminal there.
+    UnstableTurnTarget(TurnId),
 }

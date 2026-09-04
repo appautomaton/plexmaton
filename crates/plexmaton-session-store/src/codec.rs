@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
 
-pub(crate) const FORMAT_VERSION: u32 = 1;
+pub(crate) const FORMAT_VERSION: u32 = 2;
 pub const MAX_JOURNAL_LINE_BYTES: usize = 2 * 1024 * 1024;
 const HEADER_KIND: &str = "plexmaton_session";
 

@@ -1,13 +1,13 @@
 use plexmaton_core::{
-    AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId, ToolPresentation,
-    TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId,
+    ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
 use super::{
     HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
     SessionJournal,
 };
-use crate::{AdmissionRefusal, ToolCall, ToolCancellationReason, ToolOutcome};
+use crate::{AdmissionRefusal, ToolCall, ToolCancellationReason, ToolOutcome, UnixMillis};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -28,7 +28,7 @@ fn entry(value: &str, parent_id: Option<SessionEntryId>) -> SessionEntry {
         payload: JournalEntryPayload::Message {
             agent_id: id("agent-a", AgentId::new),
             item_id: id(&format!("item-{value}"), TranscriptItemId::new),
-            role: TranscriptRole::User,
+            role: TranscriptRole::Assistant,
             text: value.to_owned(),
         },
     }
@@ -58,6 +58,67 @@ fn rooted() -> (SessionJournal, SessionEntryId) {
         .apply(append(1, "record-1", "main", 0, root))
         .unwrap_or_else(|error| panic!("append root: {error:?}"));
     (journal, root_id)
+}
+
+/// TIM-1: legacy payload shapes cannot bypass typed user and turn lifecycle boundaries.
+#[test]
+fn tim_1_unscoped_user_and_lifecycle_payloads_change_nothing() {
+    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let agent_id = id("agent-a", AgentId::new);
+    let running_creation = append(
+        1,
+        "running-agent",
+        "main",
+        0,
+        SessionEntry {
+            id: id("running-agent-entry", SessionEntryId::new),
+            parent_id: None,
+            payload: JournalEntryPayload::AgentCreated {
+                agent_id: agent_id.clone(),
+                label: "Agent A".to_owned(),
+                status: AgentStatus::Running,
+            },
+        },
+    );
+    let empty = journal.clone();
+    assert_eq!(
+        journal.apply(running_creation),
+        Err(JournalError::InvalidInitialAgentStatus(agent_id.clone()))
+    );
+    assert_eq!(journal, empty);
+
+    let announced = SessionEntry {
+        id: id("agent-entry", SessionEntryId::new),
+        parent_id: None,
+        payload: JournalEntryPayload::AgentCreated {
+            agent_id: agent_id.clone(),
+            label: "Agent A".to_owned(),
+            status: AgentStatus::Idle,
+        },
+    };
+    journal
+        .apply(append(1, "agent", "main", 0, announced.clone()))
+        .unwrap_or_else(|error| panic!("announce fixture: {error:?}"));
+    let unchanged = journal.clone();
+
+    let timeless_user = append(
+        2,
+        "timeless-user",
+        "main",
+        1,
+        SessionEntry {
+            id: id("timeless-user-entry", SessionEntryId::new),
+            parent_id: Some(announced.id),
+            payload: JournalEntryPayload::Message {
+                agent_id,
+                item_id: id("timeless-user-item", TranscriptItemId::new),
+                role: TranscriptRole::User,
+                text: "missing chronology".to_owned(),
+            },
+        },
+    );
+    assert!(journal.apply(timeless_user).is_err());
+    assert_eq!(journal, unchanged);
 }
 
 /// JRN-2: each mutation arm wires its named head through revision validation.
@@ -225,20 +286,28 @@ fn jrn_3_every_model_item_variant_round_trips_inside_an_append() {
     ];
     let agent_id = id("agent-a", AgentId::new);
     let item_id = id("tool-item", TranscriptItemId::new);
-    let mut payloads = [
-        (TranscriptRole::User, "user"),
-        (TranscriptRole::Assistant, "assistant"),
-        (TranscriptRole::Reasoning, "reasoning"),
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, (role, text))| JournalEntryPayload::Message {
+    let mut payloads = vec![JournalEntryPayload::TurnStarted {
         agent_id: agent_id.clone(),
-        item_id: id(&format!("message-{index}"), TranscriptItemId::new),
-        role,
-        text: text.to_owned(),
-    })
-    .collect::<Vec<_>>();
+        item_id: id("message-user", TranscriptItemId::new),
+        turn_id: id("turn-user", plexmaton_core::TurnId::new),
+        text: "user".to_owned(),
+        accepted_at: UnixMillis::EPOCH,
+        opened_at: UnixMillis::EPOCH,
+    }];
+    payloads.extend(
+        [
+            (TranscriptRole::Assistant, "assistant"),
+            (TranscriptRole::Reasoning, "reasoning"),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (role, text))| JournalEntryPayload::Message {
+            agent_id: agent_id.clone(),
+            item_id: id(&format!("message-{index}"), TranscriptItemId::new),
+            role,
+            text: text.to_owned(),
+        }),
+    );
     payloads.push(JournalEntryPayload::ToolCallRequested {
         agent_id: agent_id.clone(),
         item_id,

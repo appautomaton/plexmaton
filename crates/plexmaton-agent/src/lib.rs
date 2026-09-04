@@ -15,6 +15,7 @@ mod journal;
 mod model;
 mod record;
 mod step;
+mod timing;
 mod tools;
 mod turn;
 
@@ -35,6 +36,7 @@ pub use model::{
     MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,
     ProviderCodecId, ProviderReplay, ProviderReplayError, RequestItem, StopReason,
 };
+pub use timing::{ActiveTurnStatus, TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
 pub use tools::{
     MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome, bounded_tool_text,

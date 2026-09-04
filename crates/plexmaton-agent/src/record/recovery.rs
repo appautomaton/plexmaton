@@ -1,0 +1,144 @@
+use std::collections::BTreeMap;
+
+use plexmaton_core::{
+    AgentStatus, AttentionId, AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus,
+    ToolPresentation, TranscriptItemId, TurnId,
+};
+
+use super::Record;
+use crate::{JournalEntryPayload, RequestItem};
+
+pub(crate) struct RecoverableTool {
+    pub(crate) call_id: ToolCallId,
+    pub(crate) item_id: TranscriptItemId,
+    pub(crate) item_revision: u64,
+    pub(crate) label: String,
+    pub(crate) status: ToolCallStatus,
+    pub(crate) presentation: ToolPresentation,
+    pub(crate) attention_id: Option<AttentionId>,
+}
+
+pub(crate) struct InterruptedTurnRecovery {
+    pub(crate) tools: Vec<RecoverableTool>,
+    pub(crate) needs_marker: bool,
+    pub(crate) turn_id: Option<TurnId>,
+}
+
+impl Record {
+    pub(crate) fn interrupted_turn(&self) -> Option<InterruptedTurnRecovery> {
+        let open_turn = self.journal.open_turn_on_path(&self.head);
+        let projection = self
+            .journal
+            .project(&self.head)
+            .unwrap_or_else(|error| unreachable!("loaded journal remains projectable: {error:?}"));
+        let mut status = None;
+        let mut order = Vec::new();
+        let mut tools = BTreeMap::<ToolCallId, RecoverableTool>::new();
+        let mut approvals = BTreeMap::<ToolCallId, AttentionId>::new();
+        for envelope in projection.events() {
+            match &envelope.event {
+                SessionEvent::AgentCreated {
+                    agent_id,
+                    status: next,
+                    ..
+                }
+                | SessionEvent::AgentStatusChanged {
+                    agent_id,
+                    status: next,
+                } if agent_id == &self.agent_id => status = Some(*next),
+                SessionEvent::ToolCallChanged {
+                    agent_id,
+                    item_id,
+                    item_revision,
+                    call_id,
+                    label,
+                    status,
+                    presentation,
+                } if agent_id == &self.agent_id => {
+                    if !tools.contains_key(call_id) {
+                        order.push(call_id.clone());
+                    }
+                    tools.insert(
+                        call_id.clone(),
+                        RecoverableTool {
+                            call_id: call_id.clone(),
+                            item_id: item_id.clone(),
+                            item_revision: *item_revision,
+                            label: label.clone(),
+                            status: *status,
+                            presentation: presentation.clone(),
+                            attention_id: None,
+                        },
+                    );
+                }
+                SessionEvent::AttentionRequested {
+                    agent_id,
+                    attention_id,
+                    request: AttentionRequest::Approval { call_id, .. },
+                    ..
+                } if agent_id == &self.agent_id => {
+                    approvals.insert(call_id.clone(), attention_id.clone());
+                }
+                SessionEvent::AttentionResolved {
+                    agent_id,
+                    attention_id,
+                } if agent_id == &self.agent_id => {
+                    approvals.retain(|_, pending| pending != attention_id);
+                }
+                _ => {}
+            }
+        }
+        let path = self
+            .journal
+            .path(&self.head)
+            .unwrap_or_else(|error| unreachable!("loaded head remains valid: {error:?}"));
+        let last_user = path.iter().rposition(|entry| {
+            matches!(
+                entry.payload,
+                JournalEntryPayload::TurnStarted { .. }
+                    | JournalEntryPayload::SteeringAccepted { .. }
+            )
+        });
+        let last_recovery = path.iter().rposition(|entry| {
+            matches!(
+                entry.payload,
+                JournalEntryPayload::TurnInterruptedByRecovery { .. }
+            )
+        });
+        let needs_marker =
+            last_recovery.is_none_or(|done| last_user.is_none_or(|user| done < user));
+        let incomplete_request = (matches!(
+            projection.request().items.last(),
+            Some(RequestItem::User { .. })
+        ) && needs_marker)
+            || projection.recovery().is_some();
+        if open_turn.is_none()
+            && !matches!(status, Some(AgentStatus::Running | AgentStatus::Waiting))
+            && !incomplete_request
+        {
+            return None;
+        }
+        let interrupted = order
+            .into_iter()
+            .filter_map(|call_id| tools.remove(&call_id))
+            .filter(|tool| {
+                !matches!(
+                    tool.status,
+                    ToolCallStatus::Succeeded
+                        | ToolCallStatus::Failed
+                        | ToolCallStatus::Denied
+                        | ToolCallStatus::Cancelled
+                )
+            })
+            .map(|mut tool| {
+                tool.attention_id = approvals.remove(&tool.call_id);
+                tool
+            })
+            .collect();
+        Some(InterruptedTurnRecovery {
+            tools: interrupted,
+            needs_marker,
+            turn_id: open_turn,
+        })
+    }
+}

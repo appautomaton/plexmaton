@@ -2,6 +2,7 @@ use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
 use serde::{Deserialize, Serialize};
 
 use super::payload::JournalEntryPayload;
+use crate::TurnFinished;
 
 /// Monotonic position of one record in a session journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -117,6 +118,19 @@ pub enum JournalRecord {
         /// Compare-and-set revision read when this retirement was prepared.
         expected_head_revision: HeadRevision,
     },
+    /// Finish one turn without changing semantic ancestry or a head revision (TIM-1, TIM-4).
+    TurnFinished {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Head whose selected semantic boundary owns the terminal transition.
+        head: HeadName,
+        /// Revision observed while preparing the non-advancing terminal fact.
+        expected_head_revision: HeadRevision,
+        /// Immutable terminal fact correlated to its semantic start and boundary.
+        fact: TurnFinished,
+    },
 }
 
 impl JournalRecord {
@@ -128,7 +142,8 @@ impl JournalRecord {
             | Self::CreateHead { sequence, .. }
             | Self::MoveHead { sequence, .. }
             | Self::RenameHead { sequence, .. }
-            | Self::AbandonHead { sequence, .. } => *sequence,
+            | Self::AbandonHead { sequence, .. }
+            | Self::TurnFinished { sequence, .. } => *sequence,
         }
     }
 
@@ -138,7 +153,8 @@ impl JournalRecord {
             | Self::CreateHead { record_id, .. }
             | Self::MoveHead { record_id, .. }
             | Self::RenameHead { record_id, .. }
-            | Self::AbandonHead { record_id, .. } => record_id,
+            | Self::AbandonHead { record_id, .. }
+            | Self::TurnFinished { record_id, .. } => record_id,
         }
     }
 }

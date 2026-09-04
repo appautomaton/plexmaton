@@ -6,6 +6,7 @@ use plexmaton_provider::{ApiKey, ProviderProfile};
 use plexmaton_session_store::{JournalFile, JournalRecovery};
 use tokio::sync::mpsc;
 
+use super::clock::{SystemWallClock, WallClock};
 use super::{
     AfterCommit, JournalWriter, LiveRuntime, ModelDriver, ToolTasks, journal::JournalStore,
 };
@@ -24,13 +25,13 @@ impl LiveRuntime {
         profile: ProviderProfile,
         key: ApiKey,
         tools: NativeToolCatalog,
-    ) -> Result<Self, HttpSetupError> {
+    ) -> Result<Self, RuntimeError> {
         if !tools.matches_api_key_environment(profile.api_key_env()) {
-            return Err(HttpSetupError::ToolCredentialEnvironmentMismatch);
+            return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
         let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
-        Ok(Self::with_driver(agent_id, label.into(), driver, tools))
+        Self::with_driver(agent_id, label.into(), driver, tools)
     }
 
     /// Opens one new live agent whose canonical reactions must reach an empty journal first.
@@ -96,6 +97,22 @@ impl LiveRuntime {
         label: String,
         driver: Arc<dyn ModelDriver>,
         tools: NativeToolCatalog,
+    ) -> Result<Self, RuntimeError> {
+        Ok(Self::with_driver_and_clock(
+            agent_id,
+            label,
+            driver,
+            tools,
+            Arc::new(SystemWallClock::new()?),
+        ))
+    }
+
+    pub(super) fn with_driver_and_clock(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        clock: Arc<dyn WallClock>,
     ) -> Self {
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
@@ -111,8 +128,10 @@ impl LiveRuntime {
             journal: None,
             pending_commit: None,
             after_commit: None,
+            pending_inputs: VecDeque::new(),
             journal_failed: false,
             shutting_down: false,
+            clock,
         };
         let announced = runtime.agent.announce(label);
         runtime
@@ -128,6 +147,20 @@ impl LiveRuntime {
         tools: NativeToolCatalog,
         session_id: SessionId,
         store: Box<dyn JournalStore>,
+    ) -> Result<Self, RuntimeError> {
+        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
+        Self::with_driver_store_and_clock(agent_id, label, driver, tools, session_id, store, clock)
+            .await
+    }
+
+    pub(super) async fn with_driver_store_and_clock(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        session_id: SessionId,
+        store: Box<dyn JournalStore>,
+        clock: Arc<dyn WallClock>,
     ) -> Result<Self, RuntimeError> {
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
@@ -150,8 +183,10 @@ impl LiveRuntime {
             ),
             pending_commit: None,
             after_commit: None,
+            pending_inputs: VecDeque::new(),
             journal_failed: false,
             shutting_down: false,
+            clock,
         };
         let reaction = runtime.agent.announce(label);
         runtime.begin_transition(reaction, Vec::new(), AfterCommit::None)?;
@@ -171,7 +206,8 @@ impl LiveRuntime {
             .rebuild_projection()
             .unwrap_or_else(|_| unreachable!("a newly restored agent has no transient work"));
         let pending = VecDeque::from(projection.events().to_vec());
-        let recovered = agent.recover_after_process_death();
+        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
+        let recovered = agent.recover_after_process_death_at(clock.now());
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id,
@@ -188,8 +224,10 @@ impl LiveRuntime {
             ),
             pending_commit: None,
             after_commit: None,
+            pending_inputs: VecDeque::new(),
             journal_failed: false,
             shutting_down: false,
+            clock,
         };
         let interrupted_turn = recovered.is_some();
         if let Some(reaction) = recovered {

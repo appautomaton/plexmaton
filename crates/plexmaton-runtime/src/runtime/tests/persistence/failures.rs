@@ -138,14 +138,14 @@ async fn uncertain_user_append_is_typed_and_cannot_start_an_effect() {
     assert!(!runtime.has_active_model());
 }
 
-/// JRN-7: a committed prefix makes the whole transition outcome unknown.
+/// TIM-1/JRN-7: an atomic user/turn start has no committed semantic prefix on refusal.
 #[tokio::test]
-async fn failure_after_one_record_never_claims_the_submission_was_unwritten() {
+async fn failed_atomic_turn_start_is_wholly_unwritten() {
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::EndWithoutTerminal]);
     let mut runtime = runtime(store, Arc::clone(&driver)).await;
     let _announcement = runtime.try_next_event();
-    control.fail_after(2, false);
+    control.fail_after(1, false);
 
     let report = runtime
         .submit(agent_id(), submission())
@@ -154,7 +154,7 @@ async fn failure_after_one_record_never_claims_the_submission_was_unwritten() {
 
     assert_eq!(
         report.persistence_failure,
-        Some(PersistenceFailure::OutcomeUnknown)
+        Some(PersistenceFailure::NotWritten)
     );
     assert_eq!(
         control
@@ -162,8 +162,8 @@ async fn failure_after_one_record_never_claims_the_submission_was_unwritten() {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .len(),
-        2,
-        "the announcement and user message precede the failed running-status record"
+        1,
+        "only the prior announcement was committed"
     );
     assert!(driver.calls().await.is_empty());
 }

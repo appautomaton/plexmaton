@@ -13,9 +13,6 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             label,
             status,
         },
-        JournalEntryPayload::AgentStatusChanged { agent_id, status } => {
-            SessionEvent::AgentStatusChanged { agent_id, status }
-        }
         JournalEntryPayload::TurnUsageUpdated {
             agent_id,
             turn_id,
@@ -93,6 +90,9 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             }
         }
         JournalEntryPayload::Message { .. }
+        | JournalEntryPayload::TurnStatusChanged { .. }
+        | JournalEntryPayload::TurnStarted { .. }
+        | JournalEntryPayload::SteeringAccepted { .. }
         | JournalEntryPayload::ProviderReplay(_)
         | JournalEntryPayload::ToolCallRequested { .. }
         | JournalEntryPayload::ToolCallChanged { .. } => {

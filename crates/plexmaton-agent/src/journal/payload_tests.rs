@@ -5,7 +5,7 @@ use plexmaton_core::{
 };
 
 use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
-use crate::{ProviderCodecId, ProviderReplay, ToolCall, ToolOutcome};
+use crate::{ActiveTurnStatus, ProviderCodecId, ProviderReplay, ToolCall, ToolOutcome, UnixMillis};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -30,9 +30,10 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             label: "Agent A".to_owned(),
             status: AgentStatus::Idle,
         },
-        JournalEntryPayload::AgentStatusChanged {
+        JournalEntryPayload::TurnStatusChanged {
             agent_id: agent_a.clone(),
-            status: AgentStatus::Running,
+            turn_id: id("turn-started", TurnId::new),
+            status: ActiveTurnStatus::Running,
         },
         JournalEntryPayload::TurnUsageUpdated {
             agent_id: agent_a.clone(),
@@ -45,6 +46,21 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
                 reasoning_output: Some(1),
                 total: 5,
             }),
+        },
+        JournalEntryPayload::TurnStarted {
+            agent_id: agent_a.clone(),
+            item_id: id("turn-item", TranscriptItemId::new),
+            turn_id: id("turn-started", TurnId::new),
+            text: "hello".to_owned(),
+            accepted_at: UnixMillis::new(100),
+            opened_at: UnixMillis::new(120),
+        },
+        JournalEntryPayload::SteeringAccepted {
+            agent_id: agent_a.clone(),
+            item_id: id("steering-item", TranscriptItemId::new),
+            turn_id: id("turn-started", TurnId::new),
+            text: "also inspect tests".to_owned(),
+            accepted_at: UnixMillis::new(130),
         },
         JournalEntryPayload::Message {
             agent_id: agent_a.clone(),

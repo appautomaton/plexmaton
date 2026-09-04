@@ -56,6 +56,7 @@ fn runtime(driver: Arc<dyn ModelDriver>, workspace: &TestWorkspace) -> LiveRunti
         driver,
         workspace.catalog(),
     )
+    .unwrap_or_else(|error| panic!("construct runtime: {error}"))
 }
 
 fn called(id: &str, name: &str, arguments: serde_json::Value) -> ModelEvent {

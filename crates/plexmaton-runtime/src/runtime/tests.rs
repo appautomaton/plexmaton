@@ -146,6 +146,7 @@ mod cancellation;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod timing;
 mod tools;
 
 fn agent_id() -> AgentId {
@@ -153,6 +154,19 @@ fn agent_id() -> AgentId {
 }
 
 fn runtime(driver: Arc<dyn ModelDriver>) -> LiveRuntime {
+    runtime_with_clock(
+        driver,
+        Arc::new(
+            super::clock::SystemWallClock::new()
+                .unwrap_or_else(|error| panic!("test wall clock: {error}")),
+        ),
+    )
+}
+
+pub(super) fn runtime_with_clock(
+    driver: Arc<dyn ModelDriver>,
+    clock: Arc<dyn super::clock::WallClock>,
+) -> LiveRuntime {
     let workspace =
         std::env::current_dir().unwrap_or_else(|error| panic!("resolve test workspace: {error}"));
     let tools = NativeToolCatalog::open(
@@ -163,7 +177,7 @@ fn runtime(driver: Arc<dyn ModelDriver>) -> LiveRuntime {
         Vec::new(),
     )
     .unwrap_or_else(|error| panic!("open test tool catalog: {error}"));
-    LiveRuntime::with_driver(agent_id(), "Plexmaton".to_owned(), driver, tools)
+    LiveRuntime::with_driver_and_clock(agent_id(), "Plexmaton".to_owned(), driver, tools, clock)
 }
 
 fn complete_usage(input: u64, output: u64) -> ModelEvent {

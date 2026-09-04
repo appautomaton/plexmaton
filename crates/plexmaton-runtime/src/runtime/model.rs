@@ -239,7 +239,11 @@ impl LiveRuntime {
         Ok(())
     }
 
-    pub(super) fn stage_missing_usage(&mut self, reaction: &mut Reaction) {
+    pub(super) fn stage_missing_usage_at(
+        &mut self,
+        reaction: &mut Reaction,
+        observed_at: plexmaton_agent::UnixMillis,
+    ) {
         let missing = self
             .active
             .as_ref()
@@ -253,10 +257,13 @@ impl LiveRuntime {
         }
         merge_reaction(
             reaction,
-            self.agent.handle(Input::Streamed {
-                step_id,
-                event: ModelEvent::Usage(TokenUsage::Unavailable),
-            }),
+            self.agent.handle_at(
+                Input::Streamed {
+                    step_id,
+                    event: ModelEvent::Usage(TokenUsage::Unavailable),
+                },
+                observed_at,
+            ),
         );
     }
 

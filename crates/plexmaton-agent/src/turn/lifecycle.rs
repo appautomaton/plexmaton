@@ -1,11 +1,12 @@
 //! Turn completion, cancellation, status, and visible runtime degradation.
 
 use plexmaton_core::{
-    AgentStatus, ApprovalDecision, ApprovalId, SessionEvent, ToolCallStatus, ToolPresentation,
+    ApprovalDecision, ApprovalId, SessionEvent, ToolCallStatus, ToolPresentation,
 };
 
 use super::{Agent, DeliveryBoundary, Turn};
 use crate::{
+    ActiveTurnStatus, TurnFinishedAt, TurnOutcome,
     interface::{
         ApprovalDecisionRefusal, Reaction, ReleasedInput, UndeliveredInput, UndeliveredReason,
         UnresolvedApprovalDecision,
@@ -16,10 +17,18 @@ use crate::{
 };
 
 impl Agent {
-    /// Settles a turn whose process owner disappeared, without replaying an outside effect.
-    pub fn recover_after_process_death(&mut self) -> Option<Reaction> {
+    #[cfg(test)]
+    pub(crate) fn recover_after_process_death(&mut self) -> Option<Reaction> {
+        self.recover_after_process_death_at(crate::UnixMillis::EPOCH)
+    }
+
+    /// Settles orphaned work at an externally observed recovery time (TIM-1, JRN-5).
+    pub fn recover_after_process_death_at(
+        &mut self,
+        observed_at: crate::UnixMillis,
+    ) -> Option<Reaction> {
         let recovery = self.record.interrupted_turn()?;
-        let mut reaction = Reaction::default();
+        let mut reaction = Reaction::at(observed_at);
         if recovery.needs_marker {
             let item_id = self.record.next_item_id();
             self.record.commit(
@@ -74,8 +83,17 @@ impl Agent {
                 },
             );
         }
-        self.status(&mut reaction, AgentStatus::Idle);
-        Some(reaction)
+        if let Some(turn_id) = recovery.turn_id {
+            self.record.finish_turn(
+                turn_id,
+                TurnOutcome::ProcessDied,
+                TurnFinishedAt::Recovered {
+                    recovery_observed_at: observed_at,
+                },
+                &mut reaction,
+            );
+        }
+        Some(reaction.into_output())
     }
 
     pub(super) fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
@@ -120,37 +138,86 @@ impl Agent {
         cancellation: ToolCancellationReason,
         reaction: &mut Reaction,
     ) {
+        let turn_id = self
+            .active_turn_id()
+            .unwrap_or_else(|| unreachable!("abort was guarded by an active turn"));
         self.abandon(cancellation, reaction);
         self.close_step(reaction);
         self.turn = Turn::Idle;
         let released = self.input.drain_all();
         self.return_queued(released, reason, reaction);
-        self.status(reaction, AgentStatus::Idle);
+        let outcome = match reason {
+            UndeliveredReason::Interrupted => TurnOutcome::Interrupted,
+            UndeliveredReason::Shutdown => TurnOutcome::Shutdown,
+            UndeliveredReason::StepFailed => TurnOutcome::Failed,
+            UndeliveredReason::NoActiveTurn
+            | UndeliveredReason::TurnEnded
+            | UndeliveredReason::StepBudgetReached
+            | UndeliveredReason::QueueFull
+            | UndeliveredReason::PersistenceFailed => {
+                unreachable!("only terminal abort reasons reach this transition")
+            }
+        };
+        self.complete_turn(turn_id, outcome, reaction);
     }
 
     /// Ends a turn that ran its course, and opens the next one if a message waited for it.
-    pub(super) fn finish_turn(&mut self, reaction: &mut Reaction) {
+    pub(super) fn finish_turn(
+        &mut self,
+        turn_id: plexmaton_core::TurnId,
+        outcome: TurnOutcome,
+        reaction: &mut Reaction,
+    ) {
         self.turn = Turn::Idle;
         let released = self.input.claim(DeliveryBoundary::NextStep);
         self.return_queued(released, UndeliveredReason::TurnEnded, reaction);
+        self.complete_turn(turn_id, outcome, reaction);
         let Some(next) = self.input.claim_one(DeliveryBoundary::NextTurn) else {
-            self.status(reaction, AgentStatus::Idle);
             return;
         };
         reaction
             .released_inputs
             .push(ReleasedInput::new(next.order, next.text.clone()));
-        self.open_turn(next.text, reaction);
+        self.open_turn(next.text, next.accepted_at, reaction);
     }
 
     /// Claims steering immediately before the request for the next step is assembled (LOOP-6).
-    pub(super) fn claim_next_step_input(&mut self, reaction: &mut Reaction) {
+    pub(super) fn claim_next_step_input(
+        &mut self,
+        turn_id: &plexmaton_core::TurnId,
+        reaction: &mut Reaction,
+    ) {
         for input in self.input.claim(DeliveryBoundary::NextStep) {
             reaction
                 .released_inputs
                 .push(ReleasedInput::new(input.order, input.text.clone()));
-            self.record_user(input.text, reaction);
+            self.record_steering(turn_id.clone(), input.text, input.accepted_at, reaction);
         }
+    }
+
+    fn active_turn_id(&self) -> Option<plexmaton_core::TurnId> {
+        match &self.turn {
+            Turn::Streaming { turn_id, .. } | Turn::Working { turn_id, .. } => {
+                Some(turn_id.clone())
+            }
+            Turn::Idle => None,
+        }
+    }
+
+    fn complete_turn(
+        &mut self,
+        turn_id: plexmaton_core::TurnId,
+        outcome: TurnOutcome,
+        reaction: &mut Reaction,
+    ) {
+        self.record.finish_turn(
+            turn_id,
+            outcome,
+            TurnFinishedAt::Observed {
+                completed_at: reaction.observed_at(),
+            },
+            reaction,
+        );
     }
 
     pub(super) fn reject_queued(
@@ -179,17 +246,23 @@ impl Agent {
         }
     }
 
-    pub(super) fn status(&mut self, reaction: &mut Reaction, status: AgentStatus) {
+    pub(super) fn status(
+        &mut self,
+        turn_id: plexmaton_core::TurnId,
+        reaction: &mut Reaction,
+        status: ActiveTurnStatus,
+    ) {
         self.record.commit(
-            JournalEntryPayload::AgentStatusChanged {
+            JournalEntryPayload::TurnStatusChanged {
                 agent_id: self.record.agent_id().clone(),
+                turn_id,
                 status,
             },
             reaction,
         );
         let event = SessionEvent::AgentStatusChanged {
             agent_id: self.record.agent_id().clone(),
-            status,
+            status: status.agent_status(),
         };
         self.record.emit(reaction, event);
     }

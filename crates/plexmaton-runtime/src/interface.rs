@@ -153,4 +153,13 @@ pub enum RuntimeError {
     /// A cancelled or terminal provider future panicked instead of settling normally.
     #[error("provider future `{0:?}` terminated unexpectedly")]
     ProviderFutureFailed(ModelStepId),
+    /// The system wall clock cannot be represented by the durable millisecond type.
+    #[error("the system wall clock is before the Unix epoch")]
+    WallClockBeforeUnixEpoch,
+    /// The system wall clock exceeds the durable millisecond representation.
+    #[error("the system wall clock exceeds the durable timestamp range")]
+    WallClockOutOfRange,
+    /// More cancelled submit futures filled the runtime-owned handoff queue.
+    #[error("the bounded runtime input handoff queue is full")]
+    RuntimeInputQueueFull,
 }

@@ -393,7 +393,9 @@ reasoning_effort = "low"
 
         assert!(matches!(
             LiveRuntime::openai(agent, "fixture", profile, key, catalog),
-            Err(HttpSetupError::ToolCredentialEnvironmentMismatch)
+            Err(crate::RuntimeError::HttpSetup(
+                HttpSetupError::ToolCredentialEnvironmentMismatch
+            ))
         ));
     }
 }

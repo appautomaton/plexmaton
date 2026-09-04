@@ -1,5 +1,6 @@
 use plexmaton_core::{
     AgentId, AttentionId, SessionEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
+    TurnId,
 };
 
 use super::super::JournalError;
@@ -92,6 +93,12 @@ pub enum JournalProjectionError {
     ToolPresentationConflict(ToolCallId),
     /// A later model fact followed a tool batch that never reached all of its results.
     IncompleteToolBatchBeforeLaterFact(Vec<ToolCallId>),
+    /// A selected timing fact named no selected semantic turn start.
+    MissingTurn(TurnId),
+    /// A selected timing fact changed the agent that owns its turn.
+    WrongTurnAgent(TurnId),
+    /// A selected path repeated a stable turn identity.
+    DuplicateTurn(TurnId),
     /// More UI events cannot be numbered without repeating an identity.
     EventSequenceExhausted,
 }
