@@ -3,7 +3,9 @@ mod support;
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use plexmaton_agent::{JournalEntryPayload, ProviderCodecId, ProviderReplay, RequestItem};
+use plexmaton_agent::{
+    JournalEntryPayload, ProviderCodecId, ProviderReplay, RequestItem, UnixMillis,
+};
 use plexmaton_core::HeadName;
 use plexmaton_session_store::{JournalFile, JournalRecovery, StoreError};
 
@@ -18,10 +20,10 @@ fn jrn_3_and_jrn_4_journal_fork_and_tail_files_are_owner_only() {
     let directory = TestDir::new("permissions");
     let source_path = directory.path().join("source.jsonl");
     let fork_path = directory.path().join("fork.jsonl");
-    let source = JournalFile::create(&source_path, session("source"))
+    let source = JournalFile::create(&source_path, session("source"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create source: {error}"));
     let forked = source
-        .fork(&fork_path, session("fork"))
+        .fork(&fork_path, session("fork"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("fork source: {error}"));
     drop(forked);
     drop(source);
@@ -57,7 +59,7 @@ fn jrn_3_and_jrn_4_insecure_existing_journal_is_refused() {
 
     let directory = TestDir::new("insecure-permissions");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     drop(store);
     let mut permissions = std::fs::metadata(&path)
@@ -78,7 +80,7 @@ fn jrn_3_and_jrn_4_insecure_existing_journal_is_refused() {
 fn jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file() {
     let directory = TestDir::new("replay");
     let path = directory.path().join("session.jsonl");
-    let mut store = JournalFile::create(&path, session("session-a"))
+    let mut store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     store
         .append(agent_created(store.journal(), 1))

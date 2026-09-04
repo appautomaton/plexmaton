@@ -31,6 +31,7 @@ pub use interface::{
 pub use journal::{
     HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,
     JournalRecord, JournalSequence, RecoveryProjection, SessionEntry, SessionJournal,
+    SessionMetadata,
 };
 pub use model::{
     MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,

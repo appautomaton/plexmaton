@@ -5,7 +5,9 @@ mod timing;
 use std::fs::OpenOptions;
 use std::io::Write;
 
-use plexmaton_agent::{JournalEntryPayload, JournalError, JournalRecord, JournalSequence};
+use plexmaton_agent::{
+    JournalEntryPayload, JournalError, JournalRecord, JournalSequence, UnixMillis,
+};
 use plexmaton_core::{
     AgentId, AgentStatus, HeadName, JournalRecordId, TranscriptItemId, TranscriptRole,
 };
@@ -37,7 +39,7 @@ fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
     let agent_id = id("agent-a", AgentId::new);
 
     let running_path = directory.path().join("running-agent.jsonl");
-    let running = JournalFile::create(&running_path, session("running-agent"))
+    let running = JournalFile::create(&running_path, session("running-agent"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create running fixture: {error}"));
     let invalid = append(
         running.journal(),
@@ -59,8 +61,9 @@ fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
     ));
 
     let status_path = directory.path().join("unscoped-status.jsonl");
-    let mut status = JournalFile::create(&status_path, session("unscoped-status"))
-        .unwrap_or_else(|error| panic!("create status fixture: {error}"));
+    let mut status =
+        JournalFile::create(&status_path, session("unscoped-status"), UnixMillis::EPOCH)
+            .unwrap_or_else(|error| panic!("create status fixture: {error}"));
     status
         .append(agent_created(status.journal(), 1))
         .unwrap_or_else(|failure| panic!("announce status fixture: {failure:?}"));
@@ -88,7 +91,7 @@ fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
     ));
 
     let user_path = directory.path().join("timeless-user.jsonl");
-    let mut user = JournalFile::create(&user_path, session("timeless-user"))
+    let mut user = JournalFile::create(&user_path, session("timeless-user"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create user fixture: {error}"));
     user.append(agent_created(user.journal(), 1))
         .unwrap_or_else(|failure| panic!("announce user fixture: {failure:?}"));
@@ -119,7 +122,8 @@ fn jrn_4_create_append_reopen_and_immediate_visibility() {
     let directory = TestDir::new("round-trip");
     let path = directory.path().join("session.jsonl");
     let session_id = session("session-a");
-    let mut store = JournalFile::create(&path, session_id.clone())
+    let created_at = UnixMillis::new(1_788_537_600_123);
+    let mut store = JournalFile::create(&path, session_id.clone(), created_at)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     let record = agent_created(store.journal(), 1);
     store
@@ -130,10 +134,27 @@ fn jrn_4_create_append_reopen_and_immediate_visibility() {
         .unwrap_or_else(|error| panic!("read from second handle: {error}"));
     assert_eq!(visible.lines().count(), 2);
     assert!(visible.contains("agent_created"));
+    let header: serde_json::Value = serde_json::from_str(
+        visible
+            .lines()
+            .next()
+            .unwrap_or_else(|| panic!("journal header is missing")),
+    )
+    .unwrap_or_else(|error| panic!("decode journal header: {error}"));
+    assert_eq!(
+        header,
+        serde_json::json!({
+            "format": "plexmaton.session",
+            "schema": "2026-09-04",
+            "session_id": "session-a",
+            "created_at_unix_ms": 1_788_537_600_123_u64,
+        })
+    );
     drop(store);
 
     let reopened = JournalFile::open(&path).unwrap_or_else(|error| panic!("reopen store: {error}"));
     assert_eq!(reopened.journal().session_id(), &session_id);
+    assert_eq!(reopened.journal().created_at_unix_ms(), created_at);
     assert_eq!(reopened.journal().records(), [record]);
     assert_eq!(reopened.recovery(), &JournalRecovery::Clean);
 }
@@ -143,7 +164,7 @@ fn jrn_4_create_append_reopen_and_immediate_visibility() {
 fn jrn_4_a_second_writer_is_refused_until_the_owner_closes() {
     let directory = TestDir::new("lock");
     let path = directory.path().join("session.jsonl");
-    let first = JournalFile::create(&path, session("session-a"))
+    let first = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     assert!(matches!(
         JournalFile::open(&path),
@@ -159,7 +180,7 @@ fn jrn_4_a_second_writer_is_refused_until_the_owner_closes() {
 fn jrn_4_valid_final_record_without_newline_is_repaired() {
     let directory = TestDir::new("newline");
     let path = directory.path().join("session.jsonl");
-    let mut store = JournalFile::create(&path, session("session-a"))
+    let mut store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     store
         .append(agent_created(store.journal(), 1))
@@ -188,7 +209,7 @@ fn jrn_4_valid_final_record_without_newline_is_repaired() {
 fn jrn_4_incomplete_final_tail_is_isolated() {
     let directory = TestDir::new("tail");
     let path = directory.path().join("session.jsonl");
-    let mut store = JournalFile::create(&path, session("session-a"))
+    let mut store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     store
         .append(agent_created(store.journal(), 1))
@@ -231,7 +252,7 @@ fn jrn_4_incomplete_final_tail_is_isolated() {
 fn jrn_4_middle_corruption_is_not_guessed_around() {
     let directory = TestDir::new("middle");
     let path = directory.path().join("session.jsonl");
-    let mut store = JournalFile::create(&path, session("session-a"))
+    let mut store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     store
         .append(agent_created(store.journal(), 1))
@@ -264,16 +285,17 @@ fn jrn_4_fork_publishes_a_complete_sibling() {
     let directory = TestDir::new("fork");
     let source_path = directory.path().join("source.jsonl");
     let destination = directory.path().join("fork.jsonl");
-    let mut source = JournalFile::create(&source_path, session("source"))
+    let mut source = JournalFile::create(&source_path, session("source"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create source: {error}"));
     source
         .append(agent_created(source.journal(), 1))
         .unwrap_or_else(|failure| panic!("append source: {}", failure.error()));
 
     let forked = source
-        .fork(&destination, session("forked"))
+        .fork(&destination, session("forked"), UnixMillis::new(20))
         .unwrap_or_else(|error| panic!("fork session: {error}"));
     assert_eq!(forked.journal().session_id(), &session("forked"));
+    assert_eq!(forked.journal().created_at_unix_ms(), UnixMillis::new(20));
     assert_eq!(forked.journal().records(), source.journal().records());
     let published =
         std::fs::read(&destination).unwrap_or_else(|error| panic!("read published fork: {error}"));
@@ -282,7 +304,7 @@ fn jrn_4_fork_publishes_a_complete_sibling() {
         Err(StoreError::WriterLocked)
     ));
     assert!(matches!(
-        source.fork(&destination, session("other")),
+        source.fork(&destination, session("other"), UnixMillis::new(30)),
         Err(StoreError::ForkDestinationExists)
     ));
     assert_eq!(
@@ -291,62 +313,35 @@ fn jrn_4_fork_publishes_a_complete_sibling() {
         published
     );
     drop(forked);
-    let _reopened = JournalFile::open(&destination)
+    let reopened = JournalFile::open(&destination)
         .unwrap_or_else(|error| panic!("reopen fork after owner closes: {error}"));
+    assert_eq!(reopened.journal().created_at_unix_ms(), UnixMillis::new(20));
 }
 
-/// JRN-4: a header selects one explicit decoder and unknown versions stay typed.
+/// JRN-3: a foreign schema epoch is refused before any record is decoded.
 #[test]
-fn jrn_4_unknown_format_version_is_refused() {
-    let directory = TestDir::new("version");
+fn jrn_3_a_foreign_schema_epoch_is_refused_before_records() {
+    let directory = TestDir::new("schema-epoch");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::new(10))
         .unwrap_or_else(|error| panic!("create store: {error}"));
     drop(store);
     let source =
         std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read header: {error}"));
     let mut header: serde_json::Value = serde_json::from_str(source.trim_end())
         .unwrap_or_else(|error| panic!("decode header: {error}"));
-    header["version"] = serde_json::Value::from(99);
+    header["schema"] = serde_json::Value::from("2099-01-01");
     let changed = format!(
         "{}\n",
         serde_json::to_string(&header)
             .unwrap_or_else(|error| panic!("encode changed header: {error}"))
     );
-    std::fs::write(&path, changed).unwrap_or_else(|error| panic!("write changed header: {error}"));
+    std::fs::write(&path, format!("{changed}not-json\n"))
+        .unwrap_or_else(|error| panic!("write changed header: {error}"));
 
     assert!(matches!(
         JournalFile::open(&path),
-        Err(StoreError::UnsupportedVersion(99))
-    ));
-}
-
-/// TIM-1/JRN-4: pre-chronology journals are rejected at the header boundary.
-#[test]
-fn tim_1_format_one_is_rejected_before_loading_timeless_records() {
-    let directory = TestDir::new("old-chronology-format");
-    let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
-        .unwrap_or_else(|error| panic!("create store: {error}"));
-    drop(store);
-    let source =
-        std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("read header: {error}"));
-    let mut header: serde_json::Value = serde_json::from_str(source.trim_end())
-        .unwrap_or_else(|error| panic!("decode header: {error}"));
-    header["version"] = serde_json::Value::from(1);
-    std::fs::write(
-        &path,
-        format!(
-            "{}\n",
-            serde_json::to_string(&header)
-                .unwrap_or_else(|error| panic!("encode old header: {error}"))
-        ),
-    )
-    .unwrap_or_else(|error| panic!("write old header: {error}"));
-
-    assert!(matches!(
-        JournalFile::open(&path),
-        Err(StoreError::UnsupportedVersion(1))
+        Err(StoreError::UnsupportedSchema(schema)) if schema == "2099-01-01"
     ));
 }
 
@@ -355,7 +350,7 @@ fn tim_1_format_one_is_rejected_before_loading_timeless_records() {
 fn jrn_4_invalid_sequence_is_refused_even_on_the_final_line() {
     let directory = TestDir::new("sequence");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     drop(store);
     let invalid = JournalRecord::CreateHead {
@@ -385,7 +380,7 @@ fn jrn_4_invalid_sequence_is_refused_even_on_the_final_line() {
 fn jrn_4_unknown_final_record_kind_is_a_schema_failure() {
     let directory = TestDir::new("record-kind");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     drop(store);
     let mut file = OpenOptions::new()
@@ -412,7 +407,7 @@ fn jrn_4_unknown_final_record_kind_is_a_schema_failure() {
 fn jrn_4_duplicate_record_field_is_refused_without_tail_recovery() {
     let directory = TestDir::new("duplicate-field");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     let record = agent_created(store.journal(), 1);
     drop(store);
@@ -438,7 +433,7 @@ fn jrn_4_duplicate_record_field_is_refused_without_tail_recovery() {
 fn jrn_4_terminated_invalid_final_line_is_not_tail_recovery() {
     let directory = TestDir::new("terminated-invalid");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, session("session-a"))
+    let store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     drop(store);
     let mut file = OpenOptions::new()

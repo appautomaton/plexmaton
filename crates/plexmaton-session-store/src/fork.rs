@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use plexmaton_agent::UnixMillis;
 use plexmaton_core::SessionId;
 
 use super::codec::{encode_header, encode_line};
@@ -15,6 +16,7 @@ impl JournalFile {
         &self,
         destination: impl AsRef<Path>,
         session_id: SessionId,
+        created_at_unix_ms: UnixMillis,
     ) -> Result<Self, StoreError> {
         let destination = destination.as_ref();
         if self.state == WriterState::Poisoned {
@@ -31,9 +33,10 @@ impl JournalFile {
         let mut cleanup = StagingCleanup::new(staging_path.clone());
         lock_writer(&staging)?;
         staging
-            .write_all(&encode_header(&session_id)?)
+            .write_all(&encode_header(&session_id, created_at_unix_ms)?)
             .map_err(|source| StoreError::io("write fork header", source))?;
-        let mut journal = plexmaton_agent::SessionJournal::new(session_id);
+        let mut journal =
+            plexmaton_agent::SessionJournal::with_created_at(session_id, created_at_unix_ms);
         for record in self.journal.records() {
             staging
                 .write_all(&encode_line(record)?)

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | TIM-1 implemented; TIM-2–TIM-5 unproven until Phase 02 stage 2 slice 3 |
+| Status | TIM-1 implemented; TIM-2–TIM-5 unproven until Phase 02 stage 2 slice 4 |
 | Owns | Durable turn chronology, model-request attempt timing and immutable provider usage |
 | Depends on | JRN-1/JRN-5/JRN-7, LOOP-1/LOOP-4/LOOP-6, PRV-1/PRV-5 and LIVE-1/LIVE-3/LIVE-4/LIVE-5 |
 | Proven by | TIM-1 evidence below; remainder unproven |
@@ -62,7 +62,7 @@ Authorized { authorized_at, semantic_boundary, request_environment }
 An attempt owner is `AgentStep { turn_id, step_id }` or
 `Compaction { compaction_id, source_boundary }`. Compaction attempts have their own usage total and
 enter whole-session incurred cost, but never inflate a turn or serve as an agent-request usage
-anchor. Slice 3 fixes both wire variants before the compaction orchestrator consumes the latter.
+anchor. Slice 4 fixes both wire variants before the compaction orchestrator consumes the latter.
 
 `Authorized.authorized_at` is observed before its record is appended; it is not a claim about when
 the append was acknowledged. The fact also records the semantic-prefix boundary and

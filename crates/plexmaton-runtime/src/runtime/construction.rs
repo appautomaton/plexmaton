@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{Agent, ApprovalPolicy, TurnBudget};
+use plexmaton_agent::{Agent, ApprovalPolicy, SessionMetadata, TurnBudget};
 use plexmaton_core::{AgentId, SessionId};
 use plexmaton_provider::{ApiKey, ProviderProfile};
 use plexmaton_session_store::{JournalFile, JournalRecovery};
@@ -48,13 +48,13 @@ impl LiveRuntime {
         }
         let definitions = tools.provider_definitions();
         let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
-        let session_id = journal.journal().session_id().clone();
+        let metadata = journal.journal().metadata().clone();
         Self::with_driver_and_store(
             agent_id,
             label.into(),
             driver,
             tools,
-            session_id,
+            metadata,
             Box::new(journal),
         )
         .await
@@ -114,10 +114,19 @@ impl LiveRuntime {
         tools: NativeToolCatalog,
         clock: Arc<dyn WallClock>,
     ) -> Self {
+        let created_at_unix_ms = clock.now();
+        let session_id = SessionId::new(format!("{agent_id}-session"))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let metadata = SessionMetadata::new(session_id, created_at_unix_ms);
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id: agent_id.clone(),
-            agent: Agent::new(agent_id),
+            agent: Agent::for_session(
+                agent_id,
+                metadata,
+                TurnBudget::default(),
+                ApprovalPolicy::default(),
+            ),
             driver,
             pending: VecDeque::new(),
             signals,
@@ -145,11 +154,11 @@ impl LiveRuntime {
         label: String,
         driver: Arc<dyn ModelDriver>,
         tools: NativeToolCatalog,
-        session_id: SessionId,
+        metadata: SessionMetadata,
         store: Box<dyn JournalStore>,
     ) -> Result<Self, RuntimeError> {
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
-        Self::with_driver_store_and_clock(agent_id, label, driver, tools, session_id, store, clock)
+        Self::with_driver_store_and_clock(agent_id, label, driver, tools, metadata, store, clock)
             .await
     }
 
@@ -158,7 +167,7 @@ impl LiveRuntime {
         label: String,
         driver: Arc<dyn ModelDriver>,
         tools: NativeToolCatalog,
-        session_id: SessionId,
+        metadata: SessionMetadata,
         store: Box<dyn JournalStore>,
         clock: Arc<dyn WallClock>,
     ) -> Result<Self, RuntimeError> {
@@ -167,7 +176,7 @@ impl LiveRuntime {
             agent_id: agent_id.clone(),
             agent: Agent::for_session(
                 agent_id,
-                session_id,
+                metadata,
                 TurnBudget::default(),
                 ApprovalPolicy::default(),
             ),

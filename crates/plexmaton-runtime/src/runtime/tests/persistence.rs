@@ -7,7 +7,8 @@ use std::{
 };
 
 use plexmaton_agent::{
-    Input, JournalEntryPayload, JournalRecord, ModelEvent, StopReason, ToolCall, UndeliveredReason,
+    Input, JournalEntryPayload, JournalRecord, ModelEvent, SessionMetadata, StopReason, ToolCall,
+    UndeliveredReason,
 };
 use plexmaton_core::{AgentId, SessionId, ToolCallId, ToolCallStatus};
 use plexmaton_session_store::StoreError;
@@ -265,6 +266,7 @@ async fn runtime_with_clock(
     driver: Arc<FakeDriver>,
     clock: Arc<dyn crate::runtime::clock::WallClock>,
 ) -> LiveRuntime {
+    let created_at_unix_ms = clock.now();
     let workspace =
         std::env::current_dir().unwrap_or_else(|error| panic!("resolve workspace: {error}"));
     let tools = NativeToolCatalog::open(
@@ -280,7 +282,10 @@ async fn runtime_with_clock(
         "Plexmaton".to_owned(),
         driver,
         tools,
-        SessionId::new("session-durable").unwrap_or_else(|error| panic!("session id: {error}")),
+        SessionMetadata::new(
+            SessionId::new("session-durable").unwrap_or_else(|error| panic!("session id: {error}")),
+            created_at_unix_ms,
+        ),
         Box::new(controlled),
         clock,
     )

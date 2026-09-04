@@ -21,6 +21,10 @@ async fn cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text
     ]);
     let clock = Arc::new(IncrementingClock(AtomicUsize::new(100)));
     let mut runtime = runtime_with_clock(store, driver, clock).await;
+    assert_eq!(
+        runtime.agent.journal().created_at_unix_ms(),
+        plexmaton_agent::UnixMillis::new(100)
+    );
     let _announcement = runtime.try_next_event();
     control.block_after(1);
 
@@ -61,7 +65,7 @@ async fn cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text
                             accepted_at,
                             ..
                         } if text == "retained behind the first commit"
-                            && *accepted_at == plexmaton_agent::UnixMillis::new(101)
+                            && *accepted_at == plexmaton_agent::UnixMillis::new(102)
                     )
             )
         });

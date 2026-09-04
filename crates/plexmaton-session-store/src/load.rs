@@ -68,8 +68,9 @@ fn decode(reader: &mut impl BufRead) -> Result<(SessionJournal, Repair), StoreEr
         return Err(StoreError::MissingHeader);
     };
     let header_json = without_newline(&header.bytes, header.terminated);
-    let session_id = decode_header(header_json)?;
-    let mut journal = SessionJournal::new(session_id);
+    let decoded = decode_header(header_json)?;
+    let mut journal =
+        SessionJournal::with_created_at(decoded.session_id, decoded.created_at_unix_ms);
     let mut valid_bytes = u64::try_from(header.bytes.len()).unwrap_or(u64::MAX);
     if !header.terminated {
         return Ok((journal, Repair::AddNewline));

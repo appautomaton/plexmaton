@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TurnId};
 
-use crate::TurnFinished;
+use crate::{TurnFinished, UnixMillis};
 
 mod error;
 mod payload;
@@ -25,6 +25,36 @@ pub use payload::JournalEntryPayload;
 pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;
 pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
 pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
+
+/// Immutable identity and chronology shared by every projection of one session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionMetadata {
+    session_id: SessionId,
+    created_at_unix_ms: UnixMillis,
+}
+
+impl SessionMetadata {
+    /// Binds one identity to the externally observed instant it first existed.
+    #[must_use]
+    pub const fn new(session_id: SessionId, created_at_unix_ms: UnixMillis) -> Self {
+        Self {
+            session_id,
+            created_at_unix_ms,
+        }
+    }
+
+    /// Stable session identity.
+    #[must_use]
+    pub const fn session_id(&self) -> &SessionId {
+        &self.session_id
+    }
+
+    /// Milliseconds since the Unix epoch when this session was created.
+    #[must_use]
+    pub const fn created_at_unix_ms(&self) -> UnixMillis {
+        self.created_at_unix_ms
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct HeadState {
@@ -48,7 +78,7 @@ struct TurnFinishState {
 /// Deterministic in-memory reduction of one session's ordered records.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SessionJournal {
-    session_id: SessionId,
+    metadata: SessionMetadata,
     next_sequence: JournalSequence,
     records: Vec<JournalRecord>,
     record_ids: BTreeSet<JournalRecordId>,
@@ -63,13 +93,25 @@ pub struct SessionJournal {
 }
 
 impl SessionJournal {
-    /// Starts an empty session with `main` at revision zero.
+    /// Starts a deterministic synthetic session at the Unix epoch.
     #[must_use]
     pub fn new(session_id: SessionId) -> Self {
+        Self::with_metadata(SessionMetadata::new(session_id, UnixMillis::EPOCH))
+    }
+
+    /// Starts an empty session with canonical creation time and `main` at revision zero.
+    #[must_use]
+    pub fn with_created_at(session_id: SessionId, created_at_unix_ms: UnixMillis) -> Self {
+        Self::with_metadata(SessionMetadata::new(session_id, created_at_unix_ms))
+    }
+
+    /// Starts an empty session with canonical metadata and `main` at revision zero.
+    #[must_use]
+    pub fn with_metadata(metadata: SessionMetadata) -> Self {
         let main = HeadName::new("main")
             .unwrap_or_else(|error| unreachable!("static main head is valid: {error}"));
         Self {
-            session_id,
+            metadata,
             next_sequence: JournalSequence::new(1),
             records: Vec::new(),
             record_ids: BTreeSet::new(),
@@ -94,7 +136,19 @@ impl SessionJournal {
     /// Session this journal reconstructs.
     #[must_use]
     pub const fn session_id(&self) -> &SessionId {
-        &self.session_id
+        self.metadata.session_id()
+    }
+
+    /// Wall-clock instant at which this session identity was first created.
+    #[must_use]
+    pub const fn created_at_unix_ms(&self) -> UnixMillis {
+        self.metadata.created_at_unix_ms()
+    }
+
+    /// Canonical identity and creation chronology for downstream projections.
+    #[must_use]
+    pub const fn metadata(&self) -> &SessionMetadata {
+        &self.metadata
     }
 
     /// Exact sequence the next accepted record must carry.

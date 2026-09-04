@@ -1,6 +1,6 @@
 use plexmaton_agent::{
-    Agent, ApprovalPolicy, Input, JournalRecord, ModelEvent, RequestItem, StopReason, TurnBudget,
-    TurnFinishedAt, UnixMillis,
+    Agent, ApprovalPolicy, Input, JournalRecord, ModelEvent, RequestItem, SessionMetadata,
+    StopReason, TurnBudget, TurnFinishedAt, UnixMillis,
 };
 use plexmaton_core::{AgentId, HeadName};
 use plexmaton_session_store::JournalFile;
@@ -14,11 +14,11 @@ fn tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context() {
     let path = directory.path().join("session.jsonl");
     let session_id = session("timed-session");
     let agent_id = id("agent-a", AgentId::new);
-    let mut file = JournalFile::create(&path, session_id.clone())
+    let mut file = JournalFile::create(&path, session_id.clone(), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     let mut agent = Agent::for_session(
         agent_id,
-        session_id,
+        SessionMetadata::new(session_id, UnixMillis::EPOCH),
         TurnBudget::default(),
         ApprovalPolicy::default(),
     );

@@ -2,9 +2,11 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context as _;
+use plexmaton_agent::UnixMillis;
 use plexmaton_core::{AgentId, SessionId};
 use plexmaton_provider::{ApiKey, ProviderProfile};
 use plexmaton_runtime::{JournalTailRecovery, LiveRuntime, NativeToolCatalog, SessionRecovery};
@@ -70,7 +72,7 @@ pub(super) async fn open_selected_session(
         SessionSelection::Automatic => {
             let sessions = SessionDirectory::under(root).context("open sessions directory")?;
             let (session_id, journal) = sessions
-                .create_automatic()
+                .create_automatic(created_at_now()?)
                 .context("create automatic session")?;
             open_fresh_session(agent_id, profile, key, tools, session_id, journal).await?
         }
@@ -83,7 +85,7 @@ pub(super) async fn open_selected_session(
         SessionSelection::Create(session_id) => {
             let journal = SessionDirectory::under(root)
                 .context("open sessions directory")?
-                .create(session_id.clone())
+                .create(session_id.clone(), created_at_now()?)
                 .context("create session")?;
             open_fresh_session(agent_id, profile, key, tools, session_id, journal).await?
         }
@@ -107,6 +109,15 @@ pub(super) async fn open_selected_session(
             }
         }
     })
+}
+
+fn created_at_now() -> anyhow::Result<UnixMillis> {
+    let elapsed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("session wall clock is before the Unix epoch")?;
+    let millis =
+        u64::try_from(elapsed.as_millis()).context("session wall clock is out of range")?;
+    Ok(UnixMillis::new(millis))
 }
 
 async fn open_fresh_session(
@@ -163,11 +174,11 @@ pub(super) fn recovery_notice(recovery: SessionRecovery) -> Option<SessionRecove
 mod tests {
     use std::{ffi::OsString, io::Write as _, time::Duration};
 
-    use plexmaton_agent::{Agent, ApprovalPolicy, Input, TurnBudget};
+    use plexmaton_agent::{Agent, ApprovalPolicy, Input, SessionMetadata, TurnBudget, UnixMillis};
     use plexmaton_core::{AgentId, AgentStatus, HeadName, SessionId, TranscriptRole};
     use plexmaton_provider::{ApiKey, ProviderConfig, ProviderProfile, resolve_api_key};
     use plexmaton_runtime::{JournalTailRecovery, NativeToolCatalog, RuntimeUpdate};
-    use plexmaton_session_store::SessionDirectory;
+    use plexmaton_session_store::{JournalFile, SessionDirectory};
     use plexmaton_tui::{NoticeView, ViewState, Workspace};
 
     use super::{
@@ -287,11 +298,16 @@ reasoning_effort = "none"
             .unwrap_or_else(|| panic!("automatic session was not persisted"));
         assert!(persisted.id.as_str().starts_with("session-"));
         assert!(persisted.path.is_file());
+        let persisted_path = persisted.path.clone();
         automatic
             .runtime
             .shutdown()
             .await
             .unwrap_or_else(|error| panic!("shutdown automatic session: {error}"));
+        let reopened = JournalFile::open(&persisted_path)
+            .unwrap_or_else(|error| panic!("reopen automatic session: {error}"));
+        assert_ne!(reopened.journal().created_at_unix_ms(), UnixMillis::EPOCH);
+        drop(reopened);
 
         let ephemeral_root = FixtureWorkspace::new();
         let (profile, key, tools) = transport(ephemeral_root.path(), "http://127.0.0.1:9/v1");
@@ -531,11 +547,11 @@ reasoning_effort = "none"
         let sessions = SessionDirectory::under(root.path())
             .unwrap_or_else(|error| panic!("sessions directory: {error}"));
         let mut file = sessions
-            .create(session.clone())
+            .create(session.clone(), UnixMillis::EPOCH)
             .unwrap_or_else(|error| panic!("create unfinished fixture: {error}"));
         let mut agent = Agent::for_session(
             agent_id(),
-            session.clone(),
+            SessionMetadata::new(session.clone(), UnixMillis::EPOCH),
             TurnBudget::default(),
             ApprovalPolicy::default(),
         );
@@ -545,7 +561,7 @@ reasoning_effort = "none"
                     Input::Submitted {
                         text: "answer after recovery".to_owned(),
                     },
-                    plexmaton_agent::UnixMillis::EPOCH,
+                    UnixMillis::EPOCH,
                 )
                 .records,
         ) {

@@ -1,11 +1,9 @@
-use std::{
-    path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
+use plexmaton_agent::UnixMillis;
 use plexmaton_core::SessionId;
 
 use crate::{JournalFile, StoreError};
@@ -35,23 +33,27 @@ impl SessionDirectory {
     }
 
     /// Creates and exclusively owns a new named session.
-    pub fn create(&self, session_id: SessionId) -> Result<JournalFile, StoreError> {
-        JournalFile::create(self.path_for(&session_id)?, session_id)
+    pub fn create(
+        &self,
+        session_id: SessionId,
+        created_at_unix_ms: UnixMillis,
+    ) -> Result<JournalFile, StoreError> {
+        JournalFile::create(self.path_for(&session_id)?, session_id, created_at_unix_ms)
     }
 
     /// Creates one collision-safe session whose generated identity remains a portable file name.
-    pub fn create_automatic(&self) -> Result<(SessionId, JournalFile), StoreError> {
-        let unix_millis = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        self.create_automatic_at(unix_millis)
+    pub fn create_automatic(
+        &self,
+        created_at_unix_ms: UnixMillis,
+    ) -> Result<(SessionId, JournalFile), StoreError> {
+        self.create_automatic_at(created_at_unix_ms)
     }
 
     fn create_automatic_at(
         &self,
-        unix_millis: u128,
+        created_at_unix_ms: UnixMillis,
     ) -> Result<(SessionId, JournalFile), StoreError> {
+        let unix_millis = created_at_unix_ms.get();
         for attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
             let name = if attempt == 0 {
                 format!("session-{unix_millis}")
@@ -60,7 +62,7 @@ impl SessionDirectory {
             };
             let session_id = SessionId::new(name)
                 .unwrap_or_else(|error| unreachable!("generated session id is valid: {error}"));
-            match self.create(session_id.clone()) {
+            match self.create(session_id.clone(), created_at_unix_ms) {
                 Ok(journal) => return Ok((session_id, journal)),
                 Err(StoreError::Io { source, .. })
                     if source.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -126,6 +128,7 @@ fn ensure_owner_only_directory(path: &Path) -> Result<(), StoreError> {
 
 #[cfg(test)]
 mod tests {
+    use plexmaton_agent::UnixMillis;
     use plexmaton_core::SessionId;
 
     use super::SessionDirectory;
@@ -189,10 +192,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
 
         let (first_id, first) = sessions
-            .create_automatic_at(1_234)
+            .create_automatic_at(UnixMillis::new(1_234))
             .unwrap_or_else(|error| panic!("create first automatic session: {error}"));
         let (second_id, second) = sessions
-            .create_automatic_at(1_234)
+            .create_automatic_at(UnixMillis::new(1_234))
             .unwrap_or_else(|error| panic!("create second automatic session: {error}"));
 
         assert_eq!(first_id.as_str(), "session-1234");

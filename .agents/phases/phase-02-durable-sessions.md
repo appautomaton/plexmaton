@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 and stage 2 slice 1 complete; stage 2 slice 2 active |
+| Status | Active; stage 1 and stage 2 slices 1–2 complete; stage 2 slice 3 active |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -33,8 +33,9 @@ discovery, SQLite and redb are not introduced.
 
 ## Scope
 
-1. **Canonical JSONL journal.** One file per session under `PLEXMATON_HOME/sessions`, with a typed
-   versioned header and append-only records. Entries have stable identities and parent links;
+1. **Canonical JSONL journal.** One file per session under `PLEXMATON_HOME/sessions`, with one
+   date-epoch header carrying session identity and canonical creation time, followed by append-only
+   records. Entries have stable identities and parent links;
    mutations carry one monotonic sequence. One owned writer serializes append and applies a record
    to memory only after the write succeeds. Loading keeps the longest valid prefix: a complete final
    JSON value missing its newline is repaired, an incomplete tail is isolated, and corruption before
@@ -56,9 +57,9 @@ discovery, SQLite and redb are not introduced.
    provider transports and MCP adapt to the same journal, context and admission boundaries rather
    than adding another loop or transcript.
 
-Each stage receives a sliced plan when it starts. Stage 1 delivered scope item 1 and the journal
-foundation of item 2. [Stage 2](../plans/phase-02-stage-02-context-projection.md) owns the remaining
-head journey and scope item 3; later stages consume both.
+Each stage receives a sliced plan when it starts. Stage 1 delivered the journal foundation and the
+head mechanics in scope items 1–2. [Stage 2](../plans/phase-02-stage-02-context-projection.md)
+finishes their production journey and owns scope item 3; later stages consume both.
 
 ## Not in this phase
 

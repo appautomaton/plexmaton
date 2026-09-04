@@ -117,11 +117,11 @@ impl Agent {
     #[must_use]
     pub fn for_session(
         agent_id: AgentId,
-        session_id: plexmaton_core::SessionId,
+        metadata: crate::SessionMetadata,
         budget: TurnBudget,
         policy: ApprovalPolicy,
     ) -> Self {
-        Self::with_record(Record::for_session(agent_id, session_id), budget, policy)
+        Self::with_record(Record::for_session(agent_id, metadata), budget, policy)
     }
 
     /// Rehydrates an idle owner from one already-validated canonical journal.
@@ -2143,7 +2143,7 @@ mod tests {
             SessionId::new("partial-transition").unwrap_or_else(|error| panic!("session: {error}"));
         let mut source = Agent::for_session(
             agent_id.clone(),
-            session_id.clone(),
+            crate::SessionMetadata::new(session_id.clone(), UnixMillis::EPOCH),
             TurnBudget::default(),
             ApprovalPolicy::default(),
         );

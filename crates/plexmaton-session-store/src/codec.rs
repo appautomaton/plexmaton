@@ -1,40 +1,54 @@
 use std::io::{self, BufRead, Write};
 
+use plexmaton_agent::UnixMillis;
 use plexmaton_core::SessionId;
 use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
 
-pub(crate) const FORMAT_VERSION: u32 = 2;
+pub const SCHEMA_EPOCH: &str = "2026-09-04";
 pub const MAX_JOURNAL_LINE_BYTES: usize = 2 * 1024 * 1024;
-const HEADER_KIND: &str = "plexmaton_session";
+const HEADER_FORMAT: &str = "plexmaton.session";
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct HeaderWire {
-    kind: String,
-    version: u32,
+    format: String,
+    schema: String,
     session_id: SessionId,
+    created_at_unix_ms: UnixMillis,
 }
 
-pub(crate) fn encode_header(session_id: &SessionId) -> Result<Vec<u8>, StoreError> {
+pub(crate) struct DecodedHeader {
+    pub(crate) session_id: SessionId,
+    pub(crate) created_at_unix_ms: UnixMillis,
+}
+
+pub(crate) fn encode_header(
+    session_id: &SessionId,
+    created_at_unix_ms: UnixMillis,
+) -> Result<Vec<u8>, StoreError> {
     encode_line(&HeaderWire {
-        kind: HEADER_KIND.to_owned(),
-        version: FORMAT_VERSION,
+        format: HEADER_FORMAT.to_owned(),
+        schema: SCHEMA_EPOCH.to_owned(),
         session_id: session_id.clone(),
+        created_at_unix_ms,
     })
 }
 
-pub(crate) fn decode_header(bytes: &[u8]) -> Result<SessionId, StoreError> {
+pub(crate) fn decode_header(bytes: &[u8]) -> Result<DecodedHeader, StoreError> {
     let header: HeaderWire = serde_json::from_slice(bytes)
         .map_err(|source| StoreError::MalformedLine { line: 1, source })?;
-    if header.kind != HEADER_KIND {
+    if header.format != HEADER_FORMAT {
         return Err(StoreError::UnsupportedHeader);
     }
-    if header.version != FORMAT_VERSION {
-        return Err(StoreError::UnsupportedVersion(header.version));
+    if header.schema != SCHEMA_EPOCH {
+        return Err(StoreError::UnsupportedSchema(header.schema));
     }
-    Ok(header.session_id)
+    Ok(DecodedHeader {
+        session_id: header.session_id,
+        created_at_unix_ms: header.created_at_unix_ms,
+    })
 }
 
 pub(crate) fn encode_line(value: &impl Serialize) -> Result<Vec<u8>, StoreError> {

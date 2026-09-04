@@ -7,15 +7,16 @@ use plexmaton_agent::{
 use super::{FakeDriver, Script, agent_id, finish_active, runtime_with_clock};
 use crate::runtime::clock::FixedWallClock;
 
-/// TIM-1: the runtime supplies wall observations; neither the agent nor replay reads a clock.
+/// TIM-1/JRN-3: runtime clocks supply session and turn chronology; reducers read no clock.
 #[tokio::test]
-async fn runtime_clock_values_reach_durable_turn_boundaries() {
+async fn runtime_clock_values_reach_session_and_turn_chronology() {
     let driver = FakeDriver::new([Script::Events(vec![ModelEvent::Stopped(
         StopReason::EndOfTurn,
     )])]);
     let observed_at = UnixMillis::new(1_788_000_000_123);
     let mut runtime = runtime_with_clock(driver, Arc::new(FixedWallClock(observed_at)));
     let _announced = runtime.try_next_event();
+    assert_eq!(runtime.agent.journal().created_at_unix_ms(), observed_at);
 
     runtime
         .submit(

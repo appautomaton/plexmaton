@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-use plexmaton_agent::{JournalRecord, SessionJournal};
+use plexmaton_agent::{JournalRecord, SessionJournal, UnixMillis};
 use plexmaton_core::SessionId;
 
 mod codec;
@@ -21,7 +21,7 @@ mod paths;
 #[cfg(test)]
 mod tests;
 
-pub use codec::MAX_JOURNAL_LINE_BYTES;
+pub use codec::{MAX_JOURNAL_LINE_BYTES, SCHEMA_EPOCH};
 pub use error::{AppendFailure, StoreError};
 pub use load::JournalRecovery;
 pub use paths::SessionDirectory;
@@ -45,9 +45,13 @@ pub struct JournalFile {
 
 impl JournalFile {
     /// Creates a new locked session file and writes its typed header.
-    pub fn create(path: impl AsRef<Path>, session_id: SessionId) -> Result<Self, StoreError> {
+    pub fn create(
+        path: impl AsRef<Path>,
+        session_id: SessionId,
+        created_at_unix_ms: UnixMillis,
+    ) -> Result<Self, StoreError> {
         let path = path.as_ref();
-        let header = encode_header(&session_id)?;
+        let header = encode_header(&session_id, created_at_unix_ms)?;
         if let Some(parent) = path
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
@@ -75,7 +79,7 @@ impl JournalFile {
         Ok(Self {
             path: path.to_path_buf(),
             file,
-            journal: SessionJournal::new(session_id),
+            journal: SessionJournal::with_created_at(session_id, created_at_unix_ms),
             recovery: JournalRecovery::Clean,
             state: WriterState::Ready,
         })

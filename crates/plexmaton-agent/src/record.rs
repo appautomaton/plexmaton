@@ -16,6 +16,7 @@ use crate::journal::{
     JournalEntryPayload, JournalProjection, JournalRecord, SessionEntry, SessionJournal,
 };
 use crate::model::{ModelRequest, RequestItem};
+use crate::{SessionMetadata, UnixMillis};
 
 mod recovery;
 
@@ -34,15 +35,18 @@ impl Record {
     pub(crate) fn new(agent_id: AgentId) -> Self {
         let session_id = SessionId::new(format!("{agent_id}-session"))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
-        Self::for_session(agent_id, session_id)
+        Self::for_session(
+            agent_id,
+            SessionMetadata::new(session_id, UnixMillis::EPOCH),
+        )
     }
 
-    pub(crate) fn for_session(agent_id: AgentId, session_id: SessionId) -> Self {
+    pub(crate) fn for_session(agent_id: AgentId, metadata: SessionMetadata) -> Self {
         Self {
             agent_id,
             head: HeadName::new("main")
                 .unwrap_or_else(|error| unreachable!("the main head is valid: {error}")),
-            journal: SessionJournal::new(session_id),
+            journal: SessionJournal::with_metadata(metadata),
             announced: false,
             next_event: 1,
         }

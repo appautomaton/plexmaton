@@ -35,11 +35,11 @@ pub enum StoreError {
     #[error("session journal has no header")]
     MissingHeader,
     /// The first line was not the session-journal header.
-    #[error("session journal header kind is unsupported")]
+    #[error("session journal header format is unsupported")]
     UnsupportedHeader,
-    /// The header selected a decoder this binary does not implement.
-    #[error("session journal format version {0} is unsupported")]
-    UnsupportedVersion(u32),
+    /// The header selected a schema epoch this binary does not implement.
+    #[error("session journal schema epoch {0} is unsupported")]
+    UnsupportedSchema(String),
     /// A JSON line exceeded the hard retained/encoded bound.
     #[error("session journal line {line} exceeds {limit} bytes")]
     LineTooLarge { line: u64, limit: usize },
