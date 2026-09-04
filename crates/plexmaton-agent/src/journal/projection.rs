@@ -419,36 +419,53 @@ fn project_entry(
     entry: &SessionEntry,
 ) -> Result<(), JournalProjectionError> {
     let source = entry.id.clone();
-    match entry.payload.clone() {
+    match &entry.payload {
         JournalEntryPayload::TurnStarted {
             agent_id,
             item_id,
             turn_id,
             text,
             ..
-        } => projector.turn_started(source, agent_id, item_id, turn_id, text),
+        } => projector.turn_started(
+            source,
+            agent_id.clone(),
+            item_id.clone(),
+            turn_id.clone(),
+            text.clone(),
+        ),
         JournalEntryPayload::SteeringAccepted {
             agent_id,
             item_id,
             turn_id,
             text,
             ..
-        } => projector.steering(source, agent_id, item_id, turn_id, text),
+        } => projector.steering(
+            source,
+            agent_id.clone(),
+            item_id.clone(),
+            turn_id.clone(),
+            text.clone(),
+        ),
         JournalEntryPayload::TurnStatusChanged {
             agent_id,
             turn_id,
             status,
-        } => projector.turn_status(agent_id, turn_id, status),
+        } => projector.turn_status(agent_id.clone(), turn_id.clone(), *status),
         JournalEntryPayload::AssistantOutput {
             agent_id,
             step_id,
             output,
-        } => projector.assistant_output(source, agent_id, step_id, output),
+        } => projector.assistant_output(source, agent_id.clone(), step_id.clone(), output.clone()),
         JournalEntryPayload::ToolCallRequested {
             agent_id,
             call_id,
             presentation,
-        } => projector.request_tool(source, agent_id, call_id, presentation),
+        } => projector.request_tool(
+            source,
+            agent_id.clone(),
+            call_id.clone(),
+            presentation.clone(),
+        ),
         JournalEntryPayload::ToolCallChanged {
             agent_id,
             call_id,
@@ -459,14 +476,14 @@ fn project_entry(
         } => projector.change_tool(
             source,
             ToolChange {
-                agent_id,
-                call_id,
-                item_revision,
-                status,
-                presentation,
-                outcome,
+                agent_id: agent_id.clone(),
+                call_id: call_id.clone(),
+                item_revision: *item_revision,
+                status: *status,
+                presentation: presentation.clone(),
+                outcome: outcome.clone(),
             },
         ),
-        other => projector.visible(other),
+        other => projector.visible(other.clone()),
     }
 }

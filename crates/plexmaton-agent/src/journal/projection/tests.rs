@@ -261,6 +261,126 @@ fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
     assert_eq!(completions, ["call-b", "call-a"]);
 }
 
+/// JRN-5 / stage 2 slice 3: a head cannot split a completed parallel tool batch.
+#[test]
+fn jrn_5_head_mutations_refuse_the_first_parallel_result_boundary() {
+    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    announce(&mut journal);
+    append(&mut journal, 1, message(TranscriptRole::User, 1, "inspect"));
+    let (first, first_outcome) = call("call-a", "first");
+    let (second, second_outcome) = call("call-b", "second");
+    append(
+        &mut journal,
+        2,
+        assistant_calls(
+            1,
+            1,
+            vec![
+                call_block("tool-a", first.clone()),
+                call_block("tool-b", second.clone()),
+            ],
+        ),
+    );
+    for (ordinal, call_id) in [(3, first.call_id.clone()), (4, second.call_id.clone())] {
+        append(
+            &mut journal,
+            ordinal,
+            JournalEntryPayload::ToolCallRequested {
+                agent_id: agent(),
+                call_id,
+                presentation: ToolPresentation::default(),
+            },
+        );
+    }
+    for (ordinal, call_id) in [(5, first.call_id.clone()), (6, second.call_id.clone())] {
+        append(
+            &mut journal,
+            ordinal,
+            JournalEntryPayload::ToolCallChanged {
+                agent_id: agent(),
+                call_id,
+                item_revision: 1,
+                status: ToolCallStatus::Running,
+                presentation: ToolPresentation::default(),
+                outcome: None,
+            },
+        );
+    }
+    for (ordinal, call_id, outcome) in [
+        (7, second.call_id, second_outcome),
+        (8, first.call_id, first_outcome),
+    ] {
+        append(
+            &mut journal,
+            ordinal,
+            JournalEntryPayload::ToolCallChanged {
+                agent_id: agent(),
+                call_id,
+                item_revision: 2,
+                status: ToolCallStatus::Succeeded,
+                presentation: ToolPresentation::default(),
+                outcome: Some(outcome),
+            },
+        );
+    }
+    finish_turn(&mut journal, 1);
+
+    let first_result = id("entry-7", SessionEntryId::new);
+    let last_result = id("entry-8", SessionEntryId::new);
+    let unchanged = journal.clone();
+    assert_eq!(
+        journal.apply(JournalRecord::CreateHead {
+            sequence: journal.next_sequence(),
+            record_id: id("partial-batch-create", JournalRecordId::new),
+            head: head("partial"),
+            at: Some(first_result.clone()),
+        }),
+        Err(super::super::JournalError::UnstableTurnTarget(id(
+            "turn-1",
+            TurnId::new
+        )))
+    );
+    assert_eq!(journal, unchanged);
+    journal
+        .apply(JournalRecord::CreateHead {
+            sequence: journal.next_sequence(),
+            record_id: id("complete-batch-create", JournalRecordId::new),
+            head: head("complete"),
+            at: Some(last_result),
+        })
+        .unwrap_or_else(|error| panic!("create at complete batch: {error:?}"));
+    let complete = journal.clone();
+    assert_eq!(
+        journal.apply(JournalRecord::MoveHead {
+            sequence: journal.next_sequence(),
+            record_id: id("partial-batch-move", JournalRecordId::new),
+            head: head("complete"),
+            expected_head_revision: HeadRevision::new(0),
+            to: Some(first_result),
+        }),
+        Err(super::super::JournalError::UnstableTurnTarget(id(
+            "turn-1",
+            TurnId::new
+        )))
+    );
+    assert_eq!(journal, complete);
+
+    let projection = journal
+        .project(&head("complete"))
+        .unwrap_or_else(|error| panic!("project complete batch: {error:?}"));
+    let ContextAtomValue::ToolBatch(batch) = projection.request().atoms[1].value() else {
+        panic!("complete boundary retains one parallel tool batch")
+    };
+    assert_eq!(
+        batch
+            .results()
+            .iter()
+            .map(|result| result.call_id().as_str())
+            .collect::<Vec<_>>(),
+        ["call-a", "call-b"]
+    );
+}
+
 /// JRN-5: an incomplete final batch is visible but cannot enter provider input unmatched.
 #[test]
 fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {

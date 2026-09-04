@@ -21,6 +21,12 @@ impl JournalProjection {
         &self.request
     }
 
+    /// Takes the provider-independent request without cloning its retained context.
+    #[must_use]
+    pub fn into_request(self) -> ModelRequest {
+        self.request
+    }
+
     /// UI-facing event stream rebuilt from canonical facts.
     #[must_use]
     pub fn events(&self) -> &[SessionEventEnvelope] {

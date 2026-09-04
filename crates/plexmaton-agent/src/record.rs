@@ -101,8 +101,7 @@ impl Record {
         self.journal
             .project(&self.head)
             .unwrap_or_else(|error| unreachable!("live facts must remain projectable: {error:?}"))
-            .request()
-            .clone()
+            .into_request()
     }
 
     pub(crate) fn atoms(&self) -> Vec<ContextAtom> {
