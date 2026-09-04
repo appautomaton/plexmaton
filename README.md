@@ -3,12 +3,6 @@
 Plexmaton is an early-stage Rust agentic harness with a Ratatui workspace, OpenAI-compatible
 Responses and Chat Completions, and native file/search/edit/command tools.
 
-## Workspace
-
-Semantic contracts and the provider-independent loop live in `core`/`agent`; wire codecs and live
-work in `provider`/`runtime`; bounded effects in `file-tools`/`command`; fixtures, projection and
-composition in `sim`/`tui`/`cli` (all prefixed `plexmaton-`).
-
 ## Development
 
 The normal configuration root is `~/.plexmaton/`; repositories are never searched for a
@@ -55,10 +49,6 @@ PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- --ephemeral
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- create work-01
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
-cargo fmt --all --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
 ```
 
 Launching without a session command creates an automatically named durable session and prints its
@@ -73,31 +63,24 @@ only letters, digits, `-`, or `_`.
 open the same read-only provider/model/reasoning page. `Esc` restores the search; another closes it.
 Change `config.toml` and restart to apply settings.
 
+For the customizable pastel footer, add this to that user configuration:
+
+```toml
+[status_line]
+command = "bash /absolute/path/to/plexmaton/examples/statusline-pastel.sh"
+max_rows = 6
+refresh_ms = 30000
+```
+
+The example needs Bash, jq and a Powerline-compatible font. It receives JSON snapshots on stdin;
+editing the script requires no rebuild. Missing statistics are omitted. Quit/Ctrl-P hints occupy
+the last terminal row. [Protocol, limits and configuration](.agents/specs/status-line.md).
+
 Inputs support click-to-place, drag-to-select/copy, and typing or paste to replace selection. Arrows,
 Home/End, word motion and line deletion preserve graphemes. Transcripts support selection, disclosure
 and source copy. See the [key grammar](.agents/specs/interaction-routing.md#key-grammar)
 and [selection contract](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
 
-Supply-chain and corpus gates:
-
-```console
-cargo deny check
-cargo machete
-typos
-./scripts/check-file-length.sh
-./scripts/check-crate-graph.sh
-./scripts/check-citations.sh
-./scripts/check-doc-budget.sh
-```
-
-Exercise terminal lifecycle, configuration navigation and pointer editing in a real pseudo-terminal:
-
-```console
-./scripts/smoke-tui.py
-```
-
-Enable the shared pre-commit hook once per clone:
-
-```console
-git config core.hooksPath .githooks
-```
+Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md).
+`python3 scripts/smoke-tui.py` covers terminal/input lifecycle; `python3 scripts/smoke-statusline.py`
+covers the configured footer without model calls. Enable hooks with `git config core.hooksPath .githooks`.

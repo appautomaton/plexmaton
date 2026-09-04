@@ -108,15 +108,19 @@ other rule about input follows from this one.
   outranks ambient work, and idle adds no label. It adds no row and owns no animation clock.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
-- **The last row of the screen is the status line.** Full width, under every pane, it says one
-  thing at a time: at rest, the working directory; after a key that raised a question, the answer,
-  until its owning transition resolves it. Command overlays show their own navigation keys in a
+- **The status line sits below every pane.** By default it shows the working directory; an explicitly
+  configured user script may supply several styled rows, bounded to preserve typing and readable
+  conversation space. Quit and command-palette hints temporarily replace the terminal's last row,
+  leaving the rows above it unchanged; expiry restores the script's last visible row or the working
+  directory. Script refresh preserves the prior output until a complete replacement arrives.
+  Command overlays show their own navigation keys in a
   muted footer; configuration keeps that footer visible while its values scroll. Rejected: a key-hint
-  strip there, a row of chords nobody read; and the composer's bottom border, which belongs to one
+  strip there, a row of chords nobody read; overriding the first script row instead of the terminal's
+  last row; and the composer's bottom border, which belongs to one
   conversation, so a question raised from another agent's window was answered in the wrong box.
 - **Quitting is `Ctrl-D` twice within one second.** The first press arms a monotonic one-second
   window and makes the status line say so; a second press before the deadline leaves, while expiry
-  restores the working directory. Other terminal events neither confirm nor withdraw it. `Ctrl-C`
+  restores the underlying status content. Other terminal events neither confirm nor withdraw it. `Ctrl-C`
   withdraws it explicitly: with a non-empty draft it clears only the draft, and with an empty draft
   it interrupts only the focused conversation. It never quits. Rejected: an indefinitely armed
   chord, which lets unrelated later intent become an exit; and cancelling on an unrelated key,

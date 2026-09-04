@@ -16,6 +16,7 @@ mod layout;
 mod render;
 mod router;
 mod state;
+mod statusline;
 mod surface;
 #[cfg(test)]
 mod test_support;
@@ -36,6 +37,7 @@ pub use state::{
     SubmissionKind, TailRecoveryNotice, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind, ViewRevision, ViewState,
 };
+pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
 };

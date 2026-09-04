@@ -80,6 +80,8 @@ impl LayoutClass {
 /// projection, and a struct rather than a growing parameter list because the shelf adds to it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WorkspaceInput {
+    /// Desired footer rows; layout protects the composer and readable conversation first.
+    pub status_rows: u16,
     /// Whether the notice strip has anything to report.
     pub has_notices: bool,
     /// How many background requests are queued. Zero registers no band at all.
@@ -101,6 +103,7 @@ pub struct WorkspaceInput {
 impl Default for WorkspaceInput {
     fn default() -> Self {
         Self {
+            status_rows: 1,
             has_notices: false,
             attention: 0,
             decision_rows: 0,
@@ -130,10 +133,20 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         return SurfaceTree::default();
     }
 
-    // The status line is the last row, full width, and never negotiates; everything else bids for
-    // what is left. Under every pane rather than in one of them, so what it says about a key does
-    // not depend on which conversation the key was pressed in (INV-7).
-    let status = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
+    // One system row is guaranteed; additional script rows yield to the composer and readable
+    // conversation. Global hints always replace the final row of this band (STL-4, INV-7).
+    let status_height = input.status_rows.max(1).min(
+        area.height
+            .saturating_sub(input.composer_rows)
+            .saturating_sub(TRANSCRIPT_COMFORT)
+            .max(1),
+    );
+    let status = Rect::new(
+        area.x,
+        area.bottom().saturating_sub(status_height),
+        area.width,
+        status_height,
+    );
     let budget = area.height.saturating_sub(status.height);
 
     // Typing is the one thing a workspace this small still has to allow, so the composer is served

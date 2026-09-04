@@ -15,6 +15,8 @@ invalidates the last frame explicitly. The quit chord's owned one-shot deadline 
 projection once when its visible question expires. A captured edge drag owns a 60 ms deadline only
 while it can move; each wake changes its viewport or disarms. Neither is an ambient animation
 clock. Producer traffic that alters nothing visible costs no frame.
+An owned status command may publish a changed footer (STL-4); only changed decoded output advances
+the view revision. Its optional refresh clock schedules a command, not a frame or transcript scan.
 
 **FR-2 — A frame's layout work is bounded by its viewport, not by the conversation's length.** What
 a frame wraps and builds is what its viewport reaches (TR-2). Two frames are the exceptions and cost

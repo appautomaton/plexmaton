@@ -1,8 +1,7 @@
-//! The status line: what the workspace says about itself in the last row.
+//! Status presentation and the system question that owns the terminal's last row.
 //!
-//! One slot, one message at a time. At rest it names where the process runs; while the quit chord
-//! is armed, it carries that bounded question. Nothing here is session state, which is why it is
-//! not an event: the runtime never has a reason to write to it.
+//! The composition supplies decoded script rows or the cwd baseline. A bounded system hint
+//! overrides only the final visible row. These are presentation values, never session facts.
 
 use std::time::{Duration, Instant};
 
@@ -40,9 +39,31 @@ pub const COMMAND_HINT_WINDOW: Duration = Duration::from_secs(3);
 pub struct Status {
     working_directory: Option<String>,
     note: StatusNote,
+    footer: Footer,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum Footer {
+    #[default]
+    Default,
+    Script {
+        text: crate::StatusLineText,
+        max_rows: u16,
+    },
+    Failed(String),
 }
 
 impl Status {
+    pub(crate) fn footer(&self) -> &Footer {
+        &self.footer
+    }
+
+    pub(crate) fn rows(&self) -> u16 {
+        match &self.footer {
+            Footer::Script { text, max_rows } => (text.lines().len() as u16).min(*max_rows).max(1),
+            Footer::Default | Footer::Failed(_) => 1,
+        }
+    }
     /// Where the process runs, as the composition root chose to show it.
     #[must_use]
     pub fn working_directory(&self) -> Option<&str> {
@@ -90,6 +111,30 @@ pub enum QuitPress {
 }
 
 impl ViewState {
+    pub(crate) fn set_status_line(&mut self, text: crate::StatusLineText, max_rows: u16) {
+        self.replace_footer(Footer::Script {
+            text,
+            max_rows: max_rows.clamp(1, 64),
+        });
+    }
+
+    pub(crate) fn set_status_line_error(&mut self, error: String) {
+        // Only the composition's bounded typed diagnostic should reach this entry point.
+        let error: String = error
+            .chars()
+            .filter(|ch| !ch.is_control())
+            .take(160)
+            .collect();
+        self.replace_footer(Footer::Failed(error));
+    }
+
+    fn replace_footer(&mut self, footer: Footer) {
+        if self.status.footer != footer {
+            self.status.footer = footer;
+            self.touch();
+        }
+    }
+
     /// The status line's state.
     #[must_use]
     pub const fn status(&self) -> &Status {

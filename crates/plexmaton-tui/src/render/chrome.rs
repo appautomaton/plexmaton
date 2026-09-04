@@ -197,12 +197,7 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
     title_with(palette, name, Role::SectionHeading, rest, role)
 }
 
-/// The status line: the last row of the screen, saying one thing at a time (INV-7).
-///
-/// At rest it names the working directory, so the row is never blank and later facts about the
-/// session have a place. A pending quit question replaces it until its bounded deadline.
-/// One row under every pane, so the answer is in the same place whichever conversation the key
-/// was pressed in.
+/// Decoded script rows or the cwd baseline, with system hints on the final terminal row (STL-4).
 pub(super) fn render_status(
     frame: &mut Frame<'_>,
     state: &ViewState,
@@ -210,6 +205,54 @@ pub(super) fn render_status(
     area: Rect,
 ) {
     let status = state.status();
+    match status.footer() {
+        crate::state::Footer::Script { text, .. } => {
+            let clipped = text.lines().len() > usize::from(area.height)
+                || text
+                    .lines()
+                    .iter()
+                    .take(usize::from(area.height))
+                    .any(|line| line.width() > usize::from(area.width));
+            for (index, line) in text
+                .lines()
+                .iter()
+                .take(usize::from(area.height))
+                .enumerate()
+            {
+                let last = index + 1 == usize::from(area.height);
+                let width = area.width.saturating_sub(u16::from(clipped && last));
+                frame.render_widget(
+                    Paragraph::new(line.clone()).style(palette.style(Role::Muted)),
+                    Rect::new(area.x, area.y + index as u16, width, 1),
+                );
+            }
+            if clipped && area.width > 0 && area.height > 0 {
+                frame.render_widget(
+                    Paragraph::new("…").style(palette.style(Role::Muted)),
+                    Rect::new(area.right() - 1, area.bottom() - 1, 1, 1),
+                );
+            }
+        }
+        crate::state::Footer::Failed(error) => {
+            frame.render_widget(
+                Paragraph::new(error.as_str()).style(palette.style(Role::Failure)),
+                area,
+            );
+        }
+        crate::state::Footer::Default => {}
+    }
+    if status.note() == StatusNote::Quiet
+        && !matches!(status.footer(), crate::state::Footer::Default)
+    {
+        return;
+    }
+    let area = Rect::new(
+        area.x,
+        area.bottom().saturating_sub(1),
+        area.width,
+        area.height.min(1),
+    );
+    frame.render_widget(ratatui::widgets::Clear, area);
     let (text, role) = match status.note() {
         StatusNote::QuitArmed { .. } => (
             "press Ctrl-D again to quit".to_owned(),

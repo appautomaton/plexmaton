@@ -17,7 +17,7 @@ use crossterm::{
 use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
-use plexmaton_provider::{ModelRegistry, resolve_api_key, resolve_home};
+use plexmaton_provider::{resolve_api_key, resolve_home};
 use plexmaton_runtime::{
     CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
     RuntimeUpdate, SessionRecovery,
@@ -30,6 +30,7 @@ use ratatui::DefaultTerminal;
 
 mod clipboard;
 mod session;
+mod statusline;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
@@ -74,7 +75,8 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (opened, workspace_root, configuration) = live_runtime_from_process(selection).await?;
+    let (opened, workspace_root, configuration, status_line) =
+        live_runtime_from_process(selection).await?;
     let OpenedSession {
         runtime,
         recovery,
@@ -99,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         working_directory(&workspace_root),
         recovery,
         configuration,
+        status_line,
     )
     .await;
     drop(restore_terminal);
@@ -111,7 +114,12 @@ async fn main() -> anyhow::Result<()> {
 
 async fn live_runtime_from_process(
     selection: SessionSelection,
-) -> anyhow::Result<(OpenedSession, PathBuf, ConfigurationSummary)> {
+) -> anyhow::Result<(
+    OpenedSession,
+    PathBuf,
+    ConfigurationSummary,
+    Option<statusline::StatusLine>,
+)> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
     let user_home = std::env::var_os("HOME").map(PathBuf::from);
     let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
@@ -119,7 +127,7 @@ async fn live_runtime_from_process(
     let path = root.join("config.toml");
     let source = fs::read_to_string(&path)
         .with_context(|| format!("read provider configuration at {}", path.display()))?;
-    let config = ModelRegistry::parse(&source).context("parse model configuration")?;
+    let (config, status_config) = statusline::parse(&source)?;
     let model = config.active_model().clone();
     let configuration = configuration_summary(&model);
     let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
@@ -142,8 +150,10 @@ async fn live_runtime_from_process(
     )
     .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
+    let status_line = status_config
+        .map(|config| statusline::StatusLine::new(config, model.clone(), workspace_root.clone()));
     let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
-    Ok((opened, workspace_root, configuration))
+    Ok((opened, workspace_root, configuration, status_line))
 }
 
 /// Project only display values from the same model handed to the runtime (INV-12, PRV-6).
@@ -222,6 +232,7 @@ async fn run(
     working_directory: Option<String>,
     recovery: SessionRecovery,
     configuration: ConfigurationSummary,
+    mut status_line: Option<statusline::StatusLine>,
 ) -> anyhow::Result<()> {
     // The user already chose these colours when they themed their terminal, and slots 0-15 are the
     // only values a theme can reach: `Indexed(16..)` and `Rgb` paint over it. Truecolour presets
@@ -239,12 +250,37 @@ async fn run(
         clipboard,
         &mut workspace,
         &configuration,
+        &mut status_line,
     )
     .await;
+    let status_shutdown = match &mut status_line {
+        Some(status) => status.shutdown().await,
+        None => Ok(()),
+    };
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
-    let report = shutdown?;
-    surface_shutdown_report(report)?;
-    loop_result
+    session_result(
+        loop_result,
+        shutdown.and_then(surface_shutdown_report),
+        status_shutdown,
+    )
+}
+
+/// Optional presentation cleanup must never mask retained input or a durable-session failure.
+fn session_result(
+    loop_result: anyhow::Result<()>,
+    runtime_shutdown: anyhow::Result<()>,
+    status_shutdown: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let failures: Vec<_> = [runtime_shutdown, loop_result, status_shutdown]
+        .into_iter()
+        .filter_map(Result::err)
+        .map(|error| format!("{error:#}"))
+        .collect();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("; "))
+    }
 }
 
 fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
@@ -278,6 +314,7 @@ async fn drive_session(
     clipboard: &mut impl ClipboardSink,
     workspace: &mut Workspace,
     configuration: &ConfigurationSummary,
+    status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
     loop {
@@ -286,6 +323,17 @@ async fn drive_session(
         let drag_deadline = workspace.drag_autoscroll_deadline();
 
         tokio::select! {
+            update = next_status_update(status_line) => {
+                if let Some(status) = status_line {
+                    match update {
+                        statusline::Update::Capture => {
+                            let size = terminal.size().context("read terminal dimensions")?;
+                            status.capture(runtime, statusline::Dimensions { columns: size.width, rows: size.height }, workspace);
+                        }
+                        statusline::Update::Output(output) => status.apply(output, workspace),
+                    }
+                }
+            }
             () = wait_for_deadline(note_deadline) => {
                 workspace.expire_note(Instant::now());
             }
@@ -294,8 +342,15 @@ async fn drive_session(
             }
             runtime_update = runtime.next_update() => {
                 match runtime_update.context("receive live runtime update")? {
-                    RuntimeUpdate::Event(event) => workspace.emit(vec![event]),
+                    RuntimeUpdate::Event(event) => {
+                        if matches!(event.event, plexmaton_core::SessionEvent::AgentCreated { .. }
+                            | plexmaton_core::SessionEvent::AgentStatusChanged { .. }
+                            | plexmaton_core::SessionEvent::TurnUsageUpdated { .. })
+                            && let Some(status) = status_line { status.mark_dirty(); }
+                        workspace.emit(vec![event]);
+                    }
                     RuntimeUpdate::Report(report) => {
+                        if let Some(status) = status_line { status.mark_dirty(); }
                         restore_undelivered(workspace, runtime.agent_id().clone(), report);
                     }
                     RuntimeUpdate::Finished => break,
@@ -304,38 +359,10 @@ async fn drive_session(
             terminal_event = terminal_events.next() => {
                 match terminal_event {
                     Some(Ok(event)) => {
+                        if matches!(event, crossterm::event::Event::Resize(..))
+                            && let Some(status) = status_line { status.mark_dirty(); }
                         let outcome = workspace.handle(&event);
-                        if let Some(command) = outcome.command {
-                            execute_workspace_command(workspace, command, configuration);
-                        }
-                        if let Some(submission) = outcome.submitted {
-                            dispatch_live(
-                                runtime,
-                                workspace,
-                                route_submission(submission),
-                            ).await?;
-                        }
-                        if let Some(agent_id) = outcome.interrupted {
-                            dispatch_live(
-                                runtime,
-                                workspace,
-                                route_interrupt(agent_id),
-                            ).await?;
-                        }
-                        if let Some(approval) = outcome.approval {
-                            dispatch_live(
-                                runtime,
-                                workspace,
-                                route_approval(approval),
-                            ).await?;
-                        }
-                        if let Some(request) = outcome.copied {
-                            clipboard
-                                .copy(&request.text)
-                                .await
-                                .context("copy to the clipboard")?;
-                        }
-                        if outcome.flow == Flow::Quit {
+                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, configuration).await? {
                             break;
                         }
                     }
@@ -346,6 +373,41 @@ async fn drive_session(
         }
     }
     Ok(())
+}
+
+async fn apply_workspace_outcome(
+    outcome: plexmaton_tui::Outcome,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    clipboard: &mut impl ClipboardSink,
+    configuration: &ConfigurationSummary,
+) -> anyhow::Result<bool> {
+    if let Some(command) = outcome.command {
+        execute_workspace_command(workspace, command, configuration);
+    }
+    if let Some(submission) = outcome.submitted {
+        dispatch_live(runtime, workspace, route_submission(submission)).await?;
+    }
+    if let Some(agent_id) = outcome.interrupted {
+        dispatch_live(runtime, workspace, route_interrupt(agent_id)).await?;
+    }
+    if let Some(approval) = outcome.approval {
+        dispatch_live(runtime, workspace, route_approval(approval)).await?;
+    }
+    if let Some(request) = outcome.copied {
+        clipboard
+            .copy(&request.text)
+            .await
+            .context("copy to the clipboard")?;
+    }
+    Ok(outcome.flow == Flow::Quit)
+}
+
+async fn next_status_update(status: &mut Option<statusline::StatusLine>) -> statusline::Update {
+    match status {
+        Some(status) => status.next().await,
+        None => std::future::pending().await,
+    }
 }
 
 /// Owns the quit chord's one-shot wake without adding an animation clock or background task.

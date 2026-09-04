@@ -76,7 +76,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Current modular generation and umbrella crate; splitting its subcrates requires a measured compile-time or boundary benefit |
 | `reqwest` | Pooled streaming HTTP client | Defaults off; `json`, `stream`, Rustls. Redirects are disabled around bearer authority. Rustls selects vendored `aws-lc-rs`, not platform OpenSSL |
-| `rustix` | Descriptor-relative file access and Unix process-group signalling | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
+| `rustix` | File access and process groups for tools/status commands | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
 | `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
 | `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
 | `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |

@@ -29,6 +29,7 @@ any single edit:
 | `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
+| `python3 scripts/smoke-statusline.py` | Configured shell footer, three widths, last-row hints and cleanup in a real PTY; no model request |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the checked-in frames under `crates/plexmaton-tui/frames/`; the diff is the review, and the ordinary test run compares against them |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 

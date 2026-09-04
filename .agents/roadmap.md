@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
-| Open phases | Phase 02 |
+| Open phases | Phase 02, Phase 04 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Mechanism specs | [specs/](./specs/) |
 
@@ -34,7 +34,7 @@ table in `AGENTS.md` allows.
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active 2026-09-03; durable JSONL sessions, context atoms, model registry, request accounting and budget ledger complete; compaction planning remains |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Not opened |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active 2026-09-04; configurable shell status line complete; approval/resume/turn-metadata UI and branding remain |
 
 ## Locked
 

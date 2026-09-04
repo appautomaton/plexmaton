@@ -111,6 +111,16 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Replace one fully decoded script result. Equal output does not request another frame.
+    pub fn set_status_line(&mut self, text: crate::StatusLineText, max_rows: u16) {
+        self.state.set_status_line(text, max_rows);
+    }
+
+    /// A failed presentation command cannot take down the session or hide a quit question.
+    pub fn set_status_line_error(&mut self, error: String) {
+        self.state.set_status_line_error(error);
+    }
+
     /// Builds a workspace that paints with `palette`.
     ///
     /// The default workspace uses [`Palette::ansi`]. A colourway is a palette, so swapping one is

@@ -48,6 +48,7 @@ pub fn render(
     let mut surfaces = layout::workspace(
         area,
         WorkspaceInput {
+            status_rows: state.status().rows(),
             has_notices: state.notices().next().is_some(),
             attention: state.attention_listed_count(),
             decision_rows: state.decision_rows(composer_width),

@@ -254,6 +254,16 @@ impl ModelRegistry {
     /// Parses every provider/model entry and publishes one immutable resolved registry.
     pub fn parse(source: &str) -> Result<Self, ConfigError> {
         let raw: RawModelRegistry = toml::from_str(source).map_err(|_| ConfigError::Toml)?;
+        Self::resolve(raw)
+    }
+
+    /// Resolve the provider section after the composition root extracts its own configuration.
+    pub fn from_table(table: toml::Table) -> Result<Self, ConfigError> {
+        let raw = table.try_into().map_err(|_| ConfigError::Toml)?;
+        Self::resolve(raw)
+    }
+
+    fn resolve(raw: RawModelRegistry) -> Result<Self, ConfigError> {
         let mut models = BTreeMap::new();
         for (provider_name, provider) in raw.providers {
             let base_url = validate_provider(&provider_name, &provider)?;

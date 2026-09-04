@@ -43,6 +43,7 @@ pub use notices::{
 };
 pub use scroll::ScrollPosition;
 pub use selection::{CopyRequest, Selection};
+pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
 pub use text_input::{Caret, Motion, TextInput};

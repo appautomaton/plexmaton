@@ -58,6 +58,20 @@ impl fmt::Display for RequestAccountingError {
 impl std::error::Error for RequestAccountingError {}
 
 impl SessionJournal {
+    /// Incurred facts for one stable turn identity, excluding compaction and every other turn.
+    pub fn turn_accounting(
+        &self,
+        turn: &plexmaton_core::TurnId,
+    ) -> Result<RequestAccounting, RequestAccountingError> {
+        fold_attempts(self.request_attempts().filter(|attempt| {
+            attempt
+                .authorization()
+                .owner()
+                .agent_step()
+                .is_some_and(|step| step.turn_id() == turn)
+        }))
+    }
+
     /// Folds every unique authorized attempt once, including compaction and abandoned branches.
     /// An authorization without a terminal fact contributes unavailable usage and cost (TIM-5).
     pub fn incurred_accounting(&self) -> Result<RequestAccounting, RequestAccountingError> {
