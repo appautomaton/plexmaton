@@ -1,14 +1,14 @@
 use plexmaton_agent::{ModelEvent, StopReason};
 use plexmaton_core::TokenUsage;
-use plexmaton_provider::{DecodeLimits, OpenAiCodec, Protocol};
+use plexmaton_provider::{DecodeLimits, ModelApi, OpenAiCodec};
 
 use super::support::profile;
 
 /// LIVE-4: even a direct codec caller receives usage before the stop that closes its model step.
 #[test]
 fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
-    let profile = profile(Protocol::ChatCompletions);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::for_profile(&profile));
+    let profile = profile(ModelApi::OpenaiChatCompletions);
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
     let combined = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}"#;
 
     assert!(matches!(
@@ -25,8 +25,8 @@ fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
 /// carrying otherwise exact top-level counts was malformed.
 #[test]
 fn responses_null_usage_breakdowns_are_partial_coverage() {
-    let profile = profile(Protocol::Responses);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::for_profile(&profile));
+    let profile = profile(ModelApi::OpenaiResponses);
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
     let completed = r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":null,"cache_write_tokens":null},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":null},"total_tokens":10}}}"#;
 
     assert!(matches!(

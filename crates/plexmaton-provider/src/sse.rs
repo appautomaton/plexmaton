@@ -7,7 +7,7 @@ use futures_util::{Stream, StreamExt};
 use plexmaton_agent::ModelEvent;
 use thiserror::Error;
 
-use crate::{DecodeError, DecodeLimits, OpenAiCodec, ProviderProfile};
+use crate::{DecodeError, DecodeLimits, OpenAiCodec, ResolvedModel};
 
 /// Failure while framing provider bytes or translating one framed event.
 #[derive(Debug, Error)]
@@ -29,7 +29,7 @@ pub enum SseDecodeError<E> {
 /// accepts the stream trailer, so a malformed close cannot become `Stopped` followed by `Failed`
 /// in a caller (PRV-1, PRV-2, PRV-7).
 pub async fn drive_sse<S, B, E, F, Fut>(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     stream: S,
     limits: DecodeLimits,
     mut emit: F,
@@ -50,7 +50,7 @@ where
     });
     let framed = guarded.eventsource();
     futures_util::pin_mut!(framed);
-    let mut codec = OpenAiCodec::new(profile, limits);
+    let mut codec = OpenAiCodec::new(model, limits);
     let mut pending_stop = None;
 
     while let Some(event) = framed.next().await {

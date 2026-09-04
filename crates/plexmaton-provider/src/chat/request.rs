@@ -4,17 +4,17 @@ use plexmaton_agent::{AssistantBlock, AssistantOutput, ContextAtomValue, ModelRe
 use serde_json::{Value, json};
 
 use crate::{
-    FunctionTool, ProviderProfile,
+    FunctionTool, ResolvedModel,
     codec::{EncodeError, tool_output},
 };
 
 pub(crate) fn encode(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     request: &ModelRequest,
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
-    let messages = encode_messages(profile, request)?;
+    let messages = encode_messages(model, request)?;
     let tools: Vec<_> = tools
         .iter()
         .map(|tool| {
@@ -30,11 +30,11 @@ pub(crate) fn encode(
         })
         .collect();
     let mut body = json!({
-        "model": profile.model(),
+        "model": model.wire_id(),
         "messages": messages,
         "stream": true,
         "stream_options": { "include_usage": true },
-        "reasoning_effort": profile.reasoning_effort().as_str(),
+        "reasoning_effort": model.reasoning_effort().as_str(),
     });
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools);
@@ -78,7 +78,7 @@ impl PendingAssistant {
 }
 
 fn encode_messages(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     request: &ModelRequest,
 ) -> Result<Vec<Value>, EncodeError> {
     let mut messages = Vec::new();
@@ -88,10 +88,10 @@ fn encode_messages(
                 messages.push(json!({ "role": "user", "content": text }));
             }
             ContextAtomValue::Assistant(output) => {
-                messages.push(encode_assistant(profile, output)?);
+                messages.push(encode_assistant(model, output)?);
             }
             ContextAtomValue::ToolBatch(batch) => {
-                messages.push(encode_assistant(profile, batch.assistant())?);
+                messages.push(encode_assistant(model, batch.assistant())?);
                 messages.extend(batch.results().iter().map(|result| {
                     json!({
                         "role": "tool",
@@ -105,12 +105,9 @@ fn encode_messages(
     Ok(messages)
 }
 
-fn encode_assistant(
-    profile: &ProviderProfile,
-    output: &AssistantOutput,
-) -> Result<Value, EncodeError> {
+fn encode_assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<Value, EncodeError> {
     if let Some(replay) = output.replay() {
-        let expected = profile.replay_compatibility();
+        let expected = model.replay_compatibility();
         if replay.compatible_with() != &expected {
             return Err(EncodeError::IncompatibleReplay {
                 found: Box::new(replay.compatible_with().clone()),

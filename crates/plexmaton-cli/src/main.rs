@@ -16,7 +16,7 @@ use crossterm::{
 use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
-use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
+use plexmaton_provider::{ModelRegistry, resolve_api_key, resolve_home};
 use plexmaton_runtime::{
     CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
     RuntimeUpdate, SessionRecovery,
@@ -107,9 +107,9 @@ async fn live_runtime_from_process(
     let path = root.join("config.toml");
     let source = fs::read_to_string(&path)
         .with_context(|| format!("read provider configuration at {}", path.display()))?;
-    let config = ProviderConfig::parse(&source).context("parse provider configuration")?;
-    let profile = config.active().clone();
-    let key = resolve_api_key(&profile, std::env::var_os(profile.api_key_env()))
+    let config = ModelRegistry::parse(&source).context("parse model configuration")?;
+    let model = config.active_model().clone();
+    let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
     let workspace_root = std::env::current_dir()
         .context("resolve tool workspace")?
@@ -122,14 +122,14 @@ async fn live_runtime_from_process(
         .context("canonicalize Plexmaton search driver")?;
     let tools = NativeToolCatalog::open(
         &workspace_root,
-        profile.api_key_env(),
+        model.api_key_env(),
         ripgrep,
         driver,
         vec![OsString::from(INTERNAL_RG_DRIVER)],
     )
     .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let opened = open_selected_session(&root, selection, agent_id, profile, key, tools).await?;
+    let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
     Ok((opened, workspace_root))
 }
 
@@ -1067,43 +1067,42 @@ mod tests {
 
         use plexmaton_agent::Input;
         use plexmaton_core::AgentId;
-        use plexmaton_provider::{ProviderConfig, resolve_api_key};
+        use plexmaton_provider::{ModelRegistry, resolve_api_key};
         use plexmaton_runtime::{LiveRuntime, NativeToolCatalog};
 
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
-        let config = ProviderConfig::parse(
-            r#"active_provider = "test"
+        let config = ModelRegistry::parse(
+            r#"active_model = { provider = "test", model = "fixture" }
 
 [providers.test]
-kind = "openai_compatible"
-protocol = "responses"
 base_url = "http://127.0.0.1:9/v1"
-model = "fixture"
 api_key_env = "TEST_KEY"
+[providers.test.models.fixture]
+api = "openai_responses"
+id = "fixture"
 reasoning_effort = "none"
+context_window_tokens = 100000
+max_output_tokens = 10000
+output_reserve_tokens = 5000
 "#,
         )
         .unwrap_or_else(|error| panic!("test config: {error}"));
-        let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
+        let model = config.active_model();
+        let key = resolve_api_key(model, Some(OsString::from("fixture-only")))
             .unwrap_or_else(|error| panic!("test key: {error}"));
         let workspace =
             std::env::current_dir().unwrap_or_else(|error| panic!("test workspace: {error}"));
         let tools = NativeToolCatalog::open(
             &workspace,
-            config.active().api_key_env(),
+            model.api_key_env(),
             "/bin/false",
             "/bin/false",
             Vec::new(),
         )
         .unwrap_or_else(|error| panic!("test native tools: {error}"));
-        let mut runtime = LiveRuntime::openai(
-            agent_id.clone(),
-            "Agent A",
-            config.active().clone(),
-            key,
-            tools,
-        )
-        .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let mut runtime =
+            LiveRuntime::openai(agent_id.clone(), "Agent A", model.clone(), key, tools)
+                .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
         dispatch_live(
             &mut runtime,
@@ -1228,7 +1227,7 @@ reasoning_effort = "none"
 
         use plexmaton_agent::Input;
         use plexmaton_core::AgentId;
-        use plexmaton_provider::{ProviderConfig, resolve_api_key};
+        use plexmaton_provider::{ModelRegistry, resolve_api_key};
         use plexmaton_runtime::{LiveRuntime, NativeToolCatalog};
 
         let fixture = FixtureWorkspace::new();
@@ -1238,24 +1237,28 @@ reasoning_effort = "none"
             include_str!("../../plexmaton-provider/tests/fixtures/chat_tool_call.sse"),
             include_str!("../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"),
         ]);
-        let config = ProviderConfig::parse(&format!(
-            r#"active_provider = "test"
+        let config = ModelRegistry::parse(&format!(
+            r#"active_model = {{ provider = "test", model = "fixture" }}
 
 [providers.test]
-kind = "openai_compatible"
-protocol = "chat_completions"
 base_url = "{base_url}"
-model = "fixture"
 api_key_env = "TEST_KEY"
+[providers.test.models.fixture]
+api = "openai_chat_completions"
+id = "fixture"
 reasoning_effort = "none"
+context_window_tokens = 100000
+max_output_tokens = 10000
+output_reserve_tokens = 5000
 "#
         ))
         .unwrap_or_else(|error| panic!("test config: {error}"));
-        let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
+        let model = config.active_model();
+        let key = resolve_api_key(model, Some(OsString::from("fixture-only")))
             .unwrap_or_else(|error| panic!("test key: {error}"));
         let tools = NativeToolCatalog::open(
             fixture.path(),
-            config.active().api_key_env(),
+            model.api_key_env(),
             "/bin/false",
             "/bin/false",
             Vec::new(),
@@ -1263,14 +1266,9 @@ reasoning_effort = "none"
         .unwrap_or_else(|error| panic!("test native tools: {error}"));
         let agent_id =
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture agent: {error}"));
-        let mut runtime = LiveRuntime::openai(
-            agent_id.clone(),
-            "Agent A",
-            config.active().clone(),
-            key,
-            tools,
-        )
-        .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let mut runtime =
+            LiveRuntime::openai(agent_id.clone(), "Agent A", model.clone(), key, tools)
+                .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
         let mut terminal = Terminal::new(TestBackend::new(120, 40))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));

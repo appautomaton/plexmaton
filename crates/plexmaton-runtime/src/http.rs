@@ -1,11 +1,11 @@
-//! Pooled OpenAI-compatible HTTP transport for one selected provider profile.
+//! Pooled OpenAI-compatible HTTP transport for one resolved model.
 
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
 use plexmaton_agent::{ModelCall, ModelError, ModelEvent};
 use plexmaton_provider::{
-    ApiKey, DecodeLimits, FunctionTool, Protocol, ProviderProfile, SseDecodeError,
+    ApiKey, DecodeLimits, FunctionTool, ModelApi, ResolvedModel, SseDecodeError,
     classify_http_error, drive_sse, encode_request,
 };
 use reqwest::{Client, Url, header};
@@ -37,18 +37,18 @@ pub enum HttpSetupError {
 pub(crate) struct OpenAiHttp {
     client: Client,
     endpoint: Url,
-    profile: ProviderProfile,
+    model: ResolvedModel,
     key: Arc<ApiKey>,
     tools: Arc<[FunctionTool]>,
 }
 
 impl OpenAiHttp {
     pub(crate) fn new(
-        profile: ProviderProfile,
+        model: ResolvedModel,
         key: ApiKey,
         tools: Arc<[FunctionTool]>,
     ) -> Result<Self, HttpSetupError> {
-        let endpoint = endpoint(&profile)?;
+        let endpoint = endpoint(&model)?;
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
@@ -57,14 +57,19 @@ impl OpenAiHttp {
         Ok(Self {
             client,
             endpoint,
-            profile,
+            model,
             key: Arc::new(key),
             tools,
         })
     }
 
     async fn perform(&self, call: ModelCall, signals: mpsc::Sender<ModelSignal>) {
-        let body = match encode_request(&self.profile, &call.request, &self.tools, None) {
+        let body = match encode_request(
+            &self.model,
+            &call.request,
+            &self.tools,
+            Some(self.model.max_output_tokens()),
+        ) {
             Ok(body) => body,
             Err(error) => {
                 send_failure(
@@ -117,10 +122,10 @@ impl OpenAiHttp {
             return;
         }
 
-        let limits = DecodeLimits::for_profile(&self.profile);
+        let limits = DecodeLimits::production();
         let step_id = call.step_id;
         let stream = response.bytes_stream();
-        let decoded = drive_sse(&self.profile, stream, limits, |event| {
+        let decoded = drive_sse(&self.model, stream, limits, |event| {
             let signals = signals.clone();
             let step_id = step_id.clone();
             async move {
@@ -149,7 +154,7 @@ impl ModelDriver for OpenAiHttp {
         let this = Self {
             client: self.client.clone(),
             endpoint: self.endpoint.clone(),
-            profile: self.profile.clone(),
+            model: self.model.clone(),
             key: Arc::clone(&self.key),
             tools: Arc::clone(&self.tools),
         };
@@ -163,8 +168,8 @@ impl ModelDriver for OpenAiHttp {
     }
 }
 
-fn endpoint(profile: &ProviderProfile) -> Result<Url, HttpSetupError> {
-    let mut base = Url::parse(profile.base_url())
+fn endpoint(model: &ResolvedModel) -> Result<Url, HttpSetupError> {
+    let mut base = Url::parse(model.base_url())
         .map_err(|error| HttpSetupError::InvalidBaseUrl(error.to_string()))?;
     if !matches!(base.scheme(), "http" | "https") {
         return Err(HttpSetupError::UnsupportedScheme(base.scheme().to_owned()));
@@ -181,9 +186,9 @@ fn endpoint(profile: &ProviderProfile) -> Result<Url, HttpSetupError> {
         path.push('/');
         base.set_path(&path);
     }
-    let resource = match profile.protocol() {
-        Protocol::Responses => "responses",
-        Protocol::ChatCompletions => "chat/completions",
+    let resource = match model.api() {
+        ModelApi::OpenaiResponses => "responses",
+        ModelApi::OpenaiChatCompletions => "chat/completions",
     };
     base.join(resource)
         .map_err(|_| HttpSetupError::InvalidEndpoint)
@@ -233,30 +238,35 @@ mod tests {
 
     use plexmaton_agent::ModelRequest;
     use plexmaton_core::AgentId;
-    use plexmaton_provider::{Protocol, ProviderConfig, encode_request, resolve_api_key};
+    use plexmaton_provider::{
+        ModelApi, ModelRegistry, ResolvedModel, encode_request, resolve_api_key,
+    };
 
     use super::{HttpSetupError, OpenAiHttp, endpoint};
     use crate::{LiveRuntime, NativeToolCatalog};
 
-    fn profile(base_url: &str, protocol: Protocol) -> plexmaton_provider::ProviderProfile {
-        let protocol = match protocol {
-            Protocol::Responses => "responses",
-            Protocol::ChatCompletions => "chat_completions",
+    fn model(base_url: &str, api: ModelApi) -> ResolvedModel {
+        let api = match api {
+            ModelApi::OpenaiResponses => "openai_responses",
+            ModelApi::OpenaiChatCompletions => "openai_chat_completions",
         };
-        ProviderConfig::parse(&format!(
+        ModelRegistry::parse(&format!(
             r#"
-active_provider = "test"
+active_model = {{ provider = "test", model = "luna" }}
 [providers.test]
-kind = "openai_compatible"
-protocol = "{protocol}"
 base_url = "{base_url}"
-model = "gpt-5.6-luna"
 api_key_env = "TEST_KEY"
+[providers.test.models.luna]
+api = "{api}"
+id = "gpt-5.6-luna"
 reasoning_effort = "low"
+context_window_tokens = 272000
+max_output_tokens = 128000
+output_reserve_tokens = 16384
 "#
         ))
         .unwrap_or_else(|error| panic!("fixture profile: {error}"))
-        .active()
+        .active_model()
         .clone()
     }
 
@@ -264,29 +274,32 @@ reasoning_effort = "low"
     #[test]
     fn endpoint_resolution_is_protocol_specific_and_rejects_embedded_authority() {
         assert_eq!(
-            endpoint(&profile("http://127.0.0.1:8317/v1", Protocol::Responses))
-                .expect("responses endpoint")
-                .as_str(),
+            endpoint(&model(
+                "http://127.0.0.1:8317/v1",
+                ModelApi::OpenaiResponses
+            ))
+            .expect("responses endpoint")
+            .as_str(),
             "http://127.0.0.1:8317/v1/responses"
         );
         assert_eq!(
-            endpoint(&profile(
+            endpoint(&model(
                 "http://127.0.0.1:8317/v1/",
-                Protocol::ChatCompletions
+                ModelApi::OpenaiChatCompletions
             ))
             .expect("chat endpoint")
             .as_str(),
             "http://127.0.0.1:8317/v1/chat/completions"
         );
         assert!(matches!(
-            endpoint(&profile(
+            endpoint(&model(
                 "http://name:password@127.0.0.1:8317/v1",
-                Protocol::Responses
+                ModelApi::OpenaiResponses
             )),
             Err(HttpSetupError::UnsafeBaseUrl)
         ));
         assert!(matches!(
-            endpoint(&profile("ftp://example.test/v1", Protocol::Responses)),
+            endpoint(&model("ftp://example.test/v1", ModelApi::OpenaiResponses)),
             Err(HttpSetupError::UnsupportedScheme(scheme)) if scheme == "ftp"
         ));
     }
@@ -309,15 +322,20 @@ reasoning_effort = "low"
         let request = ModelRequest { atoms: Vec::new() };
         let mut bodies = Vec::new();
 
-        for protocol in [Protocol::Responses, Protocol::ChatCompletions] {
-            let profile = profile("http://127.0.0.1:8317/v1", protocol);
-            let key = resolve_api_key(&profile, Some("fixture-secret".into()))
+        for api in [ModelApi::OpenaiResponses, ModelApi::OpenaiChatCompletions] {
+            let model = model("http://127.0.0.1:8317/v1", api);
+            let key = resolve_api_key(&model, Some("fixture-secret".into()))
                 .unwrap_or_else(|error| panic!("resolve fixture key: {error}"));
-            let http = OpenAiHttp::new(profile, key, definitions.clone())
+            let http = OpenAiHttp::new(model, key, definitions.clone())
                 .unwrap_or_else(|error| panic!("open HTTP edge: {error}"));
             bodies.push(
-                encode_request(&http.profile, &request, &http.tools, None)
-                    .unwrap_or_else(|error| panic!("encode native catalog: {error}")),
+                encode_request(
+                    &http.model,
+                    &request,
+                    &http.tools,
+                    Some(http.model.max_output_tokens()),
+                )
+                .unwrap_or_else(|error| panic!("encode native catalog: {error}")),
             );
         }
 
@@ -369,11 +387,13 @@ reasoning_effort = "low"
         }
         assert_eq!(bodies[0]["tool_choice"], "auto");
         assert_eq!(bodies[1]["tool_choice"], "auto");
+        assert_eq!(bodies[0]["max_output_tokens"], 128_000);
+        assert_eq!(bodies[1]["max_completion_tokens"], 128_000);
     }
 
     /// LIVE-6: the runtime cannot combine one provider with another credential environment.
     #[test]
-    fn catalog_key_identity_must_match_profile() {
+    fn catalog_key_identity_must_match_resolved_model() {
         let workspace = std::env::current_dir()
             .unwrap_or_else(|error| panic!("resolve test workspace: {error}"));
         let catalog = NativeToolCatalog::open(
@@ -384,14 +404,14 @@ reasoning_effort = "low"
             Vec::new(),
         )
         .unwrap_or_else(|error| panic!("open mismatched catalog: {error}"));
-        let profile = profile("http://127.0.0.1:8317/v1", Protocol::Responses);
-        let key = resolve_api_key(&profile, Some("fixture-secret".into()))
+        let model = model("http://127.0.0.1:8317/v1", ModelApi::OpenaiResponses);
+        let key = resolve_api_key(&model, Some("fixture-secret".into()))
             .unwrap_or_else(|error| panic!("resolve fixture key: {error}"));
         let agent = AgentId::new("catalog-key-fixture")
             .unwrap_or_else(|error| panic!("fixture agent id: {error}"));
 
         assert!(matches!(
-            LiveRuntime::openai(agent, "fixture", profile, key, catalog),
+            LiveRuntime::openai(agent, "fixture", model, key, catalog),
             Err(crate::RuntimeError::HttpSetup(
                 HttpSetupError::ToolCredentialEnvironmentMismatch
             ))

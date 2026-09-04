@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context as _;
 use plexmaton_agent::UnixMillis;
 use plexmaton_core::{AgentId, SessionId};
-use plexmaton_provider::{ApiKey, ProviderProfile};
+use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_runtime::{JournalTailRecovery, LiveRuntime, NativeToolCatalog, SessionRecovery};
 use plexmaton_session_store::{JournalFile, SessionDirectory};
 use plexmaton_tui::{SessionRecoveryNotice, TailRecoveryNotice};
@@ -64,7 +64,7 @@ pub(super) async fn open_selected_session(
     root: &Path,
     selection: SessionSelection,
     agent_id: AgentId,
-    profile: ProviderProfile,
+    model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
 ) -> anyhow::Result<OpenedSession> {
@@ -74,10 +74,10 @@ pub(super) async fn open_selected_session(
             let (session_id, journal) = sessions
                 .create_automatic(created_at_now()?)
                 .context("create automatic session")?;
-            open_fresh_session(agent_id, profile, key, tools, session_id, journal).await?
+            open_fresh_session(agent_id, model, key, tools, session_id, journal).await?
         }
         SessionSelection::Ephemeral => OpenedSession {
-            runtime: LiveRuntime::openai(agent_id, "Plexmaton", profile, key, tools)
+            runtime: LiveRuntime::openai(agent_id, "Plexmaton", model, key, tools)
                 .context("configure live provider transport")?,
             recovery: SessionRecovery::default(),
             persisted: None,
@@ -87,7 +87,7 @@ pub(super) async fn open_selected_session(
                 .context("open sessions directory")?
                 .create(session_id.clone(), created_at_now()?)
                 .context("create session")?;
-            open_fresh_session(agent_id, profile, key, tools, session_id, journal).await?
+            open_fresh_session(agent_id, model, key, tools, session_id, journal).await?
         }
         SessionSelection::Resume(session_id) => {
             let journal = SessionDirectory::under(root)
@@ -96,7 +96,7 @@ pub(super) async fn open_selected_session(
                 .context("resume session")?;
             let path = journal.path().to_path_buf();
             let (runtime, recovery) =
-                LiveRuntime::openai_with_resumed_journal(agent_id, profile, key, tools, journal)
+                LiveRuntime::openai_with_resumed_journal(agent_id, model, key, tools, journal)
                     .await
                     .context("resume durable runtime")?;
             OpenedSession {
@@ -122,7 +122,7 @@ fn created_at_now() -> anyhow::Result<UnixMillis> {
 
 async fn open_fresh_session(
     agent_id: AgentId,
-    profile: ProviderProfile,
+    model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
     session_id: SessionId,
@@ -132,7 +132,7 @@ async fn open_fresh_session(
     let runtime = match LiveRuntime::openai_with_fresh_journal(
         agent_id,
         "Plexmaton",
-        profile,
+        model,
         key,
         tools,
         journal,
@@ -176,7 +176,7 @@ mod tests {
 
     use plexmaton_agent::{Agent, ApprovalPolicy, Input, SessionMetadata, TurnBudget, UnixMillis};
     use plexmaton_core::{AgentId, AgentStatus, HeadName, SessionId, TranscriptRole};
-    use plexmaton_provider::{ApiKey, ProviderConfig, ProviderProfile, resolve_api_key};
+    use plexmaton_provider::{ApiKey, ModelRegistry, ResolvedModel, resolve_api_key};
     use plexmaton_runtime::{JournalTailRecovery, NativeToolCatalog, RuntimeUpdate};
     use plexmaton_session_store::{JournalFile, SessionDirectory};
     use plexmaton_tui::{NoticeView, ViewState, Workspace};
@@ -199,31 +199,35 @@ mod tests {
     fn transport(
         root: &std::path::Path,
         base_url: &str,
-    ) -> (ProviderProfile, ApiKey, NativeToolCatalog) {
-        let config = ProviderConfig::parse(&format!(
-            r#"active_provider = "test"
+    ) -> (ResolvedModel, ApiKey, NativeToolCatalog) {
+        let config = ModelRegistry::parse(&format!(
+            r#"active_model = {{ provider = "test", model = "fixture" }}
 
 [providers.test]
-kind = "openai_compatible"
-protocol = "chat_completions"
 base_url = "{base_url}"
-model = "fixture"
 api_key_env = "TEST_KEY"
+[providers.test.models.fixture]
+api = "openai_chat_completions"
+id = "fixture"
 reasoning_effort = "none"
+context_window_tokens = 100000
+max_output_tokens = 10000
+output_reserve_tokens = 5000
 "#
         ))
         .unwrap_or_else(|error| panic!("test config: {error}"));
-        let key = resolve_api_key(config.active(), Some(OsString::from("fixture-only")))
+        let model = config.active_model();
+        let key = resolve_api_key(model, Some(OsString::from("fixture-only")))
             .unwrap_or_else(|error| panic!("test key: {error}"));
         let tools = NativeToolCatalog::open(
             root,
-            config.active().api_key_env(),
+            model.api_key_env(),
             "/bin/false",
             "/bin/false",
             Vec::new(),
         )
         .unwrap_or_else(|error| panic!("test tools: {error}"));
-        (config.active().clone(), key, tools)
+        (model.clone(), key, tools)
     }
 
     async fn project_until_idle(runtime: &mut plexmaton_runtime::LiveRuntime) -> ViewState {

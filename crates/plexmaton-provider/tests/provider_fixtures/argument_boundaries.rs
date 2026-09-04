@@ -1,5 +1,5 @@
 use plexmaton_agent::{MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES};
-use plexmaton_provider::{DecodeError, DecodeLimits, OpenAiCodec, Protocol};
+use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, OpenAiCodec};
 use serde_json::json;
 
 use super::support::profile;
@@ -8,17 +8,17 @@ use super::support::profile;
 #[test]
 fn prv_2_production_tool_argument_limit_remains_64_kibibytes() {
     assert_eq!(MAX_REQUESTED_TOOL_ARGUMENT_BYTES, 64 * 1024);
-    for protocol in [Protocol::ChatCompletions, Protocol::Responses] {
-        let profile = profile(protocol);
-        let limits = DecodeLimits::for_profile(&profile);
+    for api in [ModelApi::OpenaiChatCompletions, ModelApi::OpenaiResponses] {
+        let profile = profile(api);
+        let limits = DecodeLimits::production();
         assert_eq!(
             limits.max_tool_argument_bytes,
             MAX_REQUESTED_TOOL_ARGUMENT_BYTES
         );
         let mut codec = OpenAiCodec::new(&profile, limits);
-        match protocol {
-            Protocol::ChatCompletions => check_chat(&mut codec),
-            Protocol::Responses => check_responses(&mut codec),
+        match api {
+            ModelApi::OpenaiChatCompletions => check_chat(&mut codec),
+            ModelApi::OpenaiResponses => check_responses(&mut codec),
         }
     }
 }
@@ -92,8 +92,8 @@ fn assert_too_large(result: Result<Vec<plexmaton_agent::ModelEvent>, DecodeError
 #[test]
 fn prv_2_both_protocols_bound_tool_identity_before_emission() {
     let oversized = "x".repeat(MAX_TOOL_IDENTITY_BYTES + 1);
-    let chat_profile = profile(Protocol::ChatCompletions);
-    let mut chat = OpenAiCodec::new(&chat_profile, DecodeLimits::for_profile(&chat_profile));
+    let chat_profile = profile(ModelApi::OpenaiChatCompletions);
+    let mut chat = OpenAiCodec::new(&chat_profile, DecodeLimits::production());
     let chat_event = json!({
         "choices": [{
             "index": 0,
@@ -115,11 +115,8 @@ fn prv_2_both_protocols_bound_tool_identity_before_emission() {
         })
     ));
 
-    let responses_profile = profile(Protocol::Responses);
-    let mut responses = OpenAiCodec::new(
-        &responses_profile,
-        DecodeLimits::for_profile(&responses_profile),
-    );
+    let responses_profile = profile(ModelApi::OpenaiResponses);
+    let mut responses = OpenAiCodec::new(&responses_profile, DecodeLimits::production());
     let responses_event = json!({
         "type": "response.output_item.added",
         "output_index": 0,

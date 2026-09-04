@@ -6,27 +6,22 @@ use plexmaton_agent::{
 };
 use plexmaton_core::{AgentId, TokenUsage, ToolCapability, ToolDefinitionId};
 use plexmaton_provider::{
-    DecodeLimits, FunctionTool, Protocol, ProviderConfig, ProviderProfile, drive_sse,
+    DecodeLimits, FunctionTool, ModelApi, ModelRegistry, ResolvedModel, drive_sse,
 };
 use serde_json::json;
 
 pub async fn decode_fixture(
-    profile: &ProviderProfile,
+    profile: &ResolvedModel,
     fixture: &str,
     chunk_sizes: &[usize],
 ) -> Vec<ModelEvent> {
     let chunks = chunks(fixture.as_bytes(), chunk_sizes);
     let source = stream::iter(chunks.into_iter().map(Ok::<_, Infallible>));
     let mut events = Vec::new();
-    drive_sse(
-        profile,
-        source,
-        DecodeLimits::for_profile(profile),
-        |event| {
-            events.push(event);
-            std::future::ready(())
-        },
-    )
+    drive_sse(profile, source, DecodeLimits::production(), |event| {
+        events.push(event);
+        std::future::ready(())
+    })
     .await
     .unwrap_or_else(|error| panic!("fixture should decode: {error}"));
     events
@@ -206,32 +201,36 @@ pub fn read_tool() -> FunctionTool {
     .unwrap_or_else(|error| panic!("fixture tool should be valid: {error}"))
 }
 
-pub fn profile(protocol: Protocol) -> ProviderProfile {
-    let protocol = match protocol {
-        Protocol::Responses => "responses",
-        Protocol::ChatCompletions => "chat_completions",
+pub fn profile(api: ModelApi) -> ResolvedModel {
+    let api = match api {
+        ModelApi::OpenaiResponses => "openai_responses",
+        ModelApi::OpenaiChatCompletions => "openai_chat_completions",
     };
-    let effort = if protocol == "responses" {
+    let effort = if api == "openai_responses" {
         "xhigh"
     } else {
         "high"
     };
     let source = format!(
         r#"
-active_provider = "local_luna"
+active_model = {{ provider = "local", model = "luna" }}
 
-[providers.local_luna]
-kind = "openai_compatible"
-protocol = "{protocol}"
+[providers.local]
 base_url = "http://127.0.0.1:8317/v1"
-model = "gpt-5.6-luna"
 api_key_env = "PLEXMATON_LOCAL_API_KEY"
+
+[providers.local.models.luna]
+api = "{api}"
+id = "gpt-5.6-luna"
 reasoning_effort = "{effort}"
+context_window_tokens = 272000
+max_output_tokens = 128000
+output_reserve_tokens = 16384
 "#
     );
-    ProviderConfig::parse(&source)
+    ModelRegistry::parse(&source)
         .unwrap_or_else(|error| panic!("fixture profile should parse: {error}"))
-        .active()
+        .active_model()
         .clone()
 }
 

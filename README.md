@@ -1,18 +1,13 @@
 # Plexmaton
 
-Plexmaton is an early-stage Rust agentic harness with a Ratatui workspace for steering and
-observing agents.
-
-The executable runs one real agent through an explicitly selected OpenAI-compatible Responses or
-Chat Completions endpoint. It advertises native tools to read, search, create, and edit files and
-run a foreground command.
+Plexmaton is an early-stage Rust agentic harness with a Ratatui workspace, OpenAI-compatible
+Responses and Chat Completions, and native file/search/edit/command tools.
 
 ## Workspace
 
-- `plexmaton-core` / `plexmaton-agent`: semantic contracts and the provider-independent loop
-- `plexmaton-provider` / `plexmaton-runtime`: wire codecs and owned live work
-- `plexmaton-file-tools` / `plexmaton-command`: bounded native effects
-- `plexmaton-sim` / `plexmaton-tui` / `plexmaton-cli`: fixtures, projection, and composition root
+Semantic contracts and the provider-independent loop live in `core`/`agent`; wire codecs and live
+work in `provider`/`runtime`; bounded effects in `file-tools`/`command`; fixtures, projection and
+composition in `sim`/`tui`/`cli` (all prefixed `plexmaton-`).
 
 ## Development
 
@@ -21,19 +16,35 @@ The normal configuration root is `~/.plexmaton/`; repositories are never searche
 
 ```toml
 # ~/.plexmaton/config.toml
-active_provider = "local_luna"
+active_model = { provider = "local", model = "luna" }
 
-[providers.local_luna]
-kind = "openai_compatible"
-protocol = "responses"
+[providers.local]
 base_url = "http://127.0.0.1:8317/v1"
-model = "gpt-5.6-luna"
 api_key_env = "PLEXMATON_LOCAL_API_KEY"
-reasoning_effort = "medium"
+api = "openai_responses"
+
+[providers.local.models.luna]
+id = "gpt-5.6-luna"
+display_name = "Luna"
+reasoning_effort = "xhigh"
+context_window_tokens = 272000
+max_output_tokens = 128000
+output_reserve_tokens = 16384
+
+[providers.local.models.sol]
+id = "gpt-5.6-sol"
+display_name = "Sol"
+api = "openai_chat_completions"
+reasoning_effort = "high"
+context_window_tokens = 272000
+max_output_tokens = 128000
+output_reserve_tokens = 32768
+cost = { input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }
 ```
 
-For isolated development, set `PLEXMATON_HOME` to a directory containing `config.toml`. Invalid
-startup inputs fail before Plexmaton takes over the terminal.
+A route can own several models; a model may override `api`. `token_estimator` and `[...cost]` are
+optional: an omitted estimator resolves to a versioned default; omitted pricing is unavailable.
+For isolated development, point `PLEXMATON_HOME` at a directory containing `config.toml`.
 
 The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
 symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or
@@ -66,7 +77,7 @@ mouse drag copies on release; holding it at a conversation edge scrolls the sele
 off-screen entries, while terminal focus loss pauses without discarding it. A single click on a
 foldable tool row selects and toggles the same detail.
 
-Supply chain and prose, which depend on the resolved graph rather than on a single edit:
+Supply-chain and corpus gates:
 
 ```console
 cargo deny check

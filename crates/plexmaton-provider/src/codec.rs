@@ -1,16 +1,17 @@
 //! Shared OpenAI-compatible codec seam and its bounded vocabulary.
 
 use plexmaton_agent::{
-    AdmissionRefusal, MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
-    MAX_TOOL_IDENTITY_BYTES, ModelError, ModelEvent, ModelOutputPosition, ModelRequest,
-    ProviderReplayError, ReplayCompatibility, ToolCancellationReason, ToolOutcome,
+    AdmissionRefusal, MAX_ASSISTANT_TEXT_BYTES, MAX_PROVIDER_REPLAY_BYTES,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES, ModelError, ModelEvent,
+    ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility,
+    ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    Protocol, ProviderProfile,
+    ModelApi, ResolvedModel,
     chat::{self, ChatDecoder},
     responses::{self, ResponsesDecoder},
 };
@@ -39,11 +40,11 @@ pub struct DecodeLimits {
 }
 
 impl DecodeLimits {
-    /// Builds the production limits for a validated provider profile.
+    /// Builds the fixed production bounds for one provider response.
     #[must_use]
-    pub const fn for_profile(profile: &ProviderProfile) -> Self {
+    pub const fn production() -> Self {
         Self {
-            max_retained_output_bytes: profile.max_retained_output_bytes(),
+            max_retained_output_bytes: MAX_ASSISTANT_TEXT_BYTES,
             max_sse_event_bytes: 512 * 1024,
             max_tool_argument_bytes: MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
             max_tool_identity_bytes: MAX_TOOL_IDENTITY_BYTES,
@@ -207,13 +208,12 @@ enum Decoder {
 impl OpenAiCodec {
     /// Opens a fresh step decoder for one explicit protocol.
     #[must_use]
-    pub fn new(profile: &ProviderProfile, limits: DecodeLimits) -> Self {
-        let decoder = match profile.protocol() {
-            Protocol::Responses => Decoder::Responses(ResponsesDecoder::new(
-                limits,
-                profile.replay_compatibility(),
-            )),
-            Protocol::ChatCompletions => Decoder::Chat(ChatDecoder::new(limits)),
+    pub fn new(model: &ResolvedModel, limits: DecodeLimits) -> Self {
+        let decoder = match model.api() {
+            ModelApi::OpenaiResponses => {
+                Decoder::Responses(ResponsesDecoder::new(limits, model.replay_compatibility()))
+            }
+            ModelApi::OpenaiChatCompletions => Decoder::Chat(ChatDecoder::new(limits)),
         };
         Self { decoder }
     }
@@ -252,16 +252,16 @@ pub(crate) fn output_position(
     Ok(ModelOutputPosition::new(item, part))
 }
 
-/// Rebuilds one stateless request from the semantic record for the selected profile.
+/// Rebuilds one stateless request from the semantic record for the resolved model.
 pub fn encode_request(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     request: &ModelRequest,
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
-    match profile.protocol() {
-        Protocol::Responses => responses::encode(profile, request, tools, max_output_tokens),
-        Protocol::ChatCompletions => chat::encode(profile, request, tools, max_output_tokens),
+    match model.api() {
+        ModelApi::OpenaiResponses => responses::encode(model, request, tools, max_output_tokens),
+        ModelApi::OpenaiChatCompletions => chat::encode(model, request, tools, max_output_tokens),
     }
 }
 

@@ -6,17 +6,17 @@ use plexmaton_agent::{
 use serde_json::{Value, json};
 
 use crate::{
-    FunctionTool, ProviderProfile,
+    FunctionTool, ResolvedModel,
     codec::{EncodeError, RESPONSES_CODEC_ID, tool_output},
 };
 
 pub(crate) fn encode(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     request: &ModelRequest,
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
-    let input = encode_input(profile, request)?;
+    let input = encode_input(model, request)?;
     let tools: Vec<_> = tools
         .iter()
         .map(|tool| {
@@ -30,12 +30,12 @@ pub(crate) fn encode(
         })
         .collect();
     let mut body = json!({
-        "model": profile.model(),
+        "model": model.wire_id(),
         "input": input,
         "stream": true,
         "store": false,
         "include": ["reasoning.encrypted_content"],
-        "reasoning": { "effort": profile.reasoning_effort().as_str() },
+        "reasoning": { "effort": model.reasoning_effort().as_str() },
         "parallel_tool_calls": true,
     });
     if !tools.is_empty() {
@@ -48,10 +48,7 @@ pub(crate) fn encode(
     Ok(body)
 }
 
-fn encode_input(
-    profile: &ProviderProfile,
-    request: &ModelRequest,
-) -> Result<Vec<Value>, EncodeError> {
+fn encode_input(model: &ResolvedModel, request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
     let mut input = Vec::new();
     for atom in &request.atoms {
         match atom.value() {
@@ -59,10 +56,10 @@ fn encode_input(
                 input.push(json!({ "role": "user", "content": text }));
             }
             ContextAtomValue::Assistant(output) => {
-                encode_assistant(profile, output, &mut input)?;
+                encode_assistant(model, output, &mut input)?;
             }
             ContextAtomValue::ToolBatch(batch) => {
-                encode_assistant(profile, batch.assistant(), &mut input)?;
+                encode_assistant(model, batch.assistant(), &mut input)?;
                 input.extend(batch.results().iter().map(|result| {
                     json!({
                         "type": "function_call_output",
@@ -77,14 +74,14 @@ fn encode_input(
 }
 
 fn encode_assistant(
-    profile: &ProviderProfile,
+    model: &ResolvedModel,
     output: &AssistantOutput,
     input: &mut Vec<Value>,
 ) -> Result<(), EncodeError> {
     let mut attachments = output
         .replay()
         .map(|replay| {
-            let expected = profile.replay_compatibility();
+            let expected = model.replay_compatibility();
             debug_assert_eq!(expected.codec().as_str(), RESPONSES_CODEC_ID);
             if replay.compatible_with() != &expected {
                 return Err(EncodeError::IncompatibleReplay {

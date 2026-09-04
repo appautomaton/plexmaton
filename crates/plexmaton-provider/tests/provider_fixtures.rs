@@ -9,7 +9,7 @@ use plexmaton_agent::{
 };
 use plexmaton_core::{SessionEntryId, TokenUsage, ToolCallId, TranscriptItemId};
 use plexmaton_provider::{
-    DecodeLimits, OpenAiCodec, Protocol, SseDecodeError, drive_sse, encode_request,
+    DecodeLimits, ModelApi, OpenAiCodec, SseDecodeError, drive_sse, encode_request,
 };
 use serde_json::Value;
 
@@ -31,7 +31,7 @@ const RESPONSES_FINAL_ANSWER: &str = include_str!("fixtures/responses_final_answ
 
 #[tokio::test]
 async fn prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip() {
-    let profile = profile(Protocol::ChatCompletions);
+    let profile = profile(ModelApi::OpenaiChatCompletions);
     let (mut agent, initial_request) = open_agent("What is this project called?");
     let initial_encoded = encode_request(&profile, &initial_request, &[read_tool()], None)
         .unwrap_or_else(|error| panic!("initial Chat request should encode: {error}"));
@@ -93,7 +93,7 @@ async fn prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip() {
 
 #[tokio::test]
 async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools() {
-    let profile = profile(Protocol::Responses);
+    let profile = profile(ModelApi::OpenaiResponses);
     let (mut agent, initial_request) = open_agent("What is this project called?");
     let initial_encoded = encode_request(&profile, &initial_request, &[read_tool()], None)
         .unwrap_or_else(|error| panic!("initial Responses request should encode: {error}"));
@@ -193,7 +193,7 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
 
 #[test]
 fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
-    let chat = profile(Protocol::ChatCompletions);
+    let chat = profile(ModelApi::OpenaiChatCompletions);
     let replay = ProviderReplay::new(
         chat.replay_compatibility(),
         r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#.to_owned(),
@@ -235,7 +235,7 @@ fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
         ],
     };
     assert!(matches!(
-        encode_request(&profile(Protocol::Responses), &request, &[], None),
+        encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None),
         Err(plexmaton_provider::EncodeError::PlainReasoningInResponses)
     ));
 }
@@ -289,14 +289,19 @@ fn prv_1_both_protocols_preserve_parallel_call_and_result_order() {
         ],
     };
 
-    let chat = encode_request(&profile(Protocol::ChatCompletions), &request, &[], None)
-        .unwrap_or_else(|error| panic!("ordered Chat batch should encode: {error}"));
+    let chat = encode_request(
+        &profile(ModelApi::OpenaiChatCompletions),
+        &request,
+        &[],
+        None,
+    )
+    .unwrap_or_else(|error| panic!("ordered Chat batch should encode: {error}"));
     assert_eq!(chat["messages"][0]["tool_calls"][0]["id"], "call_first");
     assert_eq!(chat["messages"][0]["tool_calls"][1]["id"], "call_second");
     assert_eq!(chat["messages"][1]["tool_call_id"], "call_first");
     assert_eq!(chat["messages"][2]["tool_call_id"], "call_second");
 
-    let responses = encode_request(&profile(Protocol::Responses), &request, &[], None)
+    let responses = encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None)
         .unwrap_or_else(|error| panic!("ordered Responses batch should encode: {error}"));
     assert_eq!(responses["input"][1]["call_id"], "call_first");
     assert_eq!(responses["input"][2]["call_id"], "call_second");
@@ -343,10 +348,15 @@ fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
     };
 
     assert!(matches!(
-        encode_request(&profile(Protocol::ChatCompletions), &request, &[], None),
+        encode_request(
+            &profile(ModelApi::OpenaiChatCompletions),
+            &request,
+            &[],
+            None,
+        ),
         Err(plexmaton_provider::EncodeError::UnrepresentableChatOrder)
     ));
-    let responses = encode_request(&profile(Protocol::Responses), &request, &[], None)
+    let responses = encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None)
         .unwrap_or_else(|error| panic!("Responses preserves cross-kind order: {error}"));
     let types: Vec<_> = responses["input"]
         .as_array()
@@ -367,7 +377,7 @@ fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
 
 #[test]
 fn prv_3_replay_compatibility_covers_route_codec_revision_and_model_family() {
-    let selected = profile(Protocol::Responses);
+    let selected = profile(ModelApi::OpenaiResponses);
     let expected = selected.replay_compatibility();
     let cases = [
         ReplayCompatibility::new(
@@ -409,8 +419,8 @@ fn prv_3_replay_compatibility_covers_route_codec_revision_and_model_family() {
 
 #[tokio::test]
 async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
-    let profile = profile(Protocol::ChatCompletions);
-    let mut limits = DecodeLimits::for_profile(&profile);
+    let profile = profile(ModelApi::OpenaiChatCompletions);
+    let mut limits = DecodeLimits::production();
     limits.max_retained_output_bytes = 3;
     let source = stream::iter([Ok::<_, Infallible>(CHAT_FINAL_ANSWER.as_bytes())]);
     let error = drive_sse(&profile, source, limits, |_| std::future::ready(()))
@@ -425,12 +435,9 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
 
     let incomplete = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n";
     let source = stream::iter([Ok::<_, Infallible>(incomplete.as_bytes())]);
-    let error = drive_sse(
-        &profile,
-        source,
-        DecodeLimits::for_profile(&profile),
-        |_| std::future::ready(()),
-    )
+    let error = drive_sse(&profile, source, DecodeLimits::production(), |_| {
+        std::future::ready(())
+    })
     .await
     .unwrap_err_or_else();
     assert!(matches!(
@@ -441,7 +448,7 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
 
 #[tokio::test]
 async fn prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid() {
-    let profile = profile(Protocol::ChatCompletions);
+    let profile = profile(ModelApi::OpenaiChatCompletions);
     let missing_done = concat!(
         "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
         "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
@@ -449,15 +456,10 @@ async fn prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid() {
     let source = stream::iter([Ok::<_, Infallible>(missing_done.as_bytes())]);
     let mut emitted = Vec::new();
 
-    let error = drive_sse(
-        &profile,
-        source,
-        DecodeLimits::for_profile(&profile),
-        |event| {
-            emitted.push(event);
-            std::future::ready(())
-        },
-    )
+    let error = drive_sse(&profile, source, DecodeLimits::production(), |event| {
+        emitted.push(event);
+        std::future::ready(())
+    })
     .await
     .unwrap_err_or_else();
 
@@ -476,8 +478,8 @@ async fn prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid() {
 
 #[test]
 fn prv_2_rejects_tool_arguments_before_they_can_reach_admission() {
-    let profile = profile(Protocol::ChatCompletions);
-    let mut limits = DecodeLimits::for_profile(&profile);
+    let profile = profile(ModelApi::OpenaiChatCompletions);
+    let mut limits = DecodeLimits::production();
     limits.max_tool_argument_bytes = 4;
     let mut codec = OpenAiCodec::new(&profile, limits);
     let event = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"12345"}}]},"finish_reason":null}]}"#;
@@ -490,8 +492,8 @@ fn prv_2_rejects_tool_arguments_before_they_can_reach_admission() {
 
 #[test]
 fn prv_3_rejects_opaque_replay_before_step_state_can_grow() {
-    let profile = profile(Protocol::Responses);
-    let mut limits = DecodeLimits::for_profile(&profile);
+    let profile = profile(ModelApi::OpenaiResponses);
+    let mut limits = DecodeLimits::production();
     limits.max_replay_bytes = 8;
     let mut codec = OpenAiCodec::new(&profile, limits);
     let event = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"ciphertext","status":"completed"}}"#;
@@ -504,8 +506,8 @@ fn prv_3_rejects_opaque_replay_before_step_state_can_grow() {
 
 #[test]
 fn prv_2_bounds_even_empty_responses_output_items() {
-    let profile = profile(Protocol::Responses);
-    let mut limits = DecodeLimits::for_profile(&profile);
+    let profile = profile(ModelApi::OpenaiResponses);
+    let mut limits = DecodeLimits::production();
     limits.max_output_items = 1;
     let mut codec = OpenAiCodec::new(&profile, limits);
     let first = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[],"status":"completed"}}"#;
@@ -520,8 +522,8 @@ fn prv_2_bounds_even_empty_responses_output_items() {
 
 #[test]
 fn prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy() {
-    let profile = profile(Protocol::Responses);
-    let limits = DecodeLimits::for_profile(&profile);
+    let profile = profile(ModelApi::OpenaiResponses);
+    let limits = DecodeLimits::production();
     let mut done_only = OpenAiCodec::new(&profile, limits);
     let done =
         r#"{"type":"response.output_text.done","output_index":0,"content_index":0,"text":"whole"}"#;
@@ -550,8 +552,8 @@ fn prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy() {
 
 #[test]
 fn prv_5_responses_done_only_refusal_is_visible_and_typed() {
-    let profile = profile(Protocol::Responses);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::for_profile(&profile));
+    let profile = profile(ModelApi::OpenaiResponses);
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
     let refusal = r#"{"type":"response.refusal.done","output_index":0,"content_index":0,"refusal":"declined"}"#;
     assert!(matches!(
         codec.push_sse("response.refusal.done", refusal),
@@ -576,16 +578,13 @@ fn prv_5_responses_done_only_refusal_is_visible_and_typed() {
 
 #[tokio::test]
 async fn prv_2_sse_framing_rejects_partial_utf8() {
-    let profile = profile(Protocol::Responses);
+    let profile = profile(ModelApi::OpenaiResponses);
     let source = stream::iter([Ok::<_, Infallible>(vec![
         b'd', b'a', b't', b'a', b':', b' ', 0xff, b'\n', b'\n',
     ])]);
-    let error = drive_sse(
-        &profile,
-        source,
-        DecodeLimits::for_profile(&profile),
-        |_| std::future::ready(()),
-    )
+    let error = drive_sse(&profile, source, DecodeLimits::production(), |_| {
+        std::future::ready(())
+    })
     .await
     .unwrap_err_or_else();
     assert!(matches!(error, SseDecodeError::InvalidUtf8));

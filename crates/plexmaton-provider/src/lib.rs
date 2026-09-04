@@ -14,7 +14,7 @@ pub use codec::{
     classify_http_error, encode_request,
 };
 pub use config::{
-    ApiKey, ConfigError, Protocol, ProviderConfig, ProviderKind, ProviderProfile, ReasoningEffort,
-    resolve_api_key, resolve_home,
+    ApiKey, ConfigError, ModelApi, ModelCost, ModelRegistry, ModelSelection, ReasoningEffort,
+    ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
 };
 pub use sse::{SseDecodeError, drive_sse};

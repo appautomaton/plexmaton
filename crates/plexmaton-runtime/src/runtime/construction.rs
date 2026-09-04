@@ -2,7 +2,7 @@ use std::{collections::VecDeque, sync::Arc};
 
 use plexmaton_agent::{Agent, ApprovalPolicy, SessionMetadata, TurnBudget};
 use plexmaton_core::{AgentId, SessionId};
-use plexmaton_provider::{ApiKey, ProviderProfile};
+use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_session_store::{JournalFile, JournalRecovery};
 use tokio::sync::mpsc;
 
@@ -22,15 +22,15 @@ impl LiveRuntime {
     pub fn openai(
         agent_id: AgentId,
         label: impl Into<String>,
-        profile: ProviderProfile,
+        model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
     ) -> Result<Self, RuntimeError> {
-        if !tools.matches_api_key_environment(profile.api_key_env()) {
+        if !tools.matches_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
+        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
         Self::with_driver(agent_id, label.into(), driver, tools)
     }
 
@@ -38,16 +38,16 @@ impl LiveRuntime {
     pub async fn openai_with_fresh_journal(
         agent_id: AgentId,
         label: impl Into<String>,
-        profile: ProviderProfile,
+        model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
         journal: JournalFile,
     ) -> Result<Self, RuntimeError> {
-        if !tools.matches_api_key_environment(profile.api_key_env()) {
+        if !tools.matches_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
+        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
         let metadata = journal.journal().metadata().clone();
         Self::with_driver_and_store(
             agent_id,
@@ -63,16 +63,16 @@ impl LiveRuntime {
     /// Rebuilds one live owner from an existing journal and settles work orphaned by process death.
     pub async fn openai_with_resumed_journal(
         agent_id: AgentId,
-        profile: ProviderProfile,
+        model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
         journal: JournalFile,
     ) -> Result<(Self, SessionRecovery), RuntimeError> {
-        if !tools.matches_api_key_environment(profile.api_key_env()) {
+        if !tools.matches_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
+        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
         let recovery = journal.recovery().clone();
         let agent = Agent::from_journal(
             agent_id.clone(),

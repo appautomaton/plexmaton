@@ -11,7 +11,7 @@
 
 **PRV-1 — Wire dialects end at one semantic port.** Responses and Chat Completions encode the same
 ordered `ContextAtom`s and produce position-bearing semantic model events; neither owns a loop,
-transcript, tool scheduler or approval path. Protocol selection is explicit and never changes
+transcript, tool scheduler or approval path. API selection is explicit and never changes
 mid-turn.
 
 **PRV-2 — Streaming assembly is bounded and finality is explicit.** Text deltas pass through in
@@ -39,13 +39,16 @@ refusal, rate-limit, context, transport and malformed states without matching pr
 Unknown additive wire events are observable and ignored only when they carry no semantic content;
 an unknown content-bearing event fails rather than silently losing output.
 
-**PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` selects a named
-profile, protocol, base URL, model, reasoning effort and the environment-variable name holding its
-key. `PLEXMATON_HOME` redirects the whole root for isolated development; keys never enter the file,
-diagnostics, repository or a native command's environment, and an absent/invalid selection fails
-before network work begins.
-Rejected: project-local `.plexmaton/` discovery; project instructions and skills belong to the
-repository's `.agents/` corpus, while provider authority remains user-owned.
+**PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
+provider routes from their named models and selects one exact provider/model pair. A route owns its
+base URL, credential environment and default API; a model owns its wire/display identity, optional
+API override, reasoning effort, context/output/reserve limits, estimator and optional price
+snapshot. Resolution yields one immutable credential-blind value: omitted estimators become an
+explicit versioned default, while omitted pricing remains unavailable. Selection never uses fuzzy
+names or URL inference. `PLEXMATON_HOME` redirects the whole root for isolated development; keys
+never enter the file, diagnostics, repository or a native command's environment, and invalid input
+fails before network work begins. Rejected: a combined provider/model profile, inline keys, and
+project-local `.plexmaton/` discovery; project corpus belongs in `.agents/`.
 
 **PRV-7 — Local bounds do not trust upstream hints.** Provider token limits may be forwarded but
 are not memory or context boundaries. The stream owner bounds retained output and replay locally,
@@ -55,7 +58,7 @@ handling of a token hint is not a security invariant.
 ## Model
 
 ```text
-ModelRequest + profile + tool schemas
+ModelRequest + resolved model + tool schemas
                   │
         explicit protocol codec
           ┌───────┴────────┐
@@ -66,22 +69,22 @@ ModelRequest + profile + tool schemas
       ModelEvent + ProviderReplay
 ```
 
-The development profile is an OpenAI-compatible proxy at `http://127.0.0.1:8317/v1`, model
-`gpt-5.6-luna`, with Responses the default codec and Chat Completions an explicit compatibility
+The development route is an OpenAI-compatible proxy at `http://127.0.0.1:8317/v1`; its `luna`
+model uses `gpt-5.6-luna` over Responses, while Chat Completions remains an explicit model API
 choice. Rejected: xAI as the first provider, because it is not the endpoint Plexmaton's local
 development loop exercises. Rejected: automatic fallback, because replay and failure semantics
-change across dialects.
+change across APIs.
 
 ## Failure modes
 
 | Situation | Response |
 | --- | --- |
-| Missing config, profile or key environment variable | Typed configuration error before transport construction |
+| Missing config, provider/model selection or key environment variable | Typed configuration error before transport construction |
 | Tool arguments exceed their bound or the stream ends mid-call | Malformed step; no partial call reaches admission |
 | Responses continuation cannot resolve a response ID | Rebuild stateless input from the authoritative semantic record and exact replay items |
 | Encrypted reasoning exceeds its bound | Fail the step; never truncate an opaque replay capsule |
 | Stream is cancelled or disconnects | One terminal typed outcome; no detached reader remains |
-| Config asks for an unsupported reasoning effort | Preserve the provider's invalid-request category and field, without silent downgrade |
+| Config asks for an unsupported reasoning effort | Typed configuration error before transport construction; no silent downgrade |
 
 ## Evidence
 
@@ -92,5 +95,5 @@ change across dialects.
 | PRV-3 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_3_replay_compatibility_covers_route_codec_revision_and_model_family`, `prv_3_replay_route_owner_encoding_is_unambiguous`, `prv_3_rejects_opaque_replay_before_step_state_can_grow`, `assistant_output_round_trips_order_and_redacts_replay`, `reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation`, `provider_replay_is_named_and_bounded_before_turn_state_can_retain_it` |
 | PRV-4 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools` proves stateless full-record replay without a response ID |
 | PRV-5 | `http_rate_limit_is_typed_and_keeps_retry_after`, `context_error_is_classified_by_wire_code`, `prv_5_responses_done_only_refusal_is_visible_and_typed`, and both fixture completion reasons |
-| PRV-6 | `prv_6_parses_a_named_profile_without_inline_authority`, `prv_6_rejects_an_inline_api_key`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape` |
-| PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |
+| PRV-6 | `prv_6_one_provider_resolves_two_exact_models_without_repeating_authority`, `prv_6_selection_and_every_model_fail_closed_before_network_work`, `prv_6_inline_authority_and_legacy_profiles_are_not_a_second_config_path`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape` |
+| PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`, `prv_7_model_config_cannot_widen_runtime_output_memory`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |
