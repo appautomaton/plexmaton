@@ -20,8 +20,10 @@ the clipboard; and a general terminal emulator for a boundary that accepts only 
 **STL-2 — One owned command, with bounded replacement and shutdown.** The CLI starts only the
 user-configured command, with independent timeout, cancellation, output limits and process-group
 cleanup; replacement waits for the prior child and group to end, and cleanup failure stops further
-execution and remains visible. Scheduling coalesces semantic changes for 300 ms, ignores streaming
-text deltas, and never launches from rendering; an unchanged snapshot needs no run unless the user
+execution and remains visible. Scheduling coalesces semantic changes and resizes for 300 ms without
+cancelling an in-flight run: its stale result is discarded, the last rendered footer stays, and one
+capture uses the latest input. It ignores streaming text deltas and never launches from rendering;
+an unchanged snapshot needs no run unless the user
 explicitly configured periodic refresh.
 
 **STL-3 — Script input is an allowlisted projection of acknowledged facts.** JSON schema version 1
@@ -61,7 +63,9 @@ Stdin is at most 64 KiB JSON and closes after writing. Stdout is at most 16 KiB,
 stderr never enters the screen or a diagnostic. The configured provider-key environment variable
 is removed. Other inherited environment, HOME and filesystem access remain available: user-owned
 commands are not sandboxed. Cleanup signals the entire owned process group and waits up to one
-second for the child and group to end. A command that deliberately escapes its process group is
+second for the child and group to end. A permission-denied signal/probe during teardown does not
+prove disappearance: cleanup waits within that same deadline and fails if the group persists.
+A command that deliberately escapes its process group is
 outside this ownership guarantee. No project configuration or script is discovered automatically.
 
 ## Snapshot fields
@@ -93,6 +97,6 @@ the path components in successive pastel colors. It queries local Git without op
 | Invariant | Proof |
 | --- | --- |
 | STL-1 | `statusline_styles_and_resets_preserve_text`; `statusline_rejects_terminal_effects_and_malformed_styles`; `statusline_bounds_bytes_rows_and_parameters`; `statusline_preserves_explicit_rows_and_spaces`; `statusline_resets_restore_the_renderers_base_style`; `statusline_arbitrary_bytes_never_escape_as_controls` |
-| STL-2 | `status_command_reads_snapshot_eof_and_returns_only_styled_text`; `status_command_failure_timeout_overflow_and_cancellation_are_bounded`; `status_inflight_replacement_joins_descendants_and_discards_stale_output`; `status_stale_cleanup_failure_blocks_replacement_and_remains_visible`; `status_configuration_stays_outside_the_model_registry`; `status_cleanup_error_does_not_hide_session_shutdown_failures` |
-| STL-3 | `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
+| STL-2 | `status_command_reads_snapshot_eof_and_returns_only_styled_text`; `status_command_failure_timeout_overflow_and_cancellation_are_bounded`; `status_shutdown_joins_descendants_after_a_dropped_poll`; `status_refresh_coalesces_without_cancelling_inflight_work`; `status_cleanup_waits_through_permission_denial_until_group_disappears`; `status_cleanup_never_accepts_persistent_permission_denial_as_disappearance`; `status_stale_cleanup_failure_blocks_replacement_and_remains_visible`; `status_configuration_stays_outside_the_model_registry`; `status_cleanup_error_does_not_hide_session_shutdown_failures`; `python3 scripts/smoke-statusline.py` |
+| STL-3 | `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
 | STL-4 | `status_footer_preserves_focus_and_uses_the_last_row_for_hints`; `status_footer_clipping_reserves_a_cell_before_a_wide_grapheme`; visual frames at 120/95/60 columns approved by the user; `python3 scripts/smoke-statusline.py` |

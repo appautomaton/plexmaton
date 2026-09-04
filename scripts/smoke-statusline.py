@@ -67,6 +67,21 @@ output_reserve_tokens = 8192
                 assert "null" not in screen and "status line:" not in screen, screen
                 assert "plexmaton-status-smoke-" in screen, screen
             assert re.search(rb"\x1b\[[0-9;:]*48[;:](2|5)[;:]", capture), "pastel backgrounds never reached the terminal"
+            # Resizing below the usable layout must not poison status-command replacement.
+            start = len(capture)
+            smoke.set_size(master, (8, 40))
+            smoke.drain(master, 0.7, capture)
+            screen = smoke.rendered_screen(bytes(capture[start:]), (8, 40))
+            assert "Terminal too small" in screen, screen
+            for size in [(30, 60), (8, 40), (30, 95), (8, 40), (30, 61)]:
+                smoke.set_size(master, size)
+                smoke.drain(master, 0.04, capture)
+            smoke.drain(master, 0.7, capture)
+            start = len(capture)
+            smoke.set_size(master, (30, 60))
+            smoke.drain(master, 0.7, capture)
+            screen = smoke.rendered_screen(bytes(capture[start:]), (30, 60))
+            assert "FixtureLuna" in screen and "status line:" not in screen, screen
             os.write(master, b"\x04")
             smoke.drain(master, 0.15, capture)
             screen = smoke.rendered_screen(bytes(capture), (30, 60)).splitlines()
@@ -88,7 +103,7 @@ output_reserve_tokens = 8192
                 process.kill()
                 process.wait(timeout=3)
             os.close(master)
-    print("status-line smoke: config, snapshot, script, three widths, last-row quit and shutdown passed; no model request")
+    print("status-line smoke: config, snapshot, script, three widths, undersize recovery, last-row quit and shutdown passed; no model request")
 
 
 if __name__ == "__main__":

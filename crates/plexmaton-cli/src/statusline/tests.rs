@@ -160,7 +160,7 @@ pub(super) fn model() -> ResolvedModel {
         .clone()
 }
 
-const CONFIG: &str = r#"
+pub(super) const CONFIG: &str = r#"
 active_model = { provider = "local", model = "luna" }
 [providers.local]
 base_url = "http://127.0.0.1:1/v1"
@@ -213,7 +213,7 @@ impl Drop for TestDirectory {
 }
 
 #[tokio::test]
-async fn status_inflight_replacement_joins_descendants_and_discards_stale_output() {
+async fn status_shutdown_joins_descendants_after_a_dropped_poll() {
     use std::{future::Future as _, task::Poll};
     // STL-2: the ready marker proves the actual shell and descendant exist before cancellation.
     let directory = TestDirectory::new();
@@ -265,11 +265,10 @@ async fn status_inflight_replacement_joins_descendants_and_discards_stale_output
     })
     .await;
     drop(poll);
-    owner.mark_dirty();
-    let replacement = tokio::time::timeout(Duration::from_secs(2), owner.next())
+    tokio::time::timeout(Duration::from_secs(2), owner.shutdown())
         .await
-        .expect("replacement settled");
-    assert!(matches!(replacement, Update::Capture), "{replacement:?}");
+        .expect("shutdown settled")
+        .expect("clean shutdown");
     for pid in pids {
         assert_eq!(
             rustix::process::test_kill_process(
@@ -279,6 +278,50 @@ async fn status_inflight_replacement_joins_descendants_and_discards_stale_output
         );
     }
     owner.shutdown().await.expect("clean shutdown");
+}
+
+#[tokio::test]
+async fn status_refresh_coalesces_without_cancelling_inflight_work() {
+    use std::{future::Future as _, task::Poll};
+    // STL-2: resize/semantic invalidation keeps one bounded run alive, then captures latest input.
+    let mut owner = StatusLine::new(config("exit 0"), model(), "/".into());
+    let cancel = CancellationToken::new();
+    let (finish, finished) = tokio::sync::oneshot::channel();
+    owner.last_input = Some(b"old width".to_vec());
+    owner.due = None;
+    owner.active = Some(Active {
+        generation: 0,
+        cancel: cancel.clone(),
+        task: tokio::spawn(async move {
+            finished.await.expect("test releases execution");
+            StatusLineText::parse(b"stale width").map_err(|_| Failure::InvalidOutput)
+        }),
+    });
+    for _ in 0..20 {
+        owner.mark_dirty();
+    }
+    assert!(!cancel.is_cancelled());
+    assert!(owner.last_input.is_none());
+    let mut update = Box::pin(owner.next());
+    std::future::poll_fn(|cx| {
+        assert!(update.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    drop(update);
+    assert!(owner.active.is_some());
+    finish
+        .send(())
+        .expect("owned task still awaiting completion");
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), owner.next())
+            .await
+            .expect("refresh settles"),
+        Update::Capture
+    ));
+    assert!(owner.active.is_none());
+    assert!(owner.due.is_none());
+    owner.shutdown().await.expect("shutdown");
 }
 
 #[tokio::test]

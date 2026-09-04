@@ -1,0 +1,6 @@
+event: response.output_text.done
+data: {"type":"response.output_text.done","item_id":"msg_fixture","output_index":0,"content_index":0,"text":"OK"}
+
+event: response.completed
+data: {"type":"response.completed","response":{"status":"completed","output":[],"usage":{"input_tokens":4648,"input_tokens_details":{"cached_tokens":3840,"cache_write_tokens":0},"output_tokens":5,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":4653,"attribution":{"request_fields":{"tools":{"input_tokens":296,"cached_tokens":296,"cache_write_tokens":0,"output_tokens":0}},"items":{"msg_fixture_input":{"input_tokens":4350,"cached_tokens":3544,"cache_write_tokens":0,"output_tokens":0},"msg_fixture_output":{"input_tokens":2,"cached_tokens":0,"cache_write_tokens":0,"output_tokens":5}}}}}}
+

@@ -65,8 +65,9 @@ impl StatusLine {
             return;
         }
         self.generation = self.generation.wrapping_add(1);
-        if let Some(active) = &self.active {
-            active.cancel.cancel();
+        if self.active.is_some() {
+            // Refreshes invalidate the result, not the process. Let bounded work finish and
+            // coalesce changes into one capture of the latest facts and terminal dimensions.
             self.last_input = None;
         }
         let next = Instant::now() + Duration::from_millis(300);

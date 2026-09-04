@@ -38,14 +38,11 @@ struct Process {
 }
 
 impl Process {
-    fn kill_group(&self) -> Result<(), Failure> {
+    fn kill_group(&self) -> rustix::io::Result<()> {
         let Some(group) = self.group else {
             return Ok(());
         };
-        match kill_process_group(group, Signal::KILL) {
-            Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
-            Err(_) => Err(Failure::Cleanup),
-        }
+        kill_process_group(group, Signal::KILL)
     }
 }
 
@@ -117,22 +114,37 @@ pub(super) async fn execute(
         () = cancel.cancelled() => Err(Failure::Cancelled),
         () = tokio::time::sleep(config.timeout()) => Err(Failure::Timeout),
     };
-    process.kill_group()?;
+    // EPERM may mean only zombies remain on Darwin. It permits waiting, not successful cleanup;
+    // a genuinely unsignalable child/group must still disappear before the deadline below.
+    match process.kill_group() {
+        Ok(()) | Err(rustix::io::Errno::SRCH | rustix::io::Errno::PERM) => {}
+        Err(_) => return Err(Failure::Cleanup),
+    }
     // This handle stays owned across every select cancellation; cleanup has its own bound.
     tokio::time::timeout(std::time::Duration::from_secs(1), async {
         process.child.wait().await.map_err(|_| Failure::Cleanup)?;
-        loop {
-            match rustix::process::test_kill_process_group(group) {
-                Err(rustix::io::Errno::SRCH) => return Ok::<_, Failure>(()),
-                Err(_) => return Err(Failure::Cleanup),
-                Ok(()) => tokio::time::sleep(std::time::Duration::from_millis(5)).await,
-            }
-        }
+        wait_for_group_exit(|| rustix::process::test_kill_process_group(group)).await
     })
     .await
     .map_err(|_| Failure::Cleanup)??;
     process.group = None;
     result
+}
+
+async fn wait_for_group_exit(
+    mut probe: impl FnMut() -> rustix::io::Result<()>,
+) -> Result<(), Failure> {
+    loop {
+        match probe() {
+            Err(rustix::io::Errno::SRCH) => return Ok(()),
+            // Darwin can report EPERM for a group containing only exiting/zombie members.
+            // Permission denial is never disappearance: wait within the caller's cleanup bound.
+            Ok(()) | Err(rustix::io::Errno::PERM) => {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            Err(_) => return Err(Failure::Cleanup),
+        }
+    }
 }
 
 async fn read_bounded(
@@ -150,5 +162,38 @@ async fn read_bounded(
             return Err(Failure::Overflow);
         }
         result.extend_from_slice(&chunk[..count]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustix::io::Errno;
+
+    #[tokio::test]
+    async fn status_cleanup_waits_through_permission_denial_until_group_disappears() {
+        // STL-2: the kernel boundary can transiently refuse a probe during group teardown.
+        let mut observations = [Err(Errno::PERM), Ok(()), Err(Errno::SRCH)].into_iter();
+        wait_for_group_exit(|| observations.next().expect("bounded probe sequence"))
+            .await
+            .expect("group disappeared");
+        assert!(observations.next().is_none());
+    }
+
+    #[tokio::test]
+    async fn status_cleanup_never_accepts_persistent_permission_denial_as_disappearance() {
+        // STL-2: an unsignalable live group exhausts the bound; it must not allow replacement.
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(20),
+                wait_for_group_exit(|| Err(Errno::PERM)),
+            )
+            .await
+            .is_err()
+        );
+        assert!(matches!(
+            wait_for_group_exit(|| Err(Errno::IO)).await,
+            Err(Failure::Cleanup)
+        ));
     }
 }

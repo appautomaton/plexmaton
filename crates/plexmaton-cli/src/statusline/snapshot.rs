@@ -10,6 +10,8 @@ use plexmaton_runtime::{ContextBudgetSnapshot, LiveRuntime};
 use serde::Serialize;
 
 #[cfg(test)]
+mod cache_tests;
+#[cfg(test)]
 mod tests;
 use std::collections::BTreeSet;
 
