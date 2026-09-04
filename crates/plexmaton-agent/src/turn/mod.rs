@@ -207,6 +207,12 @@ impl Agent {
         self.record.journal()
     }
 
+    /// Named ancestry currently used by this agent's model requests.
+    #[must_use]
+    pub fn selected_head(&self) -> &plexmaton_core::HeadName {
+        self.record.selected_head()
+    }
+
     /// Rebuilds the settled visible projection and rebases its live delivery cursor (JRN-6).
     pub fn rebuild_projection(
         &mut self,

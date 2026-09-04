@@ -100,6 +100,10 @@ impl Record {
         &self.journal
     }
 
+    pub(crate) fn selected_head(&self) -> &HeadName {
+        &self.head
+    }
+
     pub(crate) const fn is_announced(&self) -> bool {
         self.announced
     }

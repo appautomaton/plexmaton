@@ -7,5 +7,5 @@ mod text;
 mod usage;
 mod wire;
 
-pub(crate) use request::encode;
+pub(crate) use request::{encode, encode_atom};
 pub(crate) use stream::ResponsesDecoder;

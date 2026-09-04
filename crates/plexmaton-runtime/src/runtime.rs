@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{CleanupFailure, DispatchReport, RuntimeError, RuntimeUpdate};
 
+mod budget;
 mod clock;
 mod construction;
 mod journal;
@@ -29,6 +30,7 @@ pub(crate) use model::{
 use tools::{ToolResolution, ToolTasks};
 use transition::{AfterCommit, PendingCommit};
 
+pub use budget::{ContextBudgetSnapshot, ContextBudgetUnavailable};
 use journal::JournalWriter;
 
 const PENDING_INPUT_CAPACITY: usize = 32;

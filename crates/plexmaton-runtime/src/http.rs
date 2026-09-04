@@ -273,6 +273,10 @@ impl ModelDriver for OpenAiHttp {
         &self.environment
     }
 
+    fn budget_inputs(&self) -> Option<(&ResolvedModel, &[FunctionTool])> {
+        Some((&self.model, &self.tools))
+    }
+
     fn drive(
         &self,
         attempt_id: RequestAttemptId,
@@ -408,6 +412,64 @@ output_reserve_tokens = 16384
             .as_str(),
             "http://127.0.0.1:8317/v1/chat/completions"
         );
+    }
+
+    /// BUD-1: the production runtime exposes the same ledger as its exact provider inputs.
+    #[tokio::test]
+    async fn bud_1_runtime_snapshot_uses_the_configured_model_without_dispatch() {
+        use crate::{ContextBudgetSnapshot, LiveRuntime};
+        use plexmaton_agent::Input;
+
+        let model = model("http://127.0.0.1:1/v1", ModelApi::OpenaiResponses);
+        let catalog = NativeToolCatalog::open(
+            std::env::current_dir().expect("workspace"),
+            "TEST_KEY",
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .expect("catalog");
+        let tools = catalog.provider_definitions();
+        let key = resolve_api_key(&model, Some("unused-test-key".into())).expect("key");
+        let mut runtime = LiveRuntime::openai(
+            AgentId::new("agent-budget").expect("id"),
+            "Agent",
+            model.clone(),
+            key,
+            catalog,
+        )
+        .expect("runtime");
+        runtime
+            .submit(
+                runtime.agent_id().clone(),
+                Input::Submitted {
+                    text: "budget this without sending HTTP".to_owned(),
+                },
+            )
+            .await
+            .expect("submit");
+        let ContextBudgetSnapshot::Available(snapshot) =
+            runtime.context_budget().expect("snapshot")
+        else {
+            panic!("configured model has budget");
+        };
+        // No next_update() is polled: the model future remains unstarted.
+        assert!(snapshot.anchor.is_none());
+        assert_eq!(snapshot.atoms.len(), 1);
+        assert_eq!(
+            snapshot.environment,
+            plexmaton_provider::request_environment(
+                &model,
+                &tools,
+                Some(model.max_output_tokens())
+            )
+        );
+        assert!(snapshot.environment_estimate.tokens > 0);
+        assert_eq!(
+            snapshot.limits.context_window_tokens(),
+            u64::from(model.context_window_tokens())
+        );
+        runtime.shutdown().await.expect("cancel before dispatch");
     }
 
     /// LIVE-1/PRV-1: the live HTTP edge publishes one exact, unique native catalog through either

@@ -10,6 +10,7 @@
 //! inward is [`Input`]. They never merge.
 
 mod admission;
+mod budget;
 mod interface;
 mod journal;
 mod model;
@@ -27,15 +28,19 @@ pub use admission::{
     ApprovalPolicy, CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, MAX_APPROVAL_DETAIL_BYTES,
     MAX_REQUESTED_TOOL_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
 };
+pub use budget::{
+    AtomBudget, BudgetDecision, BudgetError, BudgetLedger, BudgetLimits, BudgetPressure,
+    InputUsageAnchor, OversizedInput, TokenEstimate, TokenEstimator,
+};
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, ReleasedInput,
     RequestAttemptRefusal, UndeliveredInput, UndeliveredModelInput, UndeliveredReason,
     UnresolvedApprovalDecision,
 };
 pub use journal::{
-    HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,
-    JournalRecord, JournalSequence, RecoveryProjection, RequestAccounting, RequestAccountingError,
-    SessionEntry, SessionJournal, SessionMetadata,
+    BudgetBasis, HeadRevision, JournalEntryPayload, JournalError, JournalProjection,
+    JournalProjectionError, JournalRecord, JournalSequence, RecoveryProjection, RequestAccounting,
+    RequestAccountingError, SessionEntry, SessionJournal, SessionMetadata,
 };
 pub use model::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,

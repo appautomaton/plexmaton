@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–3 |
 | Contract | TIM-1–TIM-5, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3–PRV-6, LIVE-1/LIVE-3–LIVE-5 and LOOP-2 |
-| Status | Active; slices 1–5 complete, slice 6 of 10 next |
+| Status | Active; slices 1–6 complete, slice 7 of 10 pending |
 | Blocked | None for slices 1–9; slice 10 interaction copy requires the user's rendered-frame agreement |
 
 ## Outcome
@@ -29,7 +29,7 @@ rewind and branches durable without copying entries or replaying effects.
 - Equal path, checkpoint and environment encode byte-identically. Verbatim compaction appends one
   stable instruction after the prior input; fitted/lossy paths name their cache break. A checkpoint
   starts a cache epoch; rewind selects existing ancestry.
-- The ledger combines the last matching provider total with estimates for later atoms and a
+- The ledger combines the longest matching provider input measurement with estimates for later atoms and a
   separate output reserve. Soft policy and the provider hard limit remain distinct.
 - User TOML nests models under provider routes. Exact selection yields an immutable,
   credential-blind model with typed API, identity, reasoning, token limits, estimator and optional
@@ -62,11 +62,11 @@ rewind and branches durable without copying entries or replaying effects.
    owners over an exact atom boundary/fingerprint; retire cumulative journal usage. *Closes when*
    cancellation/encoding failure, every dispatched terminal, missing usage and process death retain
    correlation without fabricated timing or delta writes; invalid terminals mutate nothing.
-6. **Budget ledger.** Give every atom and request-environment input a deterministic estimated cost;
+6. **Budget ledger (complete).** Give every atom and request-environment input a deterministic estimated cost;
    reconcile a provider usage report only with the exact prefix/fingerprint it measured. Return
    typed `Fits`, `CompactionNeeded` or `ImpossibleItem`, keeping reserve and hard limit separate.
    *Closes when* suffixes, changed environment, encrypted replay, maximal tool output and provider
-   totals have boundary tests; missing usage is never zero.
+   totals have boundary tests; missing usage is never zero. Evidence: [context-budget](../specs/context-budget.md).
 7. **Pure compaction plan.** Select a covered prefix and byte-exact retained suffix in atom units;
    build a summarization request as an append-only extension of the old request. Use a bounded
    verbatim → fitted → lossy input ladder and retain source identities plus current user/workspace

@@ -3,6 +3,7 @@
 //! This crate owns configuration, request encoding and streaming decode. It owns no agent loop,
 //! tool executor, approval state, transcript projection, HTTP task or terminal.
 
+mod budget;
 mod chat;
 mod codec;
 mod config;
@@ -11,6 +12,7 @@ mod environment;
 mod responses;
 mod sse;
 
+pub use budget::{ContextBudgetError, budget_ledger};
 pub use codec::{
     DecodeError, DecodeLimits, EncodeError, FunctionTool, FunctionToolError, OpenAiCodec,
     classify_http_error, encode_request,

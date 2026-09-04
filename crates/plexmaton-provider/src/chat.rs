@@ -11,7 +11,7 @@ use crate::codec::{DecodeError, DecodeLimits, output_position, retain_bytes};
 mod request;
 mod usage;
 
-pub(crate) use request::encode;
+pub(crate) use request::{encode, encode_atom};
 use usage::ChatUsage;
 
 #[derive(Debug)]

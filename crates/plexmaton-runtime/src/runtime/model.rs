@@ -24,6 +24,16 @@ use crate::RuntimeError;
 pub(crate) trait ModelDriver: Send + Sync + 'static {
     fn request_environment(&self) -> &RequestEnvironment;
 
+    /// Synthetic drivers have no configured model limits; production exposes its exact inputs.
+    fn budget_inputs(
+        &self,
+    ) -> Option<(
+        &plexmaton_provider::ResolvedModel,
+        &[plexmaton_provider::FunctionTool],
+    )> {
+        None
+    }
+
     fn drive(
         &self,
         attempt_id: RequestAttemptId,

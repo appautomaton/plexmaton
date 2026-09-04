@@ -15,4 +15,4 @@ pub use interface::{
     RuntimeUpdate, SessionRecovery,
 };
 pub use native::{MAX_NATIVE_TOOL_RESULT_BYTES, NativeToolCatalog, NativeToolSetupError};
-pub use runtime::LiveRuntime;
+pub use runtime::{ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime};

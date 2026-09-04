@@ -6,6 +6,13 @@ async fn dropping_the_runtime_joins_its_journal_writer() {
     let (control, store) = StoreControl::pair();
     let runtime = runtime(store, FakeDriver::new([])).await;
 
+    assert!(matches!(
+        runtime.context_budget().expect("snapshot"),
+        crate::ContextBudgetSnapshot::Unavailable(
+            crate::ContextBudgetUnavailable::ModelNotConfigured
+        )
+    ));
+
     drop(runtime);
 
     assert!(control.dropped.load(Ordering::SeqCst));
@@ -29,6 +36,12 @@ async fn failed_user_append_returns_the_draft_and_starts_no_effect() {
         report.persistence_failure,
         Some(PersistenceFailure::NotWritten)
     );
+    assert!(matches!(
+        runtime.context_budget().expect("snapshot"),
+        crate::ContextBudgetSnapshot::Unavailable(
+            crate::ContextBudgetUnavailable::PersistenceFailed
+        )
+    ));
     assert!(matches!(
         report.undelivered.as_slice(),
         [input]

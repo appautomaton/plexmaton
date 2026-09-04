@@ -1,6 +1,8 @@
 //! Chat Completions request reconstruction from the semantic record.
 
-use plexmaton_agent::{AssistantBlock, AssistantOutput, ContextAtomValue, ModelRequest};
+use plexmaton_agent::{
+    AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -83,23 +85,32 @@ fn encode_messages(
 ) -> Result<Vec<Value>, EncodeError> {
     let mut messages = Vec::new();
     for atom in &request.atoms {
-        match atom.value() {
-            ContextAtomValue::User { text } => {
-                messages.push(json!({ "role": "user", "content": text }));
-            }
-            ContextAtomValue::Assistant(output) => {
-                messages.push(encode_assistant(model, output)?);
-            }
-            ContextAtomValue::ToolBatch(batch) => {
-                messages.push(encode_assistant(model, batch.assistant())?);
-                messages.extend(batch.results().iter().map(|result| {
-                    json!({
-                        "role": "tool",
-                        "tool_call_id": result.call_id().as_str(),
-                        "content": tool_output(result.outcome()),
-                    })
-                }));
-            }
+        messages.extend(encode_atom(model, atom)?);
+    }
+    Ok(messages)
+}
+
+pub(crate) fn encode_atom(
+    model: &ResolvedModel,
+    atom: &ContextAtom,
+) -> Result<Vec<Value>, EncodeError> {
+    let mut messages = Vec::new();
+    match atom.value() {
+        ContextAtomValue::User { text } => {
+            messages.push(json!({ "role": "user", "content": text }));
+        }
+        ContextAtomValue::Assistant(output) => {
+            messages.push(encode_assistant(model, output)?);
+        }
+        ContextAtomValue::ToolBatch(batch) => {
+            messages.push(encode_assistant(model, batch.assistant())?);
+            messages.extend(batch.results().iter().map(|result| {
+                json!({
+                    "role": "tool",
+                    "tool_call_id": result.call_id().as_str(),
+                    "content": tool_output(result.outcome()),
+                })
+            }));
         }
     }
     Ok(messages)

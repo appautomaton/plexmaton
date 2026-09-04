@@ -1,7 +1,7 @@
 //! Stateless Responses request reconstruction.
 
 use plexmaton_agent::{
-    AssistantBlock, AssistantOutput, BlockReplay, ContextAtomValue, ModelRequest,
+    AssistantBlock, AssistantOutput, BlockReplay, ContextAtom, ContextAtomValue, ModelRequest,
 };
 use serde_json::{Value, json};
 
@@ -51,23 +51,32 @@ pub(crate) fn encode(
 fn encode_input(model: &ResolvedModel, request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
     let mut input = Vec::new();
     for atom in &request.atoms {
-        match atom.value() {
-            ContextAtomValue::User { text } => {
-                input.push(json!({ "role": "user", "content": text }));
-            }
-            ContextAtomValue::Assistant(output) => {
-                encode_assistant(model, output, &mut input)?;
-            }
-            ContextAtomValue::ToolBatch(batch) => {
-                encode_assistant(model, batch.assistant(), &mut input)?;
-                input.extend(batch.results().iter().map(|result| {
-                    json!({
-                        "type": "function_call_output",
-                        "call_id": result.call_id().as_str(),
-                        "output": tool_output(result.outcome()),
-                    })
-                }));
-            }
+        input.extend(encode_atom(model, atom)?);
+    }
+    Ok(input)
+}
+
+pub(crate) fn encode_atom(
+    model: &ResolvedModel,
+    atom: &ContextAtom,
+) -> Result<Vec<Value>, EncodeError> {
+    let mut input = Vec::new();
+    match atom.value() {
+        ContextAtomValue::User { text } => {
+            input.push(json!({ "role": "user", "content": text }));
+        }
+        ContextAtomValue::Assistant(output) => {
+            encode_assistant(model, output, &mut input)?;
+        }
+        ContextAtomValue::ToolBatch(batch) => {
+            encode_assistant(model, batch.assistant(), &mut input)?;
+            input.extend(batch.results().iter().map(|result| {
+                json!({
+                    "type": "function_call_output",
+                    "call_id": result.call_id().as_str(),
+                    "output": tool_output(result.outcome()),
+                })
+            }));
         }
     }
     Ok(input)

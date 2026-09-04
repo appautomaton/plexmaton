@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
+pub use plexmaton_agent::TokenEstimator;
 use plexmaton_agent::{
     ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
     ReplayCompatibility,
@@ -57,23 +58,6 @@ impl ReasoningEffort {
             Self::High => "high",
             Self::Xhigh => "xhigh",
             Self::Max => "max",
-        }
-    }
-}
-
-/// Stable algorithm identity used only for context bytes the provider has not measured.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum TokenEstimator {
-    #[default]
-    Utf8HeuristicV1,
-}
-
-impl TokenEstimator {
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Utf8HeuristicV1 => "utf8_heuristic_v1",
         }
     }
 }

@@ -265,6 +265,10 @@ async fn cancelled_model_end_during_attempt_terminal_append_keeps_the_active_own
             .iter()
             .any(|record| { matches!(record, JournalRecord::RequestAttemptFinished { .. }) })
     );
+    assert!(matches!(
+        runtime.context_budget().expect("snapshot"),
+        crate::ContextBudgetSnapshot::Unavailable(crate::ContextBudgetUnavailable::PendingCommit)
+    ));
     control.gate.release();
     tokio::time::timeout(Duration::from_secs(5), async {
         while runtime.has_active_model() {
