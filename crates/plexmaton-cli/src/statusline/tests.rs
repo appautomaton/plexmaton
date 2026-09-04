@@ -87,7 +87,8 @@ async fn status_script_omits_null_fields_and_keeps_rainbow_path() {
     config.timeout_ms = 5000;
     let input = serde_json::json!({"model":{"display_name":"Luna"},"effort":{"level":"high"},
         "cwd":"/nonexistent/fixture/project", "context_window":{"context_window_size":272000},
-        "plexmaton":{"terminal":{"columns":95},"context":{"availability":"unavailable"},
+        "plexmaton":{"terminal":{"columns":95},"context":{"availability":"available",
+            "input_tokens":99999,"estimated_tokens":99999},
         "usage":{"coverage":"unavailable"}}, "cost":{"total_cost_usd":null}});
     let text = process::execute(
         &config,
@@ -99,7 +100,7 @@ async fn status_script_omits_null_fields_and_keeps_rainbow_path() {
     .await
     .expect("sample script");
     let output = plain(&text);
-    for absent in ["null", "cache", "ctx", "$", "↑", "↓"] {
+    for absent in ["null", "cache", "ctx", "", "~", "$", "↑", "↓"] {
         assert!(!output.contains(absent), "{output}");
     }
     assert!(output.contains("Luna high"));
@@ -115,6 +116,37 @@ async fn status_script_omits_null_fields_and_keeps_rainbow_path() {
             .len()
             >= 3
     );
+}
+
+#[tokio::test]
+async fn status_script_context_uses_reported_input_with_a_glyph_at_each_width() {
+    // STL-3: no estimate disguised as measurement, including when the cache split is unknown.
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/statusline-pastel.sh");
+    let mut config = config(&format!("bash '{}'", script.display()));
+    config.timeout_ms = 5000;
+    for width in [120, 95, 60] {
+        let input = serde_json::json!({"model":{"display_name":"Luna"},
+            "context_window":{"context_window_size":272000,"used_percentage":99},
+            "plexmaton":{"terminal":{"columns":width},
+                "context":{"availability":"available","input_tokens":99999,"estimated_tokens":99999},
+                "latest_request":{"terminal":{"usage":{"coverage":"complete",
+                    "counts":{"input":12345,"cached_input":null}}}}}});
+        let output = process::execute(
+            &config,
+            serde_json::to_vec(&input).expect("fixture"),
+            std::path::Path::new("/"),
+            "PLEXMATON_TEST_UNUSED_KEY",
+            CancellationToken::new(),
+        )
+        .await
+        .expect("sample script");
+        let output = plain(&output);
+        assert!(output.contains(" 12.3k/272.0k 4%"), "{output}");
+        for absent in ["ctx", "~", "100.0k", "99%", "null"] {
+            assert!(!output.contains(absent), "{output}");
+        }
+    }
 }
 
 #[tokio::test]

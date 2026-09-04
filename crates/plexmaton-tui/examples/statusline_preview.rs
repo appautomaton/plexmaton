@@ -205,7 +205,7 @@ fn footer(width: u16, mode: Mode) -> Vec<Line<'static>> {
     let segments = [
         ("Luna High", VIOLET),
         ("main", MINT),
-        ("ctx ~28k/272k 10%", LIME),
+        (" 28k/272k 10%", LIME),
         ("cache 82%", TEAL),
         ("↑24.8k ↓3.2k", SKY),
         ("$0.024", PINK),

@@ -72,9 +72,10 @@ max_rows = 6
 refresh_ms = 30000
 ```
 
-The example needs Bash, jq and a Powerline-compatible font. It receives JSON snapshots on stdin;
-editing the script requires no rebuild. Missing statistics are omitted. Quit/Ctrl-P hints occupy
-the last terminal row. [Protocol, limits and configuration](.agents/specs/status-line.md).
+The example needs Bash, jq and a Nerd Font. It receives JSON snapshots on stdin;
+editing the script requires no rebuild. Context appears only after API-reported usage; missing
+statistics are omitted. Quit/Ctrl-P hints occupy the last terminal row.
+[Protocol, limits and configuration](.agents/specs/status-line.md).
 
 Inputs support click-to-place, drag-to-select/copy, and typing or paste to replace selection. Arrows,
 Home/End, word motion and line deletion preserve graphemes. Transcripts support selection, disclosure

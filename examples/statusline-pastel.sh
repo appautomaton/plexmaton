@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # User-owned presentation only. Reads the Plexmaton status snapshot on stdin; never opens JSONL.
-# Requires jq. A Powerline-compatible font gives the filled arrow separators their intended shape.
+# Requires jq and a Nerd Font for the context glyph and Powerline separators.
 set -euo pipefail
 
 values=$(jq -r '
   def clean: if . == null then "" else tostring | gsub("[\u0000-\u001f\u007f-\u009f]"; " ") end;
   [(.model.display_name // .model.id), .effort.level, (.workspace.current_dir // .cwd),
    .plexmaton.terminal.columns,
-   (if .plexmaton.context.availability == "available" then .plexmaton.context.input_tokens else null end),
-   .context_window.context_window_size, .context_window.used_percentage,
-   .plexmaton.context.estimated_tokens,
+   .plexmaton.latest_request.terminal.usage.counts.input,
+   .context_window.context_window_size,
    .context_window.total_input_tokens, .context_window.total_output_tokens,
    .cost.total_cost_usd,
    (if .context_window.current_usage != null then .context_window.current_usage |
@@ -24,9 +23,8 @@ while IFS= read -r value; do fields+=("$value"); done <<< "$values"
 
 model=${fields[0]:-}; effort=${fields[1]:-}; cwd=${fields[2]:-}
 columns=${fields[3]:-80}; occupancy=${fields[4]:-}; capacity=${fields[5]:-}
-pct=${fields[6]:-}; estimated=${fields[7]:-}
-input=${fields[8]:-}; output=${fields[9]:-}; cost=${fields[10]:-}; cache=${fields[11]:-}
-coverage=${fields[12]:-unavailable}
+input=${fields[6]:-}; output=${fields[7]:-}; cost=${fields[8]:-}; cache=${fields[9]:-}
+coverage=${fields[10]:-unavailable}
 
 format_tokens() {
   awk -v n="$1" 'BEGIN { if (n >= 1000000) printf "%.1fM", n/1000000;
@@ -50,13 +48,13 @@ fi
 # Branch and path are external text too; the application independently rejects terminal controls.
 branch=$(printf '%s' "$branch" | tr -d '\000-\037\177')
 [[ -z "$branch" ]] || add "$branch" '140;218;165'
-if [[ -n "$occupancy" && -n "$capacity" && -n "$pct" ]]; then
-  approx=""; [[ -z "$estimated" || "$estimated" == 0 ]] || approx='~'
-  rounded=$(awk -v n="$pct" 'BEGIN { printf "%d", n }')
+# Display the latest API-reported input, never the next-request budget estimate.
+if [[ -n "$occupancy" && -n "$capacity" && "$capacity" != 0 ]]; then
+  rounded=$(awk -v n="$occupancy" -v cap="$capacity" 'BEGIN { printf "%d", n * 100 / cap }')
   color='200;224;120'
   if (( rounded >= 80 )); then color='255;120;120';
   elif (( rounded >= 50 )); then color='255;196;102'; fi
-  add "ctx ${approx}$(format_tokens "$occupancy")/$(format_tokens "$capacity") ${rounded}%" "$color"
+  add " $(format_tokens "$occupancy")/$(format_tokens "$capacity") ${rounded}%" "$color"
 fi
 [[ -z "$cache" ]] || add "cache ${cache}%" '120;210;205'
 traffic=""

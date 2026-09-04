@@ -88,9 +88,12 @@ keys describe matching facts; this is not a promise that every Claude extension 
 | `plexmaton.turn` | Latest selected turn ID, incurred usage/cost and sum of request durations; duration is null if any attempt is unresolved, and excludes idle, tools and approval wait |
 | `plexmaton.terminal.columns`, `.rows` | Current terminal size; the script decides its explicit lines |
 
-The pastel example requires Bash and jq and uses Powerline separators. It keeps context estimation
-visible with `~`, labels partial traffic as `reported`, omits missing cost/cache values, and paints
-the path components in successive pastel colors. It queries local Git without optional locks.
+The pastel example requires Bash, jq and a Nerd Font. Its `` segment shows the latest selected-path
+request's API-reported input count and percentage of configured capacity. Without a reported count,
+including a fresh session, the segment is absent. It never displays a context estimate or a `ctx`/`~`
+label; BUD-1 estimates remain separate snapshot data. It labels partial traffic as `reported`, omits
+missing cost/cache values, and paints path components in successive pastel colors with Powerline
+separators. It queries local Git without optional locks.
 
 ## Evidence
 
@@ -98,5 +101,5 @@ the path components in successive pastel colors. It queries local Git without op
 | --- | --- |
 | STL-1 | `statusline_styles_and_resets_preserve_text`; `statusline_rejects_terminal_effects_and_malformed_styles`; `statusline_bounds_bytes_rows_and_parameters`; `statusline_preserves_explicit_rows_and_spaces`; `statusline_resets_restore_the_renderers_base_style`; `statusline_arbitrary_bytes_never_escape_as_controls` |
 | STL-2 | `status_command_reads_snapshot_eof_and_returns_only_styled_text`; `status_command_failure_timeout_overflow_and_cancellation_are_bounded`; `status_shutdown_joins_descendants_after_a_dropped_poll`; `status_refresh_coalesces_without_cancelling_inflight_work`; `status_cleanup_waits_through_permission_denial_until_group_disappears`; `status_cleanup_never_accepts_persistent_permission_denial_as_disappearance`; `status_stale_cleanup_failure_blocks_replacement_and_remains_visible`; `status_configuration_stays_outside_the_model_registry`; `status_cleanup_error_does_not_hide_session_shutdown_failures`; `python3 scripts/smoke-statusline.py` |
-| STL-3 | `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
+| STL-3 | `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `status_script_context_uses_reported_input_with_a_glyph_at_each_width`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
 | STL-4 | `status_footer_preserves_focus_and_uses_the_last_row_for_hints`; `status_footer_clipping_reserves_a_cell_before_a_wide_grapheme`; visual frames at 120/95/60 columns approved by the user; `python3 scripts/smoke-statusline.py` |
