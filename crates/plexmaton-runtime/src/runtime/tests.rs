@@ -7,14 +7,23 @@ use std::{
 };
 
 use futures_util::{FutureExt, future::BoxFuture};
-use plexmaton_agent::{Input, ModelCall, ModelError, ModelEvent, ModelOutputPosition, StopReason};
+use plexmaton_agent::{
+    DispatchedRequestTiming, ElapsedMillis, Input, ModelCall, ModelError, ModelEvent,
+    ModelOutputPosition, ModelStepId, ProviderCodecId, ProviderCodecRevision,
+    ProviderModelFamilyId, ProviderReplayOwnerId, ReplayCompatibility, RequestAttemptId,
+    RequestAttemptTerminal, RequestAttemptTerminalState, RequestDispatchedOutcome,
+    RequestEnvironment, RequestEnvironmentFingerprint, StopReason, UnixMillis,
+};
 use plexmaton_core::{
     AgentId, AgentStatus, SessionEvent, SessionEventEnvelope, TokenCounts, TokenUsage,
 };
 use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use super::{LiveRuntime, ModelDriver, ModelSignal, WaitOutcome};
+use super::{
+    LiveRuntime, ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport,
+    WaitOutcome,
+};
 use crate::NativeToolCatalog;
 
 enum Script {
@@ -35,6 +44,7 @@ enum Script {
 struct FakeDriver {
     scripts: Arc<Mutex<VecDeque<Script>>>,
     calls: Arc<StdMutex<Vec<ModelCall>>>,
+    environment: RequestEnvironment,
 }
 
 impl FakeDriver {
@@ -42,6 +52,7 @@ impl FakeDriver {
         Arc::new(Self {
             scripts: Arc::new(Mutex::new(scripts.into_iter().collect())),
             calls: Arc::new(StdMutex::new(Vec::new())),
+            environment: test_request_environment(),
         })
     }
 
@@ -54,12 +65,17 @@ impl FakeDriver {
 }
 
 impl ModelDriver for FakeDriver {
+    fn request_environment(&self) -> &RequestEnvironment {
+        &self.environment
+    }
+
     fn drive(
         &self,
+        attempt_id: RequestAttemptId,
         call: ModelCall,
         signals: mpsc::Sender<ModelSignal>,
         cancellation: CancellationToken,
-    ) -> BoxFuture<'static, ()> {
+    ) -> BoxFuture<'static, ModelTerminalReport> {
         let scripts = Arc::clone(&self.scripts);
         self.calls
             .lock()
@@ -73,73 +89,207 @@ impl ModelDriver for FakeDriver {
                 .unwrap_or(Script::EndWithoutTerminal);
             match script {
                 Script::Events(events) => {
+                    let mut usage = TokenUsage::Unavailable;
+                    let mut stop = None;
+                    let mut emitted_output = false;
                     for event in events {
-                        let signal = if matches!(event, ModelEvent::Stopped(_)) {
-                            ModelSignal::Terminal {
-                                step_id: call.step_id.clone(),
-                                event,
+                        match event {
+                            ModelEvent::Usage(report) => usage = report,
+                            ModelEvent::Stopped(reason) => stop = Some(reason),
+                            event => {
+                                let output = ModelOutput::from_event(event).unwrap_or_else(|_| {
+                                    unreachable!("terminal events were matched separately")
+                                });
+                                emitted_output |= output.is_first_output();
+                                if signals
+                                    .send(ModelSignal {
+                                        attempt_id: attempt_id.clone(),
+                                        step_id: call.step_id.clone(),
+                                        output,
+                                    })
+                                    .await
+                                    .is_err()
+                                {
+                                    return cancelled_report(attempt_id, call.step_id, usage);
+                                }
                             }
-                        } else {
-                            ModelSignal::Event {
-                                step_id: call.step_id.clone(),
-                                event,
-                            }
-                        };
-                        if signals.send(signal).await.is_err() {
-                            return;
                         }
                     }
+                    match stop {
+                        Some(reason) => completed_report(
+                            attempt_id,
+                            call.step_id,
+                            reason,
+                            usage,
+                            emitted_output,
+                        ),
+                        None => failed_report(
+                            attempt_id,
+                            call.step_id,
+                            ModelError::Transport {
+                                message: "provider future ended without terminal output".to_owned(),
+                            },
+                            usage,
+                            emitted_output,
+                        ),
+                    }
                 }
-                Script::Fail(error) => {
-                    let _closed = signals
-                        .send(ModelSignal::Failed {
-                            step_id: call.step_id,
-                            error,
-                        })
-                        .await;
-                }
+                Script::Fail(error) => failed_report(
+                    attempt_id,
+                    call.step_id,
+                    error,
+                    TokenUsage::Unavailable,
+                    false,
+                ),
                 Script::WaitForCancellation { started, finished } => {
+                    let output = ModelOutput::from_event(text_delta("partial"))
+                        .unwrap_or_else(|_| unreachable!("text is nonterminal model output"));
                     let _closed = signals
-                        .send(ModelSignal::Event {
-                            step_id: call.step_id,
-                            event: text_delta("partial"),
+                        .send(ModelSignal {
+                            attempt_id: attempt_id.clone(),
+                            step_id: call.step_id.clone(),
+                            output,
                         })
                         .await;
                     started.notify_one();
                     cancellation.cancelled().await;
                     finished.store(true, Ordering::SeqCst);
+                    cancelled_report(attempt_id, call.step_id, TokenUsage::Unavailable)
                 }
                 Script::TerminalReady(ready) => {
-                    let _closed = signals
-                        .send(ModelSignal::Event {
-                            step_id: call.step_id.clone(),
-                            event: complete_usage(8, 2),
-                        })
-                        .await;
-                    let _closed = signals
-                        .send(ModelSignal::Terminal {
-                            step_id: call.step_id,
-                            event: ModelEvent::Stopped(StopReason::EndOfTurn),
-                        })
-                        .await;
                     ready.notify_one();
+                    completed_report(
+                        attempt_id,
+                        call.step_id,
+                        StopReason::EndOfTurn,
+                        usage_value(8, 2),
+                        false,
+                    )
                 }
                 Script::TerminalThenWaitForCancellation { ready, finished } => {
-                    let _closed = signals
-                        .send(ModelSignal::Terminal {
-                            step_id: call.step_id,
-                            event: ModelEvent::Stopped(StopReason::EndOfTurn),
-                        })
-                        .await;
                     ready.notify_one();
                     cancellation.cancelled().await;
                     finished.store(true, Ordering::SeqCst);
+                    completed_report(
+                        attempt_id,
+                        call.step_id,
+                        StopReason::EndOfTurn,
+                        TokenUsage::Unavailable,
+                        false,
+                    )
                 }
-                Script::EndWithoutTerminal => {}
+                Script::EndWithoutTerminal => failed_report(
+                    attempt_id,
+                    call.step_id,
+                    ModelError::Transport {
+                        message: "provider future ended without terminal output".to_owned(),
+                    },
+                    TokenUsage::Unavailable,
+                    false,
+                ),
             }
         }
         .boxed()
     }
+}
+
+fn test_request_environment() -> RequestEnvironment {
+    let compatibility = ReplayCompatibility::new(
+        ProviderReplayOwnerId::new("runtime-test")
+            .unwrap_or_else(|error| panic!("provider owner: {error:?}")),
+        ProviderCodecId::new("runtime-test").unwrap_or_else(|error| panic!("codec id: {error:?}")),
+        ProviderCodecRevision::new(1).unwrap_or_else(|error| panic!("codec revision: {error:?}")),
+        ProviderModelFamilyId::new("runtime-test")
+            .unwrap_or_else(|error| panic!("model family: {error:?}")),
+    );
+    RequestEnvironment::new(compatibility, RequestEnvironmentFingerprint::new([0; 32]))
+}
+
+fn request_timing(emitted_output: bool) -> DispatchedRequestTiming {
+    DispatchedRequestTiming::new(
+        UnixMillis::EPOCH,
+        Some(ElapsedMillis::new(0)),
+        emitted_output.then(|| ElapsedMillis::new(0)),
+        ElapsedMillis::new(0),
+    )
+    .unwrap_or_else(|error| panic!("request timing: {error}"))
+}
+
+fn terminal_report(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    outcome: RequestDispatchedOutcome,
+    usage: TokenUsage,
+    completion: ModelCompletion,
+    emitted_output: bool,
+) -> ModelTerminalReport {
+    let terminal = RequestAttemptTerminal::new(
+        attempt_id,
+        RequestAttemptTerminalState::Dispatched {
+            timing: request_timing(emitted_output),
+            outcome,
+            usage,
+        },
+    )
+    .unwrap_or_else(|error| panic!("request terminal: {error}"));
+    ModelTerminalReport::new(step_id, terminal, completion)
+}
+
+fn completed_report(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    reason: StopReason,
+    usage: TokenUsage,
+    emitted_output: bool,
+) -> ModelTerminalReport {
+    terminal_report(
+        attempt_id,
+        step_id,
+        RequestDispatchedOutcome::Completed {
+            stop_reason: reason,
+        },
+        usage,
+        ModelCompletion::Stopped(reason),
+        emitted_output,
+    )
+}
+
+fn failed_report(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    error: ModelError,
+    usage: TokenUsage,
+    emitted_output: bool,
+) -> ModelTerminalReport {
+    let outcome = match &error {
+        ModelError::Transport { .. } => RequestDispatchedOutcome::TransportFailed,
+        ModelError::RateLimited { .. } => RequestDispatchedOutcome::RateLimited,
+        ModelError::ContextTooLong => RequestDispatchedOutcome::ContextTooLong,
+        ModelError::Malformed { .. } => RequestDispatchedOutcome::Malformed,
+    };
+    terminal_report(
+        attempt_id,
+        step_id,
+        outcome,
+        usage,
+        ModelCompletion::Failed(error),
+        emitted_output,
+    )
+}
+
+fn cancelled_report(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    usage: TokenUsage,
+) -> ModelTerminalReport {
+    terminal_report(
+        attempt_id,
+        step_id,
+        RequestDispatchedOutcome::Cancelled,
+        usage,
+        ModelCompletion::Cancelled,
+        true,
+    )
 }
 
 mod cancellation;
@@ -181,14 +331,18 @@ pub(super) fn runtime_with_clock(
 }
 
 fn complete_usage(input: u64, output: u64) -> ModelEvent {
-    ModelEvent::Usage(TokenUsage::Complete(TokenCounts {
+    ModelEvent::Usage(usage_value(input, output))
+}
+
+fn usage_value(input: u64, output: u64) -> TokenUsage {
+    TokenUsage::Complete(TokenCounts {
         input,
         cached_input: Some(0),
         cache_write_input: Some(0),
         output,
         reasoning_output: Some(0),
         total: input + output,
-    }))
+    })
 }
 
 fn text_delta(delta: &str) -> ModelEvent {
@@ -351,8 +505,8 @@ async fn interrupt_and_shutdown_cancel_and_join_the_exact_provider_task() {
     }
 }
 
-/// LIVE-2 and LIVE-3: when completion is already queued but the user's interrupt is admitted
-/// first, cancellation wins once and both late terminal messages become typed non-deliveries.
+/// LIVE-2 and LIVE-3: when completion is ready but the user's interrupt is admitted first,
+/// cancellation wins once and the retained terminal report cannot enter a later turn.
 #[tokio::test]
 async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_turn() {
     let ready = Arc::new(Notify::new());
@@ -372,7 +526,7 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
         .unwrap_or_else(|error| panic!("submission: {error}"));
     assert!(matches!(
         runtime.wait_for_work().await,
-        WaitOutcome::ModelEnded(Ok(()))
+        WaitOutcome::ModelEnded(Ok(_))
     ));
     assert!(ready.notified().now_or_never().is_some());
 
@@ -400,10 +554,8 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
 
     assert!(runtime.has_active_model());
     assert_eq!(runtime.pending.len(), pending_before);
-    assert_eq!(
-        interrupted.undelivered_model.len() + late.undelivered_model.len(),
-        2
-    );
+    assert!(interrupted.undelivered_model.is_empty());
+    assert!(late.undelivered_model.is_empty());
     runtime
         .shutdown()
         .await

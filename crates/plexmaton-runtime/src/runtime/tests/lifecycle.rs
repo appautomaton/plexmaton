@@ -15,10 +15,10 @@ use rustix::{io::Errno, process::Pid};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::{FakeDriver, Script, agent_id, complete_usage};
+use super::{FakeDriver, Script, agent_id, complete_usage, test_request_environment};
 use crate::{
     LiveRuntime, NativeToolCatalog,
-    runtime::{ModelDriver, ModelSignal},
+    runtime::{ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport},
 };
 
 const STUBBORN_COMMAND: &str = "trap '' TERM; printf '%s' $$ > command.pid; while :; do :; done";
@@ -197,6 +197,7 @@ async fn cancelled_shutdown_can_be_called_again_to_finish_exact_cleanup() {
 
 struct PendingDriver {
     dropped: Arc<AtomicBool>,
+    environment: plexmaton_agent::RequestEnvironment,
 }
 
 struct DropFlag(Arc<AtomicBool>);
@@ -208,25 +209,33 @@ impl Drop for DropFlag {
 }
 
 impl ModelDriver for PendingDriver {
+    fn request_environment(&self) -> &plexmaton_agent::RequestEnvironment {
+        &self.environment
+    }
+
     fn drive(
         &self,
+        attempt_id: plexmaton_agent::RequestAttemptId,
         call: ModelCall,
         signals: mpsc::Sender<ModelSignal>,
         _cancellation: CancellationToken,
-    ) -> BoxFuture<'static, ()> {
+    ) -> BoxFuture<'static, ModelTerminalReport> {
         let dropped = Arc::clone(&self.dropped);
         async move {
             let _drop_flag = DropFlag(dropped);
+            let output = ModelOutput::from_event(ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "started".to_owned(),
+            })
+            .unwrap_or_else(|_| unreachable!("text is nonterminal model output"));
             let _closed = signals
-                .send(ModelSignal::Event {
+                .send(ModelSignal {
+                    attempt_id,
                     step_id: call.step_id,
-                    event: ModelEvent::TextDelta {
-                        position: ModelOutputPosition::new(0, 0),
-                        delta: "started".to_owned(),
-                    },
+                    output,
                 })
                 .await;
-            future::pending().await
+            future::pending::<ModelTerminalReport>().await
         }
         .boxed()
     }
@@ -239,6 +248,7 @@ async fn dropping_an_active_runtime_drops_the_exact_provider_future() {
     let dropped = Arc::new(AtomicBool::new(false));
     let driver = Arc::new(PendingDriver {
         dropped: Arc::clone(&dropped),
+        environment: test_request_environment(),
     });
     let mut runtime = runtime(driver, &workspace);
     let _announced = runtime.try_next_event();

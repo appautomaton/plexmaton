@@ -85,5 +85,5 @@ async fn a_cancelled_terminal_join_remains_owned_until_interrupt_joins_it() {
         finished.load(Ordering::SeqCst),
         "interrupt returned before join"
     );
-    assert_eq!(report.undelivered_model.len(), 1);
+    assert!(report.undelivered_model.is_empty());
 }

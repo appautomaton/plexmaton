@@ -30,8 +30,20 @@ impl LiveRuntime {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
-        Self::with_driver(agent_id, label.into(), driver, tools)
+        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
+        let driver = Arc::new(OpenAiHttp::new(
+            model,
+            key,
+            definitions,
+            Arc::clone(&clock),
+        )?);
+        Ok(Self::with_driver_and_clock(
+            agent_id,
+            label.into(),
+            driver,
+            tools,
+            clock,
+        ))
     }
 
     /// Opens one new live agent whose canonical reactions must reach an empty journal first.
@@ -47,15 +59,22 @@ impl LiveRuntime {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
+        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
+        let driver = Arc::new(OpenAiHttp::new(
+            model,
+            key,
+            definitions,
+            Arc::clone(&clock),
+        )?);
         let metadata = journal.journal().metadata().clone();
-        Self::with_driver_and_store(
+        Self::with_driver_store_and_clock(
             agent_id,
             label.into(),
             driver,
             tools,
             metadata,
             Box::new(journal),
+            clock,
         )
         .await
     }
@@ -72,7 +91,13 @@ impl LiveRuntime {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(model, key, definitions)?);
+        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
+        let driver = Arc::new(OpenAiHttp::new(
+            model,
+            key,
+            definitions,
+            Arc::clone(&clock),
+        )?);
         let recovery = journal.recovery().clone();
         let agent = Agent::from_journal(
             agent_id.clone(),
@@ -88,10 +113,12 @@ impl LiveRuntime {
             tools,
             Box::new(journal),
             recovery,
+            clock,
         )
         .await
     }
 
+    #[cfg(test)]
     pub(super) fn with_driver(
         agent_id: AgentId,
         label: String,
@@ -149,19 +176,6 @@ impl LiveRuntime {
         runtime
     }
 
-    pub(super) async fn with_driver_and_store(
-        agent_id: AgentId,
-        label: String,
-        driver: Arc<dyn ModelDriver>,
-        tools: NativeToolCatalog,
-        metadata: SessionMetadata,
-        store: Box<dyn JournalStore>,
-    ) -> Result<Self, RuntimeError> {
-        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
-        Self::with_driver_store_and_clock(agent_id, label, driver, tools, metadata, store, clock)
-            .await
-    }
-
     pub(super) async fn with_driver_store_and_clock(
         agent_id: AgentId,
         label: String,
@@ -210,12 +224,12 @@ impl LiveRuntime {
         tools: NativeToolCatalog,
         store: Box<dyn JournalStore>,
         tail_recovery: JournalRecovery,
+        clock: Arc<dyn WallClock>,
     ) -> Result<(Self, SessionRecovery), RuntimeError> {
         let projection = agent
             .rebuild_projection()
             .unwrap_or_else(|_| unreachable!("a newly restored agent has no transient work"));
         let pending = VecDeque::from(projection.events().to_vec());
-        let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
         let recovered = agent.recover_after_process_death_at(clock.now());
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {

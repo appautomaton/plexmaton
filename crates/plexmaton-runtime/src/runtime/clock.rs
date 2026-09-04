@@ -4,17 +4,17 @@ use plexmaton_agent::UnixMillis;
 
 use crate::RuntimeError;
 
-pub(super) trait WallClock: Send + Sync + 'static {
+pub(crate) trait WallClock: Send + Sync + 'static {
     fn now(&self) -> UnixMillis;
 }
 
-pub(super) struct SystemWallClock {
+pub(crate) struct SystemWallClock {
     origin: UnixMillis,
     started: Instant,
 }
 
 impl SystemWallClock {
-    pub(super) fn new() -> Result<Self, RuntimeError> {
+    pub(crate) fn new() -> Result<Self, RuntimeError> {
         let elapsed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| RuntimeError::WallClockBeforeUnixEpoch)?;
@@ -41,7 +41,7 @@ impl WallClock for SystemWallClock {
 }
 
 #[cfg(test)]
-pub(super) struct FixedWallClock(pub(super) UnixMillis);
+pub(crate) struct FixedWallClock(pub(crate) UnixMillis);
 
 #[cfg(test)]
 impl WallClock for FixedWallClock {

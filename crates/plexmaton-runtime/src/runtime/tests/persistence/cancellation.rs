@@ -264,50 +264,6 @@ async fn cancelled_model_end_during_usage_append_keeps_the_active_owner() {
     }
 }
 
-/// JRN-7: terminal output is installed in its active owner before missing usage can suspend.
-#[tokio::test]
-async fn cancelled_terminal_usage_append_keeps_the_terminal_until_interrupt() {
-    let (control, store) = StoreControl::pair();
-    let ready = Arc::new(Notify::new());
-    let finished = Arc::new(AtomicBool::new(false));
-    let driver = FakeDriver::new([Script::TerminalThenWaitForCancellation {
-        ready,
-        finished: Arc::clone(&finished),
-    }]);
-    let mut runtime = runtime(store, driver).await;
-    while runtime.try_next_event().is_some() {}
-    runtime
-        .submit(agent_id(), submission())
-        .await
-        .unwrap_or_else(|error| panic!("open turn: {error}"));
-    while runtime.try_next_event().is_some() {}
-    control.block_after(1);
-
-    {
-        let entered = control.gate.entered.notified();
-        let update = runtime.next_update();
-        tokio::pin!(update);
-        tokio::select! {
-            result = &mut update => panic!("terminal completed before usage ack: {result:?}"),
-            () = entered => {}
-        }
-    }
-    assert!(
-        runtime
-            .active
-            .as_ref()
-            .is_some_and(|active| active.terminal.is_some())
-    );
-    control.gate.release();
-    runtime
-        .submit(agent_id(), Input::Interrupted)
-        .await
-        .unwrap_or_else(|error| panic!("resume with interrupt: {error}"));
-
-    assert!(!runtime.has_active_model());
-    assert!(finished.load(Ordering::SeqCst));
-}
-
 /// JRN-7: cancelled shutdown resumes its accepted append and joins every owner.
 #[tokio::test]
 async fn cancelled_shutdown_drains_every_accepted_record_before_writer_exit() {

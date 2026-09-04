@@ -3,17 +3,26 @@
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
-use plexmaton_agent::{ModelCall, ModelError, ModelEvent};
+use plexmaton_agent::{ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestEnvironment};
+use plexmaton_core::TokenUsage;
 use plexmaton_provider::{
     ApiKey, DecodeLimits, FunctionTool, ModelApi, ResolvedModel, SseDecodeError,
-    classify_http_error, drive_sse, encode_request,
+    classify_http_error, drive_sse, encode_request, request_environment,
 };
 use reqwest::{Client, Url, header};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::{ModelDriver, ModelSignal};
+use crate::runtime::{
+    ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport, WallClock,
+};
+
+mod timing;
+#[cfg(test)]
+mod timing_tests;
+
+use timing::{RequestTimer, not_dispatched_report};
 
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
@@ -40,6 +49,8 @@ pub(crate) struct OpenAiHttp {
     model: ResolvedModel,
     key: Arc<ApiKey>,
     tools: Arc<[FunctionTool]>,
+    environment: RequestEnvironment,
+    clock: Arc<dyn WallClock>,
 }
 
 impl OpenAiHttp {
@@ -47,6 +58,7 @@ impl OpenAiHttp {
         model: ResolvedModel,
         key: ApiKey,
         tools: Arc<[FunctionTool]>,
+        clock: Arc<dyn WallClock>,
     ) -> Result<Self, HttpSetupError> {
         let endpoint = endpoint(&model)?;
         let client = Client::builder()
@@ -54,16 +66,33 @@ impl OpenAiHttp {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(HttpSetupError::Client)?;
+        let environment = request_environment(&model, &tools, Some(model.max_output_tokens()));
         Ok(Self {
             client,
             endpoint,
             model,
             key: Arc::new(key),
             tools,
+            environment,
+            clock,
         })
     }
 
-    async fn perform(&self, call: ModelCall, signals: mpsc::Sender<ModelSignal>) {
+    async fn perform(
+        &self,
+        attempt_id: RequestAttemptId,
+        call: ModelCall,
+        signals: mpsc::Sender<ModelSignal>,
+        cancellation: CancellationToken,
+    ) -> ModelTerminalReport {
+        if cancellation.is_cancelled() {
+            return not_dispatched_report(
+                attempt_id,
+                call.step_id,
+                plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
+                ModelCompletion::Cancelled,
+            );
+        }
         let body = match encode_request(
             &self.model,
             &call.request,
@@ -72,99 +101,180 @@ impl OpenAiHttp {
         ) {
             Ok(body) => body,
             Err(error) => {
-                send_failure(
-                    &signals,
+                return not_dispatched_report(
+                    attempt_id,
                     call.step_id,
-                    ModelError::Malformed {
+                    plexmaton_agent::RequestNotDispatchedOutcome::EncodingFailed,
+                    ModelCompletion::Failed(ModelError::Malformed {
                         message: error.to_string(),
-                    },
-                )
-                .await;
-                return;
+                    }),
+                );
             }
         };
-        let response = match self
+        if cancellation.is_cancelled() {
+            return not_dispatched_report(
+                attempt_id,
+                call.step_id,
+                plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
+                ModelCompletion::Cancelled,
+            );
+        }
+        let request = self
             .client
             .post(self.endpoint.clone())
             .header(header::ACCEPT, "text/event-stream")
             .bearer_auth(self.key.expose())
-            .json(&body)
-            .send()
-            .await
-        {
+            .json(&body);
+        let mut timer = RequestTimer::start(self.clock.now());
+        let response = {
+            let send = request.send();
+            tokio::pin!(send);
+            tokio::select! {
+                biased;
+                response = &mut send => response,
+                () = cancellation.cancelled() => {
+                    return timer.cancelled(attempt_id, call.step_id, TokenUsage::Unavailable);
+                }
+            }
+        };
+        let response = match response {
             Ok(response) => response,
             Err(error) => {
-                send_failure(
-                    &signals,
+                return timer.failed(
+                    attempt_id,
                     call.step_id,
                     ModelError::Transport {
                         message: error.to_string(),
                     },
-                )
-                .await;
-                return;
+                    TokenUsage::Unavailable,
+                );
             }
         };
+        timer.headers_arrived();
         if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let retry_after = response
-                .headers()
-                .get(header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.parse().ok());
-            let body = bounded_error_body(response).await;
-            send_failure(
-                &signals,
+            return failed_response_report(
+                timer,
+                attempt_id,
                 call.step_id,
-                classify_http_error(status, retry_after, &body),
+                response,
+                &cancellation,
             )
             .await;
-            return;
         }
 
         let limits = DecodeLimits::production();
-        let step_id = call.step_id;
+        let step_id = call.step_id.clone();
         let stream = response.bytes_stream();
-        let decoded = drive_sse(&self.model, stream, limits, |event| {
-            let signals = signals.clone();
-            let step_id = step_id.clone();
-            async move {
-                let signal = if matches!(event, ModelEvent::Stopped(_)) {
-                    ModelSignal::Terminal { step_id, event }
-                } else {
-                    ModelSignal::Event { step_id, event }
+        let mut usage = None;
+        let mut stop = None;
+        enum DecodeResult<E> {
+            Finished(Result<(), SseDecodeError<E>>),
+            Cancelled,
+        }
+        let decoded = {
+            let decoded = drive_sse(&self.model, stream, limits, |event| {
+                let signal = match event {
+                    ModelEvent::Usage(report) => {
+                        usage = Some(report);
+                        None
+                    }
+                    ModelEvent::Stopped(reason) => {
+                        stop = Some(reason);
+                        None
+                    }
+                    event => {
+                        let output = ModelOutput::from_event(event).unwrap_or_else(|_| {
+                            unreachable!("usage and stop were handled before model output")
+                        });
+                        timer.output_arrived(&output);
+                        Some(ModelSignal {
+                            attempt_id: attempt_id.clone(),
+                            step_id: step_id.clone(),
+                            output,
+                        })
+                    }
                 };
-                let _closed = signals.send(signal).await;
+                let signals = signals.clone();
+                async move {
+                    if let Some(signal) = signal {
+                        let _closed = signals.send(signal).await;
+                    }
+                }
+            });
+            tokio::pin!(decoded);
+            tokio::select! {
+                biased;
+                result = &mut decoded => DecodeResult::Finished(result),
+                () = cancellation.cancelled() => DecodeResult::Cancelled,
             }
-        })
-        .await;
-        if let Err(error) = decoded {
-            send_failure(&signals, step_id, decode_error(error)).await;
+        };
+        let usage = usage.unwrap_or(TokenUsage::Unavailable);
+        match decoded {
+            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage),
+            DecodeResult::Finished(Err(error)) => {
+                timer.failed(attempt_id, call.step_id, decode_error(error), usage)
+            }
+            DecodeResult::Finished(Ok(())) => {
+                let reason = stop.unwrap_or_else(|| {
+                    unreachable!("a successful SSE drive always emits its retained stop")
+                });
+                timer.completed(attempt_id, call.step_id, reason, usage)
+            }
+        }
+    }
+}
+
+async fn failed_response_report(
+    timer: RequestTimer,
+    attempt_id: RequestAttemptId,
+    step_id: plexmaton_agent::ModelStepId,
+    response: reqwest::Response,
+    cancellation: &CancellationToken,
+) -> ModelTerminalReport {
+    let status = response.status().as_u16();
+    let retry_after = response
+        .headers()
+        .get(header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok());
+    let body = bounded_error_body(response);
+    tokio::pin!(body);
+    tokio::select! {
+        biased;
+        body = &mut body => timer.failed(
+            attempt_id,
+            step_id,
+            classify_http_error(status, retry_after, &body),
+            TokenUsage::Unavailable,
+        ),
+        () = cancellation.cancelled() => {
+            timer.cancelled(attempt_id, step_id, TokenUsage::Unavailable)
         }
     }
 }
 
 impl ModelDriver for OpenAiHttp {
+    fn request_environment(&self) -> &RequestEnvironment {
+        &self.environment
+    }
+
     fn drive(
         &self,
+        attempt_id: RequestAttemptId,
         call: ModelCall,
         signals: mpsc::Sender<ModelSignal>,
         cancellation: CancellationToken,
-    ) -> BoxFuture<'static, ()> {
+    ) -> BoxFuture<'static, ModelTerminalReport> {
         let this = Self {
             client: self.client.clone(),
             endpoint: self.endpoint.clone(),
             model: self.model.clone(),
             key: Arc::clone(&self.key),
             tools: Arc::clone(&self.tools),
+            environment: self.environment.clone(),
+            clock: Arc::clone(&self.clock),
         };
-        async move {
-            tokio::select! {
-                () = cancellation.cancelled() => {}
-                () = this.perform(call, signals) => {}
-            }
-        }
-        .boxed()
+        async move { this.perform(attempt_id, call, signals, cancellation).await }.boxed()
     }
 }
 
@@ -224,17 +334,9 @@ fn decode_error(error: SseDecodeError<reqwest::Error>) -> ModelError {
     }
 }
 
-async fn send_failure(
-    signals: &mpsc::Sender<ModelSignal>,
-    step_id: plexmaton_agent::ModelStepId,
-    error: ModelError,
-) {
-    let _closed = signals.send(ModelSignal::Failed { step_id, error }).await;
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, sync::Arc};
 
     use plexmaton_agent::ModelRequest;
     use plexmaton_core::AgentId;
@@ -315,7 +417,10 @@ output_reserve_tokens = 16384
             let model = model("http://127.0.0.1:8317/v1", api);
             let key = resolve_api_key(&model, Some("fixture-secret".into()))
                 .unwrap_or_else(|error| panic!("resolve fixture key: {error}"));
-            let http = OpenAiHttp::new(model, key, definitions.clone())
+            let clock = Arc::new(crate::runtime::FixedWallClock(
+                plexmaton_agent::UnixMillis::new(100),
+            ));
+            let http = OpenAiHttp::new(model, key, definitions.clone(), clock)
                 .unwrap_or_else(|error| panic!("open HTTP edge: {error}"));
             bodies.push(
                 encode_request(

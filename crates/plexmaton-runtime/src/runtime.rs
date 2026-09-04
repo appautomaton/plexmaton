@@ -2,7 +2,9 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{Agent, Input, ModelStepId, UndeliveredInput, UndeliveredReason};
+use plexmaton_agent::{
+    Agent, Input, ModelStepId, RequestAttemptId, UndeliveredInput, UndeliveredReason,
+};
 use plexmaton_core::{AgentId, SessionEventEnvelope};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -17,10 +19,13 @@ mod terminal;
 mod tools;
 mod transition;
 
-use clock::WallClock;
+#[cfg(test)]
+pub(crate) use clock::FixedWallClock;
+pub(crate) use clock::WallClock;
 use model::RetainedModelFuture;
-pub(crate) use model::{ModelDriver, ModelSignal};
-use terminal::QueuedTerminal;
+pub(crate) use model::{
+    ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport,
+};
 use tools::{ToolResolution, ToolTasks};
 use transition::{AfterCommit, PendingCommit};
 
@@ -36,11 +41,10 @@ struct PendingInput {
 }
 
 struct ActiveModel {
+    attempt_id: RequestAttemptId,
     step_id: ModelStepId,
     cancellation: CancellationToken,
     future: RetainedModelFuture,
-    usage_reported: bool,
-    terminal: Option<QueuedTerminal>,
 }
 
 /// Owner of one live agent and every asynchronous operation it starts (LIVE-1).
@@ -338,7 +342,7 @@ impl Drop for LiveRuntime {
 
 enum WaitOutcome {
     Signal(Option<ModelSignal>),
-    ModelEnded(Result<(), ()>),
+    ModelEnded(Result<ModelTerminalReport, ()>),
     Tool(Result<Option<ToolResolution>, RuntimeError>),
 }
 
