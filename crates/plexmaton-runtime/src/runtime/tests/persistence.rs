@@ -68,19 +68,24 @@ impl Gate {
     }
 
     fn wait(&self) {
-        let mut blocked = self
+        self.wait_for(Duration::from_secs(5));
+    }
+
+    fn wait_for(&self, timeout: Duration) {
+        let blocked = self
             .blocked
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if *blocked {
             self.entered.notify_one();
         }
-        while *blocked {
-            blocked = self
-                .released
-                .wait(blocked)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-        }
+        // A failed assertion can drop the runtime before the test releases this gate.
+        // Its writer joins synchronously, so an async timeout alone cannot bound cleanup.
+        let (blocked, _) = self
+            .released
+            .wait_timeout_while(blocked, timeout, |blocked| *blocked)
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert!(!*blocked, "test journal gate was not released");
     }
 
     fn release(&self) {
@@ -91,6 +96,22 @@ impl Gate {
         *blocked = false;
         self.released.notify_all();
     }
+}
+
+struct ReleaseGateOnDrop<'a>(&'a Gate);
+
+impl Drop for ReleaseGateOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.release();
+    }
+}
+
+#[test]
+#[should_panic(expected = "test journal gate was not released")]
+fn an_unreleased_test_gate_fails_instead_of_hanging_writer_cleanup() {
+    let gate = Gate::new();
+    gate.arm();
+    gate.wait_for(Duration::ZERO);
 }
 
 impl JournalStore for ControlledStore {

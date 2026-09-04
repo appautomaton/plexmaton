@@ -237,31 +237,97 @@ async fn cancelled_model_end_during_attempt_terminal_append_keeps_the_active_own
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::EndWithoutTerminal]);
     let mut runtime = runtime(store, driver).await;
+    // Drop before runtime: failed assertions must unblock its synchronous writer join.
+    let _release = ReleaseGateOnDrop(&control.gate);
     while runtime.try_next_event().is_some() {}
     runtime
         .submit(agent_id(), submission())
         .await
         .unwrap_or_else(|error| panic!("open turn: {error}"));
     while runtime.try_next_event().is_some() {}
-    control.block_after(1);
+    control.block_on_payload(BlockPayload::RequestFinished);
 
     {
-        let entered = control.gate.entered.notified();
+        let entered = tokio::time::timeout(Duration::from_secs(5), control.gate.entered.notified());
         let update = runtime.next_update();
         tokio::pin!(update);
         tokio::select! {
             result = &mut update => panic!("model end completed before attempt terminal ack: {result:?}"),
-            () = entered => {}
+            result = entered => result.expect("request terminal append never reached the test gate"),
         }
     }
     assert!(runtime.has_active_model());
+    assert!(
+        !control
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .any(|record| { matches!(record, JournalRecord::RequestAttemptFinished { .. }) })
+    );
     control.gate.release();
-    while runtime.has_active_model() {
-        let _update = tokio::time::timeout(Duration::from_secs(5), runtime.next_update())
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_model() {
+            runtime.next_update().await.expect("resume model end");
+        }
+    })
+    .await
+    .expect("retained model end did not resume");
+    assert_eq!(
+        control
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .filter(|record| { matches!(record, JournalRecord::RequestAttemptFinished { .. }) })
+            .count(),
+        1,
+        "resuming the cancelled poll commits the terminal exactly once"
+    );
+}
+
+/// JRN-7: a failing barrier assertion must not deadlock the owned writer's cleanup.
+#[tokio::test]
+async fn a_panicking_barrier_test_releases_the_writer_before_runtime_drop() {
+    use futures_util::FutureExt as _;
+
+    let (control, store) = StoreControl::pair();
+    let result = std::panic::AssertUnwindSafe(async {
+        let mut runtime = runtime(store, FakeDriver::new([Script::EndWithoutTerminal])).await;
+        let _release = ReleaseGateOnDrop(&control.gate);
+        runtime
+            .submit(agent_id(), submission())
             .await
-            .unwrap_or_else(|_| panic!("retained model end did not resume"))
-            .unwrap_or_else(|error| panic!("resume model end: {error}"));
-    }
+            .expect("open turn");
+        while runtime.try_next_event().is_some() {}
+        control.block_on_payload(BlockPayload::RequestFinished);
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            drive_until_store_blocks(&mut runtime, &control),
+        )
+        .await
+        .expect("request terminal append never reached the test gate");
+        panic!("injected barrier assertion failure");
+    })
+    .catch_unwind()
+    .await;
+
+    assert!(result.is_err_and(|error| {
+        error.downcast_ref::<&str>() == Some(&"injected barrier assertion failure")
+    }));
+    assert!(
+        control.dropped.load(Ordering::SeqCst),
+        "writer was joined during unwinding"
+    );
+    assert!(
+        control
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .any(|record| { matches!(record, JournalRecord::RequestAttemptFinished { .. }) }),
+        "unwinding released the accepted append; the writer did not merely time out"
+    );
 }
 
 /// JRN-7: cancelled shutdown resumes its accepted append and joins every owner.
