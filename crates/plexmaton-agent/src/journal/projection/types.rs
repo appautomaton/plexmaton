@@ -118,6 +118,8 @@ pub enum JournalProjectionError {
     DuplicateTurn(TurnId),
     /// A selected path repeated one model-step identity.
     DuplicateModelStep(ModelStepId),
+    /// Immutable usage facts exceeded the cumulative turn representation.
+    TurnUsageOverflow(TurnId),
     /// Canonical facts could not form one indivisible context unit.
     InvalidContext(ContextError),
     /// More UI events cannot be numbered without repeating an identity.

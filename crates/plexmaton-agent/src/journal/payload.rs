@@ -1,6 +1,6 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, MailId, TokenUsage,
-    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, MailId, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,12 +24,6 @@ pub enum JournalEntryPayload {
         agent_id: AgentId,
         turn_id: TurnId,
         status: crate::ActiveTurnStatus,
-    },
-    /// Provider-reported aggregate usage changed for one turn.
-    TurnUsageUpdated {
-        agent_id: AgentId,
-        turn_id: TurnId,
-        usage: TokenUsage,
     },
     /// Initial user input and the turn boundary it starts atomically (TIM-1).
     TurnStarted {

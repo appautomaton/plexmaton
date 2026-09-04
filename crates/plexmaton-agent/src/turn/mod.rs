@@ -17,18 +17,18 @@ use crate::journal::{JournalEntryPayload, SessionJournal};
 use crate::model::{ModelCall, ModelStepId};
 use crate::record::Record;
 use crate::step::Step;
+use crate::timing::UsageAccumulator;
 use crate::tools::{Batch, PendingApproval};
 
 mod batch;
 mod input;
 mod lifecycle;
 mod model_input;
+mod request_attempt;
 mod tool_projection;
-mod usage;
 mod user_input;
 
 use input::{DeliveryBoundary, InputQueue};
-use usage::UsageAccumulator;
 
 /// How many steps one turn may take before the loop stops it.
 ///
@@ -65,7 +65,7 @@ enum Turn {
         turn_id: TurnId,
         /// Step currently receiving model events.
         step: Box<Step>,
-        /// Checked aggregate of reports received during this turn.
+        /// Process-local aggregate until usage moves into the attempt terminal.
         usage: UsageAccumulator,
     },
     /// The step is over and the calls it made are out being run.
@@ -76,7 +76,7 @@ enum Turn {
         batch: Batch,
         /// Which step dispatched them.
         step: u16,
-        /// Checked aggregate carried across the tool boundary.
+        /// Process-local aggregate carried across the tool boundary.
         usage: UsageAccumulator,
     },
 }
@@ -308,8 +308,8 @@ impl Agent {
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, AttentionRequest, HeadName, SessionEvent,
-        SessionId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolCapability,
-        ToolDefinitionId, ToolDetail, TranscriptRole,
+        SessionId, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, ToolDetail,
+        TranscriptRole,
     };
 
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
@@ -377,10 +377,6 @@ mod tests {
                 delta: text.to_owned(),
             },
         )
-    }
-
-    fn usage(agent: &mut Agent, report: TokenUsage) -> Reaction {
-        streamed(agent, ModelEvent::Usage(report))
     }
 
     fn call(agent: &mut Agent, call_id: &str) -> Reaction {
@@ -855,58 +851,6 @@ mod tests {
                 if undelivered.reason == ModelDeliveryRefusal::NoActiveStep
         ));
         assert!(after_cancel.events.is_empty());
-    }
-
-    /// LIVE-4 and LIVE-5: usage belongs to the step that reported it and one turn keeps a checked
-    /// aggregate across its tool boundary without turning an omitted breakdown into zero.
-    #[test]
-    fn reported_step_usage_is_aggregated_for_the_owning_turn() {
-        let mut agent = agent();
-        submit(&mut agent, "read then answer");
-        let first = usage(
-            &mut agent,
-            TokenUsage::Complete(TokenCounts {
-                input: 10,
-                cached_input: Some(4),
-                cache_write_input: Some(1),
-                output: 8,
-                reasoning_output: Some(3),
-                total: 18,
-            }),
-        );
-        call(&mut agent, "one");
-        stop(&mut agent, StopReason::ToolCalls);
-        finish(&mut agent, "one", "contents");
-        let second = usage(
-            &mut agent,
-            TokenUsage::Partial(TokenCounts {
-                input: 20,
-                cached_input: None,
-                cache_write_input: None,
-                output: 5,
-                reasoning_output: Some(2),
-                total: 25,
-            }),
-        );
-
-        assert!(matches!(
-            events(&first).as_slice(),
-            [SessionEvent::TurnUsageUpdated {
-                usage: TokenUsage::Complete(counts),
-                ..
-            }] if counts.total == 18
-        ));
-        assert!(matches!(
-            events(&second).as_slice(),
-            [SessionEvent::TurnUsageUpdated {
-                usage: TokenUsage::Partial(counts),
-                ..
-            }] if counts.input == 30
-                && counts.cached_input == Some(4)
-                && counts.output == 13
-                && counts.reasoning_output == Some(5)
-                && counts.total == 43
-        ));
     }
 
     /// One assistant message per step, opened by the first delta and numbered from there, so a

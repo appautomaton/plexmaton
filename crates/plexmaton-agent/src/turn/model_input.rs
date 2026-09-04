@@ -2,10 +2,9 @@
 
 use plexmaton_core::{SessionEvent, TokenUsage, TurnId};
 
-use super::{Agent, Turn, usage::UsageAccumulator};
+use super::{Agent, Turn};
 use crate::TurnOutcome;
 use crate::interface::{ModelDeliveryRefusal, Reaction, UndeliveredModelInput};
-use crate::journal::JournalEntryPayload;
 use crate::model::{ModelEvent, ModelStepId, StopReason};
 use crate::tools::ToolCall;
 
@@ -134,14 +133,6 @@ impl Agent {
             }
             return;
         };
-        self.record.commit(
-            JournalEntryPayload::TurnUsageUpdated {
-                agent_id: self.record.agent_id().clone(),
-                turn_id: turn_id.clone(),
-                usage: usage.clone(),
-            },
-            reaction,
-        );
         self.record.emit(
             reaction,
             SessionEvent::TurnUsageUpdated {
@@ -182,7 +173,7 @@ impl Agent {
     pub(super) fn close_step(
         &mut self,
         reaction: &mut Reaction,
-    ) -> Option<(TurnId, Vec<ToolCall>, u16, UsageAccumulator)> {
+    ) -> Option<(TurnId, Vec<ToolCall>, u16, crate::timing::UsageAccumulator)> {
         let Turn::Streaming {
             turn_id,
             step,

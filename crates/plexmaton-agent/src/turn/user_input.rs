@@ -2,7 +2,8 @@ use plexmaton_core::{
     AgentId, AgentStatus, SessionEvent, TranscriptItemId, TranscriptRole, TurnId,
 };
 
-use super::{Agent, DeliveryBoundary, UsageAccumulator};
+use super::{Agent, DeliveryBoundary};
+use crate::timing::UsageAccumulator;
 use crate::{JournalEntryPayload, Reaction, UndeliveredInput, UndeliveredReason, UnixMillis};
 
 impl Agent {

@@ -5,8 +5,8 @@ use plexmaton_core::{SessionEntryId, TokenCounts, TokenUsage, TurnId};
 use super::{
     CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttemptAuthorized,
     RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal, RequestAttemptTerminalState,
-    RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
-    RequestNotDispatchedOutcome, RequestTimingError,
+    RequestCost, RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
+    RequestNotDispatchedOutcome, RequestTimingError, USD_COST_TICKS_PER_DOLLAR, UsdCostTicks,
 };
 use crate::test_support::replay_compatibility;
 use crate::{ModelStepId, StopReason, UnixMillis};
@@ -98,6 +98,9 @@ fn tim_3_attempt_wire_round_trips_both_owner_variants() {
                     reasoning_output: Some(1),
                     total: 12,
                 }),
+                cost: RequestCost::Known {
+                    usd_ticks: UsdCostTicks::new(12_500_000),
+                },
             },
         )
         .unwrap_or_else(|error| panic!("dispatched terminal: {error}")),
@@ -179,6 +182,7 @@ fn dispatched_state(usage: TokenUsage) -> RequestAttemptTerminalState {
         timing: timing(),
         outcome: RequestDispatchedOutcome::TransportFailed,
         usage,
+        cost: RequestCost::Unavailable,
     }
 }
 
@@ -201,6 +205,9 @@ fn tim_3_terminal_usage_is_internally_consistent() {
     bad_cached.cached_input = Some(11);
     let mut bad_write = counts();
     bad_write.cache_write_input = Some(11);
+    let mut overlapping_input = counts();
+    overlapping_input.cached_input = Some(9);
+    overlapping_input.cache_write_input = Some(2);
     let mut bad_reasoning = counts();
     bad_reasoning.reasoning_output = Some(4);
     let mut bad_total = counts();
@@ -211,6 +218,7 @@ fn tim_3_terminal_usage_is_internally_consistent() {
     for (usage, field) in [
         (TokenUsage::Complete(bad_cached), "cached_input"),
         (TokenUsage::Complete(bad_write), "cache_write_input"),
+        (TokenUsage::Complete(overlapping_input), "input_breakdown"),
         (TokenUsage::Complete(bad_reasoning), "reasoning_output"),
         (TokenUsage::Complete(bad_total), "total"),
         (TokenUsage::Complete(incomplete), "coverage"),
@@ -238,6 +246,7 @@ fn tim_3_terminal_usage_is_internally_consistent() {
                 "terminal_after_ms":2
             },
             "outcome":{"kind":"transport_failed"},
+            "cost":{"availability":"unavailable"},
             "usage":{
                 "coverage":"complete",
                 "counts":{
@@ -252,4 +261,65 @@ fn tim_3_terminal_usage_is_internally_consistent() {
         }
     }"#;
     assert!(serde_json::from_str::<RequestAttemptTerminal>(invalid_wire).is_err());
+}
+
+/// TIM-3: historical cost is fixed-point terminal data; it is never inferred from partial usage,
+/// while a request that did not dispatch semantically incurred exactly zero.
+#[test]
+fn tim_3_terminal_cost_is_immutable_validated_and_non_floating_point() {
+    assert_eq!(USD_COST_TICKS_PER_DOLLAR, 10_000_000_000);
+    let not_dispatched = RequestAttemptTerminal::new(
+        attempt("cancelled"),
+        RequestAttemptTerminalState::NotDispatched {
+            outcome: RequestNotDispatchedOutcome::Cancelled,
+        },
+    )
+    .unwrap_or_else(|error| panic!("not dispatched terminal: {error}"));
+    assert_eq!(
+        not_dispatched.incurred_cost(),
+        RequestCost::Known {
+            usd_ticks: UsdCostTicks::ZERO,
+        }
+    );
+
+    assert_eq!(
+        RequestAttemptTerminal::new(
+            attempt("partial-priced"),
+            RequestAttemptTerminalState::Dispatched {
+                timing: timing(),
+                outcome: RequestDispatchedOutcome::Completed {
+                    stop_reason: StopReason::EndOfTurn,
+                },
+                usage: TokenUsage::Partial(counts()),
+                cost: RequestCost::Known {
+                    usd_ticks: UsdCostTicks::new(42),
+                },
+            },
+        ),
+        Err(RequestTimingError::CostWithoutCompleteUsage)
+    );
+
+    let priced = RequestAttemptTerminal::new(
+        attempt("priced"),
+        RequestAttemptTerminalState::Dispatched {
+            timing: timing(),
+            outcome: RequestDispatchedOutcome::Completed {
+                stop_reason: StopReason::EndOfTurn,
+            },
+            usage: TokenUsage::Complete(counts()),
+            cost: RequestCost::Known {
+                usd_ticks: UsdCostTicks::new(42),
+            },
+        },
+    )
+    .unwrap_or_else(|error| panic!("priced terminal: {error}"));
+    let json = serde_json::to_string(&priced)
+        .unwrap_or_else(|error| panic!("encode priced terminal: {error}"));
+    assert!(json.contains(r#""usd_ticks":42"#));
+    assert!(!json.contains("42.0"));
+    assert_eq!(
+        serde_json::from_str::<RequestAttemptTerminal>(&json)
+            .unwrap_or_else(|error| panic!("decode priced terminal: {error}")),
+        priced
+    );
 }

@@ -13,7 +13,8 @@ mod terminal;
 pub use environment::{RequestEnvironment, RequestEnvironmentFingerprint};
 pub use terminal::{
     DispatchedRequestTiming, ElapsedMillis, RequestAttemptTerminal, RequestAttemptTerminalState,
-    RequestDispatchedOutcome, RequestNotDispatchedOutcome,
+    RequestCost, RequestDispatchedOutcome, RequestNotDispatchedOutcome, USD_COST_TICKS_PER_DOLLAR,
+    UsdCostTicks,
 };
 
 const MAX_ATTEMPT_ID_BYTES: usize = 1024;
@@ -40,6 +41,8 @@ pub enum RequestTimingError {
         /// Field whose relationship to the rest of the report was invalid.
         field: &'static str,
     },
+    /// A known price was retained without the complete usage needed to calculate it.
+    CostWithoutCompleteUsage,
 }
 
 impl fmt::Display for RequestTimingError {
@@ -59,6 +62,7 @@ impl fmt::Display for RequestTimingError {
             Self::InvalidUsage { field } => {
                 return write!(formatter, "provider usage field `{field}` is inconsistent");
             }
+            Self::CostWithoutCompleteUsage => "known request cost requires complete provider usage",
         };
         formatter.write_str(message)
     }

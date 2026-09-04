@@ -9,12 +9,12 @@ use plexmaton_core::{
     TurnId,
 };
 
-use super::usage::UsageAccumulator;
 use super::{Agent, Turn};
 use crate::ActiveTurnStatus;
 use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::journal::JournalEntryPayload;
+use crate::timing::UsageAccumulator;
 use crate::tools::{
     ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome,

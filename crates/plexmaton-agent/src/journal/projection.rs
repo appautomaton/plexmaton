@@ -7,7 +7,11 @@ use plexmaton_core::{
 };
 
 use super::{JournalEntryPayload, SessionEntry, SessionJournal};
-use crate::{AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId};
+use crate::timing::UsageAccumulator;
+use crate::{
+    AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId, RequestAttempt,
+    RequestAttemptAuthorized, RequestAttemptTerminal, RequestAttemptTerminalState,
+};
 
 #[cfg(test)]
 mod event_tests;
@@ -37,6 +41,7 @@ struct Projector {
     recovery: Option<RecoveryProjection>,
     turns: BTreeMap<TurnId, AgentId>,
     steps: BTreeSet<ModelStepId>,
+    turn_usage: BTreeMap<TurnId, UsageAccumulator>,
 }
 
 impl Projector {
@@ -53,6 +58,7 @@ impl Projector {
             recovery: None,
             turns: BTreeMap::new(),
             steps: BTreeSet::new(),
+            turn_usage: BTreeMap::new(),
         }
     }
 
@@ -263,6 +269,33 @@ impl Projector {
         })
     }
 
+    fn request_attempt_finished(
+        &mut self,
+        attempt: &RequestAttempt,
+    ) -> Result<(), JournalProjectionError> {
+        let Some(step_id) = attempt.authorization().owner().agent_step() else {
+            return Ok(());
+        };
+        let Some(agent_id) = self.turns.get(step_id.turn_id()).cloned() else {
+            return Err(JournalProjectionError::MissingTurn(
+                step_id.turn_id().clone(),
+            ));
+        };
+        let Some(terminal) = attempt.terminal() else {
+            return Ok(());
+        };
+        let Some(event) = cumulative_usage_event(
+            attempt.authorization(),
+            terminal,
+            &agent_id,
+            &mut self.turn_usage,
+        )?
+        else {
+            return Ok(());
+        };
+        self.emit(event)
+    }
+
     fn require_agent(&self, agent_id: &AgentId) -> Result<(), JournalProjectionError> {
         if self.agents.contains(agent_id) {
             Ok(())
@@ -291,9 +324,6 @@ impl Projector {
                 if !self.agents.insert(agent_id.clone()) {
                     return Err(JournalProjectionError::DuplicateAgent(agent_id.clone()));
                 }
-            }
-            JournalEntryPayload::TurnUsageUpdated { agent_id, .. } => {
-                self.require_agent(agent_id)?;
             }
             JournalEntryPayload::AttentionRequested {
                 agent_id,
@@ -391,11 +421,24 @@ impl SessionJournal {
                 ));
             }
         }
+        for record in self.records() {
+            if let super::JournalRecord::RequestAttemptFinished { fact, sequence, .. } = record {
+                let attempt = self
+                    .request_attempt(fact.attempt_id())
+                    .unwrap_or_else(|| unreachable!("accepted terminal retains its authorization"));
+                if Self::boundary_is_selected(&selected, attempt.authorization()) {
+                    ordered.push((*sequence, SelectedFact::RequestAttemptFinished(attempt)));
+                }
+            }
+        }
         ordered.sort_by_key(|(sequence, _)| *sequence);
         for (_, fact) in ordered {
             match fact {
                 SelectedFact::Entry(entry) => project_entry(&mut projector, entry)?,
                 SelectedFact::TurnFinished(fact) => projector.turn_finished(fact)?,
+                SelectedFact::RequestAttemptFinished(attempt) => {
+                    projector.request_attempt_finished(attempt)?;
+                }
             }
         }
         projector.finish_batch(true)?;
@@ -418,6 +461,93 @@ impl SessionJournal {
 enum SelectedFact<'a> {
     Entry(&'a SessionEntry),
     TurnFinished(&'a crate::TurnFinished),
+    RequestAttemptFinished(&'a RequestAttempt),
+}
+
+fn cumulative_usage_event(
+    authorization: &RequestAttemptAuthorized,
+    terminal: &RequestAttemptTerminal,
+    agent_id: &AgentId,
+    totals: &mut BTreeMap<TurnId, UsageAccumulator>,
+) -> Result<Option<SessionEvent>, JournalProjectionError> {
+    let Some(step_id) = authorization.owner().agent_step() else {
+        return Ok(None);
+    };
+    let RequestAttemptTerminalState::Dispatched { usage, .. } = terminal.terminal() else {
+        return Ok(None);
+    };
+    let aggregate = totals
+        .entry(step_id.turn_id().clone())
+        .or_default()
+        .add(usage.clone())
+        .map_err(|()| JournalProjectionError::TurnUsageOverflow(step_id.turn_id().clone()))?;
+    Ok(Some(SessionEvent::TurnUsageUpdated {
+        agent_id: agent_id.clone(),
+        turn_id: step_id.turn_id().clone(),
+        usage: aggregate,
+    }))
+}
+
+impl SessionJournal {
+    pub(crate) fn preview_cumulative_usage_event(
+        &self,
+        head: &HeadName,
+        terminal: &RequestAttemptTerminal,
+    ) -> Result<Option<SessionEvent>, JournalProjectionError> {
+        let selected: BTreeSet<_> = self
+            .path(head)?
+            .into_iter()
+            .map(|entry| entry.id.clone())
+            .collect();
+        let mut totals = BTreeMap::new();
+        for record in self.records() {
+            let super::JournalRecord::RequestAttemptFinished { fact, .. } = record else {
+                continue;
+            };
+            let attempt = self
+                .request_attempt(fact.attempt_id())
+                .unwrap_or_else(|| unreachable!("accepted terminal retains its authorization"));
+            if !Self::boundary_is_selected(&selected, attempt.authorization()) {
+                continue;
+            }
+            let Some(step_id) = attempt.authorization().owner().agent_step() else {
+                continue;
+            };
+            let start = self
+                .turn_starts
+                .get(step_id.turn_id())
+                .ok_or_else(|| JournalProjectionError::MissingTurn(step_id.turn_id().clone()))?;
+            let retained_terminal = attempt
+                .terminal()
+                .unwrap_or_else(|| unreachable!("finished record retains its terminal"));
+            let _prior = cumulative_usage_event(
+                attempt.authorization(),
+                retained_terminal,
+                &start.agent_id,
+                &mut totals,
+            )?;
+        }
+
+        let Some(attempt) = self.request_attempt(terminal.attempt_id()) else {
+            return Ok(None);
+        };
+        if !Self::boundary_is_selected(&selected, attempt.authorization()) {
+            return Ok(None);
+        }
+        let Some(step_id) = attempt.authorization().owner().agent_step() else {
+            return Ok(None);
+        };
+        let start = self
+            .turn_starts
+            .get(step_id.turn_id())
+            .ok_or_else(|| JournalProjectionError::MissingTurn(step_id.turn_id().clone()))?;
+        cumulative_usage_event(
+            attempt.authorization(),
+            terminal,
+            &start.agent_id,
+            &mut totals,
+        )
+    }
 }
 
 fn project_entry(

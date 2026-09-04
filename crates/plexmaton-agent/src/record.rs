@@ -16,7 +16,10 @@ use crate::journal::{
     JournalEntryPayload, JournalProjection, JournalRecord, SessionEntry, SessionJournal,
 };
 use crate::model::{ContextAtom, ModelOutputPosition, ModelRequest};
-use crate::{SessionMetadata, UnixMillis};
+use crate::{
+    RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal,
+    RequestEnvironment, SessionMetadata, UnixMillis,
+};
 
 mod recovery;
 
@@ -28,6 +31,11 @@ pub(crate) struct Record {
     journal: SessionJournal,
     announced: bool,
     next_event: u64,
+}
+
+pub(crate) enum RequestAttemptCommitError {
+    Journal(crate::JournalError),
+    Projection(crate::JournalProjectionError),
 }
 
 impl Record {
@@ -224,6 +232,87 @@ impl Record {
         );
     }
 
+    pub(crate) fn next_request_attempt_id(&self) -> RequestAttemptId {
+        RequestAttemptId::new(format!(
+            "request-attempt-j{}",
+            self.journal.next_sequence().get()
+        ))
+        .unwrap_or_else(|error| unreachable!("a bounded formatted identity is valid: {error}"))
+    }
+
+    pub(crate) fn authorize_request_attempt(
+        &mut self,
+        attempt_id: RequestAttemptId,
+        owner: RequestAttemptOwner,
+        environment: RequestEnvironment,
+        authorized_at: UnixMillis,
+        reaction: &mut Reaction,
+    ) -> Result<(), crate::JournalError> {
+        let sequence = self.journal.next_sequence();
+        let record_id = JournalRecordId::new(format!(
+            "{}-record-{}",
+            self.journal.session_id(),
+            sequence.get()
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let semantic_boundary = self
+            .journal
+            .head_target(&self.head)?
+            .cloned()
+            .ok_or_else(|| crate::JournalError::MissingTurn(owner_turn_id(&owner)))?;
+        let expected_head_revision = self.journal.head_revision(&self.head)?;
+        let record = JournalRecord::RequestAttemptAuthorized {
+            sequence,
+            record_id,
+            head: self.head.clone(),
+            expected_head_revision,
+            fact: RequestAttemptAuthorized::new(
+                attempt_id,
+                owner,
+                semantic_boundary,
+                environment,
+                authorized_at,
+            ),
+        };
+        self.journal.apply(record.clone())?;
+        reaction.records.push(record);
+        Ok(())
+    }
+
+    pub(crate) fn finish_request_attempt(
+        &mut self,
+        terminal: &RequestAttemptTerminal,
+        reaction: &mut Reaction,
+    ) -> Result<(), RequestAttemptCommitError> {
+        let sequence = self.journal.next_sequence();
+        let record_id = JournalRecordId::new(format!(
+            "{}-record-{}",
+            self.journal.session_id(),
+            sequence.get()
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let record = JournalRecord::RequestAttemptFinished {
+            sequence,
+            record_id,
+            fact: terminal.clone(),
+        };
+        self.journal
+            .validate_record(&record)
+            .map_err(RequestAttemptCommitError::Journal)?;
+        let usage_event = self
+            .journal
+            .preview_cumulative_usage_event(&self.head, terminal)
+            .map_err(RequestAttemptCommitError::Projection)?;
+        self.journal
+            .apply(record.clone())
+            .map_err(RequestAttemptCommitError::Journal)?;
+        reaction.records.push(record);
+        if let Some(event) = usage_event {
+            self.emit(reaction, event);
+        }
+        Ok(())
+    }
+
     /// Numbers one transient or journal-derived event for the live projection.
     pub(crate) fn emit(&mut self, reaction: &mut Reaction, event: SessionEvent) {
         let sequence = EventSequence::new(self.next_event);
@@ -285,6 +374,15 @@ impl Record {
         let attention = AttentionId::new(format!("{}-attention-{call_id}", self.agent_id))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         (approval, attention)
+    }
+}
+
+fn owner_turn_id(owner: &RequestAttemptOwner) -> TurnId {
+    match owner {
+        RequestAttemptOwner::AgentStep { step_id } => step_id.turn_id().clone(),
+        RequestAttemptOwner::Compaction { .. } => {
+            unreachable!("agent record authorizes only agent-step attempts")
+        }
     }
 }
 

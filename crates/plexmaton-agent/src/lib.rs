@@ -29,7 +29,8 @@ pub use admission::{
 };
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, ReleasedInput,
-    UndeliveredInput, UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
+    RequestAttemptRefusal, UndeliveredInput, UndeliveredModelInput, UndeliveredReason,
+    UnresolvedApprovalDecision,
 };
 pub use journal::{
     HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,
@@ -47,9 +48,9 @@ pub use model::{
 pub use timing::{
     ActiveTurnStatus, CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttempt,
     RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal,
-    RequestAttemptTerminalState, RequestDispatchedOutcome, RequestEnvironment,
+    RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome, RequestEnvironment,
     RequestEnvironmentFingerprint, RequestNotDispatchedOutcome, RequestTimingError, TurnFinished,
-    TurnFinishedAt, TurnOutcome, UnixMillis,
+    TurnFinishedAt, TurnOutcome, USD_COST_TICKS_PER_DOLLAR, UnixMillis, UsdCostTicks,
 };
 pub use tools::{
     MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,

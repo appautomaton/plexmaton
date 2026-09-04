@@ -1,18 +1,16 @@
-//! Checked provider-reported usage retained only while its turn is open.
+//! Checked cumulative provider usage derived from immutable request terminals.
 
 use plexmaton_core::{TokenCounts, TokenUsage};
 
-/// Aggregate of exact step reports for one turn (LIVE-4, LIVE-5).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct UsageAccumulator {
+pub(crate) struct UsageAccumulator {
     counts: Option<TokenCounts>,
     partial: bool,
     unavailable: bool,
 }
 
 impl UsageAccumulator {
-    /// Adds one step without saturating or reconstructing the provider's total.
-    pub(super) fn add(&mut self, report: TokenUsage) -> Result<TokenUsage, ()> {
+    pub(crate) fn add(&mut self, report: TokenUsage) -> Result<TokenUsage, ()> {
         match report {
             TokenUsage::Complete(counts) => self.add_counts(counts)?,
             TokenUsage::Partial(counts) => {
@@ -62,9 +60,9 @@ mod tests {
         }
     }
 
-    /// LIVE-4: every provider total is added as reported rather than reconstructed from subsets.
+    /// TIM-3: immutable per-attempt totals fold without reconstructing a provider total.
     #[test]
-    fn complete_step_reports_are_checked_and_aggregated_for_the_turn() {
+    fn complete_attempt_reports_are_checked_and_aggregated_for_the_turn() {
         let mut usage = UsageAccumulator::default();
         let _first = usage
             .add(TokenUsage::Complete(counts(10, 7, 19)))
@@ -82,7 +80,7 @@ mod tests {
         assert_eq!(aggregate.cached_input, Some(4));
     }
 
-    /// LIVE-5: one missing step makes known totals partial, while all-missing stays unavailable.
+    /// TIM-3/TIM-5: one missing attempt makes known totals partial; all-missing stays unavailable.
     #[test]
     fn missing_step_usage_is_never_presented_as_zero() {
         let mut all_missing = UsageAccumulator::default();

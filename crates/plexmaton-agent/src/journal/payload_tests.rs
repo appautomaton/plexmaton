@@ -1,7 +1,6 @@
 use plexmaton_core::{
     AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, HeadName, JournalRecordId,
-    MailId, SessionEntryId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolPresentation,
-    TranscriptItemId, TurnId,
+    MailId, SessionEntryId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
 };
 
 use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
@@ -34,18 +33,6 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             agent_id: agent_a.clone(),
             turn_id: id("turn-started", TurnId::new),
             status: ActiveTurnStatus::Running,
-        },
-        JournalEntryPayload::TurnUsageUpdated {
-            agent_id: agent_a.clone(),
-            turn_id: id("turn-1", TurnId::new),
-            usage: TokenUsage::Complete(TokenCounts {
-                input: 2,
-                cached_input: Some(1),
-                cache_write_input: None,
-                output: 3,
-                reasoning_output: Some(1),
-                total: 5,
-            }),
         },
         JournalEntryPayload::TurnStarted {
             agent_id: agent_a.clone(),

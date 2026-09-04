@@ -141,6 +141,22 @@ pub struct UndeliveredModelInput {
     pub reason: ModelDeliveryRefusal,
 }
 
+/// Why one request-attempt audit transition changed no journal state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequestAttemptRefusal {
+    /// No model step currently owns a request authorization.
+    NoActiveStep,
+    /// A different model step is active, so the requested authorization is stale or misrouted.
+    WrongStep {
+        /// Only step that may be authorized now.
+        expected: ModelStepId,
+    },
+    /// The canonical journal rejected the otherwise-correlated audit fact.
+    Journal(crate::JournalError),
+    /// The selected immutable attempt facts could not produce their cumulative UI projection.
+    Projection(crate::JournalProjectionError),
+}
+
 impl UndeliveredInput {
     pub(crate) const fn new(text: String, reason: UndeliveredReason) -> Self {
         Self { text, reason }

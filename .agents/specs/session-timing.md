@@ -28,8 +28,9 @@ death may leave only authorization. Rejected: treating journal latency as API la
 
 **TIM-3 — Request accounting is immutable and correlated.** A stable request-attempt identity links
 one typed owner, exact semantic-prefix boundary, request-environment fingerprint, provider/model,
-terminal outcome and exact provider-reported usage. The fingerprint covers instructions and tools
-without copying them into the journal. Missing usage remains unavailable and a retry is distinct.
+terminal outcome, exact provider-reported usage and incurred cost fixed under the model pricing
+resolved for that attempt. The fingerprint covers instructions and tools without copying them into
+the journal. Missing usage or pricing remains unavailable and a retry is distinct.
 Turn totals fold only reachable agent-step attempts; whole-session incurred usage folds every
 unique agent-step and compaction attempt once, never once per head.
 
@@ -55,7 +56,8 @@ Authorized { authorized_at, semantic_boundary, request_environment }
           first_output_after_ms?,
           terminal_after_ms,
           outcome,
-          usage
+          usage,
+          cost
         }
 ```
 
@@ -87,6 +89,11 @@ the first non-empty text or reasoning delta, complete tool call, or opaque repla
 stop markers do not count. Milestones accumulate only in the owned request task and enter the
 journal together in its terminal fact, never as streaming records. The current transport has no
 typed timeout outcome, so this spec does not invent one under `ModelError::Transport`.
+
+Dispatched cost is either unavailable or a nonnegative fixed-point USD amount at 10^10 ticks per
+dollar; known cost requires complete usage. `NotDispatched` incurs zero. The terminal stores the
+resolved amount so later pricing changes cannot rewrite historical session cost; journal types use
+no floating point.
 
 Accepted time travels process-locally with queued next-turn input and next-step steering and becomes
 durable only when the matching LOOP-6 boundary claims it. It is retained on both initial and
@@ -127,7 +134,7 @@ completed boundary own distinct later turns and attempts without a speculative `
 | Invariant | Proven by |
 | --- | --- |
 | TIM-1 | `tim_1_turn_boundaries_are_durable_and_terminal_time_does_not_advance_the_head`, `tim_1_queued_turn_and_steering_keep_their_original_accepted_time`, `tim_1_every_live_turn_terminal_path_has_a_typed_outcome`, `cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text`, `tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context`, `tim_1_jsonl_rejects_untimed_turns_and_unscoped_lifecycle_records` |
-| TIM-2 | Unproven |
-| TIM-3 | Unproven |
-| TIM-4 | Unproven; chronology isolation: `tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals` |
-| TIM-5 | Unproven |
+| TIM-2 | Agent/journal boundary: `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`; HTTP dispatch measurement unproven |
+| TIM-3 | Agent/journal boundary: `reported_step_usage_is_aggregated_for_the_owning_turn`, `tim_3_terminal_cost_is_immutable_validated_and_non_floating_point`, `complete_attempt_reports_are_checked_and_aggregated_for_the_turn`, `missing_step_usage_is_never_presented_as_zero`; session cost composition unproven |
+| TIM-4 | `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`; chronology isolation: `tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals` |
+| TIM-5 | Agent/journal boundary: `tim_5_terminal_after_interrupt_is_retained_and_invalid_terminals_mutate_nothing`; owned HTTP cancellation boundary unproven |

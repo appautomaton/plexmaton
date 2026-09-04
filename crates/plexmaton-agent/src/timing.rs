@@ -4,12 +4,15 @@ use plexmaton_core::{AgentId, AgentStatus, SessionEntryId, TurnId};
 use serde::{Deserialize, Serialize};
 
 mod request;
+mod usage;
+
+pub(crate) use usage::UsageAccumulator;
 
 pub use request::{
     CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttempt, RequestAttemptAuthorized,
     RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal, RequestAttemptTerminalState,
-    RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
-    RequestNotDispatchedOutcome, RequestTimingError,
+    RequestCost, RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
+    RequestNotDispatchedOutcome, RequestTimingError, USD_COST_TICKS_PER_DOLLAR, UsdCostTicks,
 };
 
 /// Milliseconds since the Unix epoch, used only to place facts on a wall-clock chronology.

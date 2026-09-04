@@ -11,7 +11,7 @@ use crate::test_support::replay_compatibility;
 use crate::{
     CompactionId, DispatchedRequestTiming, ElapsedMillis, ModelStepId, RequestAttemptAuthorized,
     RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal, RequestAttemptTerminalState,
-    RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
+    RequestCost, RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
     RequestNotDispatchedOutcome, TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis,
 };
 
@@ -525,6 +525,7 @@ fn tim_3_selected_head_projects_only_attempts_on_its_path() {
                     .unwrap_or_else(|error| panic!("timing fixture: {error}")),
                     outcome: RequestDispatchedOutcome::TransportFailed,
                     usage: TokenUsage::Unavailable,
+                    cost: RequestCost::Unavailable,
                 },
             )
             .unwrap_or_else(|error| panic!("dispatched terminal: {error}")),
@@ -558,22 +559,24 @@ fn tim_3_selected_head_projects_only_attempts_on_its_path() {
         })
         .unwrap_or_else(|error| panic!("create sibling: {error:?}"));
 
-    assert_eq!(
-        fixture
-            .journal
-            .project(&head("main"))
-            .unwrap_or_else(|error| panic!("project main: {error:?}"))
-            .request_attempts()
-            .len(),
-        1
-    );
-    assert!(
-        fixture
-            .journal
-            .project(&head("sibling"))
-            .unwrap_or_else(|error| panic!("project sibling: {error:?}"))
-            .request_attempts()
-            .is_empty()
-    );
+    let main_projection = fixture
+        .journal
+        .project(&head("main"))
+        .unwrap_or_else(|error| panic!("project main: {error:?}"));
+    assert_eq!(main_projection.request_attempts().len(), 1);
+    assert!(main_projection.events().iter().any(|event| matches!(
+        event.event,
+        plexmaton_core::SessionEvent::TurnUsageUpdated { .. }
+    )));
+
+    let sibling_projection = fixture
+        .journal
+        .project(&head("sibling"))
+        .unwrap_or_else(|error| panic!("project sibling: {error:?}"));
+    assert!(sibling_projection.request_attempts().is_empty());
+    assert!(!sibling_projection.events().iter().any(|event| matches!(
+        event.event,
+        plexmaton_core::SessionEvent::TurnUsageUpdated { .. }
+    )));
     assert_eq!(fixture.journal.request_attempts().len(), 1);
 }

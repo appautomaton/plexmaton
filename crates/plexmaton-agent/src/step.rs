@@ -116,6 +116,14 @@ impl Step {
         self.index
     }
 
+    pub(crate) fn mark_usage_reported(&mut self) -> bool {
+        !std::mem::replace(&mut self.usage_reported, true)
+    }
+
+    pub(crate) fn defer_warning(&mut self, message: &str) {
+        self.warnings.push(message.to_owned());
+    }
+
     pub(crate) fn append(
         &mut self,
         record: &mut Record,
@@ -275,14 +283,6 @@ impl Step {
             self.last_visible_output_position = Some(position);
         }
         Ok(())
-    }
-
-    pub(crate) fn defer_warning(&mut self, message: &str) {
-        self.warnings.push(message.to_owned());
-    }
-
-    pub(crate) fn mark_usage_reported(&mut self) -> bool {
-        !std::mem::replace(&mut self.usage_reported, true)
     }
 
     pub(crate) fn close(

@@ -13,15 +13,6 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             label,
             status,
         },
-        JournalEntryPayload::TurnUsageUpdated {
-            agent_id,
-            turn_id,
-            usage,
-        } => SessionEvent::TurnUsageUpdated {
-            agent_id,
-            turn_id,
-            usage,
-        },
         JournalEntryPayload::AttentionRequested {
             agent_id,
             attention_id,
