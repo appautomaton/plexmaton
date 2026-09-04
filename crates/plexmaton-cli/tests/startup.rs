@@ -42,6 +42,7 @@ fn help_names_the_explicit_create_and_resume_surface_before_startup() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--ephemeral"));
     assert!(stdout.contains("create <session-id>"));
     assert!(stdout.contains("resume <session-id>"));
     assert!(

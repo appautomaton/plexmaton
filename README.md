@@ -40,6 +40,8 @@ symlinked paths. Read and search run directly; create, edit, and command require
 **Deny**. Commands are not OS-sandboxed and receive a credential-scrubbed environment.
 
 ```console
+PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
+PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- --ephemeral
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- create work-01
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
 cargo fmt --all --check
@@ -48,9 +50,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Launching without a session command remains ephemeral while the future session picker is
-unresolved. `create` reserves a new portable session name; `resume` requires that exact existing
-name. Durable sessions are owner-only JSONL files under
+Launching without a session command creates an automatically named durable session and prints its
+JSONL path and session ID on exit. `--ephemeral` is the explicit no-JSONL mode. `create` reserves a
+new portable session name; `resume` requires that exact existing name. Durable sessions are
+owner-only JSONL files under
 `PLEXMATON_HOME/sessions/<session-id>.jsonl`. Names start with an ASCII letter or digit and then use
 only letters, digits, `-`, or `_`.
 

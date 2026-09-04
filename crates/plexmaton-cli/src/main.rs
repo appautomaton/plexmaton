@@ -30,8 +30,8 @@ mod session;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
-    SessionSelection, StartupAction, USAGE, open_selected_session, parse_startup_action,
-    recovery_notice,
+    OpenedSession, PersistedSession, SessionSelection, StartupAction, USAGE, open_selected_session,
+    parse_startup_action, recovery_notice,
 };
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
@@ -68,26 +68,37 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (runtime, workspace_root, recovery) = live_runtime_from_process(selection).await?;
+    let (opened, workspace_root) = live_runtime_from_process(selection).await?;
+    let OpenedSession {
+        runtime,
+        recovery,
+        persisted,
+    } = opened;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
-    let _restore_terminal = RestoreTerminal;
+    let restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
     execute!(io::stdout(), EnableMouseCapture).context("enable mouse reporting")?;
     // The terminal on the other end of stdout is the one holding the user's clipboard, which over
     // SSH or inside tmux is not the machine this process runs on.
-    run(
+    let run_result = run(
         terminal,
         runtime,
         &mut TerminalClipboard::new(io::stdout()),
         working_directory(&workspace_root),
         recovery,
     )
-    .await
+    .await;
+    drop(restore_terminal);
+    let handoff_result = persisted.as_ref().map(report_persisted_session).transpose();
+    match run_result {
+        Err(error) => Err(error),
+        Ok(()) => handoff_result.map(|_| ()),
+    }
 }
 
 async fn live_runtime_from_process(
     selection: SessionSelection,
-) -> anyhow::Result<(LiveRuntime, PathBuf, SessionRecovery)> {
+) -> anyhow::Result<(OpenedSession, PathBuf)> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
     let user_home = std::env::var_os("HOME").map(PathBuf::from);
     let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
@@ -117,9 +128,14 @@ async fn live_runtime_from_process(
     )
     .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let (runtime, recovery) =
-        open_selected_session(&root, selection, agent_id, profile, key, tools).await?;
-    Ok((runtime, workspace_root, recovery))
+    let opened = open_selected_session(&root, selection, agent_id, profile, key, tools).await?;
+    Ok((opened, workspace_root))
+}
+
+fn report_persisted_session(session: &PersistedSession) -> anyhow::Result<()> {
+    writeln!(io::stdout(), "Session saved: {}", session.path.display())
+        .context("write saved session path")?;
+    writeln!(io::stdout(), "Session ID: {}", session.id).context("write saved session identity")
 }
 
 /// Where the process runs, the way a shell prompt shows it: the home directory as `~`.

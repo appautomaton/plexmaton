@@ -28,6 +28,9 @@ pub enum StoreError {
     /// The sessions root is readable or writable by another account.
     #[error("sessions directory permissions {0:o} are not owner-only")]
     InsecureDirectoryPermissions(u32),
+    /// Every bounded candidate for one automatically named session already existed.
+    #[error("could not reserve an automatic session name")]
+    AutomaticSessionNameExhausted,
     /// The file contained no format header.
     #[error("session journal has no header")]
     MissingHeader,

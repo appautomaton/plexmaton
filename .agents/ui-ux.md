@@ -53,6 +53,14 @@ presentation, not a session.
 Viewport and surface code cannot be written without these, and changing one afterwards is a
 rewrite rather than an adjustment.
 
+### Session start: durable by default
+
+Launching without a session argument creates a durable, automatically named session. The restored
+shell names its JSONL path and session ID. Only explicit `--ephemeral` declines session
+persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
+without the user choosing that behavior. A future picker may replace automatic creation, but never
+with implicit data loss.
+
 ### Screen ownership: full alternate screen
 
 Plexmaton owns the alternate screen for its whole session and restores it on exit, including on

@@ -214,6 +214,16 @@ def rendered_screen(raw: bytes, size: tuple[int, int]) -> str:
     return "\n".join("".join(line) for line in cells)
 
 
+def session_snapshot(root: Path) -> dict[str, tuple[int, int]] | None:
+    """Records session names, sizes, and mtimes without reading journal contents."""
+    if not root.is_dir():
+        return None
+    return {
+        path.name: (path.lstat().st_size, path.lstat().st_mtime_ns)
+        for path in root.glob("*.jsonl")
+    }
+
+
 def approval_card(screen: str) -> str:
     """Crops the registered approval rectangle from a full INITIAL_SIZE frame."""
     rows, columns = INITIAL_SIZE
@@ -265,6 +275,10 @@ def main() -> int:
     child_env = os.environ.copy()
     child_cwd = root
     live_directory = None
+    config_directory = None
+    default_sessions_root = None
+    live_sessions_root = None
+    live_sessions_before = None
     if live:
         if "PLEXMATON_HOME" not in child_env:
             print("smoke: --live requires PLEXMATON_HOME", file=sys.stderr)
@@ -273,6 +287,8 @@ def main() -> int:
         # relative PLEXMATON_HOME is relative to the invoking shell, not to the tool sandbox.
         profile_root = Path(child_env["PLEXMATON_HOME"]).expanduser().resolve()
         child_env["PLEXMATON_HOME"] = str(profile_root)
+        live_sessions_root = profile_root / "sessions"
+        live_sessions_before = session_snapshot(live_sessions_root)
         # Exclusive creation prevents a stale file or symlink from turning the smoke's write into
         # an effect outside its disposable workspace.
         # Keep the canonical root short enough that the approval card can show it in full; an
@@ -284,8 +300,10 @@ def main() -> int:
         (live_workspace / "task.txt").write_text("before\n", encoding="utf-8")
         child_cwd = live_workspace
     else:
-        config_root = capture_dir / "plexmaton-home"
-        config_root.mkdir(exist_ok=True)
+        config_directory = tempfile.TemporaryDirectory(
+            prefix="plexmaton-smoke-home-", dir="/tmp"
+        )
+        config_root = Path(config_directory.name)
         (config_root / "config.toml").write_text(
             """active_provider = "smoke"
 
@@ -301,14 +319,18 @@ reasoning_effort = "none"
         )
         child_env["PLEXMATON_HOME"] = str(config_root)
         child_env["PLEXMATON_SMOKE_API_KEY"] = "fixture-only"
+        default_sessions_root = config_root / "sessions"
     subprocess.run(
         ["cargo", "build", "-p", "plexmaton-cli", "--quiet"], cwd=root, check=True
     )
 
     master, slave = pty.openpty()
     set_size(slave, INITIAL_SIZE)
+    child_command = [str(root / "target" / "debug" / "plexmaton")]
+    if live:
+        child_command.append("--ephemeral")
     process = subprocess.Popen(
-        [str(root / "target" / "debug" / "plexmaton")],
+        child_command,
         stdin=slave,
         stdout=slave,
         stderr=slave,
@@ -547,6 +569,40 @@ reasoning_effort = "none"
         print(f"smoke: Plexmaton exited with {exit_code}", file=sys.stderr)
         failures.append("exit code")
 
+    if not live:
+        assert default_sessions_root is not None
+        created_sessions = set(default_sessions_root.glob("*.jsonl"))
+        if len(created_sessions) != 1:
+            print(
+                f"smoke: default launch created {len(created_sessions)} sessions, expected one",
+                file=sys.stderr,
+            )
+            failures.append("default durable session")
+        else:
+            created_session = created_sessions.pop()
+            header = json.loads(created_session.read_text(encoding="utf-8").splitlines()[0])
+            session_id = created_session.stem
+            if header.get("session_id") != session_id:
+                print("smoke: generated file and header identities differ", file=sys.stderr)
+                failures.append("default session identity")
+            terminal_output = captured.decode("utf-8", errors="replace")
+            for handoff in (
+                f"Session saved: {created_session}",
+                f"Session ID: {session_id}",
+            ):
+                if handoff not in terminal_output:
+                    print(
+                        f"smoke: restored shell is missing {handoff!r}", file=sys.stderr
+                    )
+                    failures.append("default session handoff")
+    else:
+        assert live_sessions_root is not None
+        if session_snapshot(live_sessions_root) != live_sessions_before:
+            print(
+                "smoke: --ephemeral changed the caller's session store", file=sys.stderr
+            )
+            failures.append("ephemeral session store")
+
     if failures:
         return 1
 
@@ -556,6 +612,7 @@ reasoning_effort = "none"
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
         "transcript and none to the status line, expired and re-armed the quit chord, and released "
         "mouse reporting before the alternate screen"
+        + ("" if live else ", with one durable default session")
     )
     return 0
 

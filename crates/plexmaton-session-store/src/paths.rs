@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
@@ -9,6 +12,7 @@ use crate::{JournalFile, StoreError};
 
 /// Maximum UTF-8 bytes in the portable session name used as a file stem.
 const MAX_SESSION_FILE_NAME_BYTES: usize = 128;
+const AUTOMATIC_NAME_ATTEMPTS: u16 = 1_000;
 
 /// Owner-only home for the canonical per-session JSONL files.
 pub struct SessionDirectory {
@@ -33,6 +37,37 @@ impl SessionDirectory {
     /// Creates and exclusively owns a new named session.
     pub fn create(&self, session_id: SessionId) -> Result<JournalFile, StoreError> {
         JournalFile::create(self.path_for(&session_id)?, session_id)
+    }
+
+    /// Creates one collision-safe session whose generated identity remains a portable file name.
+    pub fn create_automatic(&self) -> Result<(SessionId, JournalFile), StoreError> {
+        let unix_millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        self.create_automatic_at(unix_millis)
+    }
+
+    fn create_automatic_at(
+        &self,
+        unix_millis: u128,
+    ) -> Result<(SessionId, JournalFile), StoreError> {
+        for attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
+            let name = if attempt == 0 {
+                format!("session-{unix_millis}")
+            } else {
+                format!("session-{unix_millis}-{attempt}")
+            };
+            let session_id = SessionId::new(name)
+                .unwrap_or_else(|error| unreachable!("generated session id is valid: {error}"));
+            match self.create(session_id.clone()) {
+                Ok(journal) => return Ok((session_id, journal)),
+                Err(StoreError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Err(StoreError::AutomaticSessionNameExhausted)
     }
 
     /// Opens and exclusively owns an existing named session.
@@ -144,6 +179,27 @@ mod tests {
                 Err(StoreError::InvalidSessionFileName)
             ));
         }
+        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
+    }
+
+    #[test]
+    fn jrn_4_automatic_session_names_are_portable_and_collision_safe() {
+        let home = test_home("automatic");
+        let sessions = SessionDirectory::under(&home)
+            .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
+
+        let (first_id, first) = sessions
+            .create_automatic_at(1_234)
+            .unwrap_or_else(|error| panic!("create first automatic session: {error}"));
+        let (second_id, second) = sessions
+            .create_automatic_at(1_234)
+            .unwrap_or_else(|error| panic!("create second automatic session: {error}"));
+
+        assert_eq!(first_id.as_str(), "session-1234");
+        assert_eq!(second_id.as_str(), "session-1234-1");
+        assert_eq!(first.path(), home.join("sessions/session-1234.jsonl"));
+        assert_eq!(second.path(), home.join("sessions/session-1234-1.jsonl"));
+        drop((first, second));
         std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
