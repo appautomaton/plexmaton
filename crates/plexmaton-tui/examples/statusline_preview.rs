@@ -203,12 +203,12 @@ fn powerline(segments: &[(&str, Color)]) -> Line<'static> {
 
 fn footer(width: u16, mode: Mode) -> Vec<Line<'static>> {
     let segments = [
-        ("Luna High", VIOLET),
-        ("main", MINT),
-        (" 28k/272k 10%", LIME),
-        ("cache 82%", TEAL),
-        ("↑24.8k ↓3.2k", SKY),
-        ("$0.024", PINK),
+        (" Luna  High", VIOLET),
+        (" main", MINT),
+        (" 28k/272k 10%", LIME),
+        (" 82%", TEAL),
+        (" ↑24.8k ↓3.2k", SKY),
+        (" $0.024", PINK),
     ];
     let mut rows = if width >= 90 {
         vec![powerline(&segments)]
@@ -216,7 +216,7 @@ fn footer(width: u16, mode: Mode) -> Vec<Line<'static>> {
         vec![powerline(&segments[..3]), powerline(&segments[3..])]
     };
     rows.push(Line::from(vec![
-        piece(" ~", Color::Rgb(255, 154, 144)),
+        piece("  ~", Color::Rgb(255, 154, 144)),
         piece(" / ", MUTED),
         piece("dev", Color::Rgb(255, 196, 102)),
         piece(" / ", MUTED),

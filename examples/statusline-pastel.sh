@@ -37,8 +37,8 @@ reset() { printf '\033[0m'; }
 labels=(); colors=()
 add() { labels+=("$1"); colors+=("$2"); }
 if [[ -n "$model" ]]; then
-  [[ -z "$effort" || "$effort" == none ]] || model="$model $effort"
-  add "$model" '180;150;235'
+  [[ -z "$effort" || "$effort" == none ]] || model="$model  $effort"
+  add " $model" '180;150;235'
 fi
 branch=""
 if [[ -n "$cwd" ]]; then
@@ -47,26 +47,26 @@ if [[ -n "$cwd" ]]; then
 fi
 # Branch and path are external text too; the application independently rejects terminal controls.
 branch=$(printf '%s' "$branch" | tr -d '\000-\037\177')
-[[ -z "$branch" ]] || add "$branch" '140;218;165'
+[[ -z "$branch" ]] || add " $branch" '140;218;165'
 # Display the latest API-reported input, never the next-request budget estimate.
 if [[ -n "$occupancy" && -n "$capacity" && "$capacity" != 0 ]]; then
   rounded=$(awk -v n="$occupancy" -v cap="$capacity" 'BEGIN { printf "%d", n * 100 / cap }')
   color='200;224;120'
   if (( rounded >= 80 )); then color='255;120;120';
   elif (( rounded >= 50 )); then color='255;196;102'; fi
-  add " $(format_tokens "$occupancy")/$(format_tokens "$capacity") ${rounded}%" "$color"
+  add " $(format_tokens "$occupancy")/$(format_tokens "$capacity") ${rounded}%" "$color"
 fi
-[[ -z "$cache" ]] || add "cache ${cache}%" '120;210;205'
+[[ -z "$cache" ]] || add " ${cache}%" '120;210;205'
 traffic=""
 [[ -z "$input" ]] || traffic="↑$(format_tokens "$input")"
 [[ -z "$output" ]] || traffic="${traffic:+$traffic }↓$(format_tokens "$output")"
 if [[ -n "$traffic" ]]; then
   [[ "$coverage" != partial ]] || traffic="$traffic reported"
-  add "$traffic" '130;180;240'
+  add " $traffic" '130;180;240'
 fi
 if [[ -n "$cost" ]]; then
   price=$(awk -v n="$cost" 'BEGIN { printf "$%.3f", n }')
-  add "$price" '235;140;200'
+  add " $price" '235;140;200'
 fi
 
 line_cells=0
@@ -88,9 +88,12 @@ done
 
 if [[ -n "$cwd" ]]; then
   shown=$cwd
+  path_icon=''
   if [[ -n "${HOME:-}" && ( "$cwd" == "$HOME" || "$cwd" == "$HOME/"* ) ]]; then
     shown="~${cwd#"$HOME"}"
+    path_icon=''
   fi
+  fg '180;150;235'; printf '%s ' "$path_icon"; reset
   IFS='/' read -r -a parts <<< "$shown"
   hues=('255;154;144' '255;196;102' '200;224;120' '140;218;165' '120;210;205' '130;180;240' '180;150;235' '235;140;200')
   index=0

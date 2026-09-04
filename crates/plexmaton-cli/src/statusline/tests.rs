@@ -100,10 +100,13 @@ async fn status_script_omits_null_fields_and_keeps_rainbow_path() {
     .await
     .expect("sample script");
     let output = plain(&text);
-    for absent in ["null", "cache", "ctx", "", "~", "$", "↑", "↓"] {
+    for absent in [
+        "null", "cache", "ctx", "", "", "", "", "~", "$", "↑", "↓",
+    ] {
         assert!(!output.contains(absent), "{output}");
     }
-    assert!(output.contains("Luna high"));
+    assert!(output.contains("Luna  high"));
+    assert!(output.contains("") && output.contains(""));
     assert!(output.contains("nonexistent / fixture / project"));
     assert!(
         text.lines()
@@ -125,9 +128,23 @@ async fn status_script_context_uses_reported_input_with_a_glyph_at_each_width() 
         .join("../../examples/statusline-pastel.sh");
     let mut config = config(&format!("bash '{}'", script.display()));
     config.timeout_ms = 5000;
+    let directory = TestDirectory::new();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "--quiet", "--initial-branch=fixture-branch"])
+            .arg(&directory.0)
+            .status()
+            .expect("isolated git fixture")
+            .success()
+    );
     for width in [120, 95, 60] {
         let input = serde_json::json!({"model":{"display_name":"Luna"},
-            "context_window":{"context_window_size":272000,"used_percentage":99},
+            "cwd":directory.0,
+            "cost":{"total_cost_usd":0.012},
+            "context_window":{"context_window_size":272000,"used_percentage":99,
+                "total_input_tokens":12345,"total_output_tokens":678,
+                "current_usage":{"input_tokens":2345,"cache_read_input_tokens":10000,
+                    "cache_creation_input_tokens":0}},
             "plexmaton":{"terminal":{"columns":width},
                 "context":{"availability":"available","input_tokens":99999,"estimated_tokens":99999},
                 "latest_request":{"terminal":{"usage":{"coverage":"complete",
@@ -142,7 +159,17 @@ async fn status_script_context_uses_reported_input_with_a_glyph_at_each_width() 
         .await
         .expect("sample script");
         let output = plain(&output);
-        assert!(output.contains(" 12.3k/272.0k 4%"), "{output}");
+        for expected in [
+            " Luna",
+            " fixture-branch",
+            " 12.3k/272.0k 4%",
+            " 81%",
+            " ↑12.3k ↓678",
+            " $0.012",
+            "",
+        ] {
+            assert!(output.contains(expected), "{output}");
+        }
         for absent in ["ctx", "~", "100.0k", "99%", "null"] {
             assert!(!output.contains(absent), "{output}");
         }

@@ -159,6 +159,6 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("cache 83%"), "{text}");
-    assert!(text.contains(" 4.6k/272.0k 1%"), "{text}");
+    assert!(text.contains(" 83%"), "{text}");
+    assert!(text.contains(" 4.6k/272.0k 1%"), "{text}");
 }

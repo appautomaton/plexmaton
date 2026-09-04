@@ -63,7 +63,7 @@ output_reserve_tokens = 8192
                 smoke.drain(master, 0.7, capture)
                 screen = smoke.rendered_screen(bytes(capture[start:]), (30, width))
                 assert "FixtureLuna" in screen, screen
-                assert "ctx" not in screen and "272.0k" not in screen and "" not in screen, screen
+                assert "ctx" not in screen and "272.0k" not in screen and "" not in screen, screen
                 assert "null" not in screen and "status line:" not in screen, screen
                 assert "plexmaton-status-smoke-" in screen, screen
             assert re.search(rb"\x1b\[[0-9;:]*48[;:](2|5)[;:]", capture), "pastel backgrounds never reached the terminal"

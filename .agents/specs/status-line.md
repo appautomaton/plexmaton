@@ -88,12 +88,15 @@ keys describe matching facts; this is not a promise that every Claude extension 
 | `plexmaton.turn` | Latest selected turn ID, incurred usage/cost and sum of request durations; duration is null if any attempt is unresolved, and excludes idle, tools and approval wait |
 | `plexmaton.terminal.columns`, `.rows` | Current terminal size; the script decides its explicit lines |
 
-The pastel example requires Bash, jq and a Nerd Font. Its `` segment shows the latest selected-path
+The pastel example requires Bash, jq and a Nerd Font. Its `` segment shows the latest selected-path
 request's API-reported input count and percentage of configured capacity. Without a reported count,
 including a fresh session, the segment is absent. It never displays a context estimate or a `ctx`/`~`
 label; BUD-1 estimates remain separate snapshot data. It labels partial traffic as `reported`, omits
 missing cost/cache values, and paints path components in successive pastel colors with Powerline
-separators. It queries local Git without optional locks.
+separators. Model, branch, cache, traffic, cost and path use ``, ``, ``, ``, `` and
+``/`` respectively; `` precedes a configured reasoning level, input/output retain directional
+arrows and cost retains its currency.
+It queries local Git without optional locks.
 
 ## Evidence
 
