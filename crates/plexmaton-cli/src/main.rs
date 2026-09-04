@@ -91,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .context("enable terminal input reporting")?;
     // The terminal on the other end of stdout owns the user's clipboard. The adapter resolves the
-    // direct or tmux route once, before the first copy.
+    // local macOS, direct terminal, or tmux route once, before the first copy.
     let run_result = run(
         terminal,
         runtime,

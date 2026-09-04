@@ -1,8 +1,8 @@
 //! Where copied text goes once it leaves the workspace.
 //!
 //! The projection produces a [`CopyRequest`](plexmaton_tui::CopyRequest) and hands it back as a
-//! value; nothing in `plexmaton-tui` knows a clipboard exists. This adapter owns the terminal and
-//! tmux boundary without turning a remote host's native clipboard into the user's clipboard.
+//! value; nothing in `plexmaton-tui` knows a clipboard exists. This adapter owns the
+//! local macOS and terminal boundary without using a remote host's native clipboard.
 
 use std::{
     ffi::OsStr,
@@ -14,11 +14,13 @@ use std::{
 use crossterm::{clipboard::CopyToClipboard, execute};
 use tokio::{io::AsyncWriteExt as _, process::Command};
 
-const TMUX_COPY_DEADLINE: Duration = Duration::from_millis(500);
+const COPY_DEADLINE: Duration = Duration::from_millis(500);
 
 /// How the process reaches the terminal that owns the user's clipboard.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ClipboardRoute {
+    /// A local macOS session without a multiplexer or embedded terminal.
+    LocalMacOs,
     /// The process is attached directly to the terminal emulator.
     Direct,
     /// tmux is the immediate terminal and must carry the copy to its outer client.
@@ -38,7 +40,29 @@ impl ClipboardRoute {
         ]
         .into_iter()
         .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
-        Self::from_environment(std::env::var_os("TMUX").as_deref(), embedded_editor)
+        let remote_or_multiplexed = ["SSH_CONNECTION", "SSH_TTY", "SSH_CLIENT", "STY"]
+            .into_iter()
+            .any(|name| std::env::var_os(name).is_some());
+        Self::for_host(
+            cfg!(target_os = "macos"),
+            remote_or_multiplexed,
+            std::env::var_os("TMUX").as_deref(),
+            embedded_editor,
+        )
+    }
+
+    fn for_host(
+        macos: bool,
+        remote_or_multiplexed: bool,
+        tmux: Option<&OsStr>,
+        embedded_editor: bool,
+    ) -> Self {
+        let terminal = Self::from_environment(tmux, embedded_editor);
+        if macos && !remote_or_multiplexed && tmux.is_none() && !embedded_editor {
+            Self::LocalMacOs
+        } else {
+            terminal
+        }
     }
 
     fn from_environment(tmux: Option<&OsStr>, embedded_editor: bool) -> Self {
@@ -57,13 +81,13 @@ impl ClipboardRoute {
 
 /// One place copied text can be delivered.
 ///
-/// The operation is async because tmux is an external process. It remains directly owned and
+/// The operation is async because clipboard helpers are external processes. Each remains owned and
 /// bounded instead of blocking the event-loop thread or detaching a child.
 pub(crate) trait ClipboardSink {
     async fn copy(&mut self, text: &str) -> io::Result<()>;
 }
 
-/// Sends semantic source to the terminal, with a second acknowledged tmux leg when applicable.
+/// Delivers semantic source through the route belonging to the user's terminal.
 pub(crate) struct TerminalClipboard<W> {
     writer: W,
     route: ClipboardRoute,
@@ -86,6 +110,9 @@ impl<W: Write> TerminalClipboard<W> {
 
 impl<W: Write> ClipboardSink for TerminalClipboard<W> {
     async fn copy(&mut self, text: &str) -> io::Result<()> {
+        if self.route == ClipboardRoute::LocalMacOs {
+            return copy_through_command(pbcopy_command(), text, COPY_DEADLINE).await;
+        }
         // Try every route before inspecting either result. A disconnected terminal must not stop
         // tmux from delivering, and a wedged tmux must not suppress the escape sequence.
         let terminal = self.write_terminal(text);
@@ -106,7 +133,8 @@ fn osc52_sequence(text: &str, route: ClipboardRoute) -> io::Result<Vec<u8>> {
     let mut direct = Vec::new();
     execute!(direct, CopyToClipboard::to_clipboard_from(text))?;
     let dcs_passthrough = match route {
-        ClipboardRoute::Direct
+        ClipboardRoute::LocalMacOs
+        | ClipboardRoute::Direct
         | ClipboardRoute::Tmux {
             dcs_passthrough: false,
         } => false,
@@ -134,19 +162,27 @@ fn osc52_sequence(text: &str, route: ClipboardRoute) -> io::Result<Vec<u8>> {
 
 /// Asks tmux to retain the text and send it to the outer client's clipboard.
 async fn copy_through_tmux(text: &str) -> io::Result<()> {
-    let mut command = tmux_copy_command();
+    copy_through_command(tmux_copy_command(), text, COPY_DEADLINE).await
+}
+
+/// The deadline covers both a blocked stdin pipe and waiting for acknowledgement.
+async fn copy_through_command(
+    mut command: Command,
+    text: &str,
+    deadline: Duration,
+) -> io::Result<()> {
     let mut child = command.spawn()?;
     let operation = async {
         let mut stdin = child
             .stdin
             .take()
-            .ok_or_else(|| io::Error::other("tmux clipboard stdin was not piped"))?;
+            .ok_or_else(|| io::Error::other("clipboard helper stdin was not piped"))?;
         stdin.write_all(text.as_bytes()).await?;
         stdin.shutdown().await?;
         drop(stdin);
         child.wait().await
     };
-    let result = tokio::time::timeout(TMUX_COPY_DEADLINE, operation).await;
+    let result = tokio::time::timeout(deadline, operation).await;
     let status = match result {
         Ok(Ok(status)) => status,
         Ok(Err(error)) => {
@@ -159,7 +195,7 @@ async fn copy_through_tmux(text: &str) -> io::Result<()> {
             let _ = child.wait().await;
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
-                "tmux clipboard copy exceeded 500 ms",
+                "clipboard helper exceeded its deadline",
             ));
         }
     };
@@ -167,29 +203,137 @@ async fn copy_through_tmux(text: &str) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(format!(
-            "tmux clipboard command exited with {status}"
+            "clipboard helper exited with {status}"
         )))
     }
 }
 
 fn tmux_copy_command() -> Command {
     let mut command = Command::new("tmux");
+    command.args(["load-buffer", "-w", "-"]);
+    configure_copy_command(&mut command);
     command
-        .args(["load-buffer", "-w", "-"])
+}
+
+fn pbcopy_command() -> Command {
+    let mut command = Command::new("/usr/bin/pbcopy");
+    // pbcopy chooses its encoding from the locale, independently of Rust's UTF-8 strings.
+    command.env("LC_ALL", "en_US.UTF-8");
+    configure_copy_command(&mut command);
+    command
+}
+
+fn configure_copy_command(command: &mut Command) {
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    command
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
+    use std::{ffi::OsStr, time::Duration};
+
+    use tokio::process::Command;
 
     use super::{
-        ClipboardRoute, ClipboardSink, TerminalClipboard, osc52_sequence, tmux_copy_command,
+        ClipboardRoute, ClipboardSink, TerminalClipboard, configure_copy_command,
+        copy_through_command, osc52_sequence, pbcopy_command, tmux_copy_command,
     };
+
+    #[test]
+    fn native_copy_requires_an_unambiguous_local_macos_terminal() {
+        // SEL-5: a remote client must never receive the server's native clipboard.
+        assert_eq!(
+            ClipboardRoute::for_host(true, false, None, false),
+            ClipboardRoute::LocalMacOs
+        );
+        for (macos, remote, editor) in [
+            (false, false, false),
+            (true, true, false),
+            (true, false, true),
+        ] {
+            assert_eq!(
+                ClipboardRoute::for_host(macos, remote, None, editor),
+                ClipboardRoute::Direct
+            );
+        }
+        for remote in [false, true] {
+            assert_eq!(
+                ClipboardRoute::for_host(true, remote, Some(OsStr::new("tmux")), false),
+                ClipboardRoute::Tmux {
+                    dcs_passthrough: true
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn native_copy_uses_the_system_helper_with_utf8() {
+        // SEL-5: this inspects the command without modifying the host clipboard.
+        let command = pbcopy_command();
+        assert_eq!(command.as_std().get_program(), "/usr/bin/pbcopy");
+        assert!(
+            command.as_std().get_envs().any(|(key, value)| {
+                key == "LC_ALL" && value == Some(OsStr::new("en_US.UTF-8"))
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clipboard_helper_receives_exact_unicode_source_and_eof() {
+        // SEL-2, SEL-5: the real pipe preserves newlines and Unicode without a host clipboard.
+        let source = "中文 e\u{301} 👩‍💻\nsecond line\n\n";
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            "value=$(/bin/cat; printf '.'); test \"$value\" = \"$1.\"",
+            "clipboard-fixture",
+            source,
+        ]);
+        configure_copy_command(&mut command);
+        assert!(
+            copy_through_command(command, source, Duration::from_secs(2))
+                .await
+                .is_ok()
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clipboard_helper_rejection_is_not_reported_as_delivery() {
+        // SEL-5: successful stdin writes cannot conceal a rejected copy.
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "/bin/cat > /dev/null; exit 7"]);
+        configure_copy_command(&mut command);
+        let result = copy_through_command(command, "source", Duration::from_secs(2)).await;
+        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::Other));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clipboard_deadline_bounds_a_blocked_stdin_pipe() {
+        // SEL-5: a helper that never reads cannot hold the application on a full pipe.
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        configure_copy_command(&mut command);
+        let result =
+            copy_through_command(command, &"x".repeat(1_048_576), Duration::from_millis(50)).await;
+        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::TimedOut));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clipboard_deadline_also_bounds_waiting_after_eof() {
+        // SEL-5: consuming stdin does not permit an unbounded wait for acknowledgement.
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "/bin/cat > /dev/null; exec /bin/sleep 30"]);
+        configure_copy_command(&mut command);
+        let result = copy_through_command(command, "source", Duration::from_millis(50)).await;
+        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::TimedOut));
+    }
 
     #[tokio::test]
     async fn direct_copy_writes_the_exact_terminated_osc_52_sequence() {

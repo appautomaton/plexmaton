@@ -289,6 +289,8 @@ def main() -> int:
     capture_dir = root / "target" / "smoke"
     capture_dir.mkdir(parents=True, exist_ok=True)
     child_env = os.environ.copy()
+    # Exercise terminal delivery without touching the machine's native clipboard.
+    child_env["SSH_TTY"] = "/dev/plexmaton-smoke"
     config_directory = tempfile.TemporaryDirectory(
         prefix="plexmaton-smoke-home-", dir="/tmp"
     )
