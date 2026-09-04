@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–2 |
 | Contract | PRV-3/PRV-4, ENT-1/ENT-3, LOOP-2/LOOP-4 and APV-6 |
-| Status | Planned; slice 1 of 6 ready |
+| Status | Active; slice 1 of 6 done; slice 2 ready |
 | Blocked | None |
 
 ## Outcome
@@ -32,7 +32,7 @@ second transcript.
 - Replay is reduction only. Historical tool calls and outcomes are data; no projector invokes a
   model, tool, approval policy or filesystem effect. Provider-required call/result pairing is
   rebuilt from typed state, never patched silently by a codec.
-- Provider replay remains codec-tagged, bounded and redacted under serialization errors and Debug.
+- Provider replay remains codec-tagged, bounded and redacted under decoding errors and Debug.
   A lossless test path includes it; ordinary presentation never does.
 - Same typed records produce the same projections regardless of whether they arrived live or from
   disk. File position, vector index, timestamps and formatted error strings are not identities.
@@ -40,12 +40,14 @@ second transcript.
 ## Slices
 
 1. **Journal vocabulary and reducer.** Add stable session, record, entry and head identities; a
-   versioned typed record enum; immutable parent-linked entries; monotonic sequence; and
-   revision-checked append/head mutations. Keep it in memory and independent of files. Give
+   typed record enum; immutable parent-linked entries; monotonic sequence; fresh-name head creation;
+   and revision-checked append and existing-head mutations. The version boundary remains with Slice
+   3's typed file header.
+   Keep this slice in memory and independent of files. Give
    `ProviderReplay` a validated lossless storage representation without weakening its redacted
    `Debug`. *Closes when* every record JSON-round-trips, invalid ancestry/order/revision is refused,
    replaying the same records twice yields equal graph/head state, and no secret appears in Debug or
-   serialization errors.
+   decoding errors.
 2. **Two pure projections.** Derive ordered `RequestItem`s and `SessionEventEnvelope`s from one head
    path, including text, reasoning, tool lifecycle, usage and notices. A recovered unfinished turn
    has an explicit projection and no unmatched provider call. *Closes when* the canonical live

@@ -8,6 +8,7 @@
 use std::fmt;
 
 use plexmaton_core::{TokenUsage, ToolCallId, TurnId};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 
 use crate::tools::{ToolCall, ToolOutcome};
 
@@ -86,6 +87,25 @@ impl fmt::Display for ProviderCodecId {
     }
 }
 
+impl Serialize for ProviderCodecId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderCodecId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(|_| serde::de::Error::custom("provider codec must not be empty"))
+    }
+}
+
 /// Why an opaque replay item was refused before entering turn state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProviderReplayError {
@@ -113,6 +133,41 @@ impl fmt::Debug for ProviderReplay {
             .field("codec", &self.codec)
             .field("payload_bytes", &self.payload.len())
             .finish_non_exhaustive()
+    }
+}
+
+impl Serialize for ProviderReplay {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("ProviderReplay", 2)?;
+        state.serialize_field("codec", &self.codec)?;
+        state.serialize_field("payload", &self.payload)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ProviderReplay {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            codec: ProviderCodecId,
+            payload: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(wire.codec, wire.payload).map_err(|error| match error {
+            ProviderReplayError::EmptyCodec => {
+                serde::de::Error::custom("provider codec must not be empty")
+            }
+            ProviderReplayError::PayloadTooLarge => {
+                serde::de::Error::custom("provider replay exceeds its byte bound")
+            }
+        })
     }
 }
 
@@ -144,7 +199,8 @@ impl ProviderReplay {
 /// followed by its [`Self::ToolCall`] entries. Whether a dialect sends those as one message with
 /// several blocks or as separate turns is the adapter's business, and exactly the kind of thing
 /// that must not reach this far in.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum RequestItem {
     /// Something the person said.
     User {

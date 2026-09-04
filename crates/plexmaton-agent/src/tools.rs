@@ -9,6 +9,7 @@ use plexmaton_core::{
     ApprovalDecision, ApprovalId, AttentionId, ToolCallId, ToolCallStatus, ToolDetail,
     ToolPresentation, TranscriptItemId, TurnId,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::admission::{AdmissionRefusal, AdmittedToolCall};
 
@@ -17,7 +18,7 @@ pub(crate) use presentation::detail_fits_text_bound;
 pub use presentation::{MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolExecutionResult, bounded_tool_text};
 
 /// A call the model asked for.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ToolCall {
     /// Identity the model used, and the result must answer.
     pub call_id: ToolCallId,
@@ -30,7 +31,8 @@ pub struct ToolCall {
 }
 
 /// How a call ended.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum ToolOutcome {
     /// It ran and produced something, already bounded by whoever ran it.
     Succeeded {
@@ -59,7 +61,8 @@ pub enum ToolOutcome {
 }
 
 /// Why a call was cancelled before producing an ordinary result.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ToolCancellationReason {
     /// The user interrupted the turn.
     Interrupted,

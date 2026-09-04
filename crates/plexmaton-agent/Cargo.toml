@@ -10,6 +10,10 @@ publish.workspace = true
 # can do I/O is the defect, not the code that would call it.
 [dependencies]
 plexmaton-core = { path = "../plexmaton-core" }
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

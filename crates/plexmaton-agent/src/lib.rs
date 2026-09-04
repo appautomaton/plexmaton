@@ -11,6 +11,7 @@
 
 mod admission;
 mod interface;
+mod journal;
 mod model;
 mod record;
 mod step;
@@ -25,6 +26,10 @@ pub use admission::{
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, UndeliveredInput,
     UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
+};
+pub use journal::{
+    HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
+    SessionJournal,
 };
 pub use model::{
     MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,

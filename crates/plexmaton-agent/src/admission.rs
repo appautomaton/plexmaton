@@ -7,6 +7,7 @@
 use std::num::NonZeroU64;
 
 use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId, ToolDetail};
+use serde::{Deserialize, Serialize};
 
 use crate::tools::{ToolCall, detail_fits_text_bound};
 
@@ -73,7 +74,8 @@ impl ToolDefinitionRevision {
 }
 
 /// Why a trusted catalog refused a model tool request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AdmissionRefusal {
     /// No registered definition owns the requested name.
     UnknownTool,
