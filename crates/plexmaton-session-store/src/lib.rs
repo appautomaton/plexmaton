@@ -17,12 +17,14 @@ mod codec;
 mod error;
 mod fork;
 mod load;
+mod paths;
 #[cfg(test)]
 mod tests;
 
 pub use codec::MAX_JOURNAL_LINE_BYTES;
 pub use error::{AppendFailure, StoreError};
 pub use load::JournalRecovery;
+pub use paths::SessionDirectory;
 
 use codec::{encode_header, encode_line};
 
@@ -82,6 +84,7 @@ impl JournalFile {
     /// Opens, locks, validates and if necessary repairs one final syntactic tail.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let path = path.as_ref();
+        reject_symlink(path)?;
         let mut file = OpenOptions::new()
             .read(true)
             .append(true)
@@ -155,6 +158,15 @@ impl JournalFile {
         }
         Ok(())
     }
+}
+
+fn reject_symlink(path: &Path) -> Result<(), StoreError> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|source| StoreError::io("inspect path", source))?;
+    if metadata.file_type().is_symlink() {
+        return Err(StoreError::SymlinkPath);
+    }
+    Ok(())
 }
 
 fn lock_writer(file: &File) -> Result<(), StoreError> {

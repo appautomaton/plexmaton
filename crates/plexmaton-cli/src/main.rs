@@ -1,6 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
-    fs, io,
+    fs,
+    io::{self, Write as _},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -16,7 +17,7 @@ use plexmaton_core::AgentId;
 use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
 use plexmaton_runtime::{
     CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
-    RuntimeUpdate,
+    RuntimeUpdate, SessionRecovery,
 };
 use plexmaton_tui::{
     ApprovalSubmission, CleanupNotice, Flow, Palette, PersistenceNotice, Submission,
@@ -25,8 +26,13 @@ use plexmaton_tui::{
 use ratatui::DefaultTerminal;
 
 mod clipboard;
+mod session;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
+use session::{
+    SessionSelection, StartupAction, USAGE, open_selected_session, parse_startup_action,
+    recovery_notice,
+};
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
 
@@ -49,12 +55,20 @@ impl Drop for RestoreTerminal {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
-    if std::env::args_os().nth(1).as_deref() == Some(OsStr::new(INTERNAL_RG_DRIVER)) {
-        return plexmaton_file_tools::run_search_driver(std::env::args_os().skip(2))
+    let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
+    if arguments.first().map(OsString::as_os_str) == Some(OsStr::new(INTERNAL_RG_DRIVER)) {
+        return plexmaton_file_tools::run_search_driver(arguments.into_iter().skip(1))
             .context("run internal descriptor-rooted ripgrep driver");
     }
+    let selection = match parse_startup_action(&arguments)? {
+        StartupAction::Run(selection) => selection,
+        StartupAction::Help => {
+            writeln!(io::stdout(), "{USAGE}").context("write help")?;
+            return Ok(());
+        }
+    };
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (runtime, workspace_root) = live_runtime_from_process()?;
+    let (runtime, workspace_root, recovery) = live_runtime_from_process(selection).await?;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let _restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
@@ -66,11 +80,14 @@ async fn main() -> anyhow::Result<()> {
         runtime,
         &mut TerminalClipboard::new(io::stdout()),
         working_directory(&workspace_root),
+        recovery,
     )
     .await
 }
 
-fn live_runtime_from_process() -> anyhow::Result<(LiveRuntime, PathBuf)> {
+async fn live_runtime_from_process(
+    selection: SessionSelection,
+) -> anyhow::Result<(LiveRuntime, PathBuf, SessionRecovery)> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
     let user_home = std::env::var_os("HOME").map(PathBuf::from);
     let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
@@ -100,9 +117,9 @@ fn live_runtime_from_process() -> anyhow::Result<(LiveRuntime, PathBuf)> {
     )
     .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let runtime = LiveRuntime::openai(agent_id, "Plexmaton", profile, key, tools)
-        .context("configure live provider transport")?;
-    Ok((runtime, workspace_root))
+    let (runtime, recovery) =
+        open_selected_session(&root, selection, agent_id, profile, key, tools).await?;
+    Ok((runtime, workspace_root, recovery))
 }
 
 /// Where the process runs, the way a shell prompt shows it: the home directory as `~`.
@@ -154,10 +171,14 @@ async fn run(
     mut runtime: LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
+    recovery: SessionRecovery,
 ) -> anyhow::Result<()> {
     let mut workspace = Workspace::with_palette(Palette::pastel());
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
+    }
+    if let Some(recovery) = recovery_notice(recovery) {
+        workspace.report_session_recovery(recovery);
     }
     let loop_result = drive_session(&mut terminal, &mut runtime, clipboard, &mut workspace).await;
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
@@ -470,10 +491,10 @@ mod tests {
         }
     }
 
-    struct FixtureWorkspace(PathBuf);
+    pub(crate) struct FixtureWorkspace(PathBuf);
 
     impl FixtureWorkspace {
-        fn new() -> Self {
+        pub(crate) fn new() -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(1);
             loop {
                 let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -489,7 +510,7 @@ mod tests {
             }
         }
 
-        fn path(&self) -> &Path {
+        pub(crate) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -501,9 +522,11 @@ mod tests {
         }
     }
 
-    type FixtureServer = thread::JoinHandle<Result<Vec<Vec<u8>>, String>>;
+    pub(crate) type FixtureServer = thread::JoinHandle<Result<Vec<Vec<u8>>, String>>;
 
-    fn fixture_http_server(responses: [&'static str; 2]) -> (String, FixtureServer) {
+    pub(crate) fn fixture_http_server<const N: usize>(
+        responses: [&'static str; N],
+    ) -> (String, FixtureServer) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .unwrap_or_else(|error| panic!("bind fixture HTTP server: {error}"));
         listener

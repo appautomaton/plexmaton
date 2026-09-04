@@ -29,6 +29,29 @@ impl Drop for TestWorkspace {
     }
 }
 
+/// JRN-4: session command discovery needs neither configuration nor terminal ownership.
+#[test]
+fn help_names_the_explicit_create_and_resume_surface_before_startup() {
+    let missing =
+        std::env::temp_dir().join(format!("plexmaton-missing-help-{}", std::process::id()));
+    let output = Command::new(env!("CARGO_BIN_EXE_plexmaton"))
+        .arg("--help")
+        .env("PLEXMATON_HOME", missing)
+        .output()
+        .unwrap_or_else(|error| panic!("run executable help: {error}"));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("create <session-id>"));
+    assert!(stdout.contains("resume <session-id>"));
+    assert!(
+        !output
+            .stdout
+            .windows(8)
+            .any(|bytes| bytes == b"\x1b[?1049h")
+    );
+}
+
 fn ripgrep() -> PathBuf {
     for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
         if directory.is_absolute() {

@@ -95,7 +95,7 @@ impl ToolExecutionResult {
     }
 }
 
-pub(super) fn unexecuted_outcome(outcome: &ToolOutcome) -> Option<ToolDetail> {
+pub(crate) fn unexecuted_outcome(outcome: &ToolOutcome) -> Option<ToolDetail> {
     let source = match outcome {
         ToolOutcome::AdmissionRefused { reason } => {
             format!("admission refused: {}", admission_refusal_name(*reason))
@@ -128,5 +128,6 @@ const fn cancellation_reason_name(reason: ToolCancellationReason) -> &'static st
         ToolCancellationReason::Interrupted => "interrupted",
         ToolCancellationReason::StepFailed => "step_failed",
         ToolCancellationReason::Shutdown => "shutdown",
+        ToolCancellationReason::ProcessDied => "process_died",
     }
 }

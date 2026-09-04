@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 slices 1–5 done; slice 6 ready |
+| Status | Active; stage 1 complete; stage 2 ready |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -18,16 +18,14 @@ stable cache epoch for later requests.
 
 ## Inherited
 
-`plexmaton-agent::Record` currently owns a linear in-memory `Vec<RequestItem>` and emits a transient
-numbered `SessionEventEnvelope` stream. The former rebuilds model requests; the latter reduces into
-the TUI, but no owner retains the envelopes and process exit loses both projections. Phase 01 proved
-that replaying the same envelopes gives an equal TUI state (ENT-3), and that the complete model
-request can be rebuilt without provider-held state (PRV-4).
+Stage 1 replaced the split in-memory histories with one typed journal. The agent and TUI now project
+the selected path, while an owned JSONL writer preserves acknowledged facts. Explicit `create` and
+`resume` journeys recover torn tails and unfinished turns without replaying effects (JRN-4–JRN-7).
 
-`ProviderReplay` already carries a typed codec identity, bounds its private payload, and redacts the
-payload from `Debug` (PRV-3). Phase 02 gives that value a lossless JSON representation with the same
-constructor validation. It may enter the protected session journal and an explicit lossless export;
-it never enters the visible transcript, ordinary diagnostics, or a redacted export.
+`ProviderReplay` carries a typed codec identity, bounds its private payload, redacts `Debug`, and now
+round-trips losslessly through the session journal with constructor validation (PRV-3). An explicit
+lossless export remains later work. Replay never enters the visible transcript, ordinary
+diagnostics, or a redacted export.
 
 User-owned configuration and runtime state remain under `~/.plexmaton/`; `PLEXMATON_HOME` redirects
 the whole root for isolated development and tests (PRV-6). A project-local `.plexmaton/`, XDG
@@ -58,8 +56,9 @@ discovery, SQLite and redb are not introduced.
    provider transports and MCP adapt to the same journal, context and admission boundaries rather
    than adding another loop or transcript.
 
-Each stage receives a sliced plan when it starts. Stage 1 owns scope items 1 and the journal
-foundation needed by item 2; later stages consume that foundation.
+Each stage receives a sliced plan when it starts. Stage 1 delivered scope item 1 and the journal
+foundation of item 2. [Stage 2](../plans/phase-02-stage-02-context-projection.md) owns the remaining
+head journey and scope item 3; later stages consume both.
 
 ## Not in this phase
 

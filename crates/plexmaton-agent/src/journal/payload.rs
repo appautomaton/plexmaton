@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ProviderReplay, ToolCall, ToolOutcome};
 
+pub(crate) const PROCESS_RECOVERY_MESSAGE: &str =
+    "unfinished turn was interrupted during process recovery";
+
 /// One canonical session fact from which model and screen projections are derived (JRN-5).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -91,5 +94,10 @@ pub enum JournalEntryPayload {
         agent_id: AgentId,
         item_id: TranscriptItemId,
         message: String,
+    },
+    /// A prior process disappeared while this agent still owned an open turn.
+    TurnInterruptedByRecovery {
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
     },
 }

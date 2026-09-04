@@ -6,6 +6,35 @@ use plexmaton_agent::{
 use plexmaton_core::{AgentId, SessionEventEnvelope, ToolCallId};
 use thiserror::Error;
 
+/// File repair performed before a resumed runtime receives the journal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum JournalTailRecovery {
+    /// The complete final JSON record lacked only its newline.
+    AddedFinalNewline,
+    /// An incomplete final fragment was retained in an owner-only sibling.
+    IsolatedFinalTail {
+        /// Number of exact bytes retained outside the canonical file.
+        bytes: u64,
+    },
+}
+
+/// One startup-only summary of work performed while resuming a session.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SessionRecovery {
+    /// Syntactic file repair, if the final write was incomplete.
+    pub tail: Option<JournalTailRecovery>,
+    /// Whether canonical recovery settled an unfinished turn without replaying its effects.
+    pub interrupted_turn: bool,
+}
+
+impl SessionRecovery {
+    /// Whether opening required no repair or semantic interruption.
+    #[must_use]
+    pub const fn is_clean(&self) -> bool {
+        self.tail.is_none() && !self.interrupted_turn
+    }
+}
+
 /// Non-event results retained when an input could not enter the loop boundary it named.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
@@ -112,6 +141,9 @@ pub enum RuntimeError {
     /// A prior journal failure made further work unsafe.
     #[error("the session journal requires reopen before more work")]
     JournalRequiresReopen,
+    /// A loaded journal could not rebuild the single live agent it names.
+    #[error("the session journal cannot rebuild the live agent: {0:?}")]
+    JournalProjection(plexmaton_agent::JournalProjectionError),
     /// An event-only caller must collect the pending dispatch report before polling again.
     #[error("the live runtime has a non-event dispatch report ready")]
     DispatchReportPending,

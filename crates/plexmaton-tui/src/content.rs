@@ -12,8 +12,8 @@ use ratatui::{
 };
 
 use crate::{
-    CleanupNotice, NoticeView, PersistenceNotice, TranscriptEntryView, TranscriptItemView,
-    TranscriptTextKind, ViewState,
+    CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewState,
     state::EntryAppearance,
     surface::SurfaceId,
     theme::{Palette, Role, agent_role},
@@ -297,6 +297,20 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     "[save] ",
                     Role::Failure,
                     "journal writer cleanup failed".to_owned(),
+                ),
+                NoticeView::SessionRecovered(SessionRecoveryNotice {
+                    tail: TailRecoveryNotice::AddedFinalNewline,
+                }) => (
+                    "[resume] ",
+                    Role::NewInformation,
+                    "completed final record repaired".to_owned(),
+                ),
+                NoticeView::SessionRecovered(SessionRecoveryNotice {
+                    tail: TailRecoveryNotice::IsolatedFinalTail { bytes },
+                }) => (
+                    "[resume] ",
+                    Role::NewInformation,
+                    format!("isolated {bytes}-byte incomplete tail"),
                 ),
             };
             Line::from(vec![

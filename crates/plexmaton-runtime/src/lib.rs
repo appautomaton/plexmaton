@@ -11,7 +11,8 @@ mod runtime;
 
 pub use http::HttpSetupError;
 pub use interface::{
-    CleanupFailure, DispatchReport, PersistenceFailure, RuntimeError, RuntimeUpdate,
+    CleanupFailure, DispatchReport, JournalTailRecovery, PersistenceFailure, RuntimeError,
+    RuntimeUpdate, SessionRecovery,
 };
 pub use native::{MAX_NATIVE_TOOL_RESULT_BYTES, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::LiveRuntime;

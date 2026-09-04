@@ -122,6 +122,20 @@ impl Agent {
         Self::with_record(Record::for_session(agent_id, session_id), budget, policy)
     }
 
+    /// Rehydrates an idle owner from one already-validated canonical journal.
+    pub fn from_journal(
+        agent_id: AgentId,
+        journal: SessionJournal,
+        budget: TurnBudget,
+        policy: ApprovalPolicy,
+    ) -> Result<Self, crate::JournalProjectionError> {
+        Ok(Self::with_record(
+            Record::from_journal(agent_id, journal)?,
+            budget,
+            policy,
+        ))
+    }
+
     fn with_record(record: Record, budget: TurnBudget, policy: ApprovalPolicy) -> Self {
         Self {
             record,
@@ -357,8 +371,8 @@ impl Agent {
 mod tests {
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, AttentionRequest, HeadName, SessionEvent,
-        TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId,
-        ToolDetail, TranscriptRole,
+        SessionId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolCapability,
+        ToolDefinitionId, ToolDetail, TranscriptRole,
     };
 
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
@@ -370,8 +384,8 @@ mod tests {
     use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
-        ApprovalPolicy, CapabilitySet, JournalEntryPayload, ModelDeliveryRefusal,
-        ToolDefinitionRevision,
+        ApprovalPolicy, CapabilitySet, JournalEntryPayload, JournalRecord, ModelDeliveryRefusal,
+        SessionJournal, ToolDefinitionRevision,
     };
 
     fn bare_agent() -> Agent {
@@ -1903,5 +1917,197 @@ mod tests {
 
         let expected: Vec<u64> = (1..=sequences.len() as u64).collect();
         assert_eq!(sequences, expected);
+    }
+
+    /// JRN-5/JRN-7: process recovery settles canonical debt without rerunning its tool effect.
+    #[test]
+    fn an_unfinished_restored_turn_becomes_idle_with_a_stable_cancelled_tool_result() {
+        let mut live = agent();
+        submit(&mut live, "change a file");
+        call_named(&mut live, "write-1", "edit");
+        let _requested = stop_before_admission(&mut live, StopReason::ToolCalls);
+        let waiting = live.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        assert!(waiting.effects.is_empty(), "approval had not run the tool");
+
+        let mut resumed = Agent::from_journal(
+            AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}")),
+            live.journal().clone(),
+            TurnBudget::default(),
+            ApprovalPolicy::default(),
+        )
+        .unwrap_or_else(|error| panic!("restore agent: {error:?}"));
+        let recovered = resumed
+            .recover_after_process_death()
+            .unwrap_or_else(|| panic!("unfinished turn was not recovered"));
+
+        assert!(recovered.effects.is_empty());
+        assert!(
+            recovered
+                .events
+                .iter()
+                .any(|event| matches!(event.event, SessionEvent::AttentionResolved { .. }))
+        );
+        assert!(recovered.events.iter().any(|event| matches!(
+            event.event,
+            SessionEvent::ToolCallChanged {
+                status: ToolCallStatus::Cancelled,
+                ..
+            }
+        )));
+        assert!(recovered.events.iter().any(|event| matches!(
+            event.event,
+            SessionEvent::AgentStatusChanged {
+                status: AgentStatus::Idle,
+                ..
+            }
+        )));
+        assert!(
+            recovered
+                .events
+                .iter()
+                .any(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+        );
+        let projection = resumed
+            .rebuild_projection()
+            .unwrap_or_else(|error| panic!("project recovered agent: {error:?}"));
+        assert!(projection.recovery().is_none());
+        assert!(matches!(
+            projection.request().items.last(),
+            Some(RequestItem::ToolResult {
+                outcome: ToolOutcome::Cancelled {
+                    reason: ToolCancellationReason::ProcessDied,
+                },
+                ..
+            })
+        ));
+        assert!(resumed.recover_after_process_death().is_none());
+    }
+
+    /// JRN-5: a process can die between records in one transition without hiding the open turn.
+    #[test]
+    fn a_user_message_written_before_its_running_status_is_still_recovered_as_interrupted() {
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
+        let session_id =
+            SessionId::new("partial-transition").unwrap_or_else(|error| panic!("session: {error}"));
+        let mut source = Agent::for_session(
+            agent_id.clone(),
+            session_id.clone(),
+            TurnBudget::default(),
+            ApprovalPolicy::default(),
+        );
+        let announcement = source.announce("Agent A");
+        let submission = submit(&mut source, "persisted before process death");
+        let mut journal = SessionJournal::new(session_id);
+        journal
+            .apply(announcement.records[0].clone())
+            .unwrap_or_else(|error| panic!("apply announcement: {error:?}"));
+        journal
+            .apply(submission.records[0].clone())
+            .unwrap_or_else(|error| panic!("apply user message: {error:?}"));
+
+        let mut resumed = Agent::from_journal(
+            agent_id,
+            journal,
+            TurnBudget::default(),
+            ApprovalPolicy::default(),
+        )
+        .unwrap_or_else(|error| panic!("resume partial transition: {error:?}"));
+        let recovered = resumed
+            .recover_after_process_death()
+            .unwrap_or_else(|| panic!("partial transition was mistaken for a clean session"));
+
+        assert!(recovered.events.iter().any(|event| matches!(
+            event.event,
+            SessionEvent::AgentStatusChanged {
+                status: AgentStatus::Idle,
+                ..
+            }
+        )));
+        assert!(
+            recovered
+                .events
+                .iter()
+                .any(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+        );
+        assert!(resumed.recover_after_process_death().is_none());
+    }
+
+    /// JRN-5: every durable prefix of recovery either resumes the same suffix or is complete.
+    #[test]
+    fn process_recovery_is_idempotent_across_every_record_prefix() {
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
+        let mut live = agent();
+        submit(&mut live, "change a file");
+        call_named(&mut live, "write-1", "edit");
+        let _requested = stop_before_admission(&mut live, StopReason::ToolCalls);
+        let _waiting = live.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("write-1", "edit", [ToolCapability::FileWrite]),
+        )));
+        let before_recovery = live.journal().clone();
+        let mut planned = Agent::from_journal(
+            agent_id.clone(),
+            before_recovery.clone(),
+            TurnBudget::default(),
+            ApprovalPolicy::default(),
+        )
+        .unwrap_or_else(|error| panic!("plan recovery: {error:?}"));
+        let recovery = planned
+            .recover_after_process_death()
+            .unwrap_or_else(|| panic!("unfinished turn was not recovered"));
+        assert!(matches!(
+            recovery.records.first(),
+            Some(JournalRecord::AppendEntry { entry, .. })
+                if matches!(entry.payload, JournalEntryPayload::TurnInterruptedByRecovery { .. })
+        ));
+
+        for prefix_len in 0..=recovery.records.len() {
+            let mut prefix = before_recovery.clone();
+            for record in &recovery.records[..prefix_len] {
+                prefix
+                    .apply(record.clone())
+                    .unwrap_or_else(|error| panic!("apply recovery prefix: {error:?}"));
+            }
+            let mut resumed = Agent::from_journal(
+                agent_id.clone(),
+                prefix,
+                TurnBudget::default(),
+                ApprovalPolicy::default(),
+            )
+            .unwrap_or_else(|error| panic!("resume recovery prefix: {error:?}"));
+
+            if prefix_len == recovery.records.len() {
+                assert!(resumed.recover_after_process_death().is_none());
+            } else {
+                let suffix = resumed
+                    .recover_after_process_death()
+                    .unwrap_or_else(|| panic!("prefix {prefix_len} was mistaken for complete"));
+                assert_eq!(suffix.records, recovery.records[prefix_len..]);
+                assert!(resumed.recover_after_process_death().is_none());
+            }
+
+            let projection = resumed
+                .rebuild_projection()
+                .unwrap_or_else(|error| panic!("project recovered prefix: {error:?}"));
+            assert_eq!(
+                projection
+                    .events()
+                    .iter()
+                    .filter(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+                    .count(),
+                1
+            );
+            assert!(projection.recovery().is_none());
+            assert!(matches!(
+                projection.request().items.last(),
+                Some(RequestItem::ToolResult {
+                    outcome: ToolOutcome::Cancelled {
+                        reason: ToolCancellationReason::ProcessDied,
+                    },
+                    ..
+                })
+            ));
+        }
     }
 }

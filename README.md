@@ -9,15 +9,10 @@ run a foreground command.
 
 ## Workspace
 
-- `plexmaton-core`: semantic contracts shared by producers and projections
-- `plexmaton-agent`: provider-independent turn, step, input, and approval state machine
-- `plexmaton-provider`: bounded OpenAI-compatible request and SSE codecs
-- `plexmaton-file-tools`: descriptor-rooted reads, searches, observations, and mutations
-- `plexmaton-command`: bounded foreground Unix command execution
-- `plexmaton-runtime`: owned HTTP and native-tool work, cancellation, and live composition
-- `plexmaton-sim`: deterministic synthetic scenarios, the test producer
-- `plexmaton-tui`: explicit view state, reducer, surfaces, and rendering
-- `plexmaton-cli`: terminal lifecycle and executable composition root
+- `plexmaton-core` / `plexmaton-agent`: semantic contracts and the provider-independent loop
+- `plexmaton-provider` / `plexmaton-runtime`: wire codecs and owned live work
+- `plexmaton-file-tools` / `plexmaton-command`: bounded native effects
+- `plexmaton-sim` / `plexmaton-tui` / `plexmaton-cli`: fixtures, projection, and composition root
 
 ## Development
 
@@ -40,26 +35,28 @@ reasoning_effort = "medium"
 For isolated development, set `PLEXMATON_HOME` to a directory containing `config.toml`. Invalid
 startup inputs fail before Plexmaton takes over the terminal.
 
-The directory where `plexmaton` starts is the one canonical native-tool workspace. File tools
-refuse absolute paths, parent traversal, and symlinks. Directory search re-enters the same
-executable as an internal descriptor-rooted `rg` driver, and both search child paths receive a
-cleared environment. Read and search run without approval; create, edit, and command calls wait for
-an exact **Allow Once** or **Deny** decision. Commands are not OS-sandboxed; their cleared child
-environment omits the selected key plus Plexmaton-private and credential-shaped variables.
+The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
+symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or
+**Deny**. Commands are not OS-sandboxed and receive a credential-scrubbed environment.
 
 ```console
-PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
+PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- create work-01
+PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
 cargo fmt --all --check
 cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Press `Ctrl-D` twice within one second to leave the TUI; the first press says so in the status line,
-and the question expires on its own. `Ctrl-C` clears a non-empty draft without interrupting; with
-an empty draft it addresses the focused conversation's interrupt, cancels and joins its live model
-or native-tool work, and never quits. `Esc` backs out one layer at a time — a selection, then an
-open second window — and does not quit (INV-6, INV-7).
+Launching without a session command remains ephemeral while the future session picker is
+unresolved. `create` reserves a new portable session name; `resume` requires that exact existing
+name. Durable sessions are owner-only JSONL files under
+`PLEXMATON_HOME/sessions/<session-id>.jsonl`. Names start with an ASCII letter or digit and then use
+only letters, digits, `-`, or `_`.
+
+Press `Ctrl-D` twice within one second to leave. `Ctrl-C` clears a non-empty draft; with an empty
+draft it interrupts the focused conversation. `Esc` clears a selection, then closes the second
+window, and never quits (INV-6, INV-7).
 In a conversation, `Shift-↑` / `Shift-↓` selects semantic entries, `Ctrl-O` opens or closes retained
 tool detail at the moving end, and `Ctrl-Y` copies producer source rather than painted cells. A
 single click on a foldable tool row selects and toggles the same detail.

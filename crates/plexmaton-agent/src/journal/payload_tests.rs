@@ -104,9 +104,13 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             message: "warning".to_owned(),
         },
         JournalEntryPayload::RuntimeError {
-            agent_id: agent_a,
+            agent_id: agent_a.clone(),
             item_id: id("error-item", TranscriptItemId::new),
             message: "error".to_owned(),
+        },
+        JournalEntryPayload::TurnInterruptedByRecovery {
+            agent_id: agent_a,
+            item_id: id("recovery-item", TranscriptItemId::new),
         },
     ];
 

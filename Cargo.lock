@@ -1062,6 +1062,7 @@ dependencies = [
  "plexmaton-file-tools",
  "plexmaton-provider",
  "plexmaton-runtime",
+ "plexmaton-session-store",
  "plexmaton-sim",
  "plexmaton-tui",
  "ratatui",

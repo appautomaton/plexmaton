@@ -1,6 +1,8 @@
 //! Turn completion, cancellation, status, and visible runtime degradation.
 
-use plexmaton_core::{AgentStatus, ApprovalDecision, ApprovalId, SessionEvent};
+use plexmaton_core::{
+    AgentStatus, ApprovalDecision, ApprovalId, SessionEvent, ToolCallStatus, ToolPresentation,
+};
 
 use super::{Agent, DeliveryBoundary, Turn};
 use crate::{
@@ -8,12 +10,74 @@ use crate::{
         ApprovalDecisionRefusal, Reaction, ReleasedInput, UndeliveredInput, UndeliveredReason,
         UnresolvedApprovalDecision,
     },
-    journal::JournalEntryPayload,
+    journal::{JournalEntryPayload, PROCESS_RECOVERY_MESSAGE},
     model::ModelError,
-    tools::ToolCancellationReason,
+    tools::{ToolCancellationReason, ToolOutcome, unexecuted_outcome},
 };
 
 impl Agent {
+    /// Settles a turn whose process owner disappeared, without replaying an outside effect.
+    pub fn recover_after_process_death(&mut self) -> Option<Reaction> {
+        let recovery = self.record.interrupted_turn()?;
+        let mut reaction = Reaction::default();
+        if recovery.needs_marker {
+            let item_id = self.record.next_item_id();
+            self.record.commit(
+                JournalEntryPayload::TurnInterruptedByRecovery {
+                    agent_id: self.record.agent_id().clone(),
+                    item_id: item_id.clone(),
+                },
+                &mut reaction,
+            );
+            self.record.emit(
+                &mut reaction,
+                SessionEvent::RuntimeWarning {
+                    agent_id: self.record.agent_id().clone(),
+                    item_id,
+                    message: PROCESS_RECOVERY_MESSAGE.to_owned(),
+                },
+            );
+        }
+        for tool in recovery.tools {
+            if let Some(attention_id) = tool.attention_id {
+                self.resolve_attention(attention_id, &mut reaction);
+            }
+            let outcome = ToolOutcome::Cancelled {
+                reason: ToolCancellationReason::ProcessDied,
+            };
+            let presentation = ToolPresentation {
+                invocation: tool.presentation.invocation,
+                outcome: unexecuted_outcome(&outcome),
+            };
+            let item_revision = tool.item_revision.saturating_add(1);
+            self.record.commit(
+                JournalEntryPayload::ToolCallChanged {
+                    agent_id: self.record.agent_id().clone(),
+                    call_id: tool.call_id.clone(),
+                    item_revision,
+                    status: ToolCallStatus::Cancelled,
+                    presentation: presentation.clone(),
+                    outcome: Some(outcome),
+                },
+                &mut reaction,
+            );
+            self.record.emit(
+                &mut reaction,
+                SessionEvent::ToolCallChanged {
+                    agent_id: self.record.agent_id().clone(),
+                    item_id: tool.item_id,
+                    item_revision,
+                    call_id: tool.call_id,
+                    label: tool.label,
+                    status: ToolCallStatus::Cancelled,
+                    presentation,
+                },
+            );
+        }
+        self.status(&mut reaction, AgentStatus::Idle);
+        Some(reaction)
+    }
+
     pub(super) fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
         if self.is_running() {
             self.abort_turn(

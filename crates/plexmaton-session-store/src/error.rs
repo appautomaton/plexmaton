@@ -6,6 +6,12 @@ use thiserror::Error;
 /// Why a session journal file could not be created, loaded, or advanced.
 #[derive(Debug, Error)]
 pub enum StoreError {
+    /// A user-facing session name cannot be represented as one safe file in the sessions root.
+    #[error("session id is not a portable file name")]
+    InvalidSessionFileName,
+    /// A session path was a symbolic link rather than owned storage.
+    #[error("session journal path cannot be a symbolic link")]
+    SymlinkPath,
     /// A filesystem operation failed.
     #[error("session journal {operation} failed")]
     Io {
@@ -19,6 +25,9 @@ pub enum StoreError {
     /// A journal-derived file is readable or writable by another account.
     #[error("session journal permissions {0:o} are not owner-only")]
     InsecurePermissions(u32),
+    /// The sessions root is readable or writable by another account.
+    #[error("sessions directory permissions {0:o} are not owner-only")]
+    InsecureDirectoryPermissions(u32),
     /// The file contained no format header.
     #[error("session journal has no header")]
     MissingHeader,

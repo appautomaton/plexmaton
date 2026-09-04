@@ -24,6 +24,7 @@ plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-file-tools = { path = "../plexmaton-file-tools" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 plexmaton-runtime = { path = "../plexmaton-runtime" }
+plexmaton-session-store = { path = "../plexmaton-session-store" }
 plexmaton-sim = { path = "../plexmaton-sim" }
 plexmaton-tui = { path = "../plexmaton-tui" }
 ratatui.workspace = true

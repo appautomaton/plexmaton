@@ -85,6 +85,13 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             item_id,
             message,
         },
+        JournalEntryPayload::TurnInterruptedByRecovery { agent_id, item_id } => {
+            SessionEvent::RuntimeWarning {
+                agent_id,
+                item_id,
+                message: super::super::PROCESS_RECOVERY_MESSAGE.to_owned(),
+            }
+        }
         JournalEntryPayload::Message { .. }
         | JournalEntryPayload::ProviderReplay(_)
         | JournalEntryPayload::ToolCallRequested { .. }

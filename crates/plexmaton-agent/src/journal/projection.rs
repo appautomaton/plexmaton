@@ -329,6 +329,9 @@ impl Projector {
             }
             | JournalEntryPayload::RuntimeError {
                 agent_id, item_id, ..
+            }
+            | JournalEntryPayload::TurnInterruptedByRecovery {
+                agent_id, item_id, ..
             } => {
                 self.require_agent(agent_id)?;
                 self.claim_entry(item_id, agent_id)?;

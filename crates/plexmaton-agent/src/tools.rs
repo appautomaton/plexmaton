@@ -13,9 +13,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::admission::{AdmissionRefusal, AdmittedToolCall};
 
+mod cancellation;
 mod presentation;
-pub(crate) use presentation::detail_fits_text_bound;
+pub use cancellation::ToolCancellationReason;
 pub use presentation::{MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolExecutionResult, bounded_tool_text};
+pub(crate) use presentation::{detail_fits_text_bound, unexecuted_outcome};
 
 /// A call the model asked for.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -58,18 +60,6 @@ pub enum ToolOutcome {
         /// Transition that cancelled it.
         reason: ToolCancellationReason,
     },
-}
-
-/// Why a call was cancelled before producing an ordinary result.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolCancellationReason {
-    /// The user interrupted the turn.
-    Interrupted,
-    /// The model step failed while calls were outstanding.
-    StepFailed,
-    /// The runtime began an orderly shutdown.
-    Shutdown,
 }
 
 impl ToolOutcome {
@@ -289,7 +279,7 @@ impl Batch {
             return false;
         }
         slot.presentation.invocation = invocation;
-        slot.presentation.outcome = presentation::unexecuted_outcome(&outcome);
+        slot.presentation.outcome = unexecuted_outcome(&outcome);
         slot.state = CallState::Finished(outcome);
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
@@ -325,7 +315,7 @@ impl Batch {
                 })
             }
             ApprovalDecision::Deny => {
-                slot.presentation.outcome = presentation::unexecuted_outcome(&ToolOutcome::Denied);
+                slot.presentation.outcome = unexecuted_outcome(&ToolOutcome::Denied);
                 slot.entry_revision = slot.entry_revision.saturating_add(1);
                 Some(ApprovalResolution::Denied {
                     attention_id,
@@ -385,7 +375,7 @@ impl Batch {
                 }
             };
             let outcome = ToolOutcome::Cancelled { reason };
-            slot.presentation.outcome = presentation::unexecuted_outcome(&outcome);
+            slot.presentation.outcome = unexecuted_outcome(&outcome);
             slot.state = CallState::Finished(outcome);
             slot.entry_revision = slot.entry_revision.saturating_add(1);
             abandoned.push(AbandonedCall {

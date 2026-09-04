@@ -19,7 +19,8 @@ mod tests {
     use ratatui::{buffer::Buffer, layout::Rect};
 
     use crate::{
-        CleanupNotice, PersistenceNotice, TranscriptMetrics, ViewState,
+        CleanupNotice, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
+        TranscriptMetrics, ViewState,
         intent::{AttentionIntent, Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
@@ -550,6 +551,74 @@ mod tests {
             assert_eq!(drawn.lines().count(), usize::from(height));
 
             let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
+                first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    /// JRN-4/JRN-5: tail repair and turn interruption each have one visible source at every width.
+    #[test]
+    fn the_session_recovery_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        let mut state = ViewState::default();
+        let agent_id = AgentId::new("agent-primary")
+            .unwrap_or_else(|error| panic!("recovery agent id: {error}"));
+        let _created = state.apply(SessionEventEnvelope {
+            sequence: EventSequence::new(1),
+            event: SessionEvent::AgentCreated {
+                agent_id: agent_id.clone(),
+                label: "Plexmaton".to_owned(),
+                status: AgentStatus::Idle,
+            },
+        });
+        let _warned = state.apply(SessionEventEnvelope {
+            sequence: EventSequence::new(2),
+            event: SessionEvent::RuntimeWarning {
+                agent_id,
+                item_id: TranscriptItemId::new("recovery-warning")
+                    .unwrap_or_else(|error| panic!("recovery item id: {error}")),
+                message: "unfinished turn was interrupted during process recovery".to_owned(),
+            },
+        });
+        state.report_session_recovery(SessionRecoveryNotice {
+            tail: TailRecoveryNotice::IsolatedFinalTail { bytes: 37 },
+        });
+        assert_eq!(state.notices().count(), 1);
+        assert_eq!(
+            state
+                .primary_agent()
+                .unwrap_or_else(|| panic!("recovered agent missing"))
+                .transcript()
+                .filter(|item| {
+                    item.source == "unfinished turn was interrupted during process recovery"
+                })
+                .count(),
+            1
+        );
+        for (width_name, width, height) in TOOL_WIDTHS {
+            let name = format!("session-recovery-{width_name}");
+            let drawn = draw(&state, width, height);
+            assert!(
+                drawn.contains("isolated 37-byte incomplete tail"),
+                "{name}: recovery copy is absent"
+            );
+            assert_eq!(drawn.lines().count(), usize::from(height));
+
+            let path = fixture_path(&name);
             if write {
                 std::fs::write(&path, &drawn)
                     .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));

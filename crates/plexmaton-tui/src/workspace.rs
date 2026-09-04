@@ -20,8 +20,8 @@ use crate::{
     render::render,
     router::{Routed, Router, RouterContext},
     state::{
-        ApprovalSubmission, CleanupNotice, CopyRequest, PersistenceNotice, QuitPress, Submission,
-        ViewRevision, ViewState,
+        ApprovalSubmission, CleanupNotice, CopyRequest, PersistenceNotice, QuitPress,
+        SessionRecoveryNotice, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -176,6 +176,11 @@ impl Workspace {
     /// Shows an owner that could not be joined cleanly after session persistence failed.
     pub fn report_cleanup_failure(&mut self, failure: CleanupNotice) {
         self.state.report_cleanup_failure(failure);
+    }
+
+    /// Shows one startup summary when a durable session needed recovery while resuming.
+    pub fn report_session_recovery(&mut self, recovery: SessionRecoveryNotice) {
+        self.state.report_session_recovery(recovery);
     }
 
     /// Translates one terminal event and applies whatever it asked for.

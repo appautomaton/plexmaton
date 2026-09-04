@@ -357,6 +357,7 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
                 ToolCancellationReason::Interrupted => "interrupted",
                 ToolCancellationReason::StepFailed => "step_failed",
                 ToolCancellationReason::Shutdown => "shutdown",
+                ToolCancellationReason::ProcessDied => "process_died",
             },
         })
         .to_string(),
@@ -365,7 +366,7 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_agent::{AdmissionRefusal, ModelError, ToolOutcome};
+    use plexmaton_agent::{AdmissionRefusal, ModelError, ToolCancellationReason, ToolOutcome};
 
     use super::{classify_http_error, tool_output};
 
@@ -386,6 +387,20 @@ mod tests {
                 .unwrap_or_else(|error| panic!("tool output JSON: {error}"));
             assert_eq!(output["reason"], expected);
         }
+    }
+
+    /// JRN-5: recovery gives every orphaned call one byte-stable provider result.
+    #[test]
+    fn process_death_has_one_stable_provider_tool_result() {
+        let output = tool_output(&ToolOutcome::Cancelled {
+            reason: ToolCancellationReason::ProcessDied,
+        });
+        let output: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|error| panic!("tool output JSON: {error}"));
+        assert_eq!(
+            output,
+            serde_json::json!({ "status": "cancelled", "reason": "process_died" })
+        );
     }
 
     /// PRV-5: retry behavior is selected from status and typed metadata, never error prose.

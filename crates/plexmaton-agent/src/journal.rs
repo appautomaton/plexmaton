@@ -19,6 +19,7 @@ mod validation_tests;
 
 pub use error::JournalError;
 pub use payload::JournalEntryPayload;
+pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;
 pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
 pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
 

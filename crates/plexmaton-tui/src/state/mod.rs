@@ -32,7 +32,9 @@ pub use entry::{
 };
 pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
-pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
+pub use notices::{
+    CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
+};
 pub use scroll::ScrollPosition;
 pub use selection::{CopyRequest, Selection};
 pub use status::{QuitPress, Status, StatusNote};
