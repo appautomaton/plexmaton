@@ -180,6 +180,7 @@ mod tests {
     use plexmaton_runtime::{JournalTailRecovery, NativeToolCatalog, RuntimeUpdate};
     use plexmaton_session_store::{JournalFile, SessionDirectory};
     use plexmaton_tui::{NoticeView, ViewState, Workspace};
+    use uuid::{Uuid, Version};
 
     use super::{
         OpenedSession, SessionSelection, StartupAction, open_selected_session,
@@ -296,7 +297,14 @@ reasoning_effort = "none"
             .persisted
             .as_ref()
             .unwrap_or_else(|| panic!("automatic session was not persisted"));
-        assert!(persisted.id.as_str().starts_with("session-"));
+        let raw_uuid = persisted
+            .id
+            .as_str()
+            .strip_prefix("session-")
+            .unwrap_or_else(|| panic!("automatic session lacks its type prefix"));
+        let uuid = Uuid::parse_str(raw_uuid)
+            .unwrap_or_else(|error| panic!("automatic session UUID: {error}"));
+        assert_eq!(uuid.get_version(), Some(Version::SortRand));
         assert!(persisted.path.is_file());
         let persisted_path = persisted.path.clone();
         automatic

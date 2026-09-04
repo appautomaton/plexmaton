@@ -90,6 +90,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, `dev-dependencies` only | Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which pulls `rusty-fork` and `tempfile` for nothing these properties need |
+| `uuid` | Collision-safe automatic session identity | Defaults off; `std` and UUIDv7 only. Journal chronology remains the separately injected `created_at_unix_ms` |
 
 ### Considered and not adopted
 

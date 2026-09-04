@@ -5,6 +5,7 @@ use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
 use plexmaton_agent::UnixMillis;
 use plexmaton_core::SessionId;
+use uuid::Uuid;
 
 use crate::{JournalFile, StoreError};
 
@@ -46,20 +47,16 @@ impl SessionDirectory {
         &self,
         created_at_unix_ms: UnixMillis,
     ) -> Result<(SessionId, JournalFile), StoreError> {
-        self.create_automatic_at(created_at_unix_ms)
+        self.create_automatic_with(created_at_unix_ms, Uuid::now_v7)
     }
 
-    fn create_automatic_at(
+    fn create_automatic_with(
         &self,
         created_at_unix_ms: UnixMillis,
+        mut next_id: impl FnMut() -> Uuid,
     ) -> Result<(SessionId, JournalFile), StoreError> {
-        let unix_millis = created_at_unix_ms.get();
-        for attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
-            let name = if attempt == 0 {
-                format!("session-{unix_millis}")
-            } else {
-                format!("session-{unix_millis}-{attempt}")
-            };
+        for _attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
+            let name = format!("session-{}", next_id());
             let session_id = SessionId::new(name)
                 .unwrap_or_else(|error| unreachable!("generated session id is valid: {error}"));
             match self.create(session_id.clone(), created_at_unix_ms) {
@@ -130,6 +127,7 @@ fn ensure_owner_only_directory(path: &Path) -> Result<(), StoreError> {
 mod tests {
     use plexmaton_agent::UnixMillis;
     use plexmaton_core::SessionId;
+    use uuid::{Uuid, Version};
 
     use super::SessionDirectory;
     use crate::{JournalFile, StoreError};
@@ -186,22 +184,57 @@ mod tests {
     }
 
     #[test]
-    fn jrn_4_automatic_session_names_are_portable_and_collision_safe() {
-        let home = test_home("automatic");
+    fn jrn_4_automatic_session_identity_is_portable_uuid_v7() {
+        let home = test_home("automatic-v7");
         let sessions = SessionDirectory::under(&home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
+        let created_at = UnixMillis::new(1_234);
 
+        let (session_id, journal) = sessions
+            .create_automatic(created_at)
+            .unwrap_or_else(|error| panic!("create automatic session: {error}"));
+        let raw_uuid = session_id
+            .as_str()
+            .strip_prefix("session-")
+            .unwrap_or_else(|| panic!("automatic session lacks its type prefix"));
+        let uuid = Uuid::parse_str(raw_uuid)
+            .unwrap_or_else(|error| panic!("automatic session UUID: {error}"));
+
+        assert_eq!(uuid.get_version(), Some(Version::SortRand));
+        assert_eq!(journal.journal().created_at_unix_ms(), created_at);
+        assert_eq!(
+            journal.path(),
+            home.join(format!("sessions/{}.jsonl", session_id.as_str()))
+        );
+        drop(journal);
+        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
+    }
+
+    #[test]
+    fn jrn_4_automatic_session_names_retry_uuid_collisions() {
+        let home = test_home("automatic-collision");
+        let sessions = SessionDirectory::under(&home)
+            .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
+        let first_uuid = Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099c75b0")
+            .unwrap_or_else(|error| panic!("first UUIDv7 fixture: {error}"));
+        let second_uuid = Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099c75b1")
+            .unwrap_or_else(|error| panic!("second UUIDv7 fixture: {error}"));
+        let created_at = UnixMillis::new(1_234);
         let (first_id, first) = sessions
-            .create_automatic_at(UnixMillis::new(1_234))
+            .create_automatic_with(created_at, || first_uuid)
             .unwrap_or_else(|error| panic!("create first automatic session: {error}"));
+        let mut candidates = [first_uuid, second_uuid].into_iter();
         let (second_id, second) = sessions
-            .create_automatic_at(UnixMillis::new(1_234))
-            .unwrap_or_else(|error| panic!("create second automatic session: {error}"));
+            .create_automatic_with(created_at, || {
+                candidates
+                    .next()
+                    .unwrap_or_else(|| panic!("UUIDv7 fixture exhausted"))
+            })
+            .unwrap_or_else(|error| panic!("retry automatic session: {error}"));
 
-        assert_eq!(first_id.as_str(), "session-1234");
-        assert_eq!(second_id.as_str(), "session-1234-1");
-        assert_eq!(first.path(), home.join("sessions/session-1234.jsonl"));
-        assert_eq!(second.path(), home.join("sessions/session-1234-1.jsonl"));
+        assert_ne!(first_id, second_id);
+        assert_eq!(first.journal().created_at_unix_ms(), created_at);
+        assert_eq!(second.journal().created_at_unix_ms(), created_at);
         drop((first, second));
         std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }

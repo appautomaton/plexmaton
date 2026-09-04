@@ -30,6 +30,9 @@ plexmaton-tui = { path = "../plexmaton-tui" }
 ratatui.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+uuid.workspace = true
+
 # The executable translates addressed user actions into the loop's typed `Input` now. Its
 # live runtime drives `Agent::handle`; the simulator remains the measurement and test producer.
 
