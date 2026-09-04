@@ -8,7 +8,9 @@ use std::{
 
 use anyhow::{Context, bail};
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, EventStream},
+    event::{
+        DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, EventStream,
+    },
     execute,
 };
 use futures_util::StreamExt;
@@ -38,17 +40,15 @@ const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
 
 /// Returns the terminal to the user on every exit path, including error and panic.
 ///
-/// Mouse capture is not part of `ratatui::restore`, and a leaked one is worse than a leaked
-/// alternate screen: the terminal keeps reporting movement into the user's shell after the process
-/// is gone, and nothing on screen explains why. Releasing it here rather than at the end of `run`
-/// is what makes that true for the panic path as well.
+/// Input reporting modes are not part of `ratatui::restore`, and a leaked one outlives the screen.
+/// Releasing them here rather than at the end of `run` covers every error and panic path.
 struct RestoreTerminal;
 
 impl Drop for RestoreTerminal {
     fn drop(&mut self) {
         // Best effort, and deliberately unreported: the process is leaving, and writing a
         // diagnostic to a screen mid-restoration is how a corrupted terminal gets handed back.
-        let _ = execute!(io::stdout(), DisableMouseCapture);
+        let _ = execute!(io::stdout(), DisableFocusChange, DisableMouseCapture);
         ratatui::restore();
     }
 }
@@ -77,13 +77,14 @@ async fn main() -> anyhow::Result<()> {
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
-    execute!(io::stdout(), EnableMouseCapture).context("enable mouse reporting")?;
-    // The terminal on the other end of stdout is the one holding the user's clipboard, which over
-    // SSH or inside tmux is not the machine this process runs on.
+    execute!(io::stdout(), EnableFocusChange, EnableMouseCapture)
+        .context("enable terminal input reporting")?;
+    // The terminal on the other end of stdout owns the user's clipboard. The adapter resolves the
+    // direct or tmux route once, before the first copy.
     let run_result = run(
         terminal,
         runtime,
-        &mut TerminalClipboard::new(io::stdout()),
+        &mut TerminalClipboard::from_environment(io::stdout()),
         working_directory(&workspace_root),
         recovery,
     )
@@ -241,10 +242,14 @@ async fn drive_session(
     loop {
         workspace.draw(terminal).context("draw TUI frame")?;
         let quit_deadline = workspace.quit_deadline();
+        let drag_deadline = workspace.drag_autoscroll_deadline();
 
         tokio::select! {
-            () = wait_for_quit_deadline(quit_deadline) => {
+            () = wait_for_deadline(quit_deadline) => {
                 workspace.expire_quit(Instant::now());
+            }
+            () = wait_for_deadline(drag_deadline) => {
+                workspace.advance_drag_autoscroll(Instant::now());
             }
             runtime_update = runtime.next_update() => {
                 match runtime_update.context("receive live runtime update")? {
@@ -281,7 +286,10 @@ async fn drive_session(
                             ).await?;
                         }
                         if let Some(request) = outcome.copied {
-                            clipboard.copy(&request.text).context("copy to the clipboard")?;
+                            clipboard
+                                .copy(&request.text)
+                                .await
+                                .context("copy to the clipboard")?;
                         }
                         if outcome.flow == Flow::Quit {
                             break;
@@ -297,7 +305,7 @@ async fn drive_session(
 }
 
 /// Owns the quit chord's one-shot wake without adding an animation clock or background task.
-async fn wait_for_quit_deadline(deadline: Option<Instant>) {
+async fn wait_for_deadline(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
         None => std::future::pending().await,

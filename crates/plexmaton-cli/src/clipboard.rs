@@ -1,88 +1,262 @@
 //! Where copied text goes once it leaves the workspace.
 //!
 //! The projection produces a [`CopyRequest`](plexmaton_tui::CopyRequest) and hands it back as a
-//! value; nothing in `plexmaton-tui` knows a clipboard exists. This is the other side of that seam,
-//! and it lives in the composition root for the same reason the terminal does.
-//!
-//! The transport is OSC 52 — an escape sequence the terminal itself acts on — rather than a native
-//! clipboard crate. That is the deliberate choice: a native clipboard reaches the desktop the
-//! *process* is on, which over SSH or inside tmux is the wrong machine, and the phase file already
-//! records that a local clipboard cannot be the only path. OSC 52 reaches the terminal the *user* is
-//! at, which is the one holding their clipboard.
-//!
-//! Its cost is that it is unacknowledged. The terminal never replies, and many terminals and
-//! multiplexers decline OSC 52 unless configured to allow it. So a successful write here means the
-//! sequence was sent, and nothing stronger. That is why the workspace's own feedback is the
-//! selection staying visible rather than a message claiming the copy landed (SEL-5).
+//! value; nothing in `plexmaton-tui` knows a clipboard exists. This adapter owns the terminal and
+//! tmux boundary without turning a remote host's native clipboard into the user's clipboard.
 
-use std::io::{self, Write};
+use std::{
+    ffi::OsStr,
+    io::{self, Write},
+    process::Stdio,
+    time::Duration,
+};
 
 use crossterm::{clipboard::CopyToClipboard, execute};
+use tokio::{io::AsyncWriteExt as _, process::Command};
+
+const TMUX_COPY_DEADLINE: Duration = Duration::from_millis(500);
+
+/// How the process reaches the terminal that owns the user's clipboard.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ClipboardRoute {
+    /// The process is attached directly to the terminal emulator.
+    Direct,
+    /// tmux is the immediate terminal and must carry the copy to its outer client.
+    Tmux {
+        /// False inside an editor terminal, where tmux is not the immediate escape parser.
+        dcs_passthrough: bool,
+    },
+}
+
+impl ClipboardRoute {
+    pub(crate) fn detect() -> Self {
+        let embedded_editor = [
+            "NVIM",
+            "NVIM_LISTEN_ADDRESS",
+            "VIM_TERMINAL",
+            "INSIDE_EMACS",
+        ]
+        .into_iter()
+        .any(|name| std::env::var_os(name).is_some_and(|value| !value.is_empty()));
+        Self::from_environment(std::env::var_os("TMUX").as_deref(), embedded_editor)
+    }
+
+    fn from_environment(tmux: Option<&OsStr>, embedded_editor: bool) -> Self {
+        match tmux {
+            Some(value) if !value.is_empty() => Self::Tmux {
+                dcs_passthrough: !embedded_editor,
+            },
+            Some(_) | None => Self::Direct,
+        }
+    }
+
+    const fn uses_tmux(self) -> bool {
+        matches!(self, Self::Tmux { .. })
+    }
+}
 
 /// One place copied text can be delivered.
 ///
-/// A trait with one production implementation, because the alternative is a `#[cfg(test)]` branch
-/// inside the composition root, and a code path the binary never runs is not evidence.
-pub trait ClipboardSink {
-    /// Offers `text` to the user's clipboard.
-    ///
-    /// An `Ok` means the request was delivered to the terminal, not that the terminal accepted it.
-    fn copy(&mut self, text: &str) -> io::Result<()>;
+/// The operation is async because tmux is an external process. It remains directly owned and
+/// bounded instead of blocking the event-loop thread or detaching a child.
+pub(crate) trait ClipboardSink {
+    async fn copy(&mut self, text: &str) -> io::Result<()>;
 }
 
-/// Sends OSC 52 to whatever terminal is on the other end of a writer.
-pub struct TerminalClipboard<W> {
+/// Sends semantic source to the terminal, with a second acknowledged tmux leg when applicable.
+pub(crate) struct TerminalClipboard<W> {
     writer: W,
+    route: ClipboardRoute,
 }
 
 impl<W: Write> TerminalClipboard<W> {
-    /// Wraps the stream the terminal is reading, normally the process's own stdout.
-    pub const fn new(writer: W) -> Self {
-        Self { writer }
+    pub(crate) const fn new(writer: W, route: ClipboardRoute) -> Self {
+        Self { writer, route }
+    }
+
+    pub(crate) fn from_environment(writer: W) -> Self {
+        Self::new(writer, ClipboardRoute::detect())
+    }
+
+    fn write_terminal(&mut self, text: &str) -> io::Result<()> {
+        self.writer.write_all(&osc52_sequence(text, self.route)?)?;
+        self.writer.flush()
     }
 }
 
 impl<W: Write> ClipboardSink for TerminalClipboard<W> {
-    fn copy(&mut self, text: &str) -> io::Result<()> {
-        // Queued and flushed by `execute!`, so the sequence is not left sitting in a buffer until
-        // the next frame happens to push it out.
-        execute!(self.writer, CopyToClipboard::to_clipboard_from(text))
+    async fn copy(&mut self, text: &str) -> io::Result<()> {
+        // Try every route before inspecting either result. A disconnected terminal must not stop
+        // tmux from delivering, and a wedged tmux must not suppress the escape sequence.
+        let terminal = self.write_terminal(text);
+        let tmux = self.route.uses_tmux().then(|| copy_through_tmux(text));
+        let tmux = match tmux {
+            Some(copy) => Some(copy.await),
+            None => None,
+        };
+        match (terminal, tmux) {
+            (Ok(()), _) | (_, Some(Ok(()))) => Ok(()),
+            (Err(error), None | Some(Err(_))) => Err(error),
+        }
     }
+}
+
+/// Builds direct OSC 52, or tmux's DCS passthrough envelope around that same sequence.
+fn osc52_sequence(text: &str, route: ClipboardRoute) -> io::Result<Vec<u8>> {
+    let mut direct = Vec::new();
+    execute!(direct, CopyToClipboard::to_clipboard_from(text))?;
+    let dcs_passthrough = match route {
+        ClipboardRoute::Direct
+        | ClipboardRoute::Tmux {
+            dcs_passthrough: false,
+        } => false,
+        ClipboardRoute::Tmux {
+            dcs_passthrough: true,
+        } => true,
+    };
+    if !dcs_passthrough {
+        return Ok(direct);
+    }
+
+    // tmux passthrough doubles every ESC byte in the inner payload. The outer String Terminator
+    // closes the DCS; the doubled one belongs to Crossterm's inner OSC 52 sequence.
+    let mut wrapped = Vec::with_capacity(direct.len().saturating_mul(2).saturating_add(10));
+    wrapped.extend_from_slice(b"\x1bPtmux;");
+    for byte in direct {
+        if byte == 0x1b {
+            wrapped.push(0x1b);
+        }
+        wrapped.push(byte);
+    }
+    wrapped.extend_from_slice(b"\x1b\\");
+    Ok(wrapped)
+}
+
+/// Asks tmux to retain the text and send it to the outer client's clipboard.
+async fn copy_through_tmux(text: &str) -> io::Result<()> {
+    let mut command = tmux_copy_command();
+    let mut child = command.spawn()?;
+    let operation = async {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("tmux clipboard stdin was not piped"))?;
+        stdin.write_all(text.as_bytes()).await?;
+        stdin.shutdown().await?;
+        drop(stdin);
+        child.wait().await
+    };
+    let result = tokio::time::timeout(TMUX_COPY_DEADLINE, operation).await;
+    let status = match result {
+        Ok(Ok(status)) => status,
+        Ok(Err(error)) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return Err(error);
+        }
+        Err(_) => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "tmux clipboard copy exceeded 500 ms",
+            ));
+        }
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "tmux clipboard command exited with {status}"
+        )))
+    }
+}
+
+fn tmux_copy_command() -> Command {
+    let mut command = Command::new("tmux");
+    command
+        .args(["load-buffer", "-w", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    command
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ClipboardSink, TerminalClipboard};
+    use std::ffi::OsStr;
 
-    /// The adapter's whole job is the bytes it emits, and those are checkable without a terminal.
-    ///
-    /// Pinned literally rather than by re-encoding: computing the expectation the same way the code
-    /// does would pass whatever the code produced, including an unterminated sequence or the wrong
-    /// selection character, and the whole point of a wire format is that the other side agrees.
-    #[test]
-    fn copying_writes_a_terminated_osc_52_sequence_carrying_the_encoded_text() {
-        let mut sink = TerminalClipboard::new(Vec::new());
+    use super::{
+        ClipboardRoute, ClipboardSink, TerminalClipboard, osc52_sequence, tmux_copy_command,
+    };
+
+    #[tokio::test]
+    async fn direct_copy_writes_the_exact_terminated_osc_52_sequence() {
+        let mut sink = TerminalClipboard::new(Vec::new(), ClipboardRoute::Direct);
 
         sink.copy("plexmaton")
+            .await
             .unwrap_or_else(|error| panic!("writing to a vector cannot fail: {error}"));
 
-        let written = String::from_utf8(sink.writer)
-            .unwrap_or_else(|error| panic!("the sequence must be text: {error}"));
-        // Terminated by String Terminator, which is what Crossterm emits; the BEL form is the
-        // older alternative and is not what this project sends.
-        assert_eq!(written, "\u{1b}]52;c;cGxleG1hdG9u\u{1b}\\");
+        assert_eq!(sink.writer, b"\x1b]52;c;cGxleG1hdG9u\x1b\\");
     }
 
-    /// Multi-byte text is where a naive encoder truncates, so it is worth its own case.
     #[test]
-    fn multi_byte_text_survives_the_encoding() {
-        let mut sink = TerminalClipboard::new(Vec::new());
+    fn tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope() {
+        let sequence = osc52_sequence(
+            "δ 汉字",
+            ClipboardRoute::Tmux {
+                dcs_passthrough: true,
+            },
+        )
+        .unwrap_or_else(|error| panic!("encode copy: {error}"));
 
-        sink.copy("δ 汉字")
-            .unwrap_or_else(|error| panic!("writing to a vector cannot fail: {error}"));
+        assert_eq!(
+            sequence,
+            b"\x1bPtmux;\x1b\x1b]52;c;zrQg5rGJ5a2X\x1b\x1b\\\x1b\\"
+        );
+    }
 
-        let written = String::from_utf8(sink.writer)
-            .unwrap_or_else(|error| panic!("the sequence must be text: {error}"));
-        assert_eq!(written, "\u{1b}]52;c;zrQg5rGJ5a2X\u{1b}\\");
+    #[test]
+    fn route_detection_requires_a_non_empty_tmux_identity() {
+        assert_eq!(
+            ClipboardRoute::from_environment(Some(OsStr::new("/tmp/tmux,1,0")), false),
+            ClipboardRoute::Tmux {
+                dcs_passthrough: true
+            }
+        );
+        assert_eq!(
+            ClipboardRoute::from_environment(Some(OsStr::new("")), false),
+            ClipboardRoute::Direct
+        );
+        assert_eq!(
+            ClipboardRoute::from_environment(None, false),
+            ClipboardRoute::Direct
+        );
+    }
+
+    #[test]
+    fn an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52() {
+        let route = ClipboardRoute::from_environment(Some(OsStr::new("/tmp/tmux,1,0")), true);
+
+        assert!(route.uses_tmux());
+        assert_eq!(
+            osc52_sequence("plexmaton", route)
+                .unwrap_or_else(|error| panic!("encode copy: {error}")),
+            b"\x1b]52;c;cGxleG1hdG9u\x1b\\"
+        );
+    }
+
+    #[test]
+    fn tmux_delivery_names_the_outer_clipboard_flag_and_stdin() {
+        let command = tmux_copy_command();
+        let command = command.as_std();
+
+        assert_eq!(command.get_program(), "tmux");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["load-buffer", "-w", "-"]
+        );
     }
 }

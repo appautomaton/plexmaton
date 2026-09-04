@@ -209,17 +209,21 @@ scroll without moving the transcript behind it.
 ### Selection and copy
 
 - Mouse capture never makes transcript, tool output, paths, mail, or equations uncopyable.
-- A selection is a range over a surface's *entries*, never a rectangle of cells, so it extends past
-  the viewport by construction and copying is unaffected by width, scroll position, and decoration.
+- A selection is a range over a surface's *entries*, never a rectangle of cells, so copying is
+  unaffected by width, scroll position, and decoration. Holding a captured drag on the content row
+  beside either edge's chrome scrolls that same conversation and carries the moving end into entries
+  that began off-screen; the chrome and the row outside it accelerate the motion. Moving inward,
+  releasing, cancelling, or reaching the content boundary stops it. Losing terminal focus pauses
+  motion without dropping the selection; the next drag resumes from the same anchor.
 - A foldable tool row uses the accent role while the pointer is over it. A completed single click
   selects that entry and toggles its retained detail; `Ctrl-O` toggles the moving end of the current
   selection. Hover changes no focus, selection, scroll, or semantic state, and keyboard and pointer
   disclosure address the same stable entry. Open detail grows inside the conversation and uses its
   existing viewport. Rejected: a nested tool-output surface, whose second scroll owner makes the
   same wheel gesture depend on an invisible boundary.
-- Copy is an explicit keyboard action that returns the semantic source: an equation's exact source,
-  an artifact's stable value rather than its truncated label, and a tool's retained invocation then
-  outcome, never disclosure headings, gutters, border glyphs, or clipped cells.
+- `Ctrl-Y`, or completing a mouse selection, copies the semantic source: an equation's exact
+  source, an artifact's stable value rather than its truncated label, and a tool's retained
+  invocation then outcome, never disclosure headings, gutters, border glyphs, or clipped cells.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Rejected: character selection, which changes what is copied at a second width; a local clipboard

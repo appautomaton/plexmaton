@@ -61,6 +61,11 @@ pub enum PointerIntent {
         /// Current terminal-cell position.
         at: Point,
     },
+    /// Pointer observation paused while the terminal lost focus; capture remains held.
+    Suspend {
+        /// Surface whose in-flight gesture may resume with the next drag.
+        surface: SurfaceId,
+    },
     /// The primary button was released, ending capture.
     Release {
         /// Surface that held capture.

@@ -160,6 +160,7 @@ impl ViewState {
                     .set_rows(at.y.saturating_add(1).saturating_sub(bounds.y).max(1)),
                 _ => false,
             },
+            PointerIntent::Suspend { .. } => false,
             PointerIntent::Release { .. } | PointerIntent::Cancel { .. } => {
                 self.inspector.release();
                 false

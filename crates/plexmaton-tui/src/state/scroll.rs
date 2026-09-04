@@ -132,6 +132,18 @@ impl ScrollState {
         direction: ScrollDirection,
         metrics: &TranscriptMetrics,
     ) -> bool {
+        self.scroll_conversation_by(agent_id, viewport, direction, WHEEL_ROWS, metrics)
+    }
+
+    /// Moves a conversation by an explicit row count for a held drag at the viewport edge.
+    pub(super) fn scroll_conversation_by(
+        &mut self,
+        agent_id: &AgentId,
+        viewport: Viewport,
+        direction: ScrollDirection,
+        rows: usize,
+        metrics: &TranscriptMetrics,
+    ) -> bool {
         let max_offset = viewport.max_offset();
         let width = viewport.content_width;
         let current = self
@@ -140,7 +152,7 @@ impl ScrollState {
             .map_or(viewport.offset, |position| {
                 metrics.offset_of(agent_id, width, position, max_offset)
             });
-        let Some(next) = step(current, direction, max_offset) else {
+        let Some(next) = step_by(current, direction, rows, max_offset) else {
             return false;
         };
         let position = if next == max_offset {
@@ -160,9 +172,19 @@ impl ScrollState {
 
 /// One wheel notch from `current`, or `None` if it would not move.
 fn step(current: usize, direction: ScrollDirection, max_offset: usize) -> Option<usize> {
+    step_by(current, direction, WHEEL_ROWS, max_offset)
+}
+
+/// One bounded movement from `current`, or `None` if it would not move.
+fn step_by(
+    current: usize,
+    direction: ScrollDirection,
+    rows: usize,
+    max_offset: usize,
+) -> Option<usize> {
     let next = match direction {
-        ScrollDirection::Up => current.saturating_sub(WHEEL_ROWS),
-        ScrollDirection::Down => current.saturating_add(WHEEL_ROWS),
+        ScrollDirection::Up => current.saturating_sub(rows),
+        ScrollDirection::Down => current.saturating_add(rows),
     }
     .min(max_offset);
     (next != current).then_some(next)

@@ -24,9 +24,9 @@ topmost surface, takes no capture, and repeats for free. Wheel motion changes on
 eligible viewport; an immovable surface is transparent and an exhausted one still consumes the
 event. Neither path changes focus, selection, or semantic entries (`ui-ux.md` §nested scrolling).
 
-**INV-4 — Capture wins for the drag gesture.** While pointer capture is held, button and motion
-events route to the capturing surface regardless of position, and hit testing is not consulted.
-Wheel events keep hover routing, so a drag on one surface does not freeze scrolling elsewhere.
+**INV-4 — Capture wins for the drag gesture.** Captured button and motion events stay on their
+surface regardless of position; hit testing is not consulted. Wheels keep hover routing. Terminal
+focus loss pauses motion but preserves capture for a later drag.
 
 **INV-5 — Capture is released exactly once.** A release or a cancel clears capture; a second
 release produces `Ignored::NoCapture`, never a second drag intent.
@@ -113,7 +113,7 @@ without answering. It never scrolls: its options are its last two rows at every 
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
 | INV-3 | `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
-| INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
+| INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `focus_loss_suspends_motion_without_releasing_capture`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval` |

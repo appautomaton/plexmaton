@@ -298,6 +298,33 @@ impl ViewState {
         }
     }
 
+    /// Scrolls one conversation by a timer-selected number of rows during a captured drag.
+    pub(crate) fn scroll_conversation_by(
+        &mut self,
+        surfaces: &SurfaceTree,
+        metrics: &TranscriptMetrics,
+        surface_id: SurfaceId,
+        direction: ScrollDirection,
+        rows: usize,
+    ) -> bool {
+        if !matches!(surface_id, SurfaceId::Transcript | SurfaceId::Inspector) {
+            return false;
+        }
+        let Some(viewport) = surfaces.viewport(surface_id) else {
+            return false;
+        };
+        let Some(agent_id) = self.agent_shown_by(surface_id) else {
+            return false;
+        };
+        let moved = self
+            .scroll
+            .scroll_conversation_by(&agent_id, viewport, direction, rows, metrics);
+        if moved {
+            self.touch();
+        }
+        moved
+    }
+
     /// Moves focus one stop around the ring.
     pub fn cycle_focus(&mut self, surfaces: &SurfaceTree, direction: Direction) {
         if self.focus.cycle(surfaces, direction) {

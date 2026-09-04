@@ -62,13 +62,13 @@ git config core.hooksPath .githooks
 ## The terminal smoke
 
 `./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, the quit key, and mouse
-reporting in front of a real pseudo-terminal. Run it locally when changing the event loop, terminal
-setup, layout classes, the quit binding, or surface kinds. It runs in CI.
+and focus reporting in front of a real pseudo-terminal. Run it locally when changing the event
+loop, terminal setup, layout classes, the quit binding, or surface kinds. It runs in CI.
 
-Mouse reporting is checked here because neither half fits a cell buffer: enabling and releasing it
-are byte sequences, and the click is sent as a real SGR report so crossterm's parser is on the path.
-Release is asserted to happen *before* the alternate screen is handed back — the other order
-switches the modes off on the terminal the user is now looking at.
+Input reporting is checked here because neither half fits a cell buffer: enabling and releasing
+mouse and focus events are byte sequences, and the click is sent as a real SGR report so
+crossterm's parser is on the path. Release is asserted to happen *before* the alternate screen is
+handed back — the other order switches the modes off on the terminal the user is now looking at.
 
 Three properties of that boundary have already produced wrong evidence once, so they are worth
 knowing before you touch it:

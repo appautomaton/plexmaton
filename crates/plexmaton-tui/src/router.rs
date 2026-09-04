@@ -82,9 +82,12 @@ impl Router {
             Event::Resize(width, height) => {
                 Routed::Intent(TuiIntent::TerminalResized { width, height })
             }
-            Event::FocusGained | Event::FocusLost | Event::Paste(_) => {
-                Routed::Ignored(Ignored::Unbound)
-            }
+            Event::FocusLost => self
+                .capture
+                .map_or(Routed::Ignored(Ignored::Unbound), |surface| {
+                    Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend { surface }))
+                }),
+            Event::FocusGained | Event::Paste(_) => Routed::Ignored(Ignored::Unbound),
         }
     }
 
@@ -836,6 +839,33 @@ mod tests {
                 &context
             ),
             Routed::Ignored(Ignored::NoCapture)
+        );
+    }
+
+    /// INV-4: losing terminal focus pauses observation without discarding the gesture's owner.
+    #[test]
+    fn focus_loss_suspends_motion_without_releasing_capture() {
+        let surfaces = tree();
+        let context = context(&surfaces, KeyboardFocus::Navigation, false);
+        let mut router = Router::default();
+        router.translate(&press(12, 4), &context);
+
+        assert_eq!(
+            router.translate(&Event::FocusLost, &context),
+            Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend {
+                surface: OVERLAY
+            }))
+        );
+        assert_eq!(router.capture(), Some(OVERLAY));
+        assert_eq!(
+            router.translate(
+                &mouse(MouseEventKind::Drag(MouseButton::Left), 12, 6),
+                &context
+            ),
+            Routed::Intent(TuiIntent::Pointer(PointerIntent::Drag {
+                surface: OVERLAY,
+                at: Point { x: 12, y: 6 }
+            }))
         );
     }
 

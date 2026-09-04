@@ -34,9 +34,19 @@ another's, and a copy reading the wrong list is invisible once the highlight has
 `Outcome`, as a submission does (COM-3); nothing in `plexmaton-tui` reaches a clipboard, so semantic
 copy tests need no host desktop and the transport is replaceable.
 
-**SEL-5 — The selection is the feedback.** OSC 52 is unacknowledged and many terminals and
-multiplexers decline it unless configured, so a copy claims nothing; the user sees the selection
-still highlighted and counted in the surface's title.
+**SEL-5 — Delivery follows the user's terminal boundary without inventing evidence.** A direct
+terminal receives OSC 52; immediate tmux receives the same sequence in its DCS passthrough
+envelope and an owned, bounded `load-buffer -w` request. An embedded editor terminal keeps plain
+OSC 52 while retaining the tmux leg. No remote host clipboard is treated as the user's. A
+successful terminal write has no acknowledgement, and a successful tmux child proves only what
+tmux accepted, so the screen claims no stronger delivery than the route can establish.
+
+**SEL-6 — A held drag reaches entries beyond the viewport.** While a conversation holds capture,
+the content row beside its top or bottom chrome starts a bounded scroll rate on one monotonic timer;
+the chrome and the first row beyond it increase that rate. Each wake moves that conversation and
+extends the semantic range; moving inward, release, cancel, a lost-button bare move, or the content
+boundary disarms it without another frame. Losing terminal focus pauses the timer while retaining
+the semantic selection and pointer capture; a later drag resumes from the same anchor.
 
 ## Model
 
@@ -45,7 +55,9 @@ focused surface + its agent ──▶ entries ──▶ Selection { surface, age
                                    │                        │
         content paints entry n ────┘                        └──▶ copy() ──▶ Outcome.copied
         highlighted if in range                                              │
-                                                       plexmaton-cli::clipboard (OSC 52)
+                                                       plexmaton-cli::clipboard
+                                                          ├─ direct OSC 52
+                                                          └─ tmux DCS + load-buffer -w
 ```
 
 | Surface | Entries, in order | What one copies as |
@@ -66,7 +78,9 @@ be selected while its input holds the cursor.
 | Copying with nothing selected | No `CopyRequest`; the composition root has nothing to deliver |
 | A selected tool has no retained invocation or outcome | It contributes no source; its painted label is never substituted |
 | The selected agent leaves the roster | `copy` finds no agent and returns nothing rather than stale text |
-| The terminal declines OSC 52 | Undetectable here, and claimed nowhere (SEL-5) |
+| The outer terminal declines OSC 52 | Undetectable here, and claimed nowhere (SEL-5) |
+| tmux is absent, rejects `load-buffer -w`, or takes too long | The request has a 500 ms deadline; its child is killed and reaped before return, while the already-attempted OSC 52 route remains |
+| A held drag reaches the viewport boundary | The timer disarms; repeated wakeups cost no frame |
 | A write to the terminal fails | An `io::Error` out of the composition root, like any other terminal write |
 
 ## Evidence
@@ -76,5 +90,6 @@ be selected while its input holds the cursor.
 | SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | SEL-2 | `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
 | SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents` |
-| SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_writes_a_terminated_osc_52_sequence_carrying_the_encoded_text`, `multi_byte_text_survives_the_encoding` |
-| SEL-5 | `escape_clears_the_selection_before_it_closes_the_inspector`, `a_selection_does_not_survive_the_surface_changing_agents` |
+| SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `direct_copy_writes_the_exact_terminated_osc_52_sequence` |
+| SEL-5 | `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52` |
+| SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |

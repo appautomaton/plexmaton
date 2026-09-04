@@ -30,7 +30,7 @@ use crate::{
 
 mod pointer;
 
-use pointer::PressedEntry;
+use pointer::{DragAutoScroll, PressedEntry};
 
 /// Whether the event loop continues after an intent.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -102,6 +102,8 @@ pub struct Workspace {
     frames: u64,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
+    /// Timer-owned motion for a captured conversation drag held at a viewport edge.
+    drag_autoscroll: Option<DragAutoScroll>,
 }
 
 impl Workspace {
@@ -312,7 +314,7 @@ impl Workspace {
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
                 return Outcome {
-                    copied: self.pointer(pointer),
+                    copied: self.pointer(pointer, now),
                     ..Outcome::default()
                 };
             }
@@ -346,6 +348,9 @@ impl Workspace {
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
             TuiIntent::Hover { surface, at } => {
+                // A bare move means the primary button is no longer reported as held. It also
+                // prevents a lost release from leaving the timer active indefinitely.
+                self.drag_autoscroll = None;
                 let target = surface.and_then(|surface| self.entry_target_at(surface, at));
                 self.state.hover_entry(target);
             }

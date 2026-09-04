@@ -62,7 +62,9 @@ draft it interrupts the focused conversation. `Esc` clears a selection, then clo
 window, and never quits (INV-6, INV-7).
 In a conversation, `Shift-↑` / `Shift-↓` selects semantic entries, `Ctrl-O` opens or closes retained
 tool detail at the moving end, and `Ctrl-Y` copies producer source rather than painted cells. A
-single click on a foldable tool row selects and toggles the same detail.
+mouse drag copies on release; holding it at a conversation edge scrolls the selection into
+off-screen entries, while terminal focus loss pauses without discarding it. A single click on a
+foldable tool row selects and toggles the same detail.
 
 Supply chain and prose, which depend on the resolved graph rather than on a single edit:
 

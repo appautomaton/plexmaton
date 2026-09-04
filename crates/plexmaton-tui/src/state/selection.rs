@@ -166,15 +166,16 @@ impl ViewState {
         surface: SurfaceId,
         agent: &AgentId,
         index: usize,
-    ) {
+    ) -> bool {
         let Some(selection) = self.selection.as_mut() else {
-            return;
+            return false;
         };
         if selection.surface != surface || &selection.agent != agent || selection.focus == index {
-            return;
+            return false;
         }
         selection.focus = index;
         self.touch();
+        true
     }
 
     /// Drops the selection, reporting whether there was one. A rung on the `Escape` ladder (INV-6).
@@ -339,7 +340,7 @@ mod tests {
         },
         layout::Rect,
     };
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, time::Duration};
 
     use super::tool_source;
     use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_state};
@@ -550,6 +551,192 @@ mod tests {
         assert_eq!(workspace.state().selection(), None);
     }
 
+    /// SEL-6: holding a captured drag at the viewport edge reaches entries beyond the frame.
+    #[test]
+    fn an_edge_drag_scrolls_and_copies_entries_that_started_off_screen() {
+        for width in [60, 100, 160] {
+            assert_edge_drag(width);
+        }
+    }
+
+    /// SEL-6: chrome-centred activation costs only one row of conversation content.
+    #[test]
+    fn drag_autoscroll_activates_on_the_content_row_beside_chrome() {
+        let messages: Vec<String> = (0..60).map(|index| format!("message-{index:02}")).collect();
+        let (mut workspace, mut terminal) = drawn(&messages, 100);
+        let bounds = workspace
+            .surfaces()
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("conversation surface"))
+            .bounds;
+        let wheel_at = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: bounds.x.saturating_add(3),
+            row: bounds.y.saturating_add(bounds.height / 2),
+            modifiers: KeyModifiers::NONE,
+        };
+        for _ in 0..4 {
+            workspace.handle(&Event::Mouse(wheel_at));
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("draw scrolled conversation: {error}"));
+        }
+
+        let visible = visible_message_rows(&workspace, &terminal, &messages);
+        let (_, anchor_row) = visible
+            .iter()
+            .nth(visible.len() / 2)
+            .unwrap_or_else(|| panic!("a long conversation has visible messages"));
+        workspace.handle(&press(*anchor_row));
+
+        workspace.handle(&drag(bounds.y.saturating_add(2)));
+        assert_eq!(workspace.drag_autoscroll_deadline(), None);
+        workspace.handle(&drag(bounds.y.saturating_add(1)));
+        assert!(workspace.drag_autoscroll_deadline().is_some());
+
+        workspace.handle(&drag(bounds.y.saturating_add(bounds.height / 2)));
+        assert_eq!(workspace.drag_autoscroll_deadline(), None);
+        workspace.handle(&drag(bounds.bottom().saturating_sub(3)));
+        assert_eq!(workspace.drag_autoscroll_deadline(), None);
+        workspace.handle(&drag(bounds.bottom().saturating_sub(2)));
+        let slow_from = transcript_offset(&workspace);
+        advance_edge_drag(&mut workspace, &mut terminal);
+        assert_eq!(transcript_offset(&workspace), slow_from.saturating_add(1));
+
+        workspace.handle(&drag(bounds.bottom().saturating_sub(1)));
+        let medium_from = transcript_offset(&workspace);
+        advance_edge_drag(&mut workspace, &mut terminal);
+        assert_eq!(transcript_offset(&workspace), medium_from.saturating_add(2));
+
+        workspace.handle(&drag(bounds.bottom()));
+        let fast_from = transcript_offset(&workspace);
+        advance_edge_drag(&mut workspace, &mut terminal);
+        assert_eq!(transcript_offset(&workspace), fast_from.saturating_add(3));
+
+        let selected = workspace.state().selection().cloned();
+        workspace.handle(&Event::FocusLost);
+        assert_eq!(workspace.drag_autoscroll_deadline(), None);
+        assert_eq!(workspace.state().selection(), selected.as_ref());
+        workspace.handle(&drag(bounds.bottom()));
+        assert!(workspace.drag_autoscroll_deadline().is_some());
+    }
+
+    fn assert_edge_drag(width: u16) {
+        let messages: Vec<String> = (0..60).map(|index| format!("message-{index:02}")).collect();
+        let (mut workspace, mut terminal) = drawn(&messages, width);
+        let bounds = workspace
+            .surfaces()
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("conversation surface"))
+            .bounds;
+        let wheel_at = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: bounds.x.saturating_add(3),
+            row: bounds.y.saturating_add(bounds.height / 2),
+            modifiers: KeyModifiers::NONE,
+        };
+        for _ in 0..8 {
+            workspace.handle(&Event::Mouse(wheel_at));
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("draw scrolled conversation: {error}"));
+        }
+        let before_offset = workspace
+            .surfaces()
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("conversation viewport"))
+            .offset;
+        let visible = visible_message_rows(&workspace, &terminal, &messages);
+        let (anchor, anchor_row) = visible
+            .iter()
+            .nth(visible.len() / 2)
+            .unwrap_or_else(|| panic!("a long conversation has visible messages"));
+        // The pointer has crossed the chrome into the neighbouring region. Capture keeps the
+        // gesture addressed to this conversation and selects at the fast bounded rate.
+        let below_chrome = bounds.bottom();
+
+        workspace.handle(&press(*anchor_row));
+        workspace.handle(&drag(below_chrome));
+        let before_entries = workspace.state().selection().map_or(0, Selection::entries);
+        for _ in 0..6 {
+            let deadline = workspace
+                .drag_autoscroll_deadline()
+                .unwrap_or_else(|| panic!("edge drag owns a wakeup"));
+            assert!(workspace.advance_drag_autoscroll(deadline));
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("draw autoscrolled conversation: {error}"));
+        }
+
+        let after_offset = workspace
+            .surfaces()
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("conversation viewport after drag"))
+            .offset;
+        assert!(
+            after_offset > before_offset,
+            "the held drag moved toward newer entries at width {width}"
+        );
+        assert!(
+            workspace
+                .state()
+                .selection()
+                .is_some_and(|selection| selection.entries() > before_entries),
+            "the moving end followed content revealed by autoscroll at width {width}"
+        );
+
+        // Keep the pointer held until the tail. This catches a subtle boundary regression: if the
+        // timer checks whether the viewport can move before resolving the newly revealed edge,
+        // the final entry is visible but never joins the semantic selection.
+        for _ in 0..256 {
+            let Some(deadline) = workspace.drag_autoscroll_deadline() else {
+                break;
+            };
+            let _changed = workspace.advance_drag_autoscroll(deadline);
+            workspace
+                .draw(&mut terminal)
+                .unwrap_or_else(|error| panic!("draw autoscroll boundary: {error}"));
+        }
+        assert_eq!(
+            workspace.drag_autoscroll_deadline(),
+            None,
+            "the content boundary disarms the timer at width {width}"
+        );
+
+        let copied = workspace
+            .handle(&release(below_chrome))
+            .copied
+            .unwrap_or_else(|| panic!("release copies the autoscrolled selection"));
+        assert!(copied.text.contains(anchor));
+        assert!(
+            copied.text.contains("message-59"),
+            "the last entry revealed at the boundary is selected at width {width}"
+        );
+        let settled = workspace.state().revision();
+        assert!(
+            !workspace.advance_drag_autoscroll(std::time::Instant::now() + Duration::from_secs(1))
+        );
+        assert_eq!(workspace.state().revision(), settled);
+    }
+
+    fn advance_edge_drag(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>) {
+        let deadline = workspace
+            .drag_autoscroll_deadline()
+            .unwrap_or_else(|| panic!("edge drag owns a wakeup"));
+        assert!(workspace.advance_drag_autoscroll(deadline));
+        workspace
+            .draw(terminal)
+            .unwrap_or_else(|error| panic!("draw autoscrolled conversation: {error}"));
+    }
+
+    fn transcript_offset(workspace: &Workspace) -> usize {
+        workspace
+            .surfaces()
+            .viewport(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("conversation viewport"))
+            .offset
+    }
+
     fn mouse(kind: MouseEventKind, row: u16) -> Event {
         Event::Mouse(MouseEvent {
             kind,
@@ -592,6 +779,20 @@ mod tests {
         terminal: &Terminal<TestBackend>,
         messages: &[String],
     ) -> BTreeMap<String, u16> {
+        let rows = visible_message_rows(workspace, terminal, messages);
+        assert_eq!(
+            rows.len(),
+            messages.len(),
+            "every fixture message has to be on screen or the gesture proves nothing"
+        );
+        rows
+    }
+
+    fn visible_message_rows(
+        workspace: &Workspace,
+        terminal: &Terminal<TestBackend>,
+        messages: &[String],
+    ) -> BTreeMap<String, u16> {
         let bounds = workspace
             .surfaces()
             .get(SurfaceId::Transcript)
@@ -614,11 +815,6 @@ mod tests {
                 }
             }
         }
-        assert_eq!(
-            rows.len(),
-            messages.len(),
-            "every fixture message has to be on screen or the gesture proves nothing"
-        );
         rows
     }
 

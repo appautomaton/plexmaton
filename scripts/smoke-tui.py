@@ -15,11 +15,9 @@ Two properties of the byte stream shape the assertions:
   characters. The run therefore resizes the terminal to force one full repaint and asserts
   against that frame, ignoring whitespace on both sides.
 
-Mouse reporting is checked here rather than in a unit test for two reasons. Enabling and releasing
-it are byte sequences no cell buffer contains, and a leaked capture is the failure that outlives the
-process: the user's shell keeps reporting movement with nothing on screen to explain it. The click
-itself is sent as a real SGR sequence, so it exercises crossterm's parser rather than a constructed
-event.
+Mouse and focus reporting are checked here rather than in a unit test: their lifecycle is made of
+byte sequences no cell buffer contains, and a leaked mode outlives the process. The click itself is
+sent as a real SGR sequence, so it exercises crossterm's parser rather than a constructed event.
 
 Promoting this to a `cargo test` target requires choosing a PTY crate, which has not been
 audited; until then it stays an out-of-band evidence command.
@@ -62,6 +60,8 @@ ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
 # how a report is encoded, so it is the one worth pinning.
 MOUSE_ON = b"\x1b[?1006h"
 MOUSE_OFF = b"\x1b[?1006l"
+FOCUS_ON = b"\x1b[?1004h"
+FOCUS_OFF = b"\x1b[?1004l"
 # Cells inside the resized Wide layout: the transcript column, and the status line on the last
 # row. The status line is chrome, so a press there must route to nothing and repaint nothing.
 CLICK_IN_TRANSCRIPT = (40, 10)
@@ -318,6 +318,9 @@ reasoning_effort = "none"
     if MOUSE_ON not in captured:
         print("smoke: mouse reporting was never enabled", file=sys.stderr)
         failures.append("mouse on")
+    if FOCUS_ON not in captured:
+        print("smoke: focus reporting was never enabled", file=sys.stderr)
+        failures.append("focus on")
     if on_chrome:
         print(
             "smoke: a press on the status line repainted; chrome must route to nothing",
@@ -339,6 +342,14 @@ reasoning_effort = "none"
         # terminal the user is looking at, which is the thing this ordering exists to prevent.
         print("smoke: mouse reporting was released after the alternate screen", file=sys.stderr)
         failures.append("mouse off ordering")
+    if FOCUS_OFF not in captured:
+        print("smoke: focus reporting was left on for the user's shell", file=sys.stderr)
+        failures.append("focus off")
+    elif ALTERNATE_SCREEN_EXIT in captured and captured.index(FOCUS_OFF) > captured.index(
+        ALTERNATE_SCREEN_EXIT
+    ):
+        print("smoke: focus reporting was released after the alternate screen", file=sys.stderr)
+        failures.append("focus off ordering")
 
     if exit_code != 0:
         print(f"smoke: Plexmaton exited with {exit_code}", file=sys.stderr)
@@ -374,7 +385,7 @@ reasoning_effort = "none"
         f"smoke: painted the idle live runtime at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
         "transcript and none to the status line, expired and re-armed the quit chord, and released "
-        "mouse reporting before the alternate screen, with one durable default session"
+        "mouse and focus reporting before the alternate screen, with one durable default session"
     )
     return 0
 
