@@ -73,7 +73,7 @@ only letters, digits, `-`, or `_`.
 open the same read-only provider/model/reasoning page. `Esc` restores the search; another closes it.
 Change `config.toml` and restart to apply settings.
 
-Inputs support click-to-place, drag-to-select/copy, and typing to replace selection. Arrows,
+Inputs support click-to-place, drag-to-select/copy, and typing or paste to replace selection. Arrows,
 Home/End, word motion and line deletion preserve grapheme boundaries. Transcript entries support
 selection, detail disclosure and source copy. See the [key grammar](.agents/specs/interaction-routing.md#key-grammar)
 and [selection contract](.agents/specs/selection-and-copy.md).

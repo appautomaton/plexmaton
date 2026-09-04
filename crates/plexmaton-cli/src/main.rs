@@ -9,7 +9,8 @@ use std::{
 use anyhow::{Context, bail};
 use crossterm::{
     event::{
-        DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, EventStream,
+        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture, EventStream,
     },
     execute,
 };
@@ -48,7 +49,12 @@ impl Drop for RestoreTerminal {
     fn drop(&mut self) {
         // Best effort, and deliberately unreported: the process is leaving, and writing a
         // diagnostic to a screen mid-restoration is how a corrupted terminal gets handed back.
-        let _ = execute!(io::stdout(), DisableFocusChange, DisableMouseCapture);
+        let _ = execute!(
+            io::stdout(),
+            DisableBracketedPaste,
+            DisableFocusChange,
+            DisableMouseCapture
+        );
         ratatui::restore();
     }
 }
@@ -77,8 +83,13 @@ async fn main() -> anyhow::Result<()> {
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
-    execute!(io::stdout(), EnableFocusChange, EnableMouseCapture)
-        .context("enable terminal input reporting")?;
+    execute!(
+        io::stdout(),
+        EnableFocusChange,
+        EnableMouseCapture,
+        EnableBracketedPaste
+    )
+    .context("enable terminal input reporting")?;
     // The terminal on the other end of stdout owns the user's clipboard. The adapter resolves the
     // direct or tmux route once, before the first copy.
     let run_result = run(

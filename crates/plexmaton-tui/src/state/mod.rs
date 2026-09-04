@@ -197,6 +197,10 @@ impl ViewState {
         let Some(palette) = self.command_palette.as_mut() else {
             return false;
         };
+        let intent = match intent {
+            TextIntent::Paste(text) => TextIntent::Paste(text.replace(['\r', '\n', '\t'], " ")),
+            intent => intent,
+        };
         let changed = apply_text(palette.filter_mut(), intent);
         if changed {
             palette.reclamp();

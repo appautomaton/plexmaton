@@ -47,6 +47,8 @@ grapheme-boundary anchor, paints the source range, and release copies it through
 deletion replaces that range; motion or `Esc` clears it, and an active drag cancels without copying.
 The composer, entered worker input and command filter share this model. An edit that joins clusters
 repairs the caret against the complete text; an exactly full row reserves the following caret row.
+Bracketed terminal paste replaces the selected range atomically, normalizes CRLF/CR to newlines,
+and never submits. A command filter flattens pasted line breaks to spaces to remain single-line.
 
 ## Model
 
@@ -93,4 +95,4 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `returned_text_lands_after_the_existing_draft`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text`, `persistence_failure_restores_the_draft_and_opens_one_notice` |
 | COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
 | COM-5 | `current_work_priority_is_derived_from_semantic_facts`, `parallel_running_tools_use_stable_first_appearance_order`, `the_composer_boundary_names_each_current_work_state`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_current_work_frames_match_their_fixtures` |
-| COM-6 | `pointer_clicks_place_the_caret_in_each_input`, `edits_that_join_clusters_restore_the_grapheme_boundary`, `a_full_input_row_never_places_the_caret_on_the_border`; `scripts/smoke-tui.py` drives Chinese input, pointer insertion, selection replacement and source copying |
+| COM-6 | `pointer_clicks_place_the_caret_in_each_input`, `edits_that_join_clusters_restore_the_grapheme_boundary`, `a_full_input_row_never_places_the_caret_on_the_border`, `terminal_paste_edits_the_focused_input_without_submitting`; `scripts/smoke-tui.py` drives Chinese paste, pointer insertion, selection replacement and source copying |

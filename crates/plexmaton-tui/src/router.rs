@@ -60,7 +60,7 @@ pub enum Ignored {
 }
 
 /// Outcome of translating one terminal event.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Routed {
     /// The event asked the workspace for something.
     Intent(TuiIntent),
@@ -88,6 +88,9 @@ impl Router {
                 .map_or(Routed::Ignored(Ignored::Unbound), |surface| {
                     Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend { surface }))
                 }),
+            Event::Paste(ref text) if context.focus == KeyboardFocus::TextInput => {
+                Routed::Intent(TuiIntent::Text(TextIntent::Paste(text.clone())))
+            }
             Event::FocusGained | Event::Paste(_) => Routed::Ignored(Ignored::Unbound),
         }
     }

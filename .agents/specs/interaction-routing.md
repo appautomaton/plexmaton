@@ -137,7 +137,7 @@ page and preserves its original return path, keeping navigation bounded.
 | `Ctrl-C` with nothing to clear | Interrupt the focused conversation; the status line remains at rest |
 | Wheel with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside the workspace, which is `Ignored::OutsideWorkspace` |
 | Bare pointer motion outside the workspace | A hover intent with no target, clearing prior feedback |
-| `Event::Paste` | Declined; nothing in the journey pastes |
+| `Event::Paste` | Insert into the focused input without submission; ignore under navigation focus or a blocking non-text surface |
 | Key release or repeat | Release ignored; repeat treated as a press |
 
 ## Evidence

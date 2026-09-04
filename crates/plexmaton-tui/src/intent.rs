@@ -35,10 +35,12 @@ pub enum ScrollDirection {
 ///
 /// The intent never names its target: exactly one cursor exists, so the target is a fact about
 /// focus rather than something a producer could get wrong.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TextIntent {
     /// Insert one character at the cursor.
     Insert(char),
+    /// Insert a terminal paste as text, without interpreting its newlines as submission.
+    Paste(String),
     /// Remove the grapheme before the cursor.
     DeleteBackward,
     /// Remove the grapheme at the cursor, which does not move.
@@ -152,7 +154,7 @@ pub enum SelectionIntent {
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
 /// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
     /// Open, work, or dismiss the workspace's command list.
     CommandPalette(CommandPaletteIntent),

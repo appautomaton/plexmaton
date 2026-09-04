@@ -252,7 +252,7 @@ def check_input_pointer(master: int, captured: bytearray) -> list[str]:
 
     report(0, 1)
     report(0, 1, True)
-    os.write(master, "中文abc".encode())
+    os.write(master, b"\x1b[200~" + "中文abc".encode() + b"\x1b[201~")
     drain(master, 0.2, captured)
     report(0, 3)
     report(0, 3, True)
@@ -425,6 +425,10 @@ output_reserve_tokens = 5000
     if FOCUS_ON not in captured:
         print("smoke: focus reporting was never enabled", file=sys.stderr)
         failures.append("focus on")
+    if b"\x1b[?2004h" not in captured or b"\x1b[?2004l" not in captured:
+        failures.append("bracketed paste lifecycle")
+    elif ALTERNATE_SCREEN_EXIT in captured and captured.index(b"\x1b[?2004l") > captured.index(ALTERNATE_SCREEN_EXIT):
+        failures.append("bracketed paste release ordering")
     if on_chrome:
         print(
             "smoke: a press on the status line repainted; chrome must route to nothing",

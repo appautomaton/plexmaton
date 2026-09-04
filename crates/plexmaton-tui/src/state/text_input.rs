@@ -109,6 +109,19 @@ impl TextInput {
         self.insert('\n');
     }
 
+    /// Insert a paste atomically at the caret, replacing a selection without submitting.
+    pub(crate) fn paste(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        self.delete_selection();
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        self.text.insert_str(self.cursor, &text);
+        self.cursor += text.len();
+        self.settle_cursor();
+        true
+    }
+
     /// Removes the grapheme cluster before the caret, reporting whether there was one.
     ///
     /// A cluster, not a `char`: `e` followed by a combining acute is one thing on screen and one

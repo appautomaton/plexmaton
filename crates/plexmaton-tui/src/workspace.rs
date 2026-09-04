@@ -227,6 +227,9 @@ impl Workspace {
             selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
         };
         let routed = router.translate(event, &context);
+        if matches!(event, Event::Paste(_)) {
+            state.settle_command_hint();
+        }
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
         {
@@ -3055,6 +3058,45 @@ mod tests {
 
     fn ctrl(code: char) -> Event {
         press(KeyCode::Char(code), KeyModifiers::CONTROL)
+    }
+
+    /// COM-6: a terminal paste replaces selected input atomically, without submitting newlines.
+    #[test]
+    fn terminal_paste_edits_the_focused_input_without_submitting() {
+        let (mut workspace, mut terminal) = drawn(95, 40);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        let outcome = workspace.handle(&Event::Paste("中文\r\nsecond".to_owned()));
+        assert!(outcome.submitted.is_none());
+        assert_eq!(workspace.state.composer().text(), "中文\nsecond");
+        frame(&mut workspace, &mut terminal);
+        let area = bounds(&workspace, SurfaceId::Composer);
+        workspace.handle(&mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x + 1,
+            area.y + 1,
+        ));
+        workspace.handle(&mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            area.x + 5,
+            area.y + 1,
+        ));
+        workspace.handle(&mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            area.x + 5,
+            area.y + 1,
+        ));
+        workspace.handle(&Event::Paste("replacement".to_owned()));
+        assert_eq!(workspace.state.composer().text(), "replacement\nsecond");
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        workspace.handle(&Event::Paste("/settings".to_owned()));
+        assert_eq!(
+            workspace.state.command_palette().expect("palette").chosen(),
+            Some(crate::Command::Config)
+        );
+        workspace.show_configuration(crate::test_support::configuration_summary());
+        frame(&mut workspace, &mut terminal);
+        workspace.handle(&Event::Paste("must not edit the covered draft".to_owned()));
+        assert_eq!(workspace.state.composer().text(), "replacement\nsecond");
     }
 
     /// COM-1, COM-2, COM-6: pointer events place, select, copy and replace in every editable input.

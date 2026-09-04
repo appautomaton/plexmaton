@@ -196,6 +196,7 @@ impl ViewState {
 /// caller's, which is the whole reason the text and its purpose are separate types.
 pub(crate) fn apply_text(input: &mut TextInput, intent: TextIntent) -> bool {
     match intent {
+        TextIntent::Paste(text) => input.paste(&text),
         TextIntent::Insert(character) => {
             input.insert(character);
             true
