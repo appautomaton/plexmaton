@@ -31,6 +31,9 @@ rows of its own between that conversation and its composer rather than the compo
 answering a tool call and typing the next instruction are two inputs, and the second is not the
 place to put the first.
 
+The configuration page uses `Modal` above approvals; `CommandPalette` is a blocking text input
+above both. Their dismissal and compact geometry are INV-12 and INV-13.
+
 **SURF-5 — Hidden state survives.** A surface's focus and scroll state belong to the surface, not
 to the frame that drew it. Covering, unregistering for a frame, or re-registering does not reset
 them, so reopening restores what the user left.
@@ -47,7 +50,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | --- | --- |
 | `id` | `SurfaceId`, a named variant. Rejected: numeric identities, which break silently when a region is added; and a second layout computed for hit testing, whose failure is a click landing one panel over |
 | `bounds` | The rectangle the surface occupies. `visible()` is `bounds ∩ clip` (SURF-2), and until a surface exists that does not fit its parent, `clip` is `bounds` and not a field |
-| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, and ten for the blocking approval card |
+| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, ten for approval, fifteen for configuration, twenty for the command palette |
 | `kind` | What the surface is; every behavioural answer below is derived from it |
 | `viewport` | Content height and the user's position through it, filled in by the renderer because measuring needs the text; `None` until a frame has drawn it |
 
@@ -58,6 +61,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | `Composer` | yes | yes | yes | no | no |
 | `Inspector` | yes | yes | yes | no | yes |
 | `Modal` | yes | yes | no | yes | yes |
+| `CommandPalette` | yes | yes | yes | yes | yes |
 
 Deriving the five answers from `kind` makes the boolean combinations that mean nothing, a status
 line holding the cursor, or a modal that does not block, unrepresentable.

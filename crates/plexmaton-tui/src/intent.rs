@@ -8,7 +8,10 @@
 //! runtime's business; a user action that must reach one becomes a core command at the
 //! composition boundary.
 
-use crate::surface::{Point, SurfaceId};
+use crate::{
+    state::Motion,
+    surface::{Point, SurfaceId},
+};
 
 /// Ordering step shared by focus cycling and list selection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +41,16 @@ pub enum TextIntent {
     Insert(char),
     /// Remove the grapheme before the cursor.
     DeleteBackward,
+    /// Remove the grapheme at the cursor, which does not move.
+    DeleteForward,
+    /// Remove the whitespace and then the word before the cursor.
+    DeleteWordBackward,
+    /// Remove everything between the start of the logical line and the cursor.
+    KillToLineStart,
+    /// Remove everything between the cursor and the end of the logical line.
+    KillToLineEnd,
+    /// Move the cursor without changing the text.
+    Move(Motion),
     /// Break the line without submitting.
     Newline,
     /// Submit the input's current contents.
@@ -141,6 +154,8 @@ pub enum SelectionIntent {
 /// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
+    /// Open, work, or dismiss the workspace's command list.
+    CommandPalette(CommandPaletteIntent),
     /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves only when a second
     /// arrives inside its one-second window, so a quit is never one keystroke (INV-7).
     Quit,
@@ -186,4 +201,15 @@ pub enum TuiIntent {
         /// New height.
         height: u16,
     },
+}
+
+/// What the user asked of the command list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandPaletteIntent {
+    /// Show the list, with an empty filter and the first command chosen.
+    Open,
+    /// Move the choice by one, stopping at the ends.
+    Step(Direction),
+    /// Run the chosen command and close the list.
+    Run,
 }

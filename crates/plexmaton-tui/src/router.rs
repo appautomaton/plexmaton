@@ -11,9 +11,10 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, AttentionIntent, Direction, InspectorIntent, PointerIntent,
-        ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
+        ApprovalIntent, AttentionIntent, CommandPaletteIntent, Direction, InspectorIntent,
+        PointerIntent, ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
     },
+    state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
 };
 
@@ -112,6 +113,36 @@ impl Router {
             }
         }
 
+        // Its own chord, resolved before focus, so it opens from wherever the user is. `⌃P` is
+        // unclaimed and reaches no text input: a control chord under a cursor is never the letter.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('p')
+            && context.focused != Some(SurfaceId::CommandPalette)
+        {
+            return Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Open));
+        }
+
+        // The command list owns every non-global key while it is open, the same way an approval
+        // does, because both block below (SURF-4). `Escape` still falls through to the ladder.
+        if context.focused == Some(SurfaceId::CommandPalette) {
+            return match key.code {
+                KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Routed::Intent(TuiIntent::Selection(SelectionIntent::Copy))
+                }
+                KeyCode::Esc => self.escape(context),
+                KeyCode::Up => Routed::Intent(TuiIntent::CommandPalette(
+                    CommandPaletteIntent::Step(Direction::Backward),
+                )),
+                KeyCode::Down => Routed::Intent(TuiIntent::CommandPalette(
+                    CommandPaletteIntent::Step(Direction::Forward),
+                )),
+                KeyCode::Enter => {
+                    Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Run))
+                }
+                _ => text_key(key),
+            };
+        }
+
         // A modal owns every non-global key. In particular, inspector and selection chords must
         // not reach a surface hidden underneath it (SURF-4).
         if context.focused == Some(SurfaceId::Approval) {
@@ -132,6 +163,19 @@ impl Router {
                 }
                 KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
                 KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
+                _ => Routed::Ignored(Ignored::Unbound),
+            };
+        }
+
+        if context.focused == Some(SurfaceId::Configuration) {
+            return match key.code {
+                KeyCode::Esc => self.escape(context),
+                KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() => {
+                    step(Direction::Backward, ScrollDirection::Up, context)
+                }
+                KeyCode::Down | KeyCode::Char('j') if key.modifiers.is_empty() => {
+                    step(Direction::Forward, ScrollDirection::Down, context)
+                }
                 _ => Routed::Ignored(Ignored::Unbound),
             };
         }
@@ -235,9 +279,14 @@ fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) ->
 
 /// Keys addressed to the one visible cursor.
 fn text_key(key: KeyEvent) -> Routed {
-    let commanded = key
-        .modifiers
-        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let commanded = control || alt;
+    // Editing chords resolve before the plain-character arm, which is what `commanded` excludes
+    // them from: under a cursor a control chord is an edit, never the letter it carries (INV-2).
+    if let Some(intent) = editing_chord(key.code, control, alt) {
+        return Routed::Intent(TuiIntent::Text(intent));
+    }
     match key.code {
         // `Shift` stays allowed: it is how a capital letter arrives, not a command modifier.
         KeyCode::Char(character) if !commanded => {
@@ -256,6 +305,31 @@ fn text_key(key: KeyEvent) -> Routed {
         KeyCode::Enter => Routed::Intent(TuiIntent::Text(TextIntent::Submit)),
         _ => Routed::Ignored(Ignored::Unbound),
     }
+}
+
+/// The editing grammar over one insertion point, shared by every text input (COM-2).
+///
+/// Readline's chords rather than a second vocabulary: they are what a terminal user's hands already
+/// know, and none of them collides with a chord the workspace has already claimed.
+fn editing_chord(code: KeyCode, control: bool, alt: bool) -> Option<TextIntent> {
+    let motion = match code {
+        KeyCode::Left if control || alt => Motion::WordLeft,
+        KeyCode::Right if control || alt => Motion::WordRight,
+        KeyCode::Left => Motion::Left,
+        KeyCode::Right => Motion::Right,
+        KeyCode::Home => Motion::LineStart,
+        KeyCode::End => Motion::LineEnd,
+        KeyCode::Char('a') if control => Motion::LineStart,
+        KeyCode::Char('e') if control => Motion::LineEnd,
+        KeyCode::Char('b') if alt => Motion::WordLeft,
+        KeyCode::Char('f') if alt => Motion::WordRight,
+        KeyCode::Delete => return Some(TextIntent::DeleteForward),
+        KeyCode::Char('w') if control => return Some(TextIntent::DeleteWordBackward),
+        KeyCode::Char('u') if control => return Some(TextIntent::KillToLineStart),
+        KeyCode::Char('k') if control => return Some(TextIntent::KillToLineEnd),
+        _ => return None,
+    };
+    Some(TextIntent::Move(motion))
 }
 
 /// Second-window chords, which resolve before keyboard focus is consulted.

@@ -50,6 +50,13 @@ pub enum SurfaceKind {
     Inspector,
     /// A user-opened blocking decision surface. It owns navigation until answered or dismissed.
     Modal,
+    /// The workspace's own command list, opened with `⌃P` and filtered by typing.
+    ///
+    /// A blocking layer that also holds the cursor, which is why it is a kind and not a `Modal`: an
+    /// approval is answered with `↑↓` and `Enter` and must never grow a caret, so one kind cannot
+    /// answer "is there a cursor" for both. It belongs to the workspace rather than to any
+    /// conversation, so unlike an approval it is not a section of anyone's box.
+    CommandPalette,
 }
 
 impl SurfaceKind {
@@ -58,7 +65,7 @@ impl SurfaceKind {
     pub const fn accepts_pointer(self) -> bool {
         matches!(
             self,
-            Self::Panel | Self::Composer | Self::Inspector | Self::Modal
+            Self::Panel | Self::Composer | Self::Inspector | Self::Modal | Self::CommandPalette
         )
     }
 
@@ -67,7 +74,7 @@ impl SurfaceKind {
     pub const fn is_focusable(self) -> bool {
         matches!(
             self,
-            Self::Panel | Self::Composer | Self::Inspector | Self::Modal
+            Self::Panel | Self::Composer | Self::Inspector | Self::Modal | Self::CommandPalette
         )
     }
 
@@ -78,14 +85,14 @@ impl SurfaceKind {
     /// place as every other behavioural answer (SURF-3).
     #[must_use]
     pub const fn is_dismissible(self) -> bool {
-        matches!(self, Self::Inspector | Self::Modal)
+        matches!(self, Self::Inspector | Self::Modal | Self::CommandPalette)
     }
 
     /// Whether this surface prevents delivery to every lower surface, including outside its own
     /// visible rectangle.
     #[must_use]
     pub const fn blocks_below(self) -> bool {
-        matches!(self, Self::Modal)
+        matches!(self, Self::Modal | Self::CommandPalette)
     }
 
     /// What typing does while a surface of this kind holds focus.
@@ -96,7 +103,7 @@ impl SurfaceKind {
             // The inspector carries the inspected agent's steer input, which renders only while it
             // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
-            Self::Composer | Self::Inspector => KeyboardFocus::TextInput,
+            Self::Composer | Self::Inspector | Self::CommandPalette => KeyboardFocus::TextInput,
         }
     }
 }
@@ -134,6 +141,13 @@ pub enum SurfaceId {
     Attention,
     /// A tool approval the user chose to open from Attention.
     Approval,
+    /// Read-only configuration, opened by the workspace command and dismissed with Escape.
+    Configuration,
+    /// The workspace's command list, floating over everything while it is open.
+    ///
+    /// Last in the ring because it is never a `Tab` destination: it is opened by its own chord and
+    /// closed by `Escape`, and while it is open SURF-4 leaves it the only stop anyway.
+    CommandPalette,
     /// The status line: the last row of the screen, under every pane.
     Status,
 }

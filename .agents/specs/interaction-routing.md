@@ -31,8 +31,9 @@ focus loss pauses motion but preserves capture for a later drag.
 **INV-5 — Capture is released exactly once.** A release or a cancel clears capture; a second
 release produces `Ignored::NoCapture`, never a second drag intent.
 
-**INV-6 — The Escape ladder resolves one layer per press.** In order: cancel an active drag, then
-drop a selection, then dismiss the topmost dismissible layer, then nothing. `Escape` never quits.
+**INV-6 — The Escape ladder resolves one layer per press.** Cancel active capture first, then
+resolve the focused input selection or topmost overlay. Inside conversations, clear entry selection
+before closing the inspector. `Escape` never quits.
 
 **INV-7 — Quit is a timed chord, and `Ctrl-C` never quits.** `Ctrl-D` asks, then leaves only on a
 second press before its one-second monotonic deadline; expiry clears the question, and unrelated
@@ -51,6 +52,27 @@ other component observes raw terminal events.
 **INV-10 — A navigation key means "move inside what holds focus".** An arrow chooses an agent only
 in the rail, moves the queue's cursor only in the queue, and everywhere else scrolls the surface the
 user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
+
+**INV-11 — Command discovery ignores an optional leading slash.** Inside the command palette,
+`config`, `/config`, and aliases select the same single command; an empty filter or `/` shows all
+commands. `Enter` returns the chosen command to the composition root;
+`config` and its `settings` alias open the same configuration page.
+
+A first `/` in an empty conversation input offers the palette chord for three seconds; every
+following key settles the offer. Whitespace is existing input, the filter never offers itself,
+and the offer cannot replace an armed quit question.
+
+**INV-12 — Configuration shows the model this process resolved.** The composition root projects
+provider, wire model ID and reasoning effort from the model handed to the runtime, without keys or
+file access in the TUI. The read-only page takes focus and blocks edits underneath; `Esc` restores
+the originating palette's filter, caret and choice, then a second `Esc` restores the conversation
+and draft (SURF-4, SURF-5). A fixed `Esc back · ↑↓ scroll` footer remains visible while values scroll.
+
+**INV-13 — Workspace commands stay compact.** Palette and configuration width grows continuously
+with the terminal up to 76 columns, with content-sized height at every layout class
+(`ui-ux.md` §responsive layout classes). Excluding the bottom status line, every side retains at
+least three terminal cells of margin; the top edge stays fixed as content changes. Each command
+takes one row, truncating its summary with an ellipsis before it can wrap over the controls.
 
 ## Model
 
@@ -71,6 +93,7 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 | `Ctrl-D` | Quit chord: arm one second, then leave on a timely second press | The same |
 | `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
+| `Ctrl-P` | Open and focus the command palette | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | Unbound |
@@ -82,11 +105,22 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 | `Ctrl-Y` | Copy (SEL-4) | Copy |
 | Printable character | Unbound unless bound above | Insert |
 | `Backspace` | Unbound | Delete backward |
+| `Left` / `Right`, `Home` / `End` | Unbound | Move by grapheme or to the logical line's edge |
+| `Ctrl/Alt-Left` / `Ctrl/Alt-Right` | Unbound | Move by word |
+| `Ctrl-A` / `Ctrl-E`, `Alt-B` / `Alt-F` | Unbound | Line-edge or word motion |
+| `Delete`, `Ctrl-W`, `Ctrl-U` / `Ctrl-K` | Unbound | Delete forward, previous word, or to the line's edge |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
 Control chords are never text (INV-2); reducers decide whether their target exists. The decision
 region owns non-global keys: arrows choose, `Enter` decides, `Ctrl-O` discloses, `Escape` closes
 without answering. It never scrolls: its options are its last two rows at every size.
+
+The command palette owns typing and editing while open: `↑` / `↓` chooses, `Enter` runs, and
+`Esc` closes it and restores the previous focus. Its filter uses the caret contract in COM-1.
+The configuration page accepts `↑` / `↓` (or `k` / `j`) to scroll longer values on short terminals,
+`Ctrl-P` to open the palette above it, and `Esc` to return to its originating palette; typing and
+editing keys stay blocked. Re-running configuration from a palette above it refreshes the same
+page and preserves its original return path, keeping navigation bounded.
 
 | Fact | Value |
 | --- | --- |
@@ -120,3 +154,6 @@ without answering. It never scrolls: its options are its last two rows at every 
 | INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
+| INV-11 | `an_alias_finds_its_command_without_adding_a_second_row`, `the_palette_discovers_commands_with_or_without_a_slash`, `the_command_hint_follows_the_addressed_input_and_any_next_key` |
+| INV-12 | `config_and_settings_commands_open_the_resolved_configuration`, `configuration_opens_above_the_workspace_and_escape_restores_the_draft`, `short_configuration_pages_scroll_to_the_remaining_values`, `the_configuration_frames_match_their_fixtures`; `scripts/smoke-tui.py` exercises the executable |
+| INV-13 | `the_palette_stays_compact_and_keeps_controls_visible_across_widths`, `workspace_overlays_reserve_three_cells_on_every_side`, `the_command_palette_frames_match_their_fixtures`, `the_configuration_frames_match_their_fixtures` |

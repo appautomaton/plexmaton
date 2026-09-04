@@ -10,6 +10,8 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
 use crate::{
     CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
@@ -238,17 +240,76 @@ pub(crate) fn composer(
     width: u16,
 ) -> Vec<Line<'static>> {
     let composer = state.composer();
-    if composer.draft().is_empty() && !focused {
+    if composer.text().is_empty() && !focused {
         return vec![Line::styled(
             "Type a message · ⇥ to focus",
             palette.style(Role::Muted),
         )];
     }
-    composer
-        .visible_rows(width)
+    input_lines(composer, palette, width)
+}
+
+pub(crate) fn input_lines(
+    input: &crate::state::TextInput,
+    palette: &Palette,
+    width: u16,
+) -> Vec<Line<'static>> {
+    input
+        .visible_ranges(width)
         .into_iter()
-        .map(|row| Line::styled(row, palette.style(Role::Body)))
+        .map(|range| Line::from(input_spans(input, palette, range)))
         .collect()
+}
+
+fn input_spans(
+    input: &crate::state::TextInput,
+    palette: &Palette,
+    range: std::ops::Range<usize>,
+) -> Vec<Span<'static>> {
+    let selected = input
+        .selected_range()
+        .map(|selected| selected.start.max(range.start)..selected.end.min(range.end))
+        .filter(|selected| !selected.is_empty());
+    let Some(selected) = selected else {
+        return vec![Span::styled(
+            input.text()[range].to_owned(),
+            palette.style(Role::Body),
+        )];
+    };
+    vec![
+        Span::styled(
+            input.text()[range.start..selected.start].to_owned(),
+            palette.style(Role::Body),
+        ),
+        Span::styled(
+            input.text()[selected.clone()].to_owned(),
+            palette
+                .style(Role::Body)
+                .patch(palette.style(Role::Selection)),
+        ),
+        Span::styled(
+            input.text()[selected.end..range.end].to_owned(),
+            palette.style(Role::Body),
+        ),
+    ]
+}
+
+/// The active configuration is a display projection; values come from the composition root.
+pub(crate) fn configuration(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
+    let Some(summary) = state.configuration() else {
+        return Vec::new();
+    };
+    let mut lines = Vec::new();
+    for (label, value) in summary.fields() {
+        lines.push(Line::styled(label.to_owned(), palette.style(Role::Muted)));
+        lines.push(Line::styled(value.to_owned(), palette.style(Role::Body)));
+        lines.push(Line::default());
+    }
+    lines.push(Line::styled(
+        "Edit config.toml and restart to change.",
+        palette.style(Role::Muted),
+    ));
+    lines
 }
 
 pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
@@ -260,6 +321,86 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
         AgentStatus::Failed => "failed",
         AgentStatus::Cancelled => "cancelled",
     }
+}
+
+/// The command list's body: the filter, the matching commands, and how to work them.
+///
+/// The chosen row is marked and coloured exactly as the Attention list and the approval card mark
+/// theirs (`Accent` against `Muted`), because it is the same interaction: `↑↓` to choose, `Enter` to
+/// act. `Selection` is deliberately not used — that role means content selected for copying.
+///
+/// The keys are a muted last row rather than a badge on the title: they are a sentence, and the
+/// badge is where a short status goes.
+pub(crate) fn command_palette(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let Some(commands) = state.command_palette() else {
+        return Vec::new();
+    };
+    let mut filter = vec![Span::styled(" ", palette.style(Role::Muted))];
+    if commands.filter().text().is_empty() {
+        filter.push(Span::styled("Type to filter", palette.style(Role::Muted)));
+    } else {
+        filter.extend(input_spans(
+            commands.filter(),
+            palette,
+            commands.filter_range(width),
+        ));
+    }
+    let mut lines = vec![Line::from(filter)];
+    let matches = commands.matches();
+    if matches.is_empty() {
+        lines.push(Line::styled(
+            " No command matches".to_owned(),
+            palette.style(Role::Muted),
+        ));
+    }
+    for (index, command) in matches.into_iter().enumerate() {
+        let chosen = index == commands.chosen_index();
+        let (marker, role) = if chosen {
+            ("> ", Role::Accent)
+        } else {
+            ("  ", Role::Muted)
+        };
+        let name = format!("{}  ", command.name());
+        let remaining = usize::from(width).saturating_sub(2 + name.width());
+        lines.push(Line::from(vec![
+            Span::styled(marker, palette.style(role)),
+            Span::styled(name, palette.style(role)),
+            Span::styled(
+                command_summary(command.summary(), remaining),
+                palette.style(Role::Muted),
+            ),
+        ]));
+    }
+    lines.push(Line::styled(
+        " ↑↓ choose · Enter run · Esc close".to_owned(),
+        palette.style(Role::Muted),
+    ));
+    lines
+}
+
+/// A command occupies one row so its description cannot push the controls out of the panel.
+fn command_summary(source: &str, width: usize) -> String {
+    if source.width() <= width {
+        return source.to_owned();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut visible = String::new();
+    let mut used = 0;
+    for cluster in source.graphemes(true) {
+        used += cluster.width();
+        if used >= width {
+            break;
+        }
+        visible.push_str(cluster);
+    }
+    visible.push('…');
+    visible
 }
 
 #[cfg(test)]

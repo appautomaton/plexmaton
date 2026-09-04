@@ -110,7 +110,8 @@ other rule about input follows from this one.
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The last row of the screen is the status line.** Full width, under every pane, it says one
   thing at a time: at rest, the working directory; after a key that raised a question, the answer,
-  until its owning transition resolves it. Nothing else on screen lists keys. Rejected: a key-hint
+  until its owning transition resolves it. Command overlays show their own navigation keys in a
+  muted footer; configuration keeps that footer visible while its values scroll. Rejected: a key-hint
   strip there, a row of chords nobody read; and the composer's bottom border, which belongs to one
   conversation, so a question raised from another agent's window was answered in the wrong box.
 - **Quitting is `Ctrl-D` twice within one second.** The first press arms a monotonic one-second
@@ -209,7 +210,7 @@ scroll without moving the transcript behind it.
 ### Selection and copy
 
 - Mouse capture never makes transcript, tool output, paths, mail, or equations uncopyable.
-- A selection is a range over a surface's *entries*, never a rectangle of cells, so copying is
+- A transcript selection is a range over its *entries*, never a rectangle of cells, so copying is
   unaffected by width, scroll position, and decoration. Holding a captured drag on the content row
   beside either edge's chrome scrolls that same conversation and carries the moving end into entries
   that began off-screen; the chrome and the row outside it accelerate the motion. Moving inward,
@@ -226,7 +227,10 @@ scroll without moving the transcript behind it.
   invocation then outcome, never disclosure headings, gutters, border glyphs, or clipped cells.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
-- Rejected: character selection, which changes what is copied at a second width; a local clipboard
+- Editable inputs support pointer placement and dragging over text. Selected source is highlighted
+  and copied on release; typing replaces it. Selection follows grapheme boundaries across wrapping.
+- Rejected: transcript selection reconstructed from terminal characters, which changes what is
+  copied at a second width; a local clipboard
   crate, which reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the interrupt.
 
 The mechanism and the bindings are [`specs/selection-and-copy.md`](./specs/selection-and-copy.md).
@@ -348,6 +352,11 @@ Every layout class preserves the meaning of this journey even when it changes wh
   replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
   a working one.
 - Below 48 × 12 the screen is one notice. Rejected: a clipped workspace.
+- The command palette and configuration page stay compact overlays at every supported width.
+  Height follows content and width grows to a readable cap. Excluding the bottom status line,
+  leave at least three terminal cells on every side: three rows above and below, three columns
+  left and right. Rejected: maximizing the palette on narrow screens, which filled an entire terminal
+  with one command and made the panel shrink abruptly when the terminal grew wider.
 
 Resize preserves the focused semantic item, keeps bottom-follow only for viewports already following
 the tail, keeps every viewport's anchor, clamps an inaccessible floating surface back into view, and

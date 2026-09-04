@@ -12,6 +12,8 @@ use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 const BASE_Z_INDEX: u32 = 0;
 const FLOATING_Z_INDEX: u32 = 1;
 const MODAL_Z_INDEX: u32 = 10;
+const CONFIGURATION_Z_INDEX: u32 = 15;
+const COMMAND_PALETTE_Z_INDEX: u32 = 20;
 
 /// Registers the complete supported workspace from rectangles computed by layout.
 pub(super) fn surface_tree(
@@ -70,6 +72,22 @@ pub(super) fn surface_tree(
         regions.decision,
         SurfaceKind::Modal,
         MODAL_Z_INDEX,
+    );
+    register_at(
+        &mut tree,
+        SurfaceId::Configuration,
+        regions.configuration,
+        SurfaceKind::Modal,
+        CONFIGURATION_Z_INDEX,
+    );
+    // Above the decision region, because layers stack: opening the list over a waiting approval
+    // leaves the approval exactly where it was, and one `Escape` pops one layer.
+    register_at(
+        &mut tree,
+        SurfaceId::CommandPalette,
+        regions.command_palette,
+        SurfaceKind::CommandPalette,
+        COMMAND_PALETTE_Z_INDEX,
     );
     register(
         &mut tree,

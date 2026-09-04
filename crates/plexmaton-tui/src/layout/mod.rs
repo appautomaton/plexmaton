@@ -86,6 +86,10 @@ pub struct WorkspaceInput {
     pub attention: usize,
     /// Rows the decision region asks for, divider included. Zero registers no region at all.
     pub decision_rows: u16,
+    /// Rows the command list asks for, borders included. Zero registers no region at all.
+    pub command_palette_rows: u16,
+    /// Rows requested by the read-only configuration page. Zero while closed.
+    pub configuration_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
     pub rail: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
@@ -100,6 +104,8 @@ impl Default for WorkspaceInput {
             has_notices: false,
             attention: 0,
             decision_rows: 0,
+            command_palette_rows: 0,
+            configuration_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
@@ -181,7 +187,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         rest.saturating_add(input_height),
     );
 
-    let regions = body_regions(
+    let mut regions = body_regions(
         area,
         body,
         input.inspector,
@@ -189,6 +195,13 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         decision_height,
         input.rail,
     );
+    // Over the body rather than carved from it: the command list belongs to the workspace, blocks
+    // everything below it (SURF-4), and is gone again on `Escape`, so nothing beneath it should
+    // have moved while it was open.
+    let overlay_area = Rect::new(area.x, area.y, area.width, status.y.saturating_sub(area.y));
+    regions.command_palette = workspace_overlay_region(overlay_area, input.command_palette_rows);
+
+    regions.configuration = workspace_overlay_region(overlay_area, input.configuration_rows);
 
     registration::surface_tree(status, notices, attention, regions)
 }
@@ -251,6 +264,35 @@ pub(super) struct BodyRegions {
     pub(super) composer: Rect,
     /// The decision region, directly above the composer, while a tool call is waiting on an answer.
     pub(super) decision: Option<Rect>,
+    /// The command list, floating over the whole body while it is open.
+    pub(super) command_palette: Option<Rect>,
+    pub(super) configuration: Option<Rect>,
+}
+
+/// A readable command or configuration row, capped before it becomes a full-width strip.
+const MAX_WORKSPACE_OVERLAY_WIDTH: u16 = 76;
+/// Rows and columns left visible on every side, excluding the status line (INV-13).
+const WORKSPACE_OVERLAY_MARGIN: u16 = 3;
+
+/// Shared placement for the command list and its configuration page.
+///
+/// Compact at every width, with no layout-class switch. The top edge stays fixed while the
+/// content height changes; even the smallest supported workspace retains all four margins.
+fn workspace_overlay_region(body: Rect, rows: u16) -> Option<Rect> {
+    if rows == 0 {
+        return None;
+    }
+    let width = body
+        .width
+        .saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2)
+        .min(MAX_WORKSPACE_OVERLAY_WIDTH);
+    let height = rows.min(body.height.saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2));
+    Some(Rect {
+        x: body.x + body.width.saturating_sub(width) / 2,
+        y: body.y + WORKSPACE_OVERLAY_MARGIN,
+        width,
+        height,
+    })
 }
 
 fn body_regions(
@@ -277,6 +319,8 @@ fn body_regions(
             inspector_floats: false,
             composer: Rect::default(),
             decision: None,
+            command_palette: None,
+            configuration: None,
         }
     } else {
         match class {
@@ -291,6 +335,8 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
+                    command_palette: None,
+                    configuration: None,
                 }
             }
             // `TooSmall` returned before layout began, so it cannot reach here.
@@ -308,6 +354,8 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
+                    command_palette: None,
+                    configuration: None,
                 }
             }
         }
@@ -426,6 +474,31 @@ mod tests {
                     })
             })
         })
+    }
+
+    /// INV-13: margins are measured against the workspace excluding its status line.
+    #[test]
+    fn workspace_overlays_reserve_three_cells_on_every_side() {
+        for (width, height) in [(48, 12), (60, 40), (71, 40), (72, 40), (95, 40), (120, 40)] {
+            let tree = workspace(
+                Rect::new(7, 11, width, height),
+                WorkspaceInput {
+                    command_palette_rows: 5,
+                    configuration_rows: 12,
+                    attention: 1,
+                    ..WorkspaceInput::default()
+                },
+            );
+            let status = tree.get(SurfaceId::Status).expect("status").bounds;
+            for id in [SurfaceId::CommandPalette, SurfaceId::Configuration] {
+                let bounds = tree.get(id).expect("open overlay").bounds;
+                assert!(bounds.x >= 7 + 3);
+                assert!(bounds.right() <= 7 + width - 3);
+                assert_eq!(bounds.y, 11 + 3);
+                assert!(bounds.bottom() <= status.y - 3);
+                assert!(bounds.height >= 5);
+            }
+        }
     }
 
     /// The composer is never covered, at any size (`ui-ux.md` §shelf).

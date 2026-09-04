@@ -68,14 +68,15 @@ owner-only JSONL files under
 `PLEXMATON_HOME/sessions/<session-id>.jsonl`. Names start with an ASCII letter or digit and then use
 only letters, digits, `-`, or `_`.
 
-Press `Ctrl-D` twice within one second to leave. `Ctrl-C` clears a non-empty draft; with an empty
-draft it interrupts the focused conversation. `Esc` clears a selection, then closes the second
-window, and never quits (INV-6, INV-7).
-In a conversation, `Shift-↑` / `Shift-↓` selects semantic entries, `Ctrl-O` opens or closes retained
-tool detail at the moving end, and `Ctrl-Y` copies producer source rather than painted cells. A
-mouse drag copies on release; holding it at a conversation edge scrolls the selection into
-off-screen entries, while terminal focus loss pauses without discarding it. A single click on a
-foldable tool row selects and toggles the same detail.
+`Ctrl-D` twice within one second quits. `Ctrl-C` clears a draft or interrupts its conversation;
+`Esc` backs out one layer. `Ctrl-P` opens the palette: `config` and `settings`, with or without `/`,
+open the same read-only provider/model/reasoning page. `Esc` restores the search; another closes it.
+Change `config.toml` and restart to apply settings.
+
+Inputs support click-to-place, drag-to-select/copy, and typing to replace selection. Arrows,
+Home/End, word motion and line deletion preserve grapheme boundaries. Transcript entries support
+selection, detail disclosure and source copy. See the [key grammar](.agents/specs/interaction-routing.md#key-grammar)
+and [selection contract](.agents/specs/selection-and-copy.md).
 
 Supply-chain and corpus gates:
 
@@ -89,8 +90,7 @@ typos
 ./scripts/check-doc-budget.sh
 ```
 
-Terminal lifecycle cannot be proven by Ratatui's `TestBackend`. To exercise alternate-screen
-entry and release, resize handling, and the quit key in front of a real pseudo-terminal:
+Exercise terminal lifecycle, configuration navigation and pointer editing in a real pseudo-terminal:
 
 ```console
 ./scripts/smoke-tui.py

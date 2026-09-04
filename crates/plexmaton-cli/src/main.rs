@@ -22,8 +22,8 @@ use plexmaton_runtime::{
     RuntimeUpdate, SessionRecovery,
 };
 use plexmaton_tui::{
-    ApprovalSubmission, CleanupNotice, Flow, Palette, PersistenceNotice, Submission,
-    SubmissionKind, Workspace,
+    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, Flow, Palette,
+    PersistenceNotice, Submission, SubmissionKind, Workspace,
 };
 use ratatui::DefaultTerminal;
 
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (opened, workspace_root) = live_runtime_from_process(selection).await?;
+    let (opened, workspace_root, configuration) = live_runtime_from_process(selection).await?;
     let OpenedSession {
         runtime,
         recovery,
@@ -87,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
         &mut TerminalClipboard::from_environment(io::stdout()),
         working_directory(&workspace_root),
         recovery,
+        configuration,
     )
     .await;
     drop(restore_terminal);
@@ -99,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn live_runtime_from_process(
     selection: SessionSelection,
-) -> anyhow::Result<(OpenedSession, PathBuf)> {
+) -> anyhow::Result<(OpenedSession, PathBuf, ConfigurationSummary)> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
     let user_home = std::env::var_os("HOME").map(PathBuf::from);
     let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
@@ -109,6 +110,7 @@ async fn live_runtime_from_process(
         .with_context(|| format!("read provider configuration at {}", path.display()))?;
     let config = ModelRegistry::parse(&source).context("parse model configuration")?;
     let model = config.active_model().clone();
+    let configuration = configuration_summary(&model);
     let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
     let workspace_root = std::env::current_dir()
@@ -130,7 +132,26 @@ async fn live_runtime_from_process(
     .context("configure native workspace tools")?;
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
     let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
-    Ok((opened, workspace_root))
+    Ok((opened, workspace_root, configuration))
+}
+
+/// Project only display values from the same model handed to the runtime (INV-12, PRV-6).
+fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> ConfigurationSummary {
+    ConfigurationSummary {
+        provider: model.provider_name().to_owned(),
+        model: model.wire_id().to_owned(),
+        reasoning_effort: model.reasoning_effort().as_str().to_owned(),
+    }
+}
+
+fn execute_workspace_command(
+    workspace: &mut Workspace,
+    command: Command,
+    configuration: &ConfigurationSummary,
+) {
+    match command {
+        Command::Config => workspace.show_configuration(configuration.clone()),
+    }
 }
 
 fn report_persisted_session(session: &PersistedSession) -> anyhow::Result<()> {
@@ -189,6 +210,7 @@ async fn run(
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
     recovery: SessionRecovery,
+    configuration: ConfigurationSummary,
 ) -> anyhow::Result<()> {
     // The user already chose these colours when they themed their terminal, and slots 0-15 are the
     // only values a theme can reach: `Indexed(16..)` and `Rgb` paint over it. Truecolour presets
@@ -200,7 +222,14 @@ async fn run(
     if let Some(recovery) = recovery_notice(recovery) {
         workspace.report_session_recovery(recovery);
     }
-    let loop_result = drive_session(&mut terminal, &mut runtime, clipboard, &mut workspace).await;
+    let loop_result = drive_session(
+        &mut terminal,
+        &mut runtime,
+        clipboard,
+        &mut workspace,
+        &configuration,
+    )
+    .await;
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     let report = shutdown?;
     surface_shutdown_report(report)?;
@@ -237,16 +266,17 @@ async fn drive_session(
     runtime: &mut LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     workspace: &mut Workspace,
+    configuration: &ConfigurationSummary,
 ) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
     loop {
         workspace.draw(terminal).context("draw TUI frame")?;
-        let quit_deadline = workspace.quit_deadline();
+        let note_deadline = workspace.note_deadline();
         let drag_deadline = workspace.drag_autoscroll_deadline();
 
         tokio::select! {
-            () = wait_for_deadline(quit_deadline) => {
-                workspace.expire_quit(Instant::now());
+            () = wait_for_deadline(note_deadline) => {
+                workspace.expire_note(Instant::now());
             }
             () = wait_for_deadline(drag_deadline) => {
                 workspace.advance_drag_autoscroll(Instant::now());
@@ -264,6 +294,9 @@ async fn drive_session(
                 match terminal_event {
                     Some(Ok(event)) => {
                         let outcome = workspace.handle(&event);
+                        if let Some(command) = outcome.command {
+                            execute_workspace_command(workspace, command, configuration);
+                        }
                         if let Some(submission) = outcome.submitted {
                             dispatch_live(
                                 runtime,
@@ -478,6 +511,80 @@ mod tests {
 
     fn press(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    /// INV-12, PRV-6: the real composition-root handler opens the resolved model's display.
+    #[test]
+    fn config_and_settings_commands_open_the_resolved_configuration() {
+        let registry = plexmaton_provider::ModelRegistry::parse(
+            r#"
+active_model = { provider = "fixture", model = "chosen" }
+[providers.fixture]
+base_url = "http://127.0.0.1:9/v1"
+api_key_env = "FIXTURE_KEY"
+[providers.fixture.models.chosen]
+api = "openai_responses"
+id = "wire-model"
+reasoning_effort = "high"
+context_window_tokens = 100000
+max_output_tokens = 10000
+output_reserve_tokens = 5000
+"#,
+        )
+        .expect("valid registry fixture");
+        let configuration = super::configuration_summary(registry.active_model());
+        for query in ["config", "/config", "settings", "/settings"] {
+            let mut workspace = Workspace::default();
+            workspace.emit(
+                ScriptedRuntime::new(Scenario::canonical().expect("scenario")).ready(u64::MAX),
+            );
+            let mut terminal = Terminal::new(TestBackend::new(95, 40)).expect("terminal");
+            workspace.draw(&mut terminal).expect("draw");
+            let before = workspace.state().focused(workspace.surfaces());
+            workspace.handle(&Event::Key(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::CONTROL,
+            )));
+            workspace.draw(&mut terminal).expect("draw palette");
+            for character in query.chars() {
+                workspace.handle(&press(KeyCode::Char(character)));
+            }
+            workspace.handle(&press(KeyCode::Left));
+            let command = workspace
+                .handle(&press(KeyCode::Enter))
+                .command
+                .expect("matched command");
+            super::execute_workspace_command(&mut workspace, command, &configuration);
+            workspace.draw(&mut terminal).expect("draw configuration");
+            let shown = workspace
+                .state()
+                .configuration()
+                .expect("configuration is open");
+            assert_eq!(shown.provider, "fixture");
+            assert_eq!(shown.model, "wire-model");
+            assert_eq!(shown.reasoning_effort, "high");
+            assert_eq!(
+                workspace.state().focused(workspace.surfaces()),
+                Some(SurfaceId::Configuration)
+            );
+            workspace.handle(&press(KeyCode::Esc));
+            workspace.draw(&mut terminal).expect("draw return");
+            assert!(workspace.state().configuration().is_none());
+            assert_eq!(
+                workspace.state().focused(workspace.surfaces()),
+                Some(SurfaceId::CommandPalette)
+            );
+            let palette = workspace
+                .state()
+                .command_palette()
+                .expect("restored palette");
+            assert_eq!(palette.filter().text(), query);
+            assert_eq!(palette.filter().cursor(), query.len() - 1);
+            assert_eq!(palette.chosen(), Some(plexmaton_tui::Command::Config));
+            workspace.handle(&press(KeyCode::Esc));
+            workspace.draw(&mut terminal).expect("draw conversation");
+            assert_eq!(workspace.state().focused(workspace.surfaces()), before);
+        }
     }
 
     fn succeeded_tool_result(output: &str) -> plexmaton_agent::ToolExecutionResult {
@@ -1030,13 +1137,13 @@ mod tests {
         for character in "discard me".chars() {
             workspace.handle(&press(KeyCode::Char(character)));
         }
-        assert_eq!(workspace.state().composer().draft(), "discard me");
+        assert_eq!(workspace.state().composer().text(), "discard me");
 
         let interrupted = workspace.handle(&Event::Key(KeyEvent::new(
             KeyCode::Char('c'),
             KeyModifiers::CONTROL,
         )));
-        assert_eq!(workspace.state().composer().draft(), "");
+        assert_eq!(workspace.state().composer().text(), "");
         assert_eq!(
             interrupted.interrupted, None,
             "clearing a draft must not also stop the running turn"
@@ -1118,7 +1225,7 @@ output_reserve_tokens = 5000
         .unwrap_or_else(|error| panic!("dispatch: {error}"));
 
         assert_eq!(
-            workspace.state().draft(&agent_id).draft(),
+            workspace.state().draft(&agent_id).text(),
             "do not lose this"
         );
         runtime
@@ -1157,7 +1264,7 @@ output_reserve_tokens = 5000
             );
 
             assert_eq!(
-                workspace.state().draft(&agent_id).draft(),
+                workspace.state().draft(&agent_id).text(),
                 "keep this exact draft"
             );
             assert!(matches!(

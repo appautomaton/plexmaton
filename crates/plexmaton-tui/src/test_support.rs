@@ -26,6 +26,15 @@ pub fn canonical_runtime() -> ScriptedRuntime {
     )
 }
 
+/// Credential-free active-model display used by configuration interaction and frame fixtures.
+pub fn configuration_summary() -> crate::ConfigurationSummary {
+    crate::ConfigurationSummary {
+        provider: "local".to_owned(),
+        model: "gpt-5.6-sol".to_owned(),
+        reasoning_effort: "high".to_owned(),
+    }
+}
+
 /// The canonical timeline, fully replayed into a projection.
 pub fn canonical_state() -> ViewState {
     let mut state = Conversation::canonical().state;

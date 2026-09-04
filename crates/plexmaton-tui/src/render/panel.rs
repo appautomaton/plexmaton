@@ -12,12 +12,11 @@ use ratatui::{
     text::Line,
     widgets::{Paragraph, Wrap},
 };
-use unicode_width::UnicodeWidthStr;
 
 use super::chrome::{Badged as _, block, title};
 use crate::{
     ViewState,
-    state::{ScrollPosition, inner_width},
+    state::{Caret, ScrollPosition, inner_width},
     surface::Viewport,
     theme::{Palette, Role},
 };
@@ -111,12 +110,8 @@ pub(super) fn render_steer(
     let label = state
         .agent(agent_id)
         .map_or_else(|| agent_id.to_string(), |agent| agent.label.clone());
-    let lines: Vec<Line<'static>> = state
-        .draft(agent_id)
-        .visible_rows(inner_width(area.width))
-        .into_iter()
-        .map(|row| Line::styled(row, palette.style(Role::Body)))
-        .collect();
+    let lines =
+        crate::content::input_lines(state.draft(agent_id), palette, inner_width(area.width));
     let paragraph = Paragraph::new(lines.clone())
         .wrap(Wrap { trim: false })
         .block(block(
@@ -131,7 +126,12 @@ pub(super) fn render_steer(
             Edges::All,
         ));
     frame.render_widget(paragraph, area);
-    place_cursor(frame, area, &lines, Edges::All);
+    place_cursor(
+        frame,
+        area,
+        state.draft(agent_id).caret(inner_width(area.width)),
+        Edges::All,
+    );
 }
 
 /// Draws a panel through its viewport and returns what it measured.
@@ -205,24 +205,23 @@ const fn resolve_offset(
     }
 }
 
-/// Places the workspace's one cursor at the end of the composer's last visible line.
+/// Places the workspace's one cursor where its input says the caret is.
 ///
 /// The only `set_cursor_position` call site in the workspace. Ratatui hides the cursor unless a
 /// frame asks for it, so "exactly one cursor" (COM-1) is a property of there being one caller.
-pub(super) fn place_cursor(frame: &mut Frame<'_>, area: Rect, lines: &[Line<'_>], edges: Edges) {
-    let last = lines.last();
-    // Display width, not character count: a wide glyph occupies two cells and the caret has to
-    // land after both.
-    let column = last.map_or(0, |line| {
-        u16::try_from(UnicodeWidthStr::width(line.to_string().as_str())).unwrap_or(u16::MAX)
-    });
-    let rows = u16::try_from(lines.len()).unwrap_or(1).max(1);
+///
+/// The caret arrives already resolved to a row and a display column by the same wrap that produced
+/// the rows being painted. Rejected: measuring the painted lines here, which could only ever put
+/// the caret after the last one and is why the draft had no insertion point to move.
+pub(super) fn place_cursor(frame: &mut Frame<'_>, area: Rect, caret: Caret, edges: Edges) {
     let inside_width = area.width.saturating_sub(edges.columns());
     let inside_height = area.height.saturating_sub(edges.rows());
     frame.set_cursor_position((
         area.x
             .saturating_add(1)
-            .saturating_add(column.min(inside_width)),
-        area.y.saturating_add(rows.min(inside_height)),
+            .saturating_add(caret.column.min(inside_width)),
+        area.y
+            .saturating_add(1)
+            .saturating_add(caret.row.min(inside_height.saturating_sub(1))),
     ));
 }

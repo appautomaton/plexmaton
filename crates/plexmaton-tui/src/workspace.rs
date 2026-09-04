@@ -16,11 +16,11 @@ use ratatui::{
 };
 
 use crate::{
-    intent::{SelectionIntent, TuiIntent},
+    intent::{CommandPaletteIntent, Direction, SelectionIntent, TextIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
     state::{
-        ApprovalSubmission, CleanupNotice, CopyRequest, PersistenceNotice, QuitPress,
+        ApprovalSubmission, CleanupNotice, Command, CopyRequest, PersistenceNotice, QuitPress,
         SessionRecoveryNotice, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
@@ -59,6 +59,9 @@ pub struct Outcome {
     /// What the user asked to copy. Leaves as a value for the same reason: the clipboard is the
     /// host's, and nothing in this crate may reach for it (SEL-4).
     pub copied: Option<CopyRequest>,
+    /// The command the user ran from the list. What it *does* belongs to the composition root, so
+    /// it leaves as a value rather than being carried out here.
+    pub command: Option<Command>,
 }
 
 impl Outcome {
@@ -69,6 +72,7 @@ impl Outcome {
             interrupted: None,
             approval: None,
             copied: None,
+            command: None,
         }
     }
 }
@@ -192,16 +196,16 @@ impl Workspace {
 
     /// The monotonic deadline for a pending quit confirmation.
     #[must_use]
-    pub fn quit_deadline(&self) -> Option<Instant> {
-        self.state.status().quit_deadline()
+    pub fn note_deadline(&self) -> Option<Instant> {
+        self.state.status().deadline()
     }
 
     /// Clears a quit question whose monotonic deadline has passed.
     ///
     /// Returns whether the projection changed, so the event-loop owner can distinguish the one
     /// deadline transition from a stale wakeup (FR-1).
-    pub fn expire_quit(&mut self, now: Instant) -> bool {
-        self.state.expire_quit(now)
+    pub fn expire_note(&mut self, now: Instant) -> bool {
+        self.state.expire_note(now)
     }
 
     /// Time-explicit event reduction keeps the chord deterministic under tests and at its boundary.
@@ -220,7 +224,7 @@ impl Workspace {
             // A fact about the frame that was drawn, not about intent: `Escape` resolves the
             // layer the user can see (FR-3).
             dismissible: surfaces.has_dismissible(),
-            selecting: state.selection().is_some(),
+            selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
         };
         let routed = router.translate(event, &context);
         if let Event::Key(key) = event
@@ -229,6 +233,7 @@ impl Workspace {
             // Once the user switches to the keyboard, a pointer affordance no longer claims to be
             // the active target. Repeating `None` is free (FR-1).
             state.hover_entry(None);
+            state.settle_command_hint();
         }
         match routed {
             Routed::Intent(intent) => self.apply(intent, now),
@@ -240,6 +245,11 @@ impl Workspace {
     /// never asks the filesystem.
     pub fn set_working_directory(&mut self, path: String) {
         self.state.set_working_directory(path);
+    }
+
+    /// Displays the active configuration projected by the composition root (INV-12).
+    pub fn show_configuration(&mut self, summary: crate::ConfigurationSummary) {
+        self.state.show_configuration(summary);
     }
 
     /// Draws a frame if the projection changed since the last one, and reports what it cost.
@@ -291,9 +301,32 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
-            TuiIntent::Text(edit) => {
+            TuiIntent::CommandPalette(CommandPaletteIntent::Open) => {
+                self.state.open_command_palette(&self.surfaces);
+            }
+            TuiIntent::CommandPalette(CommandPaletteIntent::Step(direction)) => {
+                self.state.step_command(direction == Direction::Forward);
+            }
+            TuiIntent::CommandPalette(CommandPaletteIntent::Run) => {
                 return Outcome {
-                    submitted: self.state.edit(&self.surfaces, edit),
+                    command: self.state.chosen_command(),
+                    ..Outcome::default()
+                };
+            }
+            TuiIntent::Text(edit) => {
+                // A `/` that opens an empty draft is the one keystroke that says the user may be
+                // reaching for a command. Every other keystroke answers the offer and takes it down.
+                let offers = matches!(edit, TextIntent::Insert('/'))
+                    && self
+                        .state
+                        .text_target(&self.surfaces)
+                        .is_some_and(|target| self.state.draft(&target).text().is_empty());
+                let submitted = self.state.edit(&self.surfaces, edit);
+                if offers {
+                    self.state.hint_command_palette(now);
+                }
+                return Outcome {
+                    submitted,
                     ..Outcome::default()
                 };
             }
@@ -306,7 +339,10 @@ impl Workspace {
             }
             TuiIntent::Selection(SelectionIntent::Copy) => {
                 return Outcome {
-                    copied: self.state.copy(),
+                    copied: self
+                        .state
+                        .copy_input(&self.surfaces)
+                        .or_else(|| self.state.copy()),
                     ..Outcome::default()
                 };
             }
@@ -1006,7 +1042,7 @@ mod tests {
             started + Duration::from_millis(300),
         );
         assert_eq!(
-            workspace.quit_deadline(),
+            workspace.note_deadline(),
             Some(started + Duration::from_secs(1)),
             "pointer motion and resize leave the explicit deadline alone"
         );
@@ -1031,7 +1067,7 @@ mod tests {
             "at the deadline the old question has expired and this press starts a new window"
         );
         assert_eq!(
-            expired.quit_deadline(),
+            expired.note_deadline(),
             Some(started + Duration::from_secs(2))
         );
     }
@@ -1046,7 +1082,7 @@ mod tests {
 
         workspace.handle_at(&press(KeyCode::Char('d'), KeyModifiers::CONTROL), started);
         frame(&mut workspace, &mut terminal);
-        assert!(!workspace.expire_quit(started + Duration::from_millis(999)));
+        assert!(!workspace.expire_note(started + Duration::from_millis(999)));
         assert_eq!(
             workspace
                 .draw(&mut terminal)
@@ -1055,14 +1091,14 @@ mod tests {
             "waking before the deadline changes nothing"
         );
 
-        assert!(workspace.expire_quit(started + Duration::from_secs(1)));
+        assert!(workspace.expire_note(started + Duration::from_secs(1)));
         frame(&mut workspace, &mut terminal);
         let settled = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(
             settled.contains("~/work"),
             "deadline restores rest: {settled}"
         );
-        assert!(!workspace.expire_quit(started + Duration::from_secs(2)));
+        assert!(!workspace.expire_note(started + Duration::from_secs(2)));
         assert_eq!(
             workspace
                 .draw(&mut terminal)
@@ -1087,7 +1123,7 @@ mod tests {
         for character in "hi".chars() {
             workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
         }
-        assert_eq!(workspace.state.composer().draft(), "hi");
+        assert_eq!(workspace.state.composer().text(), "hi");
         workspace.handle(&press(KeyCode::Tab, KeyModifiers::NONE));
         assert_ne!(
             focused(&workspace),
@@ -1101,7 +1137,7 @@ mod tests {
             outcome.interrupted, None,
             "a cleared draft is not an interrupt"
         );
-        assert_eq!(workspace.state.composer().draft(), "");
+        assert_eq!(workspace.state.composer().text(), "");
         workspace
             .draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
@@ -1160,7 +1196,7 @@ mod tests {
             "clearing the draft and withdrawing the quit question is one transition"
         );
         assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
-        assert_eq!(workspace.state.composer().draft(), "");
+        assert_eq!(workspace.state.composer().text(), "");
         assert_eq!(
             cleared.interrupted, None,
             "clearing the draft consumes Ctrl-C without interrupting"
@@ -1791,7 +1827,7 @@ mod tests {
                 &press(KeyCode::Char(character), KeyModifiers::NONE),
             );
         }
-        assert_eq!(workspace.state.composer().draft(), "to the primary");
+        assert_eq!(workspace.state.composer().text(), "to the primary");
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("hold on"));
 
         step(
@@ -1968,7 +2004,7 @@ mod tests {
         let (mut workspace, mut terminal) = drawn(120, 40);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
-        let draft = |workspace: &Workspace| workspace.state.draft(&agent_b).draft().to_owned();
+        let draft = |workspace: &Workspace| workspace.state.draft(&agent_b).text().to_owned();
 
         step(
             &mut workspace,
@@ -2331,7 +2367,7 @@ mod tests {
         assert_eq!(selected(&workspace), was_selected, "nor did the selection");
         assert_eq!(cursor(&terminal), caret, "nor did the cursor");
         assert_eq!(
-            workspace.state.composer().draft(),
+            workspace.state.composer().text(),
             "half a thought",
             "and the half-written sentence is still there"
         );
@@ -2960,7 +2996,7 @@ mod tests {
             assert_eq!(outcome.flow, Flow::Continue, "typing must never quit");
             assert!(outcome.submitted.is_none());
         }
-        assert_eq!(workspace.state.composer().draft(), "hi q");
+        assert_eq!(workspace.state.composer().text(), "hi q");
 
         let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(
@@ -2976,7 +3012,7 @@ mod tests {
             Some("hi q")
         );
         assert_eq!(
-            workspace.state.composer().draft(),
+            workspace.state.composer().text(),
             "",
             "and the draft is cleared"
         );
@@ -3015,5 +3051,489 @@ mod tests {
         assert_eq!(submission.to.as_str(), "agent-b");
         assert_eq!(submission.kind, SubmissionKind::Steering);
         assert_eq!(submission.text, "check the cache");
+    }
+
+    fn ctrl(code: char) -> Event {
+        press(KeyCode::Char(code), KeyModifiers::CONTROL)
+    }
+
+    /// COM-1, COM-2, COM-6: pointer events place, select, copy and replace in every editable input.
+    #[test]
+    fn pointer_clicks_place_the_caret_in_each_input() {
+        for surface in [
+            SurfaceId::Composer,
+            SurfaceId::Inspector,
+            SurfaceId::CommandPalette,
+        ] {
+            let (mut workspace, mut terminal) = drawn(95, 40);
+            match surface {
+                SurfaceId::Composer => tab_to(&mut workspace, &mut terminal, surface),
+                SurfaceId::Inspector => {
+                    tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+                    step(
+                        &mut workspace,
+                        &mut terminal,
+                        &press(KeyCode::Down, KeyModifiers::NONE),
+                    );
+                    step(
+                        &mut workspace,
+                        &mut terminal,
+                        &press(KeyCode::Enter, KeyModifiers::NONE),
+                    );
+                }
+                _ => step(&mut workspace, &mut terminal, &ctrl('p')),
+            }
+            for character in "中文abc".chars() {
+                workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+            }
+            frame(&mut workspace, &mut terminal);
+            let target = workspace.state.text_target(&workspace.surfaces);
+            let area = if surface == SurfaceId::Inspector {
+                workspace
+                    .state
+                    .steer_input(&workspace.surfaces)
+                    .expect("entered input")
+                    .0
+                    .input
+            } else {
+                bounds(&workspace, surface)
+            };
+            let x = area.x
+                + if surface == SurfaceId::CommandPalette {
+                    4
+                } else {
+                    3
+                };
+            let y = area.y + 1;
+            workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), x, y));
+            workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), x, y));
+            frame(&mut workspace, &mut terminal);
+            assert_eq!(cursor(&terminal), Some((x, y).into()));
+            workspace.handle(&press(KeyCode::Char('x'), KeyModifiers::NONE));
+            let input = match target {
+                Some(agent) => workspace.state.draft(&agent),
+                None => workspace.state.command_palette().expect("palette").filter(),
+            };
+            assert_eq!(input.text(), "中x文abc", "{surface:?}");
+            frame(&mut workspace, &mut terminal);
+            let origin = area.x
+                + if surface == SurfaceId::CommandPalette {
+                    2
+                } else {
+                    1
+                };
+            workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), origin, y));
+            workspace.handle(&mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                origin + 5,
+                y,
+            ));
+            frame(&mut workspace, &mut terminal);
+            assert_ne!(
+                terminal.backend().buffer()[(origin, y)].style(),
+                terminal.backend().buffer()[(origin + 6, y)].style()
+            );
+            let copied = workspace
+                .handle(&mouse(MouseEventKind::Up(MouseButton::Left), origin + 5, y))
+                .copied
+                .expect("input drag copies source");
+            assert_eq!(copied.text, "中x文");
+            workspace.handle(&press(KeyCode::Char('z'), KeyModifiers::NONE));
+            let input = if surface == SurfaceId::CommandPalette {
+                workspace.state.command_palette().expect("palette").filter()
+            } else {
+                workspace.state.draft(
+                    &workspace
+                        .state
+                        .text_target(&workspace.surfaces)
+                        .expect("input target"),
+                )
+            };
+            assert_eq!(input.text(), "zabc");
+            workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), origin, y));
+            workspace.handle(&mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                origin + 1,
+                y,
+            ));
+            assert!(
+                workspace
+                    .handle(&press(KeyCode::Esc, KeyModifiers::NONE))
+                    .copied
+                    .is_none()
+            );
+            assert!(workspace.state.copy_input(&workspace.surfaces).is_none());
+            assert_eq!(focused(&workspace), Some(surface));
+        }
+    }
+
+    /// COM-1: Chinese glyphs and an exactly full row leave the caret inside the input border.
+    #[test]
+    fn a_full_input_row_never_places_the_caret_on_the_border() {
+        let (mut workspace, mut terminal) = drawn(60, 40);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        let width = bounds(&workspace, SurfaceId::Composer).width - 2;
+        for character in "中".repeat(usize::from(width / 2)).chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        frame(&mut workspace, &mut terminal);
+        let area = bounds(&workspace, SurfaceId::Composer);
+        let caret = cursor(&terminal).expect("input caret");
+        assert!(caret.x < area.right() - 1);
+        assert!(caret.y < area.bottom() - 1);
+        for row in area.y + 1..area.bottom() - 1 {
+            assert_eq!(
+                terminal.backend().buffer()[(area.right() - 1, row)].symbol(),
+                "│"
+            );
+        }
+    }
+
+    /// INV-11: every following key settles the offer, and a palette filter never offers itself.
+    #[test]
+    fn the_command_hint_follows_the_addressed_input_and_any_next_key() {
+        for next in [
+            ctrl('p'),
+            press(KeyCode::Tab, KeyModifiers::NONE),
+            press(KeyCode::Esc, KeyModifiers::NONE),
+        ] {
+            let (mut workspace, mut terminal) = drawn(95, 40);
+            tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+            workspace.handle(&press(KeyCode::Char('/'), KeyModifiers::NONE));
+            assert!(matches!(
+                workspace.state.status().note(),
+                StatusNote::CommandHint { .. }
+            ));
+            workspace.handle(&next);
+            assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        }
+        let (mut workspace, mut terminal) = drawn(95, 40);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        workspace.handle(&press(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in " /".chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+    }
+
+    /// INV-12, SURF-4: configuration blocks edits, supports a palette above it and restores focus.
+    #[test]
+    fn configuration_opens_above_the_workspace_and_escape_restores_the_draft() {
+        for width in [120, 95, 60, 48] {
+            let (mut workspace, mut terminal) = drawn(width, 40);
+            tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+            workspace.handle(&press(KeyCode::Char('a'), KeyModifiers::NONE));
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+            assert_eq!(outcome.command, Some(crate::Command::Config));
+            workspace.show_configuration(crate::test_support::configuration_summary());
+            frame(&mut workspace, &mut terminal);
+            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+            assert_eq!(cursor(&terminal), None);
+            let shown = painted(&terminal, &workspace, SurfaceId::Configuration);
+            for text in [
+                "Configuration",
+                "Provider",
+                "local",
+                "gpt-5.6-sol",
+                "Reasoning effort",
+                "high",
+            ] {
+                assert!(shown.contains(text), "{width}: {shown}");
+            }
+            workspace.handle(&press(KeyCode::Char('x'), KeyModifiers::NONE));
+            workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+            workspace.handle(&ctrl('f'));
+            assert_eq!(workspace.state.composer().text(), "a");
+            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Esc, KeyModifiers::NONE),
+            );
+            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+            // Re-running the same page through another palette must not grow a return stack.
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            let repeated = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+            assert_eq!(repeated.command, Some(crate::Command::Config));
+            workspace.show_configuration(crate::test_support::configuration_summary());
+            frame(&mut workspace, &mut terminal);
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Esc, KeyModifiers::NONE),
+            );
+            assert!(workspace.state.configuration().is_none());
+            assert_eq!(focused(&workspace), Some(SurfaceId::CommandPalette));
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Esc, KeyModifiers::NONE),
+            );
+            assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
+            assert_eq!(workspace.state.composer().text(), "a");
+        }
+    }
+
+    /// INV-13: crossing a layout threshold never maximizes or shrinks the command list.
+    #[test]
+    fn the_palette_stays_compact_and_keeps_controls_visible_across_widths() {
+        let mut previous_width = 0;
+        for width in [48, 60, 71, 72, 80, 95, 96, 120, 160] {
+            let (mut workspace, mut terminal) = drawn(width, 40);
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            let area = bounds(&workspace, SurfaceId::CommandPalette);
+            assert!(
+                area.width >= previous_width,
+                "growing to {width} shrank the palette"
+            );
+            assert!(area.width < width);
+            assert_eq!(area.height, 5);
+            previous_width = area.width;
+            let shown = painted(&terminal, &workspace, SurfaceId::CommandPalette);
+            assert!(shown.contains("> /config"), "{width}: {shown}");
+            assert!(shown.contains("Esc close"), "{width}: {shown}");
+            let viewport = workspace
+                .surfaces
+                .viewport(SurfaceId::CommandPalette)
+                .expect("measured palette");
+            assert_eq!(
+                viewport.content_rows, 3,
+                "each item stays one row at {width}"
+            );
+        }
+    }
+
+    /// INV-12: the smallest configuration viewport still exposes every value by keyboard.
+    #[test]
+    fn short_configuration_pages_scroll_to_the_remaining_values() {
+        let (mut workspace, mut terminal) = drawn(48, 12);
+        workspace.show_configuration(crate::test_support::configuration_summary());
+        frame(&mut workspace, &mut terminal);
+        assert!(painted(&terminal, &workspace, SurfaceId::Configuration).contains("local"));
+        let area = bounds(&workspace, SurfaceId::Configuration);
+        let footer = |terminal: &Terminal<TestBackend>| {
+            (area.x + 1..area.right() - 1)
+                .map(|x| terminal.backend().buffer()[(x, area.bottom() - 2)].symbol())
+                .collect::<String>()
+        };
+        assert!(footer(&terminal).contains("Esc back · ↑↓ scroll"));
+        let mut found_effort = false;
+        for _ in 0..4 {
+            workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
+            workspace.draw(&mut terminal).expect("draw scroll");
+            assert!(footer(&terminal).contains("Esc back · ↑↓ scroll"));
+            found_effort |=
+                painted(&terminal, &workspace, SurfaceId::Configuration).contains("high");
+        }
+        assert!(found_effort, "reasoning effort remains reachable");
+        assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+    }
+
+    /// COM-1, COM-2: the painted filter caret follows its own edits at every layout width.
+    #[test]
+    fn the_command_filter_paints_its_own_caret_while_editing() {
+        for width in [120, 95, 60] {
+            let (mut workspace, mut terminal) = drawn(width, 40);
+            tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+            for character in "unrelated draft".chars() {
+                workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+            }
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            let area = bounds(&workspace, SurfaceId::CommandPalette);
+            let origin = (area.x + 2, area.y + 1);
+            assert_eq!(cursor(&terminal), Some(origin.into()));
+            for (code, column, filter) in [
+                (KeyCode::Char('宽'), 2, "宽"),
+                (KeyCode::Char('o'), 3, "宽o"),
+                (KeyCode::Left, 2, "宽o"),
+                (KeyCode::Char('t'), 3, "宽to"),
+                (KeyCode::Home, 0, "宽to"),
+                (KeyCode::Right, 2, "宽to"),
+                (KeyCode::Delete, 2, "宽o"),
+                (KeyCode::Backspace, 0, "o"),
+                (KeyCode::End, 1, "o"),
+            ] {
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &press(code, KeyModifiers::NONE),
+                );
+                assert_eq!(
+                    cursor(&terminal),
+                    Some((origin.0 + column, origin.1).into())
+                );
+                let mut x = origin.0;
+                for character in filter.chars() {
+                    assert_eq!(
+                        terminal.backend().buffer()[(x, origin.1)].symbol(),
+                        character.to_string()
+                    );
+                    x += if character == '宽' { 2 } else { 1 };
+                }
+            }
+            assert_eq!(workspace.state.composer().text(), "unrelated draft");
+        }
+    }
+
+    /// COM-1: a long filter keeps both its text and caret on the filter row while moving home.
+    #[test]
+    fn a_long_command_filter_keeps_the_caret_inside_its_row() {
+        for width in [120, 95, 60] {
+            let (mut workspace, mut terminal) = drawn(width, 40);
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            for character in "a".repeat(200).chars() {
+                workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+            }
+            frame(&mut workspace, &mut terminal);
+            let area = bounds(&workspace, SurfaceId::CommandPalette);
+            assert_eq!(
+                cursor(&terminal),
+                Some((area.right() - 2, area.y + 1).into())
+            );
+            assert!(
+                painted(&terminal, &workspace, SurfaceId::CommandPalette)
+                    .contains("No command matches")
+            );
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Home, KeyModifiers::NONE),
+            );
+            assert_eq!(cursor(&terminal), Some((area.x + 2, area.y + 1).into()));
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char('z'), KeyModifiers::NONE),
+            );
+            assert!(painted(&terminal, &workspace, SurfaceId::CommandPalette).contains("zaaaa"));
+        }
+    }
+
+    /// INV-11: either spelling discovers and dispatches the same single command.
+    #[test]
+    fn the_palette_discovers_commands_with_or_without_a_slash() {
+        for query in [
+            "",
+            "/",
+            "con",
+            "/con",
+            "config",
+            "/config",
+            "settings",
+            "/settings",
+        ] {
+            let (mut workspace, mut terminal) = drawn(95, 40);
+            step(&mut workspace, &mut terminal, &ctrl('p'));
+            for character in query.chars() {
+                workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+            }
+            workspace.draw(&mut terminal).expect("test render");
+            let palette = workspace.state.command_palette().expect("opened palette");
+            assert_eq!(
+                palette.matches(),
+                vec![crate::state::Command::Config],
+                "{query:?}"
+            );
+            assert!(
+                painted(&terminal, &workspace, SurfaceId::CommandPalette).contains("> /config")
+            );
+            let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
+            assert_eq!(outcome.command, Some(crate::state::Command::Config));
+            workspace.show_configuration(crate::test_support::configuration_summary());
+            assert!(workspace.state.command_palette().is_none());
+        }
+    }
+
+    /// `⌃P` opens the list and gives it the keyboard in the same gesture (SURF-3, SURF-4).
+    #[test]
+    fn the_chord_opens_the_list_and_takes_the_keyboard() {
+        let (mut workspace, mut terminal) = drawn(120, 30);
+        workspace.handle(&ctrl('p'));
+        workspace.draw(&mut terminal);
+
+        assert!(workspace.state.command_palette().is_some());
+        assert_eq!(
+            workspace.state.focused(&workspace.surfaces),
+            Some(SurfaceId::CommandPalette),
+            "the list holds the keyboard on the frame that first draws it"
+        );
+    }
+
+    /// One `Escape` takes the topmost layer and returns the keyboard where it was (INV-6).
+    #[test]
+    fn escape_closes_the_list_and_returns_the_keyboard() {
+        let (mut workspace, mut terminal) = drawn(120, 30);
+        let before = workspace.state.focused(&workspace.surfaces);
+        workspace.handle(&ctrl('p'));
+        workspace.draw(&mut terminal);
+        workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
+        workspace.draw(&mut terminal);
+
+        assert!(workspace.state.command_palette().is_none());
+        assert_eq!(workspace.state.focused(&workspace.surfaces), before);
+    }
+
+    /// Typing into the list filters it rather than reaching the composer (COM-4).
+    #[test]
+    fn typing_filters_the_list_and_never_reaches_the_composer() {
+        let (mut workspace, mut terminal) = drawn(120, 30);
+        workspace.handle(&ctrl('p'));
+        workspace.draw(&mut terminal);
+        for character in "con".chars() {
+            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+
+        let palette = workspace.state.command_palette().expect("open");
+        assert_eq!(palette.filter().text(), "con");
+        assert_eq!(palette.matches().len(), 1);
+        assert_eq!(workspace.state.composer().text(), "");
+    }
+
+    /// A `/` opening an empty draft offers the chord; anything else answers the offer.
+    #[test]
+    fn a_leading_slash_offers_the_chord_and_the_next_key_takes_it_down() {
+        let started = Instant::now();
+        let (mut workspace, mut terminal) = drawn(120, 30);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        workspace.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
+        assert!(matches!(
+            workspace.state.status().note(),
+            StatusNote::CommandHint { .. }
+        ));
+
+        workspace.handle_at(
+            &press(KeyCode::Char('c'), KeyModifiers::NONE),
+            started + Duration::from_millis(10),
+        );
+        assert!(matches!(workspace.state.status().note(), StatusNote::Quiet));
+    }
+
+    /// A `/` inside existing text is just a character, and an armed quit chord keeps the slot.
+    #[test]
+    fn the_offer_needs_an_empty_draft_and_never_hides_a_quit_question() {
+        let started = Instant::now();
+        let (mut workspace, mut terminal) = drawn(120, 30);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        workspace.handle_at(&press(KeyCode::Char('a'), KeyModifiers::NONE), started);
+        workspace.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
+        assert!(matches!(workspace.state.status().note(), StatusNote::Quiet));
+
+        let (mut armed, mut armed_terminal) = drawn(120, 30);
+        tab_to(&mut armed, &mut armed_terminal, SurfaceId::Composer);
+        armed.handle_at(&ctrl('d'), started);
+        armed.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
+        assert!(
+            matches!(armed.state.status().note(), StatusNote::QuitArmed { .. }),
+            "a deadline the user is inside keeps the one slot"
+        );
     }
 }

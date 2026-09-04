@@ -26,6 +26,7 @@ audited; until then it stays an out-of-band evidence command.
 from __future__ import annotations
 
 import fcntl
+import base64
 import json
 import os
 import pty
@@ -188,6 +189,98 @@ def frame_is_settled(raw: bytes) -> bool:
     return all(collapsed(text.encode()) in painted for text in EXPECTED_ON_FULL_FRAME)
 
 
+def check_command_palette(master: int, captured: bytearray) -> list[str]:
+    """INV-11, INV-12: aliases open the real configuration page through the composition root."""
+    failures = []
+    for query in (b"config", b"/config", b"settings", b"/settings"):
+        os.write(master, b"\x10" + query)
+        drain(master, 0.2, captured)
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
+        if not all(collapsed(text) in screen for text in (b"Commands", b"> /config")):
+            print(f"smoke: command discovery failed for {query!r}: {screen!r}", file=sys.stderr)
+            failures.append(f"command discovery: {query.decode()}")
+        os.write(master, b"\r")
+        drain(master, 0.2, captured)
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
+        if not all(collapsed(text) in screen for text in (
+            b"Configuration", b"Provider", b"smoke", b"gpt-5.6-luna", b"Reasoning effort", b"none", b"Esc back"
+        )):
+            print(f"smoke: configuration did not open for {query!r}", file=sys.stderr)
+            failures.append(f"configuration page: {query.decode()}")
+        os.write(master, b"\x1b")
+        drain(master, 0.2, captured)
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
+        if not all(collapsed(text) in screen for text in (b"Commands", query, b"> /config")):
+            print(f"smoke: Escape did not restore the palette for {query!r}", file=sys.stderr)
+            failures.append(f"configuration back: {query.decode()}")
+        os.write(master, b"\x1b")
+        drain(master, 0.2, captured)
+    return failures
+
+
+def check_input_pointer(master: int, captured: bytearray) -> list[str]:
+    """COM-1, COM-2: click and drag Chinese input through actual SGR reports, preserving borders."""
+    failures = []
+    row = RESIZED[0] - 3
+
+    def report(button: int, column: int, release: bool = False) -> None:
+        end = "m" if release else "M"
+        os.write(master, f"\x1b[<{button};{column + 1};{row + 1}{end}".encode())
+
+    def screen() -> str:
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        return rendered_screen(bytes(captured[start:]), RESIZED)
+
+    report(0, 1)
+    report(0, 1, True)
+    os.write(master, "中文abc".encode())
+    drain(master, 0.2, captured)
+    report(0, 3)
+    report(0, 3, True)
+    os.write(master, b"X")
+    drain(master, 0.2, captured)
+    painted = screen()
+    if "中X文abc" not in collapsed(painted.encode()):
+        failures.append("composer click insertion")
+    if painted.splitlines()[row][-1] != "│":
+        failures.append("composer right border after Chinese input")
+    start = len(captured)
+    report(0, 1)
+    report(32, 6)
+    report(0, 6, True)
+    drain(master, 0.2, captured)
+    if b"]52;c;" + base64.b64encode("中X文".encode()) not in bytes(captured[start:]):
+        failures.append("composer drag source copy")
+    os.write(master, b"z")
+    drain(master, 0.2, captured)
+    if "zabc" not in collapsed(screen().encode()):
+        failures.append("composer replace selection")
+    os.write(master, b"\x03")
+    drain(master, 0.2, captured)
+    for failure in failures:
+        print(f"smoke: {failure}", file=sys.stderr)
+    return failures
+
+
 def main() -> int:
     if sys.argv[1:]:
         print("usage: smoke-tui.py", file=sys.stderr)
@@ -267,6 +360,14 @@ output_reserve_tokens = 5000
         # The idle projection is static, so any repaint from here on was caused by the click.
         on_chrome = click(master, CLICK_IN_STATUS, captured)
         on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
+
+        # Finish the pointer probe before opening a keyboard surface: an active capture consumes
+        # the first Escape (INV-5, INV-6), so a held press is not a completed click.
+        column, row = CLICK_IN_TRANSCRIPT
+        os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
+        drain(master, 0.2, captured)
+        failures.extend(check_command_palette(master, captured))
+        failures.extend(check_input_pointer(master, captured))
 
         # The first question expires without another input. A later Ctrl-D must re-arm rather than
         # confirm the stale question; the immediately following press then confirms the new one.

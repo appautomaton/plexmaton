@@ -1,0 +1,40 @@
+┌ Attention · 1 ───────────────────────────────────────────┐
+│> ask   agent-b · Choose whether the overlap study should │
+└──────────────────────────────────────────────────────────┘
+┌ A┌ Configuration · read only ─────────────────────────┐──┐
+│○ │Provider                                            │  │
+│  │local                                               │  │
+│  │                                                    │  │
+└──│Model                                               │──┘
+┌ A│gpt-5.6-sol                                         │) ┐
+│  │                                                    │  │
+│  │Reasoning effort                                    │  │
+│  │high                                                │  │
+│  │                                                    │  │
+│  │Edit config.toml and restart to change.             │  │
+│  │Esc back · ↑↓ scroll                                │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│I will inspect the workspace and delegate the focused UI  │
+│study. Agent B is running independently; this transcript  │
+│remains interactive.                                      │
+│                                                          │
+├ Message Agent A · primary · Thinking ────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                

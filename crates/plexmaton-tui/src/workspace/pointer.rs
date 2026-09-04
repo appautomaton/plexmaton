@@ -39,6 +39,16 @@ impl Workspace {
     /// that waited to be copied could not be copied at all. Releasing the button is the copy
     /// (SEL-4 still applies: the text leaves as a value and this crate reaches no clipboard).
     pub(super) fn pointer(&mut self, pointer: PointerIntent, now: Instant) -> Option<CopyRequest> {
+        let surface = match pointer {
+            PointerIntent::Press { .. } => None,
+            PointerIntent::Drag { surface, .. }
+            | PointerIntent::Release { surface, .. }
+            | PointerIntent::Cancel { surface }
+            | PointerIntent::Suspend { surface } => Some(surface),
+        };
+        if surface.is_some_and(|surface| self.state.input_dragging(surface)) {
+            return self.state.drag_text_input(&self.surfaces, pointer);
+        }
         match pointer {
             PointerIntent::Press { surface, at } => {
                 self.drag_autoscroll = None;
@@ -46,9 +56,21 @@ impl Workspace {
                 // against the frame the user pressed in (FR-3).
                 let entry = self.entry_at(surface, at);
                 let target = self.entry_target_at(surface, at);
+                let input = self.state.click_text_input(&self.surfaces, surface, at);
                 self.state.hover_entry(target.clone());
                 self.pressed_entry = target.map(|target| PressedEntry { target, at });
                 self.state.focus_surface(&self.surfaces, surface);
+                if input
+                    || matches!(
+                        surface,
+                        SurfaceId::CommandPalette | SurfaceId::Configuration
+                    )
+                {
+                    if input {
+                        self.state.clear_selection();
+                    }
+                    return None;
+                }
                 if surface == SurfaceId::Agents {
                     self.click_agent(at);
                 }

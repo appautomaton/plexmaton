@@ -2,7 +2,9 @@ mod agent;
 mod approval;
 mod asking;
 mod attention;
+mod command_palette;
 mod composer;
+mod configuration;
 mod current_work;
 mod disclosure;
 mod entry;
@@ -16,6 +18,7 @@ mod roster;
 mod scroll;
 mod selection;
 mod status;
+mod text_input;
 
 use std::collections::BTreeMap;
 
@@ -24,8 +27,9 @@ use plexmaton_core::{AgentId, EventSequence};
 pub use agent::AgentView;
 pub use approval::{ApprovalSubmission, ApprovalView};
 pub use attention::AttentionView;
-pub use composer::Composer;
-pub(crate) use composer::wrap_line;
+pub use command_palette::{Command, CommandPalette};
+pub(crate) use composer::apply_text;
+pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
 pub use entry::{
@@ -40,9 +44,11 @@ pub use notices::{
 pub use scroll::ScrollPosition;
 pub use selection::{CopyRequest, Selection};
 pub use status::{QuitPress, Status, StatusNote};
+pub(crate) use text_input::wrap_line;
+pub use text_input::{Caret, Motion, TextInput};
 
 use crate::{
-    intent::{Direction, ScrollDirection},
+    intent::{Direction, ScrollDirection, TextIntent},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree},
     transcript::{TranscriptMetrics, TranscriptPosition},
 };
@@ -88,13 +94,16 @@ pub struct ViewState {
     /// and coming back must find the half-written steer where it was left. This is also what makes
     /// "exactly one cursor" a claim that could fail — two inputs exist, and focus is what decides
     /// which of them has the cursor (COM-1).
-    composers: BTreeMap<AgentId, Composer>,
+    inputs: BTreeMap<AgentId, TextInput>,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,
     /// What the user has selected for copying, expressed in entries rather than in cells.
     selection: Option<Selection>,
     status: Status,
+    /// The command list, present only while it is open (SURF-4).
+    command_palette: Option<CommandPalette>,
+    configuration: Option<configuration::ConfigurationView>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -122,7 +131,7 @@ pub enum SubmissionKind {
 }
 
 /// Borrowed when an agent has never been typed to, so a caller never has to handle absence.
-static NO_DRAFT: Composer = Composer::new();
+static NO_DRAFT: TextInput = TextInput::new();
 
 /// The text width inside a bordered panel that spans `width` cells.
 ///
@@ -134,6 +143,85 @@ pub const fn inner_width(width: u16) -> u16 {
 }
 
 impl ViewState {
+    /// The command list while it is open.
+    #[must_use]
+    pub const fn command_palette(&self) -> Option<&CommandPalette> {
+        self.command_palette.as_ref()
+    }
+
+    /// Opens the command list and gives it the keyboard, reporting whether it was not already open.
+    ///
+    /// The preference is set for the *next* frame, which is when layout registers the surface: the
+    /// same two-step every other opened surface uses, and why `Focus::prefer` does not check the
+    /// current tree.
+    pub fn open_command_palette(&mut self, surfaces: &SurfaceTree) -> bool {
+        if self.command_palette.is_some() {
+            return false;
+        }
+        let return_focus = self.focus.resolve(surfaces).unwrap_or(SurfaceId::Composer);
+        self.command_palette = Some(CommandPalette::opened_from(return_focus));
+        self.focus.prefer(SurfaceId::CommandPalette);
+        self.touch();
+        true
+    }
+
+    /// Closes the command list, discarding its filter and returning the keyboard where it was.
+    pub fn close_command_palette(&mut self) -> bool {
+        let Some(palette) = self.command_palette.take() else {
+            return false;
+        };
+        self.focus.prefer(palette.return_focus());
+        self.touch();
+        true
+    }
+
+    /// Moves the chosen command, reporting whether the screen changed.
+    pub fn step_command(&mut self, forward: bool) -> bool {
+        let changed = self
+            .command_palette
+            .as_mut()
+            .is_some_and(|palette| palette.step(forward));
+        if changed {
+            self.touch();
+        }
+        changed
+    }
+
+    /// The command the user chose. Its handler owns the transition to the destination page.
+    pub fn chosen_command(&self) -> Option<Command> {
+        self.command_palette.as_ref()?.chosen()
+    }
+
+    /// Applies one edit to the command list's filter.
+    pub fn edit_command_filter(&mut self, intent: TextIntent) -> bool {
+        let Some(palette) = self.command_palette.as_mut() else {
+            return false;
+        };
+        let changed = apply_text(palette.filter_mut(), intent);
+        if changed {
+            palette.reclamp();
+            self.touch();
+        }
+        changed
+    }
+
+    /// Rows the command list asks layout for, borders included. Zero while it is closed.
+    ///
+    /// Derived from what it will actually draw, so the box is never taller than its content or
+    /// shorter than the row the caret is on.
+    #[must_use]
+    pub fn command_palette_rows(&self) -> u16 {
+        let Some(palette) = self.command_palette.as_ref() else {
+            return 0;
+        };
+        // The filter, one row per match — or the one row saying nothing matched — the key line,
+        // and two borders.
+        let listed = u16::try_from(palette.matches().len())
+            .unwrap_or(u16::MAX)
+            .max(1);
+        listed.saturating_add(2).saturating_add(2)
+    }
+
     /// Returns the current projection revision.
     #[must_use]
     pub fn revision(&self) -> ViewRevision {
@@ -153,19 +241,19 @@ impl ViewState {
 
     /// Returns the primary agent's draft, which is what the composer shows (COM-4).
     #[must_use]
-    pub fn composer(&self) -> &Composer {
+    pub fn composer(&self) -> &TextInput {
         self.draft_for(self.agents.primary().map(|agent| &agent.id))
     }
 
     /// Returns the draft addressed to one agent.
     #[must_use]
-    pub fn draft(&self, agent_id: &AgentId) -> &Composer {
+    pub fn draft(&self, agent_id: &AgentId) -> &TextInput {
         self.draft_for(Some(agent_id))
     }
 
-    fn draft_for(&self, agent_id: Option<&AgentId>) -> &Composer {
+    fn draft_for(&self, agent_id: Option<&AgentId>) -> &TextInput {
         agent_id
-            .and_then(|id| self.composers.get(id))
+            .and_then(|id| self.inputs.get(id))
             .unwrap_or(&NO_DRAFT)
     }
 

@@ -93,6 +93,13 @@ mod tests {
 
     const CLEANUP_FAILURE_FRAMES: [(&str, u16, u16); 1] = [("cleanup-failure-wide", 120, 40)];
 
+    /// INV-13: the command list stays a compact overlay across all three widths.
+    const COMMAND_PALETTE_FRAMES: [(&str, u16, u16); 3] = [
+        ("command-palette-wide", 120, 40),
+        ("command-palette-medium", 95, 40),
+        ("command-palette-narrow", 60, 40),
+    ];
+
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("frames")
@@ -172,6 +179,79 @@ mod tests {
     }
 
     /// Phase 01 §scope 1: the composition at wide, medium and narrow, checked in.
+    #[test]
+    fn the_command_palette_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width, height) in COMMAND_PALETTE_FRAMES {
+            let mut state = canonical_state();
+            state.open_command_palette(&SurfaceTree::default());
+            let drawn = draw(&state, width, height);
+            for signature in ["Commands", "/config", "Esc close"] {
+                assert!(
+                    drawn.contains(signature),
+                    "{name}: {signature:?} is not on screen"
+                );
+            }
+            assert_eq!(
+                drawn.lines().count(),
+                usize::from(height),
+                "{name}: every row painted"
+            );
+
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}\nif the change is intended, refresh with \
+                 PLEXMATON_WRITE_FRAMES=1 and review the diff",
+                first_difference(&fixture, &drawn)
+            );
+        }
+    }
+
+    /// INV-12, INV-13: the configuration page is readable in the complete workspace at each width.
+    #[test]
+    fn the_configuration_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (name, width) in [
+            ("configuration-wide", 120),
+            ("configuration-medium", 95),
+            ("configuration-narrow", 60),
+        ] {
+            let mut state = canonical_state();
+            state.show_configuration(crate::test_support::configuration_summary());
+            let drawn = draw(&state, width, 40);
+            for signature in [
+                "Configuration",
+                "Provider",
+                "local",
+                "gpt-5.6-sol",
+                "Reasoning effort",
+                "high",
+                "restart",
+            ] {
+                assert!(drawn.contains(signature), "{name}: {signature} absent");
+            }
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn).expect("write configuration fixture");
+            } else {
+                let fixture = std::fs::read_to_string(&path).expect("configuration fixture exists");
+                assert_eq!(fixture, drawn, "{name}: review frame changes");
+            }
+        }
+    }
+
     #[test]
     fn the_canonical_frames_match_their_fixtures() {
         let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();

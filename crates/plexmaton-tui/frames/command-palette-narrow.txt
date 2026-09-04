@@ -1,0 +1,40 @@
+┌ Attention · 1 ───────────────────────────────────────────┐
+│> ask   agent-b · Choose whether the overlap study should │
+└──────────────────────────────────────────────────────────┘
+┌ A┌ Commands ──────────────────────────────────────────┐──┐
+│○ │ Type to filter                                     │  │
+│  │> /config  Provider, model, and reasoning effort    │  │
+│  │ ↑↓ choose · Enter run · Esc close                  │  │
+└──└────────────────────────────────────────────────────┘──┘
+┌ Agent A · primary · running ───────────────────── ( !1 ) ┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│I will inspect the workspace and delegate the focused UI  │
+│study. Agent B is running independently; this transcript  │
+│remains interactive.                                      │
+│                                                          │
+├ Message Agent A · primary · Thinking ────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                

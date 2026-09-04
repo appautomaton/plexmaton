@@ -87,9 +87,9 @@ impl Selected {
 /// crate may touch the terminal or the host, so the composition root is what owns the sink.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CopyRequest {
-    /// Exactly what producers sent, joined by newlines. Never a painted cell, never a border glyph.
+    /// Exact selected source from entries or editable input, never painted cells or borders.
     pub text: String,
-    /// How many entries it came from, for a caller that wants to say so.
+    /// How many transcript entries it came from; zero for an editable input selection.
     pub entries: usize,
 }
 

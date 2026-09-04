@@ -9,7 +9,7 @@
 
 ## Invariants
 
-**SEL-1 — A selection names content, never cells.** It is a range over one conversation's entries,
+**SEL-1 — A selection names content, never cells.** A transcript selection is a range over one conversation's entries,
 in first-appearance order, so scrolling, resizing, re-wrapping, and re-styling cannot change what
 is selected or what copying returns, and it extends past the viewport by construction. A selection
 started with none selects the newest entry, because everything here is append-ordered.
@@ -18,6 +18,9 @@ The pointer makes the same range: a press anchors on the entry under it, a drag 
 end, and a press where there is no entry clears it. Every entry, not only a foldable one — the
 pointer addressing a narrower set than the keyboard is what made a click select a tool row and do
 nothing at all on the message beside it, over a screen whose mouse this process had taken.
+
+Editable inputs select source offsets under COM-6. They use the same copy boundary, with zero
+transcript entries in the resulting `CopyRequest`.
 
 **SEL-2 — Copy returns the producer's source.** The text comes from the projection, which holds what
 the producer sent: an artifact copies as its stable pointer and a message as the text of its deltas,

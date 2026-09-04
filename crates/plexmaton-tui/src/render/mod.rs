@@ -1,7 +1,10 @@
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
 mod chrome;
+mod configuration;
 mod panel;
+
+use configuration::render_configuration;
 
 use panel::{Body, Edges, Panel, draw_panel, place_cursor, render_steer};
 
@@ -13,7 +16,7 @@ use chrome::{
 use crate::{
     ViewState, content,
     layout::{self, LayoutClass, WorkspaceInput},
-    state::inner_width,
+    state::{Caret, inner_width},
     surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
     theme::{Palette, Role},
     transcript::TranscriptMetrics,
@@ -48,6 +51,8 @@ pub fn render(
             has_notices: state.notices().next().is_some(),
             attention: state.attention_listed_count(),
             decision_rows: state.decision_rows(composer_width),
+            command_palette_rows: state.command_palette_rows(),
+            configuration_rows: state.configuration_rows(),
             rail: state.sub_agents().next().is_some(),
             composer_rows: state.composer_rows(composer_width),
             inspector,
@@ -145,22 +150,25 @@ pub fn render(
                 edges: Edges::All,
             }),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
+            SurfaceId::CommandPalette => Some(command_palette_panel(state, palette, bounds)),
+            SurfaceId::Configuration => {
+                let viewport = render_configuration(
+                    frame,
+                    palette,
+                    state,
+                    bounds,
+                    has_focus,
+                    state.scroll_position(id),
+                );
+                surfaces.set_viewport(id, viewport);
+                None
+            }
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
-            SurfaceId::Composer if steer.is_some() => Some(Panel {
-                body: Body::Whole {
-                    lines: content::composer_collapsed(state, palette),
-                    follows_tail: false,
-                },
-                title: Line::default(),
-                badge: None,
-                edges: if stacking.composer_under.is_some() {
-                    Edges::Closing
-                } else {
-                    Edges::All
-                },
-            }),
+            SurfaceId::Composer if steer.is_some() => {
+                Some(collapsed_composer_panel(state, palette, &stacking))
+            }
             SurfaceId::Composer => {
                 Some(composer_panel(state, palette, has_focus, bounds, &stacking))
             }
@@ -197,12 +205,60 @@ pub fn render(
                 Some((split, agent_id)) if id == SurfaceId::Inspector => {
                     render_steer(frame, palette, state, agent_id, split.input);
                 }
-                _ => place_cursor(frame, bounds, panel.body.lines(), panel.edges),
+                _ => place_cursor(
+                    frame,
+                    bounds,
+                    input_caret(state, id, inner_width(bounds.width)),
+                    panel.edges,
+                ),
             }
         }
     }
 
     surfaces
+}
+
+/// The command list: a box of its own, not a section of anyone's.
+///
+/// The workspace owns it rather than a conversation, which is what separates it from an approval —
+/// an approval is a question one agent is waiting on, so it renders inside that agent's box.
+fn command_palette_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    Panel {
+        body: Body::Whole {
+            lines: content::command_palette(state, palette, inner_width(bounds.width)),
+            follows_tail: false,
+        },
+        title: title(palette, "Commands".to_owned(), Role::SectionHeading, ""),
+        badge: None,
+        edges: Edges::All,
+    }
+}
+
+/// Resolve the input painted in this surface, using the same width and inset as its text.
+fn input_caret(state: &ViewState, id: SurfaceId, width: u16) -> Caret {
+    if id == SurfaceId::CommandPalette {
+        return state
+            .command_palette()
+            .map_or(Caret::default(), |commands| commands.filter_view(width).1);
+    }
+    state.composer().caret(width)
+}
+
+/// The primary input's return target while an entered worker holds the cursor (INS-5).
+fn collapsed_composer_panel(state: &ViewState, palette: &Palette, stacking: &Stacking) -> Panel {
+    Panel {
+        body: Body::Whole {
+            lines: content::composer_collapsed(state, palette),
+            follows_tail: false,
+        },
+        title: Line::default(),
+        badge: None,
+        edges: if stacking.composer_under.is_some() {
+            Edges::Closing
+        } else {
+            Edges::All
+        },
+    }
 }
 
 /// The decision region: a section of the asking conversation's box, above its composer.
@@ -871,7 +927,7 @@ mod tests {
             "a draft nobody is focused on still shows no cursor"
         );
         assert_eq!(
-            state.composer().draft(),
+            state.composer().text(),
             "h",
             "and walking away must not discard what was typed"
         );
@@ -978,6 +1034,8 @@ mod tests {
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
+                SurfaceId::CommandPalette => "Commands",
+                SurfaceId::Configuration => "Configuration",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(
