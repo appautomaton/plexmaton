@@ -6,16 +6,23 @@
 # thresholds in clippy.toml; this only catches a module that has quietly accumulated several
 # responsibilities without any single function growing.
 #
-# Inline `#[cfg(test)]` modules are the Rust convention, so tests must not count against the
-# budget. Only the code above the first test module is measured.
+# Tests do not count against the budget. Test-only files follow the workspace's `tests/`,
+# `tests.rs`, `*_tests.rs`, or `test_support.rs` naming conventions; in mixed modules only the code
+# above the first inline `#[cfg(test)]` module is measured.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-LIMIT="${FILE_LENGTH_LIMIT:-400}"
+LIMIT="${FILE_LENGTH_LIMIT:-550}"
 fail=0
 
 while IFS= read -r file; do
+    case "$file" in
+        */tests/*.rs | */tests.rs | *_tests.rs | */test_support.rs)
+            continue
+            ;;
+    esac
+
     total=$(wc -l < "$file")
     code=$(awk '/#\[cfg\(test\)\]/{print NR-1; exit}' "$file")
     code=${code:-$total}

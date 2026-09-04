@@ -43,10 +43,13 @@ line-count style rules.
 
 `too_many_lines` and `cognitive_complexity` work at function level and are the effective guard,
 because a large file of small functions is usually fine while a long function never is.
-`check-file-length.sh` adds a 400-line file-level sentinel measured above the first `#[cfg(test)]`
-module, so inline tests do not count against the budget.
+`check-file-length.sh` adds a 550-line file-level sentinel. Test-only files following the
+workspace's `tests/`, `tests.rs`, `*_tests.rs`, or `test_support.rs` conventions are excluded; in a
+mixed module, measurement stops above the first inline `#[cfg(test)]` module.
 
-When either fires, split by responsibility and invariant. Raising the threshold is not the fix.
+Rejected: a 400-line file sentinel and counting standalone tests, because both repeatedly forced
+mechanical splits without identifying a production responsibility boundary. When either active
+guard fires, split by responsibility and invariant rather than raising it again.
 
 ## Local setup
 
