@@ -119,6 +119,11 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 ## Snapshots and golden files
 
 - Snapshot semantic or cell-buffer output only when a reviewer can understand the diff.
+- A full-screen frame proves a composition. When a family of frames differs by one row, that
+  row is the claim and a structural assertion is the instrument: the surrounding chrome is
+  already frozen by the composition's own frame, and copying it per variant freezes the same
+  cells many times so that one layout change rewrites all of them. Crop to the region under
+  test, or assert on the drawn text and keep no fixture.
 - Normalize unstable IDs, timestamps, paths, and terminal-dependent values at the fixture boundary.
 - Pair important snapshots with structural assertions so an empty or truncated snapshot cannot pass
   unnoticed.

@@ -14,6 +14,11 @@ in first-appearance order, so scrolling, resizing, re-wrapping, and re-styling c
 is selected or what copying returns, and it extends past the viewport by construction. A selection
 started with none selects the newest entry, because everything here is append-ordered.
 
+The pointer makes the same range: a press anchors on the entry under it, a drag carries the moving
+end, and a press where there is no entry clears it. Every entry, not only a foldable one — the
+pointer addressing a narrower set than the keyboard is what made a click select a tool row and do
+nothing at all on the message beside it, over a screen whose mouse this process had taken.
+
 **SEL-2 — Copy returns the producer's source.** The text comes from the projection, which holds what
 the producer sent: an artifact copies as its stable pointer and a message as the text of its deltas,
 never the cells, the label, or the decorated line. A tool copies its retained invocation followed
@@ -68,7 +73,7 @@ be selected while its input holds the cursor.
 
 | Invariant | Proven by |
 | --- | --- |
-| SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width` |
+| SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | SEL-2 | `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
 | SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents` |
 | SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_writes_a_terminated_osc_52_sequence_carrying_the_encoded_text`, `multi_byte_text_survives_the_encoding` |

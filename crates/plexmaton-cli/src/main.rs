@@ -189,7 +189,10 @@ async fn run(
     working_directory: Option<String>,
     recovery: SessionRecovery,
 ) -> anyhow::Result<()> {
-    let mut workspace = Workspace::with_palette(Palette::pastel());
+    // The user already chose these colours when they themed their terminal, and slots 0-15 are the
+    // only values a theme can reach: `Indexed(16..)` and `Rgb` paint over it. Truecolour presets
+    // stay available, but none of them may be the default a first run lands on.
+    let mut workspace = Workspace::with_palette(Palette::ansi());
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }

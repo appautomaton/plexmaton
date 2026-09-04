@@ -7,6 +7,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
+    style::Modifier,
     symbols::border,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -51,36 +52,50 @@ fn title_with(
     ])
 }
 
-/// The rail carries a badge, `!n`, only while `n` requests are unanswered, and nothing otherwise.
+/// The rail names the rail. What is unanswered is the pill's, on the conversation the user is in.
 ///
-/// The word is the band's: it sits under the notice strip whenever the queue has something to
-/// say, so the rail repeating `attention` would say it twice and the number would drown in it.
-/// The badge is the number that means anything, what is still unanswered; a queue of five the
-/// user has been to is not five things demanding them, so counting the total here would keep the
-/// workspace shouting after they had done exactly what was asked (ATT-3). The panel's name keeps
-/// the heading role, so the colour lands on the badge and not on the word beside it.
-pub(super) fn agents_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    title_with(
-        palette,
-        "Agents",
-        Role::SectionHeading,
-        attention_badge(state),
-        Role::ActionRequired,
-    )
+/// Rejected: `Agents · !n`. It put the count on the panel furthest from where the user is reading,
+/// beside a list whose own rows already carry each agent's badge, so the same fact was on screen
+/// three times and the one place it mattered was not one of them.
+pub(super) fn agents_title(palette: &Palette) -> Line<'static> {
+    title(palette, "Agents", Role::SectionHeading, "")
 }
 
-/// `" · !n"` while `n` requests are unanswered; empty otherwise, so the title says nothing.
-pub(super) fn attention_badge(state: &ViewState) -> String {
-    match state.attention_pending() {
-        0 => String::new(),
-        pending => format!(" · !{pending}"),
+/// The pill: `( !n )` at the far end of the conversation's top border while `n` are unanswered.
+///
+/// Chrome, not a surface — it takes no rows, no focus and no pointer target, which is what lets it
+/// sit on a border at all (ATT-1). It counts what is still unanswered rather than what is queued: a
+/// queue of five the user has already been to is not five things demanding them (ATT-3). The
+/// brackets are the shape, `!` is the word, and the colour is third, so it survives monochrome.
+///
+/// The request open in the decision region counts too, even though it is on screen below. The pill
+/// is the workspace's one answer to "is anything waiting on me", and a status indicator that goes
+/// dark in the one case where the answer is loudest is not one. The band is the surface that
+/// avoids drawing the same request twice; the pill is a number, and the number is still true.
+///
+/// Rejected: a full-width band above the workspace for the same fact. It cost four rows and the
+/// top of the screen to say a number, pushed the conversation down whenever an agent asked
+/// anything, and drew the request a second time beside the region already asking it.
+pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Line<'static>> {
+    let pending = state.attention_pending();
+    if pending == 0 {
+        return None;
     }
+    // `DIM` is cleared rather than left alone: a title is patched over the border row it sits on,
+    // and the border is drawn dim, so a role that only sets a colour inherits the dimming meant
+    // for the frame. The same trap the section heading's explicit `Reset` foreground avoids.
+    let lit = |role| palette.style(role).remove_modifier(Modifier::DIM);
+    Some(Line::from(vec![
+        Span::styled(" (", lit(Role::Muted)),
+        Span::styled(format!(" !{pending} "), lit(Role::ActionRequired)),
+        Span::styled(") ", lit(Role::Muted)),
+    ]))
 }
 
 /// The band names both numbers, because it is the surface that can show the difference.
 pub(super) fn attention_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    let queued = state.attention_count();
-    let pending = state.attention_pending();
+    let queued = state.attention_listed_count();
+    let pending = state.attention_listed_pending();
     let rest = if pending == queued {
         format!(" · {queued}")
     } else {
@@ -91,7 +106,7 @@ pub(super) fn attention_title(state: &ViewState, palette: &Palette) -> Line<'sta
 
 /// An unanswered request must read as action required, not as ambient decoration.
 pub(super) fn attention_role(state: &ViewState) -> Role {
-    if state.attention_pending() == 0 {
+    if state.attention_listed_pending() == 0 {
         Role::SectionHeading
     } else {
         Role::ActionRequired
@@ -234,6 +249,22 @@ pub(super) fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: R
 ///
 /// The border carries focus and the title carries attention, so the two never compete for the same
 /// pixels and a focused panel with a pending request still reads as both.
+/// Adds a right-aligned status to a block's top border row, when there is one to add.
+pub(super) trait Badged {
+    fn badge(self, badge: Option<Line<'static>>) -> Self;
+}
+
+impl Badged for Block<'static> {
+    fn badge(self, badge: Option<Line<'static>>) -> Self {
+        match badge {
+            // The top border is the only row a pill can sit on without costing the conversation
+            // one, so a section drawn without that edge simply has nowhere to put it.
+            Some(badge) => self.title_top(badge.right_aligned()),
+            None => self,
+        }
+    }
+}
+
 pub(super) fn block(
     palette: &Palette,
     title: Line<'static>,
@@ -252,9 +283,17 @@ pub(super) fn block(
             Borders::LEFT | Borders::RIGHT | Borders::BOTTOM,
             border::PLAIN,
         ),
-        // The divider joins the sides it sits between, so the two sections read as one box.
+        // The divider joins the sides it sits between, so the sections read as one box.
         Edges::Lower => (
             Borders::ALL,
+            border::Set {
+                top_left: "├",
+                top_right: "┤",
+                ..border::PLAIN
+            },
+        ),
+        Edges::Middle => (
+            Borders::TOP | Borders::LEFT | Borders::RIGHT,
             border::Set {
                 top_left: "├",
                 top_right: "┤",

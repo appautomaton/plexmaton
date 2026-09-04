@@ -54,19 +54,40 @@ pub(super) fn compact_tool_entries(entries: usize) -> anyhow::Result<Run> {
     sample_events("compact tool entry", scenario, SIZE)
 }
 
+/// Walks the focus ring to the conversation, whatever else is registered this frame.
+///
+/// One `Tab` used to land there because the agent rail was always the first stop. The rail is only
+/// registered when there are sub-agents now, so the number of stops before the conversation is a
+/// fact about the scenario rather than a constant a workload may assume.
+fn focus_conversation(harness: &mut Harness) -> anyhow::Result<()> {
+    for _ in 0..harness.workspace.surfaces().len() {
+        if harness
+            .workspace
+            .state()
+            .focused(harness.workspace.surfaces())
+            == Some(SurfaceId::Transcript)
+        {
+            return Ok(());
+        }
+        harness
+            .workspace
+            .handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        harness.draw()?;
+    }
+    anyhow::bail!("the conversation is on the focus ring at every supported size")
+}
+
 /// Repeatedly opens and closes the newest tool entry after its history is warm.
 pub(super) fn open_tool_entry(entries: usize) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::tool_entries(entries)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Focus the conversation, then start a one-entry selection at its newest item. Selection is
     // style only and is deliberately outside the timed disclosure samples (SEL-1).
-    for event in [
-        Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-        Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)),
-    ] {
-        harness.workspace.handle(&event);
-        harness.draw()?;
-    }
+    focus_conversation(&mut harness)?;
+    harness
+        .workspace
+        .handle(&Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
+    harness.draw()?;
 
     let mut run = Run::new("open tool entry");
     for _ in 0..SAMPLES {
@@ -274,13 +295,11 @@ pub(super) fn select(messages: usize) -> anyhow::Result<Run> {
     // Onto the conversation, then start at its newest entry before timing. Otherwise the first
     // backward leg travels one fewer position and its twentieth forward press is a clamped no-op,
     // silently leaving this 200-sample workload with 199 frames.
-    for event in [
-        Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
-        Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)),
-    ] {
-        harness.workspace.handle(&event);
-        harness.draw()?;
-    }
+    focus_conversation(&mut harness)?;
+    harness
+        .workspace
+        .handle(&Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
+    harness.draw()?;
 
     let mut run = Run::new("extend selection");
     for sample in 0..SAMPLES {
@@ -357,12 +376,8 @@ mod tests {
     #[test]
     fn extending_a_selection_costs_no_measurement() {
         let mut harness = harness(300);
-        harness
-            .workspace
-            .handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        harness
-            .draw()
-            .unwrap_or_else(|error| panic!("measured frame: {error}"));
+        super::focus_conversation(&mut harness)
+            .unwrap_or_else(|error| panic!("focus the conversation: {error}"));
 
         for _ in 0..10 {
             harness

@@ -156,14 +156,23 @@ impl Palette {
         Self {
             body: Style::new(),
             muted: Style::new().fg(Color::DarkGray),
-            border: Style::new().fg(Color::DarkGray),
+            // One step weaker than muted, because a border is the least important thing on screen
+            // (ui-ux §readability). A terminal that ignores DIM degrades it to muted, which is
+            // where this role already was.
+            border: Style::new().fg(Color::DarkGray).add_modifier(Modifier::DIM),
             border_focused: Style::new().fg(Color::Cyan),
-            section_heading: Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(Color::Cyan),
+            // Weight, not hue: a heading that spent a colour left focus, identity and headings
+            // all reading as cyan. `Reset` is the user's own text colour said out loud, and it has
+            // to be said: a title is painted over the border row, and a `Style` is a patch, so a
+            // role with no foreground keeps whichever colour the border left underneath it.
+            section_heading: Style::new().fg(Color::Reset).add_modifier(Modifier::BOLD),
+            accent: Style::new().fg(Color::Magenta),
             // Reverse, not a named colour: a cyan chip next to muted labels made the footer
             // compete with focus for the same hue.
             key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().fg(Color::Blue),
+            // Bright blue rather than blue: slot 4 is the darkest seat in most dark themes, and
+            // ambient work has to be legible before it can be quiet.
+            ambient: Style::new().fg(Color::LightBlue),
             new_information: Style::new().fg(Color::Green),
             action_required: Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),

@@ -22,6 +22,8 @@ pub struct ApprovalView<'a> {
     pub capabilities: &'a [ToolCapability],
     pub detail: &'a str,
     pub selected: ApprovalDecision,
+    /// Whether the request's detail is shown in full rather than clipped to one row.
+    pub expanded: bool,
 }
 
 /// A decision leaving the presentation boundary.
@@ -40,6 +42,7 @@ struct OpenApproval {
     attention_id: AttentionId,
     selected: ApprovalDecision,
     return_focus: SurfaceId,
+    expanded: bool,
 }
 
 /// Ephemeral presentation state. No admitted call, waiter, sender, or policy decision lives here.
@@ -63,6 +66,7 @@ impl ApprovalSurface {
             attention_id,
             selected: ApprovalDecision::Deny,
             return_focus,
+            expanded: false,
         });
         true
     }
@@ -94,7 +98,19 @@ impl ApprovalSurface {
             capabilities,
             detail,
             selected: open.selected,
+            expanded: open.expanded,
         })
+    }
+
+    /// Shows or re-clips the request's detail. The options do not move: they are the region's
+    /// last two rows at either size, so the disclosure grows the part being read and never the
+    /// part being answered.
+    pub(super) fn toggle_detail(&mut self) -> bool {
+        let Some(open) = self.open.as_mut() else {
+            return false;
+        };
+        open.expanded = !open.expanded;
+        true
     }
 
     pub(super) fn move_selection(&mut self, direction: Direction) -> bool {

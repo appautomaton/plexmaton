@@ -11,7 +11,7 @@ Two properties of the byte stream shape the assertions:
 * The window size is set explicitly with `TIOCSWINSZ`. A pseudo-terminal without one reports 0x0,
   the frame renders no cells, and a content assertion would pass or fail for the wrong reason.
 * Ratatui emits only the cells that differ from the previous frame, so an incremental frame shows
-  `1` rather than `Agents · !1`, and unchanged spaces arrive as cursor moves rather than
+  a fragment rather than a whole title, and unchanged spaces arrive as cursor moves rather than
   characters. The run therefore resizes the terminal to force one full repaint and asserts
   against that frame, ignoring whitespace on both sides.
 
@@ -53,7 +53,9 @@ SHUTDOWN_SECONDS = 3.0
 EXPECTED_ON_FULL_FRAME = (
     "Plexmaton · idle",
     "Message Plexmaton",
-    "Agents",
+    # Not the agent rail: a fresh session has delegated nothing, and a roster of nobody is a
+    # bordered box saying so in the column the conversation wanted.
+    "~/",
 )
 ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
 # SGR extended mouse mode. Crossterm enables several tracking modes; this is the one that decides

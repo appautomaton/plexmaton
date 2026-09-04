@@ -1,39 +1,39 @@
-┌ Attention · 2 · 1 unanswered ────────────────────────────┐
+┌ Attention · 1 ───────────────────────────────────────────┐
 │  ask   agent-b · Choose whether the overlap study should │
-│cover narrow screens.                                     │
 └──────────────────────────────────────────────────────────┘
-┌ Agents · !1 ─────────────────────────────────────────────┐
+┌ Agents ──────────────────────────────────────────────────┐
 │○ Agent B · UI study  done · 1 tool @1 1 mail             │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent A · primary · running · 1 tool ────────────────────┐
-│                                                          │
-│                                                          │
-│ ┌ Approval required · user opened ─────────────────────┐ │
-│ │Agent  agent-a                                        │ │
-│ │Tool   exec_command · command-native-1                │ │
-│ │Access read files, change files, run processes        │ │
-│ │                                                      │ │
-│ │  Allow once                                          │ │
-│ │> Deny                                                │ │
-│ │↑↓ choose · Enter decide                              │ │
-│ │PgUp/PgDn details · Esc keeps pending                 │ │
-│ │                                                      │ │
-│ │Details                                               │ │
-│ │Command "cargo test" · cwd                            │ │
-│ │"/Users/ac/dev/agents/coding/plexmaton" · timeout     │ │
-│ │120000 ms                                             │ │
-│ └──────────────────────────────────────────────────────┘ │
+┌ Agent A · primary · running · 1 tool ──────────── ( !1 ) ┐
 │                                                          │
 │                                                          │
 │                                                          │
-│assistant                                                 │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
 │I will inspect the workspace and delegate the focused UI  │
 │study. Agent B is running independently; this transcript  │
 │remains interactive.                                      │
 │                                                          │
 │[?] exec_command · approval required                      │
+├ Allow exec_command? ─────────────────────────────────────┤
+│Access  read files, change files, run processes           │
+│Command "cargo test" · cwd "/home/dev/plexmaton" · timeou…│
+│  Allow once      ↑↓ choose · Enter decide                │
+│> Deny            ⌃O more · Esc later                     │
 ├ Message Agent A · primary · Approval required ───────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘

@@ -56,8 +56,6 @@ pub enum Ignored {
     NothingToDismiss,
     /// The surface addressed by the wheel or by an arrow had nowhere to scroll.
     NothingScrollable,
-    /// The modifier escape hatch: this event belongs to the terminal's own selection.
-    TerminalSelection,
 }
 
 /// Outcome of translating one terminal event.
@@ -123,8 +121,12 @@ impl Router {
                     ApprovalIntent::Move(Direction::Forward),
                 )),
                 KeyCode::Enter => Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide)),
-                KeyCode::PageUp => modal_scroll(ScrollDirection::Up, context),
-                KeyCode::PageDown => modal_scroll(ScrollDirection::Down, context),
+                // The same chord that discloses a tool entry, doing the same thing to the request
+                // one is asking about. A page key would be a second gesture for one idea, and on
+                // a Mac laptop it is a key the keyboard does not have.
+                KeyCode::Char('o' | 'O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Routed::Intent(TuiIntent::Approval(ApprovalIntent::ToggleDetail))
+                }
                 KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
                 KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
                 _ => Routed::Ignored(Ignored::Unbound),
@@ -166,11 +168,12 @@ impl Router {
     }
 
     fn on_mouse(&mut self, mouse: MouseEvent, context: &RouterContext<'_>) -> Routed {
-        // The alternate screen is ours, so the terminal's own selection needs a reserved modifier.
-        if mouse.modifiers.contains(KeyModifiers::SHIFT) {
-            return Routed::Ignored(Ignored::TerminalSelection);
-        }
-
+        // No modifier is reserved here. A terminal that offers an escape hatch from mouse reporting
+        // takes the gesture before this process sees it — `Shift` in xterm, `Option` in iTerm2 —
+        // so an event that *arrives* carrying one is an event that terminal chose to forward, and
+        // dropping it made the modifier a dead key on exactly the terminals it was meant to help
+        // (INV-8). Every gesture that reaches us reaches a surface, and the selection it makes is
+        // semantic rather than a rectangle of cells, which is the stronger half of the promise.
         let at = Point {
             x: mouse.column,
             y: mouse.row,
@@ -207,21 +210,6 @@ impl Router {
         };
         self.capture = Some(surface);
         Routed::Intent(TuiIntent::Pointer(PointerIntent::Press { surface, at }))
-    }
-}
-
-fn modal_scroll(direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
-    if context
-        .surfaces
-        .viewport(SurfaceId::Approval)
-        .is_some_and(Viewport::is_scrollable)
-    {
-        Routed::Intent(TuiIntent::Scroll {
-            surface: SurfaceId::Approval,
-            direction,
-        })
-    } else {
-        Routed::Ignored(Ignored::NothingScrollable)
     }
 }
 
@@ -604,11 +592,14 @@ mod tests {
             Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide))
         );
         assert_eq!(
+            router.translate(&key(KeyCode::Char('o'), KeyModifiers::CONTROL), &context),
+            Routed::Intent(TuiIntent::Approval(ApprovalIntent::ToggleDetail)),
+            "the disclosure chord discloses the request rather than scrolling the region"
+        );
+        assert_eq!(
             router.translate(&key(KeyCode::PageDown, KeyModifiers::NONE), &context),
-            Routed::Intent(TuiIntent::Scroll {
-                surface: SurfaceId::Approval,
-                direction: ScrollDirection::Down,
-            })
+            Routed::Ignored(Ignored::Unbound),
+            "the decision region does not scroll: its options are its last rows at every size"
         );
         assert_eq!(
             router.translate(&key(KeyCode::Char('f'), KeyModifiers::CONTROL), &context),
@@ -979,24 +970,34 @@ mod tests {
         }
     }
 
-    /// INV-8: `Shift` hands the gesture back to the terminal.
+    /// INV-8: a forwarded gesture is a gesture for this workspace, whatever it carries.
+    ///
+    /// A terminal that bypasses mouse reporting keeps the event; one that forwards it has decided
+    /// this process should have it. Dropping it on a modifier left the user with a chord that
+    /// selected nothing on the terminals that forward, and had no effect on the ones that do not.
     #[test]
-    fn shift_leaves_pointer_events_to_the_terminal() {
+    fn a_modifier_does_not_make_a_pointer_event_disappear() {
         let surfaces = tree();
         let context = context(&surfaces, KeyboardFocus::Navigation, false);
-        let mut router = Router::default();
 
-        let shifted = Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 12,
-            row: 4,
-            modifiers: KeyModifiers::SHIFT,
-        });
-        assert_eq!(
-            router.translate(&shifted, &context),
-            Routed::Ignored(Ignored::TerminalSelection)
-        );
-        assert_eq!(router.capture(), None, "capture must not be taken");
+        for modifiers in [KeyModifiers::SHIFT, KeyModifiers::ALT, KeyModifiers::NONE] {
+            let mut router = Router::default();
+            let event = Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 12,
+                row: 4,
+                modifiers,
+            });
+            assert_eq!(
+                router.translate(&event, &context),
+                Routed::Intent(TuiIntent::Pointer(PointerIntent::Press {
+                    surface: OVERLAY,
+                    at: Point { x: 12, y: 4 },
+                })),
+                "{modifiers:?} reaches the same surface a bare press does"
+            );
+            assert_eq!(router.capture(), Some(OVERLAY));
+        }
     }
 
     /// INV-9: geometry reaches the workspace as an intent like anything else.

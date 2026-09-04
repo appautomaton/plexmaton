@@ -13,9 +13,12 @@
 `TranscriptItemId`; text, tools, artifacts, mail, warnings and errors share one per-agent ordered
 projection. Mail is owned by its producer while retaining both delivery endpoints. A tool's
 `ToolCallId` and other domain IDs correlate facts but never choose their position, and a vector
-index is not an identity. Explicit plaintext reasoning uses an ambient heading and muted body;
-system text is muted; warning and error headings use action-required and failure roles. Their names
-carry the distinction in monochrome. Provider replay metadata never enters this vocabulary (PRV-3).
+index is not an identity. A user's turn and an agent's turn carry no heading word: what separates
+them is the margin, a bar down the whole height of the user's turn and plain ground for the agent's.
+The other kinds keep a named heading, because `reasoning`, `system`, `warning` and `error` are not
+positions in a conversation but things the reader has to be told — ambient heading and muted body,
+muted, action-required, and failure respectively. Every one of these distinctions is a glyph or a
+name before it is a colour, so monochrome loses none of them. Provider replay metadata never enters this vocabulary (PRV-3).
 
 **ENT-2 — One tool call is one revisioned entry.** A call first appears queued at revision zero and
 each accepted lifecycle transition advances exactly one revision on the original entry. Display

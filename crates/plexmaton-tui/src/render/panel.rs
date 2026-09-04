@@ -14,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::chrome::{block, title};
+use super::chrome::{Badged as _, block, title};
 use crate::{
     ViewState,
     state::{ScrollPosition, inner_width},
@@ -28,6 +28,8 @@ const FULL_FRAME_ROWS: u16 = 2;
 pub(super) struct Panel {
     pub(super) body: Body,
     pub(super) title: Line<'static>,
+    /// A short status painted at the far end of the same border row, or nothing.
+    pub(super) badge: Option<Line<'static>>,
     /// Which sides carry a frame, and so how many rows the content cannot have.
     pub(super) edges: Edges,
 }
@@ -46,6 +48,8 @@ pub(super) enum Edges {
     Upper,
     /// A divider on top, then sides and bottom: the lower section of a shared box.
     Lower,
+    /// A divider on top and sides, open at the bottom: a section with one above and one below it.
+    Middle,
     /// Sides and bottom only: the last line of a shared box, with no divider above it. The
     /// collapsed composer is this — one row reading where typing would go, not a box (INS-5).
     Closing,
@@ -55,7 +59,7 @@ impl Edges {
     /// Rows the frame spends, which the content cannot have.
     pub(super) const fn rows(self) -> u16 {
         match self {
-            Self::Upper | Self::Closing => 1,
+            Self::Upper | Self::Closing | Self::Middle => 1,
             Self::All | Self::Lower => FULL_FRAME_ROWS,
         }
     }
@@ -63,7 +67,7 @@ impl Edges {
     /// Columns the frame spends, which the content cannot have.
     pub(super) const fn columns(self) -> u16 {
         match self {
-            Self::All | Self::Upper | Self::Lower | Self::Closing => 2,
+            Self::All | Self::Upper | Self::Lower | Self::Closing | Self::Middle => 2,
         }
     }
 }
@@ -155,7 +159,9 @@ pub(super) fn draw_panel(
         lines.splice(0..0, std::iter::repeat_n(Line::default(), slack));
     }
     let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    paragraph = paragraph.block(block(palette, panel.title.clone(), focused, panel.edges));
+    paragraph = paragraph.block(
+        block(palette, panel.title.clone(), focused, panel.edges).badge(panel.badge.clone()),
+    );
 
     let (viewport, scroll) = match &panel.body {
         Body::Whole { follows_tail, .. } => {

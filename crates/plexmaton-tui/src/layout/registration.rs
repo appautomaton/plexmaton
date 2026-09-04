@@ -15,8 +15,6 @@ const MODAL_Z_INDEX: u32 = 10;
 
 /// Registers the complete supported workspace from rectangles computed by layout.
 pub(super) fn surface_tree(
-    area: Rect,
-    approval: bool,
     status: Rect,
     notices: Option<Rect>,
     attention: Option<Rect>,
@@ -62,10 +60,14 @@ pub(super) fn surface_tree(
         attention,
         SurfaceKind::Panel,
     );
+    // Its own section between the conversation and the composer, not over either: the decision is
+    // an input addressed to this conversation, so it lives in that conversation's box
+    // (`ui-ux.md` §input) — but answering a tool call and typing the next instruction are two
+    // inputs, and the composer keeps its rows while one waits on the other.
     register_at(
         &mut tree,
         SurfaceId::Approval,
-        approval.then(|| approval_rect(area)),
+        regions.decision,
         SurfaceKind::Modal,
         MODAL_Z_INDEX,
     );
@@ -77,19 +79,6 @@ pub(super) fn surface_tree(
     );
 
     tree
-}
-
-/// Responsive approval card whose request detail scrolls instead of growing the terminal.
-fn approval_rect(area: Rect) -> Rect {
-    let width = area.width.saturating_sub(4).min(72);
-    let height = area.height.saturating_sub(1).min(15);
-    Rect::new(
-        area.x.saturating_add(area.width.saturating_sub(width) / 2),
-        area.y
-            .saturating_add(area.height.saturating_sub(height) / 2),
-        width,
-        height,
-    )
 }
 
 /// Registers a base-layer region. Workspace regions tile the terminal as siblings.

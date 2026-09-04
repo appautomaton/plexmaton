@@ -24,8 +24,12 @@ the focus ring contains. Whether a text cursor exists is derived from the focuse
 never asserted independently.
 
 **SURF-4 — A modal blocks delivery below it.** While a surface that blocks is registered, pointer
-hit testing stops at it and the focus ring contains only it. The approval card is opened only by a
-user action from Attention; a background request alone registers no modal.
+hit testing stops at it and the focus ring contains only it. The decision region is opened by a
+user action from Attention, or by the primary agent's own approval arriving in the conversation the
+user is already in (ATT-1); a request from a *background* agent alone registers no modal. It takes
+rows of its own between that conversation and its composer rather than the composer's rectangle:
+answering a tool call and typing the next instruction are two inputs, and the second is not the
+place to put the first.
 
 **SURF-5 — Hidden state survives.** A surface's focus and scroll state belong to the surface, not
 to the frame that drew it. Covering, unregistering for a frame, or re-registering does not reset

@@ -281,6 +281,9 @@ impl TranscriptMetrics {
         surface: SurfaceId,
     ) -> (Vec<Line<'static>>, u16) {
         let selected = state.selected_in(surface, &agent.id);
+        // The window carries the width it was measured at, and building at any other one would
+        // wrap the text differently from the heights the viewport was resolved against.
+        let width = window.width;
         let mut lines: Vec<_> = agent
             .entries()
             .enumerate()
@@ -295,7 +298,7 @@ impl TranscriptMetrics {
                     item.id(),
                     selected.contains(index),
                 );
-                content::transcript_entry(item, palette, appearance)
+                content::transcript_entry(item, palette, appearance, width)
             })
             .collect();
         self.built = self.built.saturating_add(lines.len());
@@ -396,6 +399,7 @@ fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16, open: bo
             open,
             ..EntryAppearance::default()
         },
+        width,
     ))
     .wrap(Wrap { trim: false });
     paragraph.line_count(width)
@@ -573,7 +577,12 @@ mod tests {
             let whole: Vec<_> = agent(state)
                 .entries()
                 .flat_map(|item| {
-                    content::transcript_entry(item, &palette, EntryAppearance::compact(false))
+                    content::transcript_entry(
+                        item,
+                        &palette,
+                        EntryAppearance::compact(false),
+                        width,
+                    )
                 })
                 .collect();
             let together = Paragraph::new(whole)

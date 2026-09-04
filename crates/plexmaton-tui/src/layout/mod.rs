@@ -84,8 +84,10 @@ pub struct WorkspaceInput {
     pub has_notices: bool,
     /// How many background requests are queued. Zero registers no band at all.
     pub attention: usize,
-    /// Whether the user explicitly opened a pending approval.
-    pub approval: bool,
+    /// Rows the decision region asks for, divider included. Zero registers no region at all.
+    pub decision_rows: u16,
+    /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
+    pub rail: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
     /// The open inspector, if one is open.
@@ -97,7 +99,8 @@ impl Default for WorkspaceInput {
         Self {
             has_notices: false,
             attention: 0,
-            approval: false,
+            decision_rows: 0,
+            rail: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
@@ -142,7 +145,15 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     let composer_height = wanted
         .min(budget.saturating_sub(MIN_PANEL_HEIGHT))
         .max(COLLAPSED_COMPOSER_HEIGHT);
-    let mut rest = budget.saturating_sub(composer_height);
+    // The decision region is a second section of the same box, above the composer and below the
+    // conversation. It bids after the composer and never displaces it: answering a tool call and
+    // typing the next instruction are two different inputs, and taking the second to show the
+    // first is what made the box read as if the composer had been eaten.
+    let decision_height = input
+        .decision_rows
+        .min(budget.saturating_sub(composer_height.saturating_add(MIN_PANEL_HEIGHT)));
+    let input_height = composer_height.saturating_add(decision_height);
+    let mut rest = budget.saturating_sub(input_height);
 
     let notice_height = if input.has_notices {
         notice_rows(rest)
@@ -167,12 +178,19 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         area.x,
         attention_top.saturating_add(attention_height),
         area.width,
-        rest.saturating_add(composer_height),
+        rest.saturating_add(input_height),
     );
 
-    let regions = body_regions(area, body, input.inspector, composer_height);
+    let regions = body_regions(
+        area,
+        body,
+        input.inspector,
+        composer_height,
+        decision_height,
+        input.rail,
+    );
 
-    registration::surface_tree(area, input.approval, status, notices, attention, regions)
+    registration::surface_tree(status, notices, attention, regions)
 }
 
 /// Width the primary composer will occupy for this frame.
@@ -181,7 +199,9 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 /// the conversation column after the composer has reserved its rows. Reusing `body_regions` keeps
 /// the width used to wrap the draft identical to the rectangle later registered for painting.
 pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) -> u16 {
-    body_regions(area, area, inspector, MIN_PANEL_HEIGHT)
+    // `rail: true` is the narrower of the two answers and the one the composer has to survive: a
+    // draft wrapped for the wider column would reflow the moment a sub-agent appeared.
+    body_regions(area, area, inspector, MIN_PANEL_HEIGHT, 0, true)
         .composer
         .width
 }
@@ -229,6 +249,8 @@ pub(super) struct BodyRegions {
     /// The composer, at the bottom of the conversation's column. Always present: the body was
     /// sized so that typing survives every other region.
     pub(super) composer: Rect,
+    /// The decision region, directly above the composer, while a tool call is waiting on an answer.
+    pub(super) decision: Option<Rect>,
 }
 
 fn body_regions(
@@ -236,36 +258,57 @@ fn body_regions(
     body: Rect,
     inspector: Option<InspectorRequest>,
     composer_height: u16,
+    decision_height: u16,
+    rail: bool,
 ) -> BodyRegions {
+    // Both inputs are carved from the conversation's column as one block, so the second window's
+    // give-back and the shelf's guarantee are measured against the rows the conversation actually
+    // keeps. The block is split into its two sections once every region has been placed.
+    let input_height = composer_height.saturating_add(decision_height);
     let class = LayoutClass::for_size(area.width, area.height);
-    let mut base = match class {
-        LayoutClass::Ultrawide => column::beside_conversation(body, 28),
-        LayoutClass::Wide => column::beside_conversation(body, 28),
-        LayoutClass::Medium => {
-            let [agents, transcript] =
-                Layout::horizontal([Constraint::Length(26), Constraint::Min(24)]).areas(body);
-            BodyRegions {
-                agents: Some(agents),
-                transcript: Some(transcript),
-                inspector: None,
-                inspector_floats: false,
-                composer: Rect::default(),
-            }
+    // A roster of nobody is a bordered box saying so, in the column the conversation wanted. The
+    // rail earns its rectangle by having something in it; until then the conversation is the
+    // screen, which is what INS-1 says looking at the primary means.
+    let mut base = if !rail {
+        BodyRegions {
+            agents: None,
+            transcript: Some(body),
+            inspector: None,
+            inspector_floats: false,
+            composer: Rect::default(),
+            decision: None,
         }
-        // `TooSmall` returned before layout began, so it cannot reach here.
-        LayoutClass::Narrow | LayoutClass::TooSmall => {
-            // The composer's rows are spoken for, so the rail bids against what is left.
-            let mut rows = body.height.saturating_sub(composer_height);
-            let rail_height = reserve(&mut rows, RAIL_HEIGHT, MIN_PANEL_HEIGHT);
-            let rows = rows.saturating_add(composer_height);
-            let transcript =
-                Rect::new(body.x, body.y.saturating_add(rail_height), body.width, rows);
-            BodyRegions {
-                agents: band(body, body.y, rail_height),
-                transcript: Some(transcript),
-                inspector: None,
-                inspector_floats: false,
-                composer: Rect::default(),
+    } else {
+        match class {
+            LayoutClass::Ultrawide | LayoutClass::Wide => column::beside_conversation(body, 28),
+            LayoutClass::Medium => {
+                let [agents, transcript] =
+                    Layout::horizontal([Constraint::Length(26), Constraint::Min(24)]).areas(body);
+                BodyRegions {
+                    agents: Some(agents),
+                    transcript: Some(transcript),
+                    inspector: None,
+                    inspector_floats: false,
+                    composer: Rect::default(),
+                    decision: None,
+                }
+            }
+            // `TooSmall` returned before layout began, so it cannot reach here.
+            LayoutClass::Narrow | LayoutClass::TooSmall => {
+                // The input rows are spoken for, so the rail bids against what is left.
+                let mut rows = body.height.saturating_sub(input_height);
+                let rail_height = reserve(&mut rows, RAIL_HEIGHT, MIN_PANEL_HEIGHT);
+                let rows = rows.saturating_add(input_height);
+                let transcript =
+                    Rect::new(body.x, body.y.saturating_add(rail_height), body.width, rows);
+                BodyRegions {
+                    agents: band(body, body.y, rail_height),
+                    transcript: Some(transcript),
+                    inspector: None,
+                    inspector_floats: false,
+                    composer: Rect::default(),
+                    decision: None,
+                }
             }
         }
     };
@@ -276,22 +319,51 @@ fn body_regions(
     let column = base
         .transcript
         .expect("every layout class starts with a conversation column");
-    let composer_height = composer_height.min(column.height.saturating_sub(MIN_PANEL_HEIGHT));
+    let input_height = input_height.min(column.height.saturating_sub(MIN_PANEL_HEIGHT));
     base.composer = Rect::new(
         column.x,
-        column.bottom().saturating_sub(composer_height),
+        column.bottom().saturating_sub(input_height),
         column.width,
-        composer_height,
+        input_height,
     );
     base.transcript = Some(Rect {
-        height: column.height.saturating_sub(composer_height),
+        height: column.height.saturating_sub(input_height),
         ..column
     });
 
-    match inspector {
+    let mut placed = match inspector {
         Some(request) => inspector::place_inspector(base, request, class),
         None => base,
+    };
+    split_input(&mut placed, decision_height);
+    placed
+}
+
+/// Divides the conversation's input block into the decision region and the composer beneath it.
+///
+/// Last, after every region has been placed, because the two sections share one rectangle for
+/// every purpose but painting: one column, one guarantee, one give-back to the second window.
+fn split_input(regions: &mut BodyRegions, decision_height: u16) {
+    let block = regions.composer;
+    let decision_height = decision_height.min(
+        block
+            .height
+            .saturating_sub(COLLAPSED_COMPOSER_HEIGHT)
+            .min(decision_height),
+    );
+    if decision_height == 0 {
+        regions.decision = None;
+        return;
     }
+    regions.decision = Some(Rect {
+        height: decision_height,
+        ..block
+    });
+    regions.composer = Rect {
+        y: block.y.saturating_add(decision_height),
+        height: block.height.saturating_sub(decision_height),
+        ..block
+    };
 }
 
 /// Takes `want` rows if what remains still clears `floor`, and none at all otherwise.
@@ -320,8 +392,11 @@ mod tests {
     use crate::surface::SurfaceId;
 
     /// The default composer, which is the shape every one of these sizes is checked against.
+    /// A rail in every fixture: the geometry under test is the crowded one, and a workspace with
+    /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
+            rail: true,
             has_notices,
             ..WorkspaceInput::default()
         }
@@ -330,6 +405,7 @@ mod tests {
     /// The same, with an inspector open in its default presentation.
     fn inspecting(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
+            rail: true,
             inspector: Some(InspectorRequest::default()),
             ..input(has_notices)
         }
@@ -574,6 +650,41 @@ mod tests {
             composer.bounds.bottom(),
             "the rail owns the entire body beside the conversation and composer"
         );
+    }
+
+    /// The rail earns its rectangle by having a roster, at every class.
+    ///
+    /// A workspace that has delegated nothing showed a bordered box reading `No sub-agents yet.` in
+    /// the column the conversation wanted, on every screen and for the whole life of a session that
+    /// may never delegate. Not registered rather than drawn empty: an empty panel is still a focus
+    /// stop, a pointer target and a `Tab` the user has to press through.
+    #[test]
+    fn the_rail_is_registered_only_when_there_is_a_roster() {
+        for (width, height) in SIZES {
+            let empty = workspace(
+                Rect::new(0, 0, width, height),
+                WorkspaceInput {
+                    rail: false,
+                    ..WorkspaceInput::default()
+                },
+            );
+            assert!(
+                empty.get(SurfaceId::Agents).is_none(),
+                "{width}x{height}: a roster of nobody registers no rail"
+            );
+            let conversation = empty
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: the conversation is registered"));
+            let peopled = workspace(Rect::new(0, 0, width, height), input(false));
+            let narrower = peopled
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: the conversation is registered"));
+            assert!(
+                conversation.bounds.width >= narrower.bounds.width
+                    && conversation.bounds.height >= narrower.bounds.height,
+                "{width}x{height}: the rows and columns the rail did not take go to the conversation"
+            );
+        }
     }
 
     /// What survives at the smallest supported terminal, in priority order.

@@ -112,6 +112,8 @@ pub enum ApprovalIntent {
     Move(Direction),
     /// Return the highlighted typed decision to the owning loop.
     Decide,
+    /// Show the request's detail in full, or clip it back to one row.
+    ToggleDetail,
 }
 
 /// One thing the user asked of the selection.

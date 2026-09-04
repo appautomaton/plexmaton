@@ -46,8 +46,9 @@ pub fn render(
         area,
         WorkspaceInput {
             has_notices: state.notices().next().is_some(),
-            attention: state.attention_count(),
-            approval: state.approval().is_some(),
+            attention: state.attention_listed_count(),
+            decision_rows: state.decision_rows(composer_width),
+            rail: state.sub_agents().next().is_some(),
             composer_rows: state.composer_rows(composer_width),
             inspector,
         },
@@ -89,7 +90,8 @@ pub fn render(
                     lines: content::agents(state, palette),
                     follows_tail: false,
                 },
-                title: agents_title(state, palette),
+                title: agents_title(palette),
+                badge: None,
                 edges: Edges::All,
             }),
             SurfaceId::Transcript => Some(Panel {
@@ -102,6 +104,9 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Transcript),
                 ),
                 title: transcript_title(state, palette),
+                // The pill rides the conversation the user is reading, at the far end of the
+                // border that is already there (ATT-1: nothing the user is reading moves).
+                badge: chrome::attention_pill(state, palette),
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
             // The inspected agent's conversation uses the same unified entry grammar as the
@@ -116,6 +121,7 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Inspector),
                 ),
                 title: inspector_title(state, palette),
+                badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Notices => Some(Panel {
@@ -124,6 +130,7 @@ pub fn render(
                     follows_tail: true,
                 },
                 title: notices_title(state, palette),
+                badge: None,
                 edges: Edges::All,
             }),
             SurfaceId::Attention => Some(Panel {
@@ -134,9 +141,10 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: attention_title(state, palette),
+                badge: None,
                 edges: Edges::All,
             }),
-            SurfaceId::Approval => Some(approval_panel(state, palette, bounds)),
+            SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -146,6 +154,7 @@ pub fn render(
                     follows_tail: false,
                 },
                 title: Line::default(),
+                badge: None,
                 edges: if stacking.composer_under.is_some() {
                     Edges::Closing
                 } else {
@@ -196,19 +205,33 @@ pub fn render(
     surfaces
 }
 
-fn approval_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+/// The decision region: a section of the asking conversation's box, above its composer.
+///
+/// Not a centred modal, and not the composer's rectangle. `ui-ux.md` §input says every input lives
+/// inside the box of the conversation it addresses, and answering a tool call is an input addressed
+/// to that conversation — but it is not the *same* input as the next instruction, so it gets its own
+/// section rather than the one the user types into. The tool entry it is about is directly above.
+fn approval_panel(
+    state: &ViewState,
+    palette: &Palette,
+    bounds: Rect,
+    stacking: &Stacking,
+) -> Panel {
+    let tool = state
+        .approval()
+        .map_or_else(String::new, |approval| approval.tool.to_owned());
     Panel {
         body: Body::Whole {
-            lines: content::approval(state, palette, bounds.height < 15),
+            lines: content::approval(state, palette, inner_width(bounds.width)),
             follows_tail: false,
         },
-        title: title(
-            palette,
-            "Approval required",
-            Role::ActionRequired,
-            " · user opened",
-        ),
-        edges: Edges::All,
+        title: title(palette, "Allow", Role::ActionRequired, format!(" {tool}?")),
+        badge: None,
+        edges: if stacking.composer_under.is_some() {
+            Edges::Middle
+        } else {
+            Edges::Upper
+        },
     }
 }
 
@@ -230,9 +253,12 @@ impl Stacking {
                 }
                 _ => false,
             };
-        let composer_under = if stacked(SurfaceId::Transcript, SurfaceId::Composer) {
+        // The decision region, when open, is between them: the conversation is still the section
+        // with something beneath it, and the composer is still the one that closes the box.
+        let below = |id| stacked(id, SurfaceId::Approval) || stacked(id, SurfaceId::Composer);
+        let composer_under = if below(SurfaceId::Transcript) {
             Some(SurfaceId::Transcript)
-        } else if stacked(SurfaceId::Inspector, SurfaceId::Composer) {
+        } else if below(SurfaceId::Inspector) {
             Some(SurfaceId::Inspector)
         } else {
             None
@@ -240,7 +266,7 @@ impl Stacking {
         Self { composer_under }
     }
 
-    /// The edges of a conversation that may have the composer beneath it.
+    /// The edges of a conversation that may have an input section beneath it.
     fn over_composer(&self, id: SurfaceId) -> Edges {
         if self.composer_under == Some(id) {
             Edges::Upper
@@ -264,6 +290,7 @@ fn composer_panel(
             follows_tail: true,
         },
         title: composer_title(state, palette),
+        badge: None,
         edges: if stacking.composer_under.is_some() {
             Edges::Lower
         } else {
@@ -349,7 +376,7 @@ mod tests {
     };
 
     use super::{
-        chrome::block,
+        chrome::{self, Badged as _, block},
         composer_title,
         panel::{Body, Edges, Panel, draw_panel},
         transcript_title,
@@ -396,6 +423,7 @@ mod tests {
                 follows_tail: false,
             },
             title: Line::default(),
+            badge: None,
             edges: Edges::Closing,
         };
         let mut measured = None;
@@ -518,7 +546,8 @@ mod tests {
     fn a_virtualized_conversation_paints_what_the_whole_one_did() {
         for (width, height) in [(48_u16, 12_u16), (120, 24), (72, 30)] {
             let mut session = Session::canonical(width, height);
-            session.conversation.extend(6);
+            // Enough to overflow every size below now that a message costs no heading row.
+            session.conversation.extend(10);
             session.draw();
 
             for notches in 0..4 {
@@ -560,6 +589,7 @@ mod tests {
                     item,
                     palette,
                     crate::state::EntryAppearance::compact(false),
+                    crate::state::inner_width(bounds.width),
                 )
             })
             .collect();
@@ -567,12 +597,10 @@ mod tests {
             .wrap(Wrap { trim: false })
             // The composer sits under the conversation in its box, so the reference shares the
             // same open bottom edge.
-            .block(block(
-                palette,
-                transcript_title(state, palette),
-                false,
-                Edges::Upper,
-            ))
+            .block(
+                block(palette, transcript_title(state, palette), false, Edges::Upper)
+                    .badge(chrome::attention_pill(state, palette)),
+            )
             .scroll((
                 u16::try_from(viewport.offset)
                     .unwrap_or_else(|_| panic!("reference fixture offset fits the terminal")),
@@ -995,7 +1023,14 @@ mod tests {
         let rendered = region_text(&buffer, *buffer.area());
 
         assert!(rendered.contains("Agent A · primary"));
-        assert!(rendered.contains("Agents · !1"));
+        assert!(
+            rendered.contains("( !1 )"),
+            "the pill carries what is unanswered"
+        );
+        assert!(
+            !rendered.contains("Agents · !1"),
+            "the rail names the rail and nothing else"
+        );
         assert!(rendered.contains("remains interactive"));
         assert!(
             !rendered.contains("Routing stays"),
@@ -1170,13 +1205,13 @@ mod tests {
         assert_eq!(ansi, monochrome);
     }
 
-    /// The rail's badge is the number that is unanswered, coloured, and nothing when it is zero.
+    /// The pill is the number that is unanswered, coloured, on the conversation being read.
     ///
-    /// The word `attention` belongs to the band; the rail repeating it would say it twice and
-    /// bury the number. The colour lands on the badge, not on the panel's name, so the name
-    /// reads as every other heading and the badge is what the eye finds.
+    /// It rides the border the panel already draws, so it takes no row from the conversation and
+    /// no rectangle from the surface tree. The rail is left naming the rail: the same fact painted
+    /// in two places is the one that drifts.
     #[test]
-    fn the_rail_wears_a_badge_only_while_something_is_unanswered() {
+    fn the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row() {
         for palette in [
             Palette::ansi(),
             Palette::pastel(),
@@ -1184,51 +1219,48 @@ mod tests {
             Palette::monochrome(),
         ] {
             let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
-            let bounds = surfaces
-                .get(SurfaceId::Agents)
-                .expect("the rail is registered at wide")
+            let conversation = surfaces
+                .get(SurfaceId::Transcript)
+                .expect("the conversation is registered at wide")
                 .bounds;
-            let top = region_text(
+            let border = Rect {
+                height: 1,
+                ..conversation
+            };
+            let top = region_text(&buffer, border);
+            assert!(top.contains("( !1 )"), "{top:?}");
+            assert!(
+                top.trim_end().ends_with("( !1 ) \u{2510}"),
+                "the pill sits at the far end of the row, not beside the title: {top:?}"
+            );
+
+            let rail = region_text(
                 &buffer,
                 Rect {
                     height: 1,
-                    ..bounds
+                    ..surfaces
+                        .get(SurfaceId::Agents)
+                        .expect("the rail is registered at wide")
+                        .bounds
                 },
             );
-            assert!(top.contains("Agents · !1"), "{top:?}");
             assert!(
-                !top.contains("attention"),
-                "the word is the band's: {top:?}"
+                !rail.contains('!'),
+                "the count belongs to one place: {rail:?}"
             );
+
             let column = |needle: char| {
                 let at = top
                     .chars()
                     .position(|c| c == needle)
                     .unwrap_or_else(|| panic!("{needle:?} is painted: {top:?}"));
-                bounds.x + u16::try_from(at).unwrap_or_else(|_| panic!("a column fits a u16"))
+                border.x + u16::try_from(at).unwrap_or_else(|_| panic!("a column fits a u16"))
             };
-            let name = column('A');
-            let badge = column('!');
             assert_eq!(
-                ink(buffer[(name, bounds.y)].style()),
-                role_ink(&palette, Role::SectionHeading),
-                "the name keeps the heading role"
-            );
-            assert_eq!(
-                ink(buffer[(badge, bounds.y)].style()),
+                ink(buffer[(column('!'), border.y)].style()),
                 role_ink(&palette, Role::ActionRequired),
-                "the badge carries the action-required role"
+                "the pill carries the action-required role"
             );
         }
-
-        let quiet = draw(&ViewState::default(), 120, 24);
-        let top = quiet
-            .lines()
-            .find(|line| line.contains("Agents"))
-            .unwrap_or_else(|| panic!("the rail is painted: {quiet}"));
-        assert!(
-            !top.contains('!'),
-            "nothing unanswered is no badge: {top:?}"
-        );
     }
 }

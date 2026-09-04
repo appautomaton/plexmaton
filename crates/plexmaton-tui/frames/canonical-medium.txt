@@ -1,7 +1,7 @@
 ┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
 │> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents · !1 ───────────┐┌ Agent A · primary · running ──────────────────────────────────────┐
+┌ Agents ────────────────┐┌ Agent A · primary · running ────────────────────────────── ( !1 ) ┐
 │○ Agent B · UI study    ││                                                                   │
 │done · 1 tool @1 1 mail ││                                                                   │
 │                        ││                                                                   │
@@ -29,7 +29,7 @@
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
-│                        ││assistant                                                          │
+│                        ││                                                                   │
 │                        ││I will inspect the workspace and delegate the focused UI study.    │
 │                        ││Agent B is running independently; this transcript remains          │
 │                        ││interactive.                                                       │

@@ -1,9 +1,11 @@
 //! Pointer gesture reduction and transcript-row hit resolution.
 
+use plexmaton_core::AgentId;
+
 use crate::{
     Workspace, content,
     intent::PointerIntent,
-    state::{EntryTarget, inner_width},
+    state::{CopyRequest, EntryTarget, inner_width},
     surface::{Point, SurfaceId},
 };
 
@@ -16,11 +18,18 @@ pub(super) struct PressedEntry {
 
 impl Workspace {
     /// Routes a complete pointer gesture, keeping a cancelled or dragged press from opening work.
-    pub(super) fn pointer(&mut self, pointer: PointerIntent) {
+    ///
+    /// Returns what the finished gesture put on the clipboard, if anything. Selecting with the
+    /// mouse and then copying with a key is a gesture nobody makes: on macOS the terminal keeps
+    /// `Cmd-C` for its own selection, which over an owned screen is empty, so a mouse selection
+    /// that waited to be copied could not be copied at all. Releasing the button is the copy
+    /// (SEL-4 still applies: the text leaves as a value and this crate reaches no clipboard).
+    pub(super) fn pointer(&mut self, pointer: PointerIntent) -> Option<CopyRequest> {
         match pointer {
             PointerIntent::Press { surface, at } => {
-                // Read the target before focus changes the inspector's input geometry: an event
-                // resolves against the frame the user pressed in (FR-3).
+                // Read both before focus changes the inspector's input geometry: an event resolves
+                // against the frame the user pressed in (FR-3).
+                let entry = self.entry_at(surface, at);
                 let target = self.entry_target_at(surface, at);
                 self.state.hover_entry(target.clone());
                 self.pressed_entry = target.map(|target| PressedEntry { target, at });
@@ -28,12 +37,34 @@ impl Workspace {
                 if surface == SurfaceId::Agents {
                     self.click_agent(at);
                 }
+                match entry {
+                    // Where the drag anchors, and what a click on its own selects. A press is the
+                    // start of a selection whatever kind of entry it landed on (SEL-1).
+                    Some((agent, index)) => self.state.begin_selection(surface, agent, index),
+                    // Pressing where there is no content is how a selection ends. Without it the
+                    // only way out of a highlight is a key, and the gesture that made it has no
+                    // undo of its own.
+                    None => {
+                        let _cleared = self.state.clear_selection();
+                    }
+                }
                 self.state.drag(&self.surfaces, pointer);
+                None
             }
-            PointerIntent::Drag { .. } | PointerIntent::Cancel { .. } => {
+            PointerIntent::Drag { surface, at } => {
+                self.state.hover_entry(None);
+                self.pressed_entry = None;
+                if let Some((agent, index)) = self.entry_at(surface, at) {
+                    self.state.extend_selection_to(surface, &agent, index);
+                }
+                self.state.drag(&self.surfaces, pointer);
+                None
+            }
+            PointerIntent::Cancel { .. } => {
                 self.state.hover_entry(None);
                 self.pressed_entry = None;
                 self.state.drag(&self.surfaces, pointer);
+                None
             }
             PointerIntent::Release { surface, at } => {
                 let released = self.entry_target_at(surface, at);
@@ -50,12 +81,23 @@ impl Workspace {
                     self.state
                         .toggle_pointer_entry(&self.surfaces, &self.metrics, pressed.target);
                 }
+                self.state.copy()
             }
         }
     }
 
     /// Resolves a compact foldable row through the viewport the last frame measured.
     pub(super) fn entry_target_at(&self, surface: SurfaceId, at: Point) -> Option<EntryTarget> {
+        let (_, index) = self.entry_at(surface, at)?;
+        self.state.entry_target(surface, index)
+    }
+
+    /// Resolves whichever entry a pointer is over, foldable or not.
+    ///
+    /// Separate from [`Self::entry_target_at`] because disclosure and selection address different
+    /// sets: only a tool with retained detail can be opened, while every entry can be selected and
+    /// copied. Sharing one resolver made the narrower set the only thing the mouse could reach.
+    fn entry_at(&self, surface: SurfaceId, at: Point) -> Option<(AgentId, usize)> {
         if !matches!(surface, SurfaceId::Transcript | SurfaceId::Inspector) {
             return None;
         }
@@ -78,7 +120,7 @@ impl Workspace {
         let index =
             self.metrics
                 .compact_entry_at_row(&agent, viewport.content_width, content_row)?;
-        self.state.entry_target(surface, index)
+        Some((agent, index))
     }
 
     /// Selects the agent painted under a press in the list, if the press landed on one.

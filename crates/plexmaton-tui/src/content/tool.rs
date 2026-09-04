@@ -3,7 +3,7 @@
 use plexmaton_core::{ToolCallStatus, ToolDetail};
 use ratatui::text::{Line, Span};
 
-use super::select_line;
+use super::transcript_presentation::select_line;
 use crate::{
     state::{EntryAppearance, ToolCallView},
     theme::{Palette, Role, tool_role},

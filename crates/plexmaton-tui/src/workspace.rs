@@ -310,7 +310,12 @@ impl Workspace {
             }
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
-            TuiIntent::Pointer(pointer) => self.pointer(pointer),
+            TuiIntent::Pointer(pointer) => {
+                return Outcome {
+                    copied: self.pointer(pointer),
+                    ..Outcome::default()
+                };
+            }
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::Approval(approval) => {
@@ -1539,7 +1544,7 @@ mod tests {
             "the conversation's title stays readable above the window"
         );
         assert!(
-            painted_beneath(&terminal, &workspace).contains("assistant"),
+            painted_beneath(&terminal, &workspace).contains("remains interactive"),
             "and the conversation is still readable beneath it"
         );
 
@@ -1841,6 +1846,7 @@ mod tests {
                     item,
                     &palette,
                     crate::state::EntryAppearance::compact(false),
+                    width,
                 )
             })
             .collect();
@@ -2370,14 +2376,16 @@ mod tests {
     #[test]
     fn the_queues_cursor_moves_without_touching_the_agent_selection() {
         let mut conversation = Conversation::canonical();
+        // Both from a sub-agent: the queue is what the user is not looking at, and the primary's
+        // own approval answers itself in the composer's place rather than waiting in a line.
         conversation.emit(SessionEvent::AttentionRequested {
-            agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
-            attention_id: AttentionId::new("attention-a-1")
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: AttentionId::new("attention-b-2")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
-                approval_id: ApprovalId::new("approval-a-1")
+                approval_id: ApprovalId::new("approval-b-2")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
-                call_id: ToolCallId::new("tool-a-1")
+                call_id: ToolCallId::new("tool-b-2")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 tool: "edit".into(),
                 capabilities: vec![ToolCapability::FileWrite],
@@ -2413,8 +2421,8 @@ mod tests {
         );
         assert_eq!(
             selected(&workspace),
-            "none",
-            "and Enter goes to whichever request the cursor is on: the primary's opens nothing"
+            "agent-b",
+            "and Enter goes to whichever request the cursor is on"
         );
     }
 

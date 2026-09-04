@@ -140,7 +140,7 @@ impl Composer {
 ///
 /// Measured in display width over grapheme clusters: a wide glyph takes two cells and a combining
 /// mark takes none, so counting either characters or bytes wraps in the wrong place.
-fn wrap_line(line: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap_line(line: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
     }

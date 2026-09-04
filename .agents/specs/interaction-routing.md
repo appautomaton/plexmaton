@@ -40,8 +40,10 @@ terminal events leave the deadline alone. `Ctrl-C` clears the resolved conversat
 draft without an interrupt, or interrupts that conversation when its draft is empty; either path
 withdraws the quit question. No bare key quits; rejected alternatives are in `ui-ux.md` §input.
 
-**INV-8 — Terminal-native selection has a modifier escape hatch.** A pointer event carrying `Shift`
-is routed to no surface, so the terminal's own selection keeps working over an owned screen.
+**INV-8 — No modifier is reserved: the escape hatch is the terminal's.** A terminal that bypasses
+mouse reporting keeps the gesture on whichever modifier it chose, so an event that *arrives*
+carrying one was forwarded on purpose and routes like any other. Copyability over an owned screen
+is SEL-1's.
 
 **INV-9 — Geometry is an intent.** A terminal resize produces an intent like any other event, so no
 other component observes raw terminal events.
@@ -59,14 +61,8 @@ crossterm::Event ──▶ Router::translate(event, RouterContext) ──▶ Rou
 ```
 
 `RouterContext` is a read-only snapshot of input mode, focus, dismissible state, selection, and the
-last frame's `SurfaceTree`. The router mutates only its capture.
-
-```text
-        Down(left) on a surface          Up | Escape
-Idle ─────────────────────────▶ Captured ───────────▶ Idle
-                                   │
-                                   └── Drag ──▶ Captured (Pointer::Drag)
-```
+last frame's `SurfaceTree`. The router mutates only its capture: a left press on a surface takes it,
+a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 
 ### Key grammar
 
@@ -88,9 +84,9 @@ Idle ─────────────────────────
 | `Backspace` | Unbound | Delete backward |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-Control chords are never text (INV-2); reducers decide whether their target exists. The approval
-modal owns non-global keys: arrows choose, `Enter` decides, paging scrolls, and `Escape` closes
-without answering.
+Control chords are never text (INV-2); reducers decide whether their target exists. The decision
+region owns non-global keys: arrows choose, `Enter` decides, `Ctrl-O` discloses, `Escape` closes
+without answering. It never scrolls: its options are its last two rows at every size.
 
 | Fact | Value |
 | --- | --- |
@@ -105,10 +101,8 @@ without answering.
 | Drag or release with no capture held | `Ignored::NoCapture` |
 | `Escape` with nothing on the ladder | `Ignored::NothingToDismiss`, not a quit |
 | `Ctrl-C` with nothing to clear | Interrupt the focused conversation; the status line remains at rest |
-| Wheel over the workspace with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside it |
-| Wheel over no surface | `Ignored::OutsideWorkspace` |
+| Wheel with nothing scrollable beneath | `Ignored::NothingScrollable`, a different fact from being outside the workspace, which is `Ignored::OutsideWorkspace` |
 | Bare pointer motion outside the workspace | A hover intent with no target, clearing prior feedback |
-| Pointer event with `Shift` held | `Ignored::TerminalSelection` (INV-8) |
 | `Event::Paste` | Declined; nothing in the journey pastes |
 | Key release or repeat | Release ignored; repeat treated as a press |
 
@@ -123,6 +117,6 @@ without answering.
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
-| INV-8 | `shift_leaves_pointer_events_to_the_terminal` |
+| INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |

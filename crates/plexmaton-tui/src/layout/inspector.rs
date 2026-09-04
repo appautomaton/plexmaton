@@ -193,8 +193,11 @@ mod tests {
         surface::{SurfaceId, SurfaceTree},
     };
 
+    /// A rail in every fixture: the geometry under test is the crowded one, and a workspace with
+    /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
+            rail: true,
             has_notices,
             ..WorkspaceInput::default()
         }
@@ -202,6 +205,7 @@ mod tests {
 
     fn inspecting(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
+            rail: true,
             inspector: Some(InspectorRequest::default()),
             ..input(has_notices)
         }
@@ -317,6 +321,7 @@ mod tests {
                 Rect::new(0, 0, width, height),
                 WorkspaceInput {
                     inspector: Some(request),
+                    rail: true,
                     ..WorkspaceInput::default()
                 },
             )

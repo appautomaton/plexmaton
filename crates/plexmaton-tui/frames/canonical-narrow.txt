@@ -1,12 +1,12 @@
 ┌ Attention · 1 ───────────────────────────────────────────┐
 │> ask   agent-b · Choose whether the overlap study should │
 └──────────────────────────────────────────────────────────┘
-┌ Agents · !1 ─────────────────────────────────────────────┐
+┌ Agents ──────────────────────────────────────────────────┐
 │○ Agent B · UI study  done · 1 tool @1 1 mail             │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent A · primary · running ─────────────────────────────┐
+┌ Agent A · primary · running ───────────────────── ( !1 ) ┐
 │                                                          │
 │                                                          │
 │                                                          │
@@ -29,7 +29,7 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│assistant                                                 │
+│                                                          │
 │I will inspect the workspace and delegate the focused UI  │
 │study. Agent B is running independently; this transcript  │
 │remains interactive.                                      │

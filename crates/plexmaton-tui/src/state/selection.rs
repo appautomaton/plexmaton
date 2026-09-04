@@ -143,6 +143,40 @@ impl ViewState {
         }
     }
 
+    /// Starts a one-entry selection where the pointer went down (SEL-1).
+    ///
+    /// Every entry, not only a foldable one: the pointer addressing a narrower set of the
+    /// conversation than the keyboard is what made a click select a tool and do nothing at all on
+    /// the message beside it.
+    pub(crate) fn begin_selection(&mut self, surface: SurfaceId, agent: AgentId, index: usize) {
+        let next = Selection::at(surface, agent, index);
+        if self.selection.as_ref() != Some(&next) {
+            self.selection = Some(next);
+            self.touch();
+        }
+    }
+
+    /// Moves the selection's moving end to the entry the pointer is over, keeping its anchor.
+    ///
+    /// A drag that leaves the surface or reaches a row with no entry under it holds the last range
+    /// rather than collapsing: the gesture is still in progress, and a selection that flickered
+    /// away at the edge of the panel would be one the user cannot end on purpose.
+    pub(crate) fn extend_selection_to(
+        &mut self,
+        surface: SurfaceId,
+        agent: &AgentId,
+        index: usize,
+    ) {
+        let Some(selection) = self.selection.as_mut() else {
+            return;
+        };
+        if selection.surface != surface || &selection.agent != agent || selection.focus == index {
+            return;
+        }
+        selection.focus = index;
+        self.touch();
+    }
+
     /// Drops the selection, reporting whether there was one. A rung on the `Escape` ladder (INV-6).
     pub fn clear_selection(&mut self) -> bool {
         let had = self.selection.take().is_some();
@@ -300,8 +334,12 @@ mod tests {
     use ratatui::{
         Terminal,
         backend::TestBackend,
-        crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
+        crossterm::event::{
+            Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        },
+        layout::Rect,
     };
+    use std::collections::BTreeMap;
 
     use super::tool_source;
     use crate::{Workspace, state::Selection, surface::SurfaceId, test_support::canonical_state};
@@ -467,6 +505,121 @@ mod tests {
         workspace.handle(&key(KeyCode::Up, KeyModifiers::SHIFT));
 
         assert_eq!(workspace.state().revision(), clamped);
+    }
+
+    /// SEL-1, and `ui-ux.md` §selection and copy: mouse capture never makes content uncopyable.
+    ///
+    /// The workspace owns the screen and the mouse, so what the terminal's own selection would
+    /// have done it has to do itself. This drags across three messages and copies them, which is
+    /// the whole gesture — before this, a press resolved only against foldable tool rows, so a
+    /// drag over a conversation of messages selected nothing and copied nothing.
+    #[test]
+    fn dragging_across_a_conversation_selects_and_copies_what_it_crossed() {
+        let messages: Vec<String> = ["alpha", "bravo", "charlie", "delta"]
+            .iter()
+            .map(|text| (*text).to_owned())
+            .collect();
+        let (mut workspace, terminal) = drawn(&messages, 100);
+        let rows = message_rows(&workspace, &terminal, &messages);
+
+        workspace.handle(&press(rows["alpha"]));
+        assert_eq!(
+            workspace.state().selection().map(Selection::bounds),
+            Some((0, 0)),
+            "a press anchors on the message under it, foldable or not"
+        );
+
+        workspace.handle(&drag(rows["charlie"]));
+        assert_eq!(
+            workspace.state().selection().map(Selection::bounds),
+            Some((0, 2)),
+            "the drag carries the moving end with the pointer"
+        );
+        // Releasing the button is the copy. On macOS the terminal keeps `Cmd-C` for its own
+        // selection, which over an owned screen is empty, so a mouse selection that waited for a
+        // key was a selection the habit could not copy.
+        let copied = workspace
+            .handle(&release(rows["charlie"]))
+            .copied
+            .unwrap_or_else(|| panic!("releasing a drag copies what it crossed"));
+        assert_eq!(copied.text, "alpha\nbravo\ncharlie");
+
+        // Pressing off the content is the gesture's own undo: without it the only way out of a
+        // highlight the mouse made is a key.
+        workspace.handle(&press(0));
+        assert_eq!(workspace.state().selection(), None);
+    }
+
+    fn mouse(kind: MouseEventKind, row: u16) -> Event {
+        Event::Mouse(MouseEvent {
+            kind,
+            column: 30,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    fn press(row: u16) -> Event {
+        mouse(MouseEventKind::Down(MouseButton::Left), row)
+    }
+
+    fn drag(row: u16) -> Event {
+        mouse(MouseEventKind::Drag(MouseButton::Left), row)
+    }
+
+    fn release(row: u16) -> Event {
+        mouse(MouseEventKind::Up(MouseButton::Left), row)
+    }
+
+    /// A drawn workspace with no selection, so a test can start the gesture itself.
+    fn drawn(messages: &[String], width: u16) -> (Workspace, Terminal<TestBackend>) {
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(width, 24))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(timeline(messages));
+        let _frame = workspace
+            .draw(&mut terminal)
+            .unwrap_or_else(|error| panic!("test render: {error}"));
+        (workspace, terminal)
+    }
+
+    /// The screen row each message was painted on, read off the frame rather than computed.
+    ///
+    /// A row number worked out from the fixture would be a second layout, and the gesture under
+    /// test is the one that resolves a real cell against the frame that was really drawn (FR-3).
+    fn message_rows(
+        workspace: &Workspace,
+        terminal: &Terminal<TestBackend>,
+        messages: &[String],
+    ) -> BTreeMap<String, u16> {
+        let bounds = workspace
+            .surfaces()
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the conversation is registered at this width"))
+            .bounds;
+        let buffer = terminal.backend().buffer();
+        let mut rows = BTreeMap::new();
+        for row in bounds.y..bounds.bottom() {
+            let text = crate::test_support::region_text(
+                buffer,
+                Rect {
+                    y: row,
+                    height: 1,
+                    ..bounds
+                },
+            );
+            for message in messages {
+                if text.contains(message.as_str()) {
+                    rows.entry(message.clone()).or_insert(row);
+                }
+            }
+        }
+        assert_eq!(
+            rows.len(),
+            messages.len(),
+            "every fixture message has to be on screen or the gesture proves nothing"
+        );
+        rows
     }
 
     /// One assistant message per string, on one agent, as the producer would send them.

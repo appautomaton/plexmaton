@@ -52,22 +52,13 @@ mod tests {
         ("native-approval-narrow", 60, 40),
     ];
 
-    const TOOL_STATES: [(ToolCallStatus, &str, &str); 7] = [
-        (ToolCallStatus::Queued, "queued", "queued"),
-        (
-            ToolCallStatus::AwaitingApproval,
-            "approval-required",
-            "approval required",
-        ),
-        (ToolCallStatus::Running, "running", "running"),
-        (ToolCallStatus::Succeeded, "succeeded", "succeeded"),
-        (ToolCallStatus::Failed, "failed", "failed"),
-        (ToolCallStatus::Denied, "denied", "denied"),
-        (ToolCallStatus::Cancelled, "cancelled", "cancelled"),
-    ];
-
-    const TOOL_WIDTHS: [(&str, u16, u16); 3] =
+    /// The three product widths, for the families whose layout actually changes with width.
+    const PRODUCT_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
+
+    /// Notice copy never wraps, so a second and third width would freeze border padding alone.
+    /// The strip's responsive layout is proven once, by the session-recovery frames.
+    const NOTICE_WIDTH: [(&str, u16, u16); 1] = [("wide", 120, 40)];
 
     /// One disclosed native-tool entry across the same product widths.
     const DISCLOSURE_FRAMES: [(&str, u16, u16); 3] = [
@@ -100,11 +91,7 @@ mod tests {
         ),
     ];
 
-    const CLEANUP_FAILURE_FRAMES: [(&str, u16, u16); 3] = [
-        ("cleanup-failure-wide", 120, 40),
-        ("cleanup-failure-medium", 95, 40),
-        ("cleanup-failure-narrow", 60, 40),
-    ];
+    const CLEANUP_FAILURE_FRAMES: [(&str, u16, u16); 1] = [("cleanup-failure-wide", 120, 40)];
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -408,6 +395,24 @@ mod tests {
                 status: AgentStatus::Idle,
             },
         );
+        // The two everyday turns lead, because they are what the grammar is mostly made of and
+        // the only two with no word above them: what separates them has to be visible in a frame.
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "user-turn",
+            TranscriptRole::User,
+            "Change the colour constant and show me the patch you applied.",
+        );
+        append_frame_text(
+            &mut state,
+            &mut sequence,
+            &agent,
+            "assistant-turn",
+            TranscriptRole::Assistant,
+            "Done. The retained patch is below, with the reasoning that led to it.",
+        );
         append_frame_text(
             &mut state,
             &mut sequence,
@@ -509,7 +514,7 @@ mod tests {
             let mut state = canonical_state();
             state.report_cleanup_failure(CleanupNotice::JournalWriter);
             state.report_persistence_failure(failure);
-            for (width_name, width, height) in TOOL_WIDTHS {
+            for (width_name, width, height) in NOTICE_WIDTH {
                 let name = format!("persistence-{failure_name}-{width_name}");
                 let drawn = draw(&state, width, height);
                 assert!(drawn.contains(signature), "{name}: failure copy is absent");
@@ -609,7 +614,7 @@ mod tests {
                 .count(),
             1
         );
-        for (width_name, width, height) in TOOL_WIDTHS {
+        for (width_name, width, height) in PRODUCT_WIDTHS {
             let name = format!("session-recovery-{width_name}");
             let drawn = draw(&state, width, height);
             assert!(
@@ -638,44 +643,39 @@ mod tests {
         }
     }
 
-    /// ENT-2/TR-2: all seven compact states remain legible at wide, medium and narrow.
+    /// ENT-2/TR-2: every compact state reaches a real drawn frame at all three widths.
+    ///
+    /// Deliberately not a fixture family. The compact grammar itself — marker, word, one logical
+    /// line, monochrome legibility — is proven per state by
+    /// `content::tool::every_tool_status_is_one_named_logical_line`, and the chrome around the row
+    /// is frozen by the canonical frames. Seven full-screen snapshots at three widths each froze
+    /// 819 lines to assert seven, and the row's text is identical at every width, so twenty-one of
+    /// those frames could only ever drift together.
     #[test]
-    fn the_tool_state_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
-        for (status, state_name, status_text) in TOOL_STATES {
+    fn every_tool_status_reaches_the_drawn_frame_at_every_width() {
+        for (status, status_text) in [
+            (ToolCallStatus::Queued, "queued"),
+            (ToolCallStatus::AwaitingApproval, "approval required"),
+            (ToolCallStatus::Running, "running"),
+            (ToolCallStatus::Succeeded, "succeeded"),
+            (ToolCallStatus::Failed, "failed"),
+            (ToolCallStatus::Denied, "denied"),
+            (ToolCallStatus::Cancelled, "cancelled"),
+        ] {
             let state = tool_state(status);
-            for (width_name, width, height) in TOOL_WIDTHS {
-                let name = format!("tool-{state_name}-{width_name}");
+            for (width_name, width, height) in PRODUCT_WIDTHS {
                 let drawn = draw(&state, width, height);
                 for signature in ["read_file", status_text, "Message Plexmaton", "~/plexmaton"] {
                     assert!(
                         drawn.contains(signature),
-                        "{name}: {signature:?} is not on screen"
+                        "{status:?} at {width_name}: {signature:?} is not on screen"
                     );
                 }
                 assert!(
                     !drawn.contains("Activity"),
-                    "{name}: the retired detail surface returned"
+                    "{status:?} at {width_name}: the retired detail surface returned"
                 );
                 assert_eq!(drawn.lines().count(), usize::from(height));
-
-                let path = fixture_path(&name);
-                if write {
-                    std::fs::write(&path, &drawn)
-                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                    continue;
-                }
-                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                    panic!(
-                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                        path.display()
-                    )
-                });
-                assert!(
-                    fixture == drawn,
-                    "{name} drifted from its fixture at {}",
-                    first_difference(&fixture, &drawn)
-                );
             }
         }
     }
@@ -725,6 +725,11 @@ mod tests {
         for (name, width, height) in GRAMMAR_FRAMES {
             let drawn = draw(&transcript_grammar_state(width, height), width, height);
             for signature in [
+                // The user's turn wears a bar down its whole height and the agent's wears
+                // nothing; neither wears a word. `you` and `assistant` above every message
+                // labelled what the shape of the screen already said (ui-ux §transcript grammar).
+                "▌Change the colour constant",
+                "Done. The retained patch",
                 "reasoning",
                 "system",
                 "warning",
@@ -736,6 +741,14 @@ mod tests {
                 "+pub const COLOR",
             ] {
                 assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            for absent in ["you", "assistant"] {
+                assert!(
+                    !drawn
+                        .lines()
+                        .any(|line| line.trim_matches(|c: char| c == '│' || c == ' ').eq(absent)),
+                    "{name}: the everyday turns carry no role word, and {absent:?} is one"
+                );
             }
             assert_eq!(drawn.lines().count(), usize::from(height));
 
@@ -795,11 +808,11 @@ mod tests {
         for (name, width, height) in APPROVAL_FRAMES {
             let drawn = draw(&approval_state(width, height), width, height);
             for signature in [
-                "Approval required",
+                "Allow edit?",
                 "change files",
                 "Allow once",
                 "> Deny",
-                "Esc keeps pending",
+                "Esc later",
             ] {
                 assert!(
                     drawn.contains(signature),
@@ -865,7 +878,7 @@ mod tests {
                     ToolCapability::FileWrite,
                     ToolCapability::ProcessSpawn,
                 ],
-                detail: "Command \"cargo test\" · cwd \"/Users/ac/dev/agents/coding/plexmaton\" · timeout 120000 ms"
+                detail: "Command \"cargo test\" · cwd \"/home/dev/plexmaton\" · timeout 120000 ms"
                     .to_owned(),
             },
         });
@@ -893,7 +906,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name}: approval surface is not registered"));
             let approval = region_text(&buffer, approval.bounds);
             for signature in [
-                "Approval required",
+                "Allow exec_command?",
                 "exec_command",
                 "read files",
                 "change files",
@@ -951,6 +964,70 @@ mod tests {
                 approval.contains(signature),
                 "smallest approval card hid {signature:?}:\n{approval}"
             );
+        }
+    }
+
+    /// APV-4: disclosing the request grows what is read, never moves what is answered.
+    ///
+    /// The region used to scroll, and `Ctrl-O` scrolled `Allow once` off the top of it — a
+    /// decision surface whose decision could leave the screen. It does not scroll now: the two
+    /// options are its last two rows at either size, and the composer keeps its own rows under
+    /// both, because answering a tool call is not the input the user types the next instruction
+    /// into (ui-ux §input).
+    #[test]
+    fn disclosing_the_request_moves_neither_the_options_nor_the_composer_off_the_region() {
+        for (_, width, height) in PRODUCT_WIDTHS {
+            let mut state = native_approval_state(width, height);
+            for expanded in [false, true] {
+                let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+                let region = surfaces
+                    .get(SurfaceId::Approval)
+                    .unwrap_or_else(|| panic!("{width}x{height}: the region is registered"));
+                let composer = surfaces
+                    .get(SurfaceId::Composer)
+                    .unwrap_or_else(|| panic!("{width}x{height}: the composer keeps its rows"));
+                assert_eq!(
+                    composer.bounds.y,
+                    region.bounds.bottom(),
+                    "{width}x{height} expanded={expanded}: the composer sits under the region"
+                );
+                assert!(
+                    composer.bounds.height >= 2,
+                    "{width}x{height} expanded={expanded}: the composer is still a place to type"
+                );
+
+                let conversation = surfaces
+                    .get(SurfaceId::Transcript)
+                    .unwrap_or_else(|| panic!("{width}x{height}: the conversation is registered"));
+                let border = region_text(
+                    &buffer,
+                    Rect {
+                        height: 1,
+                        ..conversation.bounds
+                    },
+                );
+                assert!(
+                    border.contains("( !1 )"),
+                    "{width}x{height} expanded={expanded}: the pill says something is waiting \
+                     even while the region below is what is waiting:\n{border}"
+                );
+
+                let rows: Vec<String> = region_text(&buffer, region.bounds)
+                    .lines()
+                    .map(str::to_owned)
+                    .collect();
+                let last_two = rows
+                    .get(rows.len().saturating_sub(2)..)
+                    .unwrap_or_default()
+                    .join("\n");
+                assert!(
+                    last_two.contains("Allow once") && last_two.contains("Deny"),
+                    "{width}x{height} expanded={expanded}: the options are the last rows:\n{}",
+                    rows.join("\n")
+                );
+
+                state.decide_approval(crate::intent::ApprovalIntent::ToggleDetail);
+            }
         }
     }
 

@@ -5,7 +5,7 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam used by the wrapping cache.
 
-use plexmaton_core::{AgentId, AgentStatus, TranscriptRole};
+use plexmaton_core::{AgentId, AgentStatus};
 use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
@@ -13,17 +13,18 @@ use ratatui::{
 
 use crate::{
     CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
-    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewState,
-    state::EntryAppearance,
-    surface::SurfaceId,
+    TranscriptEntryView, ViewState,
     theme::{Palette, Role, agent_role},
 };
 
 #[path = "content_approval.rs"]
 mod approval_presentation;
 mod tool;
+#[path = "content_transcript.rs"]
+mod transcript_presentation;
 
-pub(crate) use approval_presentation::{approval, attention};
+pub(crate) use approval_presentation::{approval, attention, detail_rows};
+pub(crate) use transcript_presentation::{conversation_placeholder, transcript_entry};
 
 /// The list of sub-agents: identity, lifecycle, and which one is being looked at.
 ///
@@ -85,101 +86,6 @@ pub(crate) fn agent_at_row(
         first = first.saturating_add(rows);
     }
     None
-}
-
-/// One transcript entry, as the logical lines a viewport measures and paints.
-///
-/// Per entry rather than per conversation, because both the height cache and the visible range are
-/// expressed in entries: a frame that asks for one entry's rows must get exactly the rows that
-/// entry contributes to the whole (TR-1). Tools stay one logical line in every lifecycle state;
-/// wrapping that line at a narrow width loses no semantic content.
-pub(crate) fn transcript_entry(
-    entry: &TranscriptEntryView,
-    palette: &Palette,
-    appearance: EntryAppearance,
-) -> Vec<Line<'static>> {
-    match entry {
-        TranscriptEntryView::Text(item) => transcript_text(item, palette, appearance.selected),
-        TranscriptEntryView::Tool(tool) => tool::entry(tool, palette, appearance),
-        TranscriptEntryView::Artifact(artifact) => {
-            let line = Line::from(vec![
-                Span::styled("@ ", palette.style(Role::NewInformation)),
-                Span::styled(artifact.label.clone(), palette.style(Role::Body)),
-                Span::styled(
-                    format!(" · {}", artifact.pointer),
-                    palette.style(Role::Muted),
-                ),
-            ]);
-            vec![select_line(line, palette, appearance.selected)]
-        }
-        TranscriptEntryView::Mail(mail) => {
-            let line = Line::from(vec![
-                Span::styled("-> ", palette.style(Role::NewInformation)),
-                Span::styled(mail.to.to_string(), palette.style(Role::Body)),
-                Span::styled(format!(" · {}", mail.summary), palette.style(Role::Muted)),
-            ]);
-            vec![select_line(line, palette, appearance.selected)]
-        }
-    }
-}
-
-fn transcript_text(
-    item: &TranscriptItemView,
-    palette: &Palette,
-    selected: bool,
-) -> Vec<Line<'static>> {
-    let (author, default_heading, default_body) = text_treatment(item);
-    // Selection replaces the body role rather than adding to it: what is selected has to be
-    // legible as one block, and a message whose text kept its own colour while the heading did not
-    // reads as two things.
-    let (heading, body) = if selected {
-        (Role::Selection, Role::Selection)
-    } else {
-        (default_heading, default_body)
-    };
-    vec![
-        Line::styled(author, palette.style(heading)),
-        Line::styled(item.source.clone(), palette.style(body)),
-        Line::raw(""),
-    ]
-}
-
-const fn text_treatment(item: &TranscriptItemView) -> (&'static str, Role, Role) {
-    match item.kind {
-        TranscriptTextKind::Message => match item.role {
-            TranscriptRole::User => ("you", Role::SectionHeading, Role::Body),
-            TranscriptRole::Assistant => ("assistant", Role::SectionHeading, Role::Body),
-            TranscriptRole::Reasoning => ("reasoning", Role::Ambient, Role::Muted),
-            TranscriptRole::System => ("system", Role::Muted, Role::Muted),
-        },
-        TranscriptTextKind::Warning => ("warning", Role::ActionRequired, Role::Body),
-        TranscriptTextKind::Error => ("error", Role::Failure, Role::Body),
-    }
-}
-
-fn select_line(line: Line<'static>, palette: &Palette, selected: bool) -> Line<'static> {
-    if selected {
-        Line::styled(line.to_string(), palette.style(Role::Selection))
-    } else {
-        line
-    }
-}
-
-/// What a conversation says when it has no items to show.
-///
-/// An empty panel, a panel waiting for its first event, and a panel whose agent has gone all look
-/// the same and mean different things, so none of them is left to be inferred from blank rows.
-pub(crate) fn conversation_placeholder(
-    palette: &Palette,
-    surface: SurfaceId,
-    has_agent: bool,
-) -> Vec<Line<'static>> {
-    let message = match (surface, has_agent) {
-        (_, true) => "Agent is active; no transcript item has started yet.",
-        (SurfaceId::Inspector, false) => "That agent is no longer in the roster.",
-        (_, false) => "Waiting for the first semantic event…",
-    };
-    vec![Line::styled(message, palette.style(Role::Muted))]
 }
 
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
@@ -358,70 +264,12 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{TranscriptItemId, TranscriptRole};
+
     use ratatui::widgets::{Paragraph, Wrap};
 
-    use super::{agents, transcript_text};
-    use crate::{
-        TranscriptItemView, TranscriptTextKind,
-        test_support::canonical_state,
-        theme::{Palette, Role},
-    };
+    use super::agents;
 
-    /// ENT-1: explicit plaintext reasoning, runtime system text, warnings, and errors each keep a
-    /// named monochrome treatment and a semantic palette role.
-    #[test]
-    fn non_chat_text_roles_have_distinct_named_treatments() {
-        let cases = [
-            (
-                TranscriptRole::Reasoning,
-                TranscriptTextKind::Message,
-                "reasoning",
-                Role::Ambient,
-                Role::Muted,
-            ),
-            (
-                TranscriptRole::System,
-                TranscriptTextKind::Message,
-                "system",
-                Role::Muted,
-                Role::Muted,
-            ),
-            (
-                TranscriptRole::System,
-                TranscriptTextKind::Warning,
-                "warning",
-                Role::ActionRequired,
-                Role::Body,
-            ),
-            (
-                TranscriptRole::System,
-                TranscriptTextKind::Error,
-                "error",
-                Role::Failure,
-                Role::Body,
-            ),
-        ];
-        let palette = Palette::pastel();
-        for (role, kind, label, heading, body) in cases {
-            let item = TranscriptItemView {
-                id: TranscriptItemId::new(label).unwrap_or_else(|error| panic!("fixture: {error}")),
-                role,
-                kind,
-                source: format!("{label} source"),
-                revision: 0,
-                finalized: true,
-            };
-            let lines = transcript_text(&item, &palette, false);
-            assert_eq!(lines[0].to_string(), label);
-            assert_eq!(lines[0].style, palette.style(heading));
-            assert_eq!(lines[1].style, palette.style(body));
-
-            let monochrome = transcript_text(&item, &Palette::monochrome(), false);
-            assert_eq!(monochrome[0].to_string(), label);
-            assert_eq!(monochrome[1].to_string(), format!("{label} source"));
-        }
-    }
+    use crate::{test_support::canonical_state, theme::Palette};
 
     /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
     #[test]

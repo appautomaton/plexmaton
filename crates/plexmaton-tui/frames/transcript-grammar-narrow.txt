@@ -1,8 +1,3 @@
-┌ Agents ──────────────────────────────────────────────────┐
-│No sub-agents yet.                                        │
-│                                                          │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
 ┌ Plexmaton · idle · 1 tool · 1 selected ──────────────────┐
 │                                                          │
 │                                                          │
@@ -10,6 +5,11 @@
 │                                                          │
 │                                                          │
 │                                                          │
+│▌Change the colour constant and show me the patch you     │
+│▌applied.                                                 │
+│                                                          │
+│Done. The retained patch is below, with the reasoning     │
+│that led to it.                                           │
 │                                                          │
 │reasoning                                                 │
 │The retained patch matches the requested change.          │
