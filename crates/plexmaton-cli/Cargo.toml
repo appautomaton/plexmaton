@@ -31,6 +31,7 @@ ratatui.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 uuid.workspace = true
 
 # The executable translates addressed user actions into the loop's typed `Input` now. Its

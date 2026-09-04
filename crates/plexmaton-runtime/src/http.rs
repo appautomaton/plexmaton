@@ -272,7 +272,7 @@ output_reserve_tokens = 16384
 
     /// LIVE-6: endpoint validation finishes before the terminal or a request can be owned.
     #[test]
-    fn endpoint_resolution_is_protocol_specific_and_rejects_embedded_authority() {
+    fn endpoint_resolution_is_api_specific() {
         assert_eq!(
             endpoint(&model(
                 "http://127.0.0.1:8317/v1",
@@ -291,17 +291,6 @@ output_reserve_tokens = 16384
             .as_str(),
             "http://127.0.0.1:8317/v1/chat/completions"
         );
-        assert!(matches!(
-            endpoint(&model(
-                "http://name:password@127.0.0.1:8317/v1",
-                ModelApi::OpenaiResponses
-            )),
-            Err(HttpSetupError::UnsafeBaseUrl)
-        ));
-        assert!(matches!(
-            endpoint(&model("ftp://example.test/v1", ModelApi::OpenaiResponses)),
-            Err(HttpSetupError::UnsupportedScheme(scheme)) if scheme == "ftp"
-        ));
     }
 
     /// LIVE-1/PRV-1: the live HTTP edge publishes one exact, unique native catalog through either

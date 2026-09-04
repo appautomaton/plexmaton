@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | TIM-1 implemented; TIM-2–TIM-5 unproven until Phase 02 stage 2 slice 4 |
+| Status | TIM-1 implemented; TIM-2–TIM-5 unproven until Phase 02 stage 2 slice 5 |
 | Owns | Durable turn chronology, model-request attempt timing and immutable provider usage |
 | Depends on | JRN-1/JRN-5/JRN-7, LOOP-1/LOOP-4/LOOP-6, PRV-1/PRV-5 and LIVE-1/LIVE-3/LIVE-4/LIVE-5 |
 | Proven by | TIM-1 evidence below; remainder unproven |
@@ -27,7 +27,7 @@ terminal fact says whether dispatch occurred and retains measurements only when 
 death may leave only authorization. Rejected: treating journal latency as API latency.
 
 **TIM-3 — Request accounting is immutable and correlated.** A stable request-attempt identity links
-one typed owner, exact semantic-prefix boundary, request-environment fingerprint, provider/profile,
+one typed owner, exact semantic-prefix boundary, request-environment fingerprint, provider/model,
 terminal outcome and exact provider-reported usage. The fingerprint covers instructions and tools
 without copying them into the journal. Missing usage remains unavailable and a retry is distinct.
 Turn totals fold only reachable agent-step attempts; whole-session incurred usage folds every
@@ -62,7 +62,7 @@ Authorized { authorized_at, semantic_boundary, request_environment }
 An attempt owner is `AgentStep { turn_id, step_id }` or
 `Compaction { compaction_id, source_boundary }`. Compaction attempts have their own usage total and
 enter whole-session incurred cost, but never inflate a turn or serve as an agent-request usage
-anchor. Slice 4 fixes both wire variants before the compaction orchestrator consumes the latter.
+anchor. Slice 5 fixes both wire variants before the compaction orchestrator consumes the latter.
 
 `Authorized.authorized_at` is observed before its record is appended; it is not a claim about when
 the append was acknowledged. The fact also records the semantic-prefix boundary and

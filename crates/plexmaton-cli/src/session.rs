@@ -354,7 +354,15 @@ output_reserve_tokens = 5000
             SessionSelection::Create(named_id.clone()),
             SessionSelection::Automatic,
         ] {
-            let (profile, key, tools) = transport(root.path(), "not a valid URL");
+            let (profile, key, _matching_tools) = transport(root.path(), "http://127.0.0.1:9/v1");
+            let tools = NativeToolCatalog::open(
+                root.path(),
+                "OTHER_KEY",
+                "/bin/false",
+                "/bin/false",
+                Vec::new(),
+            )
+            .unwrap_or_else(|error| panic!("open mismatched tools: {error}"));
             assert!(
                 open_selected_session(root.path(), selection, agent_id(), profile, key, tools,)
                     .await

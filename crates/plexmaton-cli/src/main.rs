@@ -1336,6 +1336,14 @@ output_reserve_tokens = 5000
             .unwrap_or_else(|error| panic!("fixture HTTP server: {error}"));
         assert_eq!(requests.len(), 2);
         assert_native_tools_advertised(&requests);
+        for request in &requests {
+            let body: serde_json::Value = serde_json::from_slice(request)
+                .unwrap_or_else(|error| panic!("fixture request JSON: {error}"));
+            assert_eq!(body["model"], "fixture");
+            assert_eq!(body["reasoning_effort"], "none");
+            assert_eq!(body["max_completion_tokens"], 10_000);
+            assert!(body.get("max_output_tokens").is_none());
+        }
         let agent = workspace
             .state()
             .primary_agent()

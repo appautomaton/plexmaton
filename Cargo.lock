@@ -1066,6 +1066,7 @@ dependencies = [
  "plexmaton-sim",
  "plexmaton-tui",
  "ratatui",
+ "serde_json",
  "tokio",
  "uuid",
 ]
@@ -1118,6 +1119,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]

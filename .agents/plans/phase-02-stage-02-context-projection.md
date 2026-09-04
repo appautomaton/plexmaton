@@ -5,7 +5,7 @@
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–3 |
 | Contract | TIM-1–TIM-5, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3–PRV-6, LIVE-1/LIVE-3–LIVE-5 and LOOP-2 |
 | Status | Active; slices 1–3 complete, slice 4 of 10 next |
-| Blocked | None for slices 1–8; slice 9 interaction copy requires the user's rendered-frame agreement |
+| Blocked | None for slices 1–9; slice 10 interaction copy requires the user's rendered-frame agreement |
 
 ## Outcome
 
@@ -24,7 +24,7 @@ rewind and branches durable without copying entries or replaying effects.
 - Retain every reasoning artifact the model exposes and replay it when its adapter says compatible.
   Opaque replay is block-anchored and requires adapter-owned non-secret scope, codec revision and
   model family; typed incompatibility never translates, merges, drops or truncates ciphertext.
-- Usage anchors require the exact atom prefix and environment fingerprint: model/profile,
+- Usage anchors require the exact atom prefix and environment fingerprint: resolved model,
   instructions and tool definitions. Runtime prompt inputs are budgeted but not copied into JSONL.
 - Equal path, checkpoint and environment encode byte-identically. Verbatim compaction appends one
   stable instruction after the prior input; fitted/lossy paths name their cache break. A checkpoint

@@ -84,13 +84,14 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
 | `serde` / `serde_json` | Deterministic scenario, snapshot and durable-journal data | `derive` enabled; identity and opaque-replay decoding still pass through validating constructors |
 | `toml` | Typed user configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
+| `url` | Provider URL parsing | `std` only; rejects credentials, query and fragment before `ResolvedModel` |
 | `thiserror` | Library error types | No `anyhow::Error` in core contracts |
 | `anyhow` | Composition-root errors | Binary boundary only |
 | `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, `dev-dependencies` only | Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which pulls `rusty-fork` and `tempfile` for nothing these properties need |
-| `uuid` | Collision-safe automatic session identity | Defaults off; `std` and UUIDv7 only. Journal chronology remains the separately injected `created_at_unix_ms` |
+| `uuid` | Automatic session identity | Defaults off; `std` and UUIDv7; chronology remains separately injected |
 
 ### Considered and not adopted
 

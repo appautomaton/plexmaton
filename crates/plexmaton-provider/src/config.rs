@@ -9,6 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use url::Url;
 
 use plexmaton_agent::{
     ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
@@ -237,6 +238,8 @@ pub enum ConfigError {
     },
     #[error("provider `{0}` has an invalid environment-variable name")]
     InvalidApiKeyEnvironment(String),
+    #[error("provider `{0}` has an invalid base URL")]
+    InvalidBaseUrl(String),
     #[error("model `{model}` under provider `{provider}` has an empty `{field}`")]
     EmptyModelField {
         provider: String,
@@ -269,9 +272,9 @@ impl ModelRegistry {
         let raw: RawModelRegistry = toml::from_str(source).map_err(|_| ConfigError::Toml)?;
         let mut models = BTreeMap::new();
         for (provider_name, provider) in raw.providers {
-            validate_provider(&provider_name, &provider)?;
+            let base_url = validate_provider(&provider_name, &provider)?;
             let RawProvider {
-                base_url,
+                base_url: _,
                 api_key_env,
                 api,
                 models: provider_models,
@@ -493,7 +496,7 @@ impl ResolvedModel {
     }
 }
 
-fn validate_provider(name: &str, provider: &RawProvider) -> Result<(), ConfigError> {
+fn validate_provider(name: &str, provider: &RawProvider) -> Result<String, ConfigError> {
     for (field, value) in [
         ("name", name),
         ("base_url", provider.base_url.as_str()),
@@ -509,6 +512,18 @@ fn validate_provider(name: &str, provider: &RawProvider) -> Result<(), ConfigErr
     if !is_environment_name(&provider.api_key_env) {
         return Err(ConfigError::InvalidApiKeyEnvironment(name.to_owned()));
     }
+    let base_url =
+        Url::parse(&provider.base_url).map_err(|_| ConfigError::InvalidBaseUrl(name.to_owned()))?;
+    if !matches!(base_url.scheme(), "http" | "https")
+        || !base_url.has_host()
+        || base_url.cannot_be_a_base()
+        || !base_url.username().is_empty()
+        || base_url.password().is_some()
+        || base_url.query().is_some()
+        || base_url.fragment().is_some()
+    {
+        return Err(ConfigError::InvalidBaseUrl(name.to_owned()));
+    }
     if provider.models.is_empty() {
         return Err(ConfigError::EmptyProvider(name.to_owned()));
     }
@@ -521,7 +536,7 @@ fn validate_provider(name: &str, provider: &RawProvider) -> Result<(), ConfigErr
             });
         }
     }
-    Ok(())
+    Ok(base_url.to_string())
 }
 
 /// Resolves `PLEXMATON_HOME`, or the user-level `~/.plexmaton` default.

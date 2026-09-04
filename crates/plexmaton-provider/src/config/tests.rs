@@ -206,6 +206,23 @@ fn prv_6_key_resolution_is_explicit_and_redacted() {
 }
 
 #[test]
+fn prv_6_resolution_rejects_unsafe_routes_without_echoing_them() {
+    for unsafe_url in [
+        "https://user:inline-secret@example.test/v1",
+        "https://example.test/v1?key=inline-secret",
+        "https://example.test/v1#inline-secret",
+        "ftp://example.test/inline-secret",
+        "not-a-url-inline-secret",
+    ] {
+        let source = LOCAL_CONFIG.replace("http://127.0.0.1:8317/v1", unsafe_url);
+        let error = ModelRegistry::parse(&source).expect_err("unsafe route must be rejected");
+        assert!(matches!(&error, ConfigError::InvalidBaseUrl(provider) if provider == "local"));
+        let diagnostics = format!("{error}\n{error:?}");
+        assert!(!diagnostics.contains("inline-secret"));
+    }
+}
+
+#[test]
 fn prv_3_replay_route_owner_encoding_is_unambiguous() {
     let source = |provider: &str, base_url: &str| {
         format!(
@@ -226,8 +243,8 @@ output_reserve_tokens = 10
     };
     let first =
         ModelRegistry::parse(&source("a|b", "https://x")).expect("first delimiter-bearing route");
-    let second =
-        ModelRegistry::parse(&source("a", "b|https://x")).expect("second delimiter-bearing route");
+    let second = ModelRegistry::parse(&source("a", "https://x/b%7Chttps%3A%2F%2Fx"))
+        .expect("second delimiter-bearing route");
 
     assert_ne!(
         first.active_model().replay_compatibility().owner(),

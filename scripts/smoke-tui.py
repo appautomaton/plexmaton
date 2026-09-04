@@ -201,15 +201,18 @@ def main() -> int:
     )
     config_root = Path(config_directory.name)
     (config_root / "config.toml").write_text(
-        """active_provider = "smoke"
+        """active_model = { provider = "smoke", model = "fixture" }
 
 [providers.smoke]
-kind = "openai_compatible"
-protocol = "responses"
 base_url = "http://127.0.0.1:9/v1"
-model = "gpt-5.6-luna"
 api_key_env = "PLEXMATON_SMOKE_API_KEY"
+[providers.smoke.models.fixture]
+api = "openai_responses"
+id = "gpt-5.6-luna"
 reasoning_effort = "none"
+context_window_tokens = 100000
+max_output_tokens = 10000
+output_reserve_tokens = 5000
 """,
         encoding="utf-8",
     )
