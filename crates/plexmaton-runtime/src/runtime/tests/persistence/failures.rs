@@ -167,3 +167,78 @@ async fn failed_atomic_turn_start_is_wholly_unwritten() {
     );
     assert!(driver.calls().await.is_empty());
 }
+
+/// TIM-2/JRN-7: failed request authorization preserves the user fact but starts no HTTP effect.
+#[tokio::test]
+async fn failed_request_authorization_starts_no_model_and_freezes_the_runtime() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _announcement = runtime.try_next_event();
+    control.fail_after(2, false);
+
+    assert!(matches!(
+        runtime.submit(agent_id(), submission()).await,
+        Err(RuntimeError::JournalAppendFailed { .. })
+    ));
+
+    assert!(driver.calls().await.is_empty());
+    assert!(!runtime.has_active_work());
+    let records = control
+        .records
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(records.iter().any(|record| matches!(
+        record,
+        JournalRecord::AppendEntry { entry, .. }
+            if matches!(&entry.payload, JournalEntryPayload::TurnStarted { .. })
+    )));
+    assert!(
+        records
+            .iter()
+            .all(|record| !matches!(record, JournalRecord::RequestAttemptAuthorized { .. }))
+    );
+}
+
+/// TIM-2/JRN-7: a terminal audit failure cannot publish model completion or invent a retry.
+#[tokio::test]
+async fn failed_request_terminal_publishes_no_semantic_completion() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::Events(vec![ModelEvent::Stopped(
+        StopReason::EndOfTurn,
+    )])]);
+    let mut runtime = runtime(store, driver).await;
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(agent_id(), submission())
+        .await
+        .unwrap_or_else(|error| panic!("open request: {error}"));
+    while runtime.try_next_event().is_some() {}
+    control.fail_after(1, false);
+
+    assert!(matches!(
+        runtime.next_update().await,
+        Err(RuntimeError::JournalAppendFailed { .. })
+    ));
+
+    assert!(!runtime.has_active_work());
+    let records = control
+        .records
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(
+        records
+            .iter()
+            .any(|record| matches!(record, JournalRecord::RequestAttemptAuthorized { .. }))
+    );
+    assert!(
+        records
+            .iter()
+            .all(|record| !matches!(record, JournalRecord::RequestAttemptFinished { .. }))
+    );
+    assert!(records.iter().all(|record| !matches!(
+        record,
+        JournalRecord::AppendEntry { entry, .. }
+            if matches!(&entry.payload, JournalEntryPayload::AssistantOutput { .. })
+    )));
+}

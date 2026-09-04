@@ -31,7 +31,7 @@ impl UsageAccumulator {
         Ok(())
     }
 
-    fn snapshot(&self) -> TokenUsage {
+    pub(crate) fn snapshot(&self) -> TokenUsage {
         let Some(counts) = self.counts.clone() else {
             return TokenUsage::Unavailable;
         };

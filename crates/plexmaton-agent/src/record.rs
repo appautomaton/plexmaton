@@ -213,7 +213,7 @@ impl Record {
             expected_head_revision,
             fact: crate::TurnFinished {
                 agent_id: self.agent_id.clone(),
-                turn_id,
+                turn_id: turn_id.clone(),
                 semantic_boundary,
                 outcome,
                 at,
@@ -223,6 +223,13 @@ impl Record {
             unreachable!("a locally prepared terminal fact is valid: {error:?}")
         });
         reaction.records.push(record);
+        if let Some(event) = self
+            .journal
+            .unfinished_turn_usage_event(&self.head, &turn_id)
+            .unwrap_or_else(|error| unreachable!("accepted attempts have valid totals: {error:?}"))
+        {
+            self.emit(reaction, event);
+        }
         self.emit(
             reaction,
             SessionEvent::AgentStatusChanged {

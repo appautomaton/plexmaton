@@ -3,7 +3,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use plexmaton_agent::{
-    Agent, Input, ModelStepId, RequestAttemptId, UndeliveredInput, UndeliveredReason,
+    Agent, Input, ModelCall, ModelStepId, RequestAttemptId, UndeliveredInput, UndeliveredReason,
 };
 use plexmaton_core::{AgentId, SessionEventEnvelope};
 use tokio::sync::mpsc;
@@ -40,11 +40,29 @@ struct PendingInput {
     after: AfterCommit,
 }
 
+struct PendingModelStart {
+    attempt_id: RequestAttemptId,
+    call: ModelCall,
+}
+
+enum ModelSettlement {
+    Running,
+    Terminal {
+        report: Box<ModelTerminalReport>,
+        audit_staged: bool,
+        delivery_staged: bool,
+    },
+    Abnormal {
+        delivery_staged: bool,
+    },
+}
+
 struct ActiveModel {
     attempt_id: RequestAttemptId,
     step_id: ModelStepId,
     cancellation: CancellationToken,
     future: RetainedModelFuture,
+    settlement: ModelSettlement,
 }
 
 /// Owner of one live agent and every asynchronous operation it starts (LIVE-1).
@@ -56,6 +74,8 @@ pub struct LiveRuntime {
     signals: mpsc::Sender<ModelSignal>,
     signal_rx: mpsc::Receiver<ModelSignal>,
     active: Option<ActiveModel>,
+    pending_model_start: Option<PendingModelStart>,
+    deferred_model_call: Option<ModelCall>,
     tools: ToolTasks,
     report: DispatchReport,
     journal: Option<JournalWriter>,
@@ -119,7 +139,12 @@ impl LiveRuntime {
             rejected_input,
             after,
         });
-        self.finish_pending_inputs().await?;
+        if let Err(error) = self.finish_pending_inputs().await {
+            if self.journal_failed {
+                self.finish_failed_owners().await;
+            }
+            return Err(error);
+        }
         if self.journal_failed {
             self.finish_failed_owners().await;
             return if self.report.is_empty() {
@@ -127,9 +152,6 @@ impl LiveRuntime {
             } else {
                 Ok(self.take_report())
             };
-        }
-        if self.journal_failed {
-            self.finish_failed_owners().await;
         }
         Ok(self.take_report())
     }
@@ -157,7 +179,12 @@ impl LiveRuntime {
 
     /// Waits cancellation-safely for the next event, non-event report, or final completion.
     pub async fn next_update(&mut self) -> Result<RuntimeUpdate, RuntimeError> {
-        self.finish_pending_inputs().await?;
+        if let Err(error) = self.finish_pending_inputs().await {
+            if self.journal_failed {
+                self.finish_failed_owners().await;
+            }
+            return Err(error);
+        }
         loop {
             if self.journal_failed {
                 self.finish_failed_owners().await;
@@ -171,15 +198,21 @@ impl LiveRuntime {
             if self.shutting_down && !self.has_active_work() {
                 return Ok(RuntimeUpdate::Finished);
             }
-            match self.wait_for_work().await {
-                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal).await?,
+            let transition = match self.wait_for_work().await {
+                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal).await,
                 WaitOutcome::Signal(None) => return Ok(RuntimeUpdate::Finished),
-                WaitOutcome::ModelEnded(result) => self.model_ended(result).await?,
-                WaitOutcome::Tool(result) => {
-                    if let Some(resolution) = result? {
-                        self.apply_tool_resolution(resolution).await?;
-                    }
+                WaitOutcome::ModelEnded(result) => self.model_ended(result).await,
+                WaitOutcome::Tool(Ok(Some(resolution))) => {
+                    self.apply_tool_resolution(resolution).await
                 }
+                WaitOutcome::Tool(Ok(None)) => Ok(()),
+                WaitOutcome::Tool(Err(error)) => Err(error),
+            };
+            if let Err(error) = transition {
+                if self.journal_failed {
+                    self.finish_failed_owners().await;
+                }
+                return Err(error);
             }
         }
     }
@@ -200,7 +233,7 @@ impl LiveRuntime {
         if !self.shutting_down {
             self.shutting_down = true;
             if let Err(error) = self
-                .apply_agent_input_after_usage(Input::ShuttingDown, None, AfterCommit::Shutdown)
+                .apply_agent_input(Input::ShuttingDown, None, AfterCommit::Shutdown)
                 .await
             {
                 return self.shutdown_after_journal_failure(error).await;
@@ -237,6 +270,9 @@ impl LiveRuntime {
     }
 
     async fn finish_failed_owners(&mut self) {
+        self.pending_model_start = None;
+        self.deferred_model_call = None;
+        self.after_commit = None;
         let provider = self.discard_active_after_journal_failure().await;
         let tools = self.tools.cancel_and_join().await;
         let writer = match &mut self.journal {
@@ -277,6 +313,8 @@ impl LiveRuntime {
         !self.pending_inputs.is_empty()
             || self.pending_commit.is_some()
             || self.after_commit.is_some()
+            || self.pending_model_start.is_some()
+            || self.deferred_model_call.is_some()
             || self.active.is_some()
             || !self.tools.is_empty()
     }

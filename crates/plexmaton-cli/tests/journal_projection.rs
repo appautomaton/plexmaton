@@ -4,8 +4,8 @@ use plexmaton_agent::{
     SessionJournal, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenUsage,
-    ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId,
+    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{ApplyOutcome, TranscriptEntryView, ViewState};
 
@@ -403,28 +403,6 @@ fn jrn_6_interleaved_answer_and_reasoning_keep_first_open_order() {
                 position: ModelOutputPosition::new(1, 0),
                 delta: "reasoning".to_owned(),
             },
-        ],
-        Ok(StopReason::EndOfTurn),
-    );
-
-    assert_eq!(
-        visible_text(&live, &agent_id),
-        visible_text(&replayed, &agent_id)
-    );
-}
-
-/// JRN-6: a provider defect noticed mid-stream is placed after the completed message in both views.
-#[test]
-fn jrn_6_streaming_usage_warning_keeps_live_transcript_order() {
-    let (live, replayed, agent_id) = live_and_replayed_after(
-        "agent-usage-warning",
-        [
-            ModelEvent::TextDelta {
-                position: ModelOutputPosition::new(0, 0),
-                delta: "answer".to_owned(),
-            },
-            ModelEvent::Usage(TokenUsage::Unavailable),
-            ModelEvent::Usage(TokenUsage::Unavailable),
         ],
         Ok(StopReason::EndOfTurn),
     );

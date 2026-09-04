@@ -18,10 +18,10 @@ use rustix::{io::Errno, process::Pid};
 use super::{FakeDriver, Script, agent_id, complete_usage, finish_active, presentation};
 use crate::{LiveRuntime, NativeToolCatalog, runtime::ModelDriver};
 
-struct TestWorkspace(PathBuf);
+pub(super) struct TestWorkspace(pub(super) PathBuf);
 
 impl TestWorkspace {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         loop {
             let serial = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -37,7 +37,7 @@ impl TestWorkspace {
         }
     }
 
-    fn catalog(&self) -> NativeToolCatalog {
+    pub(super) fn catalog(&self) -> NativeToolCatalog {
         NativeToolCatalog::open(&self.0, "TEST_KEY", "/bin/false", "/bin/false", Vec::new())
             .unwrap_or_else(|error| panic!("open native catalog: {error}"))
     }

@@ -9,22 +9,19 @@ use std::{
 
 use futures_util::{FutureExt as _, future::BoxFuture};
 use plexmaton_agent::{
-    Input, ModelCall, ModelError, ModelEvent, ModelStepId, Reaction, RequestAttemptId,
+    Input, ModelCall, ModelDeliveryRefusal, ModelError, ModelEvent, ModelStepId, RequestAttemptId,
     RequestAttemptTerminal, RequestAttemptTerminalState, RequestDispatchedOutcome,
-    RequestEnvironment, RequestNotDispatchedOutcome, StopReason,
+    RequestEnvironment, RequestNotDispatchedOutcome, StopReason, UndeliveredModelInput,
 };
-use plexmaton_core::TokenUsage;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    ActiveModel, LiveRuntime,
-    transition::{AfterCommit, merge_reaction},
+    ActiveModel, LiveRuntime, ModelSettlement, PendingModelStart, transition::AfterCommit,
 };
 use crate::RuntimeError;
 
 pub(crate) trait ModelDriver: Send + Sync + 'static {
-    #[allow(dead_code)] // Consumed by the authorization commit integration stacked after this seam.
     fn request_environment(&self) -> &RequestEnvironment;
 
     fn drive(
@@ -97,6 +94,12 @@ impl ModelTerminalReport {
             terminal,
             completion,
         }
+    }
+
+    fn is_consistent_with(&self, active: &ActiveModel) -> bool {
+        self.step_id == active.step_id
+            && self.terminal.attempt_id() == &active.attempt_id
+            && completion_matches(self.terminal.terminal(), &self.completion)
     }
 }
 
@@ -212,6 +215,21 @@ impl LiveRuntime {
                 self.apply_agent_input_during_join(input).await
             }
         } else {
+            let reason = match &self.active {
+                None => ModelDeliveryRefusal::NoActiveStep,
+                Some(active) if active.attempt_id != attempt_id => {
+                    ModelDeliveryRefusal::WrongAttempt {
+                        expected: active.attempt_id.clone(),
+                        received: attempt_id,
+                    }
+                }
+                Some(active) => ModelDeliveryRefusal::WrongStep {
+                    expected: active.step_id.clone(),
+                },
+            };
+            self.report
+                .undelivered_model
+                .push(UndeliveredModelInput { step_id, reason });
             Ok(())
         }
     }
@@ -224,82 +242,76 @@ impl LiveRuntime {
         if self.journal_failed {
             return Ok(());
         }
-        let Some(active) = self.active.as_ref() else {
+        if self.active.is_none() {
             return Ok(());
-        };
-        let report = match result {
-            Ok(report)
-                if report.step_id == active.step_id
-                    && report.terminal.attempt_id() == &active.attempt_id =>
-            {
-                report
-            }
-            Ok(_) | Err(()) => {
-                let step_id = active.step_id.clone();
-                self.active.take();
-                return self
-                    .fail_owned_step(step_id, "provider future terminated unexpectedly")
-                    .await;
-            }
-        };
-        let step_id = active.step_id.clone();
-        let usage = terminal_usage(&report.terminal);
-        self.apply_agent_input(
-            Input::Streamed {
-                step_id: step_id.clone(),
-                event: ModelEvent::Usage(usage),
-            },
-            None,
-            AfterCommit::None,
-        )
-        .await?;
-        self.active.take();
-        match report.completion {
-            ModelCompletion::Stopped(reason) => {
-                self.apply_agent_input(
-                    Input::Streamed {
-                        step_id,
-                        event: ModelEvent::Stopped(reason),
-                    },
-                    None,
-                    AfterCommit::None,
-                )
-                .await?;
-            }
-            ModelCompletion::Failed(error) => {
-                self.apply_agent_input(Input::Failed { step_id, error }, None, AfterCommit::None)
-                    .await?;
-            }
-            ModelCompletion::Cancelled => {}
         }
-        Ok(())
+        self.retain_model_result(result);
+        let needs_audit = matches!(
+            self.active.as_ref().map(|active| &active.settlement),
+            Some(ModelSettlement::Terminal {
+                audit_staged: false,
+                ..
+            })
+        );
+        if needs_audit {
+            self.stage_attempt_terminal(AfterCommit::SettleModel)?;
+        } else if matches!(
+            self.active.as_ref().map(|active| &active.settlement),
+            Some(ModelSettlement::Abnormal { .. })
+        ) {
+            if self.after_commit.is_some() {
+                return Err(RuntimeError::ModelSettlementAlreadyPending);
+            }
+            self.after_commit = Some(AfterCommit::SettleModel);
+        }
+        self.finish_transition().await
     }
 
-    async fn fail_owned_step(
-        &mut self,
-        step_id: ModelStepId,
-        message: &'static str,
-    ) -> Result<(), RuntimeError> {
-        self.apply_agent_input(
-            Input::Failed {
-                step_id,
-                error: ModelError::Transport {
-                    message: message.to_owned(),
-                },
+    pub(super) fn retain_model_result(&mut self, result: Result<ModelTerminalReport, ()>) {
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        if !matches!(active.settlement, ModelSettlement::Running) {
+            return;
+        }
+        active.settlement = match result {
+            Ok(report) if report.is_consistent_with(active) => ModelSettlement::Terminal {
+                report: Box::new(report),
+                audit_staged: false,
+                delivery_staged: false,
             },
-            None,
-            AfterCommit::None,
-        )
-        .await
+            Ok(_) | Err(()) => ModelSettlement::Abnormal {
+                delivery_staged: false,
+            },
+        };
     }
 
-    pub(super) fn spawn_model(&mut self, call: ModelCall) -> Result<(), RuntimeError> {
+    pub(super) fn authorize_model(&mut self, call: ModelCall) -> Result<(), RuntimeError> {
         if self.shutting_down {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(active) = &self.active {
+            let completion_is_committing = matches!(
+                &active.settlement,
+                ModelSettlement::Terminal {
+                    delivery_staged: true,
+                    ..
+                } | ModelSettlement::Abnormal {
+                    delivery_staged: true
+                }
+            );
+            if completion_is_committing && self.deferred_model_call.is_none() {
+                self.deferred_model_call = Some(call);
+                return Ok(());
+            }
             return Err(RuntimeError::ModelAlreadyActive {
                 active: active.step_id.clone(),
+                requested: call.step_id,
+            });
+        }
+        if let Some(pending) = &self.pending_model_start {
+            return Err(RuntimeError::ModelAlreadyActive {
+                active: pending.call.step_id.clone(),
                 requested: call.step_id,
             });
         }
@@ -307,42 +319,136 @@ impl LiveRuntime {
             return Err(RuntimeError::ModelStartedWithToolWork);
         }
         let step_id = call.step_id.clone();
-        let attempt_id = current_attempt_id(&step_id);
+        let (attempt_id, reaction) = self
+            .agent
+            .authorize_request_attempt(
+                step_id,
+                self.driver.request_environment().clone(),
+                self.clock.now(),
+            )
+            .map_err(RuntimeError::RequestAttemptRefused)?;
+        self.pending_model_start = Some(PendingModelStart { attempt_id, call });
+        if let Err(error) = self.begin_transition(reaction, Vec::new(), AfterCommit::StartModel) {
+            self.pending_model_start = None;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(super) fn start_authorized_model(&mut self) -> Result<(), RuntimeError> {
+        let pending = self
+            .pending_model_start
+            .as_ref()
+            .ok_or(RuntimeError::MissingAuthorizedModelStart)?;
+        if self.shutting_down {
+            return Err(RuntimeError::ShuttingDown);
+        }
+        if let Some(active) = &self.active {
+            return Err(RuntimeError::ModelAlreadyActive {
+                active: active.step_id.clone(),
+                requested: pending.call.step_id.clone(),
+            });
+        }
+        if !self.tools.is_empty() {
+            return Err(RuntimeError::ModelStartedWithToolWork);
+        }
+        let pending = self
+            .pending_model_start
+            .take()
+            .unwrap_or_else(|| unreachable!("the authorized model start remains owned"));
+        let step_id = pending.call.step_id.clone();
         let cancellation = CancellationToken::new();
         let future = self.driver.drive(
-            attempt_id.clone(),
-            call,
+            pending.attempt_id.clone(),
+            pending.call,
             self.signals.clone(),
             cancellation.child_token(),
         );
         self.active = Some(ActiveModel {
-            attempt_id,
+            attempt_id: pending.attempt_id,
             step_id,
             cancellation,
             future: RetainedModelFuture::new(future),
+            settlement: ModelSettlement::Running,
         });
         Ok(())
     }
 
-    pub(super) fn stage_missing_usage_at(
-        &mut self,
-        reaction: &mut Reaction,
-        observed_at: plexmaton_agent::UnixMillis,
-    ) {
-        let missing = self.active.as_ref().map(|active| active.step_id.clone());
-        let Some(step_id) = missing else {
-            return;
+    fn stage_attempt_terminal(&mut self, after: AfterCommit) -> Result<(), RuntimeError> {
+        let terminal = match self.active.as_ref().map(|active| &active.settlement) {
+            Some(ModelSettlement::Terminal {
+                report,
+                audit_staged: false,
+                ..
+            }) => report.terminal.clone(),
+            _ => return Ok(()),
         };
-        merge_reaction(
-            reaction,
-            self.agent.handle_at(
-                Input::Streamed {
-                    step_id,
-                    event: ModelEvent::Usage(TokenUsage::Unavailable),
-                },
-                observed_at,
-            ),
-        );
+        let reaction = self
+            .agent
+            .finish_request_attempt(&terminal)
+            .map_err(RuntimeError::RequestAttemptRefused)?;
+        let Some(active) = self.active.as_mut() else {
+            return Ok(());
+        };
+        let ModelSettlement::Terminal { audit_staged, .. } = &mut active.settlement else {
+            return Ok(());
+        };
+        *audit_staged = true;
+        self.begin_transition(reaction, Vec::new(), after)
+    }
+
+    pub(super) async fn finish_attempt_audit_during_owner_action(
+        &mut self,
+    ) -> Result<(), RuntimeError> {
+        self.stage_attempt_terminal(AfterCommit::None)?;
+        self.finish_pending_transition().await
+    }
+
+    pub(super) async fn settle_model_completion(&mut self) -> Result<(), RuntimeError> {
+        let input = {
+            let active = self
+                .active
+                .as_mut()
+                .ok_or(RuntimeError::MissingActiveModelSettlement)?;
+            match &mut active.settlement {
+                ModelSettlement::Running => {
+                    return Err(RuntimeError::MissingActiveModelSettlement);
+                }
+                ModelSettlement::Terminal {
+                    report,
+                    audit_staged,
+                    delivery_staged,
+                } => {
+                    if !*audit_staged {
+                        return Err(RuntimeError::MissingRequestAttemptAudit);
+                    }
+                    if *delivery_staged {
+                        None
+                    } else {
+                        *delivery_staged = true;
+                        completion_input(active.step_id.clone(), &report.completion)
+                    }
+                }
+                ModelSettlement::Abnormal { delivery_staged } => {
+                    if *delivery_staged {
+                        None
+                    } else {
+                        *delivery_staged = true;
+                        Some(Input::Failed {
+                            step_id: active.step_id.clone(),
+                            error: ModelError::Transport {
+                                message: "provider future terminated unexpectedly".to_owned(),
+                            },
+                        })
+                    }
+                }
+            }
+        };
+        if let Some(input) = input {
+            self.apply_agent_input_during_join(input).await?;
+        }
+        self.active = None;
+        Ok(())
     }
 
     fn active_matches(&self, attempt_id: &RequestAttemptId, step_id: &ModelStepId) -> bool {
@@ -362,18 +468,16 @@ impl LiveRuntime {
     }
 }
 
-fn current_attempt_id(step_id: &ModelStepId) -> RequestAttemptId {
-    RequestAttemptId::new(format!(
-        "{}-step-{}-attempt-1",
-        step_id.turn_id(),
-        step_id.index()
-    ))
-    .unwrap_or_else(|error| unreachable!("bounded step identity forms an attempt id: {error}"))
-}
-
-fn terminal_usage(terminal: &RequestAttemptTerminal) -> TokenUsage {
-    match terminal.terminal() {
-        RequestAttemptTerminalState::Dispatched { usage, .. } => usage.clone(),
-        RequestAttemptTerminalState::NotDispatched { .. } => TokenUsage::Unavailable,
+fn completion_input(step_id: ModelStepId, completion: &ModelCompletion) -> Option<Input> {
+    match completion {
+        ModelCompletion::Stopped(reason) => Some(Input::Streamed {
+            step_id,
+            event: ModelEvent::Stopped(*reason),
+        }),
+        ModelCompletion::Failed(error) => Some(Input::Failed {
+            step_id,
+            error: error.clone(),
+        }),
+        ModelCompletion::Cancelled => None,
     }
 }

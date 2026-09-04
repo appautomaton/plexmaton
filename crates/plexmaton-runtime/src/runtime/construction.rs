@@ -159,6 +159,8 @@ impl LiveRuntime {
             signals,
             signal_rx,
             active: None,
+            pending_model_start: None,
+            deferred_model_call: None,
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: None,
@@ -199,6 +201,8 @@ impl LiveRuntime {
             signals,
             signal_rx,
             active: None,
+            pending_model_start: None,
+            deferred_model_call: None,
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: Some(
@@ -240,6 +244,8 @@ impl LiveRuntime {
             signals,
             signal_rx,
             active: None,
+            pending_model_start: None,
+            deferred_model_call: None,
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: Some(

@@ -85,5 +85,11 @@ async fn a_cancelled_terminal_join_remains_owned_until_interrupt_joins_it() {
         finished.load(Ordering::SeqCst),
         "interrupt returned before join"
     );
-    assert!(report.undelivered_model.is_empty());
+    assert!(matches!(
+        report.undelivered_model.as_slice(),
+        [plexmaton_agent::UndeliveredModelInput {
+            reason: ModelDeliveryRefusal::NoActiveStep,
+            ..
+        }]
+    ));
 }

@@ -46,24 +46,26 @@ pub fn open_agent(text: &str) -> (Agent, ModelRequest) {
     (agent, request.request.clone())
 }
 
-/// Drives decoded provider events through admission and execution into the loop's next request.
+/// Drives semantic output through admission and execution into the loop's next request.
+/// Usage is asserted on decoded events; request accounting belongs to runtime terminal handling.
 pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str) -> ModelRequest {
     let mut effects = Vec::new();
-    for event in events {
+    for event in events
+        .iter()
+        .filter(|event| !matches!(event, ModelEvent::Usage(_)))
+    {
         let step_id = agent
             .active_model_step()
             .unwrap_or_else(|| panic!("fixture expected an open provider step"));
-        effects.extend(
-            agent
-                .handle_at(
-                    Input::Streamed {
-                        step_id,
-                        event: event.clone(),
-                    },
-                    plexmaton_agent::UnixMillis::EPOCH,
-                )
-                .effects,
+        let reaction = agent.handle_at(
+            Input::Streamed {
+                step_id,
+                event: event.clone(),
+            },
+            plexmaton_agent::UnixMillis::EPOCH,
         );
+        assert!(reaction.undelivered_model.is_empty());
+        effects.extend(reaction.effects);
     }
     let mut effects = effects.into_iter();
     let Some(Effect::AdmitTool(request)) = effects.next() else {
@@ -113,7 +115,10 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
 }
 
 pub fn complete_answer(agent: &mut Agent, events: &[ModelEvent]) {
-    for event in events {
+    for event in events
+        .iter()
+        .filter(|event| !matches!(event, ModelEvent::Usage(_)))
+    {
         let step_id = agent
             .active_model_step()
             .unwrap_or_else(|| panic!("fixture expected an open provider step"));
@@ -124,6 +129,7 @@ pub fn complete_answer(agent: &mut Agent, events: &[ModelEvent]) {
             },
             plexmaton_agent::UnixMillis::EPOCH,
         );
+        assert!(reaction.undelivered_model.is_empty());
         assert!(
             reaction.effects.is_empty(),
             "a final answer should request no work: {:?}",

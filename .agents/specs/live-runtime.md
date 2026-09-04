@@ -18,8 +18,9 @@ catalog advertises four workspace-file definitions and one command definition th
 codec; native outcomes are bounded before replay. The TUI knows only semantic events and intents.
 
 **LIVE-2 — Every model event names the step that requested it.** A stable typed step identity
-travels on `CallModel`, streamed input and model failure. Only the current matching step accepts
-output; stale, repeated or post-cancellation output is a typed non-delivery.
+travels on `CallModel`, streamed input and model failure. Runtime signals also carry their authorized
+request-attempt identity (TIM-2); only the matching step and attempt accept output. Stale, repeated
+or post-cancellation output is a typed non-delivery.
 
 **LIVE-3 — Interrupt and shutdown cancel the same owned operation.** The agent transition first
 settles its semantic debt, then the runtime signals every matching provider, admission and
@@ -27,16 +28,16 @@ execution operation and drives each to completion. One outcome wins a completion
 race; cancelled polls retain owned work; shutdown starts no new requests and joins before terminal
 restoration. A cancelled shutdown call resumes retained cleanup when called again.
 
-**LIVE-4 — Reported usage is exact, step-scoped and turn-aggregated.** A completed provider stream
-emits exactly one `TokenUsage` before its stop; Chat requests streaming usage explicitly and
-Responses reads it from the terminal response. Counts retain input, cached input, cache-write input,
-output, reasoning output and the provider's total without recomputing subsets; checked addition
-produces the turn total across tool-loop steps.
+**LIVE-4 — Reported usage is exact, step-scoped and turn-aggregated.** Chat requests streaming usage
+explicitly and Responses reads it from the terminal response. The HTTP owner retains usage with its
+terminal report; TIM-2/TIM-3 commit that audit before semantic completion and derive the turn total.
+Counts retain input, cached input, cache-write input, output, reasoning output and the provider's
+total without recomputing subsets; cumulative addition is checked.
 
 **LIVE-5 — Missing usage is not zero.** A provider omission, transport failure or cancellation is
 an explicit coverage state (`Complete`, `Partial` or `Unavailable`) beside any reported counts.
-Reported usage measures completed consumption only; pre-request context estimation and monetary
-pricing are separate mechanisms and never inferred from it.
+Unknown attempts keep coverage incomplete until their terminal fact resolves it. Pre-request
+context estimation is separate; monetary cost follows TIM-3's resolved pricing and known usage.
 
 **LIVE-6 — Configuration is resolved before terminal or network ownership.** The composition root
 uses `PLEXMATON_HOME` or the user-level default and reads the chosen key environment variable; it
@@ -86,7 +87,7 @@ Cached input remains a subset of input and reasoning remains a subset of output.
 | Invariant | Proven by |
 | --- | --- |
 | LIVE-1 | `native_catalog_is_exact_unique_and_advertised_by_both_protocols`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request`, `dropping_an_active_runtime_drops_the_exact_provider_future`, `dropping_an_active_runtime_joins_its_command_worker_and_process_group`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts`, crate-graph gate |
-| LIVE-2 | `stale_and_post_cancellation_model_output_is_a_typed_non_delivery`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
+| LIVE-2 | `stale_and_post_cancellation_model_output_is_a_typed_non_delivery`, `model_output_requires_both_the_active_attempt_and_step`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
 | LIVE-3 | `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task`, `a_cancelled_terminal_join_remains_owned_until_interrupt_joins_it`, `cancelled_next_event_keeps_command_work_owned_until_interrupt_joins_it`, `cancelled_shutdown_can_be_called_again_to_finish_exact_cleanup`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
 | LIVE-4 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `a_combined_chat_terminal_chunk_orders_usage_before_stop`, `reported_step_usage_is_aggregated_for_the_owning_turn`, `usage_is_retained_without_charging_an_invisible_frame` |
 | LIVE-5 | `missing_step_usage_is_never_presented_as_zero`, `responses_null_usage_breakdowns_are_partial_coverage`, `deterministic_failure_paths_leave_no_provider_task_alive`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |

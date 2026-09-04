@@ -35,6 +35,8 @@ struct ControlledStore {
 enum BlockPayload {
     ToolRequested,
     ToolStatus(ToolCallStatus),
+    RequestAuthorized,
+    RequestFinished,
 }
 
 impl Drop for ControlledStore {
@@ -115,6 +117,12 @@ impl JournalStore for ControlledStore {
                         JournalEntryPayload::ToolCallChanged { status, .. } if *status == expected
                     )
             ),
+            Some(BlockPayload::RequestAuthorized) => {
+                matches!(&record, JournalRecord::RequestAttemptAuthorized { .. })
+            }
+            Some(BlockPayload::RequestFinished) => {
+                matches!(&record, JournalRecord::RequestAttemptFinished { .. })
+            }
             None => false,
         };
         if blocks_payload {

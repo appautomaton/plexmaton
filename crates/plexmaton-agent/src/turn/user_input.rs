@@ -3,7 +3,6 @@ use plexmaton_core::{
 };
 
 use super::{Agent, DeliveryBoundary};
-use crate::timing::UsageAccumulator;
 use crate::{JournalEntryPayload, Reaction, UndeliveredInput, UndeliveredReason, UnixMillis};
 
 impl Agent {
@@ -55,7 +54,7 @@ impl Agent {
     ) {
         let turn_id = self.record.next_turn_id();
         self.record_turn_start(turn_id.clone(), text, accepted_at, reaction);
-        self.open_step(turn_id, 1, UsageAccumulator::default(), reaction);
+        self.open_step(turn_id, 1, reaction);
     }
 
     fn record_turn_start(

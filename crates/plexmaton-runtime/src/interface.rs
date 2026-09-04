@@ -116,6 +116,21 @@ pub enum RuntimeError {
         /// New operation the loop requested.
         requested: ModelStepId,
     },
+    /// The agent refused an attempt audit transition that should match the owned model step.
+    #[error("the agent refused a model request-attempt transition: {0:?}")]
+    RequestAttemptRefused(plexmaton_agent::RequestAttemptRefusal),
+    /// An authorization commit completed without its retained request payload.
+    #[error("a model authorization completed without a retained model start")]
+    MissingAuthorizedModelStart,
+    /// A terminal settlement was requested without an owned model result.
+    #[error("a model terminal settlement has no retained active result")]
+    MissingActiveModelSettlement,
+    /// A terminal model result had no corresponding durable attempt audit.
+    #[error("a model terminal result reached delivery before its attempt audit")]
+    MissingRequestAttemptAudit,
+    /// More than one terminal settlement action was staged for one model owner.
+    #[error("a model terminal settlement action is already pending")]
+    ModelSettlementAlreadyPending,
     /// An owned provider operation sent more than one terminal outcome.
     #[error("model step `{0:?}` queued more than one terminal outcome")]
     DuplicateModelTerminal(ModelStepId),

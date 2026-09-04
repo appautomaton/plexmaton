@@ -66,10 +66,10 @@ mod tests {
     use crate::test_support::replay_compatibility;
     use crate::{
         DispatchedRequestTiming, Effect, ElapsedMillis, HeadRevision, Input, JournalError,
-        JournalRecord, ModelEvent, ModelStepId, RequestAttemptId, RequestAttemptRefusal,
-        RequestAttemptTerminal, RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
-        RequestEnvironment, RequestEnvironmentFingerprint, RequestNotDispatchedOutcome, StopReason,
-        UnixMillis, UsdCostTicks,
+        JournalRecord, ModelDeliveryRefusal, ModelEvent, ModelStepId, RequestAttemptId,
+        RequestAttemptRefusal, RequestAttemptTerminal, RequestAttemptTerminalState, RequestCost,
+        RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
+        RequestNotDispatchedOutcome, StopReason, UndeliveredModelInput, UnixMillis, UsdCostTicks,
     };
 
     fn agent() -> Agent {
@@ -225,9 +225,44 @@ mod tests {
         assert_eq!(agent.record(), atoms, "attempts are not context atoms");
     }
 
+    /// TIM-3: streamed provider usage has no attempt identity and cannot change accounting or
+    /// leave deferred warnings behind. Only a correlated terminal may consume the report.
+    #[test]
+    fn tim_3_streamed_usage_is_refused_without_mutating_agent_state() {
+        let mut agent = agent();
+        let step_id = open_step(&mut agent);
+        let _authorized = agent
+            .authorize_request_attempt(step_id.clone(), environment(3), UnixMillis::new(12))
+            .unwrap_or_else(|error| panic!("authorize first: {error:?}"));
+        let before = agent.clone();
+        for usage in [
+            TokenUsage::Complete(counts(3, 2)),
+            TokenUsage::Partial(counts(3, 2)),
+            TokenUsage::Unavailable,
+        ] {
+            let streamed = agent.handle_at(
+                Input::Streamed {
+                    step_id: step_id.clone(),
+                    event: ModelEvent::Usage(usage),
+                },
+                UnixMillis::new(13),
+            );
+            assert!(streamed.records.is_empty());
+            assert!(streamed.events.is_empty());
+            assert!(streamed.effects.is_empty());
+            assert_eq!(
+                streamed.undelivered_model,
+                [UndeliveredModelInput {
+                    step_id: step_id.clone(),
+                    reason: ModelDeliveryRefusal::UsageRequiresAttemptTerminal,
+                }]
+            );
+            assert_eq!(agent, before);
+        }
+    }
+
     /// TIM-3/TIM-5: retries are distinct immutable attempts; each dispatched terminal emits the
-    /// same cumulative usage event live and on journal replay, while streaming usage is no longer
-    /// a journal authority.
+    /// same cumulative usage event live and on journal replay.
     #[test]
     fn reported_step_usage_is_aggregated_for_the_owning_turn() {
         let mut agent = agent();
@@ -236,19 +271,6 @@ mod tests {
         let (first_id, _) = agent
             .authorize_request_attempt(step_id.clone(), environment(3), UnixMillis::new(12))
             .unwrap_or_else(|error| panic!("authorize first: {error:?}"));
-        let streamed = agent.handle_at(
-            Input::Streamed {
-                step_id: step_id.clone(),
-                event: ModelEvent::Usage(TokenUsage::Complete(counts(3, 2))),
-            },
-            UnixMillis::new(13),
-        );
-        assert!(streamed.records.is_empty());
-        assert!(matches!(
-            streamed.events.as_slice(),
-            [event] if matches!(event.event, SessionEvent::TurnUsageUpdated { .. })
-        ));
-
         let first_terminal = terminal(first_id.clone(), TokenUsage::Complete(counts(10, 4)));
         let first = agent
             .finish_request_attempt(&first_terminal)
@@ -305,6 +327,62 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(agent.record(), atoms, "attempt facts remain outside atoms");
+    }
+
+    /// TIM-3/TIM-5: late confirmation that a cancelled retry never dispatched removes its unknown
+    /// coverage, without adding fabricated zero-token provider usage.
+    #[test]
+    fn tim_5_not_dispatched_terminal_restores_known_turn_coverage_after_interrupt() {
+        let mut agent = agent();
+        let step = open_step(&mut agent);
+        let (first_id, _) = agent
+            .authorize_request_attempt(step.clone(), environment(1), UnixMillis::new(11))
+            .unwrap_or_else(|error| panic!("authorize first: {error:?}"));
+        let first = agent
+            .finish_request_attempt(&terminal(first_id, TokenUsage::Complete(counts(8, 2))))
+            .unwrap_or_else(|error| panic!("finish first: {error:?}"));
+        let (retry_id, _) = agent
+            .authorize_request_attempt(step, environment(1), UnixMillis::new(12))
+            .unwrap_or_else(|error| panic!("authorize retry: {error:?}"));
+        let interrupted = agent.handle_at(Input::Interrupted, UnixMillis::new(13));
+        assert!(interrupted.events.iter().any(|event| matches!(
+            &event.event, SessionEvent::TurnUsageUpdated { usage: TokenUsage::Partial(counts), .. }
+                if counts.total == 10
+        )));
+        let cancelled = RequestAttemptTerminal::new(
+            retry_id,
+            RequestAttemptTerminalState::NotDispatched {
+                outcome: RequestNotDispatchedOutcome::Cancelled,
+            },
+        )
+        .unwrap_or_else(|error| panic!("cancelled terminal: {error}"));
+        let final_report = agent
+            .finish_request_attempt(&cancelled)
+            .unwrap_or_else(|error| panic!("record cancellation: {error:?}"));
+        assert!(
+            matches!(final_report.events.as_slice(), [event] if matches!(
+                &event.event, SessionEvent::TurnUsageUpdated { usage: TokenUsage::Complete(counts), .. }
+                    if counts.total == 10
+            ))
+        );
+        let replayed = agent
+            .journal()
+            .project(&main())
+            .unwrap_or_else(|error| panic!("replay coverage: {error:?}"));
+        let usage_events = |events: &[plexmaton_core::SessionEventEnvelope]| {
+            events
+                .iter()
+                .filter(|event| matches!(event.event, SessionEvent::TurnUsageUpdated { .. }))
+                .map(|event| event.event.clone())
+                .collect::<Vec<_>>()
+        };
+        let live = first
+            .events
+            .into_iter()
+            .chain(interrupted.events)
+            .chain(final_report.events)
+            .collect::<Vec<_>>();
+        assert_eq!(usage_events(replayed.events()), usage_events(&live));
     }
 
     /// TIM-5: an owned dispatched request may end after interruption, but unknown and duplicate

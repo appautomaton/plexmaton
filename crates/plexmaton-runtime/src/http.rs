@@ -3,11 +3,13 @@
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
-use plexmaton_agent::{ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestEnvironment};
+use plexmaton_agent::{
+    ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestCost, RequestEnvironment,
+};
 use plexmaton_core::TokenUsage;
 use plexmaton_provider::{
     ApiKey, DecodeLimits, FunctionTool, ModelApi, ResolvedModel, SseDecodeError,
-    classify_http_error, drive_sse, encode_request, request_environment,
+    classify_http_error, drive_sse, encode_request, request_cost, request_environment,
 };
 use reqwest::{Client, Url, header};
 use thiserror::Error;
@@ -133,7 +135,12 @@ impl OpenAiHttp {
                 biased;
                 response = &mut send => response,
                 () = cancellation.cancelled() => {
-                    return timer.cancelled(attempt_id, call.step_id, TokenUsage::Unavailable);
+                    return timer.cancelled(
+                        attempt_id,
+                        call.step_id,
+                        TokenUsage::Unavailable,
+                        RequestCost::Unavailable,
+                    );
                 }
             }
         };
@@ -147,6 +154,7 @@ impl OpenAiHttp {
                         message: error.to_string(),
                     },
                     TokenUsage::Unavailable,
+                    RequestCost::Unavailable,
                 );
             }
         };
@@ -209,16 +217,17 @@ impl OpenAiHttp {
             }
         };
         let usage = usage.unwrap_or(TokenUsage::Unavailable);
+        let cost = request_cost(&self.model, &usage);
         match decoded {
-            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage),
+            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage, cost),
             DecodeResult::Finished(Err(error)) => {
-                timer.failed(attempt_id, call.step_id, decode_error(error), usage)
+                timer.failed(attempt_id, call.step_id, decode_error(error), usage, cost)
             }
             DecodeResult::Finished(Ok(())) => {
                 let reason = stop.unwrap_or_else(|| {
                     unreachable!("a successful SSE drive always emits its retained stop")
                 });
-                timer.completed(attempt_id, call.step_id, reason, usage)
+                timer.completed(attempt_id, call.step_id, reason, usage, cost)
             }
         }
     }
@@ -246,9 +255,15 @@ async fn failed_response_report(
             step_id,
             classify_http_error(status, retry_after, &body),
             TokenUsage::Unavailable,
+            RequestCost::Unavailable,
         ),
         () = cancellation.cancelled() => {
-            timer.cancelled(attempt_id, step_id, TokenUsage::Unavailable)
+            timer.cancelled(
+                attempt_id,
+                step_id,
+                TokenUsage::Unavailable,
+                RequestCost::Unavailable,
+            )
         }
     }
 }

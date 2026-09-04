@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use plexmaton_agent::{
     DispatchedRequestTiming, ElapsedMillis, ModelError, ModelStepId, RequestAttemptId,
-    RequestAttemptTerminal, RequestAttemptTerminalState, RequestDispatchedOutcome,
+    RequestAttemptTerminal, RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
     RequestNotDispatchedOutcome, StopReason, UnixMillis,
 };
 use plexmaton_core::TokenUsage;
@@ -42,6 +42,7 @@ impl RequestTimer {
         step_id: ModelStepId,
         reason: StopReason,
         usage: TokenUsage,
+        cost: RequestCost,
     ) -> ModelTerminalReport {
         self.finish(
             attempt_id,
@@ -50,6 +51,7 @@ impl RequestTimer {
                 stop_reason: reason,
             },
             usage,
+            cost,
             ModelCompletion::Stopped(reason),
         )
     }
@@ -60,6 +62,7 @@ impl RequestTimer {
         step_id: ModelStepId,
         error: ModelError,
         usage: TokenUsage,
+        cost: RequestCost,
     ) -> ModelTerminalReport {
         let outcome = match &error {
             ModelError::Transport { .. } => RequestDispatchedOutcome::TransportFailed,
@@ -72,6 +75,7 @@ impl RequestTimer {
             step_id,
             outcome,
             usage,
+            cost,
             ModelCompletion::Failed(error),
         )
     }
@@ -81,12 +85,14 @@ impl RequestTimer {
         attempt_id: RequestAttemptId,
         step_id: ModelStepId,
         usage: TokenUsage,
+        cost: RequestCost,
     ) -> ModelTerminalReport {
         self.finish(
             attempt_id,
             step_id,
             RequestDispatchedOutcome::Cancelled,
             usage,
+            cost,
             ModelCompletion::Cancelled,
         )
     }
@@ -97,6 +103,7 @@ impl RequestTimer {
         step_id: ModelStepId,
         outcome: RequestDispatchedOutcome,
         usage: TokenUsage,
+        cost: RequestCost,
         completion: ModelCompletion,
     ) -> ModelTerminalReport {
         let timing = DispatchedRequestTiming::new(
@@ -112,6 +119,7 @@ impl RequestTimer {
                 timing,
                 outcome,
                 usage,
+                cost,
             },
         )
         .unwrap_or_else(|error| unreachable!("provider codec validated request usage: {error}"));

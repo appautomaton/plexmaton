@@ -29,6 +29,127 @@ async fn durable_transition_starts_no_effect_before_append_ack() {
     assert!(runtime.has_active_model());
 }
 
+/// TIM-2/JRN-7: the request-specific authorization has its own acknowledgement before dispatch.
+#[tokio::test]
+async fn model_dispatch_waits_for_its_request_authorization_ack() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _announcement = runtime.try_next_event();
+    control.block_on_payload(BlockPayload::RequestAuthorized);
+
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(agent_id(), submission());
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("submit completed before authorization ack: {result:?}"),
+            () = entered => {}
+        }
+        assert!(driver.calls().await.is_empty());
+        assert!(
+            control
+                .records
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .iter()
+                .any(|record| matches!(
+                    record,
+                    JournalRecord::AppendEntry { entry, .. }
+                        if matches!(&entry.payload, JournalEntryPayload::TurnStarted { .. })
+                )),
+            "the semantic user boundary commits before request authorization"
+        );
+
+        control.gate.release();
+        submit
+            .await
+            .unwrap_or_else(|error| panic!("finish authorized submit: {error}"));
+    }
+    assert_eq!(driver.calls().await.len(), 1);
+    assert!(runtime.has_active_model());
+    assert!(
+        control
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .any(|record| matches!(
+                record,
+                JournalRecord::RequestAttemptAuthorized { fact, .. }
+                    if fact.environment() == &driver.environment
+            ))
+    );
+}
+
+/// TIM-2/TIM-3/JRN-7: terminal accounting commits before stop can publish canonical output.
+#[tokio::test]
+async fn model_terminal_audit_commits_before_semantic_completion() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::Events(vec![
+        ModelEvent::TextDelta {
+            position: ModelOutputPosition::new(0, 0),
+            delta: "finished answer".to_owned(),
+        },
+        ModelEvent::Stopped(StopReason::EndOfTurn),
+    ])]);
+    let mut runtime = runtime(store, driver).await;
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(agent_id(), submission())
+        .await
+        .unwrap_or_else(|error| panic!("open model turn: {error}"));
+    control.block_on_payload(BlockPayload::RequestFinished);
+
+    drive_until_store_blocks(&mut runtime, &control).await;
+    assert!(runtime.has_active_model());
+    assert!(
+        control
+            .records
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .all(|record| !matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(&entry.payload, JournalEntryPayload::AssistantOutput { .. })
+            )),
+        "assistant completion entered storage before terminal accounting"
+    );
+
+    control.gate.release();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            let _update = runtime
+                .next_update()
+                .await
+                .unwrap_or_else(|error| panic!("finish terminal barrier: {error}"));
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("terminal barrier did not settle"));
+
+    let records = control
+        .records
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let terminal = records
+        .iter()
+        .position(|record| matches!(record, JournalRecord::RequestAttemptFinished { .. }))
+        .unwrap_or_else(|| panic!("request terminal was not stored"));
+    let output = records
+        .iter()
+        .position(|record| {
+            matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(&entry.payload, JournalEntryPayload::AssistantOutput { .. })
+            )
+        })
+        .unwrap_or_else(|| panic!("assistant output was not stored"));
+    assert!(terminal < output);
+}
+
 /// JRN-7: tool admission and execution each wait for their own lifecycle append.
 #[tokio::test]
 async fn tool_effects_start_only_after_their_transition_is_acknowledged() {

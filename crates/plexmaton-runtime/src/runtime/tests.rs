@@ -8,10 +8,10 @@ use std::{
 
 use futures_util::{FutureExt, future::BoxFuture};
 use plexmaton_agent::{
-    DispatchedRequestTiming, ElapsedMillis, Input, ModelCall, ModelError, ModelEvent,
-    ModelOutputPosition, ModelStepId, ProviderCodecId, ProviderCodecRevision,
+    DispatchedRequestTiming, ElapsedMillis, Input, ModelCall, ModelDeliveryRefusal, ModelError,
+    ModelEvent, ModelOutputPosition, ModelStepId, ProviderCodecId, ProviderCodecRevision,
     ProviderModelFamilyId, ProviderReplayOwnerId, ReplayCompatibility, RequestAttemptId,
-    RequestAttemptTerminal, RequestAttemptTerminalState, RequestDispatchedOutcome,
+    RequestAttemptTerminal, RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
     RequestEnvironment, RequestEnvironmentFingerprint, StopReason, UnixMillis,
 };
 use plexmaton_core::{
@@ -229,6 +229,7 @@ fn terminal_report(
             timing: request_timing(emitted_output),
             outcome,
             usage,
+            cost: RequestCost::Unavailable,
         },
     )
     .unwrap_or_else(|error| panic!("request terminal: {error}"));
@@ -438,6 +439,61 @@ async fn sequential_turns_stream_and_report_their_own_usage() {
     )));
 }
 
+/// TIM-3/LIVE-2: a stale retry cannot deliver output through a current step identity.
+#[tokio::test]
+async fn model_output_requires_both_the_active_attempt_and_step() {
+    let mut runtime = runtime(FakeDriver::new([Script::EndWithoutTerminal]));
+    let _announced = runtime.try_next_event();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "begin".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("submission: {error}"));
+    let active = runtime
+        .active
+        .as_ref()
+        .unwrap_or_else(|| panic!("model owner was not started"));
+    let expected = active.attempt_id.clone();
+    let step_id = active.step_id.clone();
+    let received = RequestAttemptId::new("stale-attempt")
+        .unwrap_or_else(|error| panic!("stale attempt fixture: {error}"));
+    let output = ModelOutput::from_event(text_delta("must not enter the transcript"))
+        .unwrap_or_else(|_| panic!("text is a nonterminal output"));
+
+    runtime
+        .apply_signal(ModelSignal {
+            attempt_id: received.clone(),
+            step_id,
+            output,
+        })
+        .await
+        .unwrap_or_else(|error| panic!("refuse stale output: {error}"));
+    let report = runtime.take_report();
+
+    assert!(matches!(
+        report.undelivered_model.as_slice(),
+        [plexmaton_agent::UndeliveredModelInput {
+            reason: ModelDeliveryRefusal::WrongAttempt {
+                expected: actual_expected,
+                received: actual_received,
+            },
+            ..
+        }] if actual_expected == &expected && actual_received == &received
+    ));
+    assert!(runtime.pending.iter().all(|event| !matches!(
+        &event.event,
+        SessionEvent::TranscriptDelta { text, .. } if text == "must not enter the transcript"
+    )));
+    runtime
+        .shutdown()
+        .await
+        .unwrap_or_else(|error| panic!("shutdown stale-output fixture: {error}"));
+}
+
 /// LIVE-3 and LIVE-5: both stop paths settle semantic state, then cancellation joins the exact
 /// in-flight task; absent terminal usage is visible as unavailable rather than zero.
 #[tokio::test]
@@ -554,7 +610,13 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
 
     assert!(runtime.has_active_model());
     assert_eq!(runtime.pending.len(), pending_before);
-    assert!(interrupted.undelivered_model.is_empty());
+    assert!(matches!(
+        interrupted.undelivered_model.as_slice(),
+        [plexmaton_agent::UndeliveredModelInput {
+            reason: ModelDeliveryRefusal::NoActiveStep,
+            ..
+        }]
+    ));
     assert!(late.undelivered_model.is_empty());
     runtime
         .shutdown()

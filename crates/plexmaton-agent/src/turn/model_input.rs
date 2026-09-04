@@ -1,6 +1,6 @@
-//! Correlated model input, streamed step assembly, and provider-reported usage.
+//! Correlated model input and streamed step assembly.
 
-use plexmaton_core::{SessionEvent, TokenUsage, TurnId};
+use plexmaton_core::TurnId;
 
 use super::{Agent, Turn};
 use crate::TurnOutcome;
@@ -105,42 +105,16 @@ impl Agent {
                     );
                 }
             }
-            ModelEvent::Usage(usage) => self.report_usage(usage, reaction),
+            ModelEvent::Usage(_) => {
+                if let Some(step_id) = self.active_model_step() {
+                    reaction.undelivered_model.push(UndeliveredModelInput {
+                        step_id,
+                        reason: ModelDeliveryRefusal::UsageRequiresAttemptTerminal,
+                    });
+                }
+            }
             ModelEvent::Stopped(reason) => self.stop(reason, reaction),
         }
-    }
-
-    fn report_usage(&mut self, report: TokenUsage, reaction: &mut Reaction) {
-        let result = match &mut self.turn {
-            Turn::Streaming {
-                turn_id,
-                step,
-                usage,
-            } => {
-                if !step.mark_usage_reported() {
-                    step.defer_warning("the provider reported usage more than once for one step");
-                    return;
-                }
-                usage
-                    .add(report)
-                    .map(|aggregate| (turn_id.clone(), aggregate))
-            }
-            Turn::Idle | Turn::Working { .. } => return,
-        };
-        let Ok((turn_id, usage)) = result else {
-            if let Turn::Streaming { step, .. } = &mut self.turn {
-                step.defer_warning("the provider's turn usage overflowed its counter");
-            }
-            return;
-        };
-        self.record.emit(
-            reaction,
-            SessionEvent::TurnUsageUpdated {
-                agent_id: self.record.agent_id().clone(),
-                turn_id,
-                usage,
-            },
-        );
     }
 
     fn stop(&mut self, reason: StopReason, reaction: &mut Reaction) {
@@ -150,7 +124,7 @@ impl Agent {
             StopReason::Refused => Some("the model declined to answer"),
             StopReason::Unspecified => Some("the model stopped without saying why"),
         };
-        let Some((turn_id, calls, index, usage)) = self.close_step(reaction) else {
+        let Some((turn_id, calls, index)) = self.close_step(reaction) else {
             return;
         };
         if let Some(message) = diagnostic {
@@ -166,36 +140,27 @@ impl Agent {
             self.finish_turn(turn_id, TurnOutcome::Completed, reaction);
             return;
         }
-        self.dispatch(turn_id, calls, index, usage, reaction);
+        self.dispatch(turn_id, calls, index, reaction);
     }
 
     /// Ends the streaming half of the step, and says what it asked for.
     pub(super) fn close_step(
         &mut self,
         reaction: &mut Reaction,
-    ) -> Option<(TurnId, Vec<ToolCall>, u16, crate::timing::UsageAccumulator)> {
-        let Turn::Streaming {
-            turn_id,
-            step,
-            usage,
-        } = std::mem::replace(&mut self.turn, Turn::Idle)
+    ) -> Option<(TurnId, Vec<ToolCall>, u16)> {
+        let Turn::Streaming { turn_id, step } = std::mem::replace(&mut self.turn, Turn::Idle)
         else {
             return None;
         };
         let index = step.index();
-        let (calls, warnings) = step.close(&mut self.record, reaction);
-        for warning in warnings {
-            self.warn(reaction, &warning);
-        }
-        Some((turn_id, calls, index, usage))
+        let calls = step.close(&mut self.record, reaction);
+        Some((turn_id, calls, index))
     }
 
     pub(super) fn abort_step(&mut self, reaction: &mut Reaction) {
         let Turn::Streaming { step, .. } = std::mem::replace(&mut self.turn, Turn::Idle) else {
             return;
         };
-        for warning in step.abort(&mut self.record, reaction) {
-            self.warn(reaction, &warning);
-        }
+        step.abort(&mut self.record, reaction);
     }
 }

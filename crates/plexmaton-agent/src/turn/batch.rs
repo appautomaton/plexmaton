@@ -14,7 +14,6 @@ use crate::ActiveTurnStatus;
 use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::journal::JournalEntryPayload;
-use crate::timing::UsageAccumulator;
 use crate::tools::{
     ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome,
@@ -27,7 +26,6 @@ impl Agent {
         turn_id: TurnId,
         calls: Vec<ToolCall>,
         step: u16,
-        usage: UsageAccumulator,
         reaction: &mut Reaction,
     ) {
         let calls_with_entries: Vec<_> = calls
@@ -45,7 +43,6 @@ impl Agent {
             turn_id: turn_id.clone(),
             batch: Batch::new(calls_with_entries),
             step,
-            usage,
         };
         for call in &dispatched {
             self.emit_tool_request(call.call_id.clone(), reaction);
@@ -260,34 +257,27 @@ impl Agent {
             &self.turn,
             Turn::Working { batch, .. } if batch.is_settled()
         );
-        if complete && let Some((turn_id, step, usage)) = self.settle_batch() {
-            self.next_step(turn_id, step, usage, reaction);
+        if complete && let Some((turn_id, step)) = self.settle_batch() {
+            self.next_step(turn_id, step, reaction);
         }
     }
 
     /// Moves the batch's results into the record in model order.
-    pub(super) fn settle_batch(&mut self) -> Option<(TurnId, u16, UsageAccumulator)> {
+    pub(super) fn settle_batch(&mut self) -> Option<(TurnId, u16)> {
         let Turn::Working {
             turn_id,
             batch,
             step,
-            usage,
         } = std::mem::replace(&mut self.turn, Turn::Idle)
         else {
             return None;
         };
         debug_assert!(batch.is_settled());
-        Some((turn_id, step, usage))
+        Some((turn_id, step))
     }
 
     /// Takes the next step, or ends the turn because there is no budget for one.
-    pub(super) fn next_step(
-        &mut self,
-        turn_id: TurnId,
-        step: u16,
-        usage: UsageAccumulator,
-        reaction: &mut Reaction,
-    ) {
+    pub(super) fn next_step(&mut self, turn_id: TurnId, step: u16, reaction: &mut Reaction) {
         if step >= self.budget.max_steps {
             self.warn(
                 reaction,
@@ -302,7 +292,7 @@ impl Agent {
             return;
         }
         self.claim_next_step_input(&turn_id, reaction);
-        self.open_step(turn_id, step.saturating_add(1), usage, reaction);
+        self.open_step(turn_id, step.saturating_add(1), reaction);
     }
 
     /// Pays every unfinished slot, resolving Attention projections on the way (APV-6).

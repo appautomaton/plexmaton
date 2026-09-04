@@ -19,9 +19,7 @@ pub(crate) struct Step {
     turn_id: TurnId,
     outputs: BTreeMap<ModelOutputPosition, PendingOutput>,
     replay: BTreeMap<ModelOutputPosition, ProviderReplay>,
-    warnings: Vec<String>,
     index: u16,
-    usage_reported: bool,
     semantic_text_bytes: usize,
     tool_argument_bytes: usize,
     replay_bytes: usize,
@@ -102,9 +100,7 @@ impl Step {
             turn_id,
             outputs: BTreeMap::new(),
             replay: BTreeMap::new(),
-            warnings: Vec::new(),
             index,
-            usage_reported: false,
             semantic_text_bytes: 0,
             tool_argument_bytes: 0,
             replay_bytes: 0,
@@ -114,14 +110,6 @@ impl Step {
 
     pub(crate) fn index(&self) -> u16 {
         self.index
-    }
-
-    pub(crate) fn mark_usage_reported(&mut self) -> bool {
-        !std::mem::replace(&mut self.usage_reported, true)
-    }
-
-    pub(crate) fn defer_warning(&mut self, message: &str) {
-        self.warnings.push(message.to_owned());
     }
 
     pub(crate) fn append(
@@ -285,32 +273,23 @@ impl Step {
         Ok(())
     }
 
-    pub(crate) fn close(
-        self,
-        record: &mut Record,
-        reaction: &mut Reaction,
-    ) -> (Vec<ToolCall>, Vec<String>) {
+    pub(crate) fn close(self, record: &mut Record, reaction: &mut Reaction) -> Vec<ToolCall> {
         self.close_retained(record, reaction)
     }
 
-    pub(crate) fn abort(mut self, record: &mut Record, reaction: &mut Reaction) -> Vec<String> {
+    pub(crate) fn abort(mut self, record: &mut Record, reaction: &mut Reaction) {
         self.outputs
             .retain(|_, output| !matches!(output, PendingOutput::ToolCall { .. }));
-        let (calls, warnings) = self.close_retained(record, reaction);
+        let calls = self.close_retained(record, reaction);
         debug_assert!(
             calls.is_empty(),
             "aborted steps retain no undispatched calls"
         );
-        warnings
     }
 
-    fn close_retained(
-        self,
-        record: &mut Record,
-        reaction: &mut Reaction,
-    ) -> (Vec<ToolCall>, Vec<String>) {
+    fn close_retained(self, record: &mut Record, reaction: &mut Reaction) -> Vec<ToolCall> {
         if self.outputs.is_empty() {
-            return (Vec::new(), self.warnings);
+            return Vec::new();
         }
         let mut positions = BTreeMap::new();
         let mut blocks = Vec::with_capacity(self.outputs.len());
@@ -347,7 +326,7 @@ impl Step {
             blocks.push(block);
         }
         if blocks.is_empty() {
-            return (Vec::new(), self.warnings);
+            return Vec::new();
         }
         let replay =
             AssistantReplay::from_positioned(self.replay.into_iter().map(|(position, replay)| {
@@ -372,7 +351,7 @@ impl Step {
         for text in streamed {
             text.finalize(record, reaction);
         }
-        (calls, self.warnings)
+        calls
     }
 }
 

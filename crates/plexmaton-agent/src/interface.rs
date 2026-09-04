@@ -6,11 +6,11 @@
 
 use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
-use crate::UnixMillis;
 use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::journal::JournalRecord;
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
 use crate::tools::ToolExecutionResult;
+use crate::{RequestAttemptId, UnixMillis};
 
 /// Something the loop is told.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -123,12 +123,21 @@ pub struct UndeliveredInput {
 /// Why output from an owned provider operation could not enter the turn record.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelDeliveryRefusal {
+    /// Provider usage belongs to a correlated request-attempt terminal (TIM-3).
+    UsageRequiresAttemptTerminal,
     /// No model step is currently open.
     NoActiveStep,
     /// A different model step is open, so this output is stale or misrouted.
     WrongStep {
         /// Only identity the loop would currently accept.
         expected: ModelStepId,
+    },
+    /// Output names a stale or unrelated request attempt, even if its step identity is current.
+    WrongAttempt {
+        /// Attempt currently allowed to deliver output.
+        expected: RequestAttemptId,
+        /// Attempt carried by the refused output.
+        received: RequestAttemptId,
     },
 }
 

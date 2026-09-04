@@ -12,6 +12,9 @@ use crate::{
     ModelStepId, RequestAttempt, RequestAttemptId, RequestAttemptOwner, TurnFinished, UnixMillis,
 };
 
+mod accounting;
+#[cfg(test)]
+mod accounting_tests;
 #[cfg(test)]
 mod attempt_tests;
 mod attempts;
@@ -25,6 +28,7 @@ mod turns;
 #[cfg(test)]
 mod validation_tests;
 
+pub use accounting::{RequestAccounting, RequestAccountingError};
 pub use error::JournalError;
 pub use payload::JournalEntryPayload;
 pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;

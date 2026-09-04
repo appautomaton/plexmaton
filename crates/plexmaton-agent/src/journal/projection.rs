@@ -10,7 +10,7 @@ use super::{JournalEntryPayload, SessionEntry, SessionJournal};
 use crate::timing::UsageAccumulator;
 use crate::{
     AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId, RequestAttempt,
-    RequestAttemptAuthorized, RequestAttemptTerminal, RequestAttemptTerminalState,
+    RequestAttemptAuthorized, RequestAttemptId,
 };
 
 #[cfg(test)]
@@ -22,12 +22,14 @@ mod live_tests;
 mod tests;
 mod tools;
 mod types;
+mod usage;
 #[cfg(test)]
 mod validation_tests;
 
 use events::visible_event;
 use tools::{PendingBatch, ToolChange, ToolProjection};
 pub use types::{JournalProjection, JournalProjectionError, RecoveryProjection};
+use usage::{cumulative_usage_event, unknown_usage_event};
 
 struct Projector {
     atoms: Vec<ContextAtom>,
@@ -42,6 +44,7 @@ struct Projector {
     turns: BTreeMap<TurnId, AgentId>,
     steps: BTreeSet<ModelStepId>,
     turn_usage: BTreeMap<TurnId, UsageAccumulator>,
+    unresolved_attempts: BTreeMap<TurnId, BTreeSet<RequestAttemptId>>,
 }
 
 impl Projector {
@@ -59,6 +62,7 @@ impl Projector {
             turns: BTreeMap::new(),
             steps: BTreeSet::new(),
             turn_usage: BTreeMap::new(),
+            unresolved_attempts: BTreeMap::new(),
         }
     }
 
@@ -245,6 +249,7 @@ impl Projector {
         if expected != &fact.agent_id {
             return Err(JournalProjectionError::WrongTurnAgent(fact.turn_id.clone()));
         }
+        self.finish_unknown_usage(&fact.turn_id, &fact.agent_id)?;
         self.emit(SessionEvent::AgentStatusChanged {
             agent_id: fact.agent_id.clone(),
             status: plexmaton_core::AgentStatus::Idle,
@@ -276,6 +281,9 @@ impl Projector {
         let Some(step_id) = attempt.authorization().owner().agent_step() else {
             return Ok(());
         };
+        if let Some(pending) = self.unresolved_attempts.get_mut(step_id.turn_id()) {
+            pending.remove(attempt.authorization().attempt_id());
+        }
         let Some(agent_id) = self.turns.get(step_id.turn_id()).cloned() else {
             return Err(JournalProjectionError::MissingTurn(
                 step_id.turn_id().clone(),
@@ -289,11 +297,42 @@ impl Projector {
             terminal,
             &agent_id,
             &mut self.turn_usage,
+            self.unresolved_attempts
+                .get(step_id.turn_id())
+                .is_some_and(|pending| !pending.is_empty()),
         )?
         else {
             return Ok(());
         };
         self.emit(event)
+    }
+
+    fn request_attempt_authorized(&mut self, fact: &RequestAttemptAuthorized) {
+        if let Some(step_id) = fact.owner().agent_step() {
+            self.unresolved_attempts
+                .entry(step_id.turn_id().clone())
+                .or_default()
+                .insert(fact.attempt_id().clone());
+        }
+    }
+
+    fn finish_unknown_usage(
+        &mut self,
+        turn_id: &TurnId,
+        agent_id: &AgentId,
+    ) -> Result<(), JournalProjectionError> {
+        if self
+            .unresolved_attempts
+            .get(turn_id)
+            .is_some_and(|pending| !pending.is_empty())
+        {
+            self.emit(unknown_usage_event(
+                turn_id,
+                agent_id,
+                self.turn_usage.get(turn_id),
+            ))?;
+        }
+        Ok(())
     }
 
     fn require_agent(&self, agent_id: &AgentId) -> Result<(), JournalProjectionError> {
@@ -422,6 +461,11 @@ impl SessionJournal {
             }
         }
         for record in self.records() {
+            if let super::JournalRecord::RequestAttemptAuthorized { fact, sequence, .. } = record
+                && Self::boundary_is_selected(&selected, fact)
+            {
+                ordered.push((*sequence, SelectedFact::RequestAttemptAuthorized(fact)));
+            }
             if let super::JournalRecord::RequestAttemptFinished { fact, sequence, .. } = record {
                 let attempt = self
                     .request_attempt(fact.attempt_id())
@@ -432,14 +476,36 @@ impl SessionJournal {
             }
         }
         ordered.sort_by_key(|(sequence, _)| *sequence);
+        let mut finished_turns = BTreeSet::new();
         for (_, fact) in ordered {
             match fact {
                 SelectedFact::Entry(entry) => project_entry(&mut projector, entry)?,
-                SelectedFact::TurnFinished(fact) => projector.turn_finished(fact)?,
+                SelectedFact::TurnFinished(fact) => {
+                    projector.turn_finished(fact)?;
+                    finished_turns.insert(fact.turn_id.clone());
+                }
+                SelectedFact::RequestAttemptAuthorized(fact) => {
+                    projector.request_attempt_authorized(fact);
+                }
                 SelectedFact::RequestAttemptFinished(attempt) => {
                     projector.request_attempt_finished(attempt)?;
                 }
             }
+        }
+        // A crash prefix may have no TurnFinished yet; its surviving usage still has honest coverage.
+        let unfinished: Vec<_> = projector
+            .unresolved_attempts
+            .keys()
+            .filter(|turn_id| !finished_turns.contains(*turn_id))
+            .cloned()
+            .collect();
+        for turn_id in unfinished {
+            let agent_id = projector
+                .turns
+                .get(&turn_id)
+                .ok_or_else(|| JournalProjectionError::MissingTurn(turn_id.clone()))?
+                .clone();
+            projector.finish_unknown_usage(&turn_id, &agent_id)?;
         }
         projector.finish_batch(true)?;
         let request_attempts = self
@@ -461,93 +527,8 @@ impl SessionJournal {
 enum SelectedFact<'a> {
     Entry(&'a SessionEntry),
     TurnFinished(&'a crate::TurnFinished),
+    RequestAttemptAuthorized(&'a RequestAttemptAuthorized),
     RequestAttemptFinished(&'a RequestAttempt),
-}
-
-fn cumulative_usage_event(
-    authorization: &RequestAttemptAuthorized,
-    terminal: &RequestAttemptTerminal,
-    agent_id: &AgentId,
-    totals: &mut BTreeMap<TurnId, UsageAccumulator>,
-) -> Result<Option<SessionEvent>, JournalProjectionError> {
-    let Some(step_id) = authorization.owner().agent_step() else {
-        return Ok(None);
-    };
-    let RequestAttemptTerminalState::Dispatched { usage, .. } = terminal.terminal() else {
-        return Ok(None);
-    };
-    let aggregate = totals
-        .entry(step_id.turn_id().clone())
-        .or_default()
-        .add(usage.clone())
-        .map_err(|()| JournalProjectionError::TurnUsageOverflow(step_id.turn_id().clone()))?;
-    Ok(Some(SessionEvent::TurnUsageUpdated {
-        agent_id: agent_id.clone(),
-        turn_id: step_id.turn_id().clone(),
-        usage: aggregate,
-    }))
-}
-
-impl SessionJournal {
-    pub(crate) fn preview_cumulative_usage_event(
-        &self,
-        head: &HeadName,
-        terminal: &RequestAttemptTerminal,
-    ) -> Result<Option<SessionEvent>, JournalProjectionError> {
-        let selected: BTreeSet<_> = self
-            .path(head)?
-            .into_iter()
-            .map(|entry| entry.id.clone())
-            .collect();
-        let mut totals = BTreeMap::new();
-        for record in self.records() {
-            let super::JournalRecord::RequestAttemptFinished { fact, .. } = record else {
-                continue;
-            };
-            let attempt = self
-                .request_attempt(fact.attempt_id())
-                .unwrap_or_else(|| unreachable!("accepted terminal retains its authorization"));
-            if !Self::boundary_is_selected(&selected, attempt.authorization()) {
-                continue;
-            }
-            let Some(step_id) = attempt.authorization().owner().agent_step() else {
-                continue;
-            };
-            let start = self
-                .turn_starts
-                .get(step_id.turn_id())
-                .ok_or_else(|| JournalProjectionError::MissingTurn(step_id.turn_id().clone()))?;
-            let retained_terminal = attempt
-                .terminal()
-                .unwrap_or_else(|| unreachable!("finished record retains its terminal"));
-            let _prior = cumulative_usage_event(
-                attempt.authorization(),
-                retained_terminal,
-                &start.agent_id,
-                &mut totals,
-            )?;
-        }
-
-        let Some(attempt) = self.request_attempt(terminal.attempt_id()) else {
-            return Ok(None);
-        };
-        if !Self::boundary_is_selected(&selected, attempt.authorization()) {
-            return Ok(None);
-        }
-        let Some(step_id) = attempt.authorization().owner().agent_step() else {
-            return Ok(None);
-        };
-        let start = self
-            .turn_starts
-            .get(step_id.turn_id())
-            .ok_or_else(|| JournalProjectionError::MissingTurn(step_id.turn_id().clone()))?;
-        cumulative_usage_event(
-            attempt.authorization(),
-            terminal,
-            &start.agent_id,
-            &mut totals,
-        )
-    }
 }
 
 fn project_entry(

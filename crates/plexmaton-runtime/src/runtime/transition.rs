@@ -21,6 +21,8 @@ pub(super) enum AfterCommit {
     None,
     Interrupt,
     Shutdown,
+    StartModel,
+    SettleModel,
 }
 
 enum CommitFailure {
@@ -28,19 +30,7 @@ enum CommitFailure {
     Writer,
 }
 
-pub(super) fn merge_reaction(target: &mut Reaction, mut next: Reaction) {
-    target.records.append(&mut next.records);
-    target.released_inputs.append(&mut next.released_inputs);
-    target.events.append(&mut next.events);
-    target.effects.append(&mut next.effects);
-    target.undelivered.append(&mut next.undelivered);
-    target
-        .unresolved_approvals
-        .append(&mut next.unresolved_approvals);
-    target.undelivered_model.append(&mut next.undelivered_model);
-}
-
-fn failure_inputs(
+pub(super) fn failure_inputs(
     reaction: &Reaction,
     rejected_input: Option<UndeliveredInput>,
 ) -> Vec<UndeliveredInput> {
@@ -77,38 +67,13 @@ impl LiveRuntime {
         self.finish_pending_transition().await
     }
 
-    pub(super) async fn apply_agent_input_after_usage(
-        &mut self,
-        input: Input,
-        rejected_input: Option<UndeliveredInput>,
-        after: AfterCommit,
-    ) -> Result<(), RuntimeError> {
-        let mut reaction = Reaction::default();
-        let observed_at = self.clock.now();
-        self.stage_missing_usage_at(&mut reaction, observed_at);
-        merge_reaction(&mut reaction, self.agent.handle_at(input, observed_at));
-        let rejected_inputs = failure_inputs(&reaction, rejected_input);
-        self.begin_transition(reaction, rejected_inputs, after)?;
-        self.finish_transition().await
-    }
-
     pub(super) async fn finish_pending_inputs(&mut self) -> Result<(), RuntimeError> {
         self.finish_transition().await?;
         while !self.journal_failed {
             let Some(pending) = self.pending_inputs.pop_front() else {
                 break;
             };
-            let reaction = if matches!(&pending.input, Input::Interrupted) {
-                let mut reaction = Reaction::default();
-                self.stage_missing_usage_at(&mut reaction, pending.observed_at);
-                merge_reaction(
-                    &mut reaction,
-                    self.agent.handle_at(pending.input, pending.observed_at),
-                );
-                reaction
-            } else {
-                self.agent.handle_at(pending.input, pending.observed_at)
-            };
+            let reaction = self.agent.handle_at(pending.input, pending.observed_at);
             let rejected_inputs = failure_inputs(&reaction, pending.rejected_input);
             self.begin_transition(reaction, rejected_inputs, pending.after)?;
             self.finish_transition().await?;
@@ -177,11 +142,23 @@ impl LiveRuntime {
     }
 
     pub(super) async fn finish_transition(&mut self) -> Result<(), RuntimeError> {
-        self.finish_pending_transition().await?;
-        self.finish_after_commit().await
+        loop {
+            self.finish_pending_transition().await?;
+            if self.pending_commit.is_some() {
+                continue;
+            }
+            self.finish_after_commit().await?;
+            if self.pending_commit.is_none() && self.after_commit.is_none() {
+                if let Some(call) = self.deferred_model_call.take() {
+                    self.authorize_model(call)?;
+                } else {
+                    return Ok(());
+                }
+            }
+        }
     }
 
-    async fn finish_pending_transition(&mut self) -> Result<(), RuntimeError> {
+    pub(super) async fn finish_pending_transition(&mut self) -> Result<(), RuntimeError> {
         if let Some(pending) = &mut self.pending_commit {
             let result = match finish_commit(&mut pending.reply).await {
                 Ok(Ok(())) => Ok(()),
@@ -237,6 +214,8 @@ impl LiveRuntime {
                 self.cancel_active().await?;
                 self.tools.cancel_and_join().await?;
             }
+            AfterCommit::StartModel => self.start_authorized_model()?,
+            AfterCommit::SettleModel => self.settle_model_completion().await?,
         }
         self.after_commit = None;
         Ok(())
@@ -256,9 +235,16 @@ impl LiveRuntime {
         self.report
             .undelivered_model
             .append(&mut reaction.undelivered_model);
+        let has_model = reaction
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CallModel(_)));
+        if has_model && reaction.effects.len() != 1 {
+            return Err(RuntimeError::ModelStartedWithToolWork);
+        }
         for effect in reaction.effects {
             match effect {
-                Effect::CallModel(call) => self.spawn_model(call)?,
+                Effect::CallModel(call) => self.authorize_model(call)?,
                 Effect::AdmitTool(request) => self.tools.start_admission(request)?,
                 Effect::RunTool(call) => self.tools.start_execution(call)?,
             }

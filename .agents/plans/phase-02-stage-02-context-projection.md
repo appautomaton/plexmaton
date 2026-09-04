@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–3 |
 | Contract | TIM-1–TIM-5, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3–PRV-6, LIVE-1/LIVE-3–LIVE-5 and LOOP-2 |
-| Status | Active; slices 1–4 complete, slice 5 of 10 next |
+| Status | Active; slices 1–5 complete, slice 6 of 10 next |
 | Blocked | None for slices 1–9; slice 10 interaction copy requires the user's rendered-frame agreement |
 
 ## Outcome
@@ -58,7 +58,7 @@ rewind and branches durable without copying entries or replaying effects.
    and the user-facing retained-byte limit. *Closes when* one route supplies two exact models
    without repeated authority, resolved defaults are explicit, invalid input fails before network
    work, old fields are rejected, and README/config fixtures agree.
-5. **Request attempts and immutable usage.** Implement TIM-2–TIM-5 with agent-step and compaction
+5. **Request attempts and immutable usage (complete).** Implement TIM-2–TIM-5 with agent-step and compaction
    owners over an exact atom boundary/fingerprint; retire cumulative journal usage. *Closes when*
    cancellation/encoding failure, every dispatched terminal, missing usage and process death retain
    correlation without fabricated timing or delta writes; invalid terminals mutate nothing.

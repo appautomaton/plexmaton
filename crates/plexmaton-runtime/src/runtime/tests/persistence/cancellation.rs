@@ -193,9 +193,9 @@ async fn wrong_agent_is_rejected_before_a_pending_failure_report_is_attributed()
     );
 }
 
-/// JRN-7: an interrupt is retained together with missing usage before the first await.
+/// JRN-7: a cancelled interrupt poll retains its terminal commit and later joins the model.
 #[tokio::test]
-async fn cancelled_interrupt_during_usage_append_still_joins_the_model() {
+async fn cancelled_interrupt_commit_still_joins_the_model_after_resume() {
     let (control, store) = StoreControl::pair();
     let started = Arc::new(Notify::new());
     let finished = Arc::new(AtomicBool::new(false));
@@ -216,7 +216,7 @@ async fn cancelled_interrupt_during_usage_append_still_joins_the_model() {
         let interrupt = runtime.submit(agent_id(), Input::Interrupted);
         tokio::pin!(interrupt);
         tokio::select! {
-            result = &mut interrupt => panic!("interrupt completed before usage ack: {result:?}"),
+            result = &mut interrupt => panic!("interrupt completed before terminal ack: {result:?}"),
             () = entered => {}
         }
     }
@@ -231,9 +231,9 @@ async fn cancelled_interrupt_during_usage_append_still_joins_the_model() {
     assert!(finished.load(Ordering::SeqCst));
 }
 
-/// JRN-7: a cancelled model-end poll keeps the retained provider owner until usage commits.
+/// TIM-2/JRN-7: a cancelled model-end poll keeps its owner until attempt accounting commits.
 #[tokio::test]
-async fn cancelled_model_end_during_usage_append_keeps_the_active_owner() {
+async fn cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner() {
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::EndWithoutTerminal]);
     let mut runtime = runtime(store, driver).await;
@@ -250,7 +250,7 @@ async fn cancelled_model_end_during_usage_append_keeps_the_active_owner() {
         let update = runtime.next_update();
         tokio::pin!(update);
         tokio::select! {
-            result = &mut update => panic!("model end completed before usage ack: {result:?}"),
+            result = &mut update => panic!("model end completed before attempt terminal ack: {result:?}"),
             () = entered => {}
         }
     }

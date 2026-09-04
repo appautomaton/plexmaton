@@ -334,6 +334,108 @@ fn tim_3_one_owner_has_at_most_one_unfinished_attempt() {
     assert_eq!(fixture.journal, before_second);
 }
 
+/// TIM-3/TIM-5: a late terminal resolves only its own attempt, even when tool-step progression
+/// left another request unresolved before interruption. Live and replay totals remain partial.
+#[test]
+fn tim_5_late_terminal_keeps_other_unresolved_step_usage_partial() {
+    use crate::{
+        AdmissionOutcome, AdmissionRefusal, Agent, Input, ModelEvent, ModelOutputPosition,
+    };
+    use plexmaton_core::{SessionEvent, TokenCounts, ToolCallId};
+
+    let mut agent = Agent::new(id("agent-pending", AgentId::new));
+    let _opened = agent.handle(Input::Submitted {
+        text: "take two steps".to_owned(),
+    });
+    let first_step = agent.active_model_step().expect("first step opened");
+    let (first_id, _) = agent
+        .authorize_request_attempt(first_step.clone(), environment(1), UnixMillis::new(12))
+        .expect("authorize first step");
+    let call_id = id("pending-call", ToolCallId::new);
+    let _called = agent.handle(Input::Streamed {
+        step_id: first_step.clone(),
+        event: ModelEvent::Called {
+            position: ModelOutputPosition::new(0, 0),
+            call: crate::ToolCall {
+                call_id: call_id.clone(),
+                name: "unknown_tool".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+        },
+    });
+    let _stopped = agent.handle(Input::Streamed {
+        step_id: first_step,
+        event: ModelEvent::Stopped(crate::StopReason::ToolCalls),
+    });
+    let _refused = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Refused {
+        call_id,
+        reason: AdmissionRefusal::UnknownTool,
+    }));
+    let second_step = agent
+        .active_model_step()
+        .expect("tool result opened second step");
+    let (second_id, _) = agent
+        .authorize_request_attempt(second_step, environment(1), UnixMillis::new(13))
+        .expect("authorize second step while first audit remains pending");
+    let _interrupted = agent.handle(Input::Interrupted);
+    let counts = TokenCounts {
+        input: 10,
+        cached_input: Some(0),
+        cache_write_input: Some(0),
+        output: 2,
+        reasoning_output: Some(0),
+        total: 12,
+    };
+    let terminal = RequestAttemptTerminal::new(
+        first_id,
+        RequestAttemptTerminalState::Dispatched {
+            timing: DispatchedRequestTiming::new(
+                UnixMillis::new(12),
+                None,
+                None,
+                ElapsedMillis::new(2),
+            )
+            .expect("fixture timing"),
+            outcome: RequestDispatchedOutcome::Completed {
+                stop_reason: crate::StopReason::ToolCalls,
+            },
+            usage: TokenUsage::Complete(counts.clone()),
+            cost: RequestCost::Unavailable,
+        },
+    )
+    .expect("fixture terminal");
+    let late = agent
+        .finish_request_attempt(&terminal)
+        .expect("first late terminal accepted");
+    let projection = agent
+        .journal()
+        .project(&head("main"))
+        .expect("replay both attempts");
+    for events in [late.events.as_slice(), projection.events()] {
+        let usage = events.iter().rev().find_map(|event| match &event.event {
+            SessionEvent::TurnUsageUpdated { usage, .. } => Some(usage),
+            _ => None,
+        });
+        assert_eq!(usage, Some(&TokenUsage::Partial(counts.clone())));
+    }
+    assert!(
+        agent
+            .journal()
+            .request_attempt(&second_id)
+            .expect("second attempt retained")
+            .terminal()
+            .is_none()
+    );
+    assert_eq!(
+        agent
+            .journal()
+            .incurred_accounting()
+            .expect("whole-session total")
+            .usage,
+        TokenUsage::Partial(counts)
+    );
+}
+
 /// TIM-2/JRN-2: missing, duplicate and boundary-invalid attempt facts leave the journal exactly
 /// unchanged.
 #[test]

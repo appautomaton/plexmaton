@@ -34,8 +34,8 @@ pub use interface::{
 };
 pub use journal::{
     HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,
-    JournalRecord, JournalSequence, RecoveryProjection, SessionEntry, SessionJournal,
-    SessionMetadata,
+    JournalRecord, JournalSequence, RecoveryProjection, RequestAccounting, RequestAccountingError,
+    SessionEntry, SessionJournal, SessionMetadata,
 };
 pub use model::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,

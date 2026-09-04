@@ -10,13 +10,17 @@ impl LiveRuntime {
         };
         active.cancellation.cancel();
         let step_id = active.step_id.clone();
-        let joined = (&mut active.future)
-            .await
-            .map_err(|_| RuntimeError::ProviderFutureFailed(step_id.clone()));
+        let result = (&mut active.future).await;
         Box::pin(self.drain_ready_signals()).await?;
-        self.active.take();
-        joined?;
-        Ok(())
+        let panicked = result.is_err();
+        self.retain_model_result(result);
+        self.finish_attempt_audit_during_owner_action().await?;
+        self.settle_model_completion().await?;
+        if panicked {
+            Err(RuntimeError::ProviderFutureFailed(step_id))
+        } else {
+            Ok(())
+        }
     }
 
     pub(super) async fn discard_active_after_journal_failure(

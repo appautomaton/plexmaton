@@ -117,7 +117,8 @@ pub enum ModelEvent {
         position: ModelOutputPosition,
         call: ToolCall,
     },
-    /// Provider-reported token consumption for this step.
+    /// Provider-reported token consumption retained by the runtime in an attempt terminal.
+    /// Direct delivery through `Input::Streamed` is refused (TIM-3).
     Usage(TokenUsage),
     /// The model finished this step, and why.
     Stopped(StopReason),

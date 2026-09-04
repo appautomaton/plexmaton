@@ -17,7 +17,6 @@ use crate::journal::{JournalEntryPayload, SessionJournal};
 use crate::model::{ModelCall, ModelStepId};
 use crate::record::Record;
 use crate::step::Step;
-use crate::timing::UsageAccumulator;
 use crate::tools::{Batch, PendingApproval};
 
 mod batch;
@@ -65,8 +64,6 @@ enum Turn {
         turn_id: TurnId,
         /// Step currently receiving model events.
         step: Box<Step>,
-        /// Process-local aggregate until usage moves into the attempt terminal.
-        usage: UsageAccumulator,
     },
     /// The step is over and the calls it made are out being run.
     Working {
@@ -76,8 +73,6 @@ enum Turn {
         batch: Batch,
         /// Which step dispatched them.
         step: u16,
-        /// Process-local aggregate carried across the tool boundary.
-        usage: UsageAccumulator,
     },
 }
 
@@ -281,13 +276,7 @@ impl Agent {
     }
 
     /// Asks the model, and says the agent is producing.
-    fn open_step(
-        &mut self,
-        turn_id: TurnId,
-        index: u16,
-        usage: UsageAccumulator,
-        reaction: &mut Reaction,
-    ) {
+    fn open_step(&mut self, turn_id: TurnId, index: u16, reaction: &mut Reaction) {
         if index > 1 {
             self.status(turn_id.clone(), reaction, crate::ActiveTurnStatus::Running);
         }
@@ -295,7 +284,6 @@ impl Agent {
         self.turn = Turn::Streaming {
             turn_id,
             step: Box::new(Step::new(step_id.turn_id().clone(), index)),
-            usage,
         };
         reaction.effects.push(Effect::CallModel(ModelCall {
             step_id,
