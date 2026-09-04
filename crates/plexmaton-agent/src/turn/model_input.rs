@@ -4,6 +4,7 @@ use plexmaton_core::{SessionEvent, TokenUsage, TurnId};
 
 use super::{Agent, Turn, usage::UsageAccumulator};
 use crate::interface::{ModelDeliveryRefusal, Reaction, UndeliveredModelInput};
+use crate::journal::JournalEntryPayload;
 use crate::model::{ModelEvent, ModelStepId, StopReason};
 use crate::tools::ToolCall;
 
@@ -53,7 +54,16 @@ impl Agent {
                 }
             }
             ModelEvent::Called(call) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
+                let reused = self.record.contains_tool_call(&call.call_id)
+                    || matches!(&self.turn, Turn::Streaming { step, .. } if step.contains_call(&call.call_id));
+                if reused {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: "a tool call identity was reused".to_owned(),
+                        },
+                        reaction,
+                    );
+                } else if let Turn::Streaming { step, .. } = &mut self.turn {
                     step.collect(call);
                 }
             }
@@ -70,10 +80,7 @@ impl Agent {
                 usage,
             } => {
                 if !step.mark_usage_reported() {
-                    self.warn(
-                        reaction,
-                        "the provider reported usage more than once for one step",
-                    );
+                    step.defer_warning("the provider reported usage more than once for one step");
                     return;
                 }
                 usage
@@ -83,9 +90,19 @@ impl Agent {
             Turn::Idle | Turn::Working { .. } => return,
         };
         let Ok((turn_id, usage)) = result else {
-            self.warn(reaction, "the provider's turn usage overflowed its counter");
+            if let Turn::Streaming { step, .. } = &mut self.turn {
+                step.defer_warning("the provider's turn usage overflowed its counter");
+            }
             return;
         };
+        self.record.commit(
+            JournalEntryPayload::TurnUsageUpdated {
+                agent_id: self.record.agent_id().clone(),
+                turn_id: turn_id.clone(),
+                usage: usage.clone(),
+            },
+            reaction,
+        );
         self.record.emit(
             reaction,
             SessionEvent::TurnUsageUpdated {
@@ -97,19 +114,18 @@ impl Agent {
     }
 
     fn stop(&mut self, reason: StopReason, reaction: &mut Reaction) {
-        match reason {
-            StopReason::EndOfTurn | StopReason::ToolCalls => {}
-            StopReason::OutputLimit => {
-                self.warn(reaction, "the model reached its output limit mid-answer");
-            }
-            StopReason::Refused => self.warn(reaction, "the model declined to answer"),
-            StopReason::Unspecified => {
-                self.warn(reaction, "the model stopped without saying why");
-            }
-        }
+        let diagnostic = match reason {
+            StopReason::EndOfTurn | StopReason::ToolCalls => None,
+            StopReason::OutputLimit => Some("the model reached its output limit mid-answer"),
+            StopReason::Refused => Some("the model declined to answer"),
+            StopReason::Unspecified => Some("the model stopped without saying why"),
+        };
         let Some((turn_id, calls, index, usage)) = self.close_step(reaction) else {
             return;
         };
+        if let Some(message) = diagnostic {
+            self.warn(reaction, message);
+        }
         if calls.is_empty() {
             if matches!(reason, StopReason::ToolCalls) {
                 self.warn(
@@ -137,11 +153,10 @@ impl Agent {
             return None;
         };
         let index = step.index();
-        Some((
-            turn_id,
-            step.close(&mut self.record, reaction),
-            index,
-            usage,
-        ))
+        let (calls, warnings) = step.close(&mut self.record, reaction);
+        for warning in warnings {
+            self.warn(reaction, &warning);
+        }
+        Some((turn_id, calls, index, usage))
     }
 }

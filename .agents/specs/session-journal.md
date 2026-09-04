@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Structural reducer, pure projections and per-session JSONL adapter implemented |
-| Owns | Stable records, immutable entry ancestry, named-head revisions, lossless wire form, exclusive file writer and final-tail recovery |
+| Status | Canonical live reducer, pure projections and per-session JSONL adapter implemented |
+| Owns | Stable records, immutable entry ancestry, named-head revisions, live commit boundary, lossless wire form, exclusive file writer and final-tail recovery |
 | Depends on | PRV-3/PRV-4 for model replay, ENT-1/ENT-3 for transcript identity and pure reduction |
 | Proven by | `plexmaton-agent::journal` and `plexmaton-session-store` tests |
 
@@ -43,6 +43,13 @@ before a later model fact is corruption rather than a silently ignored tail. Com
 normalize provider chunking into one replay delta; chunk boundaries are transport facts, not durable
 session semantics.
 
+**JRN-6 — Completed live facts enter once.** The agent applies one `JournalRecord` for each settled
+fact and returns that exact record in its `Reaction`; provider requests read only the selected
+journal path. Streaming deltas use a live delivery cursor, but only their completed message becomes
+canonical. Rebuilding an idle agent's visible projection rebases that delivery cursor to the
+normalized event stream; active transient work refuses rebuilding instead of pretending it is
+durable semantic state.
+
 ## Model
 
 ```text
@@ -78,3 +85,4 @@ head names remain retired so a stale command cannot become valid after a name is
 | JRN-3 | `jrn_3_every_record_round_trips_and_debug_redacts_replay`, `jrn_3_every_model_item_variant_round_trips_inside_an_append`, `jrn_3_every_canonical_payload_variant_round_trips_inside_an_append`, `jrn_3_decoding_rechecks_identity_and_replay_bounds`, `jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file` |
 | JRN-4 | `jrn_4_create_append_reopen_and_immediate_visibility`, `jrn_4_a_second_writer_is_refused_until_the_owner_closes`, `jrn_4_valid_final_record_without_newline_is_repaired`, `jrn_4_incomplete_final_tail_is_isolated`, `jrn_4_middle_corruption_is_not_guessed_around`, `jrn_4_unknown_format_version_is_refused`, `jrn_4_invalid_sequence_is_refused_even_on_the_final_line`, `jrn_4_unknown_final_record_kind_is_a_schema_failure`, `jrn_4_duplicate_record_field_is_refused_without_tail_recovery`, `jrn_4_terminated_invalid_final_line_is_not_tail_recovery`, `jrn_4_write_failure_changes_no_memory_and_requires_reopen`, `jrn_4_partial_write_reopens_at_the_last_complete_record`, `jrn_4_newline_write_failure_recovers_the_record_as_committed`, `jrn_4_oversized_record_is_returned_without_poisoning_the_writer`, `jrn_4_failed_header_encoding_leaves_no_file`, `jrn_4_rejected_append_writes_nothing_and_returns_exact_ownership`, `jrn_4_unterminated_line_cannot_grow_past_the_bound_when_repaired`, `jrn_4_poisoned_writer_cannot_fork`, `jrn_4_fork_publishes_a_complete_sibling`, `jrn_3_and_jrn_4_journal_fork_and_tail_files_are_owner_only`, `jrn_3_and_jrn_4_insecure_existing_journal_is_refused`, `jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file` |
 | JRN-5 | `jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context`, `jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics`, `jrn_5_one_path_projects_model_order_and_visible_lifecycle`, `jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request`, `jrn_5_incomplete_tool_batch_before_later_content_is_rejected`, `jrn_5_system_message_after_incomplete_batch_remains_a_recoverable_tail`, `jrn_5_named_heads_project_only_their_selected_ancestry`, `jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers`, `jrn_5_invalid_tool_lifecycle_has_a_typed_projection_error`, `jrn_5_duplicate_transcript_identity_is_rejected_before_projection`, `jrn_5_mail_requires_both_visible_endpoints`, `jrn_5_attention_resolution_keeps_its_request_owner`, `jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots`, `jrn_5_journal_projection_builds_the_model_request_and_tui_state`, crate-graph gate |
+| JRN-6 | `jrn_6_one_commit_is_the_only_model_record`, `jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context`, `jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics`, `jrn_6_active_projection_rebuild_is_refused`, `jrn_6_reused_tool_call_identity_fails_the_turn_before_commit`, `jrn_6_partial_failure_and_output_limit_keep_live_transcript_order`, `jrn_6_interleaved_answer_and_reasoning_keep_first_open_order`, `jrn_6_streaming_usage_warning_keeps_live_transcript_order` |

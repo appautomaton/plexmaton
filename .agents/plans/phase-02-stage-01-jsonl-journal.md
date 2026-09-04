@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–2 |
 | Contract | PRV-3/PRV-4, ENT-1/ENT-3, LOOP-2/LOOP-4 and APV-6 |
-| Status | Active; slices 1–3 of 6 done; slice 4 ready |
+| Status | Active; slices 1–4 of 6 done; slice 5 ready |
 | Blocked | None |
 
 ## Outcome
@@ -63,10 +63,12 @@ second transcript.
    append, reopen, a record a second handle reads back the moment append returns, valid missing
    newline, incomplete tail isolation, middle corruption, write failure and two attempted writers,
    with no test touching the real `PLEXMATON_HOME`.
-4. **Make the journal authoritative.** Replace `Record`'s independent item/event counters with the
-   journal reducer and projections. Transient step assembly remains, but final facts enter once and
-   both consumers derive from them. *Closes when* existing agent/provider/TUI fixtures remain equal,
-   deleting either projection and rebuilding it changes nothing, and no reconciliation path exists.
+4. **Make the journal authoritative.** Replace `Record`'s independent model items and durable
+   identity counters with the journal reducer and projections. A live event cursor remains for
+   transient provider deltas, but final facts enter once and both consumers derive from them.
+   *Closes when* existing agent/provider/TUI fixtures remain equal,
+   deleting either projection and rebuilding it changes nothing, and no semantic reconciliation
+   path exists.
 5. **Runtime ownership and submission failure.** The live runtime owns the journal writer and waits
    for append completion before starting model/tool work that depends on it. A failed user-message
    append returns the exact draft and emits a typed visible failure. *Closes when* injected write

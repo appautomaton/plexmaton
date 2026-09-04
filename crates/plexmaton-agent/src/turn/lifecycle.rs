@@ -5,13 +5,13 @@ use plexmaton_core::{AgentStatus, ApprovalDecision, ApprovalId, SessionEvent};
 use super::{Agent, DeliveryBoundary, Turn};
 use crate::{
     interface::{ApprovalDecisionRefusal, Reaction, UndeliveredReason, UnresolvedApprovalDecision},
+    journal::JournalEntryPayload,
     model::ModelError,
     tools::ToolCancellationReason,
 };
 
 impl Agent {
     pub(super) fn fail(&mut self, error: &ModelError, reaction: &mut Reaction) {
-        self.error(reaction, &error.message());
         if self.is_running() {
             self.abort_turn(
                 UndeliveredReason::StepFailed,
@@ -19,6 +19,7 @@ impl Agent {
                 reaction,
             );
         }
+        self.error(reaction, &error.message());
     }
 
     pub(super) fn interrupt(&mut self, reaction: &mut Reaction) {
@@ -81,6 +82,13 @@ impl Agent {
     }
 
     pub(super) fn status(&mut self, reaction: &mut Reaction, status: AgentStatus) {
+        self.record.commit(
+            JournalEntryPayload::AgentStatusChanged {
+                agent_id: self.record.agent_id().clone(),
+                status,
+            },
+            reaction,
+        );
         let event = SessionEvent::AgentStatusChanged {
             agent_id: self.record.agent_id().clone(),
             status,
@@ -90,6 +98,14 @@ impl Agent {
 
     pub(super) fn warn(&mut self, reaction: &mut Reaction, message: &str) {
         let item_id = self.record.next_item_id();
+        self.record.commit(
+            JournalEntryPayload::RuntimeWarning {
+                agent_id: self.record.agent_id().clone(),
+                item_id: item_id.clone(),
+                message: message.to_owned(),
+            },
+            reaction,
+        );
         let event = SessionEvent::RuntimeWarning {
             agent_id: self.record.agent_id().clone(),
             item_id,
@@ -100,6 +116,14 @@ impl Agent {
 
     fn error(&mut self, reaction: &mut Reaction, message: &str) {
         let item_id = self.record.next_item_id();
+        self.record.commit(
+            JournalEntryPayload::RuntimeError {
+                agent_id: self.record.agent_id().clone(),
+                item_id: item_id.clone(),
+                message: message.to_owned(),
+            },
+            reaction,
+        );
         let event = SessionEvent::RuntimeError {
             agent_id: self.record.agent_id().clone(),
             item_id,

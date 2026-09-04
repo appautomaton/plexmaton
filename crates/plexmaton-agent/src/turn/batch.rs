@@ -13,7 +13,7 @@ use super::usage::UsageAccumulator;
 use super::{Agent, Turn};
 use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
-use crate::model::RequestItem;
+use crate::journal::JournalEntryPayload;
 use crate::tools::{
     ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome,
@@ -31,7 +31,10 @@ impl Agent {
     ) {
         let calls_with_entries: Vec<_> = calls
             .into_iter()
-            .map(|call| (call, self.record.next_item_id()))
+            .map(|call| {
+                let item_id = self.record.tool_item_id(&call.call_id);
+                (call, item_id)
+            })
             .collect();
         let dispatched: Vec<_> = calls_with_entries
             .iter()
@@ -44,8 +47,7 @@ impl Agent {
             usage,
         };
         for call in &dispatched {
-            self.record.push(RequestItem::ToolCall(call.clone()));
-            self.emit_tool_status(call.call_id.clone(), ToolCallStatus::Queued, reaction);
+            self.emit_tool_request(call.call_id.clone(), reaction);
             reaction
                 .effects
                 .push(Effect::AdmitTool(AdmissionRequest::new(call.clone())));
@@ -91,7 +93,7 @@ impl Agent {
                         reaction.effects.push(Effect::RunTool(admitted));
                     }
                     PolicyDecision::RequireApproval => {
-                        let (approval_id, attention_id) = self.record.next_approval_ids();
+                        let (approval_id, attention_id) = self.record.approval_ids(&call_id);
                         let pending = PendingApproval::new(
                             approval_id.clone(),
                             attention_id.clone(),
@@ -118,6 +120,14 @@ impl Agent {
                             capabilities: admitted.capabilities().to_vec(),
                             detail: admitted.detail().to_owned(),
                         };
+                        self.record.commit(
+                            JournalEntryPayload::AttentionRequested {
+                                agent_id: self.record.agent_id().clone(),
+                                attention_id: attention_id.clone(),
+                                request: request.clone(),
+                            },
+                            reaction,
+                        );
                         self.record.emit(
                             reaction,
                             SessionEvent::AttentionRequested {
@@ -244,52 +254,6 @@ impl Agent {
         Some((turn_id.clone(), batch.requested(call_id)?.clone()))
     }
 
-    fn emit_tool_status(
-        &mut self,
-        call_id: ToolCallId,
-        status: ToolCallStatus,
-        reaction: &mut Reaction,
-    ) {
-        let entry = match &self.turn {
-            Turn::Working { batch, .. } => {
-                batch
-                    .entry(&call_id)
-                    .map(|(item_id, revision, presentation)| {
-                        (item_id.clone(), revision, presentation.clone())
-                    })
-            }
-            Turn::Idle | Turn::Streaming { .. } => None,
-        };
-        let Some((item_id, item_revision, presentation)) = entry else {
-            self.warn(reaction, "tool state changed without its transcript entry");
-            return;
-        };
-        let changed = SessionEvent::ToolCallChanged {
-            agent_id: self.record.agent_id().clone(),
-            item_id,
-            item_revision,
-            label: self.record.label_of(&call_id),
-            call_id,
-            status,
-            presentation,
-        };
-        self.record.emit(reaction, changed);
-    }
-
-    fn resolve_attention(
-        &mut self,
-        attention_id: plexmaton_core::AttentionId,
-        reaction: &mut Reaction,
-    ) {
-        self.record.emit(
-            reaction,
-            SessionEvent::AttentionResolved {
-                agent_id: self.record.agent_id().clone(),
-                attention_id,
-            },
-        );
-    }
-
     fn continue_if_batch_complete(&mut self, reaction: &mut Reaction) {
         let complete = matches!(
             &self.turn,
@@ -311,12 +275,7 @@ impl Agent {
         else {
             return None;
         };
-        for (call, outcome) in batch.into_results() {
-            self.record.push(RequestItem::ToolResult {
-                call_id: call.call_id,
-                outcome,
-            });
-        }
+        debug_assert!(batch.is_settled());
         Some((turn_id, step, usage))
     }
 

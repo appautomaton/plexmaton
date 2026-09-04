@@ -7,6 +7,7 @@
 use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
 
 use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
+use crate::journal::JournalRecord;
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
 use crate::tools::ToolExecutionResult;
 
@@ -146,6 +147,8 @@ impl UndeliveredInput {
 /// What one input produced.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Reaction {
+    /// Canonical mutations accepted by this transition, in append order (JRN-6).
+    pub records: Vec<JournalRecord>,
     /// Events for the projection, numbered on this agent's one sequence.
     pub events: Vec<SessionEventEnvelope>,
     /// Work for whoever owns the outside world.

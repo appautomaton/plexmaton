@@ -196,15 +196,33 @@ impl Batch {
         }
     }
 
-    /// Entry identity and revision paired with a call's current lifecycle state.
-    pub(crate) fn entry(
+    /// Canonical snapshot paired with a call's current lifecycle state.
+    pub(crate) fn snapshot(
         &self,
         call_id: &ToolCallId,
-    ) -> Option<(&TranscriptItemId, u64, &ToolPresentation)> {
+    ) -> Option<(
+        &TranscriptItemId,
+        u64,
+        &ToolCall,
+        &ToolPresentation,
+        Option<&ToolOutcome>,
+    )> {
         self.slots
             .iter()
             .find(|slot| &slot.requested.call_id == call_id)
-            .map(|slot| (&slot.entry_id, slot.entry_revision, &slot.presentation))
+            .map(|slot| {
+                let outcome = match &slot.state {
+                    CallState::Finished(outcome) => Some(outcome),
+                    _ => None,
+                };
+                (
+                    &slot.entry_id,
+                    slot.entry_revision,
+                    &slot.requested,
+                    &slot.presentation,
+                    outcome,
+                )
+            })
     }
 
     pub(crate) fn requested(&self, call_id: &ToolCallId) -> Option<&ToolCall> {
@@ -377,22 +395,6 @@ impl Batch {
         }
         abandoned
     }
-
-    /// Consumes the batch into call-and-outcome pairs in model order.
-    ///
-    /// Only a settled batch has pairs to give. An unsettled one yields nothing rather than a
-    /// partial conversation, and the caller reaches this only through [`Self::abandon`].
-    pub(crate) fn into_results(self) -> Vec<(ToolCall, ToolOutcome)> {
-        self.slots
-            .into_iter()
-            .filter_map(|slot| match slot.state {
-                CallState::Finished(outcome) => Some((slot.requested, outcome)),
-                CallState::AwaitingAdmission
-                | CallState::AwaitingApproval(_)
-                | CallState::Running(_) => None,
-            })
-            .collect()
-    }
 }
 
 #[cfg(test)]
@@ -400,9 +402,21 @@ mod tests {
     use plexmaton_core::{ToolCallId, ToolCallStatus, ToolDetail};
 
     use super::{
-        Batch, MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolCall, ToolCancellationReason,
+        Batch, CallState, MAX_TOOL_PRESENTATION_TEXT_BYTES, ToolCall, ToolCancellationReason,
         ToolExecutionResult, ToolOutcome, bounded_tool_text,
     };
+
+    impl Batch {
+        fn into_results(self) -> Vec<(ToolCall, ToolOutcome)> {
+            self.slots
+                .into_iter()
+                .filter_map(|slot| match slot.state {
+                    CallState::Finished(outcome) => Some((slot.requested, outcome)),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
 
     /// ENT-4: bounded text preserves valid UTF-8 at both ends and counts both earlier and local
     /// omissions without asking the renderer to infer truncation.

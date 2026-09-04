@@ -12,6 +12,7 @@ use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TranscriptRole, TurnId}
 
 use crate::admission::ApprovalPolicy;
 use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
+use crate::journal::{JournalEntryPayload, SessionJournal};
 use crate::model::{ModelCall, ModelStepId, RequestItem};
 use crate::record::Record;
 use crate::step::Step;
@@ -21,6 +22,7 @@ mod batch;
 mod input;
 mod lifecycle;
 mod model_input;
+mod tool_projection;
 mod usage;
 
 use input::{DeliveryBoundary, InputQueue};
@@ -35,6 +37,13 @@ use usage::UsageAccumulator;
 pub struct TurnBudget {
     /// Steps one turn may take, counting the first.
     pub max_steps: u16,
+}
+
+/// Why the settled screen projection cannot be rebuilt at this boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProjectionRebuildError {
+    /// Provider or tool work still has transient state absent from the completed journal.
+    ActiveTurn,
 }
 
 impl Default for TurnBudget {
@@ -53,7 +62,7 @@ enum Turn {
         /// Stable owner identity retained through every step.
         turn_id: TurnId,
         /// Step currently receiving model events.
-        step: Step,
+        step: Box<Step>,
         /// Checked aggregate of reports received during this turn.
         usage: UsageAccumulator,
     },
@@ -72,8 +81,8 @@ enum Turn {
 
 /// One agent's session and the turn it is running.
 ///
-/// The record is authoritative: what the model is shown next is assembled from it, and what the
-/// screen shows is a projection of the events emitted here. There is no second copy to reconcile.
+/// The journal is authoritative: what the model is shown next is rebuilt from its selected path,
+/// and completed screen state can be rebuilt from the same facts (JRN-5, JRN-6).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Agent {
     record: Record,
@@ -81,7 +90,6 @@ pub struct Agent {
     input: InputQueue,
     budget: TurnBudget,
     policy: ApprovalPolicy,
-    announced: bool,
 }
 
 impl Agent {
@@ -106,7 +114,6 @@ impl Agent {
             input: InputQueue::default(),
             budget,
             policy,
-            announced: false,
         }
     }
 
@@ -121,16 +128,28 @@ impl Agent {
     /// the slip is made unrepresentable here instead of reported there.
     pub fn announce(&mut self, label: impl Into<String>) -> Reaction {
         let mut reaction = Reaction::default();
-        if std::mem::replace(&mut self.announced, true) {
-            return reaction;
+        self.announce_into(label.into(), &mut reaction);
+        reaction
+    }
+
+    fn announce_into(&mut self, label: String, reaction: &mut Reaction) {
+        if self.record.is_announced() {
+            return;
         }
+        self.record.commit(
+            JournalEntryPayload::AgentCreated {
+                agent_id: self.record.agent_id().clone(),
+                label: label.clone(),
+                status: AgentStatus::Idle,
+            },
+            reaction,
+        );
         let event = SessionEvent::AgentCreated {
             agent_id: self.record.agent_id().clone(),
-            label: label.into(),
+            label,
             status: AgentStatus::Idle,
         };
-        self.record.emit(&mut reaction, event);
-        reaction
+        self.record.emit(reaction, event);
     }
 
     /// Whether a turn is open, whether it is streaming or waiting on its tools.
@@ -152,8 +171,24 @@ impl Agent {
 
     /// The conversation as the model would be shown it right now.
     #[must_use]
-    pub fn record(&self) -> &[RequestItem] {
+    pub fn record(&self) -> Vec<RequestItem> {
         self.record.items()
+    }
+
+    /// Canonical in-memory journal from which the model and settled screen are rebuilt (JRN-5).
+    #[must_use]
+    pub fn journal(&self) -> &SessionJournal {
+        self.record.journal()
+    }
+
+    /// Rebuilds the settled visible projection and rebases its live delivery cursor (JRN-6).
+    pub fn rebuild_projection(
+        &mut self,
+    ) -> Result<crate::JournalProjection, ProjectionRebuildError> {
+        if self.is_running() {
+            return Err(ProjectionRebuildError::ActiveTurn);
+        }
+        Ok(self.record.rebuild_projection())
     }
 
     /// Messages waiting for the next turn boundary, in arrival order (LOOP-6).
@@ -179,6 +214,7 @@ impl Agent {
     /// Advances the machine by one input.
     pub fn handle(&mut self, input: Input) -> Reaction {
         let mut reaction = Reaction::default();
+        self.announce_into(self.record.agent_id().to_string(), &mut reaction);
         match input {
             Input::Submitted { text } => self.submit(text, &mut reaction),
             Input::Steered { text } => self.steer(text, &mut reaction),
@@ -235,8 +271,8 @@ impl Agent {
     }
 
     fn open_turn(&mut self, text: String, reaction: &mut Reaction) {
-        self.record_user(text, reaction);
         let turn_id = self.record.next_turn_id();
+        self.record_user(text, reaction);
         self.open_step(turn_id, 1, UsageAccumulator::default(), reaction);
     }
 
@@ -244,6 +280,15 @@ impl Agent {
     fn record_user(&mut self, text: String, reaction: &mut Reaction) {
         let item = self.record.next_item_id();
         let agent_id = self.record.agent_id().clone();
+        self.record.commit(
+            JournalEntryPayload::Message {
+                agent_id: agent_id.clone(),
+                item_id: item.clone(),
+                role: TranscriptRole::User,
+                text: text.clone(),
+            },
+            reaction,
+        );
         self.record.emit(
             reaction,
             SessionEvent::TranscriptItemStarted {
@@ -269,7 +314,6 @@ impl Agent {
                 item_revision: 2,
             },
         );
-        self.record.push(RequestItem::User { text });
     }
 
     /// Asks the model, and says the agent is producing.
@@ -284,7 +328,7 @@ impl Agent {
         let step_id = ModelStepId::new(turn_id.clone(), index);
         self.turn = Turn::Streaming {
             turn_id,
-            step: Step::new(index),
+            step: Box::new(Step::new(step_id.turn_id().clone(), index)),
             usage,
         };
         reaction.effects.push(Effect::CallModel(ModelCall {
@@ -297,12 +341,12 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, SessionEvent, TokenCounts,
-        TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, ToolDetail,
-        TranscriptRole,
+        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, HeadName, SessionEvent,
+        TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId,
+        ToolDetail, TranscriptRole,
     };
 
-    use super::{Agent, Effect, Input, Reaction, Turn, TurnBudget};
+    use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
     use crate::interface::UndeliveredReason;
     use crate::model::{
         ModelError, ModelEvent, ModelStepId, ProviderCodecId, ProviderReplay, RequestItem,
@@ -311,11 +355,18 @@ mod tests {
     use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
-        ApprovalPolicy, CapabilitySet, ModelDeliveryRefusal, ToolDefinitionRevision,
+        ApprovalPolicy, CapabilitySet, JournalEntryPayload, ModelDeliveryRefusal,
+        ToolDefinitionRevision,
     };
 
-    fn agent() -> Agent {
+    fn bare_agent() -> Agent {
         Agent::new(AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")))
+    }
+
+    fn agent() -> Agent {
+        let mut agent = bare_agent();
+        let _announced = agent.announce("Agent A");
+        agent
     }
 
     fn id(value: &str) -> ToolCallId {
@@ -447,6 +498,7 @@ mod tests {
     }
 
     fn merge(target: &mut Reaction, mut source: Reaction) {
+        target.records.append(&mut source.records);
         target.events.append(&mut source.events);
         target.effects.append(&mut source.effects);
         target.undelivered.append(&mut source.undelivered);
@@ -478,11 +530,16 @@ mod tests {
     }
 
     fn dispatched(agent: &Agent) -> Vec<String> {
+        let head = HeadName::new("main").unwrap_or_else(|error| panic!("fixture: {error}"));
         agent
-            .record()
+            .journal()
+            .path(&head)
+            .unwrap_or_else(|error| panic!("live journal path: {error:?}"))
             .iter()
-            .filter_map(|item| match item {
-                RequestItem::ToolCall(call) => Some(call.call_id.to_string()),
+            .filter_map(|entry| match &entry.payload {
+                JournalEntryPayload::ToolCallRequested { call, .. } => {
+                    Some(call.call_id.to_string())
+                }
                 _ => None,
             })
             .collect()
@@ -526,6 +583,18 @@ mod tests {
             }]
         );
         assert!(agent.is_running());
+    }
+
+    /// JRN-6: a projection rebuild cannot erase provider state that has not become canonical.
+    #[test]
+    fn jrn_6_active_projection_rebuild_is_refused() {
+        let mut agent = agent();
+        submit(&mut agent, "hello");
+
+        assert_eq!(
+            agent.rebuild_projection(),
+            Err(ProjectionRebuildError::ActiveTurn)
+        );
     }
 
     /// LIVE-2: output is accepted only for the exact open step, so a cancelled task cannot append
@@ -865,6 +934,7 @@ mod tests {
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             TurnBudget { max_steps: 2 },
         );
+        let _announced = agent.announce("Agent A");
         let mut requests = 0;
 
         let mut asked = submit(&mut agent, "keep going");
@@ -1060,6 +1130,7 @@ mod tests {
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             TurnBudget { max_steps: 1 },
         );
+        let _announced = budgeted.announce("Agent A");
         submit(&mut budgeted, "first");
         steer(&mut budgeted, "keep this too");
         call(&mut budgeted, "one");
@@ -1228,6 +1299,22 @@ mod tests {
         assert_eq!(runtime_messages(&stray).len(), 1);
         assert!(answered(&agent).is_empty());
         assert!(agent.is_running(), "and the batch is still waiting");
+    }
+
+    /// JRN-6: a provider cannot make the canonical history ambiguous by reusing a call identity.
+    #[test]
+    fn jrn_6_reused_tool_call_identity_fails_the_turn_before_commit() {
+        let mut agent = agent();
+        submit(&mut agent, "read twice");
+        call(&mut agent, "one");
+        stop(&mut agent, StopReason::ToolCalls);
+        finish(&mut agent, "one", "first");
+
+        let refused = call(&mut agent, "one");
+
+        assert_eq!(runtime_messages(&refused).len(), 1);
+        assert!(!agent.is_running());
+        assert_eq!(dispatched(&agent), ["one"]);
     }
 
     /// APV-1, APV-2 and LOOP-5: raw model arguments produce only an admission effect. A protected
@@ -1521,6 +1608,7 @@ mod tests {
             TurnBudget::default(),
             policy,
         );
+        let _announced = forbidden.announce("Agent A");
         submit(&mut forbidden, "change");
         call_named(&mut forbidden, "write-1", "edit");
         stop_before_admission(&mut forbidden, StopReason::ToolCalls);
@@ -1753,7 +1841,7 @@ mod tests {
     /// projection refuses — reporting a producer defect for what is a caller's slip.
     #[test]
     fn an_agent_announces_itself_once_however_often_it_is_asked() {
-        let mut agent = agent();
+        let mut agent = bare_agent();
 
         let first = agent.announce("Agent A");
         let again = agent.announce("Agent A");
@@ -1765,7 +1853,7 @@ mod tests {
     /// The projection refuses a gap or a repeat, and this is the only thing numbering the stream.
     #[test]
     fn one_agent_numbers_one_stream_with_no_gap_or_repeat() {
-        let mut agent = agent();
+        let mut agent = bare_agent();
         let mut sequences = Vec::new();
         let mut collect = |reaction: Reaction| {
             sequences.extend(reaction.events.iter().map(|event| event.sequence.get()));

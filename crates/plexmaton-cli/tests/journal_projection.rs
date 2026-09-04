@@ -1,10 +1,10 @@
 use plexmaton_agent::{
-    Agent, Effect, Input, JournalEntryPayload, JournalRecord, ModelEvent, RequestItem,
+    Agent, Effect, Input, JournalEntryPayload, JournalRecord, ModelError, ModelEvent, RequestItem,
     SessionEntry, SessionJournal, StopReason, ToolCall, ToolOutcome,
 };
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId,
-    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenUsage,
+    ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{ApplyOutcome, TranscriptEntryView, ViewState};
 
@@ -43,6 +43,54 @@ fn apply_all(
     for envelope in events {
         assert_eq!(view.apply(envelope), ApplyOutcome::Accepted);
     }
+}
+
+fn visible_text(view: &ViewState, agent_id: &AgentId) -> Vec<(TranscriptRole, String)> {
+    view.agent(agent_id)
+        .unwrap_or_else(|| panic!("projected agent missing"))
+        .transcript()
+        .map(|item| (item.role, item.source.clone()))
+        .collect()
+}
+
+fn live_and_replayed_after(
+    agent_name: &str,
+    output: impl IntoIterator<Item = ModelEvent>,
+    terminal: Result<StopReason, ModelError>,
+) -> (ViewState, ViewState, AgentId) {
+    let agent_id = id(agent_name, AgentId::new);
+    let mut live = Agent::new(agent_id.clone());
+    let mut live_view = ViewState::default();
+    apply_all(&mut live_view, live.announce("Plexmaton").events);
+    let submitted = live.handle(Input::Submitted {
+        text: "exercise ordering".to_owned(),
+    });
+    let step_id = match submitted.effects.as_slice() {
+        [Effect::CallModel(call)] => call.step_id.clone(),
+        other => panic!("expected one model call, got {other:?}"),
+    };
+    apply_all(&mut live_view, submitted.events);
+    for event in output {
+        let reaction = live.handle(Input::Streamed {
+            step_id: step_id.clone(),
+            event,
+        });
+        apply_all(&mut live_view, reaction.events);
+    }
+    let terminal = match terminal {
+        Ok(reason) => live.handle(Input::Streamed {
+            step_id,
+            event: ModelEvent::Stopped(reason),
+        }),
+        Err(error) => live.handle(Input::Failed { step_id, error }),
+    };
+    apply_all(&mut live_view, terminal.events);
+    let projection = live
+        .rebuild_projection()
+        .unwrap_or_else(|error| panic!("rebuild settled projection: {error:?}"));
+    let mut replay_view = ViewState::default();
+    apply_all(&mut replay_view, projection.events().iter().cloned());
+    (live_view, replay_view, agent_id)
 }
 
 /// JRN-5: the composition root's two consumers accept projections from only the journal path.
@@ -184,77 +232,48 @@ fn jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics() {
     let agent_id = id("agent-primary", AgentId::new);
     let mut live = Agent::new(agent_id.clone());
     let mut live_view = ViewState::default();
-    apply_all(&mut live_view, live.announce("Plexmaton").events);
-    let submitted = live.handle(Input::Submitted {
+    let mut records = Vec::new();
+    let mut announcement = live.announce("Plexmaton");
+    records.append(&mut announcement.records);
+    apply_all(&mut live_view, announcement.events);
+    let mut submitted = live.handle(Input::Submitted {
         text: "hello".to_owned(),
     });
     let step_id = match submitted.effects.as_slice() {
         [Effect::CallModel(call)] => call.step_id.clone(),
         other => panic!("expected one model call, got {other:?}"),
     };
+    records.append(&mut submitted.records);
     apply_all(&mut live_view, submitted.events);
     for text in ["h", "i"] {
-        let reaction = live.handle(Input::Streamed {
+        let mut reaction = live.handle(Input::Streamed {
             step_id: step_id.clone(),
             event: ModelEvent::TextDelta(text.to_owned()),
         });
+        records.append(&mut reaction.records);
         apply_all(&mut live_view, reaction.events);
     }
-    let stopped = live.handle(Input::Streamed {
+    let mut stopped = live.handle(Input::Streamed {
         step_id,
         event: ModelEvent::Stopped(StopReason::EndOfTurn),
     });
+    records.append(&mut stopped.records);
     apply_all(&mut live_view, stopped.events);
 
-    let mut journal = SessionJournal::new(id("session-replay", SessionId::new));
-    append(
-        &mut journal,
-        1,
-        JournalEntryPayload::AgentCreated {
-            agent_id: agent_id.clone(),
-            label: "Plexmaton".to_owned(),
-            status: AgentStatus::Idle,
-        },
-    );
-    append(
-        &mut journal,
-        2,
-        JournalEntryPayload::Message {
-            agent_id: agent_id.clone(),
-            item_id: id("agent-primary-1", TranscriptItemId::new),
-            role: TranscriptRole::User,
-            text: "hello".to_owned(),
-        },
-    );
-    append(
-        &mut journal,
-        3,
-        JournalEntryPayload::AgentStatusChanged {
-            agent_id: agent_id.clone(),
-            status: AgentStatus::Running,
-        },
-    );
-    append(
-        &mut journal,
-        4,
-        JournalEntryPayload::Message {
-            agent_id: agent_id.clone(),
-            item_id: id("agent-primary-2", TranscriptItemId::new),
-            role: TranscriptRole::Assistant,
-            text: "hi".to_owned(),
-        },
-    );
-    append(
-        &mut journal,
-        5,
-        JournalEntryPayload::AgentStatusChanged {
-            agent_id: agent_id.clone(),
-            status: AgentStatus::Idle,
-        },
-    );
-    let projection = journal
+    let mut rebuilt = SessionJournal::new(live.journal().session_id().clone());
+    for record in records {
+        rebuilt
+            .apply(record)
+            .unwrap_or_else(|error| panic!("replay live record: {error:?}"));
+    }
+    assert_eq!(&rebuilt, live.journal());
+    let expected_projection = rebuilt
         .project(&id("main", HeadName::new))
-        .unwrap_or_else(|error| panic!("project fixture: {error:?}"));
+        .unwrap_or_else(|error| panic!("project rebuilt live journal: {error:?}"));
+    let projection = live
+        .rebuild_projection()
+        .unwrap_or_else(|error| panic!("rebuild idle live projection: {error:?}"));
+    assert_eq!(projection, expected_projection);
     assert_eq!(projection.request().items, live.record());
     let mut replay_view = ViewState::default();
     apply_all(&mut replay_view, projection.events().iter().cloned());
@@ -284,4 +303,77 @@ fn jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics() {
     assert_eq!(visible(live_agent), visible(replay_agent));
     assert_eq!(live_view.notices().count(), 0);
     assert_eq!(replay_view.notices().count(), 0);
+
+    let continued = live.handle(Input::Submitted {
+        text: "continue after rebuild".to_owned(),
+    });
+    apply_all(&mut replay_view, continued.events);
+    let continued_agent = replay_view
+        .agent(&agent_id)
+        .unwrap_or_else(|| panic!("continued replay agent missing"));
+    assert!(continued_agent.transcript().any(|item| {
+        item.role == TranscriptRole::User && item.source == "continue after rebuild"
+    }));
+    assert_eq!(replay_view.notices().count(), 0);
+}
+
+/// JRN-6: diagnostics that end a partial answer retain its visible position after rebuilding.
+#[test]
+fn jrn_6_partial_failure_and_output_limit_keep_live_transcript_order() {
+    for (agent, terminal) in [
+        ("agent-output-limit", Ok(StopReason::OutputLimit)),
+        (
+            "agent-failure",
+            Err(ModelError::Transport {
+                message: "offline".to_owned(),
+            }),
+        ),
+    ] {
+        let (live, replayed, agent_id) = live_and_replayed_after(
+            agent,
+            [ModelEvent::TextDelta("partial answer".to_owned())],
+            terminal,
+        );
+        assert_eq!(
+            visible_text(&live, &agent_id),
+            visible_text(&replayed, &agent_id)
+        );
+    }
+}
+
+/// JRN-6: completed message records retain the order in which their live rows first opened.
+#[test]
+fn jrn_6_interleaved_answer_and_reasoning_keep_first_open_order() {
+    let (live, replayed, agent_id) = live_and_replayed_after(
+        "agent-interleaved",
+        [
+            ModelEvent::TextDelta("answer".to_owned()),
+            ModelEvent::ReasoningDelta("reasoning".to_owned()),
+        ],
+        Ok(StopReason::EndOfTurn),
+    );
+
+    assert_eq!(
+        visible_text(&live, &agent_id),
+        visible_text(&replayed, &agent_id)
+    );
+}
+
+/// JRN-6: a provider defect noticed mid-stream is placed after the completed message in both views.
+#[test]
+fn jrn_6_streaming_usage_warning_keeps_live_transcript_order() {
+    let (live, replayed, agent_id) = live_and_replayed_after(
+        "agent-usage-warning",
+        [
+            ModelEvent::TextDelta("answer".to_owned()),
+            ModelEvent::Usage(TokenUsage::Unavailable),
+            ModelEvent::Usage(TokenUsage::Unavailable),
+        ],
+        Ok(StopReason::EndOfTurn),
+    );
+
+    assert_eq!(
+        visible_text(&live, &agent_id),
+        visible_text(&replayed, &agent_id)
+    );
 }

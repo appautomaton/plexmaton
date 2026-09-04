@@ -4,7 +4,7 @@
 //! no filesystem access and no terminal, and its manifest is where that is enforced: an effect is
 //! a value returned to a caller who owns the outside world. That is what makes a turn testable
 //! from a script, inspectable between any two inputs, and — when Phase 02 arrives — resumable
-//! from the inputs that produced it.
+//! from its canonical journal.
 //!
 //! The vocabulary crossing outward is [`plexmaton_core::SessionEvent`]; the vocabulary crossing
 //! inward is [`Input`]. They never merge.
@@ -39,4 +39,4 @@ pub use tools::{
     MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome, bounded_tool_text,
 };
-pub use turn::{Agent, TurnBudget};
+pub use turn::{Agent, ProjectionRebuildError, TurnBudget};
