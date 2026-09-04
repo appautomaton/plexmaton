@@ -59,8 +59,9 @@ Authorized { authorized_at, semantic_boundary, request_environment }
         }
 ```
 
-An attempt owner is `AgentStep { turn_id, step_id }` or
-`Compaction { compaction_id, source_boundary }`. Compaction attempts have their own usage total and
+An attempt owner is `AgentStep { step_id }` or `Compaction { compaction_id }`; those typed
+identities already carry their turn or operation, while authorization names the source boundary.
+Compaction attempts have their own usage total and
 enter whole-session incurred cost, but never inflate a turn or serve as an agent-request usage
 anchor. Slice 5 fixes both wire variants before the compaction orchestrator consumes the latter.
 
@@ -70,6 +71,14 @@ request-environment fingerprint; its terminal fact refers only to that identity.
 is restricted to cancellation or typed preparation/encoding failure before `.send()`. The existing
 durable cumulative `TurnUsageUpdated` payload is retired when this lands. A UI event with that name
 may remain as a projection of immutable per-attempt usage, never as a second journal authority.
+
+The request environment fingerprint is SHA-256 over a versioned, length-delimited structural
+encoding of replay owner, codec identity/revision, model family, reasoning effort, the exact
+optional output limit, an explicit instruction-set marker and ordered tool name, description and
+canonical JSON Schema. Codec revision owns fixed wire flags. Display name, token budget/reserve,
+estimator and pricing do not change request bytes and are excluded. Provider credentials are not
+available at this boundary. Rejected: process-random hashing and serialized map insertion order,
+which cannot identify equal request environments across resume.
 
 All dispatched offsets are integer milliseconds from one adapter-owned `Instant` sampled
 immediately before `.send()`. Present milestones satisfy `headers ≤ first_output ≤ terminal`.
