@@ -112,7 +112,7 @@ long-format, and their ceiling only catches runaway growth.
 | `README.md` at the root | 4 KB | It says what the executable does and how to run it; anything else belongs in the corpus |
 | `.agents/README.md` | 8 KB | Split the corpus rules from the budget table |
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
-| `.agents/specs/*.md` | 8 KB | An invariant is two sentences and a rationale is one `Rejected:`; what is left over is a second mechanism, so split |
+| `.agents/specs/*.md` | 24 KB | Split when a second mechanism or ownership boundary appears; evidence may grow with the contract it proves |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the stage it plans is too big |
 | `.agents/roadmap.md` | 8 KB | Detail belongs in a phase file, a research track, or a spec |
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |

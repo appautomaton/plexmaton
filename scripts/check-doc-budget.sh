@@ -16,7 +16,7 @@ budget_for() {
         README.md) echo 4096 ;;
         .agents/README.md) echo 8192 ;;
         .agents/standards/*.md) echo 8192 ;;
-        .agents/specs/*.md) echo 8192 ;;
+        .agents/specs/*.md) echo 24576 ;;
         .agents/plans/*.md) echo 8192 ;;
         .agents/roadmap.md) echo 8192 ;;
         # Long-format documents. A phase or the interaction contract legitimately carries many
