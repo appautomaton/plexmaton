@@ -97,6 +97,12 @@ forbid plexmaton-runtime "a terminal, projection, or synthetic producer" \
     'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
 only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-provider"
 
+# The session store performs bounded local persistence over the canonical agent journal. It owns
+# no async runtime, provider transport, terminal state, tool executor, or composition root.
+forbid plexmaton-session-store "a runtime, provider, tool executor, terminal, or composition root" \
+    'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui|plexmaton-cli|plexmaton-command|plexmaton-file-tools|plexmaton-provider|plexmaton-runtime|plexmaton-sim|plexmaton-tui'
+only plexmaton-session-store "plexmaton-agent plexmaton-core"
+
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'
 

@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–2 |
 | Contract | PRV-3/PRV-4, ENT-1/ENT-3, LOOP-2/LOOP-4 and APV-6 |
-| Status | Active; slices 1–2 of 6 done; slice 3 ready |
+| Status | Active; slices 1–3 of 6 done; slice 4 ready |
 | Blocked | None |
 
 ## Outcome
@@ -56,9 +56,10 @@ second transcript.
    has an explicit projection and no unmatched provider call. *Closes when* the canonical live
    fixture produces the current model request and TUI state from journal records alone, shuffled
    branches cannot alter another head, and replay touches no effect boundary.
-3. **JSONL file adapter.** Add one concrete storage module with a typed header, exact one-line codec,
-   serialized append owner and bounded commands. Load validates and reduces incrementally; fork
-   stages a complete sibling then renames it. *Closes when* temp-directory tests cover create,
+3. **JSONL file adapter.** Add one concrete storage module with a typed header, exact one-line codec
+   and an exclusive synchronous writer. Load validates and reduces incrementally; fork
+   stages a complete sibling and publishes it atomically without overwrite. *Closes when*
+   temp-directory tests cover create,
    append, reopen, a record a second handle reads back the moment append returns, valid missing
    newline, incomplete tail isolation, middle corruption, write failure and two attempted writers,
    with no test touching the real `PLEXMATON_HOME`.

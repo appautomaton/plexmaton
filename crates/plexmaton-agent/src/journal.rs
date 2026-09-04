@@ -157,6 +157,11 @@ impl SessionJournal {
         Ok(())
     }
 
+    /// Validates the exact next record without changing this journal.
+    pub fn validate_record(&self, record: &JournalRecord) -> Result<(), JournalError> {
+        self.validate(record).map(|_| ())
+    }
+
     fn validate(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
         if record.sequence() != self.next_sequence {
             return Err(JournalError::UnexpectedSequence {
