@@ -1,7 +1,7 @@
 use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
 use serde::{Deserialize, Serialize};
 
-use crate::RequestItem;
+use super::payload::JournalEntryPayload;
 
 /// Monotonic position of one record in a session journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -52,14 +52,6 @@ pub struct SessionEntry {
     pub payload: JournalEntryPayload,
 }
 
-/// Typed content carried by one session entry.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
-pub enum JournalEntryPayload {
-    /// One item in the provider-independent model conversation.
-    ModelItem(RequestItem),
-}
-
 /// One complete append-only journal mutation (JRN-1).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -75,7 +67,7 @@ pub enum JournalRecord {
         /// Compare-and-set revision read when this append was prepared.
         expected_head_revision: HeadRevision,
         /// New immutable entry.
-        entry: SessionEntry,
+        entry: Box<SessionEntry>,
     },
     /// Create another named pointer at an existing entry or at the empty root.
     CreateHead {

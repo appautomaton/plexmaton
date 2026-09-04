@@ -28,8 +28,8 @@ pub use interface::{
     UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
 };
 pub use journal::{
-    HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
-    SessionJournal,
+    HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,
+    JournalRecord, JournalSequence, RecoveryProjection, SessionEntry, SessionJournal,
 };
 pub use model::{
     MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,

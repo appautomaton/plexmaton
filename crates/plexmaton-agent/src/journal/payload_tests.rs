@@ -1,0 +1,131 @@
+use plexmaton_core::{
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, HeadName, JournalRecordId,
+    MailId, SessionEntryId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolPresentation,
+    TranscriptItemId, TranscriptRole, TurnId,
+};
+
+use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
+use crate::{ProviderCodecId, ProviderReplay, ToolCall, ToolOutcome};
+
+fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
+    build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
+}
+
+/// JRN-3: every canonical fact has a lossless tagged JSON representation.
+#[test]
+fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
+    let agent_a = id("agent-a", AgentId::new);
+    let agent_b = id("agent-b", AgentId::new);
+    let attention_id = id("attention-1", AttentionId::new);
+    let call_id = id("call-1", ToolCallId::new);
+    let replay = ProviderReplay::new(
+        ProviderCodecId::new("openai_responses")
+            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
+        "encrypted".to_owned(),
+    )
+    .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+    let payloads = vec![
+        JournalEntryPayload::AgentCreated {
+            agent_id: agent_a.clone(),
+            label: "Agent A".to_owned(),
+            status: AgentStatus::Idle,
+        },
+        JournalEntryPayload::AgentStatusChanged {
+            agent_id: agent_a.clone(),
+            status: AgentStatus::Running,
+        },
+        JournalEntryPayload::TurnUsageUpdated {
+            agent_id: agent_a.clone(),
+            turn_id: id("turn-1", TurnId::new),
+            usage: TokenUsage::Complete(TokenCounts {
+                input: 2,
+                cached_input: Some(1),
+                cache_write_input: None,
+                output: 3,
+                reasoning_output: Some(1),
+                total: 5,
+            }),
+        },
+        JournalEntryPayload::Message {
+            agent_id: agent_a.clone(),
+            item_id: id("system-item", TranscriptItemId::new),
+            role: TranscriptRole::System,
+            text: "recovered".to_owned(),
+        },
+        JournalEntryPayload::ProviderReplay(replay),
+        JournalEntryPayload::ToolCallRequested {
+            agent_id: agent_a.clone(),
+            item_id: id("tool-item", TranscriptItemId::new),
+            call: ToolCall {
+                call_id: call_id.clone(),
+                name: "read_file".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+            presentation: ToolPresentation::default(),
+        },
+        JournalEntryPayload::ToolCallChanged {
+            agent_id: agent_a.clone(),
+            call_id: call_id.clone(),
+            item_revision: 1,
+            status: ToolCallStatus::Failed,
+            presentation: ToolPresentation::default(),
+            outcome: Some(ToolOutcome::Failed {
+                message: "failed".to_owned(),
+            }),
+        },
+        JournalEntryPayload::AttentionRequested {
+            agent_id: agent_a.clone(),
+            attention_id: attention_id.clone(),
+            request: AttentionRequest::Clarification {
+                summary: "which file?".to_owned(),
+            },
+        },
+        JournalEntryPayload::AttentionResolved {
+            agent_id: agent_a.clone(),
+            attention_id,
+        },
+        JournalEntryPayload::MailDelivered {
+            item_id: id("mail-item", TranscriptItemId::new),
+            mail_id: id("mail-1", MailId::new),
+            from: agent_a.clone(),
+            to: agent_b,
+            summary: "done".to_owned(),
+        },
+        JournalEntryPayload::ArtifactAnnounced {
+            agent_id: agent_a.clone(),
+            item_id: id("artifact-item", TranscriptItemId::new),
+            artifact_id: id("artifact-1", ArtifactId::new),
+            label: "report".to_owned(),
+            pointer: "artifact://report".to_owned(),
+        },
+        JournalEntryPayload::RuntimeWarning {
+            agent_id: agent_a.clone(),
+            item_id: id("warning-item", TranscriptItemId::new),
+            message: "warning".to_owned(),
+        },
+        JournalEntryPayload::RuntimeError {
+            agent_id: agent_a,
+            item_id: id("error-item", TranscriptItemId::new),
+            message: "error".to_owned(),
+        },
+    ];
+
+    for (index, payload) in payloads.into_iter().enumerate() {
+        let record = JournalRecord::AppendEntry {
+            sequence: JournalSequence::new(1),
+            record_id: id(&format!("record-{index}"), JournalRecordId::new),
+            head: id("main", HeadName::new),
+            expected_head_revision: HeadRevision::new(0),
+            entry: Box::new(SessionEntry {
+                id: id(&format!("entry-{index}"), SessionEntryId::new),
+                parent_id: None,
+                payload,
+            }),
+        };
+        let json =
+            serde_json::to_string(&record).unwrap_or_else(|error| panic!("encode append: {error}"));
+        let decoded = serde_json::from_str::<JournalRecord>(&json)
+            .unwrap_or_else(|error| panic!("decode append: {error}"));
+        assert_eq!(decoded, record);
+    }
+}

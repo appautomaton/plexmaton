@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–2 |
 | Contract | PRV-3/PRV-4, ENT-1/ENT-3, LOOP-2/LOOP-4 and APV-6 |
-| Status | Active; slice 1 of 6 done; slice 2 ready |
+| Status | Active; slices 1–2 of 6 done; slice 3 ready |
 | Blocked | None |
 
 ## Outcome
@@ -23,9 +23,12 @@ second transcript.
 - An entry append names its parent, target head and expected head revision in the same record, so
   advancing that head is one mutation. Creating, moving, renaming and abandoning heads remain their
   own single-record mutations because they need not create conversation content.
-- The writer has one owner and a bounded input queue. It appends before applying the same mutation
-  to its in-memory reducer. An ordinary write error returns ownership of user text and becomes
-  visible; the TUI loop never performs filesystem work.
+- The writer has one owner and a bounded input queue, and appends on the terms JRN-4 sets before
+  applying the same mutation to its in-memory reducer. An ordinary write error returns ownership of
+  user text and becomes visible; the TUI loop never performs filesystem work.
+- An effect is announced before it runs: the record that a tool call started is appended before the
+  call executes, so a process that dies mid-effect reopens knowing the call may have run. This is
+  ordering, not durability.
 - Loading accepts the longest valid prefix. A valid final JSON value without `\n` gains one; an
   incomplete final line is isolated and reported; corruption earlier in the file stops recovery at
   that point rather than guessing around broken ancestry. An open final turn becomes interrupted.
@@ -56,8 +59,9 @@ second transcript.
 3. **JSONL file adapter.** Add one concrete storage module with a typed header, exact one-line codec,
    serialized append owner and bounded commands. Load validates and reduces incrementally; fork
    stages a complete sibling then renames it. *Closes when* temp-directory tests cover create,
-   append, reopen, valid missing newline, incomplete tail isolation, middle corruption, write
-   failure and two attempted writers, with no test touching the real `PLEXMATON_HOME`.
+   append, reopen, a record a second handle reads back the moment append returns, valid missing
+   newline, incomplete tail isolation, middle corruption, write failure and two attempted writers,
+   with no test touching the real `PLEXMATON_HOME`.
 4. **Make the journal authoritative.** Replace `Record`'s independent item/event counters with the
    journal reducer and projections. Transient step assembly remains, but final facts enter once and
    both consumers derive from them. *Closes when* existing agent/provider/TUI fixtures remain equal,
@@ -82,7 +86,7 @@ to exercise. The concrete JSONL adapter then earns the I/O seam; only after it w
 closes the stage.
 
 Rejected: SQLite and redb before a measured index/query need; a live JSONL mirror beside another
-authority; treating a malformed middle line as safe to skip; replay that re-executes tools; and a
+authority; treating a malformed middle line as safe to skip; replay that re-executes tools; a
 provider codec that invents missing results.
 
 ## Deliberately not in this plan

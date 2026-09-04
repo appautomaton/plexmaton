@@ -1,10 +1,13 @@
-use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId};
+use plexmaton_core::{
+    AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId, ToolPresentation,
+    TranscriptItemId, TranscriptRole,
+};
 
 use super::{
     HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
     SessionJournal,
 };
-use crate::{AdmissionRefusal, RequestItem, ToolCall, ToolCancellationReason, ToolOutcome};
+use crate::{AdmissionRefusal, ToolCall, ToolCancellationReason, ToolOutcome};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -22,9 +25,12 @@ fn entry(value: &str, parent_id: Option<SessionEntryId>) -> SessionEntry {
     SessionEntry {
         id: id(value, SessionEntryId::new),
         parent_id,
-        payload: JournalEntryPayload::ModelItem(RequestItem::User {
+        payload: JournalEntryPayload::Message {
+            agent_id: id("agent-a", AgentId::new),
+            item_id: id(&format!("item-{value}"), TranscriptItemId::new),
+            role: TranscriptRole::User,
             text: value.to_owned(),
-        }),
+        },
     }
 }
 
@@ -40,7 +46,7 @@ fn append(
         record_id: record(record_id),
         head: head(head_name),
         expected_head_revision: HeadRevision::new(revision),
-        entry,
+        entry: Box::new(entry),
     }
 }
 
@@ -217,28 +223,46 @@ fn jrn_3_every_model_item_variant_round_trips_inside_an_append() {
             reason: ToolCancellationReason::Interrupted,
         },
     ];
-    let mut items = vec![
-        RequestItem::User {
-            text: "user".to_owned(),
-        },
-        RequestItem::Assistant {
-            text: "assistant".to_owned(),
-        },
-        RequestItem::Reasoning {
-            text: "reasoning".to_owned(),
-        },
-        RequestItem::ToolCall(ToolCall {
+    let agent_id = id("agent-a", AgentId::new);
+    let item_id = id("tool-item", TranscriptItemId::new);
+    let mut payloads = [
+        (TranscriptRole::User, "user"),
+        (TranscriptRole::Assistant, "assistant"),
+        (TranscriptRole::Reasoning, "reasoning"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (role, text))| JournalEntryPayload::Message {
+        agent_id: agent_id.clone(),
+        item_id: id(&format!("message-{index}"), TranscriptItemId::new),
+        role,
+        text: text.to_owned(),
+    })
+    .collect::<Vec<_>>();
+    payloads.push(JournalEntryPayload::ToolCallRequested {
+        agent_id: agent_id.clone(),
+        item_id,
+        call: ToolCall {
             call_id: call_id.clone(),
             name: "read_file".to_owned(),
             arguments: r#"{"path":"README.md"}"#.to_owned(),
-        }),
-    ];
-    items.extend(outcomes.into_iter().map(|outcome| RequestItem::ToolResult {
-        call_id: call_id.clone(),
-        outcome,
-    }));
+        },
+        presentation: ToolPresentation::default(),
+    });
+    payloads.extend(
+        outcomes
+            .into_iter()
+            .map(|outcome| JournalEntryPayload::ToolCallChanged {
+                agent_id: agent_id.clone(),
+                call_id: call_id.clone(),
+                item_revision: 1,
+                status: outcome.status(),
+                presentation: ToolPresentation::default(),
+                outcome: Some(outcome),
+            }),
+    );
 
-    for (index, item) in items.into_iter().enumerate() {
+    for (index, payload) in payloads.into_iter().enumerate() {
         let record = append(
             1,
             &format!("record-{index}"),
@@ -247,7 +271,7 @@ fn jrn_3_every_model_item_variant_round_trips_inside_an_append() {
             SessionEntry {
                 id: id(&format!("entry-{index}"), SessionEntryId::new),
                 parent_id: None,
-                payload: JournalEntryPayload::ModelItem(item),
+                payload,
             },
         );
         let json = serde_json::to_string(&record)

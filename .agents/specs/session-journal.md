@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Structural reducer implemented; file storage and live projections remain unproven |
+| Status | Structural reducer and pure model/screen projections implemented; file storage remains unproven |
 | Owns | Stable session records, immutable entry ancestry, named-head revisions and their lossless wire form |
 | Depends on | PRV-3/PRV-4 for model replay, ENT-1/ENT-3 for transcript identity and pure reduction |
 | Proven by | `plexmaton-agent::journal` tests |
@@ -22,12 +22,23 @@ typed refusal which mutates nothing.
 form and decodes through the constructors that protect identities and `ProviderReplay`. Lossless
 serialization includes the exact replay payload; `Debug` and decoding errors reveal no payload.
 
-**JRN-4 — File recovery keeps a valid prefix.** Unproven until Stage 1 slice 3: the JSONL adapter
-repairs a complete final value missing its newline, isolates an incomplete tail, and refuses to
-guess past earlier corruption.
+**JRN-4 — One record is one write, and loading keeps a valid prefix.** Unproven until Stage 1
+slice 3: the JSONL adapter appends each record in one unbuffered `write` and never `fsync`s, so
+bytes a returned append handed the kernel outlive the process that dies, and a power loss costs the
+tail the page cache had not flushed. Loading repairs a complete final value missing its newline,
+isolates an incomplete tail, and refuses to guess past earlier corruption. Rejected: per-record
+`fsync`, which is `F_FULLFSYNC` on this platform and buys only the power loss that process death —
+the failure actually seen — does not share; and a database or on-disk index before a measured query
+need, when an append-only log has no in-place mutation for one to make safe.
 
-**JRN-5 — Replay performs no effects.** Unproven until Stage 1 slice 2: walking a head and deriving
-model/UI projections cannot invoke a provider, tool, approval policy or filesystem operation.
+**JRN-5 — Replay performs no effects.** Walking one selected head derives a complete `ModelRequest`
+and a freshly numbered `SessionEventEnvelope` stream without invoking a provider, tool, approval
+policy or filesystem operation. Tool results enter the request in model-call order even when their
+visible terminal transitions arrived out of order. An incomplete final batch stays visible, is
+omitted as a whole from provider input, and returns a typed recovery projection; the same condition
+before a later model fact is corruption rather than a silently ignored tail. Completed messages
+normalize provider chunking into one replay delta; chunk boundaries are transport facts, not durable
+session semantics.
 
 ## Model
 
@@ -61,6 +72,6 @@ head names remain retired so a stale command cannot become valid after a name is
 | --- | --- |
 | JRN-1 | `jrn_1_append_and_head_mutations_form_one_checked_tree` |
 | JRN-2 | `jrn_2_invalid_records_change_nothing`, `jrn_2_the_same_records_build_equal_journals_and_paths`, `jrn_2_each_head_mutation_rejects_a_stale_revision`, `jrn_2_each_head_mutation_rejects_a_missing_head`, `jrn_2_an_unknown_append_parent_is_a_missing_entry`, `jrn_2_head_names_are_never_reused` |
-| JRN-3 | `jrn_3_every_record_round_trips_and_debug_redacts_replay`, `jrn_3_every_model_item_variant_round_trips_inside_an_append`, `jrn_3_decoding_rechecks_identity_and_replay_bounds` |
+| JRN-3 | `jrn_3_every_record_round_trips_and_debug_redacts_replay`, `jrn_3_every_model_item_variant_round_trips_inside_an_append`, `jrn_3_every_canonical_payload_variant_round_trips_inside_an_append`, `jrn_3_decoding_rechecks_identity_and_replay_bounds` |
 | JRN-4 | Unproven until Stage 1 slice 3 |
-| JRN-5 | Unproven until Stage 1 slice 2 |
+| JRN-5 | `jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context`, `jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics`, `jrn_5_one_path_projects_model_order_and_visible_lifecycle`, `jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request`, `jrn_5_incomplete_tool_batch_before_later_content_is_rejected`, `jrn_5_system_message_after_incomplete_batch_remains_a_recoverable_tail`, `jrn_5_named_heads_project_only_their_selected_ancestry`, `jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers`, `jrn_5_invalid_tool_lifecycle_has_a_typed_projection_error`, `jrn_5_duplicate_transcript_identity_is_rejected_before_projection`, `jrn_5_mail_requires_both_visible_endpoints`, `jrn_5_attention_resolution_keeps_its_request_owner`, `jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots`, `jrn_5_journal_projection_builds_the_model_request_and_tui_state`, crate-graph gate |

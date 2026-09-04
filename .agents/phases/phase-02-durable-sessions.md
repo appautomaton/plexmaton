@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 slice 1 done; slice 2 ready |
+| Status | Active; stage 1 slices 1–2 done; slice 3 ready |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -71,7 +71,7 @@ database/index layer, themes, animation and layout configuration: later measured
 
 | Criterion | Evidence expected |
 | --- | --- |
-| Normal exit and reopen preserve every completed session fact | A real CLI session reopens from its JSONL file and both projections equal the pre-exit state |
+| Exit and process death preserve every completed session fact | A real CLI session reopens from its JSONL file with both projections equal to the pre-exit state, after a clean exit and after the process is killed mid-session |
 | Recovery is simple and visible | Complete missing-newline tails repair; incomplete final records are isolated; an unfinished turn is interrupted; the user sees one notice |
 | Branches are durable and manageable | Create, move, rename and abandon named heads; reload preserves each selected path without copying entries |
 | Replay has no effects | Rebuilding every head performs no network, tool, approval or filesystem effect |

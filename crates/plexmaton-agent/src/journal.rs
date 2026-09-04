@@ -9,12 +9,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId, SessionId};
 
 mod error;
+mod payload;
+#[cfg(test)]
+mod payload_tests;
+mod projection;
 mod record;
 #[cfg(test)]
 mod validation_tests;
 
 pub use error::JournalError;
-pub use record::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
+pub use payload::JournalEntryPayload;
+pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
+pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct HeadState {
@@ -105,7 +111,8 @@ impl SessionJournal {
         let next_sequence = self.validate(&record)?;
         match &record {
             JournalRecord::AppendEntry { head, entry, .. } => {
-                self.entries.insert(entry.id.clone(), entry.clone());
+                self.entries
+                    .insert(entry.id.clone(), entry.as_ref().clone());
                 let state = self
                     .heads
                     .get_mut(head)
@@ -276,13 +283,16 @@ impl SessionJournal {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId, SessionId};
+    use plexmaton_core::{
+        AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId,
+        TranscriptRole,
+    };
 
     use super::{
         HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence,
         SessionEntry, SessionJournal,
     };
-    use crate::{MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderReplay, RequestItem};
+    use crate::{MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderReplay};
 
     fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
         build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -304,9 +314,12 @@ mod tests {
         SessionEntry {
             id: id(value, SessionEntryId::new),
             parent_id,
-            payload: JournalEntryPayload::ModelItem(RequestItem::User {
+            payload: JournalEntryPayload::Message {
+                agent_id: id("agent-a", AgentId::new),
+                item_id: id(&format!("item-{value}"), TranscriptItemId::new),
+                role: TranscriptRole::User,
                 text: text.to_owned(),
-            }),
+            },
         }
     }
 
@@ -322,7 +335,7 @@ mod tests {
             record_id: record(record_id),
             head: self::head(head),
             expected_head_revision: HeadRevision::new(revision),
-            entry,
+            entry: Box::new(entry),
         }
     }
 
@@ -477,7 +490,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("main path: {error:?}"))
             .iter()
             .filter_map(|entry| match &entry.payload {
-                JournalEntryPayload::ModelItem(RequestItem::User { text }) => Some(text.as_str()),
+                JournalEntryPayload::Message {
+                    role: TranscriptRole::User,
+                    text,
+                    ..
+                } => Some(text.as_str()),
                 _ => None,
             })
             .collect();
@@ -501,7 +518,7 @@ mod tests {
             SessionEntry {
                 id: id("entry-1", SessionEntryId::new),
                 parent_id: None,
-                payload: JournalEntryPayload::ModelItem(RequestItem::ProviderReplay(replay)),
+                payload: JournalEntryPayload::ProviderReplay(replay),
             },
         );
 
@@ -561,14 +578,14 @@ mod tests {
             SessionEntry {
                 id: id("entry-1", SessionEntryId::new),
                 parent_id: None,
-                payload: JournalEntryPayload::ModelItem(RequestItem::ProviderReplay(
+                payload: JournalEntryPayload::ProviderReplay(
                     ProviderReplay::new(
                         ProviderCodecId::new("openai_responses")
                             .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
                         "ciphertext".to_owned(),
                     )
                     .unwrap_or_else(|error| panic!("fixture replay: {error:?}")),
-                )),
+                ),
             },
         ))
         .unwrap_or_else(|error| panic!("encode fixture: {error}"));
@@ -578,7 +595,7 @@ mod tests {
         assert!(serde_json::from_value::<JournalRecord>(empty_id).is_err());
 
         let mut oversized = valid;
-        oversized["entry"]["payload"]["data"]["data"]["payload"] =
+        oversized["entry"]["payload"]["payload"] =
             serde_json::Value::String("x".repeat(MAX_PROVIDER_REPLAY_BYTES + 1));
         let error = match serde_json::from_value::<JournalRecord>(oversized) {
             Ok(_) => panic!("oversized replay decoded"),
