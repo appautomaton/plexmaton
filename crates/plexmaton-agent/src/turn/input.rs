@@ -17,15 +17,17 @@ pub(super) enum DeliveryBoundary {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct QueuedInput {
-    boundary: DeliveryBoundary,
-    text: String,
+pub(super) struct QueuedInput {
+    pub(super) order: u64,
+    pub(super) boundary: DeliveryBoundary,
+    pub(super) text: String,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct InputQueue {
     pending: VecDeque<QueuedInput>,
     bytes: usize,
+    next_order: u64,
 }
 
 impl InputQueue {
@@ -41,18 +43,26 @@ impl InputQueue {
         if self.pending.len() >= MAX_QUEUED_INPUTS || next_bytes > MAX_QUEUED_BYTES {
             return Some(UndeliveredInput::new(text, UndeliveredReason::QueueFull));
         }
-        self.pending.push_back(QueuedInput { boundary, text });
+        let Some(next_order) = self.next_order.checked_add(1) else {
+            return Some(UndeliveredInput::new(text, UndeliveredReason::QueueFull));
+        };
+        self.pending.push_back(QueuedInput {
+            order: self.next_order,
+            boundary,
+            text,
+        });
+        self.next_order = next_order;
         self.bytes = next_bytes;
         None
     }
 
     /// Claims inputs for one boundary in arrival order and leaves the other route untouched.
-    pub(super) fn claim(&mut self, boundary: DeliveryBoundary) -> Vec<String> {
+    pub(super) fn claim(&mut self, boundary: DeliveryBoundary) -> Vec<QueuedInput> {
         let mut claimed = Vec::new();
         let mut waiting = VecDeque::with_capacity(self.pending.len());
         while let Some(input) = self.pending.pop_front() {
             if input.boundary == boundary {
-                claimed.push(input.text);
+                claimed.push(input);
             } else {
                 waiting.push_back(input);
             }
@@ -63,35 +73,20 @@ impl InputQueue {
     }
 
     /// Claims the oldest input for one boundary, leaving later turns queued separately.
-    pub(super) fn claim_one(&mut self, boundary: DeliveryBoundary) -> Option<String> {
+    pub(super) fn claim_one(&mut self, boundary: DeliveryBoundary) -> Option<QueuedInput> {
         let index = self
             .pending
             .iter()
             .position(|input| input.boundary == boundary)?;
-        let claimed = self.pending.remove(index).map(|input| input.text);
+        let claimed = self.pending.remove(index);
         self.refresh_bytes();
         claimed
     }
 
-    /// Returns inputs for one boundary with their payloads intact.
-    pub(super) fn reject(
-        &mut self,
-        boundary: DeliveryBoundary,
-        reason: UndeliveredReason,
-    ) -> Vec<UndeliveredInput> {
-        self.claim(boundary)
-            .into_iter()
-            .map(|text| UndeliveredInput::new(text, reason))
-            .collect()
-    }
-
-    /// Returns every pending input in arrival order.
-    pub(super) fn reject_all(&mut self, reason: UndeliveredReason) -> Vec<UndeliveredInput> {
+    /// Removes every pending input in arrival order.
+    pub(super) fn drain_all(&mut self) -> Vec<QueuedInput> {
         self.bytes = 0;
-        self.pending
-            .drain(..)
-            .map(|input| UndeliveredInput::new(input.text, reason))
-            .collect()
+        self.pending.drain(..).collect()
     }
 
     pub(super) fn pending(&self, boundary: DeliveryBoundary) -> impl Iterator<Item = &str> {
@@ -144,11 +139,19 @@ mod tests {
         queue.queue(DeliveryBoundary::NextStep, "step two".to_owned());
 
         assert_eq!(
-            queue.claim(DeliveryBoundary::NextStep),
+            queue
+                .claim(DeliveryBoundary::NextStep)
+                .into_iter()
+                .map(|input| input.text)
+                .collect::<Vec<_>>(),
             ["step one", "step two"]
         );
         assert_eq!(
-            queue.claim(DeliveryBoundary::NextTurn),
+            queue
+                .claim(DeliveryBoundary::NextTurn)
+                .into_iter()
+                .map(|input| input.text)
+                .collect::<Vec<_>>(),
             ["turn one", "turn two"]
         );
         assert_eq!(queue.bytes, 0);

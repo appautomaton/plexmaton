@@ -24,8 +24,8 @@ pub use admission::{
     MAX_REQUESTED_TOOL_ARGUMENT_BYTES, PolicyDecision, ToolDefinitionRevision,
 };
 pub use interface::{
-    ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, UndeliveredInput,
-    UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
+    ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, ReleasedInput,
+    UndeliveredInput, UndeliveredModelInput, UndeliveredReason, UnresolvedApprovalDecision,
 };
 pub use journal::{
     HeadRevision, JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError,

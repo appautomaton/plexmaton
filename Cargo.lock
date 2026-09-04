@@ -1128,6 +1128,7 @@ dependencies = [
  "plexmaton-core",
  "plexmaton-file-tools",
  "plexmaton-provider",
+ "plexmaton-session-store",
  "reqwest",
  "rustix",
  "serde_json",

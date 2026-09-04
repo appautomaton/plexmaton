@@ -11,12 +11,12 @@ pub(super) enum QueuedTerminal {
 }
 
 impl LiveRuntime {
-    pub(super) fn queue_terminal(
+    pub(super) async fn queue_terminal(
         &mut self,
         step_id: ModelStepId,
         terminal: QueuedTerminal,
+        finish_after_commit: bool,
     ) -> Result<(), RuntimeError> {
-        self.supply_missing_usage()?;
         let active = self
             .active
             .as_mut()
@@ -25,21 +25,29 @@ impl LiveRuntime {
             return Err(RuntimeError::DuplicateModelTerminal(step_id));
         }
         active.terminal = Some(terminal);
-        Ok(())
+        if finish_after_commit {
+            self.supply_missing_usage().await
+        } else {
+            self.supply_missing_usage_during_join().await
+        }
     }
 
-    pub(super) fn deliver_terminal(
+    pub(super) async fn deliver_terminal(
         &mut self,
         step_id: ModelStepId,
         terminal: QueuedTerminal,
+        finish_after_commit: bool,
     ) -> Result<(), RuntimeError> {
-        let reaction = match terminal {
-            QueuedTerminal::Streamed(event) => {
-                self.agent.handle(Input::Streamed { step_id, event })
-            }
-            QueuedTerminal::Failed(error) => self.agent.handle(Input::Failed { step_id, error }),
+        let input = match terminal {
+            QueuedTerminal::Streamed(event) => Input::Streamed { step_id, event },
+            QueuedTerminal::Failed(error) => Input::Failed { step_id, error },
         };
-        self.apply_reaction(reaction)
+        if finish_after_commit {
+            self.apply_agent_input(input, None, super::AfterCommit::None)
+                .await
+        } else {
+            self.apply_agent_input_during_join(input).await
+        }
     }
 
     pub(super) async fn cancel_active(&mut self) -> Result<(), RuntimeError> {
@@ -51,15 +59,31 @@ impl LiveRuntime {
         let joined = (&mut active.future)
             .await
             .map_err(|_| RuntimeError::ProviderFutureFailed(step_id.clone()));
-        self.drain_ready_signals()?;
+        Box::pin(self.drain_ready_signals()).await?;
         let active = self
             .active
             .take()
             .unwrap_or_else(|| unreachable!("the awaited active task is still owned"));
         joined?;
         if let Some(terminal) = active.terminal {
-            self.deliver_terminal(step_id, terminal)?;
+            Box::pin(self.deliver_terminal(step_id, terminal, false)).await?;
         }
         Ok(())
+    }
+
+    pub(super) async fn discard_active_after_journal_failure(
+        &mut self,
+    ) -> Result<(), RuntimeError> {
+        let Some(active) = self.active.as_mut() else {
+            return Ok(());
+        };
+        active.cancellation.cancel();
+        let step_id = active.step_id.clone();
+        let joined = (&mut active.future)
+            .await
+            .map_err(|_| RuntimeError::ProviderFutureFailed(step_id));
+        self.active.take();
+        while self.signal_rx.try_recv().is_ok() {}
+        joined
     }
 }

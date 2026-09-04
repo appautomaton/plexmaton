@@ -86,6 +86,8 @@ pub enum UndeliveredReason {
     StepBudgetReached,
     /// The bounded input queue had no room for another entry.
     QueueFull,
+    /// The session journal did not accept the transition, so ownership returned before execution.
+    PersistenceFailed,
     /// The runtime shut down before the named boundary opened.
     Shutdown,
 }
@@ -144,11 +146,39 @@ impl UndeliveredInput {
     }
 }
 
+/// One queued input removed by a transition, retaining its process-local arrival order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleasedInput {
+    order: u64,
+    text: String,
+}
+
+impl ReleasedInput {
+    pub(crate) const fn new(order: u64, text: String) -> Self {
+        Self { order, text }
+    }
+
+    /// Queue arrival order used when a failed transition returns mixed boundaries.
+    #[must_use]
+    pub const fn order(&self) -> u64 {
+        self.order
+    }
+
+    /// Exact user text released by the transition.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
 /// What one input produced.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Reaction {
     /// Canonical mutations accepted by this transition, in append order (JRN-6).
     pub records: Vec<JournalRecord>,
+    /// Queued user text removed by this transition, carrying original arrival order.
+    /// The runtime returns it if the transition fails its durability boundary.
+    pub released_inputs: Vec<ReleasedInput>,
     /// Events for the projection, numbered on this agent's one sequence.
     pub events: Vec<SessionEventEnvelope>,
     /// Work for whoever owns the outside world.

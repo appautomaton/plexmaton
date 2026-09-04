@@ -32,6 +32,10 @@ impl Record {
     pub(crate) fn new(agent_id: AgentId) -> Self {
         let session_id = SessionId::new(format!("{agent_id}-session"))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        Self::for_session(agent_id, session_id)
+    }
+
+    pub(crate) fn for_session(agent_id: AgentId, session_id: SessionId) -> Self {
         Self {
             agent_id,
             head: HeadName::new("main")

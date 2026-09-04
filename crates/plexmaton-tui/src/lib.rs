@@ -31,9 +31,9 @@ pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    Composer, CopyRequest, InspectorView, MailView, NoticeView, ReduceError, ScrollPosition,
-    Selection, Submission, SubmissionKind, ToolCallView, TranscriptEntryView, TranscriptItemView,
-    TranscriptTextKind, ViewRevision, ViewState,
+    CleanupNotice, Composer, CopyRequest, InspectorView, MailView, NoticeView, PersistenceNotice,
+    ReduceError, ScrollPosition, Selection, Submission, SubmissionKind, ToolCallView,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,

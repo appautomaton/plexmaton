@@ -108,8 +108,23 @@ impl Agent {
     /// Starts an idle agent with an explicit stateless tool policy.
     #[must_use]
     pub fn with_policy(agent_id: AgentId, budget: TurnBudget, policy: ApprovalPolicy) -> Self {
+        Self::with_record(Record::new(agent_id), budget, policy)
+    }
+
+    /// Starts an idle agent for one explicit durable session identity.
+    #[must_use]
+    pub fn for_session(
+        agent_id: AgentId,
+        session_id: plexmaton_core::SessionId,
+        budget: TurnBudget,
+        policy: ApprovalPolicy,
+    ) -> Self {
+        Self::with_record(Record::for_session(agent_id, session_id), budget, policy)
+    }
+
+    fn with_record(record: Record, budget: TurnBudget, policy: ApprovalPolicy) -> Self {
         Self {
-            record: Record::new(agent_id),
+            record,
             turn: Turn::Idle,
             input: InputQueue::default(),
             budget,
@@ -1004,6 +1019,14 @@ mod tests {
             ]
         );
         assert_eq!(agent.queued_for_next_turn().count(), 0);
+        assert_eq!(
+            ended
+                .released_inputs
+                .iter()
+                .map(crate::ReleasedInput::text)
+                .collect::<Vec<_>>(),
+            ["second"]
+        );
         assert!(agent.is_running());
     }
 
@@ -1041,6 +1064,14 @@ mod tests {
             })
         );
         assert_eq!(agent.queued_for_next_step().count(), 0);
+        assert_eq!(
+            claimed
+                .released_inputs
+                .iter()
+                .map(crate::ReleasedInput::text)
+                .collect::<Vec<_>>(),
+            ["check the cache too"]
+        );
         assert_eq!(
             agent.queued_for_next_turn().collect::<Vec<_>>(),
             ["then summarize"],

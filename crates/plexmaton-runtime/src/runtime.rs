@@ -2,26 +2,27 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{
-    Agent, Effect, Input, ModelCall, ModelError, ModelEvent, ModelStepId, Reaction,
-};
-use plexmaton_core::{AgentId, SessionEventEnvelope, TokenUsage};
-use plexmaton_provider::{ApiKey, ProviderProfile};
+use plexmaton_agent::{Agent, Input, ModelStepId, UndeliveredInput, UndeliveredReason};
+use plexmaton_core::{AgentId, SessionEventEnvelope};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::{DispatchReport, HttpSetupError, NativeToolCatalog, RuntimeError, http::OpenAiHttp};
+use crate::{CleanupFailure, DispatchReport, PersistenceFailure, RuntimeError, RuntimeUpdate};
 
+mod construction;
+mod journal;
 mod model;
 mod terminal;
 mod tools;
+mod transition;
 
 use model::RetainedModelFuture;
 pub(crate) use model::{ModelDriver, ModelSignal};
 use terminal::QueuedTerminal;
 use tools::{ToolResolution, ToolTasks};
+use transition::{AfterCommit, PendingCommit};
 
-const MODEL_SIGNAL_CAPACITY: usize = 32;
+use journal::JournalWriter;
 
 struct ActiveModel {
     step_id: ModelStepId,
@@ -42,76 +43,71 @@ pub struct LiveRuntime {
     active: Option<ActiveModel>,
     tools: ToolTasks,
     report: DispatchReport,
+    journal: Option<JournalWriter>,
+    pending_commit: Option<PendingCommit>,
+    after_commit: Option<AfterCommit>,
+    journal_failed: bool,
     shutting_down: bool,
 }
 
 impl LiveRuntime {
-    /// Validates HTTP ownership and announces one idle live agent without touching the network.
-    pub fn openai(
-        agent_id: AgentId,
-        label: impl Into<String>,
-        profile: ProviderProfile,
-        key: ApiKey,
-        tools: NativeToolCatalog,
-    ) -> Result<Self, HttpSetupError> {
-        if !tools.matches_api_key_environment(profile.api_key_env()) {
-            return Err(HttpSetupError::ToolCredentialEnvironmentMismatch);
-        }
-        let definitions = tools.provider_definitions();
-        let driver = Arc::new(OpenAiHttp::new(profile, key, definitions)?);
-        Ok(Self::with_driver(agent_id, label.into(), driver, tools))
-    }
-
-    fn with_driver(
-        agent_id: AgentId,
-        label: String,
-        driver: Arc<dyn ModelDriver>,
-        tools: NativeToolCatalog,
-    ) -> Self {
-        let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
-        let mut runtime = Self {
-            agent_id: agent_id.clone(),
-            agent: Agent::new(agent_id),
-            driver,
-            pending: VecDeque::new(),
-            signals,
-            signal_rx,
-            active: None,
-            tools: ToolTasks::new(tools),
-            report: DispatchReport::default(),
-            shutting_down: false,
-        };
-        let announced = runtime.agent.announce(label);
-        runtime
-            .apply_reaction(announced)
-            .unwrap_or_else(|_| unreachable!("announcing an idle agent starts no outside work"));
-        runtime
-    }
-
     /// Gives one addressed input to the owned agent and performs every resulting effect.
     pub async fn submit(
         &mut self,
         to: AgentId,
         input: Input,
     ) -> Result<DispatchReport, RuntimeError> {
-        if self.shutting_down {
-            return Err(RuntimeError::ShuttingDown);
-        }
         if to != self.agent_id {
             return Err(RuntimeError::WrongAgent {
                 expected: self.agent_id.clone(),
                 received: to,
             });
         }
-        let interrupted = matches!(input, Input::Interrupted);
-        if interrupted {
-            self.supply_missing_usage()?;
+        let rejected_input = match &input {
+            Input::Submitted { text } | Input::Steered { text } => Some(UndeliveredInput {
+                text: text.clone(),
+                reason: UndeliveredReason::PersistenceFailed,
+            }),
+            Input::Streamed { .. }
+            | Input::Failed { .. }
+            | Input::ToolAdmissionResolved(_)
+            | Input::ToolFinished { .. }
+            | Input::ApprovalDecided { .. }
+            | Input::Interrupted
+            | Input::ShuttingDown => None,
+        };
+        self.finish_transition().await?;
+        if self.journal_failed {
+            self.finish_failed_owners().await;
+            if let Some(input) = rejected_input {
+                self.report.undelivered.push(input);
+                if self.report.persistence_failure.is_none() {
+                    self.report.persistence_failure = Some(PersistenceFailure::NotWritten);
+                }
+            }
+            return if self.report.is_empty() {
+                Err(RuntimeError::JournalRequiresReopen)
+            } else {
+                Ok(self.take_report())
+            };
         }
-        let reaction = self.agent.handle(input);
-        self.apply_reaction(reaction)?;
+        if self.shutting_down {
+            return Err(RuntimeError::ShuttingDown);
+        }
+        let interrupted = matches!(input, Input::Interrupted);
+        let after = if interrupted {
+            AfterCommit::Interrupt
+        } else {
+            AfterCommit::None
+        };
         if interrupted {
-            self.cancel_active().await?;
-            self.tools.cancel_and_join().await?;
+            self.apply_agent_input_after_usage(input, rejected_input, after)
+                .await?;
+        } else {
+            self.apply_agent_input(input, rejected_input, after).await?;
+        }
+        if self.journal_failed {
+            self.finish_failed_owners().await;
         }
         Ok(self.take_report())
     }
@@ -122,21 +118,44 @@ impl LiveRuntime {
     }
 
     /// Waits cancellation-safely for the next semantic event.
+    ///
+    /// Composition roots should prefer [`Self::next_update`] so non-event ownership reports cannot
+    /// be missed. This event-only surface leaves such a report available through `take_report` and
+    /// returns [`RuntimeError::DispatchReportPending`].
     pub async fn next_event(&mut self) -> Result<Option<SessionEventEnvelope>, RuntimeError> {
+        match self.next_update().await? {
+            RuntimeUpdate::Event(event) => Ok(Some(event)),
+            RuntimeUpdate::Finished => Ok(None),
+            RuntimeUpdate::Report(report) => {
+                self.report = report;
+                Err(RuntimeError::DispatchReportPending)
+            }
+        }
+    }
+
+    /// Waits cancellation-safely for the next event, non-event report, or final completion.
+    pub async fn next_update(&mut self) -> Result<RuntimeUpdate, RuntimeError> {
+        self.finish_transition().await?;
         loop {
+            if self.journal_failed {
+                self.finish_failed_owners().await;
+            }
             if let Some(event) = self.try_next_event() {
-                return Ok(Some(event));
+                return Ok(RuntimeUpdate::Event(event));
+            }
+            if !self.report.is_empty() {
+                return Ok(RuntimeUpdate::Report(self.take_report()));
             }
             if self.shutting_down && !self.has_active_work() {
-                return Ok(None);
+                return Ok(RuntimeUpdate::Finished);
             }
             match self.wait_for_work().await {
-                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal)?,
-                WaitOutcome::Signal(None) => return Ok(None),
-                WaitOutcome::ModelEnded(result) => self.model_ended(result)?,
+                WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal).await?,
+                WaitOutcome::Signal(None) => return Ok(RuntimeUpdate::Finished),
+                WaitOutcome::ModelEnded(result) => self.model_ended(result).await?,
                 WaitOutcome::Tool(result) => {
                     if let Some(resolution) = result? {
-                        self.apply_tool_resolution(resolution)?;
+                        self.apply_tool_resolution(resolution).await?;
                     }
                 }
             }
@@ -148,17 +167,74 @@ impl LiveRuntime {
     /// Cancellation of this future does not make shutdown look complete: calling it again resumes
     /// the retained provider and tool cleanup.
     pub async fn shutdown(&mut self) -> Result<DispatchReport, RuntimeError> {
+        if let Err(error) = self.finish_transition().await {
+            return self.shutdown_after_journal_failure(error).await;
+        }
+        if self.journal_failed {
+            return self
+                .shutdown_after_journal_failure(RuntimeError::JournalRequiresReopen)
+                .await;
+        }
         if !self.shutting_down {
             self.shutting_down = true;
-            self.supply_missing_usage()?;
-            let reaction = self.agent.handle(Input::ShuttingDown);
-            self.apply_reaction(reaction)?;
+            if let Err(error) = self
+                .apply_agent_input_after_usage(Input::ShuttingDown, None, AfterCommit::Shutdown)
+                .await
+            {
+                return self.shutdown_after_journal_failure(error).await;
+            }
         }
-        let provider = self.cancel_active().await;
-        let tools = self.tools.cancel_and_join().await;
-        provider?;
-        tools?;
+        if self.journal_failed {
+            return self
+                .shutdown_after_journal_failure(RuntimeError::JournalRequiresReopen)
+                .await;
+        }
+        if let Err(error) = self.finish_transition().await {
+            return self.shutdown_after_journal_failure(error).await;
+        }
+        if let Some(journal) = &mut self.journal {
+            journal
+                .shutdown()
+                .await
+                .map_err(|_| RuntimeError::JournalWriterUnavailable)?;
+        }
         Ok(self.take_report())
+    }
+
+    async fn shutdown_after_journal_failure(
+        &mut self,
+        error: RuntimeError,
+    ) -> Result<DispatchReport, RuntimeError> {
+        self.shutting_down = true;
+        self.finish_failed_owners().await;
+        if self.report.persistence_failure.is_some() {
+            Ok(self.take_report())
+        } else {
+            Err(error)
+        }
+    }
+
+    async fn finish_failed_owners(&mut self) {
+        let provider = self.discard_active_after_journal_failure().await;
+        let tools = self.tools.cancel_and_join().await;
+        let writer = match &mut self.journal {
+            Some(journal) => journal
+                .shutdown()
+                .await
+                .map_err(|_| RuntimeError::JournalWriterUnavailable),
+            None => Ok(()),
+        };
+        if provider.is_err() {
+            self.report.cleanup_failures.push(CleanupFailure::Provider);
+        }
+        if tools.is_err() {
+            self.report.cleanup_failures.push(CleanupFailure::Tools);
+        }
+        if writer.is_err() {
+            self.report
+                .cleanup_failures
+                .push(CleanupFailure::JournalWriter);
+        }
     }
 
     /// Whether this runtime still owns a provider operation.
@@ -167,10 +243,19 @@ impl LiveRuntime {
         self.active.is_some()
     }
 
-    /// Whether this runtime still owns provider, admission, or execution work.
+    /// Sole agent identity accepted by this runtime and named by its non-event reports.
+    #[must_use]
+    pub const fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    /// Whether this runtime still owns a durable transition, provider, admission, or execution.
     #[must_use]
     pub fn has_active_work(&self) -> bool {
-        self.active.is_some() || !self.tools.is_empty()
+        self.pending_commit.is_some()
+            || self.after_commit.is_some()
+            || self.active.is_some()
+            || !self.tools.is_empty()
     }
 
     /// Takes non-event delivery results accumulated while provider traffic was processed.
@@ -200,172 +285,17 @@ impl LiveRuntime {
         }
     }
 
-    fn apply_signal(&mut self, signal: ModelSignal) -> Result<(), RuntimeError> {
-        match signal {
-            ModelSignal::Event { step_id, event } => {
-                if self.active_matches(&step_id)
-                    && matches!(event, ModelEvent::Usage(_))
-                    && let Some(active) = &mut self.active
-                {
-                    active.usage_reported = true;
-                }
-                let reaction = self.agent.handle(Input::Streamed { step_id, event });
-                self.apply_reaction(reaction)
-            }
-            ModelSignal::Terminal { step_id, event } => {
-                let terminal = QueuedTerminal::Streamed(event);
-                if self.active_matches(&step_id) {
-                    self.queue_terminal(step_id, terminal)
-                } else {
-                    self.deliver_terminal(step_id, terminal)
-                }
-            }
-            ModelSignal::Failed { step_id, error } => {
-                let terminal = QueuedTerminal::Failed(error);
-                if self.active_matches(&step_id) {
-                    self.queue_terminal(step_id, terminal)
-                } else {
-                    self.deliver_terminal(step_id, terminal)
-                }
-            }
-        }
-    }
-
-    fn model_ended(&mut self, result: Result<(), ()>) -> Result<(), RuntimeError> {
-        self.drain_ready_signals()?;
-        let Some(active) = self.active.take() else {
-            return Ok(());
-        };
-        self.supply_missing_usage_for(active.step_id.clone(), active.usage_reported)?;
-        if result.is_err() {
-            return self.fail_owned_step(active.step_id, "provider future terminated unexpectedly");
-        }
-        match active.terminal {
-            Some(terminal) => self.deliver_terminal(active.step_id, terminal),
-            None => self.fail_owned_step(
-                active.step_id,
-                "provider future ended without terminal output",
-            ),
-        }
-    }
-
-    fn fail_owned_step(
+    async fn apply_tool_resolution(
         &mut self,
-        step_id: ModelStepId,
-        message: &'static str,
+        resolution: ToolResolution,
     ) -> Result<(), RuntimeError> {
-        let reaction = self.agent.handle(Input::Failed {
-            step_id,
-            error: ModelError::Transport {
-                message: message.to_owned(),
-            },
-        });
-        self.apply_reaction(reaction)
-    }
-
-    fn apply_reaction(&mut self, reaction: Reaction) -> Result<(), RuntimeError> {
-        let mut reactions = VecDeque::from([reaction]);
-        while let Some(mut reaction) = reactions.pop_front() {
-            self.pending.extend(reaction.events);
-            self.report.undelivered.append(&mut reaction.undelivered);
-            self.report
-                .unresolved_approvals
-                .append(&mut reaction.unresolved_approvals);
-            self.report
-                .undelivered_model
-                .append(&mut reaction.undelivered_model);
-            for effect in reaction.effects {
-                match effect {
-                    Effect::CallModel(call) => self.spawn_model(call)?,
-                    Effect::AdmitTool(request) => self.tools.start_admission(request)?,
-                    Effect::RunTool(call) => self.tools.start_execution(call)?,
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn spawn_model(&mut self, call: ModelCall) -> Result<(), RuntimeError> {
-        if self.shutting_down {
-            return Err(RuntimeError::ShuttingDown);
-        }
-        if let Some(active) = &self.active {
-            return Err(RuntimeError::ModelAlreadyActive {
-                active: active.step_id.clone(),
-                requested: call.step_id,
-            });
-        }
-        if !self.tools.is_empty() {
-            return Err(RuntimeError::ModelStartedWithToolWork);
-        }
-        let step_id = call.step_id.clone();
-        let cancellation = CancellationToken::new();
-        let future = self
-            .driver
-            .drive(call, self.signals.clone(), cancellation.child_token());
-        self.active = Some(ActiveModel {
-            step_id,
-            cancellation,
-            future: RetainedModelFuture::new(future),
-            usage_reported: false,
-            terminal: None,
-        });
-        Ok(())
-    }
-
-    fn supply_missing_usage(&mut self) -> Result<(), RuntimeError> {
-        let missing = self
-            .active
-            .as_ref()
-            .map(|active| (active.step_id.clone(), active.usage_reported));
-        if let Some((step_id, reported)) = missing {
-            self.supply_missing_usage_for(step_id, reported)?;
-        }
-        Ok(())
-    }
-
-    fn supply_missing_usage_for(
-        &mut self,
-        step_id: ModelStepId,
-        reported: bool,
-    ) -> Result<(), RuntimeError> {
-        if reported {
-            return Ok(());
-        }
-        let reaction = self.agent.handle(Input::Streamed {
-            step_id,
-            event: ModelEvent::Usage(TokenUsage::Unavailable),
-        });
-        self.apply_reaction(reaction)?;
-        if let Some(active) = &mut self.active {
-            active.usage_reported = true;
-        }
-        Ok(())
-    }
-
-    fn active_matches(&self, step_id: &ModelStepId) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|active| active.step_id == *step_id)
-    }
-
-    fn drain_ready_signals(&mut self) -> Result<(), RuntimeError> {
-        while let Ok(signal) = self.signal_rx.try_recv() {
-            self.apply_signal(signal)?;
-        }
-        Ok(())
-    }
-
-    fn apply_tool_resolution(&mut self, resolution: ToolResolution) -> Result<(), RuntimeError> {
-        let reaction = match resolution {
-            ToolResolution::Admission(outcome) => {
-                self.agent.handle(Input::ToolAdmissionResolved(outcome))
-            }
+        let input = match resolution {
+            ToolResolution::Admission(outcome) => Input::ToolAdmissionResolved(outcome),
             ToolResolution::Execution { call_id, result } => {
-                self.agent.handle(Input::ToolFinished { call_id, result })
+                Input::ToolFinished { call_id, result }
             }
         };
-        self.apply_reaction(reaction)
+        self.apply_agent_input(input, None, AfterCommit::None).await
     }
 }
 

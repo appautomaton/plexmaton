@@ -95,7 +95,7 @@ only plexmaton-command "plexmaton-agent plexmaton-core"
 # selected codec and native executors, but it must not reach the projection or synthetic producer.
 forbid plexmaton-runtime "a terminal, projection, or synthetic producer" \
     'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
-only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-provider"
+only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-provider plexmaton-session-store"
 
 # The session store performs bounded local persistence over the canonical agent journal. It owns
 # no async runtime, provider transport, terminal state, tool executor, or composition root.

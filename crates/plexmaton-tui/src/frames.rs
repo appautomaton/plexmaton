@@ -19,7 +19,7 @@ mod tests {
     use ratatui::{buffer::Buffer, layout::Rect};
 
     use crate::{
-        TranscriptMetrics, ViewState,
+        CleanupNotice, PersistenceNotice, TranscriptMetrics, ViewState,
         intent::{AttentionIntent, Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
@@ -85,6 +85,25 @@ mod tests {
     /// Compact composer-only frames for work states absent from the canonical frames.
     const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
+
+    const PERSISTENCE_FAILURES: [(PersistenceNotice, &str, &str); 2] = [
+        (
+            PersistenceNotice::NotWritten,
+            "not-written",
+            "message was not saved; draft restored",
+        ),
+        (
+            PersistenceNotice::OutcomeUnknown,
+            "outcome-unknown",
+            "write outcome unknown; reopen before retrying",
+        ),
+    ];
+
+    const CLEANUP_FAILURE_FRAMES: [(&str, u16, u16); 3] = [
+        ("cleanup-failure-wide", 120, 40),
+        ("cleanup-failure-medium", 95, 40),
+        ("cleanup-failure-narrow", 60, 40),
+    ];
 
     fn fixture_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -479,6 +498,75 @@ mod tests {
             },
         );
         state
+    }
+
+    /// JRN-7/ui-ux §responsive interaction: a failed durable boundary is legible at every width.
+    #[test]
+    fn the_persistence_failure_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        for (failure, failure_name, signature) in PERSISTENCE_FAILURES {
+            let mut state = canonical_state();
+            state.report_cleanup_failure(CleanupNotice::JournalWriter);
+            state.report_persistence_failure(failure);
+            for (width_name, width, height) in TOOL_WIDTHS {
+                let name = format!("persistence-{failure_name}-{width_name}");
+                let drawn = draw(&state, width, height);
+                assert!(drawn.contains(signature), "{name}: failure copy is absent");
+                assert_eq!(drawn.lines().count(), usize::from(height));
+
+                let path = fixture_path(&name);
+                if write {
+                    std::fs::write(&path, &drawn)
+                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                    continue;
+                }
+                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                    panic!(
+                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                        path.display()
+                    )
+                });
+                assert!(
+                    fixture == drawn,
+                    "{name} drifted from its fixture at {}",
+                    first_difference(&fixture, &drawn)
+                );
+            }
+        }
+    }
+
+    /// JRN-7/ui-ux §responsive interaction: failed cleanup remains one bounded visible strip.
+    #[test]
+    fn the_cleanup_failure_frames_match_their_fixtures() {
+        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
+        let mut state = canonical_state();
+        state.report_cleanup_failure(CleanupNotice::JournalWriter);
+        for (name, width, height) in CLEANUP_FAILURE_FRAMES {
+            let drawn = draw(&state, width, height);
+            assert!(
+                drawn.contains("journal writer cleanup failed"),
+                "{name}: cleanup copy is absent"
+            );
+            assert_eq!(drawn.lines().count(), usize::from(height));
+
+            let path = fixture_path(name);
+            if write {
+                std::fs::write(&path, &drawn)
+                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+                continue;
+            }
+            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
+                    path.display()
+                )
+            });
+            assert!(
+                fixture == drawn,
+                "{name} drifted from its fixture at {}",
+                first_difference(&fixture, &drawn)
+            );
+        }
     }
 
     /// ENT-2/TR-2: all seven compact states remain legible at wide, medium and narrow.

@@ -3,7 +3,7 @@
 use plexmaton_agent::{
     ModelStepId, UndeliveredInput, UndeliveredModelInput, UnresolvedApprovalDecision,
 };
-use plexmaton_core::{AgentId, ToolCallId};
+use plexmaton_core::{AgentId, SessionEventEnvelope, ToolCallId};
 use thiserror::Error;
 
 /// Non-event results retained when an input could not enter the loop boundary it named.
@@ -15,11 +15,59 @@ pub struct DispatchReport {
     pub unresolved_approvals: Vec<UnresolvedApprovalDecision>,
     /// Provider output refused by model-step correlation.
     pub undelivered_model: Vec<UndeliveredModelInput>,
+    /// Durable session failure that prevented accepted input from becoming visible or executable.
+    pub persistence_failure: Option<PersistenceFailure>,
+    /// Cleanup failures observed while freezing a runtime whose journal can no longer advance.
+    pub cleanup_failures: Vec<CleanupFailure>,
+}
+
+impl DispatchReport {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.undelivered.is_empty()
+            && self.unresolved_approvals.is_empty()
+            && self.undelivered_model.is_empty()
+            && self.persistence_failure.is_none()
+            && self.cleanup_failures.is_empty()
+    }
+}
+
+/// One observable result from waiting on the live runtime.
+#[derive(Debug, Eq, PartialEq)]
+pub enum RuntimeUpdate {
+    /// One revisioned semantic event is ready for the projection.
+    Event(SessionEventEnvelope),
+    /// Non-event ownership or refusal information is ready for the composition root.
+    Report(DispatchReport),
+    /// Orderly shutdown has no owned work or further output.
+    Finished,
+}
+
+/// Typed failure of the session durability boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PersistenceFailure {
+    /// The transition wrote no bytes and the exact input can be submitted again after reopen.
+    NotWritten,
+    /// Some bytes or records may have reached disk; reopen must reconcile before any retry.
+    OutcomeUnknown,
+}
+
+/// Owned cleanup boundary that failed after the journal had already frozen execution.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CleanupFailure {
+    /// The retained provider future panicked while cancellation joined it.
+    Provider,
+    /// One or more native tool workers could not be joined cleanly.
+    Tools,
+    /// The journal writer task could not report a clean exit.
+    JournalWriter,
 }
 
 /// A live-runtime ownership or routing failure.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    /// Durable construction failed at the existing HTTP/profile boundary.
+    #[error(transparent)]
+    HttpSetup(#[from] crate::HttpSetupError),
     /// Input named an agent this runtime does not own.
     #[error("runtime owns `{expected}`, not `{received}`")]
     WrongAgent {
@@ -51,6 +99,22 @@ pub enum RuntimeError {
     /// The tool future set and its ownership table diverged.
     #[error("one or more owned tool futures disappeared before completion")]
     ToolTaskLost,
+    /// The bounded journal owner could not accept or finish a command.
+    #[error("the session journal writer is unavailable")]
+    JournalWriterUnavailable,
+    /// A canonical transition could not be appended; this runtime cannot safely continue.
+    #[error("the session journal append failed")]
+    JournalAppendFailed {
+        /// Typed storage boundary failure.
+        #[source]
+        source: plexmaton_session_store::StoreError,
+    },
+    /// A prior journal failure made further work unsafe.
+    #[error("the session journal requires reopen before more work")]
+    JournalRequiresReopen,
+    /// An event-only caller must collect the pending dispatch report before polling again.
+    #[error("the live runtime has a non-event dispatch report ready")]
+    DispatchReportPending,
     /// The agent requested a model step before every tool future in its batch had joined.
     #[error("a model step started while native tool work was still active")]
     ModelStartedWithToolWork,

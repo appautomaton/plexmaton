@@ -292,10 +292,11 @@ impl Agent {
                 reaction,
                 "the turn reached its step budget with the model still asking for tools",
             );
-            reaction.undelivered.extend(self.input.reject(
+            self.reject_queued(
                 super::input::DeliveryBoundary::NextStep,
                 UndeliveredReason::StepBudgetReached,
-            ));
+                reaction,
+            );
             self.finish_turn(reaction);
             return;
         }

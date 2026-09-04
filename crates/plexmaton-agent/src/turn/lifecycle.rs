@@ -4,7 +4,10 @@ use plexmaton_core::{AgentStatus, ApprovalDecision, ApprovalId, SessionEvent};
 
 use super::{Agent, DeliveryBoundary, Turn};
 use crate::{
-    interface::{ApprovalDecisionRefusal, Reaction, UndeliveredReason, UnresolvedApprovalDecision},
+    interface::{
+        ApprovalDecisionRefusal, Reaction, ReleasedInput, UndeliveredInput, UndeliveredReason,
+        UnresolvedApprovalDecision,
+    },
     journal::JournalEntryPayload,
     model::ModelError,
     tools::ToolCancellationReason,
@@ -56,28 +59,59 @@ impl Agent {
         self.abandon(cancellation, reaction);
         self.close_step(reaction);
         self.turn = Turn::Idle;
-        reaction.undelivered.extend(self.input.reject_all(reason));
+        let released = self.input.drain_all();
+        self.return_queued(released, reason, reaction);
         self.status(reaction, AgentStatus::Idle);
     }
 
     /// Ends a turn that ran its course, and opens the next one if a message waited for it.
     pub(super) fn finish_turn(&mut self, reaction: &mut Reaction) {
         self.turn = Turn::Idle;
-        reaction.undelivered.extend(
-            self.input
-                .reject(DeliveryBoundary::NextStep, UndeliveredReason::TurnEnded),
-        );
+        let released = self.input.claim(DeliveryBoundary::NextStep);
+        self.return_queued(released, UndeliveredReason::TurnEnded, reaction);
         let Some(next) = self.input.claim_one(DeliveryBoundary::NextTurn) else {
             self.status(reaction, AgentStatus::Idle);
             return;
         };
-        self.open_turn(next, reaction);
+        reaction
+            .released_inputs
+            .push(ReleasedInput::new(next.order, next.text.clone()));
+        self.open_turn(next.text, reaction);
     }
 
     /// Claims steering immediately before the request for the next step is assembled (LOOP-6).
     pub(super) fn claim_next_step_input(&mut self, reaction: &mut Reaction) {
-        for text in self.input.claim(DeliveryBoundary::NextStep) {
-            self.record_user(text, reaction);
+        for input in self.input.claim(DeliveryBoundary::NextStep) {
+            reaction
+                .released_inputs
+                .push(ReleasedInput::new(input.order, input.text.clone()));
+            self.record_user(input.text, reaction);
+        }
+    }
+
+    pub(super) fn reject_queued(
+        &mut self,
+        boundary: DeliveryBoundary,
+        reason: UndeliveredReason,
+        reaction: &mut Reaction,
+    ) {
+        let released = self.input.claim(boundary);
+        self.return_queued(released, reason, reaction);
+    }
+
+    fn return_queued(
+        &self,
+        released: Vec<super::input::QueuedInput>,
+        reason: UndeliveredReason,
+        reaction: &mut Reaction,
+    ) {
+        for input in released {
+            reaction
+                .released_inputs
+                .push(ReleasedInput::new(input.order, input.text.clone()));
+            reaction
+                .undelivered
+                .push(UndeliveredInput::new(input.text, reason));
         }
     }
 

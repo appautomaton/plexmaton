@@ -12,7 +12,8 @@ use ratatui::{
 };
 
 use crate::{
-    NoticeView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewState,
+    CleanupNotice, NoticeView, PersistenceNotice, TranscriptEntryView, TranscriptItemView,
+    TranscriptTextKind, ViewState,
     state::EntryAppearance,
     surface::SurfaceId,
     theme::{Palette, Role, agent_role},
@@ -273,6 +274,29 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     "[drop] ",
                     Role::Failure,
                     format!("sequence {}: {error}", sequence.get()),
+                ),
+                NoticeView::PersistenceFailed(PersistenceNotice::NotWritten) => (
+                    "[save] ",
+                    Role::Failure,
+                    "message was not saved; draft restored".to_owned(),
+                ),
+                NoticeView::PersistenceFailed(PersistenceNotice::OutcomeUnknown) => (
+                    "[save] ",
+                    Role::Failure,
+                    "write outcome unknown; reopen before retrying".to_owned(),
+                ),
+                NoticeView::CleanupFailed(CleanupNotice::Provider) => (
+                    "[stop] ",
+                    Role::Failure,
+                    "provider cleanup failed".to_owned(),
+                ),
+                NoticeView::CleanupFailed(CleanupNotice::Tools) => {
+                    ("[stop] ", Role::Failure, "tool cleanup failed".to_owned())
+                }
+                NoticeView::CleanupFailed(CleanupNotice::JournalWriter) => (
+                    "[save] ",
+                    Role::Failure,
+                    "journal writer cleanup failed".to_owned(),
                 ),
             };
             Line::from(vec![

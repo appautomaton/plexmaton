@@ -1,0 +1,40 @@
+┌ Notices · 2 ────────────────────────────────────────────────────────────────────────────────┐
+│[save] journal writer cleanup failed                                                         │
+│[save] message was not saved; draft restored                                                 │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
+│> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Agents · !1 ───────────┐┌ Agent A · primary · running ──────────────────────────────────────┐
+│○ Agent B · UI study    ││                                                                   │
+│done · 1 tool @1 1 mail ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││assistant                                                          │
+│                        ││I will inspect the workspace and delegate the focused UI study.    │
+│                        ││Agent B is running independently; this transcript remains          │
+│                        ││interactive.                                                       │
+│                        ││                                                                   │
+│                        │├ Message Agent A · primary · Thinking ─────────────────────────────┤
+│                        ││Type a message · ⇥ to focus                                        │
+└────────────────────────┘└───────────────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                                                   

@@ -19,7 +19,10 @@ use crate::{
     intent::{SelectionIntent, TuiIntent},
     render::render,
     router::{Routed, Router, RouterContext},
-    state::{ApprovalSubmission, CopyRequest, QuitPress, Submission, ViewRevision, ViewState},
+    state::{
+        ApprovalSubmission, CleanupNotice, CopyRequest, PersistenceNotice, QuitPress, Submission,
+        ViewRevision, ViewState,
+    },
     surface::SurfaceTree,
     theme::Palette,
     transcript::TranscriptMetrics,
@@ -163,6 +166,16 @@ impl Workspace {
         self.state.return_input(to, text);
         // Composer growth can change the transcript viewport beneath a stationary pointer.
         self.state.hover_entry(None);
+    }
+
+    /// Shows a session-writer failure that cannot itself enter the failed durable stream.
+    pub fn report_persistence_failure(&mut self, failure: PersistenceNotice) {
+        self.state.report_persistence_failure(failure);
+    }
+
+    /// Shows an owner that could not be joined cleanly after session persistence failed.
+    pub fn report_cleanup_failure(&mut self, failure: CleanupNotice) {
+        self.state.report_cleanup_failure(failure);
     }
 
     /// Translates one terminal event and applies whatever it asked for.

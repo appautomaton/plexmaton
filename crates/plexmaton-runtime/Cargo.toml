@@ -12,6 +12,7 @@ plexmaton-command = { path = "../plexmaton-command" }
 plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-file-tools = { path = "../plexmaton-file-tools" }
 plexmaton-provider = { path = "../plexmaton-provider" }
+plexmaton-session-store = { path = "../plexmaton-session-store" }
 reqwest.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

@@ -14,8 +14,14 @@ use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::{ProviderConfig, resolve_api_key, resolve_home};
-use plexmaton_runtime::{DispatchReport, LiveRuntime, NativeToolCatalog};
-use plexmaton_tui::{ApprovalSubmission, Flow, Palette, Submission, SubmissionKind, Workspace};
+use plexmaton_runtime::{
+    CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
+    RuntimeUpdate,
+};
+use plexmaton_tui::{
+    ApprovalSubmission, CleanupNotice, Flow, Palette, PersistenceNotice, Submission,
+    SubmissionKind, Workspace,
+};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
@@ -155,9 +161,33 @@ async fn run(
     }
     let loop_result = drive_session(&mut terminal, &mut runtime, clipboard, &mut workspace).await;
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
-    loop_result?;
-    let _report = shutdown?;
-    Ok(())
+    let report = shutdown?;
+    surface_shutdown_report(report)?;
+    loop_result
+}
+
+fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
+    if report.undelivered.is_empty()
+        && report.unresolved_approvals.is_empty()
+        && report.undelivered_model.is_empty()
+        && report.persistence_failure.is_none()
+        && report.cleanup_failures.is_empty()
+    {
+        return Ok(());
+    }
+    let input = report
+        .undelivered
+        .iter()
+        .map(|input| format!("{:?}", input.text))
+        .collect::<Vec<_>>()
+        .join(", ");
+    bail!(
+        "shutdown retained input [{input}]; persistence={:?}; cleanup={:?}; unresolved_approvals={}; undelivered_model={}",
+        report.persistence_failure,
+        report.cleanup_failures,
+        report.unresolved_approvals.len(),
+        report.undelivered_model.len(),
+    )
 }
 
 /// Runs the interactive select separately so every error returns to the owner that joins runtime.
@@ -176,10 +206,13 @@ async fn drive_session(
             () = wait_for_quit_deadline(quit_deadline) => {
                 workspace.expire_quit(Instant::now());
             }
-            runtime_event = runtime.next_event() => {
-                match runtime_event.context("receive live runtime event")? {
-                    Some(event) => workspace.emit(vec![event]),
-                    None => break,
+            runtime_update = runtime.next_update() => {
+                match runtime_update.context("receive live runtime update")? {
+                    RuntimeUpdate::Event(event) => workspace.emit(vec![event]),
+                    RuntimeUpdate::Report(report) => {
+                        restore_undelivered(workspace, runtime.agent_id().clone(), report);
+                    }
+                    RuntimeUpdate::Finished => break,
                 }
             }
             terminal_event = terminal_events.next() => {
@@ -306,6 +339,21 @@ fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchR
     for input in report.undelivered {
         workspace.return_input(to.clone(), input.text);
     }
+    for failure in report.cleanup_failures {
+        let notice = match failure {
+            CleanupFailure::Provider => CleanupNotice::Provider,
+            CleanupFailure::Tools => CleanupNotice::Tools,
+            CleanupFailure::JournalWriter => CleanupNotice::JournalWriter,
+        };
+        workspace.report_cleanup_failure(notice);
+    }
+    if let Some(failure) = report.persistence_failure {
+        let notice = match failure {
+            PersistenceFailure::NotWritten => PersistenceNotice::NotWritten,
+            PersistenceFailure::OutcomeUnknown => PersistenceNotice::OutcomeUnknown,
+        };
+        workspace.report_persistence_failure(notice);
+    }
 }
 
 #[cfg(test)]
@@ -356,8 +404,8 @@ mod tests {
     };
     use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{
-        ApprovalSubmission, Submission, SubmissionKind, SurfaceId, TranscriptEntryView,
-        TranscriptTextKind, Workspace,
+        ApprovalSubmission, CleanupNotice, NoticeView, PersistenceNotice, Submission,
+        SubmissionKind, SurfaceId, TranscriptEntryView, TranscriptTextKind, Workspace,
     };
     use ratatui::{
         Terminal,
@@ -366,8 +414,8 @@ mod tests {
     };
 
     use super::{
-        AddressedInput, dispatch_live, dispatch_synthetic, route_approval, route_interrupt,
-        route_submission,
+        AddressedInput, dispatch_live, dispatch_synthetic, restore_undelivered, route_approval,
+        route_interrupt, route_submission, surface_shutdown_report,
     };
 
     fn press(code: KeyCode) -> Event {
@@ -1008,6 +1056,98 @@ reasoning_effort = "none"
             .shutdown()
             .await
             .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    }
+
+    /// JRN-7: the composition root restores text and maps typed persistence failures visibly.
+    #[test]
+    fn persistence_failure_restores_the_draft_and_opens_one_notice() {
+        let agent_id = plexmaton_core::AgentId::new("agent-a")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        for (failure, expected) in [
+            (
+                plexmaton_runtime::PersistenceFailure::NotWritten,
+                PersistenceNotice::NotWritten,
+            ),
+            (
+                plexmaton_runtime::PersistenceFailure::OutcomeUnknown,
+                PersistenceNotice::OutcomeUnknown,
+            ),
+        ] {
+            let mut workspace = Workspace::default();
+            restore_undelivered(
+                &mut workspace,
+                agent_id.clone(),
+                plexmaton_runtime::DispatchReport {
+                    undelivered: vec![plexmaton_agent::UndeliveredInput {
+                        text: "keep this exact draft".to_owned(),
+                        reason: plexmaton_agent::UndeliveredReason::PersistenceFailed,
+                    }],
+                    persistence_failure: Some(failure),
+                    ..plexmaton_runtime::DispatchReport::default()
+                },
+            );
+
+            assert_eq!(
+                workspace.state().draft(&agent_id).draft(),
+                "keep this exact draft"
+            );
+            assert!(matches!(
+                workspace.state().notices().next(),
+                Some(NoticeView::PersistenceFailed(actual)) if *actual == expected
+            ));
+            assert_eq!(workspace.state().notices().count(), 1);
+        }
+    }
+
+    /// JRN-7: cleanup diagnostics cross the composition root as typed visible notices.
+    #[test]
+    fn combined_failures_keep_persistence_as_the_visible_tail_notice() {
+        let mut workspace = Workspace::default();
+        restore_undelivered(
+            &mut workspace,
+            plexmaton_core::AgentId::new("agent-a")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            plexmaton_runtime::DispatchReport {
+                cleanup_failures: vec![
+                    plexmaton_runtime::CleanupFailure::Provider,
+                    plexmaton_runtime::CleanupFailure::Tools,
+                    plexmaton_runtime::CleanupFailure::JournalWriter,
+                ],
+                persistence_failure: Some(plexmaton_runtime::PersistenceFailure::OutcomeUnknown),
+                ..plexmaton_runtime::DispatchReport::default()
+            },
+        );
+
+        assert_eq!(
+            workspace.state().notices().cloned().collect::<Vec<_>>(),
+            [
+                NoticeView::CleanupFailed(CleanupNotice::Provider),
+                NoticeView::CleanupFailed(CleanupNotice::Tools),
+                NoticeView::CleanupFailed(CleanupNotice::JournalWriter),
+                NoticeView::PersistenceFailed(PersistenceNotice::OutcomeUnknown),
+            ]
+        );
+    }
+
+    /// JRN-7/LOOP-6: process exit surfaces exact unsent text after the TUI releases the terminal.
+    #[test]
+    fn shutdown_report_is_not_silently_discarded() {
+        let error = surface_shutdown_report(plexmaton_runtime::DispatchReport {
+            undelivered: vec![plexmaton_agent::UndeliveredInput {
+                text: "exact\ntext".to_owned(),
+                reason: plexmaton_agent::UndeliveredReason::Shutdown,
+            }],
+            persistence_failure: Some(plexmaton_runtime::PersistenceFailure::OutcomeUnknown),
+            cleanup_failures: vec![plexmaton_runtime::CleanupFailure::JournalWriter],
+            ..plexmaton_runtime::DispatchReport::default()
+        })
+        .err()
+        .unwrap_or_else(|| panic!("non-empty shutdown report was discarded"));
+        let shown = error.to_string();
+
+        assert!(shown.contains(r#""exact\ntext""#));
+        assert!(shown.contains("OutcomeUnknown"));
+        assert!(shown.contains("JournalWriter"));
     }
 
     /// LIVE-1: the production HTTP, loop, native-read, and projection boundaries compose without

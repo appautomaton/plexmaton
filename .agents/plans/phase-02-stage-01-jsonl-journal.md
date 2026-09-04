@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–2 |
 | Contract | PRV-3/PRV-4, ENT-1/ENT-3, LOOP-2/LOOP-4 and APV-6 |
-| Status | Active; slices 1–4 of 6 done; slice 5 ready |
+| Status | Active; slices 1–5 of 6 done; slice 6 ready |
 | Blocked | None |
 
 ## Outcome

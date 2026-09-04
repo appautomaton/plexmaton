@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Arc,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -34,19 +34,22 @@ enum Script {
 
 struct FakeDriver {
     scripts: Arc<Mutex<VecDeque<Script>>>,
-    calls: Arc<Mutex<Vec<ModelCall>>>,
+    calls: Arc<StdMutex<Vec<ModelCall>>>,
 }
 
 impl FakeDriver {
     fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
         Arc::new(Self {
             scripts: Arc::new(Mutex::new(scripts.into_iter().collect())),
-            calls: Arc::new(Mutex::new(Vec::new())),
+            calls: Arc::new(StdMutex::new(Vec::new())),
         })
     }
 
     async fn calls(&self) -> Vec<ModelCall> {
-        self.calls.lock().await.clone()
+        self.calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 }
 
@@ -58,9 +61,11 @@ impl ModelDriver for FakeDriver {
         cancellation: CancellationToken,
     ) -> BoxFuture<'static, ()> {
         let scripts = Arc::clone(&self.scripts);
-        let calls = Arc::clone(&self.calls);
+        self.calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(call.clone());
         async move {
-            calls.lock().await.push(call.clone());
             let script = scripts
                 .lock()
                 .await
@@ -139,6 +144,7 @@ impl ModelDriver for FakeDriver {
 
 mod cancellation;
 mod lifecycle;
+mod persistence;
 mod presentation;
 mod tools;
 
@@ -366,6 +372,7 @@ async fn cancellation_wins_a_queued_completion_race_without_touching_a_later_tur
     while let Ok(signal) = runtime.signal_rx.try_recv() {
         runtime
             .apply_signal(signal)
+            .await
             .unwrap_or_else(|error| panic!("apply late signal: {error}"));
     }
     let late = runtime.take_report();
