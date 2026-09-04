@@ -195,6 +195,7 @@ impl ResponsesDecoder {
                     optional_string(item, "call_id"),
                     optional_string(item, "name"),
                     index,
+                    limits,
                 )?;
                 call.seed_arguments(optional_string(item, "arguments"), index, limits)
             }
@@ -211,7 +212,7 @@ impl ResponsesDecoder {
         let delta = string_field(event, "delta")?;
         let limits = self.limits;
         let call = self.call(index)?;
-        call.merge_item_id(item_id, index)?;
+        call.merge_item_id(item_id, index, limits)?;
         call.append_delta(delta, index, limits)
     }
 
@@ -221,7 +222,7 @@ impl ResponsesDecoder {
         let arguments = string_field(event, "arguments")?;
         let limits = self.limits;
         let call = self.call(index)?;
-        call.merge_item_id(item_id, index)?;
+        call.merge_item_id(item_id, index, limits)?;
         call.mark_arguments_done(arguments, index, limits)
     }
 
@@ -263,6 +264,7 @@ impl ResponsesDecoder {
             optional_string(item, "call_id"),
             optional_string(item, "name"),
             index,
+            limits,
         )?;
         call.complete_arguments(string_field(item, "arguments")?, index, limits)?;
         let call = self

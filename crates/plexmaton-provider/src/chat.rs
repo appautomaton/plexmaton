@@ -163,9 +163,21 @@ impl ChatDecoder {
             });
         }
         let call = self.calls.entry(fragment.index).or_default();
-        merge_once(&mut call.id, fragment.id, fragment.index, "id")?;
+        merge_once(
+            &mut call.id,
+            fragment.id,
+            fragment.index,
+            "id",
+            self.limits.max_tool_identity_bytes,
+        )?;
         if let Some(function) = fragment.function {
-            merge_once(&mut call.name, function.name, fragment.index, "name")?;
+            merge_once(
+                &mut call.name,
+                function.name,
+                fragment.index,
+                "name",
+                self.limits.max_tool_identity_bytes,
+            )?;
             if let Some(arguments) = function.arguments {
                 let Some(next) = call.arguments.len().checked_add(arguments.len()) else {
                     return Err(DecodeError::ToolArgumentsTooLarge {
@@ -238,10 +250,18 @@ fn merge_once(
     fragment: Option<String>,
     index: usize,
     field: &'static str,
+    limit: usize,
 ) -> Result<(), DecodeError> {
     let Some(fragment) = fragment else {
         return Ok(());
     };
+    if fragment.len() > limit {
+        return Err(DecodeError::ToolIdentityTooLarge {
+            index,
+            field,
+            limit,
+        });
+    }
     match current {
         Some(value) if value != &fragment => {
             Err(DecodeError::ConflictingToolFragment { index, field })

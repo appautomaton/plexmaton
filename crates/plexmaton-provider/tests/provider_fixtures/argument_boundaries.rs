@@ -1,4 +1,4 @@
-use plexmaton_agent::MAX_REQUESTED_TOOL_ARGUMENT_BYTES;
+use plexmaton_agent::{MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES};
 use plexmaton_provider::{DecodeError, DecodeLimits, OpenAiCodec, Protocol};
 use serde_json::json;
 
@@ -84,6 +84,60 @@ fn assert_too_large(result: Result<Vec<plexmaton_agent::ModelEvent>, DecodeError
         Err(DecodeError::ToolArgumentsTooLarge {
             index: 0,
             limit: MAX_REQUESTED_TOOL_ARGUMENT_BYTES
+        })
+    ));
+}
+
+/// PRV-2: provider-owned identity fields cannot bypass the canonical output envelope.
+#[test]
+fn prv_2_both_protocols_bound_tool_identity_before_emission() {
+    let oversized = "x".repeat(MAX_TOOL_IDENTITY_BYTES + 1);
+    let chat_profile = profile(Protocol::ChatCompletions);
+    let mut chat = OpenAiCodec::new(&chat_profile, DecodeLimits::for_profile(&chat_profile));
+    let chat_event = json!({
+        "choices": [{
+            "index": 0,
+            "delta": {"tool_calls": [{
+                "index": 0,
+                "id": oversized,
+                "function": {"name": "read_file", "arguments": "{}"}
+            }]},
+            "finish_reason": null
+        }]
+    })
+    .to_string();
+    assert!(matches!(
+        chat.push_sse("message", &chat_event),
+        Err(DecodeError::ToolIdentityTooLarge {
+            index: 0,
+            field: "id",
+            limit: MAX_TOOL_IDENTITY_BYTES
+        })
+    ));
+
+    let responses_profile = profile(Protocol::Responses);
+    let mut responses = OpenAiCodec::new(
+        &responses_profile,
+        DecodeLimits::for_profile(&responses_profile),
+    );
+    let responses_event = json!({
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+            "id": "fc_1",
+            "type": "function_call",
+            "call_id": "call_1",
+            "name": oversized,
+            "arguments": ""
+        }
+    })
+    .to_string();
+    assert!(matches!(
+        responses.push_sse("response.output_item.added", &responses_event),
+        Err(DecodeError::ToolIdentityTooLarge {
+            index: 0,
+            field: "name",
+            limit: MAX_TOOL_IDENTITY_BYTES
         })
     ));
 }

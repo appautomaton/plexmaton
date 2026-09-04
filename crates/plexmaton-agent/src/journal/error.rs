@@ -41,6 +41,14 @@ pub enum JournalError {
     DuplicateTurn(TurnId),
     /// A second assistant output reused one model-step identity.
     DuplicateModelStep(ModelStepId),
+    /// A model step skipped or rewound its one-based position within a turn.
+    UnexpectedModelStep {
+        turn_id: TurnId,
+        expected: u16,
+        actual: u16,
+    },
+    /// No later model-step position can be represented for a turn.
+    ModelStepSequenceExhausted(TurnId),
     /// Agent creation tried to bypass the idle initial lifecycle boundary.
     InvalidInitialAgentStatus(AgentId),
     /// A terminal fact named no semantic turn start.

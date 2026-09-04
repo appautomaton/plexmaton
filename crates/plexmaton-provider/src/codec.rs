@@ -1,9 +1,9 @@
 //! Shared OpenAI-compatible codec seam and its bounded vocabulary.
 
 use plexmaton_agent::{
-    AdmissionRefusal, MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ModelError,
-    ModelEvent, ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility,
-    ToolCancellationReason, ToolOutcome,
+    AdmissionRefusal, MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
+    MAX_TOOL_IDENTITY_BYTES, ModelError, ModelEvent, ModelOutputPosition, ModelRequest,
+    ProviderReplayError, ReplayCompatibility, ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
 use serde_json::Value;
@@ -26,6 +26,8 @@ pub struct DecodeLimits {
     pub max_sse_event_bytes: usize,
     /// Maximum raw JSON argument bytes accepted for one tool call.
     pub max_tool_argument_bytes: usize,
+    /// Maximum bytes accepted for a provider-supplied tool identity or name.
+    pub max_tool_identity_bytes: usize,
     /// Maximum complete tool calls accepted in one model step.
     pub max_tool_calls: usize,
     /// Maximum exact opaque replay bytes retained across one model step.
@@ -44,6 +46,7 @@ impl DecodeLimits {
             max_retained_output_bytes: profile.max_retained_output_bytes(),
             max_sse_event_bytes: 512 * 1024,
             max_tool_argument_bytes: MAX_REQUESTED_TOOL_ARGUMENT_BYTES,
+            max_tool_identity_bytes: MAX_TOOL_IDENTITY_BYTES,
             max_tool_calls: 64,
             max_replay_bytes: MAX_PROVIDER_REPLAY_BYTES,
             max_replay_items: 16,
@@ -110,6 +113,8 @@ pub enum EncodeError {
     PlainReasoningInResponses,
     #[error("opaque provider replay cannot be sent through Chat Completions")]
     OpaqueReplayInChat,
+    #[error("ordered assistant blocks cannot be represented by Chat Completions")]
+    UnrepresentableChatOrder,
     #[error(
         "opaque replay is incompatible with the selected provider route, codec revision, or model family"
     )]
@@ -144,6 +149,12 @@ pub enum DecodeError {
     IncompleteToolCall { index: usize, field: &'static str },
     #[error("tool call {index} arguments exceeded {limit} bytes")]
     ToolArgumentsTooLarge { index: usize, limit: usize },
+    #[error("tool call {index} `{field}` exceeded {limit} bytes")]
+    ToolIdentityTooLarge {
+        index: usize,
+        field: &'static str,
+        limit: usize,
+    },
     #[error("the response exceeded its {limit}-call tool bound")]
     TooManyToolCalls { limit: usize },
     #[error("the provider completed tool call id `{call_id}` more than once in one model step")]

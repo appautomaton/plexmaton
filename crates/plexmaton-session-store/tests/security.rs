@@ -4,14 +4,17 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use plexmaton_agent::{
-    Agent, ApprovalPolicy, AssistantBlock, ContextAtomValue, Input, ModelEvent,
-    ModelOutputPosition, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,
-    ProviderReplay, ProviderReplayOwnerId, ReplayCompatibility, StopReason, TurnBudget, UnixMillis,
+    Agent, ApprovalPolicy, AssistantBlock, AssistantOutput, AssistantReplay, ContextAtomValue,
+    Input, JournalEntryPayload, MAX_ASSISTANT_TEXT_BYTES, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
+    MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES,
+    ModelEvent, ModelOutputPosition, ModelStepId, ProviderCodecId, ProviderCodecRevision,
+    ProviderModelFamilyId, ProviderReplay, ProviderReplayOwnerId, ReplayCompatibility, StopReason,
+    ToolCall, TurnBudget, UnixMillis,
 };
-use plexmaton_core::{AgentId, HeadName};
-use plexmaton_session_store::{JournalFile, JournalRecovery, StoreError};
+use plexmaton_core::{AgentId, HeadName, ToolCallId, TranscriptItemId};
+use plexmaton_session_store::{JournalFile, JournalRecovery, MAX_JOURNAL_LINE_BYTES, StoreError};
 
-use support::{TestDir, agent_created, id, session};
+use support::{TestDir, agent_created, append, id, session};
 
 /// JRN-3/JRN-4: every journal-derived file is owner-only on Unix.
 #[cfg(unix)]
@@ -164,4 +167,72 @@ fn jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file() {
     assert_eq!(retained.attachments()[0].block(), 0);
     assert_eq!(retained.attachments()[0].payload(), replay.payload());
     assert!(!format!("{projected:?}").contains("secret-ciphertext"));
+}
+
+/// JRN-3/JRN-4 and PRV-2: every maximal provider output fits one bounded journal write.
+#[test]
+fn maximal_valid_assistant_output_fits_the_journal_line_envelope() {
+    assert_eq!(
+        MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
+        MAX_REQUESTED_TOOL_ARGUMENT_BYTES * 8
+    );
+    let compatibility = ReplayCompatibility::new(
+        ProviderReplayOwnerId::new("test-route")
+            .unwrap_or_else(|error| panic!("fixture replay owner: {error:?}")),
+        ProviderCodecId::new("openai_responses")
+            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
+        ProviderCodecRevision::new(1)
+            .unwrap_or_else(|error| panic!("fixture codec revision: {error:?}")),
+        ProviderModelFamilyId::new("test-model")
+            .unwrap_or_else(|error| panic!("fixture model family: {error:?}")),
+    );
+    let replay = ProviderReplay::new(compatibility, "\0".repeat(MAX_PROVIDER_REPLAY_BYTES))
+        .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+    let mut blocks = vec![
+        AssistantBlock::Text {
+            item_id: id("max-text", TranscriptItemId::new),
+            text: "\0".repeat(MAX_ASSISTANT_TEXT_BYTES),
+        },
+        AssistantBlock::Reasoning {
+            item_id: id("max-replay", TranscriptItemId::new),
+            text: String::new(),
+        },
+    ];
+    blocks.extend((0..8).map(|index| AssistantBlock::ToolCall {
+        item_id: id(&format!("tool-item-{index}"), TranscriptItemId::new),
+        call: ToolCall {
+            call_id: id(
+                &format!("{index}{}", "\0".repeat(MAX_TOOL_IDENTITY_BYTES - 1)),
+                ToolCallId::new,
+            ),
+            name: "\0".repeat(MAX_TOOL_IDENTITY_BYTES),
+            arguments: "\0".repeat(MAX_REQUESTED_TOOL_ARGUMENT_BYTES),
+        },
+    }));
+    let output = AssistantOutput::new(
+        blocks,
+        AssistantReplay::from_positioned([(1, replay)])
+            .unwrap_or_else(|error| panic!("fixture replay attachment: {error}")),
+    )
+    .unwrap_or_else(|error| panic!("maximal assistant output: {error}"));
+    let step_id: ModelStepId = serde_json::from_value(serde_json::json!({
+        "turn_id": "turn-a",
+        "index": 1
+    }))
+    .unwrap_or_else(|error| panic!("fixture model step: {error}"));
+    let journal = plexmaton_agent::SessionJournal::new(session("maximal-output"));
+    let record = append(
+        &journal,
+        1,
+        JournalEntryPayload::AssistantOutput {
+            agent_id: id("agent-a", AgentId::new),
+            step_id,
+            output,
+        },
+    );
+    let encoded = serde_json::to_vec(&record)
+        .unwrap_or_else(|error| panic!("encode maximal journal record: {error}"));
+
+    assert!(encoded.len() > 2 * 1024 * 1024);
+    assert!(encoded.len() < MAX_JOURNAL_LINE_BYTES);
 }

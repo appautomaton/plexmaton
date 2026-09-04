@@ -16,6 +16,12 @@ mod tests;
 /// fits its storage envelope.
 pub const MAX_ASSISTANT_TOOL_ARGUMENT_BYTES: usize = 512 * 1024;
 
+/// Maximum aggregate visible text and plaintext reasoning retained in one assistant output.
+pub const MAX_ASSISTANT_TEXT_BYTES: usize = 1024 * 1024;
+
+/// Maximum bytes retained for one provider-supplied tool call identity or name.
+pub const MAX_TOOL_IDENTITY_BYTES: usize = 1024;
+
 /// Provider output ordering before it is normalized into dense assistant blocks.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ModelOutputPosition {
@@ -146,6 +152,9 @@ impl AssistantReplay {
         let mut prior = None;
         let mut bytes = 0_usize;
         for attachment in &attachments {
+            if attachment.payload.is_empty() {
+                return Err(ContextError::EmptyReplayPayload);
+            }
             if prior.is_some_and(|prior| prior >= attachment.block) {
                 return Err(ContextError::UnorderedReplayAnchor);
             }
@@ -225,6 +234,7 @@ impl AssistantOutput {
         }
         let mut item_ids = BTreeSet::new();
         let mut call_ids = BTreeSet::new();
+        let mut text_bytes = 0_usize;
         let mut tool_argument_bytes = 0_usize;
         for block in &blocks {
             if !item_ids.insert(block.item_id().clone()) {
@@ -233,7 +243,22 @@ impl AssistantOutput {
             if matches!(block, AssistantBlock::Text { text, .. } if text.is_empty()) {
                 return Err(ContextError::EmptyTextBlock);
             }
+            if let AssistantBlock::Text { text, .. } | AssistantBlock::Reasoning { text, .. } =
+                block
+            {
+                text_bytes = text_bytes
+                    .checked_add(text.len())
+                    .ok_or(ContextError::AssistantTextTooLarge)?;
+                if text_bytes > MAX_ASSISTANT_TEXT_BYTES {
+                    return Err(ContextError::AssistantTextTooLarge);
+                }
+            }
             if let AssistantBlock::ToolCall { call, .. } = block {
+                if call.call_id.as_str().len() > MAX_TOOL_IDENTITY_BYTES
+                    || call.name.len() > MAX_TOOL_IDENTITY_BYTES
+                {
+                    return Err(ContextError::ToolIdentityTooLarge);
+                }
                 if call.arguments.len() > crate::MAX_REQUESTED_TOOL_ARGUMENT_BYTES {
                     return Err(ContextError::ToolArgumentsTooLarge);
                 }
@@ -461,10 +486,13 @@ pub enum ContextError {
     TooManyAssistantBlocks,
     DuplicateAssistantItemId,
     DuplicateToolCallId,
+    AssistantTextTooLarge,
+    ToolIdentityTooLarge,
     ToolArgumentsTooLarge,
     EmptyTextBlock,
     EmptyReasoningBlock,
     EmptyReplay,
+    EmptyReplayPayload,
     UnorderedReplayAnchor,
     MixedReplayCompatibility,
     ReplayTooLarge,
@@ -485,6 +513,8 @@ impl std::fmt::Display for ContextError {
             Self::TooManyAssistantBlocks => "assistant output exceeds its block ordinal space",
             Self::DuplicateAssistantItemId => "assistant output repeats a transcript item identity",
             Self::DuplicateToolCallId => "assistant output repeats a tool call identity",
+            Self::AssistantTextTooLarge => "assistant output exceeds its semantic text byte bound",
+            Self::ToolIdentityTooLarge => "assistant tool identity exceeds its byte bound",
             Self::ToolArgumentsTooLarge => {
                 "assistant output exceeds its aggregate tool-argument byte bound"
             }
@@ -493,6 +523,7 @@ impl std::fmt::Display for ContextError {
                 "assistant reasoning block is empty and has no replay attachment"
             }
             Self::EmptyReplay => "assistant replay has no attachment",
+            Self::EmptyReplayPayload => "assistant replay attachment payload is empty",
             Self::UnorderedReplayAnchor => "assistant replay attachments are not strictly ordered",
             Self::MixedReplayCompatibility => {
                 "assistant replay attachments have mixed compatibility"

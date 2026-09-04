@@ -6,7 +6,9 @@ use plexmaton_core::{
 };
 
 use super::Record;
-use crate::{ContextAtomValue, JournalEntryPayload};
+use crate::{
+    AssistantBlock, ContextAtomValue, JournalEntryPayload, JournalProjection, SessionEntry,
+};
 
 pub(crate) struct RecoverableTool {
     pub(crate) call_id: ToolCallId,
@@ -16,6 +18,7 @@ pub(crate) struct RecoverableTool {
     pub(crate) status: ToolCallStatus,
     pub(crate) presentation: ToolPresentation,
     pub(crate) attention_id: Option<AttentionId>,
+    pub(crate) requested: bool,
 }
 
 pub(crate) struct InterruptedTurnRecovery {
@@ -68,6 +71,7 @@ impl Record {
                             status: *status,
                             presentation: presentation.clone(),
                             attention_id: None,
+                            requested: true,
                         },
                     );
                 }
@@ -105,6 +109,7 @@ impl Record {
                 JournalEntryPayload::TurnInterruptedByRecovery { .. }
             )
         });
+        include_unrequested_calls(&projection, &path, &mut order, &mut tools);
         let needs_marker =
             last_recovery.is_none_or(|done| last_user.is_none_or(|user| done < user));
         let incomplete_request = (matches!(
@@ -144,5 +149,48 @@ impl Record {
             needs_marker,
             turn_id: open_turn,
         })
+    }
+}
+
+fn include_unrequested_calls(
+    projection: &JournalProjection,
+    path: &[&SessionEntry],
+    order: &mut Vec<ToolCallId>,
+    tools: &mut BTreeMap<ToolCallId, RecoverableTool>,
+) {
+    let omitted = projection
+        .recovery()
+        .map(|recovery| recovery.omitted_batch_calls())
+        .unwrap_or_default();
+    let incomplete_blocks = path.iter().rev().find_map(|entry| match &entry.payload {
+        JournalEntryPayload::AssistantOutput { output, .. }
+            if output
+                .tool_calls()
+                .any(|call| omitted.contains(&call.call_id)) =>
+        {
+            Some(output.blocks())
+        }
+        _ => None,
+    });
+    for block in incomplete_blocks.unwrap_or_default() {
+        let AssistantBlock::ToolCall { item_id, call } = block else {
+            continue;
+        };
+        if omitted.contains(&call.call_id) && !tools.contains_key(&call.call_id) {
+            order.push(call.call_id.clone());
+            tools.insert(
+                call.call_id.clone(),
+                RecoverableTool {
+                    call_id: call.call_id.clone(),
+                    item_id: item_id.clone(),
+                    item_revision: 0,
+                    label: call.name.clone(),
+                    status: ToolCallStatus::Queued,
+                    presentation: ToolPresentation::default(),
+                    attention_id: None,
+                    requested: false,
+                },
+            );
+        }
     }
 }

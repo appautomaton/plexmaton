@@ -305,6 +305,67 @@ fn prv_1_both_protocols_preserve_parallel_call_and_result_order() {
 }
 
 #[test]
+fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
+    let call = tool_call("call_middle", "middle_file");
+    let output = AssistantOutput::new(
+        vec![
+            AssistantBlock::Text {
+                item_id: transcript_item("before"),
+                text: "before".to_owned(),
+            },
+            AssistantBlock::ToolCall {
+                item_id: transcript_item("middle"),
+                call: call.clone(),
+            },
+            AssistantBlock::Text {
+                item_id: transcript_item("after"),
+                text: "after".to_owned(),
+            },
+        ],
+        None,
+    )
+    .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
+    let batch = ToolBatch::new(
+        output,
+        vec![ToolBatchResult::new(
+            call.call_id,
+            ToolOutcome::Succeeded {
+                output: "result".to_owned(),
+            },
+        )],
+    )
+    .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
+    let request = ModelRequest {
+        atoms: vec![
+            ContextAtom::tool_batch(vec![session_entry("cross-kind")], batch)
+                .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
+        ],
+    };
+
+    assert!(matches!(
+        encode_request(&profile(Protocol::ChatCompletions), &request, &[], None),
+        Err(plexmaton_provider::EncodeError::UnrepresentableChatOrder)
+    ));
+    let responses = encode_request(&profile(Protocol::Responses), &request, &[], None)
+        .unwrap_or_else(|error| panic!("Responses preserves cross-kind order: {error}"));
+    let types: Vec<_> = responses["input"]
+        .as_array()
+        .unwrap_or_else(|| panic!("Responses input is an array"))
+        .iter()
+        .filter_map(|item| item["type"].as_str())
+        .collect();
+    assert_eq!(
+        types,
+        [
+            "message",
+            "function_call",
+            "message",
+            "function_call_output"
+        ]
+    );
+}
+
+#[test]
 fn prv_3_replay_compatibility_covers_route_codec_revision_and_model_family() {
     let selected = profile(Protocol::Responses);
     let expected = selected.replay_compatibility();

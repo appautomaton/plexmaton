@@ -91,6 +91,7 @@ pub struct SessionJournal {
     turn_starts: BTreeMap<TurnId, TurnStartState>,
     turn_finishes: BTreeMap<TurnId, TurnFinishState>,
     model_steps: BTreeSet<ModelStepId>,
+    last_model_step_indexes: BTreeMap<TurnId, u16>,
 }
 
 impl SessionJournal {
@@ -132,6 +133,7 @@ impl SessionJournal {
             turn_starts: BTreeMap::new(),
             turn_finishes: BTreeMap::new(),
             model_steps: BTreeSet::new(),
+            last_model_step_indexes: BTreeMap::new(),
         }
     }
 
@@ -218,6 +220,8 @@ impl SessionJournal {
                 }
                 if let JournalEntryPayload::AssistantOutput { step_id, .. } = &entry.payload {
                     self.model_steps.insert(step_id.clone());
+                    self.last_model_step_indexes
+                        .insert(step_id.turn_id().clone(), step_id.index());
                 }
                 self.entries
                     .insert(entry.id.clone(), entry.as_ref().clone());
@@ -366,6 +370,19 @@ impl SessionJournal {
                         if self.model_steps.contains(step_id) {
                             return Err(JournalError::DuplicateModelStep(step_id.clone()));
                         }
+                        let expected = match self.last_model_step_indexes.get(step_id.turn_id()) {
+                            Some(prior) => prior.checked_add(1).ok_or_else(|| {
+                                JournalError::ModelStepSequenceExhausted(step_id.turn_id().clone())
+                            })?,
+                            None => 1,
+                        };
+                        if step_id.index() != expected {
+                            return Err(JournalError::UnexpectedModelStep {
+                                turn_id: step_id.turn_id().clone(),
+                                expected,
+                                actual: step_id.index(),
+                            });
+                        }
                         self.validate_steering(
                             agent_id,
                             step_id.turn_id(),
@@ -491,7 +508,9 @@ mod tests {
         SessionEntry, SessionJournal,
     };
     use crate::MAX_PROVIDER_REPLAY_BYTES;
-    use crate::test_support::{output_with_replay, reasoning_block, replay, step};
+    use crate::test_support::{
+        output, output_with_replay, reasoning_block, replay, step, text_block,
+    };
     use crate::{TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
 
     fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
@@ -1138,6 +1157,76 @@ mod tests {
             assert!(journal.apply(record).is_err(), "accepted {case}");
             assert_eq!(journal, unchanged, "{case} changed the journal");
         }
+    }
+
+    /// JRN-2: a turn's model-step chronology is contiguous and one-based.
+    #[test]
+    fn jrn_2_model_steps_cannot_skip_rewind_or_repeat() {
+        let mut journal = session();
+        let turn = turn_entry("turn-entry", None, "turn-a", "agent-a", "hello");
+        let turn_entry_id = turn.id.clone();
+        journal
+            .apply(append(1, "turn-record", "main", 0, turn))
+            .unwrap_or_else(|error| panic!("start turn: {error:?}"));
+        let step_entry = |entry_id: &str, parent_id: SessionEntryId, index| SessionEntry {
+            id: id(entry_id, SessionEntryId::new),
+            parent_id: Some(parent_id),
+            payload: JournalEntryPayload::AssistantOutput {
+                agent_id: id("agent-a", AgentId::new),
+                step_id: step("turn-a", index),
+                output: output(vec![text_block(&format!("text-{entry_id}"), "assistant")]),
+            },
+        };
+
+        let after_turn = journal.clone();
+        assert_eq!(
+            journal.apply(append(
+                2,
+                "step-two-first",
+                "main",
+                1,
+                step_entry("step-two-entry", turn_entry_id.clone(), 2),
+            )),
+            Err(JournalError::UnexpectedModelStep {
+                turn_id: id("turn-a", TurnId::new),
+                expected: 1,
+                actual: 2,
+            })
+        );
+        assert_eq!(journal, after_turn);
+
+        let first = step_entry("step-one-entry", turn_entry_id, 1);
+        let first_id = first.id.clone();
+        journal
+            .apply(append(2, "step-one", "main", 1, first))
+            .unwrap_or_else(|error| panic!("append first step: {error:?}"));
+        let after_first = journal.clone();
+        assert!(matches!(
+            journal.apply(append(
+                3,
+                "step-three",
+                "main",
+                2,
+                step_entry("step-three-entry", first_id.clone(), 3),
+            )),
+            Err(JournalError::UnexpectedModelStep {
+                expected: 2,
+                actual: 3,
+                ..
+            })
+        ));
+        assert_eq!(journal, after_first);
+        assert!(matches!(
+            journal.apply(append(
+                3,
+                "step-one-again",
+                "main",
+                2,
+                step_entry("step-one-again-entry", first_id, 1),
+            )),
+            Err(JournalError::DuplicateModelStep(_))
+        ));
+        assert_eq!(journal, after_first);
     }
 
     /// JRN-2: live and replay reduction have exactly one result.

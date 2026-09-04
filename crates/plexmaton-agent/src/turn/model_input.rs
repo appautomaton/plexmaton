@@ -198,4 +198,13 @@ impl Agent {
         }
         Some((turn_id, calls, index, usage))
     }
+
+    pub(super) fn abort_step(&mut self, reaction: &mut Reaction) {
+        let Turn::Streaming { step, .. } = std::mem::replace(&mut self.turn, Turn::Idle) else {
+            return;
+        };
+        for warning in step.abort(&mut self.record, reaction) {
+            self.warn(reaction, &warning);
+        }
+    }
 }

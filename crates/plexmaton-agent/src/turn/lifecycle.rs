@@ -48,6 +48,28 @@ impl Agent {
             );
         }
         for tool in recovery.tools {
+            if !tool.requested {
+                self.record.commit(
+                    JournalEntryPayload::ToolCallRequested {
+                        agent_id: self.record.agent_id().clone(),
+                        call_id: tool.call_id.clone(),
+                        presentation: tool.presentation.clone(),
+                    },
+                    &mut reaction,
+                );
+                self.record.emit(
+                    &mut reaction,
+                    SessionEvent::ToolCallChanged {
+                        agent_id: self.record.agent_id().clone(),
+                        item_id: tool.item_id.clone(),
+                        item_revision: 0,
+                        call_id: tool.call_id.clone(),
+                        label: tool.label.clone(),
+                        status: ToolCallStatus::Queued,
+                        presentation: tool.presentation.clone(),
+                    },
+                );
+            }
             if let Some(attention_id) = tool.attention_id {
                 self.resolve_attention(attention_id, &mut reaction);
             }
@@ -142,7 +164,7 @@ impl Agent {
             .active_turn_id()
             .unwrap_or_else(|| unreachable!("abort was guarded by an active turn"));
         self.abandon(cancellation, reaction);
-        self.close_step(reaction);
+        self.abort_step(reaction);
         self.turn = Turn::Idle;
         let released = self.input.drain_all();
         self.return_queued(released, reason, reaction);

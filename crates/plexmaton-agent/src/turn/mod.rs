@@ -315,8 +315,8 @@ mod tests {
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
     use crate::interface::UndeliveredReason;
     use crate::model::{
-        AssistantBlock, ContextAtom, ContextAtomValue, ModelError, ModelEvent, ModelOutputPosition,
-        ModelStepId, StopReason, ToolBatchResult,
+        AssistantBlock, ContextAtom, ContextAtomValue, MAX_ASSISTANT_TEXT_BYTES, ModelError,
+        ModelEvent, ModelOutputPosition, ModelStepId, StopReason, ToolBatchResult,
     };
     use crate::test_support::replay;
     use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
@@ -1407,6 +1407,100 @@ mod tests {
         );
     }
 
+    /// JRN-5/JRN-6: aborting a stream cannot publish a call that never reached dispatch, because
+    /// the immutable terminal would otherwise leave provider replay with an unmatched tool debt.
+    #[test]
+    fn abort_discards_complete_but_undispatched_stream_calls() {
+        for fail in [false, true] {
+            let mut agent = agent();
+            submit(&mut agent, "inspect");
+            delta(&mut agent, "partial");
+            call(&mut agent, "never-dispatched");
+
+            if fail {
+                fail_step(
+                    &mut agent,
+                    ModelError::Transport {
+                        message: "disconnected".to_owned(),
+                    },
+                );
+            } else {
+                agent.handle(Input::Interrupted);
+            }
+
+            let projection = agent
+                .journal()
+                .project(&HeadName::new("main").unwrap_or_else(|error| panic!("head: {error}")))
+                .unwrap_or_else(|error| panic!("aborted journal must project: {error:?}"));
+            assert!(projection.recovery().is_none());
+            assert!(
+                projection
+                    .request()
+                    .atoms
+                    .iter()
+                    .all(|atom| match atom.value() {
+                        ContextAtomValue::User { .. } => true,
+                        ContextAtomValue::Assistant(output) => output.tool_calls().next().is_none(),
+                        ContextAtomValue::ToolBatch(_) => false,
+                    })
+            );
+        }
+    }
+
+    /// JRN-6: the live transcript cannot open blocks in an order reload would later reverse.
+    #[test]
+    fn decreasing_provider_output_positions_fail_before_entering_canonical_order() {
+        let mut agent = agent();
+        submit(&mut agent, "ordered output");
+        streamed(
+            &mut agent,
+            ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(1, 0),
+                delta: "arrived first".to_owned(),
+            },
+        );
+
+        let failed = streamed(
+            &mut agent,
+            ModelEvent::ReasoningDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "claims to precede it".to_owned(),
+            },
+        );
+
+        assert_eq!(runtime_messages(&failed).len(), 1);
+        assert!(!agent.is_running());
+        assert!(
+            agent
+                .journal()
+                .project(&HeadName::new("main").unwrap_or_else(|error| panic!("head: {error}")))
+                .is_ok()
+        );
+    }
+
+    /// PRV-2/JRN-3: a non-provider model driver cannot grow canonical text past its bound.
+    #[test]
+    fn oversized_semantic_text_fails_before_canonical_commit() {
+        let mut agent = agent();
+        submit(&mut agent, "bounded output");
+
+        let failed = streamed(
+            &mut agent,
+            ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "x".repeat(MAX_ASSISTANT_TEXT_BYTES + 1),
+            },
+        );
+
+        assert_eq!(runtime_messages(&failed).len(), 1);
+        assert!(!agent.is_running());
+        let projection = agent
+            .journal()
+            .project(&HeadName::new("main").unwrap_or_else(|error| panic!("head: {error}")))
+            .unwrap_or_else(|error| panic!("bounded failure must project: {error:?}"));
+        assert_eq!(projection.request().atoms.len(), 1);
+    }
+
     /// PRV-3: plaintext reasoning is projected as its own semantic item, while opaque replay is
     /// retained only in the authoritative request record. Both survive an abnormal step boundary.
     #[test]
@@ -2220,6 +2314,65 @@ mod tests {
                 .any(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
         );
         assert!(resumed.recover_after_process_death().is_none());
+    }
+
+    /// JRN-5/JRN-7: a crash between the assistant-output append and its first request-state append
+    /// still materializes one cancelled result, so the immutable batch becomes provider-safe.
+    #[test]
+    fn recovery_completes_calls_declared_before_their_request_record() {
+        let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
+        let session_id =
+            SessionId::new("agent-a-session").unwrap_or_else(|error| panic!("session: {error}"));
+        let mut source = bare_agent();
+        let mut records = source.announce("Agent A").records;
+        records.extend(submit(&mut source, "inspect").records);
+        call(&mut source, "crash-prefix");
+        let stopped = stop_before_admission(&mut source, StopReason::ToolCalls);
+        let output_index = stopped
+            .records
+            .iter()
+            .position(|record| {
+                matches!(
+                    record,
+                    JournalRecord::AppendEntry { entry, .. }
+                        if matches!(entry.payload, JournalEntryPayload::AssistantOutput { .. })
+                )
+            })
+            .unwrap_or_else(|| panic!("stopped step omitted assistant output"));
+        records.extend(stopped.records[..=output_index].iter().cloned());
+        let mut journal = SessionJournal::new(session_id);
+        for record in records {
+            journal
+                .apply(record)
+                .unwrap_or_else(|error| panic!("apply crash prefix: {error:?}"));
+        }
+        let mut resumed = Agent::from_journal(
+            agent_id,
+            journal,
+            TurnBudget::default(),
+            ApprovalPolicy::default(),
+        )
+        .unwrap_or_else(|error| panic!("resume crash prefix: {error:?}"));
+
+        let recovery = resumed
+            .recover_after_process_death()
+            .unwrap_or_else(|| panic!("declared call was mistaken for clean state"));
+        assert!(recovery.records.iter().any(|record| matches!(
+            record,
+            JournalRecord::AppendEntry { entry, .. }
+                if matches!(entry.payload, JournalEntryPayload::ToolCallRequested { .. })
+        )));
+        let projection = resumed
+            .rebuild_projection()
+            .unwrap_or_else(|error| panic!("recovered call must project: {error:?}"));
+        assert!(projection.recovery().is_none());
+        assert!(matches!(
+            context_results(&projection.request().atoms).last(),
+            Some(result)
+                if result.outcome() == &ToolOutcome::Cancelled {
+                    reason: ToolCancellationReason::ProcessDied,
+                }
+        ));
     }
 
     /// JRN-5: every durable prefix of recovery either resumes the same suffix or is complete.

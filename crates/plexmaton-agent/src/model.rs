@@ -1,9 +1,10 @@
 //! The narrow model surface the loop is written against.
 //!
 //! These types are the loop's, not a provider's. An adapter translates one dialect's wire form
-//! into them and keeps its own vocabulary — response ids, routing metadata, moderation fields — on
-//! its own side of the boundary. A shared event type carrying one dialect's concerns leaves every
-//! other adapter fabricating fields it does not have.
+//! into them. Replay compatibility crosses this boundary because canonical context must decide
+//! whether opaque state can be reused; response ids, transport routing and moderation fields stay
+//! adapter-side. A shared event type carrying one dialect's concerns leaves every other adapter
+//! fabricating fields it does not have.
 
 use plexmaton_core::{TokenUsage, TurnId};
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,8 @@ mod replay;
 
 pub use context::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
-    ContextError, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, ModelOutputPosition, ToolBatch,
-    ToolBatchResult,
+    ContextError, MAX_ASSISTANT_TEXT_BYTES, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
+    MAX_TOOL_IDENTITY_BYTES, ModelOutputPosition, ToolBatch, ToolBatchResult,
 };
 pub use replay::{
     MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,

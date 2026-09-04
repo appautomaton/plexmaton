@@ -11,8 +11,8 @@ use serde::Deserialize;
 use thiserror::Error;
 
 use plexmaton_agent::{
-    ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
-    ReplayCompatibility,
+    MAX_ASSISTANT_TEXT_BYTES, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,
+    ProviderReplayOwnerId, ReplayCompatibility,
 };
 
 const DEFAULT_MAX_RETAINED_OUTPUT_BYTES: usize = 1024 * 1024;
@@ -129,6 +129,8 @@ pub enum ConfigError {
     InvalidApiKeyEnvironment(String),
     #[error("provider profile `{0}` must retain at least one output byte")]
     ZeroRetainedOutputBound(String),
+    #[error("provider profile `{profile}` retains more than the {limit}-byte semantic bound")]
+    RetainedOutputBoundTooLarge { profile: String, limit: usize },
     #[error("provider profile `{0}` has an invalid replay compatibility identity")]
     InvalidReplayIdentity(String),
     #[error("cannot resolve the Plexmaton user configuration root")]
@@ -210,6 +212,12 @@ impl ProviderConfig {
                 self.active_provider.clone(),
             ));
         }
+        if profile.max_retained_output_bytes > MAX_ASSISTANT_TEXT_BYTES {
+            return Err(ConfigError::RetainedOutputBoundTooLarge {
+                profile: self.active_provider.clone(),
+                limit: MAX_ASSISTANT_TEXT_BYTES,
+            });
+        }
         if !is_environment_name(&profile.api_key_env) {
             return Err(ConfigError::InvalidApiKeyEnvironment(
                 self.active_provider.clone(),
@@ -281,8 +289,8 @@ impl ProviderProfile {
 
     fn replay_owner_value(&self) -> String {
         format!(
-            "openai_compatible|{}|{}|{}",
-            self.name, self.base_url, self.api_key_env
+            "openai_compatible:{}",
+            serde_json::json!([self.name, self.base_url, self.api_key_env])
         )
     }
 }
@@ -384,6 +392,22 @@ reasoning_effort = "xhigh"
     }
 
     #[test]
+    fn prv_2_and_prv_7_reject_output_bounds_the_journal_cannot_retain() {
+        let source = LOCAL_CONFIG.replace(
+            "reasoning_effort = \"xhigh\"",
+            &format!(
+                "reasoning_effort = \"xhigh\"\nmax_retained_output_bytes = {}",
+                plexmaton_agent::MAX_ASSISTANT_TEXT_BYTES + 1
+            ),
+        );
+
+        assert!(matches!(
+            ProviderConfig::parse(&source),
+            Err(ConfigError::RetainedOutputBoundTooLarge { .. })
+        ));
+    }
+
+    #[test]
     fn prv_6_resolves_only_an_override_or_the_user_root() {
         assert_eq!(
             resolve_home(
@@ -419,5 +443,32 @@ reasoning_effort = "xhigh"
             .expect("header-safe fixture key");
         assert_eq!(key.expose(), "fixture-secret");
         assert_eq!(format!("{key:?}"), "ApiKey([REDACTED])");
+    }
+
+    #[test]
+    fn prv_3_replay_route_owner_encoding_is_unambiguous() {
+        let source = |name: &str, base_url: &str| {
+            format!(
+                r#"
+active_provider = "{name}"
+[providers."{name}"]
+kind = "openai_compatible"
+protocol = "responses"
+base_url = "{base_url}"
+model = "gpt-5.6-luna"
+api_key_env = "KEY"
+reasoning_effort = "low"
+"#
+            )
+        };
+        let first = ProviderConfig::parse(&source("a|b", "https://x"))
+            .expect("first delimiter-bearing route");
+        let second = ProviderConfig::parse(&source("a", "b|https://x"))
+            .expect("second delimiter-bearing route");
+
+        assert_ne!(
+            first.active().replay_compatibility().owner(),
+            second.active().replay_compatibility().owner()
+        );
     }
 }

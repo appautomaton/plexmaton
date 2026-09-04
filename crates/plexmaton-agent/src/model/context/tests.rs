@@ -1,8 +1,8 @@
 use plexmaton_core::{ToolCallId, TranscriptItemId};
 
 use super::{
-    AssistantBlock, AssistantOutput, AssistantReplay, ContextError,
-    MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, ToolBatch, ToolBatchResult,
+    AssistantBlock, AssistantOutput, AssistantReplay, ContextError, MAX_ASSISTANT_TEXT_BYTES,
+    MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES, ToolBatch, ToolBatchResult,
 };
 use crate::{
     ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplay,
@@ -81,6 +81,11 @@ fn assistant_output_round_trips_order_and_redacts_replay() {
         AssistantBlock::ToolCall { .. }
     ));
     assert!(!format!("{decoded:?}").contains("encrypted-secret"));
+
+    let mut invalid: serde_json::Value = serde_json::from_str(&encoded)
+        .unwrap_or_else(|error| panic!("decode fixture JSON: {error}"));
+    invalid["replay"]["attachments"][0]["payload"] = serde_json::Value::String(String::new());
+    assert!(serde_json::from_value::<AssistantOutput>(invalid).is_err());
 }
 
 #[test]
@@ -132,6 +137,31 @@ fn parallel_calls_share_one_aggregate_argument_bound() {
     let output = AssistantOutput::new(blocks, None);
 
     assert_eq!(output, Err(ContextError::ToolArgumentsTooLarge));
+}
+
+#[test]
+fn assistant_output_rechecks_aggregate_text_and_tool_identity_bounds() {
+    let oversized_text = AssistantOutput::new(
+        vec![AssistantBlock::Text {
+            item_id: item("text-a"),
+            text: "x".repeat(MAX_ASSISTANT_TEXT_BYTES + 1),
+        }],
+        None,
+    );
+    assert_eq!(oversized_text, Err(ContextError::AssistantTextTooLarge));
+
+    let oversized_name = AssistantOutput::new(
+        vec![AssistantBlock::ToolCall {
+            item_id: item("tool-a"),
+            call: ToolCall {
+                call_id: id("call-a", |value| ToolCallId::new(value)),
+                name: "x".repeat(MAX_TOOL_IDENTITY_BYTES + 1),
+                arguments: "{}".to_owned(),
+            },
+        }],
+        None,
+    );
+    assert_eq!(oversized_name, Err(ContextError::ToolIdentityTooLarge));
 }
 
 /// JRN-5: completion order cannot reorder the result vector a provider receives.

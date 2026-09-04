@@ -53,6 +53,14 @@ struct PendingAssistant {
     calls: Vec<Value>,
 }
 
+#[derive(Clone, Copy, Default)]
+enum AssistantPhase {
+    #[default]
+    Reasoning,
+    Text,
+    Calls,
+}
+
 impl PendingAssistant {
     fn into_message(self) -> Value {
         let mut message = json!({
@@ -113,23 +121,36 @@ fn encode_assistant(
     }
 
     let mut pending = PendingAssistant::default();
+    let mut phase = AssistantPhase::default();
     for block in output.blocks() {
         match block {
-            AssistantBlock::Reasoning { text, .. } => pending.reasoning.push_str(text),
+            AssistantBlock::Reasoning { text, .. } => {
+                if !matches!(phase, AssistantPhase::Reasoning) {
+                    return Err(EncodeError::UnrepresentableChatOrder);
+                }
+                pending.reasoning.push_str(text);
+            }
             AssistantBlock::Text { text, .. } => {
+                if matches!(phase, AssistantPhase::Calls) {
+                    return Err(EncodeError::UnrepresentableChatOrder);
+                }
+                phase = AssistantPhase::Text;
                 pending
                     .content
                     .get_or_insert_with(String::new)
                     .push_str(text);
             }
-            AssistantBlock::ToolCall { call, .. } => pending.calls.push(json!({
-                "id": call.call_id.as_str(),
-                "type": "function",
-                "function": {
-                    "name": call.name,
-                    "arguments": call.arguments,
-                },
-            })),
+            AssistantBlock::ToolCall { call, .. } => {
+                phase = AssistantPhase::Calls;
+                pending.calls.push(json!({
+                    "id": call.call_id.as_str(),
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": call.arguments,
+                    },
+                }));
+            }
         }
     }
     Ok(pending.into_message())

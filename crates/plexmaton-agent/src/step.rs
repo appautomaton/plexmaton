@@ -7,8 +7,9 @@ use plexmaton_core::{SessionEvent, TranscriptItemId, TranscriptRole, TurnId};
 use crate::interface::Reaction;
 use crate::journal::JournalEntryPayload;
 use crate::model::{
-    AssistantBlock, AssistantOutput, AssistantReplay, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
-    ModelOutputPosition, ModelStepId, ProviderReplay,
+    AssistantBlock, AssistantOutput, AssistantReplay, MAX_ASSISTANT_TEXT_BYTES,
+    MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES, ModelOutputPosition, ModelStepId,
+    ProviderReplay,
 };
 use crate::record::Record;
 use crate::tools::ToolCall;
@@ -21,8 +22,10 @@ pub(crate) struct Step {
     warnings: Vec<String>,
     index: u16,
     usage_reported: bool,
+    semantic_text_bytes: usize,
     tool_argument_bytes: usize,
     replay_bytes: usize,
+    last_output_position: Option<ModelOutputPosition>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -102,8 +105,10 @@ impl Step {
             warnings: Vec::new(),
             index,
             usage_reported: false,
+            semantic_text_bytes: 0,
             tool_argument_bytes: 0,
             replay_bytes: 0,
+            last_output_position: None,
         }
     }
 
@@ -139,6 +144,13 @@ impl Step {
         role: TranscriptRole,
         delta: String,
     ) -> Result<(), StepAssemblyError> {
+        let semantic_text_bytes = self
+            .semantic_text_bytes
+            .checked_add(delta.len())
+            .ok_or(StepAssemblyError::TextTooLarge)?;
+        if semantic_text_bytes > MAX_ASSISTANT_TEXT_BYTES {
+            return Err(StepAssemblyError::TextTooLarge);
+        }
         self.reserve_output_position(position)?;
         let item = Record::stream_item_id(&self.turn_id, self.index, role, position);
         let output = self.outputs.entry(position).or_insert_with(|| match role {
@@ -152,6 +164,7 @@ impl Step {
             _ => return Err(StepAssemblyError::ConflictingPosition),
         };
         text.append(record, reaction, delta);
+        self.semantic_text_bytes = semantic_text_bytes;
         Ok(())
     }
 
@@ -204,9 +217,13 @@ impl Step {
         position: ModelOutputPosition,
         call: ToolCall,
     ) -> Result<(), StepAssemblyError> {
-        self.reserve_output_position(position)?;
         if self.contains_call(&call.call_id) {
             return Err(StepAssemblyError::DuplicateToolCallId);
+        }
+        if call.call_id.as_str().len() > MAX_TOOL_IDENTITY_BYTES
+            || call.name.len() > MAX_TOOL_IDENTITY_BYTES
+        {
+            return Err(StepAssemblyError::ToolIdentityTooLarge);
         }
         let tool_argument_bytes = self
             .tool_argument_bytes
@@ -215,6 +232,7 @@ impl Step {
         if tool_argument_bytes > MAX_ASSISTANT_TOOL_ARGUMENT_BYTES {
             return Err(StepAssemblyError::ToolArgumentsTooLarge);
         }
+        self.reserve_output_position(position)?;
         let item_id = record.tool_item_id(&call.call_id);
         match self.outputs.entry(position) {
             Entry::Vacant(entry) => {
@@ -233,11 +251,20 @@ impl Step {
     }
 
     fn reserve_output_position(
-        &self,
+        &mut self,
         position: ModelOutputPosition,
     ) -> Result<(), StepAssemblyError> {
-        if !self.outputs.contains_key(&position) && self.outputs.len() >= usize::from(u16::MAX) {
-            return Err(StepAssemblyError::TooManyOutputBlocks);
+        if !self.outputs.contains_key(&position) {
+            if self
+                .last_output_position
+                .is_some_and(|prior| position < prior)
+            {
+                return Err(StepAssemblyError::OutOfOrderOutputPosition);
+            }
+            if self.outputs.len() >= usize::from(u16::MAX) {
+                return Err(StepAssemblyError::TooManyOutputBlocks);
+            }
+            self.last_output_position = Some(position);
         }
         Ok(())
     }
@@ -251,6 +278,25 @@ impl Step {
     }
 
     pub(crate) fn close(
+        self,
+        record: &mut Record,
+        reaction: &mut Reaction,
+    ) -> (Vec<ToolCall>, Vec<String>) {
+        self.close_retained(record, reaction)
+    }
+
+    pub(crate) fn abort(mut self, record: &mut Record, reaction: &mut Reaction) -> Vec<String> {
+        self.outputs
+            .retain(|_, output| !matches!(output, PendingOutput::ToolCall { .. }));
+        let (calls, warnings) = self.close_retained(record, reaction);
+        debug_assert!(
+            calls.is_empty(),
+            "aborted steps retain no undispatched calls"
+        );
+        warnings
+    }
+
+    fn close_retained(
         self,
         record: &mut Record,
         reaction: &mut Reaction,
@@ -292,6 +338,9 @@ impl Step {
             positions.insert(position, block_index);
             blocks.push(block);
         }
+        if blocks.is_empty() {
+            return (Vec::new(), self.warnings);
+        }
         let replay =
             AssistantReplay::from_positioned(self.replay.into_iter().map(|(position, replay)| {
                 let block = positions
@@ -325,9 +374,12 @@ pub(crate) enum StepAssemblyError {
     DuplicateReplayPosition,
     MixedReplayCompatibility,
     DuplicateToolCallId,
+    TextTooLarge,
+    ToolIdentityTooLarge,
     ToolArgumentsTooLarge,
     ReplayTooLarge,
     TooManyOutputBlocks,
+    OutOfOrderOutputPosition,
 }
 
 impl StepAssemblyError {
@@ -339,11 +391,16 @@ impl StepAssemblyError {
                 "one model output mixed incompatible provider replay realms"
             }
             Self::DuplicateToolCallId => "provider repeated a tool call identity",
+            Self::TextTooLarge => "provider output exceeded the step's semantic text byte bound",
+            Self::ToolIdentityTooLarge => "provider tool identity exceeded its byte bound",
             Self::ToolArgumentsTooLarge => {
                 "provider tool calls exceeded the step's aggregate argument byte bound"
             }
             Self::ReplayTooLarge => "provider replay exceeded the step's aggregate byte bound",
             Self::TooManyOutputBlocks => "provider output exceeded the step's block ordinal space",
+            Self::OutOfOrderOutputPosition => {
+                "provider emitted a new output position before one already shown"
+            }
         }
     }
 }

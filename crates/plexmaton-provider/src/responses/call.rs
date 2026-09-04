@@ -21,18 +21,20 @@ impl CallAssembly {
         call_id: Option<String>,
         name: Option<String>,
         index: usize,
+        limits: DecodeLimits,
     ) -> Result<(), DecodeError> {
-        merge_field(&mut self.item_id, item_id, index, "item_id")?;
-        merge_field(&mut self.call_id, call_id, index, "call_id")?;
-        merge_field(&mut self.name, name, index, "name")
+        merge_field(&mut self.item_id, item_id, index, "item_id", limits)?;
+        merge_field(&mut self.call_id, call_id, index, "call_id", limits)?;
+        merge_field(&mut self.name, name, index, "name", limits)
     }
 
     pub(super) fn merge_item_id(
         &mut self,
         item_id: Option<String>,
         index: usize,
+        limits: DecodeLimits,
     ) -> Result<(), DecodeError> {
-        merge_field(&mut self.item_id, item_id, index, "item_id")
+        merge_field(&mut self.item_id, item_id, index, "item_id", limits)
     }
 
     pub(super) fn seed_arguments(
@@ -149,10 +151,18 @@ fn merge_field(
     incoming: Option<String>,
     index: usize,
     field: &'static str,
+    limits: DecodeLimits,
 ) -> Result<(), DecodeError> {
     let Some(incoming) = incoming else {
         return Ok(());
     };
+    if incoming.len() > limits.max_tool_identity_bytes {
+        return Err(DecodeError::ToolIdentityTooLarge {
+            index,
+            field,
+            limit: limits.max_tool_identity_bytes,
+        });
+    }
     match current {
         Some(value) if value != &incoming => {
             Err(DecodeError::ConflictingToolFragment { index, field })
