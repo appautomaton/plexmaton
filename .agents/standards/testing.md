@@ -76,17 +76,20 @@ Purpose: prove that real subsystem boundaries compose correctly.
 Use real first-party components and fake only the external boundary. Assert user-visible and
 durable outcomes, not private call order.
 
-## Tier 5 — live, compatibility, and manual validation
+## Tier 5 — compatibility and manual validation
 
 Purpose: validate assumptions that cannot be proven hermetically.
 
-- Opt-in live provider smoke tests
+- Manual use of the product against a configured provider
 - Real terminal/tmux/SSH graphics and input checks
 - Platform-specific clipboard and process behavior
 - Visual/interaction review of representative workflows
 
-Live tests are never the default correctness gate, never require developer secrets for ordinary
-test runs, and never substitute for deterministic coverage.
+Test targets and test scripts never contact a real or billable model endpoint, including behind an
+ignored or opt-in flag. Provider behavior is exercised with scripted streams and loopback fixture
+servers; a human validates a configured provider by running the product itself. Rejected: opt-in
+live tests, because they can spend money, consume quota, disclose local context, and turn an
+ordinary test command into an external effect.
 
 ## Performance and resource tests
 

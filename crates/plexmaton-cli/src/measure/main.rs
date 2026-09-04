@@ -30,9 +30,18 @@ pub(crate) const SIZE: (u16, u16) = (120, 40);
 /// cost is bounded by the viewport from one that is merely fast today.
 const SCALES: [usize; 2] = [500, 5_000];
 
-/// Samples per workload. A cold frame gets fewer, because each one rebuilds the whole cache.
-pub(crate) const SAMPLES: usize = 200;
-pub(crate) const COLD_SAMPLES: usize = 10;
+/// The release report's sample depth. Correctness tests use the same drivers with a smaller depth;
+/// they assert deterministic work rather than machine-dependent timing.
+pub(crate) const REPORT_SAMPLES: WorkloadSamples = WorkloadSamples {
+    repeated: 200,
+    cold: 10,
+};
+
+#[derive(Clone, Copy)]
+pub(crate) struct WorkloadSamples {
+    repeated: usize,
+    cold: usize,
+}
 
 /// The sizes the resize workload cycles through: ultrawide, wide, and narrow.
 pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
@@ -47,17 +56,17 @@ use workloads::{
 fn main() -> anyhow::Result<()> {
     let mut runs = Vec::new();
     for messages in SCALES {
-        runs.push(cold_open(messages)?);
-        runs.push(streaming(messages)?);
-        runs.push(interleaved(messages)?);
-        runs.push(compact_tool_entries(messages)?);
-        runs.push(open_tool_entry(messages)?);
-        runs.push(wheel(messages)?);
-        runs.push(resize(messages)?);
-        runs.push(inspector(messages)?);
-        runs.push(hidden_conversation(messages)?);
-        runs.push(two_conversations(messages)?);
-        runs.push(select(messages)?);
+        runs.push(cold_open(messages, REPORT_SAMPLES)?);
+        runs.push(streaming(messages, REPORT_SAMPLES)?);
+        runs.push(interleaved(messages, REPORT_SAMPLES)?);
+        runs.push(compact_tool_entries(messages, REPORT_SAMPLES)?);
+        runs.push(open_tool_entry(messages, REPORT_SAMPLES)?);
+        runs.push(wheel(messages, REPORT_SAMPLES)?);
+        runs.push(resize(messages, REPORT_SAMPLES)?);
+        runs.push(inspector(messages, REPORT_SAMPLES)?);
+        runs.push(hidden_conversation(messages, REPORT_SAMPLES)?);
+        runs.push(two_conversations(messages, REPORT_SAMPLES)?);
+        runs.push(select(messages, REPORT_SAMPLES)?);
     }
     report(&runs);
     Ok(())

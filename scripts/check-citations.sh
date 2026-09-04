@@ -13,19 +13,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 fail=0
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/plexmaton-citations.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
 
 # Rust sources only. A shell or awk fragment such as `NR-1` is identifier-shaped and is not a
 # citation, and no script carries one today; widen this when one does.
 #
 # Spec invariants are declared as `**PREFIX-N — ...` in a specs/ file.
-cited_invariants=$(grep -rhoE '\b[A-Z]{2,6}-[0-9]+\b' --include='*.rs' crates/ 2>/dev/null |
-    grep -vE '^(D|UTF|SHA|RGB|ISO|HTTP)-' | sort -u || true)
-for id in $cited_invariants; do
-    if ! grep -rqF "**${id} " .agents/specs/; then
-        printf 'citation: %s is cited in code but declared in no spec\n' "$id" >&2
-        fail=1
-    fi
-done
+grep -rhoE '\b[A-Z]{2,6}-[0-9]+\b' --include='*.rs' crates/ 2>/dev/null |
+    grep -vE '^(D|UTF|SHA|RGB|ISO|HTTP)-' | sort -u >"$scratch/cited-invariants" || true
+grep -rhoE '^\*\*[A-Z]{2,6}-[0-9]+ ' --include='*.md' .agents/specs/ 2>/dev/null |
+    sed -E 's/^\*\*//; s/ .*//' | sort -u >"$scratch/declared-invariants" || true
+comm -23 "$scratch/cited-invariants" "$scratch/declared-invariants" \
+    >"$scratch/missing-invariants"
+while IFS= read -r id; do
+    printf 'citation: %s is cited in code but declared in no spec\n' "$id" >&2
+    fail=1
+done <"$scratch/missing-invariants"
 
 # A contract section cited as `ui-ux §name` must be a heading in ui-ux.md.
 # Only a cite closed by punctuation is checked, so prose that runs on past the name is left alone.
@@ -42,14 +46,16 @@ done <<< "$cited_sections"
 # The other direction: an evidence table names the test that proves an invariant, and a renamed test
 # leaves the spec asserting something no longer checked. Only Evidence rows are scanned, because
 # prose legitimately names functions that are not tests.
-evidence=$(awk '/^## Evidence/{inside=1; next} /^## /{inside=0} inside && /^\| [A-Z]+-[0-9]+ \|/' \
-    .agents/specs/*.md | grep -ohE '`[a-z][a-z0-9_]+`' | tr -d '`' | sort -u || true)
-for name in $evidence; do
-    if ! grep -rqE "fn ${name}\\(" --include='*.rs' crates/; then
-        printf 'evidence: %s is named as proof but no such test exists\n' "$name" >&2
-        fail=1
-    fi
-done
+awk '/^## Evidence/{inside=1; next} /^## /{inside=0} inside && /^\| [A-Z]+-[0-9]+ \|/' \
+    .agents/specs/*.md | grep -ohE '`[a-z][a-z0-9_]+`' | tr -d '`' | sort -u \
+    >"$scratch/evidence" || true
+grep -rhoE 'fn [a-z][a-z0-9_]+\(' --include='*.rs' crates/ 2>/dev/null |
+    sed -E 's/^fn //; s/\($//' | sort -u >"$scratch/functions" || true
+comm -23 "$scratch/evidence" "$scratch/functions" >"$scratch/missing-evidence"
+while IFS= read -r name; do
+    printf 'evidence: %s is named as proof but no such test exists\n' "$name" >&2
+    fail=1
+done <"$scratch/missing-evidence"
 
 # Every relative link in the corpus must resolve. A moved file leaves a pointer to nothing otherwise.
 while IFS=: read -r file link; do
@@ -73,7 +79,7 @@ HINT
     exit 1
 fi
 
-count=$(printf '%s\n' "$cited_invariants" | grep -c . || true)
-evidence_count=$(printf '%s\n' "$evidence" | grep -c . || true)
+count=$(wc -l <"$scratch/cited-invariants" | tr -d ' ')
+evidence_count=$(wc -l <"$scratch/evidence" | tr -d ' ')
 sections=$(printf '%s\n' "$cited_sections" | grep -c . || true)
 echo "citations: ${count} invariants and ${sections} contract sections cited, ${evidence_count} named proofs; all resolve"

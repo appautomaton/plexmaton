@@ -83,14 +83,6 @@ entry and release, resize handling, and the quit key in front of a real pseudo-t
 ./scripts/smoke-tui.py
 ```
 
-With a local profile and its named key environment variable already set, the opt-in live lane also
-runs one isolated read → approved edit → approved command turn and waits for its streamed answer in
-the PTY:
-
-```console
-PLEXMATON_HOME=.local/plexmaton ./scripts/smoke-tui.py --live
-```
-
 Enable the shared pre-commit hook once per clone:
 
 ```console

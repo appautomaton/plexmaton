@@ -13,16 +13,16 @@ use ratatui::crossterm::event::{
     Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
 };
 
-use super::{COLD_SAMPLES, Harness, RESIZES, Run, SAMPLES, SIZE};
+use super::{Harness, RESIZES, Run, SIZE, WorkloadSamples};
 
 /// The first frame on a conversation nothing has measured.
 ///
 /// The one frame that is deliberately proportional to history: knowing how tall a conversation is
 /// means wrapping every entry once, and that is what makes every later frame cheap (TR-1).
-pub(super) fn cold_open(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn cold_open(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut run = Run::new("cold open");
     let mut last = None;
-    for _ in 0..COLD_SAMPLES {
+    for _ in 0..samples.cold {
         let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
         harness.advance_to(u64::MAX);
         let started = Instant::now();
@@ -37,21 +37,24 @@ pub(super) fn cold_open(messages: usize) -> anyhow::Result<Run> {
 }
 
 /// One conversation streaming, a frame per event.
-pub(super) fn streaming(messages: usize) -> anyhow::Result<Run> {
-    let scenario = Scenario::streaming(messages.saturating_add(SAMPLES))?;
-    sample_events("streaming delta", scenario, SIZE)
+pub(super) fn streaming(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
+    let scenario = Scenario::streaming(messages.saturating_add(samples.repeated))?;
+    sample_events("streaming delta", scenario, SIZE, samples)
 }
 
 /// Four conversations streaming with tool activity, one of them on screen.
-pub(super) fn interleaved(messages: usize) -> anyhow::Result<Run> {
-    let scenario = Scenario::interleaved(4, messages.saturating_add(SAMPLES))?;
-    sample_events("four agents", scenario, SIZE)
+pub(super) fn interleaved(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
+    let scenario = Scenario::interleaved(4, messages.saturating_add(samples.repeated))?;
+    sample_events("four agents", scenario, SIZE, samples)
 }
 
 /// Compact tool lifecycle facts at the same two history scales as message deltas.
-pub(super) fn compact_tool_entries(entries: usize) -> anyhow::Result<Run> {
-    let scenario = Scenario::tool_entries(entries.saturating_add(SAMPLES))?;
-    sample_events("compact tool entry", scenario, SIZE)
+pub(super) fn compact_tool_entries(
+    entries: usize,
+    samples: WorkloadSamples,
+) -> anyhow::Result<Run> {
+    let scenario = Scenario::tool_entries(entries.saturating_add(samples.repeated))?;
+    sample_events("compact tool entry", scenario, SIZE, samples)
 }
 
 /// Walks the focus ring to the conversation, whatever else is registered this frame.
@@ -78,7 +81,7 @@ fn focus_conversation(harness: &mut Harness) -> anyhow::Result<()> {
 }
 
 /// Repeatedly opens and closes the newest tool entry after its history is warm.
-pub(super) fn open_tool_entry(entries: usize) -> anyhow::Result<Run> {
+pub(super) fn open_tool_entry(entries: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::tool_entries(entries)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Focus the conversation, then start a one-entry selection at its newest item. Selection is
@@ -90,7 +93,7 @@ pub(super) fn open_tool_entry(entries: usize) -> anyhow::Result<Run> {
     harness.draw()?;
 
     let mut run = Run::new("open tool entry");
-    for _ in 0..SAMPLES {
+    for _ in 0..samples.repeated {
         let event = Event::Key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
         let started = Instant::now();
         harness.workspace.handle(&event);
@@ -100,23 +103,24 @@ pub(super) fn open_tool_entry(entries: usize) -> anyhow::Result<Run> {
     Ok(run.finish(&harness))
 }
 
-/// Applies one event and paints, `SAMPLES` times, after warming on everything before them.
+/// Applies one event and paints the requested number of times after warming on everything before.
 pub(super) fn sample_events(
     workload: &'static str,
     scenario: Scenario,
     size: (u16, u16),
+    samples: WorkloadSamples,
 ) -> anyhow::Result<Run> {
     // Ticks are inclusive and start at zero, so warming through `len - samples` would consume one
-    // of the samples as well. Leave exactly `SAMPLES` scheduled events for the timed loop.
+    // of the samples as well. Leave exactly the requested events for the timed loop.
     let warm_through = scenario
         .steps()
         .len()
-        .saturating_sub(SAMPLES.saturating_add(1));
+        .saturating_sub(samples.repeated.saturating_add(1));
     let mut harness = Harness::new(scenario, size)?;
     harness.warm(warm_through)?;
 
     let mut run = Run::new(workload);
-    for _ in 0..SAMPLES {
+    for _ in 0..samples.repeated {
         let started = Instant::now();
         harness.advance();
         let work = harness.draw()?;
@@ -126,13 +130,13 @@ pub(super) fn sample_events(
 }
 
 /// The wheel over the conversation, which must read cached heights and recompute none.
-pub(super) fn wheel(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn wheel(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     let (column, row) = harness.inside(SurfaceId::Transcript);
 
     let mut run = Run::new("wheel");
-    for sample in 0..SAMPLES {
+    for sample in 0..samples.repeated {
         // Up then down, so the workload does not simply run out of conversation to scroll.
         let kind = if sample % 40 < 20 {
             MouseEventKind::ScrollUp
@@ -154,12 +158,12 @@ pub(super) fn wheel(messages: usize) -> anyhow::Result<Run> {
 }
 
 /// Wide, medium, and narrow in turn. Every height is width-dependent, so each one re-measures.
-pub(super) fn resize(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn resize(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
 
     let mut run = Run::new("resize");
-    for sample in 0..SAMPLES {
+    for sample in 0..samples.repeated {
         let size = RESIZES.get(sample % RESIZES.len()).copied().unwrap_or(SIZE);
         let started = Instant::now();
         harness.resize(size);
@@ -177,7 +181,7 @@ pub(super) fn resize(messages: usize) -> anyhow::Result<Run> {
 /// all, which is what the wraps column is here to show rather than assert in prose. The other
 /// conversation is measured once before timing starts; paying for it cold is `open hidden
 /// conversation`'s job.
-pub(super) fn inspector(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn inspector(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Pay for the inspected conversation once before timing starts, then close it. With one
@@ -191,7 +195,7 @@ pub(super) fn inspector(messages: usize) -> anyhow::Result<Run> {
     }
 
     let mut run = Run::new("open inspector");
-    for sample in 0..SAMPLES {
+    for sample in 0..samples.repeated {
         let code = if sample.is_multiple_of(2) {
             KeyCode::Down
         } else {
@@ -214,10 +218,13 @@ pub(super) fn inspector(messages: usize) -> anyhow::Result<Run> {
 /// width. That is the same deliberate cost as a cold open (TR-1), paid here by a surface appearing
 /// rather than by a process starting — and it is the number the surface-open budget was quietly not
 /// measuring while an inspector held a detail panel.
-pub(super) fn hidden_conversation(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn hidden_conversation(
+    messages: usize,
+    samples: WorkloadSamples,
+) -> anyhow::Result<Run> {
     let mut run = Run::new("open hidden conversation");
     let mut last = None;
-    for _ in 0..COLD_SAMPLES {
+    for _ in 0..samples.cold {
         let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
         harness.warm(usize::MAX)?;
         // Look at the second agent with no frame in between, so nothing measures its
@@ -244,7 +251,7 @@ pub(super) fn hidden_conversation(messages: usize) -> anyhow::Result<Run> {
 /// and width, a shelf overlays at the primary conversation's width, and a wheel moves one
 /// stored position. So the wraps column must read zero here exactly as it does for one panel — the
 /// second conversation is paid for once, when it is opened, and never again.
-pub(super) fn two_conversations(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn two_conversations(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::interleaved(2, messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Looking at the second agent opens its conversation over the first's (INS-1).
@@ -257,7 +264,7 @@ pub(super) fn two_conversations(messages: usize) -> anyhow::Result<Run> {
     let inspected = harness.inside(SurfaceId::Inspector);
 
     let mut run = Run::new("two conversations");
-    for sample in 0..SAMPLES {
+    for sample in 0..samples.repeated {
         // Alternate panels and alternate directions, so neither reader runs out of conversation.
         let (column, row) = if sample.is_multiple_of(2) {
             conversation
@@ -289,12 +296,12 @@ pub(super) fn two_conversations(messages: usize) -> anyhow::Result<Run> {
 /// heights the cache holds were measured unselected and stay valid. That is the claim the wraps
 /// column checks. What it cannot see is the other half — copying is bounded by the selection rather
 /// than by the history, which `sources` gets by ranging its iterators instead of a finished vector.
-pub(super) fn select(messages: usize) -> anyhow::Result<Run> {
+pub(super) fn select(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
     let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
     harness.warm(usize::MAX)?;
     // Onto the conversation, then start at its newest entry before timing. Otherwise the first
     // backward leg travels one fewer position and its twentieth forward press is a clamped no-op,
-    // silently leaving this 200-sample workload with 199 frames.
+    // silently leaving the release workload one frame short.
     focus_conversation(&mut harness)?;
     harness
         .workspace
@@ -302,7 +309,7 @@ pub(super) fn select(messages: usize) -> anyhow::Result<Run> {
     harness.draw()?;
 
     let mut run = Run::new("extend selection");
-    for sample in 0..SAMPLES {
+    for sample in 0..samples.repeated {
         // Back through history, then forward again, so the workload does not run out of messages.
         let code = if sample % 40 < 20 {
             KeyCode::Up
@@ -320,11 +327,16 @@ pub(super) fn select(messages: usize) -> anyhow::Result<Run> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Harness, RESIZES, SIZE};
+    use super::{Harness, RESIZES, SIZE, WorkloadSamples};
     use plexmaton_sim::Scenario;
     use plexmaton_tui::SurfaceId;
     use ratatui::crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
+    };
+
+    const TEST_SAMPLES: WorkloadSamples = WorkloadSamples {
+        repeated: 40,
+        cold: 2,
     };
 
     /// The harness measures the claims it reports, at a scale small enough for the test suite.
@@ -401,9 +413,10 @@ mod tests {
     /// FR-4: the report's declared selection sample count is not shortened by a boundary no-op.
     #[test]
     fn extending_selection_records_every_declared_sample() {
-        let run = super::select(300).unwrap_or_else(|error| panic!("workload: {error}"));
+        let run =
+            super::select(300, TEST_SAMPLES).unwrap_or_else(|error| panic!("workload: {error}"));
 
-        assert_eq!(run.latencies.len(), super::SAMPLES);
+        assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
         assert_eq!(run.wrapped, 0);
     }
 
@@ -469,20 +482,21 @@ mod tests {
     /// the recorded samples would otherwise all be zero while the report appeared green.
     #[test]
     fn opening_and_closing_the_inspector_records_every_sample() {
-        let run = super::inspector(30).unwrap_or_else(|error| panic!("workload: {error}"));
+        let run =
+            super::inspector(30, TEST_SAMPLES).unwrap_or_else(|error| panic!("workload: {error}"));
 
-        assert_eq!(run.latencies.len(), super::SAMPLES);
+        assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
         assert_eq!(run.wrapped, 0, "the inspected transcript was warmed first");
     }
 
     /// TR-1: each new compact tool fact wraps only itself, however much history precedes it.
     #[test]
     fn compact_tool_entries_cost_one_wrap_at_any_history_length() {
-        for entries in [300, 3_000] {
-            let run = super::compact_tool_entries(entries)
+        for entries in [300, 1_000] {
+            let run = super::compact_tool_entries(entries, TEST_SAMPLES)
                 .unwrap_or_else(|error| panic!("workload: {error}"));
 
-            assert_eq!(run.latencies.len(), super::SAMPLES);
+            assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
             assert_eq!(run.wrapped, 1, "history={entries}");
         }
     }
@@ -491,11 +505,11 @@ mod tests {
     #[test]
     fn opening_a_tool_entry_costs_one_wrap_and_not_its_history() {
         let mut baseline_lines = None;
-        for entries in [300, 3_000] {
-            let run =
-                super::open_tool_entry(entries).unwrap_or_else(|error| panic!("workload: {error}"));
+        for entries in [300, 1_000] {
+            let run = super::open_tool_entry(entries, TEST_SAMPLES)
+                .unwrap_or_else(|error| panic!("workload: {error}"));
 
-            assert_eq!(run.latencies.len(), super::SAMPLES);
+            assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
             assert_eq!(run.wrapped, 1, "history={entries}");
             match baseline_lines {
                 None => baseline_lines = Some(run.built),
