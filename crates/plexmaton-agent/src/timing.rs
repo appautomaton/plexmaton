@@ -3,6 +3,15 @@
 use plexmaton_core::{AgentId, AgentStatus, SessionEntryId, TurnId};
 use serde::{Deserialize, Serialize};
 
+mod request;
+
+pub use request::{
+    CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttempt, RequestAttemptAuthorized,
+    RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal, RequestAttemptTerminalState,
+    RequestDispatchedOutcome, RequestEnvironment, RequestEnvironmentFingerprint,
+    RequestNotDispatchedOutcome, RequestTimingError,
+};
+
 /// Milliseconds since the Unix epoch, used only to place facts on a wall-clock chronology.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]

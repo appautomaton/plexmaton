@@ -44,7 +44,13 @@ pub use model::{
     ProviderModelFamilyId, ProviderReplay, ProviderReplayError, ProviderReplayOwnerId,
     ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
 };
-pub use timing::{ActiveTurnStatus, TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
+pub use timing::{
+    ActiveTurnStatus, CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttempt,
+    RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal,
+    RequestAttemptTerminalState, RequestDispatchedOutcome, RequestEnvironment,
+    RequestEnvironmentFingerprint, RequestNotDispatchedOutcome, RequestTimingError, TurnFinished,
+    TurnFinishedAt, TurnOutcome, UnixMillis,
+};
 pub use tools::{
     MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome, bounded_tool_text,

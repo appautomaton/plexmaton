@@ -8,8 +8,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TurnId};
 
-use crate::{ModelStepId, TurnFinished, UnixMillis};
+use crate::{
+    ModelStepId, RequestAttempt, RequestAttemptId, RequestAttemptOwner, TurnFinished, UnixMillis,
+};
 
+#[cfg(test)]
+mod attempt_tests;
+mod attempts;
 mod error;
 mod payload;
 #[cfg(test)]
@@ -92,6 +97,9 @@ pub struct SessionJournal {
     turn_finishes: BTreeMap<TurnId, TurnFinishState>,
     model_steps: BTreeSet<ModelStepId>,
     last_model_step_indexes: BTreeMap<TurnId, u16>,
+    request_attempts: BTreeMap<RequestAttemptId, RequestAttempt>,
+    request_attempt_order: Vec<RequestAttemptId>,
+    active_request_owners: BTreeMap<RequestAttemptOwner, RequestAttemptId>,
 }
 
 impl SessionJournal {
@@ -134,6 +142,9 @@ impl SessionJournal {
             turn_finishes: BTreeMap::new(),
             model_steps: BTreeSet::new(),
             last_model_step_indexes: BTreeMap::new(),
+            request_attempts: BTreeMap::new(),
+            request_attempt_order: Vec::new(),
+            active_request_owners: BTreeMap::new(),
         }
     }
 
@@ -190,6 +201,21 @@ impl SessionJournal {
     /// Ordered records retained so a file adapter can export or replay them.
     pub fn records(&self) -> &[JournalRecord] {
         &self.records
+    }
+
+    /// One request authorization and its optional terminal fact.
+    #[must_use]
+    pub fn request_attempt(&self, attempt_id: &RequestAttemptId) -> Option<&RequestAttempt> {
+        self.request_attempts.get(attempt_id)
+    }
+
+    /// Every request attempt in authorization order, including attempts on abandoned heads.
+    pub fn request_attempts(&self) -> impl ExactSizeIterator<Item = &RequestAttempt> {
+        self.request_attempt_order.iter().map(|attempt_id| {
+            self.request_attempts
+                .get(attempt_id)
+                .unwrap_or_else(|| unreachable!("every ordered attempt remains indexed"))
+        })
     }
 
     /// Applies one already-written record, or leaves the journal byte-for-byte equal on refusal.
@@ -296,6 +322,29 @@ impl SessionJournal {
                     .unwrap_or_else(|| unreachable!("validated head remains present"))
                     .open_turn = None;
             }
+            JournalRecord::RequestAttemptAuthorized { fact, .. } => {
+                self.request_attempt_order.push(fact.attempt_id().clone());
+                self.active_request_owners
+                    .insert(fact.owner().clone(), fact.attempt_id().clone());
+                self.request_attempts.insert(
+                    fact.attempt_id().clone(),
+                    RequestAttempt::authorized(fact.clone()),
+                );
+            }
+            JournalRecord::RequestAttemptFinished { fact, .. } => {
+                let owner = self
+                    .request_attempts
+                    .get(fact.attempt_id())
+                    .unwrap_or_else(|| unreachable!("validated request attempt remains indexed"))
+                    .authorization()
+                    .owner()
+                    .clone();
+                self.request_attempts
+                    .get_mut(fact.attempt_id())
+                    .unwrap_or_else(|| unreachable!("validated request attempt remains indexed"))
+                    .finish(fact.clone());
+                self.active_request_owners.remove(&owner);
+            }
         }
         self.record_ids.insert(record.record_id().clone());
         self.records.push(record);
@@ -370,12 +419,7 @@ impl SessionJournal {
                         if self.model_steps.contains(step_id) {
                             return Err(JournalError::DuplicateModelStep(step_id.clone()));
                         }
-                        let expected = match self.last_model_step_indexes.get(step_id.turn_id()) {
-                            Some(prior) => prior.checked_add(1).ok_or_else(|| {
-                                JournalError::ModelStepSequenceExhausted(step_id.turn_id().clone())
-                            })?,
-                            None => 1,
-                        };
+                        let expected = self.expected_model_step_index(step_id.turn_id())?;
                         if step_id.index() != expected {
                             return Err(JournalError::UnexpectedModelStep {
                                 turn_id: step_id.turn_id().clone(),
@@ -441,6 +485,15 @@ impl SessionJournal {
                     });
                 }
                 self.validate_turn_finished(fact, state.open_turn.as_ref())?;
+            }
+            JournalRecord::RequestAttemptAuthorized {
+                head,
+                expected_head_revision,
+                fact,
+                ..
+            } => self.validate_request_authorization(head, *expected_head_revision, fact)?,
+            JournalRecord::RequestAttemptFinished { fact, .. } => {
+                self.validate_request_terminal(fact)?;
             }
         }
         Ok(next_sequence)

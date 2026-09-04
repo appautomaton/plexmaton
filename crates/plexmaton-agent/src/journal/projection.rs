@@ -399,12 +399,18 @@ impl SessionJournal {
             }
         }
         projector.finish_batch(true)?;
+        let request_attempts = self
+            .request_attempts()
+            .filter(|attempt| Self::boundary_is_selected(&selected, attempt.authorization()))
+            .cloned()
+            .collect();
         Ok(JournalProjection {
             request: ModelRequest {
                 atoms: projector.atoms,
             },
             events: projector.events,
             recovery: projector.recovery,
+            request_attempts,
         })
     }
 }

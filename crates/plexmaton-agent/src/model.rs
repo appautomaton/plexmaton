@@ -128,7 +128,8 @@ pub enum ModelEvent {
 /// A typed answer the adapter computes, never a guess the loop makes. A dialect that cannot say
 /// why a step ended reports [`StopReason::Unspecified`] rather than letting the loop infer one
 /// from whether text arrived, which is how a refusal comes to look like a finished answer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StopReason {
     /// The model answered and is not asking for anything.
     EndOfTurn,

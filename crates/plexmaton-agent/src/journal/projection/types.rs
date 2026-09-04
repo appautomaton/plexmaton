@@ -4,7 +4,7 @@ use plexmaton_core::{
 };
 
 use super::super::JournalError;
-use crate::{ContextError, ModelRequest, ModelStepId};
+use crate::{ContextError, ModelRequest, ModelStepId, RequestAttempt};
 
 /// A safe visible/model reconstruction of one selected journal head (JRN-5).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -12,6 +12,7 @@ pub struct JournalProjection {
     pub(super) request: ModelRequest,
     pub(super) events: Vec<SessionEventEnvelope>,
     pub(super) recovery: Option<RecoveryProjection>,
+    pub(super) request_attempts: Vec<RequestAttempt>,
 }
 
 impl JournalProjection {
@@ -37,6 +38,12 @@ impl JournalProjection {
     #[must_use]
     pub const fn recovery(&self) -> Option<&RecoveryProjection> {
         self.recovery.as_ref()
+    }
+
+    /// Audit attempts whose exact semantic boundary belongs to this selected path.
+    #[must_use]
+    pub fn request_attempts(&self) -> &[RequestAttempt] {
+        &self.request_attempts
     }
 }
 

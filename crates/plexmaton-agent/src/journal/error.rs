@@ -1,7 +1,7 @@
 use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, TurnId};
 
 use super::{HeadRevision, JournalSequence};
-use crate::ModelStepId;
+use crate::{ModelStepId, RequestAttemptId, RequestTimingError};
 
 /// Why a record was refused without changing journal state (JRN-2).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -49,6 +49,24 @@ pub enum JournalError {
     },
     /// No later model-step position can be represented for a turn.
     ModelStepSequenceExhausted(TurnId),
+    /// A second authorization reused one request-attempt identity.
+    DuplicateRequestAttempt(RequestAttemptId),
+    /// An owner still has an earlier request attempt without a terminal fact.
+    RequestAttemptOwnerActive(RequestAttemptId),
+    /// A terminal fact named no prior request authorization.
+    MissingRequestAttempt(RequestAttemptId),
+    /// A second terminal fact tried to finish one request attempt again.
+    DuplicateRequestAttemptTerminal(RequestAttemptId),
+    /// A terminal attempt carried internally inconsistent timing or provider usage.
+    InvalidRequestAttemptTerminal {
+        attempt_id: RequestAttemptId,
+        error: RequestTimingError,
+    },
+    /// Request authorization did not name the selected head's exact semantic boundary.
+    InvalidRequestAttemptBoundary {
+        attempt_id: RequestAttemptId,
+        boundary: SessionEntryId,
+    },
     /// Agent creation tried to bypass the idle initial lifecycle boundary.
     InvalidInitialAgentStatus(AgentId),
     /// A terminal fact named no semantic turn start.

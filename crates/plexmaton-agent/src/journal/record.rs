@@ -2,7 +2,7 @@ use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
 use serde::{Deserialize, Serialize};
 
 use super::payload::JournalEntryPayload;
-use crate::TurnFinished;
+use crate::{RequestAttemptAuthorized, RequestAttemptTerminal, TurnFinished};
 
 /// Monotonic position of one record in a session journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -131,6 +131,28 @@ pub enum JournalRecord {
         /// Immutable terminal fact correlated to its semantic start and boundary.
         fact: TurnFinished,
     },
+    /// Authorize one request without changing semantic ancestry or a head revision (TIM-2).
+    RequestAttemptAuthorized {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Head whose exact semantic prefix is being authorized.
+        head: HeadName,
+        /// Revision observed while preparing this non-advancing fact.
+        expected_head_revision: HeadRevision,
+        /// Immutable request owner, boundary, environment and authorization time.
+        fact: RequestAttemptAuthorized,
+    },
+    /// Finish one authorized request without changing semantic ancestry (TIM-2, TIM-5).
+    RequestAttemptFinished {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Immutable terminal outcome and honest available measurements.
+        fact: RequestAttemptTerminal,
+    },
 }
 
 impl JournalRecord {
@@ -143,7 +165,9 @@ impl JournalRecord {
             | Self::MoveHead { sequence, .. }
             | Self::RenameHead { sequence, .. }
             | Self::AbandonHead { sequence, .. }
-            | Self::TurnFinished { sequence, .. } => *sequence,
+            | Self::TurnFinished { sequence, .. }
+            | Self::RequestAttemptAuthorized { sequence, .. }
+            | Self::RequestAttemptFinished { sequence, .. } => *sequence,
         }
     }
 
@@ -154,7 +178,9 @@ impl JournalRecord {
             | Self::MoveHead { record_id, .. }
             | Self::RenameHead { record_id, .. }
             | Self::AbandonHead { record_id, .. }
-            | Self::TurnFinished { record_id, .. } => record_id,
+            | Self::TurnFinished { record_id, .. }
+            | Self::RequestAttemptAuthorized { record_id, .. }
+            | Self::RequestAttemptFinished { record_id, .. } => record_id,
         }
     }
 }
