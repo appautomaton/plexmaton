@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TurnId};
 
-use crate::{TurnFinished, UnixMillis};
+use crate::{ModelStepId, TurnFinished, UnixMillis};
 
 mod error;
 mod payload;
@@ -90,6 +90,7 @@ pub struct SessionJournal {
     retired_heads: BTreeSet<HeadName>,
     turn_starts: BTreeMap<TurnId, TurnStartState>,
     turn_finishes: BTreeMap<TurnId, TurnFinishState>,
+    model_steps: BTreeSet<ModelStepId>,
 }
 
 impl SessionJournal {
@@ -130,6 +131,7 @@ impl SessionJournal {
             retired_heads: BTreeSet::new(),
             turn_starts: BTreeMap::new(),
             turn_finishes: BTreeMap::new(),
+            model_steps: BTreeSet::new(),
         }
     }
 
@@ -213,6 +215,9 @@ impl SessionJournal {
                             entry_id: entry.id.clone(),
                         },
                     );
+                }
+                if let JournalEntryPayload::AssistantOutput { step_id, .. } = &entry.payload {
+                    self.model_steps.insert(step_id.clone());
                 }
                 self.entries
                     .insert(entry.id.clone(), entry.as_ref().clone());
@@ -341,13 +346,6 @@ impl SessionJournal {
                     } if *status != plexmaton_core::AgentStatus::Idle => {
                         return Err(JournalError::InvalidInitialAgentStatus(agent_id.clone()));
                     }
-                    JournalEntryPayload::Message {
-                        item_id,
-                        role: plexmaton_core::TranscriptRole::User,
-                        ..
-                    } => {
-                        return Err(JournalError::TimelessUserMessage(item_id.clone()));
-                    }
                     JournalEntryPayload::TurnStarted { turn_id, .. } => {
                         if self.turn_starts.contains_key(turn_id) {
                             return Err(JournalError::DuplicateTurn(turn_id.clone()));
@@ -362,6 +360,18 @@ impl SessionJournal {
                     JournalEntryPayload::TurnStatusChanged {
                         agent_id, turn_id, ..
                     } => self.validate_turn_status(agent_id, turn_id, state.open_turn.as_ref())?,
+                    JournalEntryPayload::AssistantOutput {
+                        agent_id, step_id, ..
+                    } => {
+                        if self.model_steps.contains(step_id) {
+                            return Err(JournalError::DuplicateModelStep(step_id.clone()));
+                        }
+                        self.validate_steering(
+                            agent_id,
+                            step_id.turn_id(),
+                            state.open_turn.as_ref(),
+                        )?;
+                    }
                     _ => {}
                 }
                 self.validate_revision_increment(head, state.revision)?;
@@ -473,15 +483,15 @@ impl SessionJournal {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId,
-        TranscriptRole, TurnId,
+        AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId, TurnId,
     };
 
     use super::{
         HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence,
         SessionEntry, SessionJournal,
     };
-    use crate::{MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderReplay};
+    use crate::MAX_PROVIDER_REPLAY_BYTES;
+    use crate::test_support::{output_with_replay, reasoning_block, replay, step};
     use crate::{TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
 
     fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
@@ -504,11 +514,10 @@ mod tests {
         SessionEntry {
             id: id(value, SessionEntryId::new),
             parent_id,
-            payload: JournalEntryPayload::Message {
+            payload: JournalEntryPayload::RuntimeWarning {
                 agent_id: id("agent-a", AgentId::new),
                 item_id: id(&format!("item-{value}"), TranscriptItemId::new),
-                role: TranscriptRole::Assistant,
-                text: text.to_owned(),
+                message: text.to_owned(),
             },
         }
     }
@@ -951,10 +960,10 @@ mod tests {
             assert_eq!(
                 projection
                     .request()
-                    .items
+                    .atoms
                     .iter()
-                    .filter_map(|item| match item {
-                        crate::RequestItem::User { text } => Some(text.as_str()),
+                    .filter_map(|atom| match atom.value() {
+                        crate::ContextAtomValue::User { text } => Some(text.as_str()),
                         _ => None,
                     })
                     .collect::<Vec<_>>(),
@@ -1156,11 +1165,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("main path: {error:?}"))
             .iter()
             .filter_map(|entry| match &entry.payload {
-                JournalEntryPayload::Message {
-                    role: TranscriptRole::Assistant,
-                    text,
-                    ..
-                } => Some(text.as_str()),
+                JournalEntryPayload::RuntimeWarning { message, .. } => Some(message.as_str()),
                 _ => None,
             })
             .collect();
@@ -1170,12 +1175,7 @@ mod tests {
     /// JRN-3: lossless storage may contain opaque replay while ordinary inspection cannot.
     #[test]
     fn jrn_3_every_record_round_trips_and_debug_redacts_replay() {
-        let replay = ProviderReplay::new(
-            ProviderCodecId::new("openai_responses")
-                .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
-            r#"{"type":"reasoning","encrypted_content":"secret-ciphertext"}"#.to_owned(),
-        )
-        .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+        let replay = replay(r#"{"type":"reasoning","encrypted_content":"secret-ciphertext"}"#);
         let record = append(
             1,
             "record-1",
@@ -1184,7 +1184,14 @@ mod tests {
             SessionEntry {
                 id: id("entry-1", SessionEntryId::new),
                 parent_id: None,
-                payload: JournalEntryPayload::ProviderReplay(replay),
+                payload: JournalEntryPayload::AssistantOutput {
+                    agent_id: id("agent-a", AgentId::new),
+                    step_id: step("turn-1", 1),
+                    output: output_with_replay(
+                        vec![reasoning_block("reasoning-1", "bounded reasoning")],
+                        [(0, replay)],
+                    ),
+                },
             },
         );
 
@@ -1259,14 +1266,14 @@ mod tests {
             SessionEntry {
                 id: id("entry-1", SessionEntryId::new),
                 parent_id: None,
-                payload: JournalEntryPayload::ProviderReplay(
-                    ProviderReplay::new(
-                        ProviderCodecId::new("openai_responses")
-                            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
-                        "ciphertext".to_owned(),
-                    )
-                    .unwrap_or_else(|error| panic!("fixture replay: {error:?}")),
-                ),
+                payload: JournalEntryPayload::AssistantOutput {
+                    agent_id: id("agent-a", AgentId::new),
+                    step_id: step("turn-1", 1),
+                    output: output_with_replay(
+                        vec![reasoning_block("reasoning-1", "bounded reasoning")],
+                        [(0, replay("ciphertext"))],
+                    ),
+                },
             },
         ))
         .unwrap_or_else(|error| panic!("encode fixture: {error}"));
@@ -1276,7 +1283,7 @@ mod tests {
         assert!(serde_json::from_value::<JournalRecord>(empty_id).is_err());
 
         let mut oversized = valid;
-        oversized["entry"]["payload"]["payload"] =
+        oversized["entry"]["payload"]["output"]["replay"]["attachments"][0]["payload"] =
             serde_json::Value::String("x".repeat(MAX_PROVIDER_REPLAY_BYTES + 1));
         let error = match serde_json::from_value::<JournalRecord>(oversized) {
             Ok(_) => panic!("oversized replay decoded"),

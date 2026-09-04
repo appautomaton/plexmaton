@@ -19,6 +19,9 @@ mod timing;
 mod tools;
 mod turn;
 
+#[cfg(test)]
+mod test_support;
+
 pub use admission::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedCallError, AdmittedToolCall,
     ApprovalPolicy, CapabilitySet, MAX_ADMITTED_ARGUMENT_BYTES, MAX_APPROVAL_DETAIL_BYTES,
@@ -34,8 +37,11 @@ pub use journal::{
     SessionMetadata,
 };
 pub use model::{
-    MAX_PROVIDER_REPLAY_BYTES, ModelCall, ModelError, ModelEvent, ModelRequest, ModelStepId,
-    ProviderCodecId, ProviderReplay, ProviderReplayError, RequestItem, StopReason,
+    AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
+    ContextError, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, MAX_PROVIDER_REPLAY_BYTES, ModelCall,
+    ModelError, ModelEvent, ModelOutputPosition, ModelRequest, ModelStepId, ProviderCodecId,
+    ProviderCodecRevision, ProviderModelFamilyId, ProviderReplay, ProviderReplayError,
+    ProviderReplayOwnerId, ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
 };
 pub use timing::{ActiveTurnStatus, TurnFinished, TurnFinishedAt, TurnOutcome, UnixMillis};
 pub use tools::{

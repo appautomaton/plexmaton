@@ -9,7 +9,7 @@ use std::{
 };
 
 use futures_util::{FutureExt as _, future::BoxFuture};
-use plexmaton_agent::{Input, ModelCall, ModelEvent, StopReason, ToolCall};
+use plexmaton_agent::{Input, ModelCall, ModelEvent, ModelOutputPosition, StopReason, ToolCall};
 use plexmaton_core::{ApprovalDecision, AttentionRequest, SessionEvent, ToolCallId};
 use rustix::{io::Errno, process::Pid};
 use tokio::sync::mpsc;
@@ -66,16 +66,19 @@ fn runtime(driver: Arc<dyn ModelDriver>, workspace: &TestWorkspace) -> LiveRunti
 }
 
 fn command_call() -> ModelEvent {
-    ModelEvent::Called(ToolCall {
-        call_id: ToolCallId::new("command-lifecycle")
-            .unwrap_or_else(|error| panic!("fixture call id: {error}")),
-        name: "exec_command".to_owned(),
-        arguments: serde_json::json!({
-            "cmd": STUBBORN_COMMAND,
-            "timeout_ms": 5000
-        })
-        .to_string(),
-    })
+    ModelEvent::Called {
+        position: ModelOutputPosition::new(0, 0),
+        call: ToolCall {
+            call_id: ToolCallId::new("command-lifecycle")
+                .unwrap_or_else(|error| panic!("fixture call id: {error}")),
+            name: "exec_command".to_owned(),
+            arguments: serde_json::json!({
+                "cmd": STUBBORN_COMMAND,
+                "timeout_ms": 5000
+            })
+            .to_string(),
+        },
+    }
 }
 
 async fn start_stubborn_command(runtime: &mut LiveRuntime, workspace: &Path) -> Pid {
@@ -217,7 +220,10 @@ impl ModelDriver for PendingDriver {
             let _closed = signals
                 .send(ModelSignal::Event {
                     step_id: call.step_id,
-                    event: ModelEvent::TextDelta("started".to_owned()),
+                    event: ModelEvent::TextDelta {
+                        position: ModelOutputPosition::new(0, 0),
+                        delta: "started".to_owned(),
+                    },
                 })
                 .await;
             future::pending().await

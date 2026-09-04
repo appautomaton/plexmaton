@@ -8,7 +8,7 @@ use super::support::profile;
 #[test]
 fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
     let profile = profile(Protocol::ChatCompletions);
-    let mut codec = OpenAiCodec::new(profile.protocol(), DecodeLimits::for_profile(&profile));
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::for_profile(&profile));
     let combined = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}"#;
 
     assert!(matches!(
@@ -26,7 +26,7 @@ fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
 #[test]
 fn responses_null_usage_breakdowns_are_partial_coverage() {
     let profile = profile(Protocol::Responses);
-    let mut codec = OpenAiCodec::new(profile.protocol(), DecodeLimits::for_profile(&profile));
+    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::for_profile(&profile));
     let completed = r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":null,"cache_write_tokens":null},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":null},"total_tokens":10}}}"#;
 
     assert!(matches!(

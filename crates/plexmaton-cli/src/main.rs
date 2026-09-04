@@ -498,6 +498,28 @@ mod tests {
         )
     }
 
+    fn assert_tool_lifecycle_projection(workspace: &Workspace) {
+        let tools: Vec<_> = workspace
+            .state()
+            .primary_agent()
+            .unwrap_or_else(|| panic!("agent was projected"))
+            .tools()
+            .map(|tool| (tool.id.as_str(), tool.revision, tool.status))
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("success", 2, ToolCallStatus::Succeeded),
+                ("execution-failed", 2, ToolCallStatus::Failed),
+                ("refused", 1, ToolCallStatus::Failed),
+                ("denied", 2, ToolCallStatus::Denied),
+                ("cancelled", 2, ToolCallStatus::Cancelled),
+                ("approved", 3, ToolCallStatus::Succeeded),
+            ]
+        );
+        assert_eq!(workspace.state().notices().count(), 0);
+    }
+
     fn finish_tool(
         agent: &mut plexmaton_agent::Agent,
         call_id: &str,
@@ -737,7 +759,7 @@ mod tests {
     /// unknown agent and an unknown item, so a stream it accepts in full is one it understood.
     #[test]
     fn a_turn_the_loop_drove_is_a_stream_the_projection_accepts() {
-        use plexmaton_agent::{Agent, Effect, Input, ModelEvent, StopReason};
+        use plexmaton_agent::{Agent, Effect, Input, ModelEvent, ModelOutputPosition, StopReason};
         use plexmaton_core::AgentId;
 
         let mut agent =
@@ -761,7 +783,10 @@ mod tests {
                 agent
                     .handle(Input::Streamed {
                         step_id: step_id.clone(),
-                        event: ModelEvent::TextDelta(delta.to_owned()),
+                        event: ModelEvent::TextDelta {
+                            position: ModelOutputPosition::new(0, 0),
+                            delta: delta.to_owned(),
+                        },
                     })
                     .events,
             );
@@ -800,8 +825,8 @@ mod tests {
     #[test]
     fn production_tool_lifecycles_replay_as_one_entry_each() {
         use plexmaton_agent::{
-            AdmissionRefusal, Agent, Effect, Input, ModelEvent, StopReason, ToolCall,
-            ToolDefinitionRevision,
+            AdmissionRefusal, Agent, Effect, Input, ModelEvent, ModelOutputPosition, StopReason,
+            ToolCall, ToolDefinitionRevision,
         };
         use plexmaton_core::{
             AgentId, ApprovalDecision, ToolCallId, ToolCapability, ToolDefinitionId,
@@ -821,22 +846,25 @@ mod tests {
         let step_id = agent
             .active_model_step()
             .unwrap_or_else(|| panic!("submission opens one model step"));
-        for call_id in [
-            "success",
-            "execution-failed",
-            "refused",
-            "denied",
-            "cancelled",
-            "approved",
+        for (item, call_id) in [
+            (0, "success"),
+            (1, "execution-failed"),
+            (2, "refused"),
+            (3, "denied"),
+            (4, "cancelled"),
+            (5, "approved"),
         ] {
             let reaction = agent.handle(Input::Streamed {
                 step_id: step_id.clone(),
-                event: ModelEvent::Called(ToolCall {
-                    call_id: ToolCallId::new(call_id)
-                        .unwrap_or_else(|error| panic!("fixture: {error}")),
-                    name: call_id.to_owned(),
-                    arguments: "{}".to_owned(),
-                }),
+                event: ModelEvent::Called {
+                    position: ModelOutputPosition::new(item, 0),
+                    call: ToolCall {
+                        call_id: ToolCallId::new(call_id)
+                            .unwrap_or_else(|error| panic!("fixture: {error}")),
+                        name: call_id.to_owned(),
+                        arguments: "{}".to_owned(),
+                    },
+                },
             });
             assert!(reaction.events.is_empty());
         }
@@ -932,25 +960,7 @@ mod tests {
         ));
         workspace.emit(agent.handle(Input::Interrupted).events);
 
-        let tools: Vec<_> = workspace
-            .state()
-            .primary_agent()
-            .unwrap_or_else(|| panic!("agent was projected"))
-            .tools()
-            .map(|tool| (tool.id.as_str(), tool.revision, tool.status))
-            .collect();
-        assert_eq!(
-            tools,
-            [
-                ("success", 2, ToolCallStatus::Succeeded),
-                ("execution-failed", 2, ToolCallStatus::Failed),
-                ("refused", 1, ToolCallStatus::Failed),
-                ("denied", 2, ToolCallStatus::Denied),
-                ("cancelled", 2, ToolCallStatus::Cancelled),
-                ("approved", 3, ToolCallStatus::Succeeded),
-            ]
-        );
-        assert_eq!(workspace.state().notices().count(), 0);
+        assert_tool_lifecycle_projection(&workspace);
     }
 
     /// LOOP-6 and INV-7 at the composition boundary: the visible input chooses the agent input,

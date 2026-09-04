@@ -1,37 +1,38 @@
-//! One step's streaming half: the message it assembles and the calls it asks for.
-//!
-//! A step is one request to the model. Everything it produces arrives as deltas, so the message on
-//! screen and the message the record keeps are built here from the same text — the deltas are what
-//! the reader watches, and the assembled string is what the model is shown next.
+//! One model step's ordered, bounded output assembly.
+
+use std::collections::{BTreeMap, btree_map::Entry};
 
 use plexmaton_core::{SessionEvent, TranscriptItemId, TranscriptRole, TurnId};
 
 use crate::interface::Reaction;
 use crate::journal::JournalEntryPayload;
-use crate::model::ProviderReplay;
+use crate::model::{
+    AssistantBlock, AssistantOutput, AssistantReplay, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
+    ModelOutputPosition, ModelStepId, ProviderReplay,
+};
 use crate::record::Record;
 use crate::tools::ToolCall;
 
-/// What one step has assembled so far.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Step {
-    answer: StreamedText,
-    reasoning: StreamedText,
-    replay: Vec<ProviderReplay>,
-    output_order: Vec<StepOutput>,
+    turn_id: TurnId,
+    outputs: BTreeMap<ModelOutputPosition, PendingOutput>,
+    replay: BTreeMap<ModelOutputPosition, ProviderReplay>,
     warnings: Vec<String>,
-    /// Calls this step has asked for, held until it ends so they dispatch as one batch.
-    calls: Vec<ToolCall>,
-    /// Which step of the turn this is, counting from one.
     index: u16,
     usage_reported: bool,
+    tool_argument_bytes: usize,
+    replay_bytes: usize,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StepOutput {
-    Answer,
-    Reasoning,
-    Replay(usize),
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PendingOutput {
+    Text(StreamedText),
+    Reasoning(StreamedText),
+    ToolCall {
+        item_id: TranscriptItemId,
+        call: ToolCall,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -54,9 +55,8 @@ impl StreamedText {
         }
     }
 
-    fn append(&mut self, record: &mut Record, reaction: &mut Reaction, delta: String) -> bool {
-        let opened_now = !std::mem::replace(&mut self.opened, true);
-        if opened_now {
+    fn append(&mut self, record: &mut Record, reaction: &mut Reaction, delta: String) {
+        if !std::mem::replace(&mut self.opened, true) {
             record.emit(
                 reaction,
                 SessionEvent::TranscriptItemStarted {
@@ -77,139 +77,273 @@ impl StreamedText {
                 text: delta,
             },
         );
-        opened_now
     }
 
-    fn close(self, record: &mut Record, reaction: &mut Reaction) {
-        if !self.opened {
-            return;
+    fn finalize(&self, record: &mut Record, reaction: &mut Reaction) {
+        if self.opened {
+            record.emit(
+                reaction,
+                SessionEvent::TranscriptItemFinalized {
+                    agent_id: record.agent_id().clone(),
+                    item_id: self.item.clone(),
+                    item_revision: self.revision.saturating_add(1),
+                },
+            );
         }
-        let agent_id = record.agent_id().clone();
-        record.commit(
-            JournalEntryPayload::Message {
-                agent_id: agent_id.clone(),
-                item_id: self.item.clone(),
-                role: self.role,
-                text: self.text,
-            },
-            reaction,
-        );
-        record.emit(
-            reaction,
-            SessionEvent::TranscriptItemFinalized {
-                agent_id,
-                item_id: self.item,
-                item_revision: self.revision.saturating_add(1),
-            },
-        );
     }
 }
 
 impl Step {
-    /// Opens the `index`th step of a turn.
     pub(crate) fn new(turn_id: TurnId, index: u16) -> Self {
         Self {
-            answer: StreamedText::new(
-                TranscriptRole::Assistant,
-                Record::stream_item_id(&turn_id, index, TranscriptRole::Assistant),
-            ),
-            reasoning: StreamedText::new(
-                TranscriptRole::Reasoning,
-                Record::stream_item_id(&turn_id, index, TranscriptRole::Reasoning),
-            ),
-            replay: Vec::new(),
-            output_order: Vec::new(),
+            turn_id,
+            outputs: BTreeMap::new(),
+            replay: BTreeMap::new(),
             warnings: Vec::new(),
-            calls: Vec::new(),
             index,
             usage_reported: false,
+            tool_argument_bytes: 0,
+            replay_bytes: 0,
         }
     }
 
-    /// Which step of the turn this is.
     pub(crate) fn index(&self) -> u16 {
         self.index
     }
 
-    /// Appends one delta, opening the assistant message if this is the first.
-    ///
-    /// Opening lazily is what lets a step that says nothing leave nothing behind. The revision
-    /// counts every delta, so a projection can detect a lost or repeated one without comparing
-    /// text.
-    pub(crate) fn append(&mut self, record: &mut Record, reaction: &mut Reaction, delta: String) {
-        if self.answer.append(record, reaction, delta) {
-            self.output_order.push(StepOutput::Answer);
-        }
+    pub(crate) fn append(
+        &mut self,
+        record: &mut Record,
+        reaction: &mut Reaction,
+        position: ModelOutputPosition,
+        delta: String,
+    ) -> Result<(), StepAssemblyError> {
+        self.append_text(record, reaction, position, TranscriptRole::Assistant, delta)
     }
 
-    /// Appends provider-returned plaintext reasoning to its own transcript item (PRV-3).
     pub(crate) fn append_reasoning(
         &mut self,
         record: &mut Record,
         reaction: &mut Reaction,
+        position: ModelOutputPosition,
         delta: String,
-    ) {
-        if self.reasoning.append(record, reaction, delta) {
-            self.output_order.push(StepOutput::Reasoning);
+    ) -> Result<(), StepAssemblyError> {
+        self.append_text(record, reaction, position, TranscriptRole::Reasoning, delta)
+    }
+
+    fn append_text(
+        &mut self,
+        record: &mut Record,
+        reaction: &mut Reaction,
+        position: ModelOutputPosition,
+        role: TranscriptRole,
+        delta: String,
+    ) -> Result<(), StepAssemblyError> {
+        self.reserve_output_position(position)?;
+        let item = Record::stream_item_id(&self.turn_id, self.index, role, position);
+        let output = self.outputs.entry(position).or_insert_with(|| match role {
+            TranscriptRole::Assistant => PendingOutput::Text(StreamedText::new(role, item)),
+            TranscriptRole::Reasoning => PendingOutput::Reasoning(StreamedText::new(role, item)),
+            TranscriptRole::User | TranscriptRole::System => unreachable!("provider text role"),
+        });
+        let text = match (role, output) {
+            (TranscriptRole::Assistant, PendingOutput::Text(text))
+            | (TranscriptRole::Reasoning, PendingOutput::Reasoning(text)) => text,
+            _ => return Err(StepAssemblyError::ConflictingPosition),
+        };
+        text.append(record, reaction, delta);
+        Ok(())
+    }
+
+    pub(crate) fn retain_replay(
+        &mut self,
+        position: ModelOutputPosition,
+        replay: ProviderReplay,
+    ) -> Result<(), StepAssemblyError> {
+        self.reserve_output_position(position)?;
+        if self
+            .replay
+            .values()
+            .next()
+            .is_some_and(|existing| existing.compatible_with() != replay.compatible_with())
+        {
+            return Err(StepAssemblyError::MixedReplayCompatibility);
+        }
+        if self.replay.contains_key(&position) {
+            return Err(StepAssemblyError::DuplicateReplayPosition);
+        }
+        let replay_bytes = self
+            .replay_bytes
+            .checked_add(replay.payload().len())
+            .ok_or(StepAssemblyError::ReplayTooLarge)?;
+        if replay_bytes > crate::MAX_PROVIDER_REPLAY_BYTES {
+            return Err(StepAssemblyError::ReplayTooLarge);
+        }
+        let item = Record::stream_item_id(
+            &self.turn_id,
+            self.index,
+            TranscriptRole::Reasoning,
+            position,
+        );
+        match self.outputs.entry(position).or_insert_with(|| {
+            PendingOutput::Reasoning(StreamedText::new(TranscriptRole::Reasoning, item))
+        }) {
+            PendingOutput::Reasoning(_) => {}
+            PendingOutput::Text(_) | PendingOutput::ToolCall { .. } => {
+                return Err(StepAssemblyError::ConflictingPosition);
+            }
+        }
+        self.replay.insert(position, replay);
+        self.replay_bytes = replay_bytes;
+        Ok(())
+    }
+
+    pub(crate) fn collect(
+        &mut self,
+        record: &Record,
+        position: ModelOutputPosition,
+        call: ToolCall,
+    ) -> Result<(), StepAssemblyError> {
+        self.reserve_output_position(position)?;
+        if self.contains_call(&call.call_id) {
+            return Err(StepAssemblyError::DuplicateToolCallId);
+        }
+        let tool_argument_bytes = self
+            .tool_argument_bytes
+            .checked_add(call.arguments.len())
+            .ok_or(StepAssemblyError::ToolArgumentsTooLarge)?;
+        if tool_argument_bytes > MAX_ASSISTANT_TOOL_ARGUMENT_BYTES {
+            return Err(StepAssemblyError::ToolArgumentsTooLarge);
+        }
+        let item_id = record.tool_item_id(&call.call_id);
+        match self.outputs.entry(position) {
+            Entry::Vacant(entry) => {
+                entry.insert(PendingOutput::ToolCall { item_id, call });
+                self.tool_argument_bytes = tool_argument_bytes;
+                Ok(())
+            }
+            Entry::Occupied(_) => Err(StepAssemblyError::ConflictingPosition),
         }
     }
 
-    /// Retains one already-bounded opaque item for exact provider replay (PRV-3).
-    pub(crate) fn retain_replay(&mut self, replay: ProviderReplay) {
-        self.output_order
-            .push(StepOutput::Replay(self.replay.len()));
-        self.replay.push(replay);
-    }
-
-    /// Holds a call until the step ends, because a step's calls dispatch as one batch.
-    pub(crate) fn collect(&mut self, call: ToolCall) {
-        self.calls.push(call);
-    }
-
     pub(crate) fn contains_call(&self, call_id: &plexmaton_core::ToolCallId) -> bool {
-        self.calls.iter().any(|call| &call.call_id == call_id)
+        self.outputs.values().any(|output| {
+            matches!(output, PendingOutput::ToolCall { call, .. } if &call.call_id == call_id)
+        })
+    }
+
+    fn reserve_output_position(
+        &self,
+        position: ModelOutputPosition,
+    ) -> Result<(), StepAssemblyError> {
+        if !self.outputs.contains_key(&position) && self.outputs.len() >= usize::from(u16::MAX) {
+            return Err(StepAssemblyError::TooManyOutputBlocks);
+        }
+        Ok(())
     }
 
     pub(crate) fn defer_warning(&mut self, message: &str) {
         self.warnings.push(message.to_owned());
     }
 
-    /// Accepts exactly one usage report for this provider step (LIVE-4).
     pub(crate) fn mark_usage_reported(&mut self) -> bool {
         !std::mem::replace(&mut self.usage_reported, true)
     }
 
-    /// Ends the step: finalizes the message, records what it said, hands back what it asked for.
-    ///
-    /// Reasoning and replay are recorded even when the assistant answer is empty. Only an empty
-    /// assistant item is omitted: it would paint a blank row and add an empty message to the next
-    /// request without preserving any model output.
     pub(crate) fn close(
         self,
         record: &mut Record,
         reaction: &mut Reaction,
     ) -> (Vec<ToolCall>, Vec<String>) {
-        let mut answer = Some(self.answer);
-        let mut reasoning = Some(self.reasoning);
-        let mut replay: Vec<_> = self.replay.into_iter().map(Some).collect();
-        for output in self.output_order {
-            match output {
-                StepOutput::Answer => answer
-                    .take()
-                    .unwrap_or_else(|| unreachable!("answer opens once"))
-                    .close(record, reaction),
-                StepOutput::Reasoning => reasoning
-                    .take()
-                    .unwrap_or_else(|| unreachable!("reasoning opens once"))
-                    .close(record, reaction),
-                StepOutput::Replay(index) => {
-                    let item = replay[index]
-                        .take()
-                        .unwrap_or_else(|| unreachable!("replay output is consumed once"));
-                    record.commit(JournalEntryPayload::ProviderReplay(item), reaction);
-                }
-            }
+        if self.outputs.is_empty() {
+            return (Vec::new(), self.warnings);
         }
-        (self.calls, self.warnings)
+        let mut positions = BTreeMap::new();
+        let mut blocks = Vec::with_capacity(self.outputs.len());
+        let mut streamed = Vec::new();
+        for (position, output) in self.outputs {
+            let block = match output {
+                PendingOutput::Text(text) => {
+                    if !text.opened {
+                        continue;
+                    }
+                    streamed.push(text.clone());
+                    AssistantBlock::Text {
+                        item_id: text.item,
+                        text: text.text,
+                    }
+                }
+                PendingOutput::Reasoning(text) => {
+                    if !text.opened && !self.replay.contains_key(&position) {
+                        continue;
+                    }
+                    streamed.push(text.clone());
+                    AssistantBlock::Reasoning {
+                        item_id: text.item,
+                        text: text.text,
+                    }
+                }
+                PendingOutput::ToolCall { item_id, call } => {
+                    AssistantBlock::ToolCall { item_id, call }
+                }
+            };
+            let block_index = u16::try_from(blocks.len())
+                .unwrap_or_else(|_| unreachable!("provider output block count is bounded"));
+            positions.insert(position, block_index);
+            blocks.push(block);
+        }
+        let replay =
+            AssistantReplay::from_positioned(self.replay.into_iter().map(|(position, replay)| {
+                let block = positions
+                    .get(&position)
+                    .copied()
+                    .unwrap_or_else(|| unreachable!("replay creates its reasoning anchor"));
+                (block, replay)
+            }))
+            .unwrap_or_else(|error| unreachable!("step validates replay assembly: {error}"));
+        let output = AssistantOutput::new(blocks, replay)
+            .unwrap_or_else(|error| unreachable!("step validates assistant output: {error}"));
+        let calls = output.tool_calls().cloned().collect();
+        record.commit(
+            JournalEntryPayload::AssistantOutput {
+                agent_id: record.agent_id().clone(),
+                step_id: ModelStepId::new(self.turn_id, self.index),
+                output,
+            },
+            reaction,
+        );
+        for text in streamed {
+            text.finalize(record, reaction);
+        }
+        (calls, self.warnings)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StepAssemblyError {
+    ConflictingPosition,
+    DuplicateReplayPosition,
+    MixedReplayCompatibility,
+    DuplicateToolCallId,
+    ToolArgumentsTooLarge,
+    ReplayTooLarge,
+    TooManyOutputBlocks,
+}
+
+impl StepAssemblyError {
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::ConflictingPosition => "provider output position changed semantic kind",
+            Self::DuplicateReplayPosition => "provider replay position was repeated",
+            Self::MixedReplayCompatibility => {
+                "one model output mixed incompatible provider replay realms"
+            }
+            Self::DuplicateToolCallId => "provider repeated a tool call identity",
+            Self::ToolArgumentsTooLarge => {
+                "provider tool calls exceeded the step's aggregate argument byte bound"
+            }
+            Self::ReplayTooLarge => "provider replay exceeded the step's aggregate byte bound",
+            Self::TooManyOutputBlocks => "provider output exceeded the step's block ordinal space",
+        }
     }
 }

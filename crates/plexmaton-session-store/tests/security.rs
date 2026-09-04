@@ -4,12 +4,14 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use plexmaton_agent::{
-    JournalEntryPayload, ProviderCodecId, ProviderReplay, RequestItem, UnixMillis,
+    Agent, ApprovalPolicy, AssistantBlock, ContextAtomValue, Input, ModelEvent,
+    ModelOutputPosition, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,
+    ProviderReplay, ProviderReplayOwnerId, ReplayCompatibility, StopReason, TurnBudget, UnixMillis,
 };
-use plexmaton_core::HeadName;
+use plexmaton_core::{AgentId, HeadName};
 use plexmaton_session_store::{JournalFile, JournalRecovery, StoreError};
 
-use support::{TestDir, agent_created, append, id, session};
+use support::{TestDir, agent_created, id, session};
 
 /// JRN-3/JRN-4: every journal-derived file is owner-only on Unix.
 #[cfg(unix)]
@@ -80,24 +82,64 @@ fn jrn_3_and_jrn_4_insecure_existing_journal_is_refused() {
 fn jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file() {
     let directory = TestDir::new("replay");
     let path = directory.path().join("session.jsonl");
-    let mut store = JournalFile::create(&path, session("session-a"), UnixMillis::EPOCH)
+    let session_id = session("session-a");
+    let mut store = JournalFile::create(&path, session_id.clone(), UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     store
         .append(agent_created(store.journal(), 1))
         .unwrap_or_else(|failure| panic!("append agent: {}", failure.error()));
+    let mut agent = Agent::from_journal(
+        id("agent-a", AgentId::new),
+        store.journal().clone(),
+        TurnBudget::default(),
+        ApprovalPolicy::default(),
+    )
+    .unwrap_or_else(|error| panic!("restore agent fixture: {error:?}"));
     let replay = ProviderReplay::new(
-        ProviderCodecId::new("openai_responses")
-            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
+        ReplayCompatibility::new(
+            ProviderReplayOwnerId::new("test-route")
+                .unwrap_or_else(|error| panic!("fixture replay owner: {error:?}")),
+            ProviderCodecId::new("openai_responses")
+                .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
+            ProviderCodecRevision::new(1)
+                .unwrap_or_else(|error| panic!("fixture codec revision: {error:?}")),
+            ProviderModelFamilyId::new("test-model")
+                .unwrap_or_else(|error| panic!("fixture model family: {error:?}")),
+        ),
         r#"{"encrypted_content":"secret-ciphertext"}"#.to_owned(),
     )
     .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
-    store
-        .append(append(
-            store.journal(),
-            2,
-            JournalEntryPayload::ProviderReplay(replay.clone()),
-        ))
-        .unwrap_or_else(|failure| panic!("append replay: {}", failure.error()));
+    let mut reactions = vec![agent.handle_at(
+        Input::Submitted {
+            text: "retain private context".to_owned(),
+        },
+        UnixMillis::new(100),
+    )];
+    let step_id = agent
+        .active_model_step()
+        .unwrap_or_else(|| panic!("submission did not open a model step"));
+    reactions.push(agent.handle_at(
+        Input::Streamed {
+            step_id: step_id.clone(),
+            event: ModelEvent::Replay {
+                position: ModelOutputPosition::new(0, 0),
+                replay: replay.clone(),
+            },
+        },
+        UnixMillis::new(200),
+    ));
+    reactions.push(agent.handle_at(
+        Input::Streamed {
+            step_id,
+            event: ModelEvent::Stopped(StopReason::EndOfTurn),
+        },
+        UnixMillis::new(300),
+    ));
+    for record in reactions.into_iter().flat_map(|reaction| reaction.records) {
+        store
+            .append(record)
+            .unwrap_or_else(|failure| panic!("append replay turn: {failure:?}"));
+    }
     drop(store);
 
     let reopened =
@@ -106,9 +148,20 @@ fn jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file() {
         .journal()
         .project(&id("main", HeadName::new))
         .unwrap_or_else(|error| panic!("project replay: {error:?}"));
-    assert_eq!(
-        projected.request().items,
-        [RequestItem::ProviderReplay(replay)]
-    );
+    assert_eq!(projected.request().atoms.len(), 2);
+    let ContextAtomValue::Assistant(output) = projected.request().atoms[1].value() else {
+        panic!("replay should remain attached to one assistant context atom")
+    };
+    assert!(matches!(
+        output.blocks(),
+        [AssistantBlock::Reasoning { text, .. }] if text.is_empty()
+    ));
+    let retained = output
+        .replay()
+        .unwrap_or_else(|| panic!("assistant output should retain replay"));
+    assert_eq!(retained.compatible_with(), replay.compatible_with());
+    assert_eq!(retained.attachments().len(), 1);
+    assert_eq!(retained.attachments()[0].block(), 0);
+    assert_eq!(retained.attachments()[0].payload(), replay.payload());
     assert!(!format!("{projected:?}").contains("secret-ciphertext"));
 }

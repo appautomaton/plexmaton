@@ -14,7 +14,7 @@ use crate::UnixMillis;
 use crate::admission::ApprovalPolicy;
 use crate::interface::{Effect, Input, Reaction};
 use crate::journal::{JournalEntryPayload, SessionJournal};
-use crate::model::{ModelCall, ModelStepId, RequestItem};
+use crate::model::{ModelCall, ModelStepId};
 use crate::record::Record;
 use crate::step::Step;
 use crate::tools::{Batch, PendingApproval};
@@ -202,8 +202,8 @@ impl Agent {
 
     /// The conversation as the model would be shown it right now.
     #[must_use]
-    pub fn record(&self) -> Vec<RequestItem> {
-        self.record.items()
+    pub fn record(&self) -> Vec<crate::ContextAtom> {
+        self.record.atoms()
     }
 
     /// Canonical in-memory journal from which the model and settled screen are rebuilt (JRN-5).
@@ -315,9 +315,10 @@ mod tests {
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
     use crate::interface::UndeliveredReason;
     use crate::model::{
-        ModelError, ModelEvent, ModelStepId, ProviderCodecId, ProviderReplay, RequestItem,
-        StopReason,
+        AssistantBlock, ContextAtom, ContextAtomValue, ModelError, ModelEvent, ModelOutputPosition,
+        ModelStepId, StopReason, ToolBatchResult,
     };
+    use crate::test_support::replay;
     use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
@@ -369,7 +370,13 @@ mod tests {
     }
 
     fn delta(agent: &mut Agent, text: &str) -> Reaction {
-        streamed(agent, ModelEvent::TextDelta(text.to_owned()))
+        streamed(
+            agent,
+            ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 1),
+                delta: text.to_owned(),
+            },
+        )
     }
 
     fn usage(agent: &mut Agent, report: TokenUsage) -> Reaction {
@@ -381,13 +388,28 @@ mod tests {
     }
 
     fn call_named(agent: &mut Agent, call_id: &str, name: &str) -> Reaction {
+        let ordinal = call_id
+            .rsplit_once('-')
+            .map_or(call_id, |(_, suffix)| suffix);
+        let part = ordinal.parse::<u16>().unwrap_or_else(|_| match ordinal {
+            "one" => 1,
+            "two" => 2,
+            "three" => 3,
+            value if value.len() == 1 && value.as_bytes()[0].is_ascii_lowercase() => {
+                u16::from(value.as_bytes()[0] - b'a' + 1)
+            }
+            _ => 1,
+        });
         streamed(
             agent,
-            ModelEvent::Called(ToolCall {
-                call_id: id(call_id),
-                name: name.to_owned(),
-                arguments: "{}".to_owned(),
-            }),
+            ModelEvent::Called {
+                position: ModelOutputPosition::new(1, part),
+                call: ToolCall {
+                    call_id: id(call_id),
+                    name: name.to_owned(),
+                    arguments: "{}".to_owned(),
+                },
+            },
         )
     }
 
@@ -503,9 +525,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("live journal path: {error:?}"))
             .iter()
             .filter_map(|entry| match &entry.payload {
-                JournalEntryPayload::ToolCallRequested { call, .. } => {
-                    Some(call.call_id.to_string())
-                }
+                JournalEntryPayload::ToolCallRequested { call_id, .. } => Some(call_id.to_string()),
                 _ => None,
             })
             .collect()
@@ -515,9 +535,27 @@ mod tests {
         agent
             .record()
             .iter()
-            .filter_map(|item| match item {
-                RequestItem::ToolResult { call_id, .. } => Some(call_id.to_string()),
-                _ => None,
+            .flat_map(|atom| match atom.value() {
+                ContextAtomValue::ToolBatch(batch) => batch.results(),
+                ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
+            })
+            .map(|result| result.call_id().to_string())
+            .collect()
+    }
+
+    fn tool_results(agent: &Agent) -> Vec<ToolBatchResult> {
+        context_results(&agent.record())
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    fn context_results(atoms: &[ContextAtom]) -> Vec<&ToolBatchResult> {
+        atoms
+            .iter()
+            .flat_map(|atom| match atom.value() {
+                ContextAtomValue::ToolBatch(batch) => batch.results(),
+                ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
             })
             .collect()
     }
@@ -542,12 +580,11 @@ mod tests {
         let [Effect::CallModel(request)] = reaction.effects.as_slice() else {
             panic!("one submission asks the model once: {:?}", reaction.effects);
         };
-        assert_eq!(
-            request.request.items,
-            [RequestItem::User {
-                text: "hello".into()
-            }]
-        );
+        assert_eq!(request.request.atoms.len(), 1);
+        assert!(matches!(
+            request.request.atoms[0].value(),
+            ContextAtomValue::User { text } if text == "hello"
+        ));
         assert!(agent.is_running());
     }
 
@@ -787,7 +824,10 @@ mod tests {
         let second_step = second_call.step_id.clone();
         let stale = agent.handle(Input::Streamed {
             step_id: first_step.clone(),
-            event: ModelEvent::TextDelta("too late".to_owned()),
+            event: ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 1),
+                delta: "too late".to_owned(),
+            },
         });
 
         assert!(stale.events.is_empty());
@@ -913,11 +953,12 @@ mod tests {
                 },
             ]
         ));
-        assert_eq!(
-            agent.record().last(),
-            Some(&RequestItem::Assistant {
-                text: "partial".into()
-            }),
+        assert!(
+            matches!(
+                agent.record().last().map(|atom| atom.value()),
+                Some(ContextAtomValue::Assistant(output))
+                    if matches!(output.blocks(), [AssistantBlock::Text { text, .. }] if text == "partial")
+            ),
             "the record keeps what the deltas assembled, not the deltas"
         );
     }
@@ -1033,9 +1074,9 @@ mod tests {
             );
         };
         assert_eq!(
-            request.request.items.len(),
-            7,
-            "the user's message, three calls and three results"
+            request.request.atoms.len(),
+            2,
+            "the user's message and one indivisible tool batch"
         );
         assert!(matches!(
             events(&opened).last(),
@@ -1086,15 +1127,14 @@ mod tests {
 
         assert!(runtime_messages(&stopped).is_empty());
         assert_eq!(dispatched(&agent), answered(&agent));
-        assert_eq!(
-            agent.record().last(),
-            Some(&RequestItem::ToolResult {
-                call_id: id("one"),
-                outcome: ToolOutcome::Cancelled {
-                    reason: ToolCancellationReason::Shutdown
-                }
-            })
-        );
+        assert!(matches!(
+            tool_results(&agent).last(),
+            Some(result)
+                if result.call_id() == &id("one")
+                    && result.outcome() == &ToolOutcome::Cancelled {
+                        reason: ToolCancellationReason::Shutdown,
+                    }
+        ));
     }
 
     /// A model that answers its own tool results with more tool calls is stopped by the budget,
@@ -1160,20 +1200,22 @@ mod tests {
         let [Effect::CallModel(request)] = ended.effects.as_slice() else {
             panic!("the boundary opens the held turn: {:?}", ended.effects);
         };
-        assert_eq!(
-            request.request.items,
+        let values = request
+            .request
+            .atoms
+            .iter()
+            .map(|atom| atom.value())
+            .collect::<Vec<_>>();
+        assert!(matches!(
+            values.as_slice(),
             [
-                RequestItem::User {
-                    text: "first".into()
-                },
-                RequestItem::Assistant {
-                    text: "answer".into()
-                },
-                RequestItem::User {
-                    text: "second".into()
-                },
-            ]
-        );
+                ContextAtomValue::User { text: first },
+                ContextAtomValue::Assistant(output),
+                ContextAtomValue::User { text: second },
+            ] if first == "first"
+                && second == "second"
+                && matches!(output.blocks(), [AssistantBlock::Text { text, .. }] if text == "answer")
+        ));
         assert_eq!(agent.queued_for_next_turn().count(), 0);
         assert_eq!(
             ended
@@ -1214,9 +1256,9 @@ mod tests {
             );
         };
         assert_eq!(
-            request.request.items.last(),
-            Some(&RequestItem::User {
-                text: "check the cache too".to_owned()
+            request.request.atoms.last().map(|atom| atom.value()),
+            Some(&ContextAtomValue::User {
+                text: "check the cache too".to_owned(),
             })
         );
         assert_eq!(agent.queued_for_next_step().count(), 0);
@@ -1258,11 +1300,12 @@ mod tests {
                 if input.text == "amend the answer"
                     && input.reason == UndeliveredReason::TurnEnded
         ));
-        assert_eq!(
-            ended.record(),
-            [RequestItem::User {
-                text: "first".to_owned()
-            }],
+        assert!(
+            matches!(
+                ended.record().as_slice(),
+                [atom]
+                    if atom.value() == &ContextAtomValue::User { text: "first".to_owned() }
+            ),
             "steering must not be rewritten as a later user turn"
         );
     }
@@ -1351,12 +1394,11 @@ mod tests {
                 },
             ]
         ));
-        assert_eq!(
-            agent.record().last(),
-            Some(&RequestItem::Assistant {
-                text: "half an ans".into()
-            })
-        );
+        assert!(matches!(
+            agent.record().last().map(|atom| atom.value()),
+            Some(ContextAtomValue::Assistant(output))
+                if matches!(output.blocks(), [AssistantBlock::Text { text, .. }] if text == "half an ans")
+        ));
         assert!(!agent.is_running());
         assert_eq!(
             agent.handle(Input::Interrupted),
@@ -1373,15 +1415,19 @@ mod tests {
         submit(&mut agent, "hello");
         let reasoning = streamed(
             &mut agent,
-            ModelEvent::ReasoningDelta("bounded thought".to_owned()),
+            ModelEvent::ReasoningDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "bounded thought".to_owned(),
+            },
         );
-        let replay = ProviderReplay::new(
-            ProviderCodecId::new("openai_responses")
-                .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
-            r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#.to_owned(),
-        )
-        .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
-        let replay_reaction = streamed(&mut agent, ModelEvent::Replay(replay.clone()));
+        let replay = replay(r#"{"type":"reasoning","encrypted_content":"ciphertext"}"#);
+        let replay_reaction = streamed(
+            &mut agent,
+            ModelEvent::Replay {
+                position: ModelOutputPosition::new(0, 0),
+                replay: replay.clone(),
+            },
+        );
         delta(&mut agent, "partial answer");
 
         let interrupted = agent.handle(Input::Interrupted);
@@ -1398,17 +1444,24 @@ mod tests {
             Reaction::default(),
             "opaque replay is record state, never a transcript or notice"
         );
-        assert_eq!(
-            &agent.record()[1..],
+        let recorded = agent.record();
+        let Some(ContextAtomValue::Assistant(output)) = recorded.get(1).map(|atom| atom.value())
+        else {
+            panic!("one assistant output follows the user atom")
+        };
+        assert!(matches!(
+            output.blocks(),
             [
-                RequestItem::Reasoning {
-                    text: "bounded thought".to_owned(),
-                },
-                RequestItem::ProviderReplay(replay),
-                RequestItem::Assistant {
-                    text: "partial answer".to_owned(),
-                },
-            ]
+                AssistantBlock::Reasoning { text: thought, .. },
+                AssistantBlock::Text { text: answer, .. },
+            ] if thought == "bounded thought" && answer == "partial answer"
+        ));
+        assert_eq!(
+            output
+                .replay()
+                .and_then(|replay| replay.attachments().first())
+                .map(|attachment| attachment.payload()),
+            Some(replay.payload())
         );
         assert_eq!(
             events(&interrupted)
@@ -1645,10 +1698,7 @@ mod tests {
         );
         assert_eq!(terminal_presentation.outcome, Some(outcome));
         assert!(matches!(
-            agent.record().iter().find_map(|item| match item {
-                RequestItem::ToolResult { outcome, .. } => Some(outcome),
-                _ => None,
-            }),
+            tool_results(&agent).first().map(|result| result.outcome()),
             Some(ToolOutcome::Succeeded { output }) if output == "unchanged model result"
         ));
     }
@@ -1689,11 +1739,10 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("denial completes the batch and opens the next step"));
         assert!(matches!(
-            request.request.items.last(),
-            Some(RequestItem::ToolResult {
-                call_id,
-                outcome: ToolOutcome::Denied
-            }) if call_id == &id("write-1")
+            context_results(&request.request.atoms).last(),
+            Some(result)
+                if result.call_id() == &id("write-1")
+                    && result.outcome() == &ToolOutcome::Denied
         ));
         assert!(events(&denied).iter().any(|event| matches!(
             event,
@@ -1770,14 +1819,9 @@ mod tests {
                 Effect::AdmitTool(_) | Effect::RunTool(_) => None,
             })
             .unwrap_or_else(|| panic!("settled batch opens the next step"));
-        let result_ids: Vec<_> = request
-            .request
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                RequestItem::ToolResult { call_id, .. } => Some(call_id.to_string()),
-                _ => None,
-            })
+        let result_ids: Vec<_> = context_results(&request.request.atoms)
+            .into_iter()
+            .map(|result| result.call_id().to_string())
             .collect();
         assert_eq!(result_ids, ["write-1", "read-2"]);
     }
@@ -1814,10 +1858,9 @@ mod tests {
                 .any(|event| matches!(event, SessionEvent::AttentionRequested { .. }))
         );
         assert!(matches!(
-            forbidden.record().iter().find_map(|item| match item {
-                RequestItem::ToolResult { outcome, .. } => Some(outcome),
-                _ => None,
-            }),
+            tool_results(&forbidden)
+                .first()
+                .map(|result| result.outcome()),
             Some(ToolOutcome::Forbidden)
         ));
         assert!(events(&forbidden_result).iter().any(|event| matches!(
@@ -1850,10 +1893,9 @@ mod tests {
                 .all(|effect| !matches!(effect, Effect::RunTool(_)))
         );
         assert!(matches!(
-            refused.record().iter().find_map(|item| match item {
-                RequestItem::ToolResult { outcome, .. } => Some(outcome),
-                _ => None,
-            }),
+            tool_results(&refused)
+                .first()
+                .map(|result| result.outcome()),
             Some(ToolOutcome::AdmissionRefused {
                 reason: AdmissionRefusal::UnknownTool
             })
@@ -1904,11 +1946,9 @@ mod tests {
                     if resolved == &attention_id
             )));
             assert!(matches!(
-                agent.record().last(),
-                Some(RequestItem::ToolResult {
-                    outcome: ToolOutcome::Cancelled { reason },
-                    ..
-                }) if *reason == expected
+                tool_results(&agent).last(),
+                Some(result)
+                    if result.outcome() == &ToolOutcome::Cancelled { reason: expected }
             ));
             assert!(events(&cancelled).iter().any(|event| matches!(
                 event,
@@ -2124,13 +2164,11 @@ mod tests {
             .unwrap_or_else(|error| panic!("project recovered agent: {error:?}"));
         assert!(projection.recovery().is_none());
         assert!(matches!(
-            projection.request().items.last(),
-            Some(RequestItem::ToolResult {
-                outcome: ToolOutcome::Cancelled {
+            context_results(&projection.request().atoms).last(),
+            Some(result)
+                if result.outcome() == &ToolOutcome::Cancelled {
                     reason: ToolCancellationReason::ProcessDied,
-                },
-                ..
-            })
+                }
         ));
         assert!(resumed.recover_after_process_death().is_none());
     }
@@ -2250,13 +2288,11 @@ mod tests {
             );
             assert!(projection.recovery().is_none());
             assert!(matches!(
-                projection.request().items.last(),
-                Some(RequestItem::ToolResult {
-                    outcome: ToolOutcome::Cancelled {
+                context_results(&projection.request().atoms).last(),
+                Some(result)
+                    if result.outcome() == &ToolOutcome::Cancelled {
                         reason: ToolCancellationReason::ProcessDied,
-                    },
-                    ..
-                })
+                    }
             ));
         }
     }

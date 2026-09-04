@@ -8,7 +8,8 @@ use std::{
 };
 
 use plexmaton_agent::{
-    AdmissionRefusal, Input, ModelEvent, RequestItem, StopReason, ToolCall, ToolOutcome,
+    AdmissionRefusal, ContextAtomValue, Input, ModelEvent, ModelOutputPosition, StopReason,
+    ToolCall, ToolOutcome,
 };
 use plexmaton_command::MAX_MODEL_OUTPUT_BYTES;
 use plexmaton_core::{ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId};
@@ -59,13 +60,16 @@ fn runtime(driver: Arc<dyn ModelDriver>, workspace: &TestWorkspace) -> LiveRunti
     .unwrap_or_else(|error| panic!("construct runtime: {error}"))
 }
 
-fn called(id: &str, name: &str, arguments: serde_json::Value) -> ModelEvent {
-    ModelEvent::Called(ToolCall {
-        call_id: ToolCallId::new(id)
-            .unwrap_or_else(|error| panic!("fixture tool call id: {error}")),
-        name: name.to_owned(),
-        arguments: arguments.to_string(),
-    })
+fn called(position: u16, id: &str, name: &str, arguments: serde_json::Value) -> ModelEvent {
+    ModelEvent::Called {
+        position: ModelOutputPosition::new(position, 0),
+        call: ToolCall {
+            call_id: ToolCallId::new(id)
+                .unwrap_or_else(|error| panic!("fixture tool call id: {error}")),
+            name: name.to_owned(),
+            arguments: arguments.to_string(),
+        },
+    }
 }
 
 async fn submit(runtime: &mut LiveRuntime, text: &str) {
@@ -115,15 +119,10 @@ async fn allow_once(runtime: &mut LiveRuntime, approval_id: ApprovalId) {
 }
 
 fn succeeded_output<'a>(request: &'a plexmaton_agent::ModelCall, call_id: &str) -> &'a str {
-    request
-        .request
-        .items
-        .iter()
-        .find_map(|item| match item {
-            RequestItem::ToolResult {
-                call_id: found,
-                outcome: ToolOutcome::Succeeded { output },
-            } if found.as_str() == call_id => Some(output.as_str()),
+    tool_results(request)
+        .into_iter()
+        .find_map(|(found, outcome)| match outcome {
+            ToolOutcome::Succeeded { output } if found == call_id => Some(output.as_str()),
             _ => None,
         })
         .unwrap_or_else(|| panic!("next model request has no success for {call_id}"))
@@ -132,12 +131,13 @@ fn succeeded_output<'a>(request: &'a plexmaton_agent::ModelCall, call_id: &str) 
 fn tool_results(request: &plexmaton_agent::ModelCall) -> Vec<(&str, &ToolOutcome)> {
     request
         .request
-        .items
+        .atoms
         .iter()
-        .filter_map(|item| match item {
-            RequestItem::ToolResult { call_id, outcome } => Some((call_id.as_str(), outcome)),
-            _ => None,
+        .flat_map(|atom| match atom.value() {
+            ContextAtomValue::ToolBatch(batch) => batch.results(),
+            ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
         })
+        .map(|result| (result.call_id().as_str(), result.outcome()))
         .collect()
 }
 
@@ -150,6 +150,7 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
     let driver = FakeDriver::new([
         Script::Events(vec![
             called(
+                0,
                 "read-1",
                 "read_file",
                 serde_json::json!({"path":"note.txt", "offset":null, "limit":null}),
@@ -159,6 +160,7 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
         ]),
         Script::Events(vec![
             called(
+                0,
                 "edit-1",
                 "edit_file",
                 serde_json::json!({
@@ -171,7 +173,7 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
             ModelEvent::Stopped(StopReason::ToolCalls),
         ]),
         Script::Events(vec![
-            ModelEvent::TextDelta("finished".to_owned()),
+            super::text_delta("finished"),
             complete_usage(30, 4),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),
@@ -201,6 +203,7 @@ async fn maximal_command_result_stays_bounded_in_the_next_model_request() {
     let driver = FakeDriver::new([
         Script::Events(vec![
             called(
+                0,
                 "command-1",
                 "exec_command",
                 serde_json::json!({
@@ -212,7 +215,7 @@ async fn maximal_command_result_stays_bounded_in_the_next_model_request() {
             ModelEvent::Stopped(StopReason::ToolCalls),
         ]),
         Script::Events(vec![
-            ModelEvent::TextDelta("checked".to_owned()),
+            super::text_delta("checked"),
             complete_usage(9, 2),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),
@@ -242,6 +245,7 @@ async fn denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sib
     let driver = FakeDriver::new([
         Script::Events(vec![
             called(
+                0,
                 "command-1",
                 "exec_command",
                 serde_json::json!({
@@ -250,6 +254,7 @@ async fn denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sib
                 }),
             ),
             called(
+                1,
                 "read-1",
                 "read_file",
                 serde_json::json!({"path":"note.txt", "offset":null, "limit":null}),
@@ -258,7 +263,7 @@ async fn denied_command_has_no_side_effect_and_keeps_model_order_with_a_read_sib
             ModelEvent::Stopped(StopReason::ToolCalls),
         ]),
         Script::Events(vec![
-            ModelEvent::TextDelta("finished".to_owned()),
+            super::text_delta("finished"),
             complete_usage(9, 2),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),
@@ -300,12 +305,12 @@ async fn unknown_tool_is_a_typed_result_and_the_turn_continues() {
     let workspace = TestWorkspace::new("unknown-tool");
     let driver = FakeDriver::new([
         Script::Events(vec![
-            called("unknown-1", "not_registered", serde_json::json!({})),
+            called(0, "unknown-1", "not_registered", serde_json::json!({})),
             complete_usage(8, 2),
             ModelEvent::Stopped(StopReason::ToolCalls),
         ]),
         Script::Events(vec![
-            ModelEvent::TextDelta("recovered".to_owned()),
+            super::text_delta("recovered"),
             complete_usage(9, 2),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),
@@ -333,6 +338,7 @@ async fn cancelled_next_event_keeps_command_work_owned_until_interrupt_joins_it(
     let workspace = TestWorkspace::new("command-cancel");
     let driver = FakeDriver::new([Script::Events(vec![
         called(
+            0,
             "command-1",
             "exec_command",
             serde_json::json!({

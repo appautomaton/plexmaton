@@ -34,7 +34,7 @@ Turn totals fold only reachable agent-step attempts; whole-session incurred usag
 unique agent-step and compaction attempt once, never once per head.
 
 **TIM-4 — Timing cannot perturb model context or cache ancestry.** Canonical audit facts correlate
-to a semantic path but neither advance its head nor project to a `RequestItem`. Equal semantic
+to a semantic path but neither advance its head nor project as a `ContextAtom`. Equal semantic
 ancestry and request environment encode byte-identically with or without timing inspection. A
 checkpoint begins a cache epoch; rewind and head selection only select an existing identity. Audit
 record IDs, journal sequence, wall time and head revision are excluded from that identity.
@@ -117,7 +117,7 @@ completed boundary own distinct later turns and attempts without a speculative `
 
 | Invariant | Proven by |
 | --- | --- |
-| TIM-1 | `tim_1_turn_boundaries_are_durable_and_terminal_time_does_not_advance_the_head`, `tim_1_queued_turn_and_steering_keep_their_original_accepted_time`, `tim_1_every_live_turn_terminal_path_has_a_typed_outcome`, `tim_1_unscoped_user_and_lifecycle_payloads_change_nothing`, `cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text`, `tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context`, `tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records` |
+| TIM-1 | `tim_1_turn_boundaries_are_durable_and_terminal_time_does_not_advance_the_head`, `tim_1_queued_turn_and_steering_keep_their_original_accepted_time`, `tim_1_every_live_turn_terminal_path_has_a_typed_outcome`, `cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text`, `tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context`, `tim_1_jsonl_rejects_untimed_turns_and_unscoped_lifecycle_records` |
 | TIM-2 | Unproven |
 | TIM-3 | Unproven |
 | TIM-4 | Unproven; chronology isolation: `tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals` |

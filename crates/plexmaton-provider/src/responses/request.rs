@@ -1,8 +1,8 @@
 //! Stateless Responses request reconstruction.
 
-use std::collections::BTreeSet;
-
-use plexmaton_agent::{ModelRequest, RequestItem};
+use plexmaton_agent::{
+    AssistantBlock, AssistantOutput, BlockReplay, ContextAtomValue, ModelRequest,
+};
 use serde_json::{Value, json};
 
 use crate::{
@@ -16,7 +16,7 @@ pub(crate) fn encode(
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
-    let input = encode_input(request)?;
+    let input = encode_input(profile, request)?;
     let tools: Vec<_> = tools
         .iter()
         .map(|tool| {
@@ -48,45 +48,79 @@ pub(crate) fn encode(
     Ok(body)
 }
 
-fn encode_input(request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
+fn encode_input(
+    profile: &ProviderProfile,
+    request: &ModelRequest,
+) -> Result<Vec<Value>, EncodeError> {
     let mut input = Vec::new();
-    let mut calls = BTreeSet::new();
-    for item in &request.items {
-        match item {
-            RequestItem::User { text } => {
+    for atom in &request.atoms {
+        match atom.value() {
+            ContextAtomValue::User { text } => {
                 input.push(json!({ "role": "user", "content": text }));
             }
-            RequestItem::Assistant { text } => {
-                input.push(json!({
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{ "type": "output_text", "text": text }],
+            ContextAtomValue::Assistant(output) => {
+                encode_assistant(profile, output, &mut input)?;
+            }
+            ContextAtomValue::ToolBatch(batch) => {
+                encode_assistant(profile, batch.assistant(), &mut input)?;
+                input.extend(batch.results().iter().map(|result| {
+                    json!({
+                        "type": "function_call_output",
+                        "call_id": result.call_id().as_str(),
+                        "output": tool_output(result.outcome()),
+                    })
                 }));
             }
-            RequestItem::Reasoning { .. } => {
-                return Err(EncodeError::PlainReasoningInResponses);
+        }
+    }
+    Ok(input)
+}
+
+fn encode_assistant(
+    profile: &ProviderProfile,
+    output: &AssistantOutput,
+    input: &mut Vec<Value>,
+) -> Result<(), EncodeError> {
+    let mut attachments = output
+        .replay()
+        .map(|replay| {
+            let expected = profile.replay_compatibility();
+            debug_assert_eq!(expected.codec().as_str(), RESPONSES_CODEC_ID);
+            if replay.compatible_with() != &expected {
+                return Err(EncodeError::IncompatibleReplay {
+                    found: Box::new(replay.compatible_with().clone()),
+                    expected: Box::new(expected),
+                });
             }
-            RequestItem::ProviderReplay(replay) => {
-                if replay.codec().as_str() != RESPONSES_CODEC_ID {
-                    return Err(EncodeError::WrongReplayCodec {
-                        found: replay.codec().as_str().to_owned(),
-                        expected: RESPONSES_CODEC_ID,
-                    });
-                }
-                let item: Value = serde_json::from_str(replay.payload())
-                    .map_err(EncodeError::InvalidReplayJson)?;
-                if item.get("type").and_then(Value::as_str) != Some("reasoning")
-                    || item
-                        .get("encrypted_content")
-                        .and_then(Value::as_str)
-                        .is_none()
-                {
-                    return Err(EncodeError::InvalidReplayItem);
-                }
-                input.push(item);
+            Ok(replay.attachments().iter().peekable())
+        })
+        .transpose()?;
+
+    for (index, block) in output.blocks().iter().enumerate() {
+        let block_index = u16::try_from(index)
+            .unwrap_or_else(|_| unreachable!("assistant block count is validated"));
+        let replay = attachments.as_mut().and_then(|attachments| {
+            (attachments
+                .peek()
+                .is_some_and(|item| item.block() == block_index))
+            .then(|| {
+                attachments
+                    .next()
+                    .unwrap_or_else(|| unreachable!("peeked attachment"))
+            })
+        });
+        match block {
+            AssistantBlock::Text { text, .. } => input.push(json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": text }],
+            })),
+            AssistantBlock::Reasoning { .. } => {
+                let replay = replay.ok_or(EncodeError::PlainReasoningInResponses)?;
+                input.push(decode_replay(replay)?);
             }
-            RequestItem::ToolCall(call) => {
-                calls.insert(call.call_id.as_str().to_owned());
+            AssistantBlock::ToolCall { call, .. } => {
+                debug_assert!(replay.is_none(), "replay anchors are reasoning-only");
                 input.push(json!({
                     "type": "function_call",
                     "call_id": call.call_id.as_str(),
@@ -94,17 +128,27 @@ fn encode_input(request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
                     "arguments": call.arguments,
                 }));
             }
-            RequestItem::ToolResult { call_id, outcome } => {
-                if !calls.contains(call_id.as_str()) {
-                    return Err(EncodeError::OrphanToolResult(call_id.to_string()));
-                }
-                input.push(json!({
-                    "type": "function_call_output",
-                    "call_id": call_id.as_str(),
-                    "output": tool_output(outcome),
-                }));
-            }
         }
     }
-    Ok(input)
+    debug_assert!(
+        attachments
+            .as_mut()
+            .is_none_or(|attachments| attachments.next().is_none()),
+        "assistant replay anchors are validated"
+    );
+    Ok(())
+}
+
+fn decode_replay(replay: &BlockReplay) -> Result<Value, EncodeError> {
+    let item: Value =
+        serde_json::from_str(replay.payload()).map_err(EncodeError::InvalidReplayJson)?;
+    if item.get("type").and_then(Value::as_str) != Some("reasoning")
+        || item
+            .get("encrypted_content")
+            .and_then(Value::as_str)
+            .is_none()
+    {
+        return Err(EncodeError::InvalidReplayItem);
+    }
+    Ok(item)
 }

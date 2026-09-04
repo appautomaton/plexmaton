@@ -1,8 +1,6 @@
 //! Chat Completions request reconstruction from the semantic record.
 
-use std::collections::BTreeSet;
-
-use plexmaton_agent::{ModelRequest, RequestItem};
+use plexmaton_agent::{AssistantBlock, AssistantOutput, ContextAtomValue, ModelRequest};
 use serde_json::{Value, json};
 
 use crate::{
@@ -16,7 +14,7 @@ pub(crate) fn encode(
     tools: &[FunctionTool],
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
-    let messages = encode_messages(request)?;
+    let messages = encode_messages(profile, request)?;
     let tools: Vec<_> = tools
         .iter()
         .map(|tool| {
@@ -56,10 +54,6 @@ struct PendingAssistant {
 }
 
 impl PendingAssistant {
-    fn is_empty(&self) -> bool {
-        self.reasoning.is_empty() && self.content.is_none() && self.calls.is_empty()
-    }
-
     fn into_message(self) -> Value {
         let mut message = json!({
             "role": "assistant",
@@ -75,60 +69,68 @@ impl PendingAssistant {
     }
 }
 
-fn encode_messages(request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
+fn encode_messages(
+    profile: &ProviderProfile,
+    request: &ModelRequest,
+) -> Result<Vec<Value>, EncodeError> {
     let mut messages = Vec::new();
-    let mut pending = PendingAssistant::default();
-    let mut calls = BTreeSet::new();
-
-    for item in &request.items {
-        match item {
-            RequestItem::Reasoning { text } => {
-                if pending.content.is_some() || !pending.calls.is_empty() {
-                    flush_assistant(&mut messages, &mut pending);
-                }
-                pending.reasoning.push_str(text);
-            }
-            RequestItem::Assistant { text } => {
-                if pending.content.is_some() || !pending.calls.is_empty() {
-                    flush_assistant(&mut messages, &mut pending);
-                }
-                pending.content = Some(text.clone());
-            }
-            RequestItem::ToolCall(call) => {
-                calls.insert(call.call_id.as_str().to_owned());
-                pending.calls.push(json!({
-                    "id": call.call_id.as_str(),
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": call.arguments,
-                    },
-                }));
-            }
-            RequestItem::User { text } => {
-                flush_assistant(&mut messages, &mut pending);
+    for atom in &request.atoms {
+        match atom.value() {
+            ContextAtomValue::User { text } => {
                 messages.push(json!({ "role": "user", "content": text }));
             }
-            RequestItem::ToolResult { call_id, outcome } => {
-                flush_assistant(&mut messages, &mut pending);
-                if !calls.contains(call_id.as_str()) {
-                    return Err(EncodeError::OrphanToolResult(call_id.to_string()));
-                }
-                messages.push(json!({
-                    "role": "tool",
-                    "tool_call_id": call_id.as_str(),
-                    "content": tool_output(outcome),
+            ContextAtomValue::Assistant(output) => {
+                messages.push(encode_assistant(profile, output)?);
+            }
+            ContextAtomValue::ToolBatch(batch) => {
+                messages.push(encode_assistant(profile, batch.assistant())?);
+                messages.extend(batch.results().iter().map(|result| {
+                    json!({
+                        "role": "tool",
+                        "tool_call_id": result.call_id().as_str(),
+                        "content": tool_output(result.outcome()),
+                    })
                 }));
             }
-            RequestItem::ProviderReplay(_) => return Err(EncodeError::OpaqueReplayInChat),
         }
     }
-    flush_assistant(&mut messages, &mut pending);
     Ok(messages)
 }
 
-fn flush_assistant(messages: &mut Vec<Value>, pending: &mut PendingAssistant) {
-    if !pending.is_empty() {
-        messages.push(std::mem::take(pending).into_message());
+fn encode_assistant(
+    profile: &ProviderProfile,
+    output: &AssistantOutput,
+) -> Result<Value, EncodeError> {
+    if let Some(replay) = output.replay() {
+        let expected = profile.replay_compatibility();
+        if replay.compatible_with() != &expected {
+            return Err(EncodeError::IncompatibleReplay {
+                found: Box::new(replay.compatible_with().clone()),
+                expected: Box::new(expected),
+            });
+        }
+        return Err(EncodeError::OpaqueReplayInChat);
     }
+
+    let mut pending = PendingAssistant::default();
+    for block in output.blocks() {
+        match block {
+            AssistantBlock::Reasoning { text, .. } => pending.reasoning.push_str(text),
+            AssistantBlock::Text { text, .. } => {
+                pending
+                    .content
+                    .get_or_insert_with(String::new)
+                    .push_str(text);
+            }
+            AssistantBlock::ToolCall { call, .. } => pending.calls.push(json!({
+                "id": call.call_id.as_str(),
+                "type": "function",
+                "function": {
+                    "name": call.name,
+                    "arguments": call.arguments,
+                },
+            })),
+        }
+    }
+    Ok(pending.into_message())
 }

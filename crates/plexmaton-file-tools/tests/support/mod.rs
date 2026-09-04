@@ -4,7 +4,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use plexmaton_agent::{AdmissionRequest, Agent, Effect, Input, ModelEvent, StopReason, ToolCall};
+use plexmaton_agent::{
+    AdmissionRequest, Agent, Effect, Input, ModelEvent, ModelOutputPosition, StopReason, ToolCall,
+};
 use plexmaton_core::{AgentId, ToolCallId};
 use serde_json::Value;
 
@@ -28,12 +30,15 @@ pub fn admission_request(name: &str, arguments: Value) -> AdmissionRequest {
     let called = agent.handle_at(
         Input::Streamed {
             step_id: step_id.clone(),
-            event: ModelEvent::Called(ToolCall {
-                call_id: ToolCallId::new(format!("call-{name}"))
-                    .unwrap_or_else(|error| panic!("fixture call ID: {error}")),
-                name: name.to_owned(),
-                arguments: arguments.to_string(),
-            }),
+            event: ModelEvent::Called {
+                position: ModelOutputPosition::new(0, 0),
+                call: ToolCall {
+                    call_id: ToolCallId::new(format!("call-{name}"))
+                        .unwrap_or_else(|error| panic!("fixture call ID: {error}")),
+                    name: name.to_owned(),
+                    arguments: arguments.to_string(),
+                },
+            },
         },
         plexmaton_agent::UnixMillis::EPOCH,
     );

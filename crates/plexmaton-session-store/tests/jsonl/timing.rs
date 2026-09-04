@@ -1,5 +1,5 @@
 use plexmaton_agent::{
-    Agent, ApprovalPolicy, Input, JournalRecord, ModelEvent, RequestItem, SessionMetadata,
+    Agent, ApprovalPolicy, ContextAtomValue, Input, JournalRecord, ModelEvent, SessionMetadata,
     StopReason, TurnBudget, TurnFinishedAt, UnixMillis,
 };
 use plexmaton_core::{AgentId, HeadName};
@@ -70,10 +70,10 @@ fn tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context() {
         .journal()
         .project(&id("main", HeadName::new))
         .unwrap_or_else(|error| panic!("project timed journal: {error:?}"));
-    assert_eq!(
-        projection.request().items,
-        [RequestItem::User {
-            text: "remember this".to_owned()
-        }]
-    );
+    assert_eq!(projection.request().atoms.len(), 1);
+    assert_eq!(projection.request().atoms[0].source_entries().len(), 1);
+    assert!(matches!(
+        projection.request().atoms[0].value(),
+        ContextAtomValue::User { text } if text == "remember this"
+    ));
 }

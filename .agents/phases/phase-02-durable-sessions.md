@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 and stage 2 slices 1–2 complete; stage 2 slice 3 active |
+| Status | Active; stage 1 and stage 2 slices 1–3 complete; stage 2 slice 4 next |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -22,10 +22,10 @@ Stage 1 replaced the split in-memory histories with one typed journal. The agent
 the selected path, while an owned JSONL writer preserves acknowledged facts. Explicit `create` and
 `resume` journeys recover torn tails and unfinished turns without replaying effects (JRN-4–JRN-7).
 
-`ProviderReplay` carries a typed codec identity, bounds its private payload, redacts `Debug`, and now
-round-trips losslessly through the session journal with constructor validation (PRV-3). An explicit
-lossless export remains later work. Replay never enters the visible transcript, ordinary
-diagnostics, or a redacted export.
+`ProviderReplay` carries a typed route owner, codec identity/revision and model family, bounds its
+private payload, redacts `Debug`, and round-trips losslessly through the session journal with
+constructor validation (PRV-3). An explicit lossless export remains later work. Replay never enters
+the visible transcript, ordinary diagnostics, or a redacted export.
 
 User-owned configuration and runtime state remain under `~/.plexmaton/`; `PLEXMATON_HOME` redirects
 the whole root for isolated development and tests (PRV-6). A project-local `.plexmaton/`, XDG

@@ -8,9 +8,7 @@ use std::io::Write;
 use plexmaton_agent::{
     JournalEntryPayload, JournalError, JournalRecord, JournalSequence, UnixMillis,
 };
-use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, TranscriptItemId, TranscriptRole,
-};
+use plexmaton_core::{AgentId, AgentStatus, HeadName, JournalRecordId, TranscriptItemId};
 use plexmaton_session_store::{JournalFile, JournalRecovery, StoreError};
 
 use support::{TestDir, agent_created, append, id, session};
@@ -32,9 +30,9 @@ fn append_raw_value(path: &std::path::Path, value: &serde_json::Value) {
         .unwrap_or_else(|error| panic!("terminate raw record: {error}"));
 }
 
-/// TIM-1/JRN-4: file loading rejects wire shapes that bypass typed turn chronology.
+/// TIM-1/JRN-4: file loading rejects current-epoch shapes that bypass typed turn chronology.
 #[test]
-fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
+fn tim_1_jsonl_rejects_untimed_turns_and_unscoped_lifecycle_records() {
     let directory = TestDir::new("unscoped-turn-wire");
     let agent_id = id("agent-a", AgentId::new);
 
@@ -79,7 +77,7 @@ fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
     let mut invalid_status = serde_json::to_value(template)
         .unwrap_or_else(|error| panic!("encode status template: {error}"));
     invalid_status["entry"]["payload"] = serde_json::json!({
-        "type": "agent_status_changed",
+        "type": "turn_status_changed",
         "agent_id": "agent-a",
         "status": "waiting"
     });
@@ -90,29 +88,35 @@ fn tim_1_jsonl_rejects_timeless_user_and_unscoped_lifecycle_records() {
         Err(StoreError::MalformedLine { line: 3, .. })
     ));
 
-    let user_path = directory.path().join("timeless-user.jsonl");
-    let mut user = JournalFile::create(&user_path, session("timeless-user"), UnixMillis::EPOCH)
-        .unwrap_or_else(|error| panic!("create user fixture: {error}"));
-    user.append(agent_created(user.journal(), 1))
-        .unwrap_or_else(|failure| panic!("announce user fixture: {failure:?}"));
-    let invalid_user = append(
-        user.journal(),
+    let turn_path = directory.path().join("untimed-turn.jsonl");
+    let mut turn = JournalFile::create(&turn_path, session("untimed-turn"), UnixMillis::EPOCH)
+        .unwrap_or_else(|error| panic!("create turn fixture: {error}"));
+    turn.append(agent_created(turn.journal(), 1))
+        .unwrap_or_else(|failure| panic!("announce turn fixture: {failure:?}"));
+    let template = append(
+        turn.journal(),
         2,
-        JournalEntryPayload::Message {
+        JournalEntryPayload::RuntimeWarning {
             agent_id,
-            item_id: id("timeless-user-item", TranscriptItemId::new),
-            role: TranscriptRole::User,
-            text: "missing chronology".to_owned(),
+            item_id: id("turn-placeholder", TranscriptItemId::new),
+            message: "placeholder".to_owned(),
         },
     );
-    drop(user);
-    append_raw(&user_path, &invalid_user);
+    let mut invalid_turn = serde_json::to_value(template)
+        .unwrap_or_else(|error| panic!("encode turn template: {error}"));
+    invalid_turn["entry"]["payload"] = serde_json::json!({
+        "type": "turn_started",
+        "agent_id": "agent-a",
+        "item_id": "untimed-turn-item",
+        "turn_id": "untimed-turn",
+        "text": "missing chronology",
+        "opened_at": 1_788_000_000_111_u64
+    });
+    drop(turn);
+    append_raw_value(&turn_path, &invalid_turn);
     assert!(matches!(
-        JournalFile::open(&user_path),
-        Err(StoreError::RejectedRecord {
-            reason: JournalError::TimelessUserMessage(_),
-            ..
-        })
+        JournalFile::open(&turn_path),
+        Err(StoreError::MalformedLine { line: 3, .. })
     ));
 }
 

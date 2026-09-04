@@ -37,24 +37,55 @@ impl Agent {
         match event {
             // Empty deltas are wire artefacts. Opening a message on one would paint a blank row
             // that the record then declines to keep.
-            ModelEvent::TextDelta(delta) if delta.is_empty() => {}
-            ModelEvent::TextDelta(delta) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.append(&mut self.record, reaction, delta);
+            ModelEvent::TextDelta { delta, .. } if delta.is_empty() => {}
+            ModelEvent::TextDelta { position, delta } => {
+                let result = match &mut self.turn {
+                    Turn::Streaming { step, .. } => {
+                        step.append(&mut self.record, reaction, position, delta)
+                    }
+                    Turn::Idle | Turn::Working { .. } => return,
+                };
+                if let Err(error) = result {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: error.message().to_owned(),
+                        },
+                        reaction,
+                    );
                 }
             }
-            ModelEvent::ReasoningDelta(delta) if delta.is_empty() => {}
-            ModelEvent::ReasoningDelta(delta) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.append_reasoning(&mut self.record, reaction, delta);
+            ModelEvent::ReasoningDelta { delta, .. } if delta.is_empty() => {}
+            ModelEvent::ReasoningDelta { position, delta } => {
+                let result = match &mut self.turn {
+                    Turn::Streaming { step, .. } => {
+                        step.append_reasoning(&mut self.record, reaction, position, delta)
+                    }
+                    Turn::Idle | Turn::Working { .. } => return,
+                };
+                if let Err(error) = result {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: error.message().to_owned(),
+                        },
+                        reaction,
+                    );
                 }
             }
-            ModelEvent::Replay(replay) => {
-                if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.retain_replay(replay);
+            ModelEvent::Replay { position, replay } => {
+                let result = match &mut self.turn {
+                    Turn::Streaming { step, .. } => step.retain_replay(position, replay),
+                    Turn::Idle | Turn::Working { .. } => return,
+                };
+                if let Err(error) = result {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: error.message().to_owned(),
+                        },
+                        reaction,
+                    );
                 }
             }
-            ModelEvent::Called(call) => {
+            ModelEvent::Called { position, call } => {
                 let reused = self.record.contains_tool_call(&call.call_id)
                     || matches!(&self.turn, Turn::Streaming { step, .. } if step.contains_call(&call.call_id));
                 if reused {
@@ -64,8 +95,15 @@ impl Agent {
                         },
                         reaction,
                     );
-                } else if let Turn::Streaming { step, .. } = &mut self.turn {
-                    step.collect(call);
+                } else if let Turn::Streaming { step, .. } = &mut self.turn
+                    && let Err(error) = step.collect(&self.record, position, call)
+                {
+                    self.fail(
+                        &crate::ModelError::Malformed {
+                            message: error.message().to_owned(),
+                        },
+                        reaction,
+                    );
                 }
             }
             ModelEvent::Usage(usage) => self.report_usage(usage, reaction),

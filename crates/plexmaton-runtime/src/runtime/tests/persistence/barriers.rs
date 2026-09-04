@@ -34,12 +34,15 @@ async fn durable_transition_starts_no_effect_before_append_ack() {
 async fn tool_effects_start_only_after_their_transition_is_acknowledged() {
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::Events(vec![
-        ModelEvent::Called(ToolCall {
-            call_id: ToolCallId::new("durable-read")
-                .unwrap_or_else(|error| panic!("call id: {error}")),
-            name: "read_file".to_owned(),
-            arguments: serde_json::json!({ "path": "Cargo.toml" }).to_string(),
-        }),
+        ModelEvent::Called {
+            position: ModelOutputPosition::new(0, 0),
+            call: ToolCall {
+                call_id: ToolCallId::new("durable-read")
+                    .unwrap_or_else(|error| panic!("call id: {error}")),
+                name: "read_file".to_owned(),
+                arguments: serde_json::json!({ "path": "Cargo.toml" }).to_string(),
+            },
+        },
         ModelEvent::Stopped(StopReason::ToolCalls),
     ])]);
     let mut runtime = runtime(store, driver).await;
@@ -152,7 +155,10 @@ async fn running_submission_and_steering_enter_their_queues_without_a_commit() {
 async fn failed_claim_of_queued_next_turn_text_returns_the_exact_input() {
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::Events(vec![
-        ModelEvent::TextDelta("first answer".to_owned()),
+        ModelEvent::TextDelta {
+            position: ModelOutputPosition::new(0, 0),
+            delta: "first answer".to_owned(),
+        },
         ModelEvent::Stopped(StopReason::EndOfTurn),
     ])]);
     let mut runtime = runtime(store, Arc::clone(&driver)).await;
@@ -215,12 +221,15 @@ async fn failed_claim_of_queued_next_turn_text_returns_the_exact_input() {
 async fn failed_claim_of_queued_steering_returns_the_exact_input() {
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::Events(vec![
-        ModelEvent::Called(ToolCall {
-            call_id: ToolCallId::new("unknown-steering-tool")
-                .unwrap_or_else(|error| panic!("call id: {error}")),
-            name: "unknown_tool".to_owned(),
-            arguments: "{}".to_owned(),
-        }),
+        ModelEvent::Called {
+            position: ModelOutputPosition::new(0, 0),
+            call: ToolCall {
+                call_id: ToolCallId::new("unknown-steering-tool")
+                    .unwrap_or_else(|error| panic!("call id: {error}")),
+                name: "unknown_tool".to_owned(),
+                arguments: "{}".to_owned(),
+            },
+        },
         ModelEvent::Stopped(StopReason::ToolCalls),
     ])]);
     let mut runtime = runtime(store, Arc::clone(&driver)).await;
@@ -275,9 +284,18 @@ async fn a_burst_stops_after_journal_failure_and_yields_the_queued_input_report(
     };
     let (control, store) = StoreControl::pair();
     let driver = FakeDriver::new([Script::Events(vec![
-        ModelEvent::Called(duplicate.clone()),
-        ModelEvent::Called(duplicate),
-        ModelEvent::TextDelta("must not hide the report".to_owned()),
+        ModelEvent::Called {
+            position: ModelOutputPosition::new(0, 0),
+            call: duplicate.clone(),
+        },
+        ModelEvent::Called {
+            position: ModelOutputPosition::new(1, 0),
+            call: duplicate,
+        },
+        ModelEvent::TextDelta {
+            position: ModelOutputPosition::new(2, 0),
+            delta: "must not hide the report".to_owned(),
+        },
     ])]);
     let mut runtime = runtime(store, driver).await;
     while runtime.try_next_event().is_some() {}

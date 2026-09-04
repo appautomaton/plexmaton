@@ -4,7 +4,7 @@ use plexmaton_core::{
 };
 
 use super::super::JournalError;
-use crate::ModelRequest;
+use crate::{ContextError, ModelRequest, ModelStepId};
 
 /// A safe visible/model reconstruction of one selected journal head (JRN-5).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +69,10 @@ pub enum JournalProjectionError {
     },
     /// A lifecycle transition named no prior request.
     MissingToolCall(ToolCallId),
+    /// A call received lifecycle state before its declared request state.
+    MissingToolRequest(ToolCallId),
+    /// A call repeated its initial request state.
+    DuplicateToolRequest(ToolCallId),
     /// A transition moved a call between agent conversations.
     WrongToolAgent(ToolCallId),
     /// A transition skipped or repeated the per-item revision.
@@ -99,6 +103,10 @@ pub enum JournalProjectionError {
     WrongTurnAgent(TurnId),
     /// A selected path repeated a stable turn identity.
     DuplicateTurn(TurnId),
+    /// A selected path repeated one model-step identity.
+    DuplicateModelStep(ModelStepId),
+    /// Canonical facts could not form one indivisible context unit.
+    InvalidContext(ContextError),
     /// More UI events cannot be numbered without repeating an identity.
     EventSequenceExhausted,
 }

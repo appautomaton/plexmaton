@@ -2,7 +2,8 @@
 
 use plexmaton_agent::{
     AdmissionRefusal, MAX_PROVIDER_REPLAY_BYTES, MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ModelError,
-    ModelEvent, ModelRequest, ProviderReplayError, ToolCancellationReason, ToolOutcome,
+    ModelEvent, ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility,
+    ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
 use serde_json::Value;
@@ -109,10 +110,12 @@ pub enum EncodeError {
     PlainReasoningInResponses,
     #[error("opaque provider replay cannot be sent through Chat Completions")]
     OpaqueReplayInChat,
-    #[error("replay belongs to codec `{found}`, not `{expected}`")]
-    WrongReplayCodec {
-        found: String,
-        expected: &'static str,
+    #[error(
+        "opaque replay is incompatible with the selected provider route, codec revision, or model family"
+    )]
+    IncompatibleReplay {
+        found: Box<ReplayCompatibility>,
+        expected: Box<ReplayCompatibility>,
     },
     #[error("stored Responses replay is not valid JSON: {0}")]
     InvalidReplayJson(#[source] serde_json::Error),
@@ -153,6 +156,8 @@ pub enum DecodeError {
     TooManyReplayItems { limit: usize },
     #[error("the response exceeded its {limit}-item output bound")]
     TooManyOutputItems { limit: usize },
+    #[error("provider output position {item}:{part} exceeds the semantic ordinal space")]
+    OutputPositionTooLarge { item: usize, part: usize },
     #[error("output text {output_index}:{content_index} had conflicting `{field}` data")]
     ConflictingOutputText {
         output_index: usize,
@@ -191,9 +196,12 @@ enum Decoder {
 impl OpenAiCodec {
     /// Opens a fresh step decoder for one explicit protocol.
     #[must_use]
-    pub fn new(protocol: Protocol, limits: DecodeLimits) -> Self {
-        let decoder = match protocol {
-            Protocol::Responses => Decoder::Responses(ResponsesDecoder::new(limits)),
+    pub fn new(profile: &ProviderProfile, limits: DecodeLimits) -> Self {
+        let decoder = match profile.protocol() {
+            Protocol::Responses => Decoder::Responses(ResponsesDecoder::new(
+                limits,
+                profile.replay_compatibility(),
+            )),
             Protocol::ChatCompletions => Decoder::Chat(ChatDecoder::new(limits)),
         };
         Self { decoder }
@@ -218,6 +226,19 @@ impl OpenAiCodec {
             Decoder::Responses(decoder) => decoder.finish(),
         }
     }
+}
+
+pub(crate) fn output_position(
+    item: usize,
+    part: usize,
+) -> Result<ModelOutputPosition, DecodeError> {
+    let item =
+        u16::try_from(item).map_err(|_| DecodeError::OutputPositionTooLarge { item, part })?;
+    let part = u16::try_from(part).map_err(|_| DecodeError::OutputPositionTooLarge {
+        item: usize::from(item),
+        part,
+    })?;
+    Ok(ModelOutputPosition::new(item, part))
 }
 
 /// Rebuilds one stateless request from the semantic record for the selected profile.

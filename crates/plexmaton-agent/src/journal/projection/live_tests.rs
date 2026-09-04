@@ -1,5 +1,5 @@
 use super::tests::{agent, head};
-use crate::{Agent, Effect, Input, ModelEvent, StopReason};
+use crate::{Agent, Effect, Input, ModelEvent, ModelOutputPosition, StopReason};
 
 /// JRN-5: provider chunking does not change the canonical model context.
 #[test]
@@ -16,11 +16,17 @@ fn jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context() {
     };
     let _first_delta = live.handle(Input::Streamed {
         step_id: step_id.clone(),
-        event: ModelEvent::TextDelta("h".to_owned()),
+        event: ModelEvent::TextDelta {
+            position: ModelOutputPosition::new(0, 0),
+            delta: "h".to_owned(),
+        },
     });
     let _second_delta = live.handle(Input::Streamed {
         step_id: step_id.clone(),
-        event: ModelEvent::TextDelta("i".to_owned()),
+        event: ModelEvent::TextDelta {
+            position: ModelOutputPosition::new(0, 0),
+            delta: "i".to_owned(),
+        },
     });
     let _stopped = live.handle(Input::Streamed {
         step_id,
@@ -32,5 +38,5 @@ fn jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context() {
         .project(&head("main"))
         .unwrap_or_else(|error| panic!("project live journal: {error:?}"));
 
-    assert_eq!(projection.request().items, live.record());
+    assert_eq!(projection.request().atoms, live.record());
 }

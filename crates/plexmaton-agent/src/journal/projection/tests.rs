@@ -6,7 +6,8 @@ use plexmaton_core::{
 use super::super::{
     HeadRevision, JournalEntryPayload, JournalRecord, SessionEntry, SessionJournal,
 };
-use crate::{RequestItem, ToolCall, ToolOutcome, UnixMillis};
+use crate::test_support::{call_block, output, step, text_block};
+use crate::{AssistantBlock, ContextAtomValue, ToolCall, ToolOutcome, UnixMillis};
 
 pub(super) fn id<T>(
     value: &str,
@@ -71,11 +72,23 @@ pub(super) fn message(role: TranscriptRole, ordinal: u64, text: &str) -> Journal
             opened_at: UnixMillis::EPOCH,
         };
     }
-    JournalEntryPayload::Message {
+    assert_eq!(role, TranscriptRole::System, "non-user message fixture");
+    JournalEntryPayload::RuntimeWarning {
         agent_id: agent(),
         item_id: id(&format!("item-{ordinal}"), TranscriptItemId::new),
-        role,
-        text: text.to_owned(),
+        message: text.to_owned(),
+    }
+}
+
+pub(super) fn assistant_calls(
+    turn: u64,
+    step_index: u16,
+    blocks: Vec<AssistantBlock>,
+) -> JournalEntryPayload {
+    JournalEntryPayload::AssistantOutput {
+        agent_id: agent(),
+        step_id: step(&format!("turn-{turn}"), step_index),
+        output: output(blocks),
     }
 }
 
@@ -134,21 +147,28 @@ fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
         },
     );
     append(&mut journal, 2, message(TranscriptRole::User, 1, "inspect"));
+    let (first, first_outcome) = call("call-a", "first");
+    let (second, second_outcome) = call("call-b", "second");
     append(
         &mut journal,
         3,
-        message(TranscriptRole::Assistant, 2, "checking"),
+        assistant_calls(
+            1,
+            1,
+            vec![
+                text_block("item-2", "checking"),
+                call_block("tool-a", first.clone()),
+                call_block("tool-b", second.clone()),
+            ],
+        ),
     );
-    let (first, first_outcome) = call("call-a", "first");
-    let (second, second_outcome) = call("call-b", "second");
-    for (ordinal, call, item) in [(4, first.clone(), "tool-a"), (5, second.clone(), "tool-b")] {
+    for (ordinal, call_id) in [(4, first.call_id.clone()), (5, second.call_id.clone())] {
         append(
             &mut journal,
             ordinal,
             JournalEntryPayload::ToolCallRequested {
                 agent_id: agent(),
-                item_id: id(item, TranscriptItemId::new),
-                call,
+                call_id,
                 presentation: ToolPresentation::default(),
             },
         );
@@ -188,27 +208,32 @@ fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
     let projection = journal
         .project(&head("main"))
         .unwrap_or_else(|error| panic!("project journal: {error:?}"));
+    assert_eq!(projection.request().atoms.len(), 2);
+    let ContextAtomValue::ToolBatch(batch) = projection.request().atoms[1].value() else {
+        panic!("complete calls and results project as one tool batch")
+    };
     assert_eq!(
-        projection.request().items,
-        [
-            RequestItem::User {
-                text: "inspect".to_owned()
-            },
-            RequestItem::Assistant {
-                text: "checking".to_owned()
-            },
-            RequestItem::ToolCall(first.clone()),
-            RequestItem::ToolCall(second.clone()),
-            RequestItem::ToolResult {
-                call_id: first.call_id,
-                outcome: first_outcome,
-            },
-            RequestItem::ToolResult {
-                call_id: second.call_id,
-                outcome: second_outcome,
-            },
-        ]
+        batch
+            .assistant()
+            .tool_calls()
+            .map(|call| call.call_id.as_str())
+            .collect::<Vec<_>>(),
+        ["call-a", "call-b"]
     );
+    assert!(matches!(
+        batch.assistant().blocks().first(),
+        Some(AssistantBlock::Text { text, .. }) if text == "checking"
+    ));
+    assert_eq!(
+        batch
+            .results()
+            .iter()
+            .map(|result| result.call_id().as_str())
+            .collect::<Vec<_>>(),
+        ["call-a", "call-b"]
+    );
+    assert_eq!(batch.results()[0].outcome(), &first_outcome);
+    assert_eq!(batch.results()[1].outcome(), &second_outcome);
     assert!(projection.recovery().is_none());
     assert!(
         projection
@@ -244,21 +269,32 @@ fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
     append(&mut journal, 1, message(TranscriptRole::User, 1, "inspect"));
     let (first, _) = call("call-a", "first");
     let (second, second_outcome) = call("call-b", "second");
-    for (ordinal, call, item) in [(2, first.clone(), "tool-a"), (3, second.clone(), "tool-b")] {
+    append(
+        &mut journal,
+        2,
+        assistant_calls(
+            1,
+            1,
+            vec![
+                call_block("tool-a", first.clone()),
+                call_block("tool-b", second.clone()),
+            ],
+        ),
+    );
+    for (ordinal, call_id) in [(3, first.call_id.clone()), (4, second.call_id.clone())] {
         append(
             &mut journal,
             ordinal,
             JournalEntryPayload::ToolCallRequested {
                 agent_id: agent(),
-                item_id: id(item, TranscriptItemId::new),
-                call,
+                call_id,
                 presentation: ToolPresentation::default(),
             },
         );
     }
     append(
         &mut journal,
-        4,
+        5,
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent(),
             call_id: second.call_id.clone(),
@@ -270,7 +306,7 @@ fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
     );
     append(
         &mut journal,
-        5,
+        6,
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent(),
             call_id: second.call_id,
@@ -284,12 +320,7 @@ fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
     let projection = journal
         .project(&head("main"))
         .unwrap_or_else(|error| panic!("project journal: {error:?}"));
-    assert_eq!(
-        projection.request().items,
-        [RequestItem::User {
-            text: "inspect".to_owned()
-        }]
-    );
+    assert_eq!(projection.request().atoms.len(), 1);
     let recovery = projection
         .recovery()
         .unwrap_or_else(|| panic!("missing recovery projection"));
@@ -343,7 +374,7 @@ fn jrn_5_named_heads_project_only_their_selected_ancestry() {
                 entry: Box::new(SessionEntry {
                     id: id(&format!("entry-{ordinal}"), SessionEntryId::new),
                     parent_id: root.clone(),
-                    payload: message(TranscriptRole::Assistant, ordinal, text),
+                    payload: message(TranscriptRole::User, ordinal, text),
                 }),
             })
             .unwrap_or_else(|error| panic!("append {name}: {error:?}"));
@@ -356,15 +387,15 @@ fn jrn_5_named_heads_project_only_their_selected_ancestry() {
         .project(&head("right"))
         .unwrap_or_else(|error| panic!("project right: {error:?}"));
     assert_eq!(
-        left.request().items.last(),
-        Some(&RequestItem::Assistant {
-            text: "left only".to_owned()
+        left.request().atoms.last().map(|atom| atom.value()),
+        Some(&ContextAtomValue::User {
+            text: "left only".to_owned(),
         })
     );
     assert_eq!(
-        right.request().items.last(),
-        Some(&RequestItem::Assistant {
-            text: "right only".to_owned()
+        right.request().atoms.last().map(|atom| atom.value()),
+        Some(&ContextAtomValue::User {
+            text: "right only".to_owned(),
         })
     );
     let replayed_left = journal

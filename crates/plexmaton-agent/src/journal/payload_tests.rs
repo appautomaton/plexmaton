@@ -1,11 +1,12 @@
 use plexmaton_core::{
     AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, HeadName, JournalRecordId,
     MailId, SessionEntryId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus, ToolPresentation,
-    TranscriptItemId, TranscriptRole, TurnId,
+    TranscriptItemId, TurnId,
 };
 
 use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
-use crate::{ActiveTurnStatus, ProviderCodecId, ProviderReplay, ToolCall, ToolOutcome, UnixMillis};
+use crate::test_support::{call_block, output_with_replay, reasoning_block, replay, step};
+use crate::{ActiveTurnStatus, ToolCall, ToolOutcome, UnixMillis};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -18,12 +19,11 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
     let agent_b = id("agent-b", AgentId::new);
     let attention_id = id("attention-1", AttentionId::new);
     let call_id = id("call-1", ToolCallId::new);
-    let replay = ProviderReplay::new(
-        ProviderCodecId::new("openai_responses")
-            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
-        "encrypted".to_owned(),
-    )
-    .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+    let call = ToolCall {
+        call_id: call_id.clone(),
+        name: "read_file".to_owned(),
+        arguments: "{}".to_owned(),
+    };
     let payloads = vec![
         JournalEntryPayload::AgentCreated {
             agent_id: agent_a.clone(),
@@ -62,21 +62,20 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             text: "also inspect tests".to_owned(),
             accepted_at: UnixMillis::new(130),
         },
-        JournalEntryPayload::Message {
+        JournalEntryPayload::AssistantOutput {
             agent_id: agent_a.clone(),
-            item_id: id("system-item", TranscriptItemId::new),
-            role: TranscriptRole::System,
-            text: "recovered".to_owned(),
+            step_id: step("turn-started", 1),
+            output: output_with_replay(
+                vec![
+                    reasoning_block("reasoning-item", "recovered"),
+                    call_block("tool-item", call.clone()),
+                ],
+                [(0, replay("encrypted"))],
+            ),
         },
-        JournalEntryPayload::ProviderReplay(replay),
         JournalEntryPayload::ToolCallRequested {
             agent_id: agent_a.clone(),
-            item_id: id("tool-item", TranscriptItemId::new),
-            call: ToolCall {
-                call_id: call_id.clone(),
-                name: "read_file".to_owned(),
-                arguments: "{}".to_owned(),
-            },
+            call_id: call_id.clone(),
             presentation: ToolPresentation::default(),
         },
         JournalEntryPayload::ToolCallChanged {

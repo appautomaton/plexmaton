@@ -6,7 +6,7 @@ use plexmaton_core::{
 };
 
 use super::Record;
-use crate::{JournalEntryPayload, RequestItem};
+use crate::{ContextAtomValue, JournalEntryPayload};
 
 pub(crate) struct RecoverableTool {
     pub(crate) call_id: ToolCallId,
@@ -108,8 +108,12 @@ impl Record {
         let needs_marker =
             last_recovery.is_none_or(|done| last_user.is_none_or(|user| done < user));
         let incomplete_request = (matches!(
-            projection.request().items.last(),
-            Some(RequestItem::User { .. })
+            projection
+                .request()
+                .atoms
+                .last()
+                .map(crate::ContextAtom::value),
+            Some(ContextAtomValue::User { .. })
         ) && needs_marker)
             || projection.recovery().is_some();
         if open_turn.is_none()

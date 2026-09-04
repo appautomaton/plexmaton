@@ -1,8 +1,7 @@
-use plexmaton_core::{
-    AgentId, HeadName, JournalRecordId, SessionEntryId, TranscriptItemId, TurnId,
-};
+use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, TurnId};
 
 use super::{HeadRevision, JournalSequence};
+use crate::ModelStepId;
 
 /// Why a record was refused without changing journal state (JRN-2).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -40,10 +39,10 @@ pub enum JournalError {
     RevisionExhausted(HeadName),
     /// A second semantic start reused one turn identity.
     DuplicateTurn(TurnId),
+    /// A second assistant output reused one model-step identity.
+    DuplicateModelStep(ModelStepId),
     /// Agent creation tried to bypass the idle initial lifecycle boundary.
     InvalidInitialAgentStatus(AgentId),
-    /// A generic message tried to bypass the typed user-input boundary.
-    TimelessUserMessage(TranscriptItemId),
     /// A terminal fact named no semantic turn start.
     MissingTurn(TurnId),
     /// A terminal fact moved a turn between agent owners.

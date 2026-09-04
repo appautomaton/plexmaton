@@ -19,7 +19,7 @@ pub async fn decode_fixture(
     let source = stream::iter(chunks.into_iter().map(Ok::<_, Infallible>));
     let mut events = Vec::new();
     drive_sse(
-        profile.protocol(),
+        profile,
         source,
         DecodeLimits::for_profile(profile),
         |event| {
@@ -156,7 +156,7 @@ pub fn called(events: &[ModelEvent]) -> ToolCall {
     events
         .iter()
         .find_map(|event| match event {
-            ModelEvent::Called(call) => Some(call.clone()),
+            ModelEvent::Called { call, .. } => Some(call.clone()),
             _ => None,
         })
         .unwrap_or_else(|| panic!("fixture should contain one tool call"))
@@ -166,7 +166,7 @@ pub fn visible_text(events: &[ModelEvent]) -> String {
     events
         .iter()
         .filter_map(|event| match event {
-            ModelEvent::TextDelta(text) => Some(text.as_str()),
+            ModelEvent::TextDelta { delta, .. } => Some(delta.as_str()),
             _ => None,
         })
         .collect()
@@ -176,7 +176,7 @@ pub fn reasoning_text(events: &[ModelEvent]) -> String {
     events
         .iter()
         .filter_map(|event| match event {
-            ModelEvent::ReasoningDelta(text) => Some(text.as_str()),
+            ModelEvent::ReasoningDelta { delta, .. } => Some(delta.as_str()),
             _ => None,
         })
         .collect()

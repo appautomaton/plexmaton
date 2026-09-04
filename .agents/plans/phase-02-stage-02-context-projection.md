@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–3 |
 | Contract | TIM-1–TIM-5, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3–PRV-5, LIVE-1/LIVE-3–LIVE-5 and LOOP-2 |
-| Status | Active; slices 1–2 complete, slice 3 of 9 active |
+| Status | Active; slices 1–3 complete, slice 4 of 9 next |
 | Blocked | None for slices 1–8; slice 9 interaction copy requires the user's rendered-frame agreement |
 
 ## Outcome
@@ -46,7 +46,7 @@ rewind and branches durable without copying entries or replaying effects.
    `2026-09-04` grammar and retain session creation time in the in-memory journal. Delete old readers
    and fixtures. *Closes when* create/reopen preserve metadata, a foreign epoch fails before record
    decoding, both production constructors use external time, and idle writes nothing.
-3. **Context atoms and replay compatibility (active).** Project one selected head into typed message,
+3. **Context atoms and replay compatibility (complete).** Project one selected head into typed message,
    reasoning/replay and complete tool-batch atoms. Add the compatibility value that decides whether
    opaque replay may enter a request. *Closes when* live/reloaded heads produce equal ordered atoms,
    head changes cannot split a parallel batch, incompatibility is typed, and both codecs preserve

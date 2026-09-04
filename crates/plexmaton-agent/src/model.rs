@@ -5,18 +5,51 @@
 //! its own side of the boundary. A shared event type carrying one dialect's concerns leaves every
 //! other adapter fabricating fields it does not have.
 
-use std::fmt;
+use plexmaton_core::{TokenUsage, TurnId};
+use serde::{Deserialize, Serialize};
 
-use plexmaton_core::{TokenUsage, ToolCallId, TurnId};
-use serde::{Deserialize, Serialize, ser::SerializeStruct};
+use crate::tools::ToolCall;
 
-use crate::tools::{ToolCall, ToolOutcome};
+mod context;
+mod replay;
+
+pub use context::{
+    AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
+    ContextError, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES, ModelOutputPosition, ToolBatch,
+    ToolBatchResult,
+};
+pub use replay::{
+    MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,
+    ProviderReplay, ProviderReplayError, ProviderReplayOwnerId, ReplayCompatibility,
+};
 
 /// Stable identity of one model request within a turn (LIVE-2).
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct ModelStepId {
     turn_id: TurnId,
     index: u16,
+}
+
+impl<'de> Deserialize<'de> for ModelStepId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            turn_id: TurnId,
+            index: u16,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        if wire.index == 0 {
+            return Err(serde::de::Error::custom(
+                "model step index must be one-based",
+            ));
+        }
+        Ok(Self::new(wire.turn_id, wire.index))
+    }
 }
 
 impl ModelStepId {
@@ -44,8 +77,8 @@ impl ModelStepId {
 /// rather than per delta. When it is measured and matters, the fix is to borrow the history.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelRequest {
-    /// The conversation so far, oldest first.
-    pub items: Vec<RequestItem>,
+    /// Indivisible conversation units, oldest first.
+    pub atoms: Vec<ContextAtom>,
 }
 
 /// One correlated request the runtime must perform.
@@ -57,193 +90,32 @@ pub struct ModelCall {
     pub request: ModelRequest,
 }
 
-/// Maximum opaque provider replay bytes retained for one item.
-pub const MAX_PROVIDER_REPLAY_BYTES: usize = 256 * 1024;
-
-/// Stable identity of the codec that can interpret an opaque replay item.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct ProviderCodecId(String);
-
-impl ProviderCodecId {
-    /// Creates a non-empty codec identity.
-    pub fn new(value: impl Into<String>) -> Result<Self, ProviderReplayError> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            return Err(ProviderReplayError::EmptyCodec);
-        }
-        Ok(Self(value))
-    }
-
-    /// Returns the codec's stable external name.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for ProviderCodecId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl Serialize for ProviderCodecId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for ProviderCodecId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Self::new(value).map_err(|_| serde::de::Error::custom("provider codec must not be empty"))
-    }
-}
-
-/// Why an opaque replay item was refused before entering turn state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ProviderReplayError {
-    /// A replay item without its codec cannot be interpreted later.
-    EmptyCodec,
-    /// The exact payload exceeded the hard retained-state bound.
-    PayloadTooLarge,
-}
-
-/// Exact provider data required to reconstruct a later request.
-///
-/// The loop retains and orders this value but never interprets `payload`. Only the named codec may
-/// decode it, which keeps encrypted reasoning out of semantic text while leaving replay state
-/// inspectable (LOOP-4, PRV-3).
-#[derive(Clone, Eq, PartialEq)]
-pub struct ProviderReplay {
-    codec: ProviderCodecId,
-    payload: String,
-}
-
-impl fmt::Debug for ProviderReplay {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProviderReplay")
-            .field("codec", &self.codec)
-            .field("payload_bytes", &self.payload.len())
-            .finish_non_exhaustive()
-    }
-}
-
-impl Serialize for ProviderReplay {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("ProviderReplay", 2)?;
-        state.serialize_field("codec", &self.codec)?;
-        state.serialize_field("payload", &self.payload)?;
-        state.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for ProviderReplay {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Wire {
-            codec: ProviderCodecId,
-            payload: String,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        Self::new(wire.codec, wire.payload).map_err(|error| match error {
-            ProviderReplayError::EmptyCodec => {
-                serde::de::Error::custom("provider codec must not be empty")
-            }
-            ProviderReplayError::PayloadTooLarge => {
-                serde::de::Error::custom("provider replay exceeds its byte bound")
-            }
-        })
-    }
-}
-
-impl ProviderReplay {
-    /// Builds one bounded opaque replay item.
-    pub fn new(codec: ProviderCodecId, payload: String) -> Result<Self, ProviderReplayError> {
-        if payload.len() > MAX_PROVIDER_REPLAY_BYTES {
-            return Err(ProviderReplayError::PayloadTooLarge);
-        }
-        Ok(Self { codec, payload })
-    }
-
-    /// Codec that owns the payload's wire meaning.
-    #[must_use]
-    pub const fn codec(&self) -> &ProviderCodecId {
-        &self.codec
-    }
-
-    /// Exact bounded payload. Presentation code must never render or log it.
-    #[must_use]
-    pub fn payload(&self) -> &str {
-        &self.payload
-    }
-}
-
-/// One entry of the conversation as the model is shown it.
-///
-/// A step where the model both spoke and asked for tools leaves an [`Self::Assistant`] entry
-/// followed by its [`Self::ToolCall`] entries. Whether a dialect sends those as one message with
-/// several blocks or as separate turns is the adapter's business, and exactly the kind of thing
-/// that must not reach this far in.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "type", content = "data", rename_all = "snake_case")]
-pub enum RequestItem {
-    /// Something the person said.
-    User {
-        /// Exact text the user submitted.
-        text: String,
-    },
-    /// Something the model said, as it was assembled from the stream.
-    Assistant {
-        /// The finished text of one assistant message.
-        text: String,
-    },
-    /// Plain reasoning content the provider explicitly returned.
-    Reasoning {
-        /// Exact bounded text, kept separate from the final answer.
-        text: String,
-    },
-    /// Opaque provider data, such as encrypted reasoning, required for exact stateless replay.
-    ProviderReplay(ProviderReplay),
-    /// Something the model asked to have run.
-    ToolCall(ToolCall),
-    /// The answer to one such call. Every recorded call has exactly one of these after it.
-    ToolResult {
-        /// The call being answered.
-        call_id: ToolCallId,
-        /// How it ended.
-        outcome: ToolOutcome,
-    },
-}
-
 /// One semantic thing a model produced, in the order it produced it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ModelEvent {
     /// Text appended to the message being streamed.
-    TextDelta(String),
+    TextDelta {
+        position: ModelOutputPosition,
+        delta: String,
+    },
     /// Plain reasoning text appended separately from the final answer.
-    ReasoningDelta(String),
+    ReasoningDelta {
+        position: ModelOutputPosition,
+        delta: String,
+    },
     /// One complete opaque replay item. Incomplete encrypted material is never retained.
-    Replay(ProviderReplay),
+    Replay {
+        position: ModelOutputPosition,
+        replay: ProviderReplay,
+    },
     /// The model finished asking for one tool call.
     ///
     /// Arrives whole. Accumulating argument fragments across wire deltas and deciding when a call
     /// is complete belongs to the adapter, because how a dialect fragments them is the dialect's.
-    Called(ToolCall),
+    Called {
+        position: ModelOutputPosition,
+        call: ToolCall,
+    },
     /// Provider-reported token consumption for this step.
     Usage(TokenUsage),
     /// The model finished this step, and why.
@@ -322,6 +194,7 @@ mod tests {
         MAX_PROVIDER_REPLAY_BYTES, ModelError, ProviderCodecId, ProviderReplay,
         ProviderReplayError, StopReason,
     };
+    use crate::test_support::replay_compatibility;
 
     /// `Unspecified` exists so that "the dialect did not say" is a value rather than a guess.
     ///
@@ -349,15 +222,18 @@ mod tests {
             ProviderCodecId::new("  "),
             Err(ProviderReplayError::EmptyCodec)
         );
-        let codec = ProviderCodecId::new("openai_responses")
-            .unwrap_or_else(|error| panic!("fixture codec: {error:?}"));
-        let replay = ProviderReplay::new(codec.clone(), "ciphertext".to_owned())
+        let compatibility = replay_compatibility();
+        assert_eq!(
+            ProviderReplay::new(compatibility.clone(), String::new()),
+            Err(ProviderReplayError::EmptyPayload)
+        );
+        let replay = ProviderReplay::new(compatibility.clone(), "ciphertext".to_owned())
             .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
         let debug = format!("{replay:?}");
         assert!(!debug.contains("ciphertext"));
         assert!(debug.contains("payload_bytes"));
         assert_eq!(
-            ProviderReplay::new(codec, "x".repeat(MAX_PROVIDER_REPLAY_BYTES + 1)),
+            ProviderReplay::new(compatibility, "x".repeat(MAX_PROVIDER_REPLAY_BYTES + 1),),
             Err(ProviderReplayError::PayloadTooLarge)
         );
     }

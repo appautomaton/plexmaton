@@ -365,7 +365,7 @@ mod tests {
 
     use plexmaton_agent::{
         AdmissionOutcome, AdmissionRefusal, AdmissionRequest, Agent, Effect, Input, ModelEvent,
-        StopReason, ToolCall,
+        ModelOutputPosition, StopReason, ToolCall,
     };
     use plexmaton_core::{AgentId, ToolCallId, ToolCapability, ToolDetail};
     use tokio_util::sync::CancellationToken;
@@ -417,12 +417,15 @@ mod tests {
         let called = agent.handle_at(
             Input::Streamed {
                 step_id: step_id.clone(),
-                event: ModelEvent::Called(ToolCall {
-                    call_id: ToolCallId::new("command-1")
-                        .unwrap_or_else(|error| panic!("fixture call id: {error}")),
-                    name: name.to_owned(),
-                    arguments,
-                }),
+                event: ModelEvent::Called {
+                    position: ModelOutputPosition::new(0, 0),
+                    call: ToolCall {
+                        call_id: ToolCallId::new("command-1")
+                            .unwrap_or_else(|error| panic!("fixture call id: {error}")),
+                        name: name.to_owned(),
+                        arguments,
+                    },
+                },
             },
             plexmaton_agent::UnixMillis::EPOCH,
         );

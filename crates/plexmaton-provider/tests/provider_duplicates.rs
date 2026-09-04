@@ -39,7 +39,7 @@ async fn prv_2_rejects_duplicate_chat_tool_call_ids_before_emission() {
     let mut emitted = Vec::new();
 
     let result = drive_sse(
-        profile.protocol(),
+        &profile,
         source,
         DecodeLimits::for_profile(&profile),
         |event| {
@@ -73,7 +73,7 @@ async fn prv_2_rejects_incremental_duplicate_responses_tool_call_ids() {
     let mut emitted = Vec::new();
 
     let result = drive_sse(
-        profile.protocol(),
+        &profile,
         source,
         DecodeLimits::for_profile(&profile),
         |event| {
@@ -92,8 +92,10 @@ async fn prv_2_rejects_incremental_duplicate_responses_tool_call_ids() {
             call_id
         }) if call_id.as_str() == "call_duplicate"
     ));
-    assert!(matches!(emitted.as_slice(), [ModelEvent::Called(call)]
-        if call.call_id.as_str() == "call_duplicate" && call.arguments.contains("one")));
+    assert!(
+        matches!(emitted.as_slice(), [ModelEvent::Called { call, .. }]
+        if call.call_id.as_str() == "call_duplicate" && call.arguments.contains("one"))
+    );
 }
 
 #[test]
@@ -101,13 +103,13 @@ fn prv_2_responses_counts_incrementally_completed_calls_toward_the_step_bound() 
     let profile = profile(Protocol::Responses);
     let mut limits = DecodeLimits::for_profile(&profile);
     limits.max_tool_calls = 1;
-    let mut codec = OpenAiCodec::new(profile.protocol(), limits);
+    let mut codec = OpenAiCodec::new(&profile, limits);
     let first = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_one","type":"function_call","call_id":"call_one","name":"read_file","arguments":"{}","status":"completed"}}"#;
     let second = r#"{"type":"response.output_item.done","output_index":1,"item":{"id":"fc_two","type":"function_call","call_id":"call_two","name":"read_file","arguments":"{}","status":"completed"}}"#;
 
     assert!(matches!(
         codec.push_sse("response.output_item.done", first),
-        Ok(events) if matches!(events.as_slice(), [ModelEvent::Called(call)]
+        Ok(events) if matches!(events.as_slice(), [ModelEvent::Called { call, .. }]
             if call.call_id.as_str() == "call_one")
     ));
     assert!(matches!(

@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_agent::{ModelEvent, ProviderCodecId, ProviderReplay, StopReason};
+use plexmaton_agent::{ModelEvent, ProviderReplay, ReplayCompatibility, StopReason};
 use plexmaton_core::ToolCallId;
 use serde_json::Value;
 
@@ -10,7 +10,7 @@ use super::call::CallAssembly;
 use super::text::TextAssembly;
 use super::usage::event_usage;
 use super::wire::{object_field, optional_string, provider_failed, string_field, usize_field};
-use crate::codec::{DecodeError, DecodeLimits, RESPONSES_CODEC_ID, retain_bytes};
+use crate::codec::{DecodeError, DecodeLimits, output_position, retain_bytes};
 
 #[derive(Debug)]
 pub(crate) struct ResponsesDecoder {
@@ -18,8 +18,10 @@ pub(crate) struct ResponsesDecoder {
     retained: usize,
     replay_bytes: usize,
     replay_items: usize,
+    replay_compatibility: ReplayCompatibility,
     calls: BTreeMap<usize, CallAssembly>,
     text_parts: BTreeMap<(usize, usize), TextAssembly>,
+    reasoning_summaries: BTreeMap<usize, TextAssembly>,
     finished_items: BTreeSet<usize>,
     finished_calls: BTreeSet<usize>,
     completed_call_ids: BTreeSet<ToolCallId>,
@@ -28,14 +30,16 @@ pub(crate) struct ResponsesDecoder {
 }
 
 impl ResponsesDecoder {
-    pub(crate) fn new(limits: DecodeLimits) -> Self {
+    pub(crate) fn new(limits: DecodeLimits, replay_compatibility: ReplayCompatibility) -> Self {
         Self {
             limits,
             retained: 0,
             replay_bytes: 0,
             replay_items: 0,
+            replay_compatibility,
             calls: BTreeMap::new(),
             text_parts: BTreeMap::new(),
+            reasoning_summaries: BTreeMap::new(),
             finished_items: BTreeSet::new(),
             finished_calls: BTreeSet::new(),
             completed_call_ids: BTreeSet::new(),
@@ -72,8 +76,8 @@ impl ResponsesDecoder {
             | "response.content_part.done"
             | "response.reasoning_summary_part.added"
             | "response.reasoning_summary_part.done"
-            | "response.reasoning_summary_text.delta"
             | "response.reasoning_summary_text.done" => Ok(Vec::new()),
+            "response.reasoning_summary_text.delta" => self.reasoning_delta(&event),
             "response.output_text.delta" => self.text_delta(&event, false),
             "response.output_text.done" => self.text_done(&event, "text", false),
             "response.refusal.delta" => self.text_delta(&event, true),
@@ -122,7 +126,30 @@ impl ResponsesDecoder {
         if refusal {
             self.saw_refusal = true;
         }
-        Ok(vec![ModelEvent::TextDelta(delta)])
+        Ok(vec![ModelEvent::TextDelta {
+            position: output_position(output_index, content_index)?,
+            delta,
+        }])
+    }
+
+    fn reasoning_delta(&mut self, event: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
+        let delta = string_field(event, "delta")?.to_owned();
+        if delta.is_empty() {
+            return Ok(Vec::new());
+        }
+        let output_index = usize_field(event, "output_index")?;
+        let summary_index = usize_field(event, "summary_index")?;
+        retain_bytes(
+            &mut self.retained,
+            delta.len(),
+            self.limits.max_retained_output_bytes,
+        )?;
+        self.reasoning_summary(output_index)?
+            .append(&delta, output_index, summary_index)?;
+        Ok(vec![ModelEvent::ReasoningDelta {
+            position: output_position(output_index, 0)?,
+            delta,
+        }])
     }
 
     fn text_done(
@@ -148,7 +175,10 @@ impl ResponsesDecoder {
                 text.len(),
                 self.limits.max_retained_output_bytes,
             )?;
-            return Ok(vec![ModelEvent::TextDelta(text)]);
+            return Ok(vec![ModelEvent::TextDelta {
+                position: output_position(output_index, content_index)?,
+                delta: text,
+            }]);
         }
         Ok(Vec::new())
     }
@@ -210,7 +240,7 @@ impl ResponsesDecoder {
         }
         let item = object_field(event, "item")?;
         let events = match string_field(item, "type")? {
-            "reasoning" => self.reasoning_replay(item),
+            "reasoning" => self.reasoning_replay(index, item),
             "function_call" => self.function_call_done(index, item),
             "message" => Ok(Vec::new()),
             other => Err(DecodeError::UnsupportedEvent(format!(
@@ -249,10 +279,17 @@ impl ResponsesDecoder {
             });
         }
         self.finished_calls.insert(index);
-        Ok(vec![ModelEvent::Called(call)])
+        Ok(vec![ModelEvent::Called {
+            position: output_position(index, 0)?,
+            call,
+        }])
     }
 
-    fn reasoning_replay(&mut self, item: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
+    fn reasoning_replay(
+        &mut self,
+        index: usize,
+        item: &Value,
+    ) -> Result<Vec<ModelEvent>, DecodeError> {
         if item
             .get("encrypted_content")
             .and_then(Value::as_str)
@@ -267,6 +304,21 @@ impl ResponsesDecoder {
                 limit: self.limits.max_replay_items,
             });
         }
+        let summary = item
+            .get("summary")
+            .and_then(Value::as_array)
+            .ok_or_else(|| DecodeError::UnsupportedEvent("reasoning_without_summary".to_owned()))?
+            .iter()
+            .map(|part| {
+                if part.get("type").and_then(Value::as_str) != Some("summary_text") {
+                    return Err(DecodeError::UnsupportedEvent(
+                        "unsupported_reasoning_summary_part".to_owned(),
+                    ));
+                }
+                string_field(part, "text")
+            })
+            .collect::<Result<String, _>>()?;
+        let unstreamed = self.reasoning_summary(index)?.finish(&summary, index, 0)?;
         let payload = serde_json::to_string(item)?;
         let Some(next) = self.replay_bytes.checked_add(payload.len()) else {
             return Err(DecodeError::RetainedReplayTooLarge {
@@ -278,11 +330,27 @@ impl ResponsesDecoder {
                 limit: self.limits.max_replay_bytes,
             });
         }
-        let codec = ProviderCodecId::new(RESPONSES_CODEC_ID).map_err(DecodeError::Replay)?;
-        let replay = ProviderReplay::new(codec, payload).map_err(DecodeError::Replay)?;
+        let replay = ProviderReplay::new(self.replay_compatibility.clone(), payload)
+            .map_err(DecodeError::Replay)?;
         self.replay_bytes = next;
         self.replay_items += 1;
-        Ok(vec![ModelEvent::Replay(replay)])
+        let mut events = Vec::with_capacity(2);
+        if let Some(summary) = unstreamed {
+            retain_bytes(
+                &mut self.retained,
+                summary.len(),
+                self.limits.max_retained_output_bytes,
+            )?;
+            events.push(ModelEvent::ReasoningDelta {
+                position: output_position(index, 0)?,
+                delta: summary,
+            });
+        }
+        events.push(ModelEvent::Replay {
+            position: output_position(index, 0)?,
+            replay,
+        });
+        Ok(events)
     }
 
     fn completed(&mut self, event: &Value) -> Result<Vec<ModelEvent>, DecodeError> {
@@ -350,6 +418,16 @@ impl ResponsesDecoder {
                 content_index: *content_index,
             });
         }
+        if let Some((output_index, _)) = self
+            .reasoning_summaries
+            .iter()
+            .find(|(_, summary)| !summary.is_done())
+        {
+            return Err(DecodeError::IncompleteOutputText {
+                output_index: *output_index,
+                content_index: 0,
+            });
+        }
         Ok(())
     }
 
@@ -367,6 +445,21 @@ impl ResponsesDecoder {
             });
         }
         Ok(self.text_parts.entry(key).or_default())
+    }
+
+    fn reasoning_summary(&mut self, output_index: usize) -> Result<&mut TextAssembly, DecodeError> {
+        if !self.reasoning_summaries.contains_key(&output_index)
+            && self
+                .reasoning_summaries
+                .len()
+                .saturating_add(self.text_parts.len())
+                >= self.limits.max_output_items
+        {
+            return Err(DecodeError::TooManyOutputItems {
+                limit: self.limits.max_output_items,
+            });
+        }
+        Ok(self.reasoning_summaries.entry(output_index).or_default())
     }
 
     fn call(&mut self, index: usize) -> Result<&mut CallAssembly, DecodeError> {

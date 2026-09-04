@@ -117,11 +117,10 @@ impl OpenAiHttp {
             return;
         }
 
-        let protocol = self.profile.protocol();
         let limits = DecodeLimits::for_profile(&self.profile);
         let step_id = call.step_id;
         let stream = response.bytes_stream();
-        let decoded = drive_sse(protocol, stream, limits, |event| {
+        let decoded = drive_sse(&self.profile, stream, limits, |event| {
             let signals = signals.clone();
             let step_id = step_id.clone();
             async move {
@@ -307,7 +306,7 @@ reasoning_effort = "low"
         )
         .unwrap_or_else(|error| panic!("open native catalog: {error}"));
         let definitions = catalog.provider_definitions();
-        let request = ModelRequest { items: Vec::new() };
+        let request = ModelRequest { atoms: Vec::new() };
         let mut bodies = Vec::new();
 
         for protocol in [Protocol::Responses, Protocol::ChatCompletions] {

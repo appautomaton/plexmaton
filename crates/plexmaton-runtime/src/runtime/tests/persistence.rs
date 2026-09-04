@@ -7,8 +7,8 @@ use std::{
 };
 
 use plexmaton_agent::{
-    Input, JournalEntryPayload, JournalRecord, ModelEvent, SessionMetadata, StopReason, ToolCall,
-    UndeliveredReason,
+    Input, JournalEntryPayload, JournalRecord, ModelEvent, ModelOutputPosition, SessionMetadata,
+    StopReason, ToolCall, UndeliveredReason,
 };
 use plexmaton_core::{AgentId, SessionId, ToolCallId, ToolCallStatus};
 use plexmaton_session_store::StoreError;
@@ -140,8 +140,7 @@ impl JournalStore for ControlledStore {
             JournalRecord::AppendEntry { entry, .. }
                 if matches!(
                     &entry.payload,
-                    JournalEntryPayload::Message { text, .. }
-                        | JournalEntryPayload::TurnStarted { text, .. }
+                    JournalEntryPayload::TurnStarted { text, .. }
                         | JournalEntryPayload::SteeringAccepted { text, .. }
                         if self
                             .fail_text

@@ -1,11 +1,11 @@
 use plexmaton_agent::{
-    Agent, Effect, Input, JournalEntryPayload, JournalRecord, ModelError, ModelEvent, RequestItem,
-    SessionEntry, SessionJournal, StopReason, ToolCall, ToolOutcome, UnixMillis,
+    Agent, AssistantBlock, AssistantOutput, ContextAtom, Effect, Input, JournalEntryPayload,
+    JournalRecord, ModelError, ModelEvent, ModelOutputPosition, ModelStepId, SessionEntry,
+    SessionJournal, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
     AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenUsage,
     ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
-    TurnId,
 };
 use plexmaton_tui::{ApplyOutcome, TranscriptEntryView, ViewState};
 
@@ -45,6 +45,18 @@ fn append(journal: &mut SessionJournal, ordinal: u64, payload: JournalEntryPaylo
             }),
         })
         .unwrap_or_else(|error| panic!("append fixture: {error:?}"));
+}
+
+fn first_step(agent_id: AgentId, text: &str) -> ModelStepId {
+    let mut agent = Agent::new(agent_id);
+    let _ = agent.announce("Plexmaton");
+    let opened = agent.handle(Input::Submitted {
+        text: text.to_owned(),
+    });
+    match opened.effects.as_slice() {
+        [Effect::CallModel(model)] => model.step_id.clone(),
+        other => panic!("expected one model call, got {other:?}"),
+    }
 }
 
 fn apply_all(
@@ -110,6 +122,7 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
     let agent_id = id("agent-primary", AgentId::new);
     let call_id = id("call-1", ToolCallId::new);
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let step_id = first_step(agent_id.clone(), "inspect the workspace");
     append(
         &mut journal,
         1,
@@ -125,20 +138,10 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
         JournalEntryPayload::TurnStarted {
             agent_id: agent_id.clone(),
             item_id: id("user-item", TranscriptItemId::new),
-            turn_id: id("turn-1", TurnId::new),
+            turn_id: step_id.turn_id().clone(),
             text: "inspect the workspace".to_owned(),
             accepted_at: UnixMillis::EPOCH,
             opened_at: UnixMillis::EPOCH,
-        },
-    );
-    append(
-        &mut journal,
-        3,
-        JournalEntryPayload::Message {
-            agent_id: agent_id.clone(),
-            item_id: id("assistant-item", TranscriptItemId::new),
-            role: TranscriptRole::Assistant,
-            text: "I will read it.".to_owned(),
         },
     );
     let call = ToolCall {
@@ -146,13 +149,35 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
         name: "read_file".to_owned(),
         arguments: r#"{"path":"README.md"}"#.to_owned(),
     };
+    let output = AssistantOutput::new(
+        vec![
+            AssistantBlock::Text {
+                item_id: id("assistant-item", TranscriptItemId::new),
+                text: "I will read it.".to_owned(),
+            },
+            AssistantBlock::ToolCall {
+                item_id: id("tool-item", TranscriptItemId::new),
+                call: call.clone(),
+            },
+        ],
+        None,
+    )
+    .unwrap_or_else(|error| panic!("assistant output fixture: {error:?}"));
+    append(
+        &mut journal,
+        3,
+        JournalEntryPayload::AssistantOutput {
+            agent_id: agent_id.clone(),
+            step_id,
+            output: output.clone(),
+        },
+    );
     append(
         &mut journal,
         4,
         JournalEntryPayload::ToolCallRequested {
             agent_id: agent_id.clone(),
-            item_id: id("tool-item", TranscriptItemId::new),
-            call: call.clone(),
+            call_id: call_id.clone(),
             presentation: ToolPresentation::default(),
         },
     );
@@ -193,19 +218,23 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
     let projection = journal
         .project(&id("main", HeadName::new))
         .unwrap_or_else(|error| panic!("project fixture: {error:?}"));
-    assert_eq!(
-        projection.request().items,
-        [
-            RequestItem::User {
-                text: "inspect the workspace".to_owned(),
-            },
-            RequestItem::Assistant {
-                text: "I will read it.".to_owned(),
-            },
-            RequestItem::ToolCall(call),
-            RequestItem::ToolResult { call_id, outcome },
-        ]
-    );
+    let batch = ToolBatch::new(output, vec![ToolBatchResult::new(call_id, outcome)])
+        .unwrap_or_else(|error| panic!("tool batch fixture: {error:?}"));
+    let expected_atoms = [
+        ContextAtom::user(
+            id("entry-2", SessionEntryId::new),
+            "inspect the workspace".to_owned(),
+        ),
+        ContextAtom::tool_batch(
+            [3, 4, 5, 6]
+                .into_iter()
+                .map(|ordinal| id(&format!("entry-{ordinal}"), SessionEntryId::new))
+                .collect(),
+            batch,
+        )
+        .unwrap_or_else(|error| panic!("context atom fixture: {error:?}")),
+    ];
+    assert_eq!(projection.request().atoms, expected_atoms);
 
     let mut view = ViewState::default();
     for envelope in projection.events() {
@@ -261,7 +290,10 @@ fn jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics() {
     for text in ["h", "i"] {
         let mut reaction = live.handle(Input::Streamed {
             step_id: step_id.clone(),
-            event: ModelEvent::TextDelta(text.to_owned()),
+            event: ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: text.to_owned(),
+            },
         });
         records.append(&mut reaction.records);
         apply_all(&mut live_view, reaction.events);
@@ -287,7 +319,7 @@ fn jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics() {
         .rebuild_projection()
         .unwrap_or_else(|error| panic!("rebuild idle live projection: {error:?}"));
     assert_eq!(projection, expected_projection);
-    assert_eq!(projection.request().items, live.record());
+    assert_eq!(projection.request().atoms, live.record());
     let mut replay_view = ViewState::default();
     apply_all(&mut replay_view, projection.events().iter().cloned());
 
@@ -344,7 +376,10 @@ fn jrn_6_partial_failure_and_output_limit_keep_live_transcript_order() {
     ] {
         let (live, replayed, agent_id) = live_and_replayed_after(
             agent,
-            [ModelEvent::TextDelta("partial answer".to_owned())],
+            [ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "partial answer".to_owned(),
+            }],
             terminal,
         );
         assert_eq!(
@@ -360,8 +395,14 @@ fn jrn_6_interleaved_answer_and_reasoning_keep_first_open_order() {
     let (live, replayed, agent_id) = live_and_replayed_after(
         "agent-interleaved",
         [
-            ModelEvent::TextDelta("answer".to_owned()),
-            ModelEvent::ReasoningDelta("reasoning".to_owned()),
+            ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "answer".to_owned(),
+            },
+            ModelEvent::ReasoningDelta {
+                position: ModelOutputPosition::new(1, 0),
+                delta: "reasoning".to_owned(),
+            },
         ],
         Ok(StopReason::EndOfTurn),
     );
@@ -378,7 +419,10 @@ fn jrn_6_streaming_usage_warning_keeps_live_transcript_order() {
     let (live, replayed, agent_id) = live_and_replayed_after(
         "agent-usage-warning",
         [
-            ModelEvent::TextDelta("answer".to_owned()),
+            ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "answer".to_owned(),
+            },
             ModelEvent::Usage(TokenUsage::Unavailable),
             ModelEvent::Usage(TokenUsage::Unavailable),
         ],

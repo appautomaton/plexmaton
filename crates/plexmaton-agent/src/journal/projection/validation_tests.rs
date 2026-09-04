@@ -4,7 +4,26 @@ use plexmaton_core::{
 };
 
 use super::super::{JournalEntryPayload, JournalProjectionError, SessionJournal};
-use super::tests::{agent, announce, append, call, head, id, message};
+use super::tests::{agent, announce, append, assistant_calls, call, head, id, message};
+use crate::test_support::{call_block, text_block};
+
+fn declare_call(journal: &mut SessionJournal, call: crate::ToolCall) {
+    append(journal, 1, message(TranscriptRole::User, 1, "inspect"));
+    append(
+        journal,
+        2,
+        assistant_calls(1, 1, vec![call_block("tool-a", call.clone())]),
+    );
+    append(
+        journal,
+        3,
+        JournalEntryPayload::ToolCallRequested {
+            agent_id: agent(),
+            call_id: call.call_id,
+            presentation: ToolPresentation::default(),
+        },
+    );
+}
 
 /// JRN-5: recovery applies only to a final tail, never to corruption before later model facts.
 #[test]
@@ -12,20 +31,11 @@ fn jrn_5_incomplete_tool_batch_before_later_content_is_rejected() {
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
+    declare_call(&mut journal, call.clone());
     append(
         &mut journal,
-        1,
-        JournalEntryPayload::ToolCallRequested {
-            agent_id: agent(),
-            item_id: id("tool-a", TranscriptItemId::new),
-            call: call.clone(),
-            presentation: ToolPresentation::default(),
-        },
-    );
-    append(
-        &mut journal,
-        2,
-        message(TranscriptRole::Assistant, 2, "impossible tail"),
+        4,
+        assistant_calls(1, 2, vec![text_block("assistant-tail", "impossible tail")]),
     );
 
     assert_eq!(
@@ -42,19 +52,10 @@ fn jrn_5_invalid_tool_lifecycle_has_a_typed_projection_error() {
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
+    declare_call(&mut journal, call.clone());
     append(
         &mut journal,
-        1,
-        JournalEntryPayload::ToolCallRequested {
-            agent_id: agent(),
-            item_id: id("tool-a", TranscriptItemId::new),
-            call: call.clone(),
-            presentation: ToolPresentation::default(),
-        },
-    );
-    append(
-        &mut journal,
-        2,
+        4,
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent(),
             call_id: call.call_id.clone(),
@@ -183,25 +184,16 @@ fn jrn_5_attention_resolution_keeps_its_request_owner() {
     );
 }
 
-/// JRN-5: a visible system message does not turn an incomplete final batch into corruption.
+/// JRN-5: a visible notice does not turn an incomplete final batch into corruption.
 #[test]
-fn jrn_5_system_message_after_incomplete_batch_remains_a_recoverable_tail() {
+fn jrn_5_visible_notice_after_incomplete_batch_remains_a_recoverable_tail() {
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
+    declare_call(&mut journal, call.clone());
     append(
         &mut journal,
-        1,
-        JournalEntryPayload::ToolCallRequested {
-            agent_id: agent(),
-            item_id: id("tool-a", TranscriptItemId::new),
-            call: call.clone(),
-            presentation: ToolPresentation::default(),
-        },
-    );
-    append(
-        &mut journal,
-        2,
+        4,
         message(TranscriptRole::System, 2, "turn interrupted"),
     );
 
@@ -216,10 +208,7 @@ fn jrn_5_system_message_after_incomplete_batch_remains_a_recoverable_tail() {
     );
     assert!(projection.events().iter().any(|event| matches!(
         &event.event,
-        SessionEvent::TranscriptItemStarted {
-            role: TranscriptRole::System,
-            ..
-        }
+        SessionEvent::RuntimeWarning { message, .. } if message == "turn interrupted"
     )));
 }
 
@@ -229,23 +218,14 @@ fn jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots() {
     let mut journal = SessionJournal::new(id("session-a", SessionId::new));
     announce(&mut journal);
     let (call, outcome) = call("call-a", "output");
-    append(
-        &mut journal,
-        1,
-        JournalEntryPayload::ToolCallRequested {
-            agent_id: agent(),
-            item_id: id("tool-a", TranscriptItemId::new),
-            call: call.clone(),
-            presentation: ToolPresentation::default(),
-        },
-    );
+    declare_call(&mut journal, call.clone());
     let invocation = ToolDetail::Text {
         source: "Read README.md".to_owned(),
         omitted_bytes: 0,
     };
     append(
         &mut journal,
-        2,
+        4,
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent(),
             call_id: call.call_id.clone(),
@@ -260,7 +240,7 @@ fn jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots() {
     );
     append(
         &mut journal,
-        3,
+        5,
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent(),
             call_id: call.call_id,

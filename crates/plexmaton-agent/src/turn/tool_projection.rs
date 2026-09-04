@@ -65,7 +65,8 @@ impl Agent {
                         (
                             item_id.clone(),
                             revision,
-                            call.clone(),
+                            call.call_id.clone(),
+                            call.name.clone(),
                             presentation.clone(),
                             outcome.cloned(),
                         )
@@ -73,7 +74,7 @@ impl Agent {
                 ),
                 Turn::Idle | Turn::Streaming { .. } => None,
             };
-        let Some((item_id, item_revision, call, presentation, outcome)) = snapshot else {
+        let Some((item_id, item_revision, call_id, label, presentation, outcome)) = snapshot else {
             self.warn(reaction, "tool request has no transcript entry");
             return;
         };
@@ -82,8 +83,7 @@ impl Agent {
         self.record.commit(
             JournalEntryPayload::ToolCallRequested {
                 agent_id: self.record.agent_id().clone(),
-                item_id: item_id.clone(),
-                call: call.clone(),
+                call_id: call_id.clone(),
                 presentation: presentation.clone(),
             },
             reaction,
@@ -95,7 +95,7 @@ impl Agent {
                 item_id,
                 item_revision,
                 call_id,
-                label: call.name,
+                label,
                 status: ToolCallStatus::Queued,
                 presentation,
             },

@@ -1,10 +1,10 @@
 use plexmaton_core::{
     AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, MailId, TokenUsage,
-    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
+    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ProviderReplay, ToolCall, ToolOutcome};
+use crate::{AssistantOutput, ModelStepId, ToolOutcome};
 
 pub(crate) const PROCESS_RECOVERY_MESSAGE: &str =
     "unfinished turn was interrupted during process recovery";
@@ -48,20 +48,16 @@ pub enum JournalEntryPayload {
         text: String,
         accepted_at: crate::UnixMillis,
     },
-    /// One complete non-user visible message; user input has typed chronology variants.
-    Message {
+    /// One complete ordered model output, including calls and private replay attachments.
+    AssistantOutput {
         agent_id: AgentId,
-        item_id: TranscriptItemId,
-        role: TranscriptRole,
-        text: String,
+        step_id: ModelStepId,
+        output: AssistantOutput,
     },
-    /// Exact provider-owned replay metadata, never projected to the screen.
-    ProviderReplay(ProviderReplay),
-    /// A model-requested tool call at its first visible state.
+    /// First visible lifecycle state for a call already declared by `AssistantOutput`.
     ToolCallRequested {
         agent_id: AgentId,
-        item_id: TranscriptItemId,
-        call: ToolCall,
+        call_id: ToolCallId,
         presentation: ToolPresentation,
     },
     /// One later state of a known tool call.

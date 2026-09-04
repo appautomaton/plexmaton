@@ -15,7 +15,7 @@ use crate::interface::Reaction;
 use crate::journal::{
     JournalEntryPayload, JournalProjection, JournalRecord, SessionEntry, SessionJournal,
 };
-use crate::model::{ModelRequest, RequestItem};
+use crate::model::{ContextAtom, ModelOutputPosition, ModelRequest};
 use crate::{SessionMetadata, UnixMillis};
 
 mod recovery;
@@ -105,8 +105,8 @@ impl Record {
             .clone()
     }
 
-    pub(crate) fn items(&self) -> Vec<RequestItem> {
-        self.request().items
+    pub(crate) fn atoms(&self) -> Vec<ContextAtom> {
+        self.request().atoms
     }
 
     pub(crate) fn contains_tool_call(&self, call_id: &ToolCallId) -> bool {
@@ -117,8 +117,8 @@ impl Record {
             .any(|entry| {
                 matches!(
                     &entry.payload,
-                    JournalEntryPayload::ToolCallRequested { call, .. }
-                        if &call.call_id == call_id
+                    JournalEntryPayload::AssistantOutput { output, .. }
+                        if output.tool_calls().any(|call| &call.call_id == call_id)
                 )
             })
     }
@@ -262,6 +262,7 @@ impl Record {
         turn_id: &TurnId,
         step: u16,
         role: TranscriptRole,
+        position: ModelOutputPosition,
     ) -> TranscriptItemId {
         let role = match role {
             TranscriptRole::Assistant => "assistant",
@@ -270,8 +271,12 @@ impl Record {
                 unreachable!("only provider-streamed roles have stream identities")
             }
         };
-        TranscriptItemId::new(format!("{turn_id}-step-{step}-{role}"))
-            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"))
+        TranscriptItemId::new(format!(
+            "{turn_id}-step-{step}-{role}-{}-{}",
+            position.item(),
+            position.part()
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"))
     }
 
     /// Approval and attention identities are stable consequences of the unique call identity.
@@ -289,10 +294,10 @@ mod tests {
     use plexmaton_core::{AgentId, AgentStatus, SessionEvent};
 
     use super::Record;
+    use crate::ContextAtomValue;
     use crate::UnixMillis;
     use crate::interface::Reaction;
     use crate::journal::JournalEntryPayload;
-    use crate::model::RequestItem;
 
     fn record() -> Record {
         Record::new(AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")))
@@ -376,11 +381,9 @@ mod tests {
         );
 
         assert_eq!(reaction.records, record.journal().records());
-        assert_eq!(
-            record.items(),
-            [RequestItem::User {
-                text: "hello".to_owned(),
-            }]
-        );
+        assert!(matches!(
+            record.atoms().as_slice(),
+            [atom] if atom.value() == &ContextAtomValue::User { text: "hello".to_owned() }
+        ));
     }
 }

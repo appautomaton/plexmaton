@@ -10,6 +10,11 @@ use std::{
 use serde::Deserialize;
 use thiserror::Error;
 
+use plexmaton_agent::{
+    ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
+    ReplayCompatibility,
+};
+
 const DEFAULT_MAX_RETAINED_OUTPUT_BYTES: usize = 1024 * 1024;
 
 /// The selected OpenAI-compatible wire protocol.
@@ -55,6 +60,7 @@ pub enum ProviderKind {
 /// One named provider profile from the user-owned configuration root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderProfile {
+    name: String,
     kind: ProviderKind,
     protocol: Protocol,
     base_url: String,
@@ -123,6 +129,8 @@ pub enum ConfigError {
     InvalidApiKeyEnvironment(String),
     #[error("provider profile `{0}` must retain at least one output byte")]
     ZeroRetainedOutputBound(String),
+    #[error("provider profile `{0}` has an invalid replay compatibility identity")]
+    InvalidReplayIdentity(String),
     #[error("cannot resolve the Plexmaton user configuration root")]
     HomeUnavailable,
     #[error("provider API key environment variable `{0}` is absent")]
@@ -141,9 +149,11 @@ impl ProviderConfig {
                 .providers
                 .into_iter()
                 .map(|(name, profile)| {
+                    let profile_name = name.clone();
                     (
                         name,
                         ProviderProfile {
+                            name: profile_name,
                             kind: profile.kind,
                             protocol: profile.protocol,
                             base_url: profile.base_url,
@@ -205,6 +215,13 @@ impl ProviderConfig {
                 self.active_provider.clone(),
             ));
         }
+        if ProviderReplayOwnerId::new(profile.replay_owner_value()).is_err()
+            || ProviderModelFamilyId::new(profile.model.clone()).is_err()
+        {
+            return Err(ConfigError::InvalidReplayIdentity(
+                self.active_provider.clone(),
+            ));
+        }
         Ok(())
     }
 }
@@ -243,6 +260,30 @@ impl ProviderProfile {
     #[must_use]
     pub const fn max_retained_output_bytes(&self) -> usize {
         self.max_retained_output_bytes
+    }
+
+    /// Adapter-owned realm in which opaque replay remains valid.
+    #[must_use]
+    pub fn replay_compatibility(&self) -> ReplayCompatibility {
+        let owner = ProviderReplayOwnerId::new(self.replay_owner_value())
+            .unwrap_or_else(|_| unreachable!("provider config validates replay owner"));
+        let codec = ProviderCodecId::new(match self.protocol {
+            Protocol::Responses => "openai_responses",
+            Protocol::ChatCompletions => "openai_chat_completions",
+        })
+        .unwrap_or_else(|_| unreachable!("static codec identity is valid"));
+        let revision = ProviderCodecRevision::new(1)
+            .unwrap_or_else(|_| unreachable!("static codec revision is valid"));
+        let family = ProviderModelFamilyId::new(self.model.clone())
+            .unwrap_or_else(|_| unreachable!("provider config validates model family"));
+        ReplayCompatibility::new(owner, codec, revision, family)
+    }
+
+    fn replay_owner_value(&self) -> String {
+        format!(
+            "openai_compatible|{}|{}|{}",
+            self.name, self.base_url, self.api_key_env
+        )
     }
 }
 

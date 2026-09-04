@@ -7,7 +7,7 @@ use std::{
 };
 
 use futures_util::{FutureExt, future::BoxFuture};
-use plexmaton_agent::{Input, ModelCall, ModelError, ModelEvent, StopReason};
+use plexmaton_agent::{Input, ModelCall, ModelError, ModelEvent, ModelOutputPosition, StopReason};
 use plexmaton_core::{
     AgentId, AgentStatus, SessionEvent, SessionEventEnvelope, TokenCounts, TokenUsage,
 };
@@ -102,7 +102,7 @@ impl ModelDriver for FakeDriver {
                     let _closed = signals
                         .send(ModelSignal::Event {
                             step_id: call.step_id,
-                            event: ModelEvent::TextDelta("partial".to_owned()),
+                            event: text_delta("partial"),
                         })
                         .await;
                     started.notify_one();
@@ -191,6 +191,13 @@ fn complete_usage(input: u64, output: u64) -> ModelEvent {
     }))
 }
 
+fn text_delta(delta: &str) -> ModelEvent {
+    ModelEvent::TextDelta {
+        position: ModelOutputPosition::new(0, 0),
+        delta: delta.to_owned(),
+    }
+}
+
 fn take_ready(runtime: &mut LiveRuntime, events: &mut Vec<SessionEventEnvelope>) {
     while let Some(event) = runtime.try_next_event() {
         events.push(event);
@@ -219,12 +226,12 @@ async fn finish_active(runtime: &mut LiveRuntime) -> Vec<SessionEventEnvelope> {
 async fn sequential_turns_stream_and_report_their_own_usage() {
     let driver = FakeDriver::new([
         Script::Events(vec![
-            ModelEvent::TextDelta("first answer".to_owned()),
+            text_delta("first answer"),
             complete_usage(10, 3),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),
         Script::Events(vec![
-            ModelEvent::TextDelta("second answer".to_owned()),
+            text_delta("second answer"),
             complete_usage(20, 4),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]),

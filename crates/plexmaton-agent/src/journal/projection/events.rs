@@ -89,11 +89,10 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
                 message: super::super::PROCESS_RECOVERY_MESSAGE.to_owned(),
             }
         }
-        JournalEntryPayload::Message { .. }
+        JournalEntryPayload::AssistantOutput { .. }
         | JournalEntryPayload::TurnStatusChanged { .. }
         | JournalEntryPayload::TurnStarted { .. }
         | JournalEntryPayload::SteeringAccepted { .. }
-        | JournalEntryPayload::ProviderReplay(_)
         | JournalEntryPayload::ToolCallRequested { .. }
         | JournalEntryPayload::ToolCallChanged { .. } => {
             unreachable!("model-bearing payloads are projected separately")

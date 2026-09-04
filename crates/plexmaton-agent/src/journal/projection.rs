@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{
-    AgentId, AttentionId, EventSequence, HeadName, SessionEvent, SessionEventEnvelope, ToolCallId,
-    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
+    AgentId, AttentionId, EventSequence, HeadName, SessionEntryId, SessionEvent,
+    SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+    TranscriptRole, TurnId,
 };
 
 use super::{JournalEntryPayload, SessionEntry, SessionJournal};
-use crate::{ModelRequest, RequestItem, ToolCall, ToolOutcome};
+use crate::{AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId};
 
 #[cfg(test)]
 mod event_tests;
@@ -15,52 +16,43 @@ mod events;
 mod live_tests;
 #[cfg(test)]
 mod tests;
+mod tools;
 mod types;
 #[cfg(test)]
 mod validation_tests;
 
 use events::visible_event;
+use tools::{PendingBatch, ToolChange, ToolProjection};
 pub use types::{JournalProjection, JournalProjectionError, RecoveryProjection};
 
-#[derive(Clone)]
-struct ToolProjection {
-    agent_id: AgentId,
-    item_id: TranscriptItemId,
-    call: ToolCall,
-    status: ToolCallStatus,
-    revision: u64,
-    outcome: Option<ToolOutcome>,
-    presentation: ToolPresentation,
-}
-
 struct Projector {
-    items: Vec<RequestItem>,
+    atoms: Vec<ContextAtom>,
     events: Vec<SessionEventEnvelope>,
     next_event: u64,
     agents: BTreeSet<AgentId>,
     entries: BTreeMap<TranscriptItemId, AgentId>,
     attention: BTreeMap<AttentionId, AgentId>,
     tools: BTreeMap<ToolCallId, ToolProjection>,
-    pending: Vec<ToolCallId>,
-    batch_transitioned: bool,
+    pending: Option<PendingBatch>,
     recovery: Option<RecoveryProjection>,
     turns: BTreeMap<TurnId, AgentId>,
+    steps: BTreeSet<ModelStepId>,
 }
 
 impl Projector {
     fn new() -> Self {
         Self {
-            items: Vec::new(),
+            atoms: Vec::new(),
             events: Vec::new(),
             next_event: 1,
             agents: BTreeSet::new(),
             entries: BTreeMap::new(),
             attention: BTreeMap::new(),
             tools: BTreeMap::new(),
-            pending: Vec::new(),
-            batch_transitioned: false,
+            pending: None,
             recovery: None,
             turns: BTreeMap::new(),
+            steps: BTreeSet::new(),
         }
     }
 
@@ -77,61 +69,13 @@ impl Projector {
         Ok(())
     }
 
-    fn finish_batch(&mut self, recover_final: bool) -> Result<(), JournalProjectionError> {
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-        if self.pending.iter().any(|call_id| {
-            self.tools
-                .get(call_id)
-                .is_none_or(|tool| tool.outcome.is_none())
-        }) {
-            if recover_final {
-                self.recovery = Some(RecoveryProjection {
-                    omitted_batch_calls: self.pending.clone(),
-                });
-                return Ok(());
-            }
-            return Err(JournalProjectionError::IncompleteToolBatchBeforeLaterFact(
-                self.pending.clone(),
-            ));
-        }
-        for call_id in &self.pending {
-            let tool = self
-                .tools
-                .get(call_id)
-                .unwrap_or_else(|| unreachable!("pending calls are tracked"));
-            self.items.push(RequestItem::ToolCall(tool.call.clone()));
-        }
-        for call_id in self.pending.drain(..) {
-            let tool = self
-                .tools
-                .get(&call_id)
-                .unwrap_or_else(|| unreachable!("pending calls are tracked"));
-            self.items.push(RequestItem::ToolResult {
-                call_id,
-                outcome: tool
-                    .outcome
-                    .clone()
-                    .unwrap_or_else(|| unreachable!("complete batch outcomes were checked")),
-            });
-        }
-        self.batch_transitioned = false;
-        Ok(())
-    }
-
-    fn message(
+    fn emit_message(
         &mut self,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         role: TranscriptRole,
         text: String,
     ) -> Result<(), JournalProjectionError> {
-        if role != TranscriptRole::System {
-            self.finish_batch(false)?;
-        }
-        self.require_agent(&agent_id)?;
-        self.claim_entry(&item_id, &agent_id)?;
         self.emit(SessionEvent::TranscriptItemStarted {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
@@ -141,30 +85,39 @@ impl Projector {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 1,
-            text: text.clone(),
+            text,
         })?;
         self.emit(SessionEvent::TranscriptItemFinalized {
             agent_id,
             item_id,
             item_revision: 2,
-        })?;
-        match role {
-            TranscriptRole::User => self.items.push(RequestItem::User { text }),
-            TranscriptRole::Assistant => self.items.push(RequestItem::Assistant { text }),
-            TranscriptRole::Reasoning => self.items.push(RequestItem::Reasoning { text }),
-            TranscriptRole::System => {}
-        }
+        })
+    }
+
+    fn user_message(
+        &mut self,
+        source: SessionEntryId,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        text: String,
+    ) -> Result<(), JournalProjectionError> {
+        self.finish_batch(false)?;
+        self.require_agent(&agent_id)?;
+        self.claim_entry(&item_id, &agent_id)?;
+        self.emit_message(agent_id, item_id, TranscriptRole::User, text.clone())?;
+        self.atoms.push(ContextAtom::user(source, text));
         Ok(())
     }
 
     fn turn_started(
         &mut self,
+        source: SessionEntryId,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         turn_id: TurnId,
         text: String,
     ) -> Result<(), JournalProjectionError> {
-        self.message(agent_id.clone(), item_id, TranscriptRole::User, text)?;
+        self.user_message(source, agent_id.clone(), item_id, text)?;
         if self
             .turns
             .insert(turn_id.clone(), agent_id.clone())
@@ -180,6 +133,7 @@ impl Projector {
 
     fn steering(
         &mut self,
+        source: SessionEntryId,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         turn_id: TurnId,
@@ -191,10 +145,94 @@ impl Projector {
         if expected != &agent_id {
             return Err(JournalProjectionError::WrongTurnAgent(turn_id));
         }
-        self.message(agent_id, item_id, TranscriptRole::User, text)
+        self.user_message(source, agent_id, item_id, text)
+    }
+
+    fn assistant_output(
+        &mut self,
+        source: SessionEntryId,
+        agent_id: AgentId,
+        step_id: ModelStepId,
+        output: AssistantOutput,
+    ) -> Result<(), JournalProjectionError> {
+        self.finish_batch(false)?;
+        self.require_agent(&agent_id)?;
+        let Some(expected) = self.turns.get(step_id.turn_id()) else {
+            return Err(JournalProjectionError::MissingTurn(
+                step_id.turn_id().clone(),
+            ));
+        };
+        if expected != &agent_id {
+            return Err(JournalProjectionError::WrongTurnAgent(
+                step_id.turn_id().clone(),
+            ));
+        }
+        if !self.steps.insert(step_id.clone()) {
+            return Err(JournalProjectionError::DuplicateModelStep(step_id));
+        }
+
+        let mut calls = Vec::new();
+        for block in output.blocks() {
+            self.claim_entry(block.item_id(), &agent_id)?;
+            match block {
+                AssistantBlock::Text { item_id, text } if !text.is_empty() => {
+                    self.emit_message(
+                        agent_id.clone(),
+                        item_id.clone(),
+                        TranscriptRole::Assistant,
+                        text.clone(),
+                    )?;
+                }
+                AssistantBlock::Reasoning { item_id, text } if !text.is_empty() => {
+                    self.emit_message(
+                        agent_id.clone(),
+                        item_id.clone(),
+                        TranscriptRole::Reasoning,
+                        text.clone(),
+                    )?;
+                }
+                AssistantBlock::ToolCall { item_id, call } => {
+                    if self.tools.contains_key(&call.call_id) {
+                        return Err(JournalProjectionError::DuplicateToolCall(
+                            call.call_id.clone(),
+                        ));
+                    }
+                    let call_id = call.call_id.clone();
+                    self.tools.insert(
+                        call_id.clone(),
+                        ToolProjection {
+                            agent_id: agent_id.clone(),
+                            item_id: item_id.clone(),
+                            call: call.clone(),
+                            requested: false,
+                            status: ToolCallStatus::Queued,
+                            revision: 0,
+                            outcome: None,
+                            presentation: ToolPresentation::default(),
+                        },
+                    );
+                    calls.push(call_id);
+                }
+                AssistantBlock::Text { .. } | AssistantBlock::Reasoning { .. } => {}
+            }
+        }
+        if calls.is_empty() {
+            self.atoms.push(
+                ContextAtom::assistant(source, output)
+                    .map_err(JournalProjectionError::InvalidContext)?,
+            );
+        } else {
+            self.pending = Some(PendingBatch {
+                output,
+                calls,
+                source_entries: vec![source],
+            });
+        }
+        Ok(())
     }
 
     fn turn_finished(&mut self, fact: &crate::TurnFinished) -> Result<(), JournalProjectionError> {
+        self.finish_batch(false)?;
         let Some(expected) = self.turns.get(&fact.turn_id) else {
             return Err(JournalProjectionError::MissingTurn(fact.turn_id.clone()));
         };
@@ -223,114 +261,6 @@ impl Projector {
             agent_id,
             status: status.agent_status(),
         })
-    }
-
-    fn request_tool(
-        &mut self,
-        agent_id: AgentId,
-        item_id: TranscriptItemId,
-        call: ToolCall,
-        presentation: ToolPresentation,
-    ) -> Result<(), JournalProjectionError> {
-        if self.batch_transitioned {
-            self.finish_batch(false)?;
-        }
-        if self.tools.contains_key(&call.call_id) {
-            return Err(JournalProjectionError::DuplicateToolCall(call.call_id));
-        }
-        self.require_agent(&agent_id)?;
-        self.claim_entry(&item_id, &agent_id)?;
-        let call_id = call.call_id.clone();
-        self.emit(SessionEvent::ToolCallChanged {
-            agent_id: agent_id.clone(),
-            item_id: item_id.clone(),
-            item_revision: 0,
-            call_id: call_id.clone(),
-            label: call.name.clone(),
-            status: ToolCallStatus::Queued,
-            presentation: presentation.clone(),
-        })?;
-        self.tools.insert(
-            call_id.clone(),
-            ToolProjection {
-                agent_id,
-                item_id,
-                call,
-                status: ToolCallStatus::Queued,
-                revision: 0,
-                outcome: None,
-                presentation,
-            },
-        );
-        self.pending.push(call_id);
-        Ok(())
-    }
-
-    fn change_tool(
-        &mut self,
-        agent_id: AgentId,
-        call_id: ToolCallId,
-        item_revision: u64,
-        status: ToolCallStatus,
-        presentation: ToolPresentation,
-        outcome: Option<ToolOutcome>,
-    ) -> Result<(), JournalProjectionError> {
-        let tool = self
-            .tools
-            .get_mut(&call_id)
-            .ok_or_else(|| JournalProjectionError::MissingToolCall(call_id.clone()))?;
-        if tool.agent_id != agent_id {
-            return Err(JournalProjectionError::WrongToolAgent(call_id));
-        }
-        let expected =
-            tool.revision
-                .checked_add(1)
-                .ok_or(JournalProjectionError::UnexpectedToolRevision {
-                    call_id: call_id.clone(),
-                    expected: tool.revision,
-                    actual: item_revision,
-                })?;
-        if item_revision != expected {
-            return Err(JournalProjectionError::UnexpectedToolRevision {
-                call_id,
-                expected,
-                actual: item_revision,
-            });
-        }
-        if !tool.status.can_transition_to(status) {
-            return Err(JournalProjectionError::InvalidToolTransition {
-                call_id,
-                from: tool.status,
-                to: status,
-            });
-        }
-        match (&outcome, terminal(status)) {
-            (Some(_), false) => {
-                return Err(JournalProjectionError::PrematureToolOutcome(call_id));
-            }
-            (None, true) => return Err(JournalProjectionError::MissingToolOutcome(call_id)),
-            (Some(outcome), true) if outcome.status() != status => {
-                return Err(JournalProjectionError::ToolOutcomeMismatch(call_id));
-            }
-            _ => {}
-        }
-        let presentation = merge_presentation(&tool.presentation, presentation)
-            .ok_or_else(|| JournalProjectionError::ToolPresentationConflict(call_id.clone()))?;
-        tool.status = status;
-        tool.revision = item_revision;
-        tool.outcome = outcome;
-        tool.presentation = presentation.clone();
-        let event = SessionEvent::ToolCallChanged {
-            agent_id,
-            item_id: tool.item_id.clone(),
-            item_revision,
-            call_id,
-            label: tool.call.name.clone(),
-            status,
-            presentation,
-        };
-        self.batch_transitioned = true;
-        self.emit(event)
     }
 
     fn require_agent(&self, agent_id: &AgentId) -> Result<(), JournalProjectionError> {
@@ -405,11 +335,10 @@ impl Projector {
                 self.require_agent(agent_id)?;
                 self.claim_entry(item_id, agent_id)?;
             }
-            JournalEntryPayload::Message { .. }
-            | JournalEntryPayload::TurnStatusChanged { .. }
+            JournalEntryPayload::TurnStatusChanged { .. }
             | JournalEntryPayload::TurnStarted { .. }
             | JournalEntryPayload::SteeringAccepted { .. }
-            | JournalEntryPayload::ProviderReplay(_)
+            | JournalEntryPayload::AssistantOutput { .. }
             | JournalEntryPayload::ToolCallRequested { .. }
             | JournalEntryPayload::ToolCallChanged { .. } => {
                 unreachable!("model-bearing payloads are projected separately")
@@ -465,14 +394,14 @@ impl SessionJournal {
         ordered.sort_by_key(|(sequence, _)| *sequence);
         for (_, fact) in ordered {
             match fact {
-                SelectedFact::Entry(entry) => project_entry(&mut projector, entry.payload.clone())?,
+                SelectedFact::Entry(entry) => project_entry(&mut projector, entry)?,
                 SelectedFact::TurnFinished(fact) => projector.turn_finished(fact)?,
             }
         }
         projector.finish_batch(true)?;
         Ok(JournalProjection {
             request: ModelRequest {
-                items: projector.items,
+                atoms: projector.atoms,
             },
             events: projector.events,
             recovery: projector.recovery,
@@ -485,64 +414,41 @@ enum SelectedFact<'a> {
     TurnFinished(&'a crate::TurnFinished),
 }
 
-const fn terminal(status: ToolCallStatus) -> bool {
-    matches!(
-        status,
-        ToolCallStatus::Succeeded
-            | ToolCallStatus::Failed
-            | ToolCallStatus::Denied
-            | ToolCallStatus::Cancelled
-    )
-}
-
 fn project_entry(
     projector: &mut Projector,
-    payload: JournalEntryPayload,
+    entry: &SessionEntry,
 ) -> Result<(), JournalProjectionError> {
-    match payload {
+    let source = entry.id.clone();
+    match entry.payload.clone() {
         JournalEntryPayload::TurnStarted {
             agent_id,
             item_id,
             turn_id,
             text,
             ..
-        } => projector.turn_started(agent_id, item_id, turn_id, text),
+        } => projector.turn_started(source, agent_id, item_id, turn_id, text),
         JournalEntryPayload::SteeringAccepted {
             agent_id,
             item_id,
             turn_id,
             text,
             ..
-        } => projector.steering(agent_id, item_id, turn_id, text),
+        } => projector.steering(source, agent_id, item_id, turn_id, text),
         JournalEntryPayload::TurnStatusChanged {
             agent_id,
             turn_id,
             status,
         } => projector.turn_status(agent_id, turn_id, status),
-        JournalEntryPayload::Message {
+        JournalEntryPayload::AssistantOutput {
             agent_id,
-            item_id,
-            role,
-            text,
-        } => {
-            debug_assert_ne!(
-                role,
-                TranscriptRole::User,
-                "journal validation rejects this"
-            );
-            projector.message(agent_id, item_id, role, text)
-        }
-        JournalEntryPayload::ProviderReplay(replay) => {
-            projector.finish_batch(false)?;
-            projector.items.push(RequestItem::ProviderReplay(replay));
-            Ok(())
-        }
+            step_id,
+            output,
+        } => projector.assistant_output(source, agent_id, step_id, output),
         JournalEntryPayload::ToolCallRequested {
             agent_id,
-            item_id,
-            call,
+            call_id,
             presentation,
-        } => projector.request_tool(agent_id, item_id, call, presentation),
+        } => projector.request_tool(source, agent_id, call_id, presentation),
         JournalEntryPayload::ToolCallChanged {
             agent_id,
             call_id,
@@ -550,41 +456,17 @@ fn project_entry(
             status,
             presentation,
             outcome,
-        } => {
-            projector.change_tool(
+        } => projector.change_tool(
+            source,
+            ToolChange {
                 agent_id,
                 call_id,
                 item_revision,
                 status,
                 presentation,
                 outcome,
-            )?;
-            Ok(())
-        }
-        other => {
-            projector.visible(other)?;
-            Ok(())
-        }
-    }
-}
-
-fn merge_presentation(
-    current: &ToolPresentation,
-    next: ToolPresentation,
-) -> Option<ToolPresentation> {
-    Some(ToolPresentation {
-        invocation: merge_detail(&current.invocation, next.invocation)?,
-        outcome: merge_detail(&current.outcome, next.outcome)?,
-    })
-}
-
-fn merge_detail(
-    current: &Option<ToolDetail>,
-    next: Option<ToolDetail>,
-) -> Option<Option<ToolDetail>> {
-    match (current, next) {
-        (Some(current), Some(next)) if current != &next => None,
-        (Some(current), _) => Some(Some(current.clone())),
-        (None, next) => Some(next),
+            },
+        ),
+        other => projector.visible(other),
     }
 }

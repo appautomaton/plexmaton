@@ -6,7 +6,7 @@ use plexmaton_agent::{ModelEvent, StopReason, ToolCall};
 use plexmaton_core::{TokenUsage, ToolCallId};
 use serde::Deserialize;
 
-use crate::codec::{DecodeError, DecodeLimits, retain_bytes};
+use crate::codec::{DecodeError, DecodeLimits, output_position, retain_bytes};
 
 mod request;
 mod usage;
@@ -104,16 +104,25 @@ impl ChatDecoder {
             .filter(|text| !text.is_empty())
         {
             self.retain(reasoning.len())?;
-            events.push(ModelEvent::ReasoningDelta(reasoning));
+            events.push(ModelEvent::ReasoningDelta {
+                position: output_position(0, 0)?,
+                delta: reasoning,
+            });
         }
         if let Some(content) = choice.delta.content.filter(|text| !text.is_empty()) {
             self.retain(content.len())?;
-            events.push(ModelEvent::TextDelta(content));
+            events.push(ModelEvent::TextDelta {
+                position: output_position(0, 1)?,
+                delta: content,
+            });
         }
         if let Some(refusal) = choice.delta.refusal.filter(|text| !text.is_empty()) {
             self.saw_refusal = true;
             self.retain(refusal.len())?;
-            events.push(ModelEvent::TextDelta(refusal));
+            events.push(ModelEvent::TextDelta {
+                position: output_position(0, 1)?,
+                delta: refusal,
+            });
         }
         for fragment in choice.delta.tool_calls {
             self.tool_fragment(fragment)?;
@@ -211,7 +220,10 @@ impl ChatDecoder {
                         call_id: call.call_id,
                     });
                 }
-                completed.push(ModelEvent::Called(call));
+                completed.push(ModelEvent::Called {
+                    position: output_position(0, index.saturating_add(2))?,
+                    call,
+                });
             }
             events.extend(completed);
         }

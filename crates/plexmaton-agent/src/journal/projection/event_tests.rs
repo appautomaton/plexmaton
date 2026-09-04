@@ -1,22 +1,17 @@
 use plexmaton_core::{
-    AgentStatus, SessionEvent, SessionId, TokenCounts, TokenUsage, TranscriptItemId,
-    TranscriptRole, TurnId,
+    AgentStatus, SessionEvent, SessionId, TokenCounts, TokenUsage, TranscriptItemId, TurnId,
 };
 
 use super::super::{JournalEntryPayload, SessionJournal};
-use super::tests::{agent, append, head, id};
-use crate::{ProviderCodecId, ProviderReplay, RequestItem};
+use super::tests::{agent, append, head, id, message};
+use crate::test_support::{output_with_replay, reasoning_block, replay, step};
+use crate::{AssistantBlock, ContextAtomValue};
 
 /// JRN-5: reasoning, usage and notices keep their separate consumer visibility.
 #[test]
 fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers() {
     let agent_id = agent();
-    let replay = ProviderReplay::new(
-        ProviderCodecId::new("openai_responses")
-            .unwrap_or_else(|error| panic!("fixture codec: {error:?}")),
-        "encrypted-secret".to_owned(),
-    )
-    .unwrap_or_else(|error| panic!("fixture replay: {error:?}"));
+    let replay = replay("encrypted-secret");
     let usage = TokenUsage::Complete(TokenCounts {
         input: 10,
         cached_input: Some(6),
@@ -38,17 +33,19 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
     append(
         &mut journal,
         2,
-        JournalEntryPayload::Message {
-            agent_id: agent_id.clone(),
-            item_id: id("reasoning", TranscriptItemId::new),
-            role: TranscriptRole::Reasoning,
-            text: "bounded reasoning".to_owned(),
-        },
+        message(plexmaton_core::TranscriptRole::User, 1, "inspect"),
     );
     append(
         &mut journal,
         3,
-        JournalEntryPayload::ProviderReplay(replay.clone()),
+        JournalEntryPayload::AssistantOutput {
+            agent_id: agent_id.clone(),
+            step_id: step("turn-1", 1),
+            output: output_with_replay(
+                vec![reasoning_block("reasoning", "bounded reasoning")],
+                [(0, replay.clone())],
+            ),
+        },
     );
     append(
         &mut journal,
@@ -72,14 +69,20 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
     let projection = journal
         .project(&head("main"))
         .unwrap_or_else(|error| panic!("project journal: {error:?}"));
+    assert_eq!(projection.request().atoms.len(), 2);
+    let ContextAtomValue::Assistant(output) = projection.request().atoms[1].value() else {
+        panic!("reasoning output projects as one assistant atom")
+    };
+    assert!(matches!(
+        output.blocks(),
+        [AssistantBlock::Reasoning { text, .. }] if text == "bounded reasoning"
+    ));
     assert_eq!(
-        projection.request().items,
-        [
-            RequestItem::Reasoning {
-                text: "bounded reasoning".to_owned(),
-            },
-            RequestItem::ProviderReplay(replay),
-        ]
+        output
+            .replay()
+            .and_then(|replay| replay.attachments().first())
+            .map(|attachment| attachment.payload()),
+        Some(replay.payload())
     );
     assert!(projection.events().iter().any(|event| matches!(
         &event.event,

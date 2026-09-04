@@ -409,7 +409,8 @@ mod tests {
     use std::time::Duration;
 
     use plexmaton_agent::{
-        AdmissionOutcome, AdmissionRequest, Agent, Effect, Input, ModelEvent, StopReason, ToolCall,
+        AdmissionOutcome, AdmissionRequest, Agent, Effect, Input, ModelEvent, ModelOutputPosition,
+        StopReason, ToolCall,
     };
     use plexmaton_core::{AgentId, ToolCallId};
     use rustix::io::Errno;
@@ -588,7 +589,10 @@ mod tests {
         let called = agent.handle_at(
             Input::Streamed {
                 step_id: step_id.clone(),
-                event: ModelEvent::Called(call),
+                event: ModelEvent::Called {
+                    position: ModelOutputPosition::new(0, 0),
+                    call,
+                },
             },
             plexmaton_agent::UnixMillis::EPOCH,
         );

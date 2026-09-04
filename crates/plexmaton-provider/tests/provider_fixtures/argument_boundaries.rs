@@ -15,7 +15,7 @@ fn prv_2_production_tool_argument_limit_remains_64_kibibytes() {
             limits.max_tool_argument_bytes,
             MAX_REQUESTED_TOOL_ARGUMENT_BYTES
         );
-        let mut codec = OpenAiCodec::new(protocol, limits);
+        let mut codec = OpenAiCodec::new(&profile, limits);
         match protocol {
             Protocol::ChatCompletions => check_chat(&mut codec),
             Protocol::Responses => check_responses(&mut codec),
