@@ -25,7 +25,7 @@ pub(crate) struct Step {
     semantic_text_bytes: usize,
     tool_argument_bytes: usize,
     replay_bytes: usize,
-    last_output_position: Option<ModelOutputPosition>,
+    last_visible_output_position: Option<ModelOutputPosition>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,7 +108,7 @@ impl Step {
             semantic_text_bytes: 0,
             tool_argument_bytes: 0,
             replay_bytes: 0,
-            last_output_position: None,
+            last_visible_output_position: None,
         }
     }
 
@@ -151,7 +151,7 @@ impl Step {
         if semantic_text_bytes > MAX_ASSISTANT_TEXT_BYTES {
             return Err(StepAssemblyError::TextTooLarge);
         }
-        self.reserve_output_position(position)?;
+        self.reserve_visible_output_position(position)?;
         let item = Record::stream_item_id(&self.turn_id, self.index, role, position);
         let output = self.outputs.entry(position).or_insert_with(|| match role {
             TranscriptRole::Assistant => PendingOutput::Text(StreamedText::new(role, item)),
@@ -251,20 +251,28 @@ impl Step {
     }
 
     fn reserve_output_position(
+        &self,
+        position: ModelOutputPosition,
+    ) -> Result<(), StepAssemblyError> {
+        if !self.outputs.contains_key(&position) && self.outputs.len() >= usize::from(u16::MAX) {
+            return Err(StepAssemblyError::TooManyOutputBlocks);
+        }
+        Ok(())
+    }
+
+    fn reserve_visible_output_position(
         &mut self,
         position: ModelOutputPosition,
     ) -> Result<(), StepAssemblyError> {
+        self.reserve_output_position(position)?;
         if !self.outputs.contains_key(&position) {
             if self
-                .last_output_position
+                .last_visible_output_position
                 .is_some_and(|prior| position < prior)
             {
                 return Err(StepAssemblyError::OutOfOrderOutputPosition);
             }
-            if self.outputs.len() >= usize::from(u16::MAX) {
-                return Err(StepAssemblyError::TooManyOutputBlocks);
-            }
-            self.last_output_position = Some(position);
+            self.last_visible_output_position = Some(position);
         }
         Ok(())
     }

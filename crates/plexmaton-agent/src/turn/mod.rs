@@ -1478,6 +1478,49 @@ mod tests {
         );
     }
 
+    /// PRV-2/JRN-6: parallel calls may complete out of order because they remain buffered until
+    /// the declaration-order batch is dispatched.
+    #[test]
+    fn reverse_parallel_call_completion_is_sorted_before_dispatch() {
+        let mut agent = agent();
+        submit(&mut agent, "parallel calls");
+        streamed(
+            &mut agent,
+            ModelEvent::Called {
+                position: ModelOutputPosition::new(1, 0),
+                call: ToolCall {
+                    call_id: id("second"),
+                    name: "read".to_owned(),
+                    arguments: "{}".to_owned(),
+                },
+            },
+        );
+        streamed(
+            &mut agent,
+            ModelEvent::Called {
+                position: ModelOutputPosition::new(0, 0),
+                call: ToolCall {
+                    call_id: id("first"),
+                    name: "read".to_owned(),
+                    arguments: "{}".to_owned(),
+                },
+            },
+        );
+
+        let stopped = stop_before_admission(&mut agent, StopReason::ToolCalls);
+        let call_ids: Vec<_> = stopped
+            .effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::AdmitTool(request) => Some(request.requested().call_id.as_str()),
+                Effect::CallModel(_) | Effect::RunTool(_) => None,
+            })
+            .collect();
+
+        assert_eq!(call_ids, ["first", "second"]);
+        assert!(runtime_messages(&stopped).is_empty());
+    }
+
     /// PRV-2/JRN-3: a non-provider model driver cannot grow canonical text past its bound.
     #[test]
     fn oversized_semantic_text_fails_before_canonical_commit() {
@@ -2316,17 +2359,18 @@ mod tests {
         assert!(resumed.recover_after_process_death().is_none());
     }
 
-    /// JRN-5/JRN-7: a crash between the assistant-output append and its first request-state append
-    /// still materializes one cancelled result, so the immutable batch becomes provider-safe.
+    /// JRN-5/JRN-7: every recovery prefix completes requested and not-yet-requested calls once,
+    /// preserving the model's declaration order across repeated process deaths.
     #[test]
     fn recovery_completes_calls_declared_before_their_request_record() {
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
         let session_id =
             SessionId::new("agent-a-session").unwrap_or_else(|error| panic!("session: {error}"));
         let mut source = bare_agent();
-        let mut records = source.announce("Agent A").records;
-        records.extend(submit(&mut source, "inspect").records);
-        call(&mut source, "crash-prefix");
+        let mut base_records = source.announce("Agent A").records;
+        base_records.extend(submit(&mut source, "inspect").records);
+        call(&mut source, "crash-one");
+        call(&mut source, "crash-two");
         let stopped = stop_before_admission(&mut source, StopReason::ToolCalls);
         let output_index = stopped
             .records
@@ -2339,40 +2383,83 @@ mod tests {
                 )
             })
             .unwrap_or_else(|| panic!("stopped step omitted assistant output"));
-        records.extend(stopped.records[..=output_index].iter().cloned());
-        let mut journal = SessionJournal::new(session_id);
-        for record in records {
-            journal
-                .apply(record)
-                .unwrap_or_else(|error| panic!("apply crash prefix: {error:?}"));
-        }
-        let mut resumed = Agent::from_journal(
-            agent_id,
-            journal,
-            TurnBudget::default(),
-            ApprovalPolicy::default(),
-        )
-        .unwrap_or_else(|error| panic!("resume crash prefix: {error:?}"));
-
-        let recovery = resumed
-            .recover_after_process_death()
-            .unwrap_or_else(|| panic!("declared call was mistaken for clean state"));
-        assert!(recovery.records.iter().any(|record| matches!(
-            record,
-            JournalRecord::AppendEntry { entry, .. }
-                if matches!(entry.payload, JournalEntryPayload::ToolCallRequested { .. })
-        )));
-        let projection = resumed
-            .rebuild_projection()
-            .unwrap_or_else(|error| panic!("recovered call must project: {error:?}"));
-        assert!(projection.recovery().is_none());
-        assert!(matches!(
-            context_results(&projection.request().atoms).last(),
-            Some(result)
-                if result.outcome() == &ToolOutcome::Cancelled {
-                    reason: ToolCancellationReason::ProcessDied,
+        let first_requested_index = stopped
+            .records
+            .iter()
+            .enumerate()
+            .skip(output_index + 1)
+            .find_map(|(index, record)| match record {
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::ToolCallRequested { .. }) =>
+                {
+                    Some(index)
                 }
-        ));
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("stopped step omitted its first requested call"));
+
+        for durable_stop in [output_index, first_requested_index] {
+            let mut crash_records = base_records.clone();
+            crash_records.extend(stopped.records[..=durable_stop].iter().cloned());
+            let build_journal = || {
+                let mut journal = SessionJournal::new(session_id.clone());
+                for record in &crash_records {
+                    journal
+                        .apply(record.clone())
+                        .unwrap_or_else(|error| panic!("apply crash prefix: {error:?}"));
+                }
+                journal
+            };
+            let mut planned = Agent::from_journal(
+                agent_id.clone(),
+                build_journal(),
+                TurnBudget::default(),
+                ApprovalPolicy::default(),
+            )
+            .unwrap_or_else(|error| panic!("plan recovery: {error:?}"));
+            let expected = planned
+                .recover_after_process_death()
+                .unwrap_or_else(|| panic!("declared calls were mistaken for clean state"))
+                .records;
+
+            for recovered_prefix in 0..=expected.len() {
+                let mut journal = build_journal();
+                for record in &expected[..recovered_prefix] {
+                    journal.apply(record.clone()).unwrap_or_else(|error| {
+                        panic!("apply recovery prefix {recovered_prefix}: {error:?}")
+                    });
+                }
+                let mut resumed = Agent::from_journal(
+                    agent_id.clone(),
+                    journal,
+                    TurnBudget::default(),
+                    ApprovalPolicy::default(),
+                )
+                .unwrap_or_else(|error| panic!("resume recovery prefix: {error:?}"));
+                let continued = resumed
+                    .recover_after_process_death()
+                    .map_or_else(Vec::new, |reaction| reaction.records);
+                assert_eq!(continued, expected[recovered_prefix..]);
+                let projection = resumed
+                    .rebuild_projection()
+                    .unwrap_or_else(|error| panic!("recovered calls must project: {error:?}"));
+                assert!(projection.recovery().is_none());
+                let results = context_results(&projection.request().atoms);
+                assert_eq!(
+                    results
+                        .iter()
+                        .map(|result| result.call_id().as_str())
+                        .collect::<Vec<_>>(),
+                    ["crash-one", "crash-two"]
+                );
+                assert!(results.iter().all(|result| {
+                    result.outcome()
+                        == &ToolOutcome::Cancelled {
+                            reason: ToolCancellationReason::ProcessDied,
+                        }
+                }));
+            }
+        }
     }
 
     /// JRN-5: every durable prefix of recovery either resumes the same suffix or is complete.
