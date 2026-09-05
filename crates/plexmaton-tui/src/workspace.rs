@@ -33,6 +33,8 @@ mod approval_pointer;
 mod approval_queue_tests;
 #[cfg(test)]
 mod markdown_tests;
+#[cfg(test)]
+mod palette_tests;
 mod pointer;
 mod retry;
 mod session_picker;
@@ -144,13 +146,22 @@ impl Workspace {
 
     /// Builds a workspace that paints with `palette`.
     ///
-    /// The default workspace uses [`Palette::ansi`]. A colourway is a palette, so swapping one is
-    /// construction, not a later rewrite of the widgets (`theme`).
+    /// The default workspace uses [`Palette::ansi`]. Widgets resolve semantic roles through this
+    /// value; replacing it with [`Self::set_palette`] changes presentation, not widget definitions.
     #[must_use]
     pub fn with_palette(palette: Palette) -> Self {
         Self {
             palette,
             ..Self::default()
+        }
+    }
+
+    /// Replace presentation styles without changing semantic state, height geometry or selection.
+    /// Reapplying the same palette is a no-op; a changed palette requests one repaint (FR-1/TR-1).
+    pub fn set_palette(&mut self, palette: Palette) {
+        if self.palette != palette {
+            self.palette = palette;
+            self.painted = None;
         }
     }
 
@@ -289,6 +300,14 @@ impl Workspace {
         self.state.show_configuration(summary);
     }
 
+    /// Whether projection changes, resize or palette replacement need another frame (FR-1).
+    ///
+    /// A presentation batch can use this gate without owning another copy of the painted revision.
+    #[must_use]
+    pub fn needs_draw(&self) -> bool {
+        self.painted != Some(self.state.revision())
+    }
+
     /// Draws a frame if the projection changed since the last one, and reports what it cost.
     ///
     /// `None` means nothing needed painting. Ambient background activity and input the workspace
@@ -298,7 +317,7 @@ impl Workspace {
         &mut self,
         terminal: &mut Terminal<B>,
     ) -> Result<Option<FrameWork>, B::Error> {
-        if self.painted == Some(self.state.revision()) {
+        if !self.needs_draw() {
             return Ok(None);
         }
         let wrapped = self.metrics.wrapped();

@@ -4,7 +4,16 @@ use ratatui::{
     text::{Line, Span},
 };
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+
+mod breaks;
+use breaks::{Breaks, Row};
+#[cfg(test)]
+mod tests;
+
+/// Count the same source breaks painting consumes, without allocating rows, styles or copy maps.
+pub(crate) fn count(text: &str, width: usize, literal: bool) -> usize {
+    Breaks::new(text, width, literal).count()
+}
 
 pub(crate) fn wrap(line: Line<'static>, width: usize, literal: bool) -> Vec<Line<'static>> {
     ranges(line, width, literal)
@@ -28,74 +37,33 @@ pub(crate) fn ranges(
         styles.push((text.len(), line.style.patch(span.style)));
     }
     let mut style_index = 0;
-    let cells: Vec<_> = text
-        .grapheme_indices(true)
-        .map(|(offset, grapheme)| {
-            while styles
-                .get(style_index)
-                .is_some_and(|(end, _)| offset >= *end)
-            {
-                style_index += 1;
-            }
-            (
-                grapheme,
-                styles
-                    .get(style_index)
-                    .map_or(Style::default(), |(_, style)| *style),
-                offset,
-            )
-        })
-        .collect();
-    let mut rows = Vec::new();
-    let mut start = 0;
-    while start < cells.len() {
-        let mut end = start;
-        let mut used = 0;
-        let mut space = None;
-        while end < cells.len() {
-            let n = cells[end].0.width();
-            if used + n > width {
-                break;
-            }
-            if cells[end].0 == " " {
-                space = Some(end);
-            }
-            used += n;
-            end += 1;
-        }
-        if end == start {
-            // A grapheme wider than the viewport gets a visible marker, not half a glyph.
-            rows.push((
-                Line::styled("�", cells[start].1),
-                cells[start].2..cells[start].2 + cells[start].0.len(),
-            ));
-            start += 1;
-            continue;
-        }
-        let mut next = end;
-        if !literal
-            && end < cells.len()
-            && let Some(at) = space.filter(|at| *at > start)
+    let mut style_at = |offset| {
+        while styles
+            .get(style_index)
+            .is_some_and(|(end, _)| offset >= *end)
         {
-            end = at;
-            next = at + 1;
+            style_index += 1;
         }
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (text, style, _) in &cells[start..end] {
-            if let Some(last) = spans.last_mut().filter(|last| last.style == *style) {
-                last.content.to_mut().push_str(text);
-            } else {
-                spans.push(Span::styled((*text).to_owned(), *style));
+        styles
+            .get(style_index)
+            .map_or(Style::default(), |(_, style)| *style)
+    };
+    Breaks::new(&text, width, literal)
+        .map(|row| {
+            let range = row.source();
+            if matches!(row, Row::Replacement(_)) {
+                return (Line::styled("�", style_at(range.start)), range);
             }
-        }
-        rows.push((
-            Line::from(spans),
-            cells[start].2..cells[end - 1].2 + cells[end - 1].0.len(),
-        ));
-        start = next;
-    }
-    if rows.is_empty() {
-        rows.push((Line::default(), 0..0));
-    }
-    rows
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            for (offset, grapheme) in text[range.clone()].grapheme_indices(true) {
+                let style = style_at(range.start + offset);
+                if let Some(last) = spans.last_mut().filter(|last| last.style == style) {
+                    last.content.to_mut().push_str(grapheme);
+                } else {
+                    spans.push(Span::styled(grapheme.to_owned(), style));
+                }
+            }
+            (Line::from(spans), range)
+        })
+        .collect()
 }

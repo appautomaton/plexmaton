@@ -46,7 +46,7 @@ fn main() -> Result<()> {
 }
 
 fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) -> Result<Buffer> {
-    let mut workspace = Workspace::with_palette(palette);
+    let mut workspace = Workspace::with_palette(Palette::ansi());
     let agent = AgentId::new("primary")?;
     let mut events = vec![SessionEvent::AgentCreated {
         agent_id: agent.clone(),
@@ -86,6 +86,8 @@ fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) ->
     );
     workspace.set_status_line(footer, 6);
     let mut terminal = Terminal::new(TestBackend::new(width, height))?;
+    workspace.draw(&mut terminal)?;
+    workspace.set_palette(palette);
     workspace.draw(&mut terminal)?;
     Ok(terminal.backend().buffer().clone())
 }

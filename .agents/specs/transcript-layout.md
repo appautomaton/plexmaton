@@ -14,7 +14,7 @@ same wrapper that paints it (surface-model §viewports) and is recomputed only w
 revision, open state, anchored restoration feedback/retry actions, or the panel's width changes: a delta re-measures one entry, disclosure
 re-measures one entry at each retained width, a resize re-measures each entry once, a tool lifecycle
 update re-measures its one stable entry, and an unchanged frame re-measures none. A palette change
-invalidates its styled layouts and heights once (MD-4). Text, tool, artifact and mail entries use
+invalidates styled layouts, not height geometry (MD-4). Text, tool, artifact and mail entries use
 the same ordered height cache. Markdown's separately bounded layout cache follows MD-4; evicting
 styled rows does not discard heights or anchors. Width is part of the key,
 because a conversation changes
@@ -82,6 +82,12 @@ arithmetic over a `Vec`, not wrapping, and `TranscriptMetrics::wrapped` and `::l
 what make the claim testable. What those walks cost is measured in [frame-loop](./frame-loop.md)
 §cost.
 
+Literal messages measure through the same borrowed row-break iterator that produces styled lines
+and copy ranges. Counting allocates neither glyph/style vectors nor hidden-message layouts. Rich
+Markdown and other entry kinds retain their exact preparation path; styling remains in the bounded
+layout cache, while height identity excludes palette. A palette replacement requests one repaint
+without changing projection, selection or anchors; assigning the same palette does nothing.
+
 ## Failure modes
 
 | Situation | Response |
@@ -97,7 +103,7 @@ what make the claim testable. What those walks cost is measured in [frame-loop](
 
 | Invariant | Proven by |
 | --- | --- |
-| TR-1 | `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
+| TR-1 | `literal_height_without_presentation_matches_the_drawn_paragraph`, `shared_break_geometry_keeps_empty_unicode_whitespace_and_replacement_behavior`, `shared_geometry_matches_the_independent_vector_reference`, `palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths`, `palette_workload_repaints_without_height_work_at_both_history_scales`, `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
 | TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `maximum_newline_detail_and_the_entry_after_it_remain_reachable`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_open_tool_frames_match_their_fixtures` |
 | TR-3 | `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `an_anchor_round_trips_through_the_row_it_names`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |

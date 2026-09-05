@@ -15,6 +15,25 @@ use ratatui::crossterm::event::{
 
 use super::{Harness, RESIZES, Run, SIZE, WorkloadSamples};
 
+/// Colors repaint the same retained geometry; no height preparation belongs to a palette change.
+pub(super) fn palette_change(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
+    harness.warm(usize::MAX)?;
+    let mut run = Run::new("palette change");
+    for sample in 0..samples.repeated {
+        let palette = if sample % 2 == 0 {
+            plexmaton_tui::Palette::pastel()
+        } else {
+            plexmaton_tui::Palette::ansi()
+        };
+        let started = Instant::now();
+        harness.workspace.set_palette(palette);
+        let work = harness.draw()?;
+        run.record(started.elapsed(), work);
+    }
+    Ok(run.finish(&harness))
+}
+
 /// The first frame on a conversation nothing has measured.
 ///
 /// The one frame that is deliberately proportional to history: knowing how tall a conversation is
@@ -423,6 +442,16 @@ mod tests {
         repeated: 40,
         cold: 2,
     };
+
+    /// FR-1/FR-4/TR-1: every theme sample repaints, while no sample remeasures history.
+    #[test]
+    fn palette_workload_repaints_without_height_work_at_both_history_scales() {
+        for scale in [500, 5000] {
+            let run = super::palette_change(scale, TEST_SAMPLES).expect("palette workload");
+            assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
+            assert_eq!(run.wrapped, 0);
+        }
+    }
 
     /// SEL-1/MD-4/FR-4: text dragging produces every frame without layout work at either history scale.
     #[test]

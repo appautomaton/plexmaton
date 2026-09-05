@@ -99,6 +99,31 @@ pub(crate) fn transcript_layout(
 /// grammar).
 const GUTTER: &str = "▌";
 
+/// TR-1: literal height consumes the same row breaks as drawing, without preparing hidden text.
+pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option<usize> {
+    if item.kind == TranscriptTextKind::Message
+        && item.role == TranscriptRole::Assistant
+        && crate::markdown::may_format(&item.source)
+    {
+        return None;
+    }
+    if width == 0 {
+        return Some(0);
+    }
+    let (heading, _) = text_treatment(item);
+    let gutter = item.kind == TranscriptTextKind::Message && item.role == TranscriptRole::User;
+    let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
+    let body: usize = item
+        .source
+        .split('\n')
+        .map(|line| crate::text_layout::wrap::count(line, reserved, false))
+        .sum();
+    let heading = heading.map_or(0, |(label, _)| {
+        crate::text_layout::wrap::count(label, usize::from(width), false)
+    });
+    Some(body + heading + 1)
+}
+
 fn transcript_text(
     item: &TranscriptItemView,
     palette: &Palette,
@@ -236,11 +261,60 @@ pub(crate) fn conversation_placeholder(
 mod tests {
     use plexmaton_core::{TranscriptItemId, TranscriptRole};
 
-    use super::transcript_text;
+    use super::{literal_text_rows, transcript_text};
     use crate::{
         TranscriptItemView, TranscriptTextKind,
         theme::{Palette, Role},
     };
+
+    /// TR-1/MD-2: measurement-only geometry agrees with the actual paragraph at every small width.
+    #[test]
+    fn literal_height_without_presentation_matches_the_drawn_paragraph() {
+        use ratatui::widgets::{Paragraph, Wrap};
+        for source in [
+            "",
+            "short text",
+            "long unbroken abcdefghijklmnopqrstuvwxyz",
+            "中🙂e\u{301}",
+            "line one\n\nline three\n",
+            " tab\t and carriage\r",
+            "**literal marks**",
+        ] {
+            for (role, kind) in [
+                (TranscriptRole::User, TranscriptTextKind::Message),
+                (TranscriptRole::Assistant, TranscriptTextKind::Message),
+                (TranscriptRole::Reasoning, TranscriptTextKind::Message),
+                (TranscriptRole::System, TranscriptTextKind::Warning),
+                (TranscriptRole::System, TranscriptTextKind::Error),
+            ] {
+                let item = TranscriptItemView {
+                    id: TranscriptItemId::new("height").expect("id"),
+                    source: source.into(),
+                    role,
+                    kind,
+                    revision: 0,
+                    finalized: true,
+                };
+                if role == TranscriptRole::Assistant && crate::markdown::may_format(source) {
+                    assert_eq!(literal_text_rows(&item, 60), None);
+                    continue;
+                }
+                for palette in [Palette::ansi(), Palette::pastel(), Palette::monochrome()] {
+                    for width in [0, 1, 4, 5, 6, 12, 58, 86, 118] {
+                        let lines = transcript_text(&item, &palette, false, width).lines;
+                        let expected = Paragraph::new(lines)
+                            .wrap(Wrap { trim: false })
+                            .line_count(width);
+                        assert_eq!(
+                            literal_text_rows(&item, width),
+                            Some(expected),
+                            "{source:?} / {role:?} / {kind:?} at {width}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     /// ENT-1: explicit plaintext reasoning, runtime system text, warnings, and errors each keep a
     /// named monochrome treatment and a semantic palette role.

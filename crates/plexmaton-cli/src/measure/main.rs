@@ -46,11 +46,15 @@ pub(crate) struct WorkloadSamples {
 /// The sizes the resize workload cycles through: ultrawide, wide, and narrow.
 pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
 
+mod rich_layout;
+#[path = "../stream_frames.rs"]
+mod stream_frames;
+mod streaming;
 mod workloads;
 
 use workloads::{
     cold_open, compact_tool_entries, hidden_conversation, inspector, interleaved, open_tool_entry,
-    resize, select, streaming, text_drag, two_conversations, wheel,
+    palette_change, resize, select, streaming, text_drag, two_conversations, wheel,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -63,6 +67,7 @@ fn main() -> anyhow::Result<()> {
         runs.push(open_tool_entry(messages, REPORT_SAMPLES)?);
         runs.push(wheel(messages, REPORT_SAMPLES)?);
         runs.push(resize(messages, REPORT_SAMPLES)?);
+        runs.push(palette_change(messages, REPORT_SAMPLES)?);
         runs.push(inspector(messages, REPORT_SAMPLES)?);
         runs.push(hidden_conversation(messages, REPORT_SAMPLES)?);
         runs.push(two_conversations(messages, REPORT_SAMPLES)?);
@@ -70,6 +75,8 @@ fn main() -> anyhow::Result<()> {
         runs.push(text_drag(messages, REPORT_SAMPLES)?);
     }
     report(&runs);
+    streaming::report()?;
+    rich_layout::report()?;
     Ok(())
 }
 

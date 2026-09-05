@@ -27,7 +27,7 @@ mod transcript_presentation;
 
 pub(crate) use approval_presentation::{approval, approval_option_label, attention, detail_rows};
 pub(crate) use transcript_presentation::{
-    conversation_placeholder, transcript_entry, transcript_layout,
+    conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout,
 };
 
 /// The list of sub-agents: identity, lifecycle, and which one is being looked at.

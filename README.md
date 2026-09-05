@@ -73,12 +73,13 @@ edits. Context requires API-reported usage; unknown statistics stay hidden.
 Quit/Ctrl-P hints occupy the last terminal row.
 [Protocol, limits and configuration](.agents/specs/status-line.md).
 
-Assistant Markdown has pastel accents, code blocks and tables; chrome follows the terminal.
-Drag to select across entries; release copies plain text. The Copy icon keeps raw Markdown.
-Approvals stay in the conversation; Esc returns to input, Tab/click returns to the card.
+Pastel assistant Markdown supports code blocks and tables; chrome stays terminal-owned.
+Streams coalesce; input bypasses their timer.
+Drag across entries to copy plain text on release; the Copy icon keeps raw Markdown.
+In-conversation approvals: Esc focuses input; Tab/click focuses the card.
 See [keys](.agents/specs/interaction-routing.md#key-grammar) and
 [copy](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
 
 Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md).
-`python3 scripts/smoke-tui.py` covers terminal/input lifecycle; `python3 scripts/smoke-statusline.py`
-covers the configured footer without model calls. Enable hooks with `git config core.hooksPath .githooks`.
+`python3 scripts/smoke-tui.py` checks terminal/input lifecycle; `python3 scripts/smoke-statusline.py`
+checks the footer without model calls. Hooks: `git config core.hooksPath .githooks`.

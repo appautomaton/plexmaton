@@ -30,7 +30,7 @@ entries and 4 MiB of accounted allocation capacity, including text maps, keyed b
 revision, width, disclosure and palette. Its widths follow TR-1's two-width height cache. Measurement and painting share rows;
 hover and selection do not invalidate them. A delta replaces its old revision. An evicted layout
 is rebuilt only when reached again; oversized literal fallbacks stay uncached. Height metadata
-outlives layout eviction, preserving scroll geometry. `text_layouts()` counts layout/map misses.
+outlives layout eviction and palette replacement, preserving scroll geometry. `text_layouts()` counts layout/map misses.
 Plain prose without any supported syntax trigger keeps the literal path; admission never parses
 Markdown or infers formatting from regular expressions.
 
@@ -52,4 +52,4 @@ Markdown without an explicit product decision.
 | MD-2 | `markdown_tables_keep_all_values_at_wide_and_narrow_widths`, `markdown_streaming_prefixes_and_unicode_never_overflow`, `markdown_frames_show_messages_at_three_widths`, `markdown_resize_round_trip_preserves_the_parked_frame` |
 | MD-3 | `markdown_controls_and_limits_are_explicit`, `markdown_streaming_prefixes_and_unicode_never_overflow` |
 | MD-4 | `markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions`, `markdown_cache_byte_pressure_evicts_and_rebuilds_the_lru`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_admission_keeps_plain_history_on_the_lightweight_path`, `markdown_resize_round_trip_preserves_the_parked_frame` |
-| MD-5 | `markdown_pastel_leaves_all_workspace_roles_unchanged`, `markdown_pastel_changes_only_style_and_keeps_nested_modifiers`, `markdown_theme_change_rebuilds_once_then_reuses_colored_rows`; user-approved [88-column sample](../../crates/plexmaton-tui/frames/markdown-style-88.svg), with 60/120-column review frames alongside it |
+| MD-5 | `palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths`, `markdown_pastel_leaves_all_workspace_roles_unchanged`, `markdown_pastel_changes_only_style_and_keeps_nested_modifiers`, `markdown_theme_change_rebuilds_once_then_reuses_colored_rows`; user-approved [88-column sample](../../crates/plexmaton-tui/frames/markdown-style-88.svg), with 60/120-column review frames alongside it |

@@ -70,7 +70,6 @@ struct Measured {
 #[derive(Debug)]
 struct AtWidth {
     width: u16,
-    palette: Palette,
     items: Vec<Measured>,
 }
 
@@ -121,9 +120,6 @@ impl TranscriptMetrics {
         disclosure: &DisclosureState,
     ) -> usize {
         let cached = self.by_agent.entry(agent.id.clone()).or_default();
-        if cached.iter().any(|cached| cached.palette != *palette) {
-            cached.clear();
-        }
         // Front is most recently measured, so the width a frame stopped drawing at is the one
         // evicted. Both live widths are measured every frame, so neither can evict the other.
         match cached.iter().position(|entry| entry.width == width) {
@@ -136,7 +132,6 @@ impl TranscriptMetrics {
                 0,
                 AtWidth {
                     width,
-                    palette: *palette,
                     items: Vec::new(),
                 },
             ),
@@ -488,12 +483,17 @@ impl TranscriptMetrics {
 
 /// Wraps one entry at the panel's inner width.
 ///
-/// No block is attached: `Paragraph::line_count` adds a block's border rows when one is set, and an
-/// entry's height is the entry alone. It is still the renderer's own wrapper, so measuring and
-/// painting stay one computation (surface-model §viewports).
+/// Ordinary text counts the same borrowed row breaks that construct its visible layout; hidden
+/// messages need no styles or copy maps. Other entry kinds use the exact prepared paragraph,
+/// without a block, so no surface-border rows enter their heights (surface-model §viewports).
 fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16, open: bool) -> usize {
     if width == 0 {
         return 0;
+    }
+    if let TranscriptEntryView::Text(text) = item
+        && let Some(rows) = content::literal_text_rows(text, width)
+    {
+        return rows;
     }
     // Measured unselected, deliberately: selection changes a style and never a character, so a
     // height that depended on it would invalidate the cache on every arrow press for no reason.

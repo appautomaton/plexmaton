@@ -33,6 +33,7 @@ mod retry;
 mod session;
 mod session_picker;
 mod statusline;
+mod stream_frames;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
@@ -320,13 +321,18 @@ async fn drive_session(
     status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
+    let mut frames = stream_frames::StreamFrames::new(Instant::now());
     loop {
-        workspace.draw(terminal).context("draw TUI frame")?;
+        frames
+            .draw(workspace, terminal, Instant::now())
+            .context("draw TUI frame")?;
         let note_deadline = workspace.note_deadline();
         let drag_deadline = workspace.drag_autoscroll_deadline();
+        let frame_deadline = frames.deadline();
 
         tokio::select! {
             update = picker.next() => {
+                frames.flush(workspace);
                 if picker.apply(update, runtime, workspace).await? && let Some(status) = status_line {
                     status.mark_dirty();
                 }
@@ -348,6 +354,7 @@ async fn drive_session(
             () = wait_for_deadline(drag_deadline) => {
                 workspace.advance_drag_autoscroll(Instant::now());
             }
+            () = wait_for_deadline(frame_deadline) => {}
             runtime_update = runtime.next_update() => {
                 match runtime_update.context("receive live runtime update")? {
                     RuntimeUpdate::Event(event) => {
@@ -355,15 +362,20 @@ async fn drive_session(
                             | plexmaton_core::SessionEvent::AgentStatusChanged { .. }
                             | plexmaton_core::SessionEvent::TurnUsageUpdated { .. })
                             && let Some(status) = status_line { status.mark_dirty(); }
-                        workspace.emit(vec![event]);
+                        frames.receive(workspace, event);
                         retry::sync_actions(runtime, workspace);
                     }
                     RuntimeUpdate::Report(report) => {
+                        frames.flush(workspace);
                         if let Some(status) = status_line { status.mark_dirty(); }
                         restore_undelivered(workspace, runtime.agent_id().clone(), report);
                         retry::sync_actions(runtime, workspace);
                     }
-                    RuntimeUpdate::Finished => break,
+                    RuntimeUpdate::Finished => {
+                        frames.flush(workspace);
+                        frames.draw(workspace, terminal, Instant::now()).context("draw final TUI frame")?;
+                        break;
+                    }
                 }
             }
             terminal_event = terminal_events.next() => {
@@ -371,7 +383,7 @@ async fn drive_session(
                     Some(Ok(event)) => {
                         if matches!(event, crossterm::event::Event::Resize(..))
                             && let Some(status) = status_line { status.mark_dirty(); }
-                        let outcome = workspace.handle(&event);
+                        let outcome = frames.handle(workspace, &event);
                         picker.observe_closed(workspace);
                         if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker).await? {
                             break;
@@ -428,7 +440,7 @@ async fn next_status_update(status: &mut Option<statusline::StatusLine>) -> stat
     }
 }
 
-/// Owns the quit chord's one-shot wake without adding an animation clock or background task.
+/// Waits for an owned deadline; an absent deadline adds no ambient clock or background task.
 async fn wait_for_deadline(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,

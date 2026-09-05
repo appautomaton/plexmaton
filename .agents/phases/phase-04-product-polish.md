@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–6 complete |
+| Status | Active; stages 1–6 complete; stage 7 rendering performance delivered, native math foundation pending |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -46,7 +46,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
    model/terminal use remains unverified; no model requests were made by validation.
 5. **Test-quality hardening — complete.** [Testing](../standards/testing.md) and
    [quality gates](../standards/quality-gates.md)
-   covers gate integrity, readiness-driven smoke, blocking process fixtures, parser/cache witnesses,
+   cover gate integrity, readiness-driven smoke, blocking process fixtures, parser/cache witnesses,
    owned test directories and shared/cropped frame fixtures. A reproducible duplicate-descriptor
    regression also fixes JRN-4 writer-lock release. Workspace gates, 17 script regressions and
    offline PTY smokes passed; the runtime suite passed two extra consecutive runs after the fix.
@@ -67,7 +67,11 @@ Visual changes are reviewed against real frames before the contract adopts them.
    new dependency was added; a rich-Markdown performance budget remains unmeasured.
    Single-agent samples do not prescribe an A2A layout. Notification and agent interaction changes
    are explicitly deferred by the user.
-7. **Branding.** A rounded-square frame and circular gradient center form the user's visual
+7. **Responsive native math — in progress.** [Stage 7](../plans/phase-04-stage-07-math-typesetting.md)
+   delivers bounded streaming frames, shared wrap geometry and palette-independent heights.
+   [FR-4/FR-5](../specs/frame-loop.md) own performance and source-preservation evidence.
+   Native math admission, owned preparation/transport and atomic formula interaction remain.
+8. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
 
