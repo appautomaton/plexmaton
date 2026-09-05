@@ -17,7 +17,7 @@ use crossterm::{
 use futures_util::StreamExt;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
-use plexmaton_provider::{resolve_api_key, resolve_home};
+use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{
     CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
     RuntimeUpdate, SessionRecovery,
@@ -29,11 +29,16 @@ use plexmaton_tui::{
 use ratatui::DefaultTerminal;
 
 mod clipboard;
+mod project_config;
 mod retry;
 mod session;
 mod session_picker;
+mod skills;
+mod startup;
 mod statusline;
 mod stream_frames;
+
+use startup::live_runtime_from_process;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
@@ -119,56 +124,6 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn live_runtime_from_process(
-    selection: SessionSelection,
-) -> anyhow::Result<(
-    OpenedSession,
-    PathBuf,
-    session_picker::SessionPicker,
-    Option<statusline::StatusLine>,
-)> {
-    let configured_home = std::env::var_os("PLEXMATON_HOME");
-    let user_home = std::env::var_os("HOME").map(PathBuf::from);
-    let root = resolve_home(configured_home.as_deref(), user_home.as_deref())
-        .context("resolve Plexmaton configuration root")?;
-    let path = root.join("config.toml");
-    let source = fs::read_to_string(&path)
-        .with_context(|| format!("read provider configuration at {}", path.display()))?;
-    let (config, status_config) = statusline::parse(&source)?;
-    let model = config.active_model().clone();
-    let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
-        .context("resolve provider API key")?;
-    let workspace_root = std::env::current_dir()
-        .context("resolve tool workspace")?
-        .canonicalize()
-        .context("canonicalize tool workspace")?;
-    let ripgrep = resolve_path_executable("rg", std::env::var_os("PATH").as_deref())?;
-    let driver = std::env::current_exe()
-        .context("resolve Plexmaton executable for the search driver")?
-        .canonicalize()
-        .context("canonicalize Plexmaton search driver")?;
-    let tools = NativeToolCatalog::open(
-        &workspace_root,
-        model.api_key_env(),
-        ripgrep.clone(),
-        driver.clone(),
-        vec![OsString::from(INTERNAL_RG_DRIVER)],
-    )
-    .context("configure native workspace tools")?;
-    let picker = session_picker::SessionPicker::new(session_picker::Launcher {
-        root: root.clone(),
-        workspace: workspace_root.clone(),
-        model: model.clone(),
-        ripgrep,
-        driver,
-    });
-    let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let status_line = status_config
-        .map(|config| statusline::StatusLine::new(config, model.clone(), workspace_root.clone()));
-    let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
-    Ok((opened, workspace_root, picker, status_line))
-}
-
 /// Project only display values from the same model handed to the runtime (INV-12, PRV-6).
 fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> ConfigurationSummary {
     ConfigurationSummary {
@@ -235,6 +190,10 @@ async fn run(
     // The script footer retains its independent colors; neither choice rethemes the other.
     let mut workspace =
         Workspace::with_palette(Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel));
+    skills::sync_choices(&runtime, &mut workspace);
+    for diagnostic in runtime.skill_diagnostics() {
+        workspace.report_skill_diagnostic(diagnostic);
+    }
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
@@ -453,6 +412,7 @@ async fn wait_for_deadline(deadline: Option<Instant>) {
 struct AddressedInput {
     to: AgentId,
     input: Input,
+    skill: Option<String>,
 }
 
 /// Preserves the route named by the visible input as the loop's own vocabulary (COM-4, LOOP-6).
@@ -468,6 +428,7 @@ fn route_submission(submission: Submission) -> AddressedInput {
     AddressedInput {
         to: submission.to,
         input,
+        skill: submission.skill,
     }
 }
 
@@ -476,6 +437,7 @@ fn route_interrupt(to: AgentId) -> AddressedInput {
     AddressedInput {
         to,
         input: Input::Interrupted,
+        skill: None,
     }
 }
 
@@ -487,6 +449,7 @@ fn route_approval(approval: ApprovalSubmission) -> AddressedInput {
             approval_id: approval.approval_id,
             decision: approval.decision,
         },
+        skill: None,
     }
 }
 
@@ -503,6 +466,8 @@ async fn dispatch_live(
     if matches!(
         addressed.input,
         Input::Streamed { .. }
+            | Input::SkillSubmitted { .. }
+            | Input::SkillSteered { .. }
             | Input::Failed { .. }
             | Input::ToolAdmissionResolved(_)
             | Input::ToolFinished { .. }
@@ -511,21 +476,32 @@ async fn dispatch_live(
         bail!("the TUI produced an input reserved for the producer");
     }
     let to = addressed.to.clone();
-    let report = runtime
-        .submit(addressed.to, addressed.input)
-        .await
-        .context("dispatch user input")?;
+    let report = match addressed.skill {
+        Some(name) => {
+            runtime
+                .submit_skill(addressed.to, addressed.input, name)
+                .await
+        }
+        None => runtime.submit(addressed.to, addressed.input).await,
+    }
+    .context("dispatch user input")?;
     restore_undelivered(workspace, to, report);
     Ok(())
 }
 
 fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchReport) {
+    if report.accepted_retry_edit.is_some() {
+        workspace.complete_retry_edit();
+    }
     if let Some(projection) = report.projection_reset {
         workspace.complete_retry_edit();
         workspace.replace_projection(projection);
     }
     for input in report.undelivered {
-        workspace.return_input(to.clone(), input.text);
+        workspace.return_skill_input(to.clone(), input.text, input.skill);
+    }
+    for message in report.skill_errors {
+        workspace.report_skill_diagnostic(message);
     }
     for failure in report.cleanup_failures {
         let notice = match failure {
@@ -601,7 +577,11 @@ mod tests {
             | Input::Failed { .. }
             | Input::ToolAdmissionResolved(_)
             | Input::ToolFinished { .. }
-            | Input::ShuttingDown => bail!("the TUI produced an input reserved for the producer"),
+            | Input::ShuttingDown
+            | Input::SkillSubmitted { .. }
+            | Input::SkillSteered { .. } => {
+                bail!("the TUI produced an input reserved for the producer")
+            }
         };
         workspace.emit(runtime.submit(command).context("dispatch user input")?);
         Ok(())
@@ -1251,6 +1231,7 @@ output_reserve_tokens = 5000
         assert!(agent.is_running());
 
         let steering = route_submission(Submission {
+            skill: None,
             to: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             text: "check the cache".to_owned(),
             kind: SubmissionKind::Steering,
@@ -1356,6 +1337,7 @@ output_reserve_tokens = 5000
             &mut runtime,
             &mut workspace,
             AddressedInput {
+                skill: None,
                 to: agent_id.clone(),
                 input: Input::Steered {
                     text: "do not lose this".to_owned(),
@@ -1396,6 +1378,7 @@ output_reserve_tokens = 5000
                 agent_id.clone(),
                 plexmaton_runtime::DispatchReport {
                     undelivered: vec![plexmaton_agent::UndeliveredInput {
+                        skill: None,
                         text: "keep this exact draft".to_owned(),
                         reason: plexmaton_agent::UndeliveredReason::PersistenceFailed,
                     }],
@@ -1451,6 +1434,7 @@ output_reserve_tokens = 5000
     fn shutdown_report_is_not_silently_discarded() {
         let error = surface_shutdown_report(plexmaton_runtime::DispatchReport {
             undelivered: vec![plexmaton_agent::UndeliveredInput {
+                skill: None,
                 text: "exact\ntext".to_owned(),
                 reason: plexmaton_agent::UndeliveredReason::Shutdown,
             }],
@@ -1550,6 +1534,7 @@ output_reserve_tokens = 5000
             &mut runtime,
             &mut workspace,
             AddressedInput {
+                skill: None,
                 to: agent_id,
                 input: Input::Submitted {
                     text: "Read the project name.".to_owned(),

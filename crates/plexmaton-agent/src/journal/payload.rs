@@ -4,7 +4,7 @@ use plexmaton_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{AssistantOutput, ModelStepId, ToolOutcome};
+use crate::{AssistantOutput, ModelStepId, SkillActivation, ToolOutcome};
 
 pub(crate) const PROCESS_RECOVERY_MESSAGE: &str = "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.";
 
@@ -47,6 +47,12 @@ pub enum JournalEntryPayload {
         turn_id: TurnId,
         text: String,
         accepted_at: crate::UnixMillis,
+    },
+    /// Exact explicit skill context attached immediately after its user input (SKL-5).
+    SkillActivated {
+        agent_id: AgentId,
+        turn_id: TurnId,
+        activation: SkillActivation,
     },
     /// One complete ordered model output, including calls and private replay attachments.
     AssistantOutput {

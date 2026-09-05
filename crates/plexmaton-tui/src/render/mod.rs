@@ -138,6 +138,7 @@ pub fn render(
             }),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::CommandPalette => Some(command_palette_panel(state, palette, bounds)),
+            SurfaceId::SkillPicker => Some(skill_picker_panel(state, palette, bounds)),
             SurfaceId::Configuration => {
                 let viewport = render_configuration(
                     frame,
@@ -282,10 +283,23 @@ fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
             layout::DecisionMode::Modal
         },
         command_palette_rows: state.command_palette_rows(),
+        skill_picker_rows: state.skill_picker_rows(),
         configuration_rows: state.configuration_rows(),
         rail: state.sub_agents().next().is_some(),
         composer_rows: state.composer_rows(composer_width),
         inspector,
+    }
+}
+
+fn skill_picker_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    Panel {
+        body: Body::Whole {
+            lines: content::skill_picker(state, palette, inner_width(bounds.width), bounds.height),
+            follows_tail: false,
+        },
+        title: title(palette, "Skills".to_owned(), Role::SectionHeading, ""),
+        badge: None,
+        edges: Edges::All,
     }
 }
 
@@ -1061,6 +1075,7 @@ mod tests {
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::CommandPalette => "Commands",
+                SurfaceId::SkillPicker => "Skills",
                 SurfaceId::Configuration => "Configuration",
             };
             let painted = region_text(&buffer, surface.bounds);

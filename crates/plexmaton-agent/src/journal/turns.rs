@@ -1,9 +1,40 @@
 use plexmaton_core::{AgentId, HeadName, SessionEntryId, TurnId};
 
-use super::{JournalError, SessionJournal};
+use super::{JournalEntryPayload, JournalError, JournalRecord, SessionJournal};
 use crate::{TurnFinished, TurnFinishedAt, TurnOutcome};
 
 impl SessionJournal {
+    pub(super) fn validate_skill_activation(
+        &self,
+        agent_id: &AgentId,
+        turn_id: &TurnId,
+        open_turn: Option<&TurnId>,
+    ) -> Result<(), JournalError> {
+        self.validate_steering(agent_id, turn_id, open_turn)?;
+        let follows_matching_input = self.records.last().is_some_and(|record| {
+            let JournalRecord::AppendEntry { entry, .. } = record else {
+                return false;
+            };
+            matches!(
+                &entry.payload,
+                JournalEntryPayload::TurnStarted {
+                    agent_id: input_agent,
+                    turn_id: input_turn,
+                    ..
+                }
+                | JournalEntryPayload::SteeringAccepted {
+                    agent_id: input_agent,
+                    turn_id: input_turn,
+                    ..
+                } if input_agent == agent_id && input_turn == turn_id
+            )
+        });
+        if !follows_matching_input {
+            return Err(JournalError::InvalidSkillActivationOrder(turn_id.clone()));
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_turn_finished(
         &self,
         fact: &TurnFinished,

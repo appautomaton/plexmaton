@@ -208,6 +208,11 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     Role::Failure,
                     "journal writer cleanup failed".to_owned(),
                 ),
+                NoticeView::SkillDiagnostic { message } => (
+                    "[skill] ",
+                    Role::Failure,
+                    format!("Skills · {}", inert_inline(message)),
+                ),
             };
             Line::from(vec![
                 Span::styled(marker, palette.style(role)),
@@ -215,6 +220,45 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
             ])
         })
         .collect()
+}
+
+/// Bounded composer completions; every choice occupies exactly one pointer-addressable row.
+pub(crate) fn skill_picker(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    height: u16,
+) -> Vec<Line<'static>> {
+    let picker = state.skill_picker();
+    let input = state.composer();
+    let visible = usize::from(height.saturating_sub(3));
+    let matches = picker.current_matches(input.text(), input.cursor());
+    let window = picker.window(input.text(), input.cursor(), visible);
+    let mut lines = Vec::with_capacity(window.len().saturating_add(1));
+    for choice in matches.into_iter().skip(window.start).take(window.len()) {
+        let chosen = picker.chosen() == Some(choice.name.as_str());
+        let marker = if chosen { ">" } else { " " };
+        let description = inert_inline(&choice.description);
+        let row = format!(
+            "{marker} {} · ${}  {}",
+            choice.source.label(),
+            choice.name,
+            description
+        );
+        lines.push(Line::styled(
+            command_summary(&row, usize::from(width)),
+            palette.style(if chosen { Role::Accent } else { Role::Body }),
+        ));
+    }
+    lines.push(Line::styled(
+        " ↑↓ choose · Tab/Enter insert · Esc close",
+        palette.style(Role::Muted),
+    ));
+    lines
+}
+
+fn inert_inline(source: &str) -> String {
+    crate::markdown::inert(source).replace('\n', " ")
 }
 
 pub(crate) fn recovery_lines(
@@ -484,8 +528,22 @@ fn command_summary(source: &str, width: usize) -> String {
 mod tests {
     use ratatui::widgets::{Paragraph, Wrap};
 
-    use super::agents;
-    use crate::{test_support::canonical_state, theme::Palette};
+    use super::{agents, notices};
+    use crate::{ViewState, test_support::canonical_state, theme::Palette};
+
+    #[test]
+    fn skill_diagnostic_names_the_feature_and_returned_input() {
+        let mut state = ViewState::default();
+        state.report_skill_diagnostic(
+            "Skill unavailable\ninput\treturned\u{1b} to the composer".to_owned(),
+        );
+
+        let lines = notices(&state, &Palette::monochrome());
+        assert_eq!(
+            lines[0].to_string(),
+            "[skill] Skills · Skill unavailable input    returned� to the composer"
+        );
+    }
 
     #[test]
     fn restoration_confirmation_is_green_and_tail_repair_is_separate() {

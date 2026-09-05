@@ -95,6 +95,10 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 
 ### Key grammar
 
+The primary composer's visible [skill picker](./skill-picker.md) owns Up/Down, Tab/Enter and Esc
+under SKP-3; completing a name edits the draft without submitting it. Outside that surface the
+ordinary bindings below apply.
+
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
 | `Ctrl-D` | Quit chord: arm one second, then leave on a timely second press | The same |

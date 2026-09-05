@@ -75,6 +75,12 @@ pub(crate) fn encode_atom(
         ContextAtomValue::User { text } => {
             input.push(json!({ "role": "user", "content": text }));
         }
+        ContextAtomValue::Skill(activation) => {
+            input.push(json!({
+                "role": "user",
+                "content": crate::codec::skill_context(activation),
+            }));
+        }
         ContextAtomValue::Assistant(output) => {
             encode_assistant(model, output, &mut input)?;
         }

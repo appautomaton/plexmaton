@@ -319,6 +319,7 @@ mod lifecycle;
 mod persistence;
 mod presentation;
 mod retry;
+mod skill_control;
 mod timing;
 mod tools;
 

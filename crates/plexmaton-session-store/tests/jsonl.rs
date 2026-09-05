@@ -149,7 +149,7 @@ fn jrn_4_create_append_reopen_and_immediate_visibility() {
         header,
         serde_json::json!({
             "format": "plexmaton.session",
-            "schema": "2026-09-04",
+            "schema": "2026-09-05",
             "session_id": "session-a",
             "created_at_unix_ms": 1_788_537_600_123_u64,
         })

@@ -54,6 +54,10 @@ pub(crate) fn encode_atom(
         ContextAtomValue::User { text } => {
             Ok(vec![json!({"role":"user", "parts":[{"text":text}]})])
         }
+        ContextAtomValue::Skill(activation) => Ok(vec![json!({
+            "role":"user",
+            "parts":[{"text":crate::codec::skill_context(activation)}],
+        })]),
         ContextAtomValue::Assistant(output) => Ok(vec![assistant(model, output)?]),
         ContextAtomValue::ToolBatch(batch) => {
             let assistant = assistant(model, batch.assistant())?;

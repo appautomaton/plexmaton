@@ -38,11 +38,15 @@ impl ToolTasks {
     pub(super) fn start_admission(
         &mut self,
         request: AdmissionRequest,
+        agent: &plexmaton_agent::Agent,
     ) -> Result<(), RuntimeError> {
         let call_id = request.requested().call_id.clone();
         self.ensure_available(&call_id)?;
         let cancellation = NativeCancellation::new();
-        let future = self.catalog.admit(request, cancellation.clone());
+        let explicit_resource = self.catalog.explicit_resource_authorized(&request, agent);
+        let future = self
+            .catalog
+            .admit(request, cancellation.clone(), explicit_resource);
         let completion_id = call_id.clone();
         let resolution_id = call_id.clone();
         let future = AssertUnwindSafe(future)
@@ -156,6 +160,10 @@ impl ToolTasks {
 
     pub(super) fn is_empty(&self) -> bool {
         self.pending.is_empty() && self.active.is_empty()
+    }
+
+    pub(super) fn skills(&self) -> Option<std::sync::Arc<plexmaton_skills::SkillCatalog>> {
+        self.catalog.skills()
     }
 
     fn ensure_available(&self, call_id: &ToolCallId) -> Result<(), RuntimeError> {

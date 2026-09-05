@@ -3,8 +3,8 @@ use crate::ModelRegistry;
 use plexmaton_agent::{
     Agent, AssistantBlock, AssistantOutput, AssistantReplay, DispatchedRequestTiming,
     ElapsedMillis, Input, ModelEvent, ModelOutputPosition, ProviderReplay, RequestAttemptTerminal,
-    RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome, StopReason, ToolBatch,
-    ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
+    RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome, SkillActivation,
+    SkillSource, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
     AgentId, SessionEntryId, TokenCounts, TokenUsage, ToolCallId, TranscriptItemId,
@@ -52,6 +52,21 @@ fn tool(description: &str) -> FunctionTool {
         json!({"type":"object","properties":{"path":{"type":"string"}}}),
     )
     .expect("tool")
+}
+
+fn skill_atom(instructions: &str) -> ContextAtom {
+    let activation = SkillActivation::new(
+        "review".to_owned(),
+        SkillSource::ProjectNative,
+        "/workspace/.plexmaton/skills/review/SKILL.md".to_owned(),
+        "b".repeat(64),
+        instructions.to_owned(),
+    )
+    .expect("skill activation");
+    ContextAtom::skill(
+        SessionEntryId::new("entry-skill").expect("entry id"),
+        activation,
+    )
 }
 
 /// BUD-1/BUD-2/BUD-3: real codec inputs are budgeted, but only identities/counts reach diagnostics.
@@ -274,6 +289,35 @@ fn bud_3_estimator_counts_utf8_wire_bytes_without_allocating_another_request_str
             estimate(TokenEstimator::default(), &encoded).expect("estimate"),
             (serde_json::to_vec(&encoded).expect("encode").len() as u64).div_ceil(4)
         );
+    }
+}
+
+/// SKL-6/BUD-3: each dialect estimates the complete wire representation of one skill atom.
+#[test]
+fn skl_6_every_codec_budgets_exact_skill_wire_content() {
+    let atom = skill_atom("Read exactly: 🦀 \\\"quoted\\\"\nsecond line");
+    for api in [
+        "openai_responses",
+        "openai_chat_completions",
+        "anthropic_messages",
+        "google_generate_content",
+    ] {
+        let model = model(api);
+        let encoded = match model.api() {
+            ModelApi::OpenaiResponses => crate::responses::encode_atom(&model, &atom),
+            ModelApi::OpenaiChatCompletions => crate::chat::encode_atom(&model, &atom),
+            ModelApi::AnthropicMessages => crate::messages::encode_atom(&model, &atom),
+            ModelApi::GoogleGenerateContent => crate::gemini::encode_atom(&model, &atom),
+        }
+        .unwrap_or_else(|error| panic!("encode {api}: {error}"));
+        let actual =
+            estimate_atom(&model, &atom).unwrap_or_else(|error| panic!("estimate {api}: {error}"));
+        assert_eq!(
+            actual.tokens,
+            estimate(model.token_estimator(), &encoded).expect("wire estimate"),
+            "{api}"
+        );
+        assert_eq!(actual.opaque_replay_bytes, 0, "{api}");
     }
 }
 

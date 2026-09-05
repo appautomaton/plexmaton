@@ -17,6 +17,7 @@ mod construction;
 mod journal;
 mod model;
 mod retry;
+mod skills;
 mod terminal;
 mod tools;
 mod transition;
@@ -28,6 +29,7 @@ use model::RetainedModelFuture;
 pub(crate) use model::{
     ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport,
 };
+use skills::PreparingSkillInput;
 use tools::{ToolResolution, ToolTasks};
 use transition::{AfterCommit, PendingCommit};
 
@@ -39,7 +41,7 @@ const PENDING_INPUT_CAPACITY: usize = 32;
 struct PendingInput {
     input: Input,
     observed_at: plexmaton_agent::UnixMillis,
-    rejected_input: Option<UndeliveredInput>,
+    selected_skill: Option<String>,
     after: AfterCommit,
 }
 
@@ -85,6 +87,7 @@ pub struct LiveRuntime {
     pending_commit: Option<PendingCommit>,
     after_commit: Option<AfterCommit>,
     pending_inputs: VecDeque<PendingInput>,
+    preparing_input: Option<PreparingSkillInput>,
     journal_failed: bool,
     shutting_down: bool,
     clock: Arc<dyn WallClock>,
@@ -97,6 +100,28 @@ impl LiveRuntime {
         to: AgentId,
         input: Input,
     ) -> Result<DispatchReport, RuntimeError> {
+        self.submit_selected(to, input, None).await
+    }
+
+    /// Hands off a skill explicitly chosen in the composer without treating dollar text as authority.
+    pub async fn submit_skill(
+        &mut self,
+        to: AgentId,
+        input: Input,
+        name: String,
+    ) -> Result<DispatchReport, RuntimeError> {
+        if !matches!(&input, Input::Submitted { .. } | Input::Steered { .. }) {
+            return Err(RuntimeError::InvalidSkillInput);
+        }
+        self.submit_selected(to, input, Some(name)).await
+    }
+
+    async fn submit_selected(
+        &mut self,
+        to: AgentId,
+        input: Input,
+        selected_skill: Option<String>,
+    ) -> Result<DispatchReport, RuntimeError> {
         if to != self.agent_id {
             return Err(RuntimeError::WrongAgent {
                 expected: self.agent_id.clone(),
@@ -104,32 +129,33 @@ impl LiveRuntime {
             });
         }
         if self.shutting_down {
-            if let Some(input) = rejected_user_input(&input, UndeliveredReason::Shutdown) {
+            if let Some(input) = rejected_user_input(
+                &input,
+                selected_skill.as_deref(),
+                UndeliveredReason::Shutdown,
+            ) {
                 self.report.undelivered.push(input);
                 return Ok(self.take_report());
             }
             return Err(RuntimeError::ShuttingDown);
         }
-        if self.pending_inputs.len() == PENDING_INPUT_CAPACITY {
-            if let Some(input) = rejected_user_input(&input, UndeliveredReason::QueueFull) {
+        if matches!(&input, Input::Interrupted) {
+            self.interrupt_prepared_inputs();
+        }
+        // Interrupt owns one reserved control slot even when ordinary input has saturated.
+        if !matches!(&input, Input::Interrupted)
+            && self.pending_inputs.len() >= PENDING_INPUT_CAPACITY
+        {
+            if let Some(input) = rejected_user_input(
+                &input,
+                selected_skill.as_deref(),
+                UndeliveredReason::QueueFull,
+            ) {
                 self.report.undelivered.push(input);
                 return Ok(self.take_report());
             }
             return Err(RuntimeError::RuntimeInputQueueFull);
         }
-        let rejected_input = match &input {
-            Input::Submitted { text } | Input::Steered { text } => Some(UndeliveredInput {
-                text: text.clone(),
-                reason: UndeliveredReason::PersistenceFailed,
-            }),
-            Input::Streamed { .. }
-            | Input::Failed { .. }
-            | Input::ToolAdmissionResolved(_)
-            | Input::ToolFinished { .. }
-            | Input::ApprovalDecided { .. }
-            | Input::Interrupted
-            | Input::ShuttingDown => None,
-        };
         let after = if matches!(&input, Input::Interrupted) {
             AfterCommit::Interrupt
         } else {
@@ -139,7 +165,7 @@ impl LiveRuntime {
         self.pending_inputs.push_back(PendingInput {
             input,
             observed_at,
-            rejected_input,
+            selected_skill,
             after,
         });
         if let Err(error) = self.finish_pending_inputs().await {
@@ -214,6 +240,7 @@ impl LiveRuntime {
                 }
                 WaitOutcome::Tool(Ok(None)) => Ok(()),
                 WaitOutcome::Tool(Err(error)) => Err(error),
+                WaitOutcome::Skill(result) => self.complete_skill_input(result).await,
             };
             if let Err(error) = transition {
                 if self.journal_failed {
@@ -229,6 +256,7 @@ impl LiveRuntime {
     /// Cancellation of this future does not make shutdown look complete: calling it again resumes
     /// the retained provider and tool cleanup.
     pub async fn shutdown(&mut self) -> Result<DispatchReport, RuntimeError> {
+        self.cancel_skill_inputs(UndeliveredReason::Shutdown).await;
         if let Err(error) = self.finish_pending_inputs().await {
             return self.shutdown_after_journal_failure(error).await;
         }
@@ -277,6 +305,8 @@ impl LiveRuntime {
     }
 
     async fn finish_failed_owners(&mut self) {
+        self.cancel_skill_inputs(UndeliveredReason::PersistenceFailed)
+            .await;
         self.pending_model_start = None;
         self.deferred_model_call = None;
         self.after_commit = None;
@@ -318,6 +348,7 @@ impl LiveRuntime {
     #[must_use]
     pub fn has_active_work(&self) -> bool {
         !self.pending_inputs.is_empty()
+            || self.preparing_input.is_some()
             || self.pending_commit.is_some()
             || self.after_commit.is_some()
             || self.pending_model_start.is_some()
@@ -332,24 +363,25 @@ impl LiveRuntime {
     }
 
     async fn wait_for_work(&mut self) -> WaitOutcome {
-        match (self.active.as_mut(), self.tools.is_empty()) {
-            (Some(active), false) => tokio::select! {
-                biased;
-                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
-                ended = &mut active.future => WaitOutcome::ModelEnded(ended),
-                tool = self.tools.next() => WaitOutcome::Tool(tool),
-            },
-            (Some(active), true) => tokio::select! {
-                biased;
-                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
-                ended = &mut active.future => WaitOutcome::ModelEnded(ended),
-            },
-            (None, false) => tokio::select! {
-                biased;
-                signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
-                tool = self.tools.next() => WaitOutcome::Tool(tool),
-            },
-            (None, true) => WaitOutcome::Signal(self.signal_rx.recv().await),
+        let has_tools = !self.tools.is_empty();
+        let model = async {
+            match &mut self.active {
+                Some(active) => (&mut active.future).await,
+                None => std::future::pending().await,
+            }
+        };
+        let skill = async {
+            match &mut self.preparing_input {
+                Some(preparing) => preparing.read.finish().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            biased;
+            loaded = skill => WaitOutcome::Skill(loaded),
+            signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
+            ended = model => WaitOutcome::ModelEnded(ended),
+            tool = self.tools.next(), if has_tools => WaitOutcome::Tool(tool),
         }
     }
 
@@ -367,14 +399,23 @@ impl LiveRuntime {
     }
 }
 
-fn rejected_user_input(input: &Input, reason: UndeliveredReason) -> Option<UndeliveredInput> {
-    match input {
-        Input::Submitted { text } | Input::Steered { text } => Some(UndeliveredInput {
-            text: text.clone(),
-            reason,
-        }),
-        _ => None,
-    }
+fn rejected_user_input(
+    input: &Input,
+    selected: Option<&str>,
+    reason: UndeliveredReason,
+) -> Option<UndeliveredInput> {
+    let (text, skill) = match input {
+        Input::Submitted { text } | Input::Steered { text } => (text, selected),
+        Input::SkillSubmitted { text, skill } | Input::SkillSteered { text, skill } => {
+            (text, Some(skill.name()))
+        }
+        _ => return None,
+    };
+    Some(UndeliveredInput::with_skill(
+        text.clone(),
+        skill.map(str::to_owned),
+        reason,
+    ))
 }
 
 impl Drop for LiveRuntime {
@@ -389,6 +430,7 @@ enum WaitOutcome {
     Signal(Option<ModelSignal>),
     ModelEnded(Result<ModelTerminalReport, ()>),
     Tool(Result<Option<ToolResolution>, RuntimeError>),
+    Skill(Result<plexmaton_agent::SkillActivation, crate::native::ExplicitSkillError>),
 }
 
 #[cfg(test)]

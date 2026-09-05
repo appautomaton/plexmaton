@@ -15,6 +15,7 @@ mod interface;
 mod journal;
 mod model;
 mod record;
+mod skill;
 mod step;
 mod timing;
 mod tools;
@@ -50,6 +51,10 @@ pub use model::{
     ModelOutputPosition, ModelRequest, ModelStepId, ProviderCodecId, ProviderCodecRevision,
     ProviderModelFamilyId, ProviderReplay, ProviderReplayError, ProviderReplayOwnerId,
     ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
+};
+pub use skill::{
+    MAX_SKILL_INSTRUCTION_BYTES, MAX_SKILL_LOCATION_BYTES, MAX_SKILL_NAME_BYTES,
+    MAX_SKILL_NAME_CHARS, SkillActivation, SkillActivationError, SkillSource,
 };
 pub use timing::{
     ActiveTurnStatus, CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttempt,

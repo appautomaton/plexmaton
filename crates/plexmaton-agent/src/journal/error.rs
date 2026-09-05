@@ -88,6 +88,8 @@ pub enum JournalError {
     },
     /// Steering named a turn that had already reached its terminal fact.
     ClosedTurnInput(TurnId),
+    /// A skill activation did not immediately follow user input for its named turn.
+    InvalidSkillActivationOrder(TurnId),
     /// Recovery observation and outcome contradicted one another.
     InvalidTurnFinishTime(TurnId),
     /// A branch operation targeted semantic work whose turn is not terminal there.

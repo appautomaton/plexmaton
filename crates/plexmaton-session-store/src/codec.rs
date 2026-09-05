@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
 
-pub const SCHEMA_EPOCH: &str = "2026-09-04";
+pub const SCHEMA_EPOCH: &str = "2026-09-05";
 pub const MAX_JOURNAL_LINE_BYTES: usize = 16 * 1024 * 1024;
 const HEADER_FORMAT: &str = "plexmaton.session";
 

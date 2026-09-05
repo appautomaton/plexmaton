@@ -3,32 +3,75 @@ use plexmaton_core::{
 };
 
 use super::{Agent, DeliveryBoundary};
-use crate::{JournalEntryPayload, Reaction, UndeliveredInput, UndeliveredReason, UnixMillis};
+use crate::{
+    JournalEntryPayload, Reaction, SkillActivation, UndeliveredInput, UndeliveredReason, UnixMillis,
+};
 
 impl Agent {
     pub(super) fn submit(&mut self, text: String, reaction: &mut Reaction) {
+        self.submit_input(text, None, reaction);
+    }
+
+    pub(super) fn submit_with_skill(
+        &mut self,
+        text: String,
+        skill: SkillActivation,
+        reaction: &mut Reaction,
+    ) {
+        self.submit_input(text, Some(skill), reaction);
+    }
+
+    fn submit_input(
+        &mut self,
+        text: String,
+        skill: Option<SkillActivation>,
+        reaction: &mut Reaction,
+    ) {
         if self.is_running() {
             self.queue(
                 DeliveryBoundary::NextTurn,
                 text,
+                skill,
                 reaction.observed_at(),
                 reaction,
             );
             return;
         }
-        self.open_turn(text, reaction.observed_at(), reaction);
+        self.open_turn(text, skill, reaction.observed_at(), reaction);
     }
 
     pub(super) fn steer(&mut self, text: String, reaction: &mut Reaction) {
+        self.steer_input(text, None, reaction);
+    }
+
+    pub(super) fn steer_with_skill(
+        &mut self,
+        text: String,
+        skill: SkillActivation,
+        reaction: &mut Reaction,
+    ) {
+        self.steer_input(text, Some(skill), reaction);
+    }
+
+    fn steer_input(
+        &mut self,
+        text: String,
+        skill: Option<SkillActivation>,
+        reaction: &mut Reaction,
+    ) {
         if !self.is_running() {
-            reaction
-                .undelivered
-                .push(UndeliveredInput::new(text, UndeliveredReason::NoActiveTurn));
+            let undelivered = UndeliveredInput::with_skill(
+                text,
+                skill.map(|skill| skill.name().to_owned()),
+                UndeliveredReason::NoActiveTurn,
+            );
+            reaction.undelivered.push(undelivered);
             return;
         }
         self.queue(
             DeliveryBoundary::NextStep,
             text,
+            skill,
             reaction.observed_at(),
             reaction,
         );
@@ -38,10 +81,11 @@ impl Agent {
         &mut self,
         boundary: DeliveryBoundary,
         text: String,
+        skill: Option<SkillActivation>,
         accepted_at: UnixMillis,
         reaction: &mut Reaction,
     ) {
-        if let Some(undelivered) = self.input.queue(boundary, text, accepted_at) {
+        if let Some(undelivered) = self.input.queue(boundary, text, skill, accepted_at) {
             reaction.undelivered.push(undelivered);
         }
     }
@@ -49,11 +93,12 @@ impl Agent {
     pub(super) fn open_turn(
         &mut self,
         text: String,
+        skill: Option<SkillActivation>,
         accepted_at: UnixMillis,
         reaction: &mut Reaction,
     ) {
         let turn_id = self.record.next_turn_id();
-        self.record_turn_start(turn_id.clone(), text, accepted_at, reaction);
+        self.record_turn_start(turn_id.clone(), text, skill, accepted_at, reaction);
         self.open_step(turn_id, 1, reaction);
     }
 
@@ -61,6 +106,7 @@ impl Agent {
         &mut self,
         turn_id: TurnId,
         text: String,
+        skill: Option<SkillActivation>,
         accepted_at: UnixMillis,
         reaction: &mut Reaction,
     ) {
@@ -70,7 +116,7 @@ impl Agent {
             JournalEntryPayload::TurnStarted {
                 agent_id: agent_id.clone(),
                 item_id: item.clone(),
-                turn_id,
+                turn_id: turn_id.clone(),
                 text: text.clone(),
                 accepted_at,
                 opened_at: reaction.observed_at(),
@@ -78,6 +124,16 @@ impl Agent {
             reaction,
         );
         self.emit_user(agent_id.clone(), item, text, reaction);
+        if let Some(activation) = skill {
+            self.record.commit(
+                JournalEntryPayload::SkillActivated {
+                    agent_id: agent_id.clone(),
+                    turn_id,
+                    activation,
+                },
+                reaction,
+            );
+        }
         self.record.emit(
             reaction,
             SessionEvent::AgentStatusChanged {
@@ -91,6 +147,7 @@ impl Agent {
         &mut self,
         turn_id: TurnId,
         text: String,
+        skill: Option<SkillActivation>,
         accepted_at: UnixMillis,
         reaction: &mut Reaction,
     ) {
@@ -100,13 +157,23 @@ impl Agent {
             JournalEntryPayload::SteeringAccepted {
                 agent_id: agent_id.clone(),
                 item_id: item.clone(),
-                turn_id,
+                turn_id: turn_id.clone(),
                 text: text.clone(),
                 accepted_at,
             },
             reaction,
         );
         self.emit_user(agent_id, item, text, reaction);
+        if let Some(activation) = skill {
+            self.record.commit(
+                JournalEntryPayload::SkillActivated {
+                    agent_id: self.record.agent_id().clone(),
+                    turn_id,
+                    activation,
+                },
+                reaction,
+            );
+        }
     }
 
     fn emit_user(

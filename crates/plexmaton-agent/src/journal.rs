@@ -27,6 +27,8 @@ mod payload_tests;
 mod projection;
 mod record;
 mod retry;
+#[cfg(test)]
+mod skill_tests;
 mod turns;
 #[cfg(test)]
 mod validation_tests;
@@ -429,6 +431,11 @@ impl SessionJournal {
                     JournalEntryPayload::SteeringAccepted {
                         agent_id, turn_id, ..
                     } => self.validate_steering(agent_id, turn_id, state.open_turn.as_ref())?,
+                    JournalEntryPayload::SkillActivated {
+                        agent_id, turn_id, ..
+                    } => {
+                        self.validate_skill_activation(agent_id, turn_id, state.open_turn.as_ref())?
+                    }
                     JournalEntryPayload::TurnStatusChanged {
                         agent_id, turn_id, ..
                     } => self.validate_turn_status(agent_id, turn_id, state.open_turn.as_ref())?,

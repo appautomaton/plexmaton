@@ -31,6 +31,14 @@ pub enum ScrollDirection {
     Down,
 }
 
+/// One operation on the primary composer's inline skill completion list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SkillPickerIntent {
+    Step(Direction),
+    Accept,
+    Close,
+}
+
 /// An edit addressed to whichever text input currently holds the cursor.
 ///
 /// The intent never names its target: exactly one cursor exists, so the target is a fact about
@@ -156,6 +164,8 @@ pub enum SelectionIntent {
 /// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
+    /// Navigate, accept, or close the primary composer's skill completions.
+    SkillPicker(SkillPickerIntent),
     /// Contextual action on the primary conversation's eligible failed message.
     Retry(crate::RetryAction),
     /// Open, work, or dismiss the workspace's command list.

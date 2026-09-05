@@ -98,6 +98,8 @@ pub struct WorkspaceInput {
     pub decision_mode: DecisionMode,
     /// Rows the command list asks for, borders included. Zero registers no region at all.
     pub command_palette_rows: u16,
+    /// Rows for the composer-anchored skill completion popup, including borders and footer.
+    pub skill_picker_rows: u16,
     /// Rows requested by the read-only configuration page. Zero while closed.
     pub configuration_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
@@ -117,6 +119,7 @@ impl Default for WorkspaceInput {
             decision_rows: 0,
             decision_mode: DecisionMode::Inline,
             command_palette_rows: 0,
+            skill_picker_rows: 0,
             configuration_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
@@ -225,7 +228,14 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 
     regions.configuration = workspace_overlay_region(overlay_area, input.configuration_rows);
 
-    registration::surface_tree(status, notices, attention, regions, input.decision_mode)
+    registration::surface_tree(
+        status,
+        notices,
+        attention,
+        regions,
+        input.decision_mode,
+        input.skill_picker_rows,
+    )
 }
 
 /// Width the primary composer will occupy for this frame.
@@ -458,7 +468,10 @@ fn band(column: Rect, top: u16, height: u16) -> Option<Rect> {
 mod tests {
     use ratatui::layout::Rect;
 
-    use super::{InspectorRequest, LayoutClass, MIN_PANEL_HEIGHT, WorkspaceInput, workspace};
+    use super::{
+        BodyRegions, DecisionMode, InspectorRequest, LayoutClass, MIN_PANEL_HEIGHT, WorkspaceInput,
+        workspace,
+    };
     use crate::surface::SurfaceId;
 
     /// The default composer, which is the shape every one of these sizes is checked against.
@@ -470,6 +483,30 @@ mod tests {
             has_notices,
             ..WorkspaceInput::default()
         }
+    }
+
+    /// SKP-4: a clipped box never hides both the selected choice and its controls.
+    #[test]
+    fn skill_picker_is_absent_when_fewer_than_choice_footer_and_borders_fit() {
+        let regions = BodyRegions {
+            agents: None,
+            transcript: Some(Rect::new(0, 0, 60, 3)),
+            inspector: None,
+            inspector_floats: false,
+            composer: Rect::new(0, 5, 60, 3),
+            decision: Some(Rect::new(0, 3, 60, 2)),
+            command_palette: None,
+            configuration: None,
+        };
+        let tree = super::registration::surface_tree(
+            Rect::new(0, 8, 60, 1),
+            None,
+            None,
+            regions,
+            DecisionMode::Inline,
+            8,
+        );
+        assert!(tree.get(SurfaceId::SkillPicker).is_none());
     }
 
     /// The same, with an inspector open in its default presentation.

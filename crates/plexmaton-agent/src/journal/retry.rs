@@ -15,6 +15,8 @@ pub struct RetryTarget {
 pub struct RetryCandidate {
     pub target: RetryTarget,
     pub question: String,
+    /// Explicitly activated skill selected with this question, derived only from its typed fact.
+    pub skill: Option<String>,
     pub question_item: TranscriptItemId,
     pub error_item: TranscriptItemId,
     pub before_question: Option<SessionEntryId>,
@@ -86,6 +88,16 @@ impl SessionJournal {
         let JournalEntryPayload::TurnStarted { item_id, text, .. } = &question_entry.payload else {
             return None;
         };
+        let skill = path
+            .get(question_index + 1)
+            .and_then(|entry| match &entry.payload {
+                JournalEntryPayload::SkillActivated {
+                    turn_id: activated_turn,
+                    activation,
+                    ..
+                } if activated_turn == turn_id => Some(activation.name().to_owned()),
+                _ => None,
+            });
         if path[question_index + 1..].iter().any(|entry| {
             matches!(
                 entry.payload,
@@ -110,6 +122,7 @@ impl SessionJournal {
                 head_revision: state.revision,
             },
             question: text.clone(),
+            skill,
             question_item: item_id.clone(),
             error_item,
             before_question: question_entry.parent_id.clone(),

@@ -14,11 +14,17 @@ mod tests {
         SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
         ToolPresentation, TranscriptItemId,
     };
-    use ratatui::{buffer::Buffer, layout::Rect};
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        buffer::Buffer,
+        crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
+        layout::Rect,
+    };
 
     use crate::{
-        CleanupNotice, PersistenceNotice, SessionRestoration, SessionTailRepair, TranscriptMetrics,
-        ViewState,
+        CleanupNotice, PersistenceNotice, SessionRestoration, SessionTailRepair, SkillChoice,
+        SkillChoiceSource, TranscriptMetrics, ViewState, Workspace,
         intent::{AttentionIntent, Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
@@ -53,6 +59,19 @@ mod tests {
     /// The three product widths, for the families whose layout actually changes with width.
     const PRODUCT_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
+
+    /// SKL-4's returned explicit invocation and visible load diagnostic at each product width.
+    const SKILL_DIAGNOSTIC_FRAMES: [(&str, u16, u16); 3] = [
+        ("skill-diagnostic-wide", 120, 40),
+        ("skill-diagnostic-medium", 95, 40),
+        ("skill-diagnostic-narrow", 60, 40),
+    ];
+
+    const SKILL_PICKER_FRAMES: [(&str, u16, u16); 3] = [
+        ("skill-picker-wide", 120, 32),
+        ("skill-picker-medium", 95, 32),
+        ("skill-picker-narrow", 60, 32),
+    ];
 
     /// One disclosed native-tool entry across the same product widths.
     const DISCLOSURE_FRAMES: [(&str, u16, u16); 3] = [
@@ -539,6 +558,133 @@ mod tests {
             if width_name == "wide" {
                 crate::test_support::assert_frame("cleanup-failure-wide", &drawn);
             }
+        }
+    }
+
+    /// SKL-4/ui-ux §responsive interaction: failed activation keeps input and failure observable.
+    #[test]
+    fn the_skill_diagnostic_frames_match_their_fixtures() {
+        let mut conversation = Conversation::canonical();
+        let agent = conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .expect("canonical primary agent");
+        let item = TranscriptItemId::new("skill-review").expect("item id");
+        let call = ToolCallId::new("skill-review").expect("call id");
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent.clone(),
+            item_id: item.clone(),
+            item_revision: 0,
+            call_id: call.clone(),
+            label: "skill".to_owned(),
+            status: ToolCallStatus::Queued,
+            presentation: ToolPresentation::default(),
+        });
+        conversation.emit(SessionEvent::ToolCallChanged {
+            agent_id: agent.clone(),
+            item_id: item,
+            item_revision: 1,
+            call_id: call,
+            label: "skill".to_owned(),
+            status: ToolCallStatus::Failed,
+            presentation: ToolPresentation {
+                invocation: Some(ToolDetail::Text {
+                    source: "name: review".to_owned(),
+                    omitted_bytes: 0,
+                }),
+                outcome: Some(ToolDetail::Text {
+                    source: "skill file was unavailable".to_owned(),
+                    omitted_bytes: 0,
+                }),
+            },
+        });
+        conversation
+            .state
+            .return_input(agent, "$review check this change".to_owned());
+        conversation.state.report_skill_diagnostic(
+            "Skill unavailable · input returned to the composer; SKILL.md could not be read"
+                .to_owned(),
+        );
+
+        for (name, width, height) in SKILL_DIAGNOSTIC_FRAMES {
+            let drawn = draw(&conversation.state, width, height);
+            for signature in [
+                "Skills · Skill unavailable",
+                "[!] skill",
+                "$review check this change",
+            ] {
+                assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            crate::test_support::assert_frame(name, &drawn);
+        }
+    }
+
+    /// SKP-4: the primary composer, contextual list, and source summaries remain legible together.
+    #[test]
+    fn the_skill_picker_frames_match_their_fixtures() {
+        for (name, width, height) in SKILL_PICKER_FRAMES {
+            let mut workspace = Workspace::default();
+            workspace.emit(vec![SessionEventEnvelope {
+                sequence: EventSequence::new(1),
+                event: SessionEvent::AgentCreated {
+                    agent_id: AgentId::new("primary").expect("agent"),
+                    label: "Plexmaton".to_owned(),
+                    status: AgentStatus::Idle,
+                },
+            }]);
+            workspace.set_skills(vec![
+                SkillChoice {
+                    name: "review".to_owned(),
+                    description:
+                        "Review this change for correctness across every affected boundary"
+                            .to_owned(),
+                    source: SkillChoiceSource::ProjectNative,
+                },
+                SkillChoice {
+                    name: "research".to_owned(),
+                    description: "Gather focused source evidence".to_owned(),
+                    source: SkillChoiceSource::ProjectShared,
+                },
+                SkillChoice {
+                    name: "release".to_owned(),
+                    description: "Prepare release notes".to_owned(),
+                    source: SkillChoiceSource::User,
+                },
+            ]);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
+            workspace.draw(&mut terminal).expect("initial frame");
+            workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+            for character in "$r".chars() {
+                workspace.handle(&Event::Key(KeyEvent::new(
+                    KeyCode::Char(character),
+                    KeyModifiers::NONE,
+                )));
+                workspace.draw(&mut terminal).expect("picker frame");
+            }
+            let picker = workspace
+                .surfaces()
+                .get(SurfaceId::SkillPicker)
+                .expect("skill picker");
+            let composer = workspace
+                .surfaces()
+                .get(SurfaceId::Composer)
+                .expect("composer");
+            assert_eq!(picker.bounds.bottom(), composer.bounds.y, "{name}");
+            let drawn = crate::test_support::snapshot_text(
+                terminal.backend().buffer(),
+                terminal.backend().buffer().area,
+            );
+            for signature in ["Skills", "project · $review", "shared · $research", "$r"] {
+                assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            if name == "skill-picker-narrow" {
+                assert!(
+                    !drawn.contains("affected boundary"),
+                    "the long summary should truncate after its visible source"
+                );
+            }
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 

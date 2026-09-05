@@ -7,8 +7,8 @@ use std::{
 
 /// Resolves `PLEXMATON_HOME`, or the user-level `~/.plexmaton` default.
 ///
-/// Project-local `.plexmaton` discovery is deliberately absent: project corpus belongs in
-/// `.agents/`, while provider authority remains user-owned (PRV-6).
+/// Project configuration is resolved separately under SKL-1; it never changes this user-owned
+/// root or its provider authority (PRV-6).
 pub fn resolve_home(
     plexmaton_home: Option<&OsStr>,
     user_home: Option<&Path>,

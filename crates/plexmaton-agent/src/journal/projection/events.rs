@@ -85,6 +85,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
         | JournalEntryPayload::TurnStarted { .. }
         | JournalEntryPayload::TurnRetried { .. }
         | JournalEntryPayload::SteeringAccepted { .. }
+        | JournalEntryPayload::SkillActivated { .. }
         | JournalEntryPayload::ToolCallRequested { .. }
         | JournalEntryPayload::ToolCallChanged { .. } => {
             unreachable!("model-bearing payloads are projected separately")

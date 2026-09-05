@@ -27,6 +27,7 @@ impl Workspace {
                 Some(RetrySubmission {
                     target,
                     edited_text: None,
+                    skill: None,
                 })
             }
             RetryAction::EditRetry => {

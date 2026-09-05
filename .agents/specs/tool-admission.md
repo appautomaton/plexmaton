@@ -65,7 +65,7 @@ ordering.
 
 | Boundary | Current | Later |
 | --- | --- | --- |
-| Tool catalog | Native read, search, create, edit and command definitions declare schemas, capabilities and bounded details | Phase 02 adds MCP definitions behind the same admission boundary |
+| Tool catalog | Native read, search, create, edit, command and skill definitions declare schemas, capabilities and bounded details | Phase 02 adds MCP definitions behind the same admission boundary |
 | Approval policy | Stateless policy over the admitted call; reads run, while writes and process spawning ask once | Phase 02 may add session- and workspace-scoped grants behind a durable policy store |
 | Decision vocabulary | `AllowOnce`, `Deny` | A stored grant is a policy operation, not an `ApproveAll` answer smuggled through the UI |
 | Presentation | One revisioned transcript entry follows the call lifecycle; Attention projects the pending decision separately | The user-reviewed decision surface may vary by transport without owning pending state |

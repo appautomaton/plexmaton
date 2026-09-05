@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–6 complete; stage 7 rendering/math foundations delivered, live integration pending |
+| Status | Active; stages 1–6 and 8–9 complete; stage 7 math integration and stage 10 branding remain |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -72,9 +72,34 @@ Visual changes are reviewed against real frames before the contract adopts them.
    engine/native projection. [MTH-1–MTH-4](../specs/math-layout.md) own the complete source-linked reply
    and three-width Kitty evidence. Owned preparation/transport, conversation integration and atomic
    formula selection/highlighting remain; complete typography acceptance is not yet claimed.
-8. **Branding.** A rounded-square frame and circular gradient center form the user's visual
-   reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
-   responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
+8. **Agent Skills — complete.** [SKL-1–SKL-6](../specs/agent-skills.md) implement project model
+   selection, three skill roots, bounded metadata and resource reads, model activation and durable
+   explicit invocation including edit/retry. The [source comparison](../spikes/agent-skills/README.md)
+   records the design evidence. 840 Rust tests and 17 script regressions pass; formatting,
+   all-target compilation, workspace Clippy, crate graph, file length, citations, document budgets,
+   typos and machete pass. Offline dependency audit passes with the existing hashbrown/syn duplicate
+   warnings. Both offline PTY smokes pass without model requests. Reviewed skill notice frames at
+   [wide](../../crates/plexmaton-tui/frames/skill-diagnostic-wide.txt),
+   [medium](../../crates/plexmaton-tui/frames/skill-diagnostic-medium.txt) and
+   [narrow](../../crates/plexmaton-tui/frames/skill-diagnostic-narrow.txt) widths.
+   Live model behavior, performance measurements and automatic skill-context compaction remain
+   unverified. Journal epoch is `2026-09-05`; older epochs have no migration reader.
+
+9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/skill-picker.md) put `$` discovery
+   above the primary input, with keyboard/pointer completion and selected-name ownership through
+   input return and edit/retry. Literal variables, currency and prose remain text. 853 Rust tests,
+   17 script regressions, workspace compilation/Clippy, formatting, crate graph, file length,
+   citations, document budgets, typos and machete pass. The revised real PTY smoke exercises `$`,
+   filtering, Enter/Tab completion and Escape without model requests or an empty journal; the
+   footer smoke also passes. Reviewed actual buffer exports at
+   [wide](../spikes/agent-skills/frames/skill-picker-wide.svg),
+   [medium](../spikes/agent-skills/frames/skill-picker-medium.svg), and
+   [narrow](../spikes/agent-skills/frames/skill-picker-narrow.svg) widths. No dependency or journal
+   schema change was needed for the picker; live model behavior remains unverified.
+
+10. **Branding.** A rounded-square frame and circular gradient center form the user's visual
+    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
+    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

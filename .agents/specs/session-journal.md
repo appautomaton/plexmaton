@@ -24,7 +24,7 @@ through validating constructors. One `AssistantOutput` retains ordered text, rea
 invisible replay-only parts;
 its block-anchored replay carries route owner, codec revision and model family. Serialization keeps
 exact `ProviderReplay` bytes; `Debug` and decode errors reveal none. The header names
-`plexmaton.session`, the `2026-09-04`
+`plexmaton.session`, the `2026-09-05`
 schema epoch, session identity and externally observed `created_at_unix_ms`; file and in-memory
 journal retain the same metadata. A foreign epoch fails before record decoding. Rejected: rolling
 numeric versions, migration readers and dual canonical payloads before a public compatibility

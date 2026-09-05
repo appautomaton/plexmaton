@@ -40,6 +40,7 @@ mod retry;
 mod session_picker;
 #[cfg(test)]
 mod session_picker_tests;
+mod skill_picker;
 mod text_selection;
 #[cfg(test)]
 mod text_selection_tests;
@@ -131,6 +132,7 @@ pub struct Workspace {
     drag_autoscroll: Option<DragAutoScroll>,
     pressed_retry: Option<retry::PressedRetry>,
     pressed_palette: Option<(session_picker::PaletteChoice, crate::Point)>,
+    pressed_skill: Option<(String, crate::Point)>,
 }
 
 impl Workspace {
@@ -217,6 +219,17 @@ impl Workspace {
         self.state.hover_entry(None);
     }
 
+    /// Restores returned text and its deliberate skill binding when the composer is otherwise empty.
+    pub fn return_skill_input(&mut self, to: AgentId, text: String, skill: Option<String>) {
+        self.state.return_skill_input(to, text, skill);
+        self.state.hover_entry(None);
+    }
+
+    /// Replaces the bounded skill completion catalog without loading any skill content.
+    pub fn set_skills(&mut self, choices: Vec<crate::SkillChoice>) {
+        self.state.set_skills(choices);
+    }
+
     /// Shows a session-writer failure that cannot itself enter the failed durable stream.
     pub fn report_persistence_failure(&mut self, failure: PersistenceNotice) {
         self.state.report_persistence_failure(failure);
@@ -225,6 +238,11 @@ impl Workspace {
     /// Shows an owner that could not be joined cleanly after session persistence failed.
     pub fn report_cleanup_failure(&mut self, failure: CleanupNotice) {
         self.state.report_cleanup_failure(failure);
+    }
+
+    /// Shows one bounded skill discovery, load, or activation diagnostic.
+    pub fn report_skill_diagnostic(&mut self, message: String) {
+        self.state.report_skill_diagnostic(message);
     }
 
     /// Confirms successful restoration, including any file-tail repair, outside the journal.
@@ -347,6 +365,7 @@ impl Workspace {
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
         match intent {
+            TuiIntent::SkillPicker(intent) => self.apply_skill_picker(intent),
             TuiIntent::Retry(action) => {
                 return Outcome {
                     retry: self.perform_retry_action(action),
@@ -427,6 +446,9 @@ impl Workspace {
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
+                if let Some(outcome) = self.skill_picker_pointer(pointer) {
+                    return outcome;
+                }
                 if let Some(outcome) = self.palette_pointer(pointer) {
                     return outcome;
                 }
@@ -456,6 +478,7 @@ impl Workspace {
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
                 self.pressed_palette = None;
+                self.pressed_skill = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
                 self.pressed_retry = None;
@@ -473,6 +496,7 @@ impl Workspace {
             }
             TuiIntent::Hover { surface, at } => {
                 self.pressed_palette = None;
+                self.pressed_skill = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
                 self.drag_autoscroll = None;

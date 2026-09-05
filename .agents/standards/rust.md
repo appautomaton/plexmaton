@@ -19,8 +19,7 @@
 
 ## Organization and style
 
-- Prefer small cohesive modules with explicit public boundaries. Split by responsibility and
-  invariant, not by arbitrary line counts.
+- Keep explicit public boundaries; split by responsibility and invariant, not size.
 - Keep first-party APIs narrow. Public types and functions need useful documentation about
   contracts and invariants, not restated signatures.
 - Comments explain why a constraint exists, which failure it prevents, or why an alternative was
@@ -46,19 +45,19 @@
 ## Dependency admission
 
 - Add a dependency only for an active-phase capability or measurement.
-- Before adding one, inspect maintenance status, license, Minimum Supported Rust Version (MSRV),
-  features, native/system requirements, and foundational-version compatibility.
+- Audit maintenance, license, MSRV, features, system requirements and foundational-version
+  compatibility before adding a dependency.
 - Declare common versions in `[workspace.dependencies]` and inherit them in member crates.
-- Use audited concrete manifest versions, never wildcards or unreviewed `latest`; commit the
-  exact resolved `Cargo.lock` because Plexmaton ships binaries.
+- Use audited concrete versions and commit the exact `Cargo.lock`; never use wildcards or
+  unreviewed `latest`.
 - Re-run the active phase's dependency audit before initial resolution and at deliberate upgrade
   points. Review changelogs and `cargo tree` output; a numerically newer release is not
   automatically the right release. Use `cargo tree -d` and `cargo tree -e features`.
 - Disable default features when they pull unused backends, formats, runtimes, or native libraries.
 - Avoid duplicate incompatible generations of foundational crates such as Ratatui or Crossterm.
   `cargo deny` fails the build on this.
-- Keep optional/native-heavy integrations behind narrow features and adapters. Keep experimental
-  dependencies out of semantic core types and public contracts.
+- Isolate optional/native-heavy integrations behind narrow adapters/features; experimental
+  dependencies stay out of semantic core types and public contracts.
 - Prefer adapters we own at external boundaries: clipboard, math rendering, provider transport,
   storage, terminal graphics, and plugins. Write the seam before adding the crate, not after.
 - Do not downgrade a locked foundational dependency to accommodate an experiment.
@@ -66,7 +65,7 @@
 
 ## Audited foundation
 
-Versions/features live in `[workspace.dependencies]`; this table owns rationale and feature limits.
+`[workspace.dependencies]` owns versions/features; this table owns rationale and limits.
 
 Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 
@@ -93,6 +92,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `uuid` | Session identity | Defaults off; `std` and UUIDv7; chronology is separate |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
 | RaTeX core | Native math | Defaults off; exact pins and [audit](../specs/math-layout.md#dependency-admission) |
+| `yaml_serde` / `unicode-normalization` | Skill metadata / NFKC names | Audited 2026-09-05; MIT/Apache-2.0, MSRV 1.82/1.36, `std` only; Rust `libyaml-rs`, no system library |
 
 ### Considered and not adopted
 
@@ -109,5 +109,4 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
   duplication or ownership confusion under the label of future cleanup.
 - Preserve backward compatibility only when the project explicitly declares a public contract that
   requires it.
-- New extension points begin as narrow internal seams. Generalize them after at least two real
-  integrations demonstrate the shared contract.
+- Generalize narrow internal seams only after two real integrations share their contract.

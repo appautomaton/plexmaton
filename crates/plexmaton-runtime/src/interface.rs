@@ -6,6 +6,14 @@ use plexmaton_agent::{
 use plexmaton_core::{AgentId, SessionEventEnvelope, ToolCallId};
 use thiserror::Error;
 
+/// User-facing skill metadata projected from the winning runtime catalog.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SkillSummary {
+    pub name: String,
+    pub description: String,
+    pub source: plexmaton_agent::SkillSource,
+}
+
 /// File repair performed before a resumed runtime receives the journal.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum JournalTailRecovery {
@@ -50,6 +58,10 @@ pub struct DispatchReport {
     pub persistence_failure: Option<PersistenceFailure>,
     /// Cleanup failures observed while freezing a runtime whose journal can no longer advance.
     pub cleanup_failures: Vec<CleanupFailure>,
+    /// Bounded display diagnostics for explicit skills whose original input was returned.
+    pub skill_errors: Vec<String>,
+    /// An edited retry has transferred from the composer to owned asynchronous preparation.
+    pub accepted_retry_edit: Option<plexmaton_agent::RetryTarget>,
 }
 
 impl DispatchReport {
@@ -60,6 +72,8 @@ impl DispatchReport {
             && self.undelivered_model.is_empty()
             && self.persistence_failure.is_none()
             && self.cleanup_failures.is_empty()
+            && self.skill_errors.is_empty()
+            && self.accepted_retry_edit.is_none()
     }
 }
 
@@ -97,6 +111,8 @@ pub enum CleanupFailure {
 /// A live-runtime ownership or routing failure.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    #[error("a selected skill must accompany submitted or steering text")]
+    InvalidSkillInput,
     /// The selected request is no longer an eligible idle retry target.
     #[error("this retry is no longer available")]
     RetryUnavailable,

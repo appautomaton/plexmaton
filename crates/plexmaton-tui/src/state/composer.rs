@@ -44,6 +44,9 @@ impl ViewState {
         if let Some(input) = self.input_mut(surface) {
             input.begin_selection();
         }
+        if surface == SurfaceId::Composer {
+            self.sync_skill_picker();
+        }
         self.touch();
         true
     }
@@ -148,7 +151,24 @@ impl ViewState {
 
     /// Restores runtime-returned user text without inventing a transcript item (COM-3, LOOP-6).
     pub(crate) fn return_input(&mut self, to: AgentId, text: String) {
-        self.inputs.entry(to).or_default().append_returned(&text);
+        self.return_skill_input(to, text, None);
+    }
+
+    pub(crate) fn return_skill_input(&mut self, to: AgentId, text: String, skill: Option<String>) {
+        let was_empty = self
+            .inputs
+            .get(&to)
+            .is_none_or(|input| input.text().is_empty());
+        self.inputs
+            .entry(to.clone())
+            .or_default()
+            .append_returned(&text);
+        if was_empty
+            && let Some(skill) = skill
+            && super::skill_picker::binding_matches(&text, &skill)
+        {
+            self.skill_bindings.insert(to, skill);
+        }
         self.touch();
     }
 
@@ -173,16 +193,29 @@ impl ViewState {
             _ => return None,
         };
         let to = self.text_target(surfaces)?;
-        let input = self.inputs.entry(to.clone()).or_default();
         if let TextIntent::Submit = intent {
-            let submitted = input.take();
+            let skill = (kind == SubmissionKind::Message)
+                .then(|| self.selected_skill(&to).map(str::to_owned))
+                .flatten();
+            let submitted = self.inputs.entry(to.clone()).or_default().take();
             if submitted.is_some() {
+                self.take_skill_binding(&to);
+                self.close_skill_picker();
                 self.touch();
             }
-            return submitted.map(|text| Submission { to, text, kind });
+            return submitted.map(|text| Submission {
+                to,
+                text,
+                kind,
+                skill,
+            });
         }
+        let input = self.inputs.entry(to).or_default();
         let changed = apply_text(input, intent);
         if changed {
+            if kind == SubmissionKind::Message {
+                self.sync_skill_picker();
+            }
             self.touch();
         }
         None

@@ -1,4 +1,4 @@
-//! Runtime-owned composition of the five native tool definitions and executors.
+//! Runtime-owned composition of native file, command and skill tools.
 
 use std::{
     ffi::{OsStr, OsString},
@@ -24,6 +24,12 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+mod skill;
+pub(crate) use skill::{
+    ExplicitSkillError, SkillReadTask, explicit_skill_name, origin as skill_source,
+    selected_skill_matches,
+};
+
 /// Hard final bound for any native result retained by the loop and replayed to the model.
 pub const MAX_NATIVE_TOOL_RESULT_BYTES: usize = 1024 * 1024;
 
@@ -39,6 +45,10 @@ pub enum NativeToolSetupError {
     /// A first-party model schema was internally invalid.
     #[error("cannot publish native tool definition: {0}")]
     Definition(#[from] FunctionToolError),
+    #[error("cannot discover skills: {0}")]
+    Skills(#[from] plexmaton_skills::SkillError),
+    #[error("skill catalog exceeds its encoded byte limit")]
+    SkillCatalogTooLarge,
 }
 
 /// The concrete trusted catalog used by one live runtime.
@@ -50,6 +60,7 @@ pub struct NativeToolCatalog {
     command: Arc<CommandTool>,
     api_key_environment: OsString,
     definitions: Arc<[FunctionTool]>,
+    skills: Option<Arc<plexmaton_skills::SkillCatalog>>,
 }
 
 impl NativeToolCatalog {
@@ -88,7 +99,38 @@ impl NativeToolCatalog {
             command: Arc::new(command),
             api_key_environment,
             definitions: definitions.into(),
+            skills: None,
         })
+    }
+
+    /// Discovers optional skill roots before terminal ownership, or on a retained file worker.
+    pub fn with_skill_roots(
+        mut self,
+        user_home: &Path,
+        project_root: &Path,
+        cancellation: &FileCancellation,
+    ) -> Result<Self, NativeToolSetupError> {
+        let catalog =
+            plexmaton_skills::SkillCatalog::discover(user_home, project_root, cancellation)?;
+        if !catalog.entries().is_empty() {
+            let mut definitions = self.definitions.to_vec();
+            definitions.push(skill::definition(&catalog)?);
+            self.definitions = definitions.into();
+        }
+        self.skills = Some(Arc::new(catalog));
+        Ok(self)
+    }
+
+    pub(crate) fn skills(&self) -> Option<Arc<plexmaton_skills::SkillCatalog>> {
+        self.skills.as_ref().map(Arc::clone)
+    }
+
+    pub(crate) fn explicit_resource_authorized(
+        &self,
+        request: &AdmissionRequest,
+        agent: &plexmaton_agent::Agent,
+    ) -> bool {
+        skill::explicit_resource_authorized(self.skills.as_deref(), request, agent)
     }
 
     pub(crate) fn matches_api_key_environment(&self, expected: &str) -> bool {
@@ -103,8 +145,13 @@ impl NativeToolCatalog {
         &self,
         request: AdmissionRequest,
         cancellation: NativeCancellation,
+        explicit_resource: bool,
     ) -> BoxFuture<'static, AdmissionOutcome> {
         match request.requested().name.as_str() {
+            skill::NAME => {
+                let catalog = self.skills();
+                async move { skill::admit(catalog.as_deref(), request, explicit_resource) }.boxed()
+            }
             COMMAND_TOOL_NAME => {
                 let command = Arc::clone(&self.command);
                 async move { command.admit(request) }.boxed()
@@ -144,6 +191,22 @@ impl NativeToolCatalog {
         call: AdmittedToolCall,
         cancellation: NativeCancellation,
     ) -> BoxFuture<'static, ToolExecutionResult> {
+        if call.definition_id().as_str() == skill::DEFINITION_ID {
+            let catalog = self.skills();
+            return async move {
+                let Some(catalog) = catalog else {
+                    return bounded_failure("skill_unavailable", "skills are not configured");
+                };
+                let result = tokio::task::spawn_blocking(move || {
+                    skill::execute(&catalog, &call, &cancellation.file)
+                })
+                .await;
+                bound_result(result.unwrap_or_else(|_| {
+                    bounded_failure("skill_worker", "skill reader stopped unexpectedly")
+                }))
+            }
+            .boxed();
+        }
         if call.definition_id().as_str() == COMMAND_DEFINITION_ID {
             let command = Arc::clone(&self.command);
             return async move {

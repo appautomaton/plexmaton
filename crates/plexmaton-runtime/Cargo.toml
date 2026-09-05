@@ -13,14 +13,16 @@ plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-file-tools = { path = "../plexmaton-file-tools" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 plexmaton-session-store = { path = "../plexmaton-session-store" }
+plexmaton-skills = { path = "../plexmaton-skills" }
 reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]
 rustix.workspace = true
-serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -12,7 +12,7 @@ mod runtime;
 pub use http::HttpSetupError;
 pub use interface::{
     CleanupFailure, DispatchReport, JournalTailRecovery, PersistenceFailure, RuntimeError,
-    RuntimeUpdate, SessionRecovery,
+    RuntimeUpdate, SessionRecovery, SkillSummary,
 };
 pub use native::{MAX_NATIVE_TOOL_RESULT_BYTES, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::{ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime};

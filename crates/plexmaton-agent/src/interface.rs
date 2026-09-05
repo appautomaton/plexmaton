@@ -10,7 +10,7 @@ use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::journal::JournalRecord;
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
 use crate::tools::ToolExecutionResult;
-use crate::{RequestAttemptId, UnixMillis};
+use crate::{RequestAttemptId, SkillActivation, UnixMillis};
 
 /// Something the loop is told.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,10 +20,24 @@ pub enum Input {
         /// Exact text the user submitted.
         text: String,
     },
+    /// The user submitted a message with separately loaded explicit skill context.
+    SkillSubmitted {
+        /// Exact text the user submitted.
+        text: String,
+        /// Exact skill content resolved for this turn.
+        skill: SkillActivation,
+    },
     /// The user amended the turn in flight, for its next step.
     Steered {
         /// Exact text the user submitted.
         text: String,
+    },
+    /// The user amended the turn with separately loaded explicit skill context.
+    SkillSteered {
+        /// Exact text the user submitted.
+        text: String,
+        /// Exact skill content resolved for the next step.
+        skill: SkillActivation,
     },
     /// The model produced something.
     Streamed {
@@ -87,6 +101,8 @@ pub enum UndeliveredReason {
     StepBudgetReached,
     /// The bounded input queue had no room for another entry.
     QueueFull,
+    /// Explicit skill content could not be loaded before the input reached the agent.
+    SkillUnavailable,
     /// The session journal did not accept the transition, so ownership returned before execution.
     PersistenceFailed,
     /// The runtime shut down before the named boundary opened.
@@ -116,6 +132,8 @@ pub struct UnresolvedApprovalDecision {
 pub struct UndeliveredInput {
     /// Exact text the user submitted.
     pub text: String,
+    /// Explicitly selected skill name whose binding must survive restoration, when present.
+    pub skill: Option<String>,
     /// Why the boundary could not claim it.
     pub reason: UndeliveredReason,
 }
@@ -167,8 +185,28 @@ pub enum RequestAttemptRefusal {
 }
 
 impl UndeliveredInput {
-    pub(crate) const fn new(text: String, reason: UndeliveredReason) -> Self {
-        Self { text, reason }
+    /// Returns ordinary user input without selected skill metadata.
+    #[must_use]
+    pub const fn new(text: String, reason: UndeliveredReason) -> Self {
+        Self {
+            text,
+            skill: None,
+            reason,
+        }
+    }
+
+    /// Returns user input together with the exact explicitly selected skill name.
+    #[must_use]
+    pub const fn with_skill(
+        text: String,
+        skill: Option<String>,
+        reason: UndeliveredReason,
+    ) -> Self {
+        Self {
+            text,
+            skill,
+            reason,
+        }
     }
 }
 
@@ -177,11 +215,12 @@ impl UndeliveredInput {
 pub struct ReleasedInput {
     order: u64,
     text: String,
+    skill: Option<String>,
 }
 
 impl ReleasedInput {
-    pub(crate) const fn new(order: u64, text: String) -> Self {
-        Self { order, text }
+    pub(crate) const fn new(order: u64, text: String, skill: Option<String>) -> Self {
+        Self { order, text, skill }
     }
 
     /// Queue arrival order used when a failed transition returns mixed boundaries.
@@ -194,6 +233,12 @@ impl ReleasedInput {
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// Explicitly selected skill name carried with this released queue item, when present.
+    #[must_use]
+    pub fn skill(&self) -> Option<&str> {
+        self.skill.as_deref()
     }
 }
 

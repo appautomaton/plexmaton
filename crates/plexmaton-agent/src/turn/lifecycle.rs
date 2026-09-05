@@ -176,6 +176,7 @@ impl Agent {
             | UndeliveredReason::TurnEnded
             | UndeliveredReason::StepBudgetReached
             | UndeliveredReason::QueueFull
+            | UndeliveredReason::SkillUnavailable
             | UndeliveredReason::PersistenceFailed => {
                 unreachable!("only terminal abort reasons reach this transition")
             }
@@ -197,10 +198,12 @@ impl Agent {
         let Some(next) = self.input.claim_one(DeliveryBoundary::NextTurn) else {
             return;
         };
-        reaction
-            .released_inputs
-            .push(ReleasedInput::new(next.order, next.text.clone()));
-        self.open_turn(next.text, next.accepted_at, reaction);
+        reaction.released_inputs.push(ReleasedInput::new(
+            next.order,
+            next.text.clone(),
+            next.skill.as_ref().map(|skill| skill.name().to_owned()),
+        ));
+        self.open_turn(next.text, next.skill, next.accepted_at, reaction);
     }
 
     /// Claims steering immediately before the request for the next step is assembled (LOOP-6).
@@ -210,10 +213,18 @@ impl Agent {
         reaction: &mut Reaction,
     ) {
         for input in self.input.claim(DeliveryBoundary::NextStep) {
-            reaction
-                .released_inputs
-                .push(ReleasedInput::new(input.order, input.text.clone()));
-            self.record_steering(turn_id.clone(), input.text, input.accepted_at, reaction);
+            reaction.released_inputs.push(ReleasedInput::new(
+                input.order,
+                input.text.clone(),
+                input.skill.as_ref().map(|skill| skill.name().to_owned()),
+            ));
+            self.record_steering(
+                turn_id.clone(),
+                input.text,
+                input.skill,
+                input.accepted_at,
+                reaction,
+            );
         }
     }
 
@@ -259,12 +270,15 @@ impl Agent {
         reaction: &mut Reaction,
     ) {
         for input in released {
-            reaction
-                .released_inputs
-                .push(ReleasedInput::new(input.order, input.text.clone()));
+            let selected = input.skill.as_ref().map(|skill| skill.name().to_owned());
+            reaction.released_inputs.push(ReleasedInput::new(
+                input.order,
+                input.text.clone(),
+                selected.clone(),
+            ));
             reaction
                 .undelivered
-                .push(UndeliveredInput::new(input.text, reason));
+                .push(UndeliveredInput::with_skill(input.text, selected, reason));
         }
     }
 

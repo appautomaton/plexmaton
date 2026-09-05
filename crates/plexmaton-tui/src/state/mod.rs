@@ -21,6 +21,7 @@ mod retry;
 mod roster;
 mod scroll;
 mod selection;
+mod skill_picker;
 mod status;
 mod text_input;
 
@@ -49,6 +50,7 @@ pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
 pub(crate) use selection::TextPoint;
 pub use selection::{CopyRequest, Selection};
+pub use skill_picker::{SkillChoice, SkillChoiceSource};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
@@ -102,6 +104,8 @@ pub struct ViewState {
     /// "exactly one cursor" a claim that could fail — two inputs exist, and focus is what decides
     /// which of them has the cursor (COM-1).
     inputs: BTreeMap<AgentId, TextInput>,
+    skill_bindings: skill_picker::SkillBindings,
+    skill_picker: skill_picker::SkillPicker,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,
@@ -127,6 +131,8 @@ pub struct Submission {
     pub text: String,
     /// Which loop boundary the visible input names.
     pub kind: SubmissionKind,
+    /// Normalized skill chosen from the primary composer's completion list.
+    pub skill: Option<String>,
 }
 
 /// Whether submitted text starts a later turn or steers the current one.

@@ -14,6 +14,7 @@ use crate::{
 };
 
 mod assistant;
+mod entry;
 #[cfg(test)]
 mod event_tests;
 mod events;
@@ -27,8 +28,9 @@ mod usage;
 #[cfg(test)]
 mod validation_tests;
 
+use entry::project_entry;
 use events::visible_event;
-use tools::{PendingBatch, ToolChange, ToolProjection};
+use tools::{PendingBatch, ToolProjection};
 pub use types::{JournalProjection, JournalProjectionError, RecoveryProjection};
 use usage::{cumulative_usage_event, unknown_usage_event};
 
@@ -46,6 +48,7 @@ struct Projector {
     steps: BTreeSet<ModelStepId>,
     turn_usage: BTreeMap<TurnId, UsageAccumulator>,
     unresolved_attempts: BTreeMap<TurnId, BTreeSet<RequestAttemptId>>,
+    activation_owner: Option<(AgentId, TurnId)>,
 }
 
 impl Projector {
@@ -64,6 +67,7 @@ impl Projector {
             steps: BTreeSet::new(),
             turn_usage: BTreeMap::new(),
             unresolved_attempts: BTreeMap::new(),
+            activation_owner: None,
         }
     }
 
@@ -136,6 +140,7 @@ impl Projector {
         {
             return Err(JournalProjectionError::DuplicateTurn(turn_id));
         }
+        self.activation_owner = Some((agent_id.clone(), turn_id));
         self.emit(SessionEvent::AgentStatusChanged {
             agent_id,
             status: plexmaton_core::AgentStatus::Running,
@@ -156,10 +161,35 @@ impl Projector {
         if expected != &agent_id {
             return Err(JournalProjectionError::WrongTurnAgent(turn_id));
         }
-        self.user_message(source, agent_id, item_id, text)
+        self.user_message(source, agent_id.clone(), item_id, text)?;
+        self.activation_owner = Some((agent_id, turn_id));
+        Ok(())
+    }
+
+    fn skill(
+        &mut self,
+        source: SessionEntryId,
+        agent_id: AgentId,
+        turn_id: TurnId,
+        activation: crate::SkillActivation,
+        activation_owner: Option<(AgentId, TurnId)>,
+    ) -> Result<(), JournalProjectionError> {
+        let Some(expected) = self.turns.get(&turn_id) else {
+            return Err(JournalProjectionError::MissingTurn(turn_id));
+        };
+        if expected != &agent_id {
+            return Err(JournalProjectionError::WrongTurnAgent(turn_id));
+        }
+        if activation_owner.as_ref() != Some(&(agent_id, turn_id.clone())) {
+            return Err(JournalProjectionError::InvalidSkillActivationOrder(turn_id));
+        }
+        self.finish_batch(false)?;
+        self.atoms.push(ContextAtom::skill(source, activation));
+        Ok(())
     }
 
     fn turn_finished(&mut self, fact: &crate::TurnFinished) -> Result<(), JournalProjectionError> {
+        self.activation_owner = None;
         self.finish_batch(false)?;
         let Some(expected) = self.turns.get(&fact.turn_id) else {
             return Err(JournalProjectionError::MissingTurn(fact.turn_id.clone()));
@@ -196,6 +226,7 @@ impl Projector {
         &mut self,
         attempt: &RequestAttempt,
     ) -> Result<(), JournalProjectionError> {
+        self.activation_owner = None;
         let Some(step_id) = attempt.authorization().owner().agent_step() else {
             return Ok(());
         };
@@ -226,6 +257,7 @@ impl Projector {
     }
 
     fn request_attempt_authorized(&mut self, fact: &RequestAttemptAuthorized) {
+        self.activation_owner = None;
         if let Some(step_id) = fact.owner().agent_step() {
             self.unresolved_attempts
                 .entry(step_id.turn_id().clone())
@@ -326,6 +358,7 @@ impl Projector {
             | JournalEntryPayload::TurnStarted { .. }
             | JournalEntryPayload::TurnRetried { .. }
             | JournalEntryPayload::SteeringAccepted { .. }
+            | JournalEntryPayload::SkillActivated { .. }
             | JournalEntryPayload::AssistantOutput { .. }
             | JournalEntryPayload::ToolCallRequested { .. }
             | JournalEntryPayload::ToolCallChanged { .. } => {
@@ -450,87 +483,4 @@ enum SelectedFact<'a> {
     TurnFinished(&'a crate::TurnFinished),
     RequestAttemptAuthorized(&'a RequestAttemptAuthorized),
     RequestAttemptFinished(&'a RequestAttempt),
-}
-
-fn project_entry(
-    projector: &mut Projector,
-    entry: &SessionEntry,
-) -> Result<(), JournalProjectionError> {
-    let source = entry.id.clone();
-    match &entry.payload {
-        JournalEntryPayload::TurnRetried {
-            agent_id, turn_id, ..
-        } => {
-            projector.turns.insert(turn_id.clone(), agent_id.clone());
-            projector.emit(SessionEvent::AgentStatusChanged {
-                agent_id: agent_id.clone(),
-                status: plexmaton_core::AgentStatus::Running,
-            })
-        }
-        JournalEntryPayload::TurnStarted {
-            agent_id,
-            item_id,
-            turn_id,
-            text,
-            ..
-        } => projector.turn_started(
-            source,
-            agent_id.clone(),
-            item_id.clone(),
-            turn_id.clone(),
-            text.clone(),
-        ),
-        JournalEntryPayload::SteeringAccepted {
-            agent_id,
-            item_id,
-            turn_id,
-            text,
-            ..
-        } => projector.steering(
-            source,
-            agent_id.clone(),
-            item_id.clone(),
-            turn_id.clone(),
-            text.clone(),
-        ),
-        JournalEntryPayload::TurnStatusChanged {
-            agent_id,
-            turn_id,
-            status,
-        } => projector.turn_status(agent_id.clone(), turn_id.clone(), *status),
-        JournalEntryPayload::AssistantOutput {
-            agent_id,
-            step_id,
-            output,
-        } => projector.assistant_output(source, agent_id.clone(), step_id.clone(), output.clone()),
-        JournalEntryPayload::ToolCallRequested {
-            agent_id,
-            call_id,
-            presentation,
-        } => projector.request_tool(
-            source,
-            agent_id.clone(),
-            call_id.clone(),
-            presentation.clone(),
-        ),
-        JournalEntryPayload::ToolCallChanged {
-            agent_id,
-            call_id,
-            item_revision,
-            status,
-            presentation,
-            outcome,
-        } => projector.change_tool(
-            source,
-            ToolChange {
-                agent_id: agent_id.clone(),
-                call_id: call_id.clone(),
-                item_revision: *item_revision,
-                status: *status,
-                presentation: presentation.clone(),
-                outcome: outcome.clone(),
-            },
-        ),
-        other => projector.visible(other.clone()),
-    }
 }

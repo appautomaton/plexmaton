@@ -132,7 +132,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
             .open_with_key(
                 SessionSelection::Resume(id("haiku")),
                 agent_id(),
-                CancellationToken::new(),
+                JobCancellation::new(),
                 key(&launcher)
             )
             .await
@@ -156,7 +156,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
         .open_with_key(
             SessionSelection::Resume(id("haiku")),
             agent_id(),
-            CancellationToken::new(),
+            JobCancellation::new(),
             key(&launcher),
         )
         .await
@@ -192,7 +192,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
             .open_with_key(
                 SessionSelection::Resume(id("haiku")),
                 agent_id(),
-                CancellationToken::new(),
+                JobCancellation::new(),
                 key(&launcher)
             )
             .await
@@ -217,13 +217,15 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
         .open_with_key(
             SessionSelection::Resume(id("haiku")),
             agent_id(),
-            CancellationToken::new(),
+            JobCancellation::new(),
             key(&launcher),
         )
         .await
         .expect("load");
     workspace.close_session_picker();
     picker.observe_closed(&workspace);
+    assert!(picker.cancel.task.is_cancelled());
+    assert!(picker.cancel.files.is_cancelled());
     assert!(
         !picker
             .apply(
@@ -272,7 +274,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
             .open_with_key(
                 selection,
                 agent_id(),
-                CancellationToken::new(),
+                JobCancellation::new(),
                 key(&launcher),
             )
             .await
@@ -313,7 +315,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
         .open_with_key(
             SessionSelection::Automatic,
             agent_id(),
-            CancellationToken::new(),
+            JobCancellation::new(),
             key(&launcher),
         )
         .await
@@ -370,7 +372,7 @@ async fn new_session_refuses_unsent_input_and_active_work() {
         .open_with_key(
             SessionSelection::Ephemeral,
             agent_id(),
-            CancellationToken::new(),
+            JobCancellation::new(),
             key(&launcher),
         )
         .await

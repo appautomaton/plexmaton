@@ -105,7 +105,9 @@ impl FileCancellation {
         self.0.store(true, Ordering::Release);
     }
 
-    pub(crate) fn is_cancelled(&self) -> bool {
+    /// Reports whether the owner has requested cancellation.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
 }

@@ -18,9 +18,9 @@ pub(crate) const MAX_PATH_BYTES: usize = 4096;
 /// Canonical directory from which every file-tool path is resolved (WFS-1).
 #[derive(Clone, Debug)]
 pub struct WorkspaceRoot {
-    canonical: PathBuf,
+    pub(crate) canonical: PathBuf,
     #[cfg(unix)]
-    directory: Arc<File>,
+    pub(crate) directory: Arc<File>,
 }
 
 /// Why a model path cannot name an object inside the pinned workspace.
@@ -151,6 +151,27 @@ impl WorkspaceRoot {
     #[must_use]
     pub fn as_path(&self) -> &Path {
         &self.canonical
+    }
+
+    /// Pins one existing descendant directory without following any relative-path component.
+    pub fn open_directory(&self, supplied: &str) -> Result<Self, PathError> {
+        let relative = validate_relative(supplied, false)?;
+        #[cfg(unix)]
+        let directory =
+            open_directory_beneath(&self.directory, &relative.components).or_else(|error| {
+                self.reject_visible_symlink(&relative)?;
+                Err(error)
+            })?;
+        #[cfg(unix)]
+        return Ok(Self {
+            canonical: self.canonical.join(relative.display),
+            directory: Arc::new(directory),
+        });
+        #[cfg(not(unix))]
+        {
+            let _relative = relative;
+            Err(PathError::UnsupportedPlatform)
+        }
     }
 
     pub(crate) fn open_file(&self, supplied: &str) -> Result<(String, File), PathError> {
@@ -322,6 +343,21 @@ fn pin_root(root: &Path) -> Result<File, PathError> {
 fn open_beneath(root: &File, components: &[OsString]) -> Result<File, PathError> {
     let (directory, file_name) = open_parent(root, components)?;
     open_leaf(&directory, &file_name)
+}
+
+#[cfg(unix)]
+fn open_directory_beneath(root: &File, components: &[OsString]) -> Result<File, PathError> {
+    use rustix::fs::{Mode, OFlags, openat};
+
+    let (parent, name) = open_parent(root, components)?;
+    openat(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )
+    .map(File::from)
+    .map_err(map_rustix)
 }
 
 #[cfg(unix)]

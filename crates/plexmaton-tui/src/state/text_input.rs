@@ -275,6 +275,24 @@ impl TextInput {
         self.cursor = self.text.len();
     }
 
+    /// Completes the first skill token while preserving any request text after it.
+    pub(crate) fn complete_initial_token(&mut self, name: &str) {
+        let end = self
+            .text
+            .find(char::is_whitespace)
+            .unwrap_or(self.text.len());
+        let had_request = end < self.text.len();
+        let replacement = if had_request {
+            format!("${name}")
+        } else {
+            format!("${name} ")
+        };
+        self.text.replace_range(..end, &replacement);
+        self.selection = None;
+        self.cursor = replacement.len();
+        self.settle_cursor();
+    }
+
     /// Rows the input paints at `width`, being the window that contains the caret.
     #[must_use]
     pub fn visible_rows(&self, width: u16) -> Vec<String> {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::{SkillChoice, SkillChoiceSource};
 use plexmaton_core::{
     AgentStatus, EventSequence, SessionEvent, TranscriptItemId, TranscriptRole, TurnId,
 };
@@ -65,6 +66,7 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
         },
         question_item: question,
         error_item: error,
+        skill: None,
     }));
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
     workspace.draw(&mut terminal).expect("draw");
@@ -78,6 +80,102 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
         })
         .expect("visible retry controls");
     (workspace, terminal, point)
+}
+
+/// SKP-3/COM-7: a historical numeric binding survives unchanged Edit & retry.
+#[test]
+fn unchanged_numeric_skill_retry_uses_the_historical_semantic_binding() {
+    let (mut workspace, _terminal, _) = fixture(95);
+    let question = TranscriptItemId::new("numeric-question").expect("id");
+    workspace.emit(vec![
+        SessionEventEnvelope {
+            sequence: EventSequence::new(5),
+            event: SessionEvent::TranscriptItemStarted {
+                agent_id: AgentId::new("primary").expect("agent"),
+                item_id: question.clone(),
+                role: TranscriptRole::User,
+            },
+        },
+        SessionEventEnvelope {
+            sequence: EventSequence::new(6),
+            event: SessionEvent::TranscriptDelta {
+                agent_id: AgentId::new("primary").expect("agent"),
+                item_id: question.clone(),
+                item_revision: 1,
+                text: "$100 inspect".to_owned(),
+            },
+        },
+    ]);
+    workspace.set_retry_actions(Some(RetryActions {
+        target: RetryTarget {
+            turn_id: TurnId::new("numeric-turn").expect("turn"),
+            revision: 6,
+        },
+        question_item: question,
+        error_item: TranscriptItemId::new("error").expect("error"),
+        skill: Some("100".to_owned()),
+    }));
+
+    workspace.perform_retry_action(RetryAction::EditRetry);
+    let retry = workspace
+        .handle(&key(KeyCode::Enter))
+        .retry
+        .expect("edited retry");
+    assert_eq!(retry.edited_text.as_deref(), Some("$100 inspect"));
+    assert_eq!(retry.skill.as_deref(), Some("100"));
+}
+
+/// SKP-3/COM-7: edit-retry owns its selected skill while the displaced draft keeps its own binding.
+#[test]
+fn retry_edit_submission_and_saved_draft_keep_independent_skill_bindings() {
+    let (mut workspace, mut terminal, _) = fixture(95);
+    workspace.set_skills(vec![
+        SkillChoice {
+            name: "review".to_owned(),
+            description: "Review".to_owned(),
+            source: SkillChoiceSource::ProjectNative,
+        },
+        SkillChoice {
+            name: "100".to_owned(),
+            description: "Numeric".to_owned(),
+            source: SkillChoiceSource::User,
+        },
+    ]);
+    workspace.handle(&key(KeyCode::Tab));
+    workspace.draw(&mut terminal).expect("focus composer");
+    workspace.handle(&key(KeyCode::Char('$')));
+    workspace.draw(&mut terminal).expect("picker");
+    workspace.handle(&key(KeyCode::Enter));
+    workspace.draw(&mut terminal).expect("accepted skill");
+    workspace.handle(&Event::Paste("saved".to_owned()));
+
+    workspace.perform_retry_action(RetryAction::EditRetry);
+    for event in [
+        Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL)),
+        Event::Key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
+    ] {
+        workspace.handle(&event);
+    }
+    workspace.handle(&key(KeyCode::Char('$')));
+    workspace.draw(&mut terminal).expect("retry picker");
+    workspace.handle(&key(KeyCode::Down));
+    workspace.handle(&key(KeyCode::Enter));
+    workspace.draw(&mut terminal).expect("retry choice");
+    workspace.handle(&Event::Paste("edited".to_owned()));
+    let retry = workspace
+        .handle(&key(KeyCode::Enter))
+        .retry
+        .expect("retry submission");
+    assert_eq!(retry.edited_text.as_deref(), Some("$100 edited"));
+    assert_eq!(retry.skill.as_deref(), Some("100"));
+
+    workspace.complete_retry_edit();
+    let saved = workspace
+        .handle(&key(KeyCode::Enter))
+        .submitted
+        .expect("saved draft submission");
+    assert_eq!(saved.text, "$review saved");
+    assert_eq!(saved.skill.as_deref(), Some("review"));
 }
 
 /// TR-1/INV-1: review the actionable failure at each supported composition width.

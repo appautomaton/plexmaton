@@ -4,7 +4,7 @@ use plexmaton_core::{SessionEntryId, ToolCallId, TranscriptItemId};
 use serde::{Deserialize, Serialize};
 
 use super::{ProviderReplay, ReplayCompatibility};
-use crate::{ToolCall, ToolOutcome};
+use crate::{SkillActivation, ToolCall, ToolOutcome};
 
 #[cfg(test)]
 mod tests;
@@ -436,6 +436,7 @@ pub struct ContextAtom {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContextAtomValue {
     User { text: String },
+    Skill(SkillActivation),
     Assistant(AssistantOutput),
     ToolBatch(ToolBatch),
 }
@@ -445,6 +446,14 @@ impl ContextAtom {
         Self {
             source_entries: vec![source].into_boxed_slice(),
             value: ContextAtomValue::User { text },
+        }
+    }
+
+    /// Retains one explicit skill activation separately from user-authored text (SKL-5).
+    pub fn skill(source: SessionEntryId, activation: SkillActivation) -> Self {
+        Self {
+            source_entries: vec![source].into_boxed_slice(),
+            value: ContextAtomValue::Skill(activation),
         }
     }
 

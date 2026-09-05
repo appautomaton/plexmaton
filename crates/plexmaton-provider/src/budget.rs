@@ -81,7 +81,7 @@ fn estimate_atom(
         ModelApi::GoogleGenerateContent => crate::gemini::encode_atom(model, atom)?,
     };
     let output = match atom.value() {
-        ContextAtomValue::User { .. } => None,
+        ContextAtomValue::User { .. } | ContextAtomValue::Skill(_) => None,
         ContextAtomValue::Assistant(output) => Some(output),
         ContextAtomValue::ToolBatch(batch) => Some(batch.assistant()),
     };

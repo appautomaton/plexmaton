@@ -12,7 +12,7 @@ use ratatui::crossterm::event::{
 use crate::{
     intent::{
         ApprovalIntent, AttentionIntent, CommandPaletteIntent, Direction, InspectorIntent,
-        PointerIntent, ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
+        PointerIntent, ScrollDirection, SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
@@ -148,6 +148,25 @@ impl Router {
             };
         }
 
+        // The completion list keeps keyboard focus and the caret in the primary composer.
+        if context.focused == Some(SurfaceId::Composer)
+            && context.surfaces.get(SurfaceId::SkillPicker).is_some()
+        {
+            return match key.code {
+                KeyCode::Esc => Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Close)),
+                KeyCode::Up if key.modifiers.is_empty() => Routed::Intent(TuiIntent::SkillPicker(
+                    SkillPickerIntent::Step(Direction::Backward),
+                )),
+                KeyCode::Down if key.modifiers.is_empty() => Routed::Intent(
+                    TuiIntent::SkillPicker(SkillPickerIntent::Step(Direction::Forward)),
+                ),
+                KeyCode::Tab | KeyCode::Enter if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Accept))
+                }
+                _ => text_key(key),
+            };
+        }
+
         // A modal owns every non-global key. In particular, inspector and selection chords must
         // not reach a surface hidden underneath it (SURF-4).
         if context.focused == Some(SurfaceId::Approval) {
@@ -272,6 +291,14 @@ impl Router {
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
 /// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
+    if context.surfaces.hit_test(at) == Some(SurfaceId::SkillPicker) {
+        return Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Step(
+            match direction {
+                ScrollDirection::Up => Direction::Backward,
+                ScrollDirection::Down => Direction::Forward,
+            },
+        )));
+    }
     if context.surfaces.hit_test(at) == Some(SurfaceId::CommandPalette) {
         return Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Step(
             match direction {

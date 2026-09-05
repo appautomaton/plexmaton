@@ -244,6 +244,26 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("Message Plexmaton",), ("zabc",))
 
 
+def check_skill_picker(master: int, captured: bytearray) -> None:
+    """SKP-2/SKP-3: completion and dismissal remain edits, never model dispatch."""
+    os.write(master, b"$")
+    repaint(master, captured, ("Skills", "smoke-review", "Review smoke fixture"))
+    os.write(master, b"smo")
+    repaint(master, captured, ("Skills", "smoke-review"), exact_lines=("$smo",))
+    os.write(master, b"\r")
+    repaint(master, captured, ("$smoke-review",), ("Skills",), exact_lines=("$smoke-review",))
+    os.write(master, b"\x03$")
+    repaint(master, captured, ("Skills", "smoke-review"))
+    os.write(master, b"\x1b")
+    repaint(master, captured, ("Message Plexmaton",), ("Skills",), exact_lines=("$",))
+    os.write(master, b"\x03$")
+    repaint(master, captured, ("Skills", "smoke-review"))
+    os.write(master, b"\t")
+    repaint(master, captured, ("$smoke-review",), ("Skills",), exact_lines=("$smoke-review",))
+    os.write(master, b"\x03")
+    repaint(master, captured, ("Message Plexmaton",), ("$smoke-review", "Skills"))
+
+
 def run_smoke(model_url: str) -> int:
     if sys.argv[1:]:
         print("usage: smoke-tui.py", file=sys.stderr)
@@ -275,6 +295,12 @@ output_reserve_tokens = 5000
         encoding="utf-8",
     )
     child_env["PLEXMATON_HOME"] = str(config_root)
+    skill_root = config_root / "skills" / "smoke-review"
+    skill_root.mkdir(parents=True)
+    (skill_root / "SKILL.md").write_text(
+        "---\nname: smoke-review\ndescription: Review smoke fixture\n---\nCompletion-only fixture.\n",
+        encoding="utf-8",
+    )
     child_env["PLEXMATON_SMOKE_API_KEY"] = "fixture-only"
     default_sessions_root = config_root / "sessions"
     subprocess.run(
@@ -313,6 +339,7 @@ output_reserve_tokens = 5000
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
         check_command_palette(master, captured)
         check_input_pointer(master, captured)
+        check_skill_picker(master, captured)
 
         question = "press Ctrl-D again to quit"
         armed_start = len(captured)

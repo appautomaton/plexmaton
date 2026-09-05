@@ -3,11 +3,11 @@
 use plexmaton_agent::{
     AdmissionRefusal, MAX_ASSISTANT_TEXT_BYTES, MAX_PROVIDER_REPLAY_BYTES,
     MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES, ModelError, ModelEvent,
-    ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility,
+    ModelOutputPosition, ModelRequest, ProviderReplayError, ReplayCompatibility, SkillActivation,
     ToolCancellationReason, ToolOutcome,
 };
 use plexmaton_core::{TokenCounts, TokenUsage, ToolCallId};
-use serde_json::Value;
+use serde_json::{Value, json};
 use thiserror::Error;
 
 use crate::{
@@ -19,6 +19,20 @@ use crate::{
 };
 
 pub(crate) const RESPONSES_CODEC_ID: &str = "openai_responses";
+const SKILL_CONTEXT_LABEL: &str = "Plexmaton activated skill context:\n";
+
+/// Renders one typed skill atom identically for every provider dialect (SKL-5/SKL-6).
+pub(crate) fn skill_context(activation: &SkillActivation) -> String {
+    let envelope = json!({
+        "type": "plexmaton_skill_context",
+        "name": activation.name(),
+        "source": activation.source(),
+        "location": activation.location(),
+        "digest": activation.digest(),
+        "instructions": activation.instructions(),
+    });
+    format!("{SKILL_CONTEXT_LABEL}{envelope}")
+}
 
 /// Bounds enforced while one provider response is decoded.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -456,9 +470,103 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_agent::{AdmissionRefusal, ModelError, ToolCancellationReason, ToolOutcome};
+    use plexmaton_agent::{
+        AdmissionRefusal, ContextAtom, ModelError, ModelRequest, SkillActivation, SkillSource,
+        ToolCancellationReason, ToolOutcome,
+    };
+    use plexmaton_core::{SessionEntryId, SessionId};
 
-    use super::{classify_http_error, tool_output};
+    use super::{SKILL_CONTEXT_LABEL, classify_http_error, encode_request, tool_output};
+    use crate::{ModelRegistry, ResolvedModel};
+
+    fn skill_model(api: &str) -> ResolvedModel {
+        ModelRegistry::parse(&format!(
+            r#"
+active_model = {{ provider = "fixture", model = "test" }}
+[providers.fixture]
+base_url = "http://127.0.0.1:1/v1"
+api_key_env = "UNUSED_FIXTURE_KEY"
+api = "{api}"
+[providers.fixture.models.test]
+id = "fixture-model"
+context_window_tokens = 10000
+max_output_tokens = 2000
+output_reserve_tokens = 1000
+"#
+        ))
+        .expect("fixture config")
+        .active_model()
+        .clone()
+    }
+
+    fn skill_activation(instructions: &str) -> SkillActivation {
+        SkillActivation::new(
+            "review".to_owned(),
+            SkillSource::ProjectShared,
+            "/workspace/.agents/skills/review/SKILL.md".to_owned(),
+            "a".repeat(64),
+            instructions.to_owned(),
+        )
+        .expect("skill activation")
+    }
+
+    /// SKL-5/SKL-6: every dialect identifies the same durable skill fact without a new wire role.
+    #[test]
+    fn skill_context_is_exact_and_uses_supported_user_roles_in_every_dialect() {
+        let instructions =
+            "Follow <skill> literally.\nKeep \\\"quotes\\\", \\\\slashes, and 🦀 exact.";
+        let request = ModelRequest {
+            session_id: SessionId::new("session-skill").expect("session id"),
+            atoms: vec![
+                ContextAtom::user(
+                    SessionEntryId::new("entry-before").expect("entry id"),
+                    "before".to_owned(),
+                ),
+                ContextAtom::skill(
+                    SessionEntryId::new("entry-skill").expect("entry id"),
+                    skill_activation(instructions),
+                ),
+                ContextAtom::user(
+                    SessionEntryId::new("entry-after").expect("entry id"),
+                    "after".to_owned(),
+                ),
+            ],
+        };
+
+        for (api, message_path, text_path) in [
+            ("openai_responses", "/input/1", "/content"),
+            ("openai_chat_completions", "/messages/1", "/content"),
+            ("anthropic_messages", "/messages/1", "/content/0/text"),
+            ("google_generate_content", "/contents/1", "/parts/0/text"),
+        ] {
+            let encoded = encode_request(&skill_model(api), &request, &[], None)
+                .unwrap_or_else(|error| panic!("encode {api}: {error}"));
+            let message = encoded
+                .pointer(message_path)
+                .unwrap_or_else(|| panic!("{api} skill message"));
+            assert_eq!(message["role"], "user", "{api}");
+            let context = message
+                .pointer(text_path)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_else(|| panic!("{api} skill text"));
+            let envelope: serde_json::Value = serde_json::from_str(
+                context
+                    .strip_prefix(SKILL_CONTEXT_LABEL)
+                    .unwrap_or_else(|| panic!("{api} skill label")),
+            )
+            .unwrap_or_else(|error| panic!("{api} skill envelope: {error}"));
+            assert_eq!(envelope["type"], "plexmaton_skill_context");
+            assert_eq!(envelope["name"], "review");
+            assert_eq!(envelope["source"], "project_shared");
+            assert_eq!(
+                envelope["location"],
+                "/workspace/.agents/skills/review/SKILL.md"
+            );
+            assert_eq!(envelope["digest"], "a".repeat(64));
+            assert_eq!(envelope["instructions"], instructions);
+            assert!(!encoded.to_string().contains("\"role\":\"skill\""));
+        }
+    }
 
     #[test]
     fn typed_admission_refusals_keep_their_wire_reason() {

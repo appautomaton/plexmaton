@@ -23,6 +23,8 @@ pub struct RetryActions {
     pub target: RetryTarget,
     pub question_item: TranscriptItemId,
     pub error_item: TranscriptItemId,
+    /// Deliberate skill binding retained beside the historical question, if any.
+    pub skill: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,12 +32,15 @@ pub struct RetryActions {
 pub struct RetrySubmission {
     pub target: RetryTarget,
     pub edited_text: Option<String>,
+    /// Normalized skill deliberately chosen while editing, if its token remains exact.
+    pub skill: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct RetryEdit {
     target: RetryTarget,
     saved: TextInput,
+    saved_skill: Option<String>,
 }
 
 impl ViewState {
@@ -77,12 +82,20 @@ impl ViewState {
             return;
         };
         let id = agent.id.clone();
+        let retry_skill = actions.skill.clone();
         let saved = self.inputs.remove(&id).unwrap_or_default();
-        let input = self.inputs.entry(id).or_default();
+        let saved_skill = self.skill_bindings.remove(&id);
+        let input = self.inputs.entry(id.clone()).or_default();
         super::apply_text(input, crate::intent::TextIntent::Paste(text));
+        if let Some(skill) = retry_skill
+            && super::skill_picker::binding_matches(input.text(), &skill)
+        {
+            self.skill_bindings.insert(id, skill);
+        }
         self.retry_edit = Some(RetryEdit {
             target: actions.target,
             saved,
+            saved_skill,
         });
         self.close_command_palette();
         self.focus.prefer(SurfaceId::Composer);
@@ -98,6 +111,10 @@ impl ViewState {
         Some(RetrySubmission {
             target: edit.target.clone(),
             edited_text: Some(text.to_owned()),
+            skill: self
+                .primary_agent()
+                .and_then(|agent| self.selected_skill(&agent.id))
+                .map(str::to_owned),
         })
     }
 
@@ -106,6 +123,10 @@ impl ViewState {
             return;
         };
         if let Some(id) = self.primary_agent().map(|agent| agent.id.clone()) {
+            self.skill_bindings.remove(&id);
+            if let Some(skill) = edit.saved_skill {
+                self.skill_bindings.insert(id.clone(), skill);
+            }
             self.inputs.insert(id, edit.saved);
         }
         self.touch();
@@ -118,10 +139,14 @@ impl ViewState {
     pub(crate) fn replace_projection(&mut self, events: Vec<plexmaton_core::SessionEventEnvelope>) {
         let status = self.status.clone();
         let inputs = self.inputs.clone();
+        let skill_bindings = self.skill_bindings.clone();
+        let skill_picker = self.skill_picker.clone();
         let focus = self.focus;
         *self = Self {
             status,
             inputs,
+            skill_bindings,
+            skill_picker,
             focus,
             ..Self::default()
         };

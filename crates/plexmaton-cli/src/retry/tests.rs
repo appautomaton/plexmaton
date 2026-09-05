@@ -2,6 +2,26 @@ use super::*;
 use crate::tests::{FixtureWorkspace, fixture_http_responses};
 use plexmaton_core::SessionId;
 
+#[test]
+fn skill_retry_failure_retains_one_editor_copy_until_handoff() {
+    let text = "$missing keep this edit";
+    let mut report = DispatchReport {
+        undelivered: vec![plexmaton_agent::UndeliveredInput {
+            skill: Some("missing".to_owned()),
+            text: text.to_owned(),
+            reason: plexmaton_agent::UndeliveredReason::SkillUnavailable,
+        }],
+        skill_errors: vec!["Skill could not be loaded".to_owned()],
+        ..DispatchReport::default()
+    };
+    retain_owned_edit(&mut report, Some(text));
+    assert!(
+        report.undelivered.is_empty(),
+        "editor still owns the input before handoff"
+    );
+    assert_eq!(report.skill_errors.len(), 1);
+}
+
 const CONFIG: &str = r#"
 active_model = { provider = "fixture", model = "test" }
 [providers.fixture]

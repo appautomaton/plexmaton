@@ -3,7 +3,9 @@
 #[cfg(not(unix))]
 compile_error!("plexmaton-file-tools currently requires Unix descriptor semantics");
 
+mod bounded;
 mod catalog;
+mod directory;
 mod driver;
 mod mutation;
 mod observation;
@@ -11,6 +13,8 @@ mod path;
 mod read;
 mod search;
 
+pub use bounded::{BoundedFileRead, BoundedReadError};
+pub use directory::DirectoryListError;
 pub use observation::{ObservationId, ObservedFile};
 pub use path::{PathError, WorkspaceRoot};
 pub use read::{ReadCompletion, ReadError, ReadRequest, ReadResult};

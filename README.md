@@ -1,12 +1,13 @@
 # Plexmaton
 
 Plexmaton is a Rust agentic harness with a Ratatui workspace, Responses, Chat Completions,
-Anthropic Messages, Gemini GenerateContent, and native file/search/edit/command tools.
+Anthropic Messages, Gemini GenerateContent, and native file/search/edit/command/skill tools.
 
 ## Development
 
-Configuration lives in `~/.plexmaton/`, never a repository's `.plexmaton/`.
-Credentials are read from the named environment variable:
+User configuration and runtime state live in `~/.plexmaton/`. Optional project
+`.plexmaton/config.toml` overrides `[active_model]` using user-defined provider/model names.
+Credentials come from the named environment variable:
 
 ```toml
 # ~/.plexmaton/config.toml
@@ -26,11 +27,8 @@ max_output_tokens = 128000
 output_reserve_tokens = 16384
 ```
 
-Estimation has a default; missing pricing is unavailable.
-Set `PLEXMATON_HOME` for isolation.
-
-[Provider examples](examples/providers.toml) and [request options](.agents/specs/provider-adapter.md#request-configuration)
-cover native endpoints, instructions, optional reasoning and cache hints.
+Set `PLEXMATON_HOME` for isolation. See [provider examples](examples/providers.toml) and
+[request options](.agents/specs/provider-adapter.md#request-configuration).
 
 The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
 symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or
@@ -39,14 +37,19 @@ symlinked paths. Read and search run directly; create, edit, and command require
 ```console
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- --ephemeral
-PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- create work-01
-PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
 ```
 
 Default sessions create JSONL on the first message; blank launches save nothing.
 Exit prints a resume command for the selected saved session. `--ephemeral` disables persistence.
-`create` reserves a name; `resume` restores history. Files are owner-only:
+`plexmaton create work-01` reserves a name; `plexmaton resume work-01` restores history. Files are owner-only:
 `PLEXMATON_HOME/sessions/<session-id>.jsonl` (ASCII letters, digits, `-`, `_`).
+This build uses journal epoch `2026-09-05`; older epochs are refused, with no migration.
+
+Skills are `<name>/SKILL.md` bundles, discovered in precedence order: project `.plexmaton/skills`,
+project `.agents/skills`, then `PLEXMATON_HOME/skills`. The model sees summaries and loads instructions
+or resources through `skill`. In the main input, `$` lists skills; Tab/Enter inserts `$name `,
+Enter sends. Esc closes the list. Failures return drafts; saved content survives edits.
+Skills never grant permissions. [Picker](.agents/specs/skill-picker.md) · [Format](.agents/specs/agent-skills.md).
 
 `Ctrl-D` twice within one second quits. `Ctrl-C` clears a draft or interrupts its conversation;
 `Esc` backs out one layer. `Ctrl-P` opens the palette: `/config` (alias `/settings`) shows the
@@ -68,10 +71,7 @@ max_rows = 6
 refresh_ms = 30000
 ```
 
-The example needs Bash, jq and a Nerd Font; JSON arrives on stdin. No rebuild needed for script
-edits. Context requires API-reported usage; unknown statistics stay hidden.
-Quit/Ctrl-P hints occupy the last terminal row.
-[Protocol, limits and configuration](.agents/specs/status-line.md).
+The example uses Bash, jq and a Nerd Font. See [footer protocol and limits](.agents/specs/status-line.md).
 
 Pastel assistant Markdown supports code blocks and tables; chrome stays terminal-owned.
 Streams coalesce; input bypasses their timer.
@@ -80,6 +80,5 @@ In-conversation approvals: Esc focuses input; Tab/click focuses the card.
 See [keys](.agents/specs/interaction-routing.md#key-grammar) and
 [copy](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
 
-Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md).
-`python3 scripts/smoke-tui.py` checks terminal/input lifecycle; `python3 scripts/smoke-statusline.py`
-checks the footer without model calls. Hooks: `git config core.hooksPath .githooks`.
+Run `cargo test --workspace` and [quality gates](.agents/standards/quality-gates.md), including
+offline terminal/footer smokes. Hooks: `git config core.hooksPath .githooks`.

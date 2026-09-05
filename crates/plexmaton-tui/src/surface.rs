@@ -57,6 +57,8 @@ pub enum SurfaceKind {
     /// answer "is there a cursor" for both. It belongs to the workspace rather than to any
     /// conversation, so unlike an approval it is not a section of anyone's box.
     CommandPalette,
+    /// Inline completion list anchored to the primary composer; pointer-active without taking focus.
+    Popup,
 }
 
 impl SurfaceKind {
@@ -65,7 +67,12 @@ impl SurfaceKind {
     pub const fn accepts_pointer(self) -> bool {
         matches!(
             self,
-            Self::Panel | Self::Composer | Self::Inspector | Self::Modal | Self::CommandPalette
+            Self::Panel
+                | Self::Composer
+                | Self::Inspector
+                | Self::Modal
+                | Self::CommandPalette
+                | Self::Popup
         )
     }
 
@@ -85,7 +92,10 @@ impl SurfaceKind {
     /// place as every other behavioural answer (SURF-3).
     #[must_use]
     pub const fn is_dismissible(self) -> bool {
-        matches!(self, Self::Inspector | Self::Modal | Self::CommandPalette)
+        matches!(
+            self,
+            Self::Inspector | Self::Modal | Self::CommandPalette | Self::Popup
+        )
     }
 
     /// Whether this surface prevents delivery to every lower surface, including outside its own
@@ -99,7 +109,7 @@ impl SurfaceKind {
     #[must_use]
     pub const fn keyboard_focus(self) -> KeyboardFocus {
         match self {
-            Self::Panel | Self::Chrome | Self::Modal => KeyboardFocus::Navigation,
+            Self::Panel | Self::Chrome | Self::Modal | Self::Popup => KeyboardFocus::Navigation,
             // The inspector carries the inspected agent's steer input, which renders only while it
             // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
@@ -132,6 +142,8 @@ pub enum SurfaceId {
     /// Declared right after the second window so that `Tab` from the window's input lands here:
     /// the collapsed composer says `⇥ to return`, and the ring is what makes that true.
     Composer,
+    /// Skill completions anchored immediately above the primary composer.
+    SkillPicker,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
     /// Requests background agents have made of the user. Registered only while one is queued.

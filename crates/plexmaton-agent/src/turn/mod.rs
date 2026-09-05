@@ -25,6 +25,8 @@ mod lifecycle;
 mod model_input;
 mod request_attempt;
 mod retry;
+#[cfg(test)]
+mod skill_tests;
 mod tool_projection;
 mod user_input;
 
@@ -250,7 +252,13 @@ impl Agent {
         self.announce_into(self.record.agent_id().to_string(), &mut reaction);
         match input {
             Input::Submitted { text } => self.submit(text, &mut reaction),
+            Input::SkillSubmitted { text, skill } => {
+                self.submit_with_skill(text, skill, &mut reaction);
+            }
             Input::Steered { text } => self.steer(text, &mut reaction),
+            Input::SkillSteered { text, skill } => {
+                self.steer_with_skill(text, skill, &mut reaction);
+            }
             Input::Streamed { step_id, event } => {
                 if self.accepts_model_input(step_id, &mut reaction) {
                     self.stream(event, &mut reaction);
@@ -528,7 +536,9 @@ mod tests {
             .iter()
             .flat_map(|atom| match atom.value() {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
-                ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
+                ContextAtomValue::User { .. }
+                | ContextAtomValue::Skill(_)
+                | ContextAtomValue::Assistant(_) => &[],
             })
             .map(|result| result.call_id().to_string())
             .collect()
@@ -546,7 +556,9 @@ mod tests {
             .iter()
             .flat_map(|atom| match atom.value() {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
-                ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
+                ContextAtomValue::User { .. }
+                | ContextAtomValue::Skill(_)
+                | ContextAtomValue::Assistant(_) => &[],
             })
             .collect()
     }
@@ -1379,6 +1391,7 @@ mod tests {
                     .iter()
                     .all(|atom| match atom.value() {
                         ContextAtomValue::User { .. } => true,
+                        ContextAtomValue::Skill(_) => true,
                         ContextAtomValue::Assistant(output) => output.tool_calls().next().is_none(),
                         ContextAtomValue::ToolBatch(_) => false,
                     })

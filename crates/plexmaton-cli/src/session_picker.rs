@@ -20,6 +20,27 @@ pub(super) struct Launcher {
     pub driver: PathBuf,
 }
 
+#[derive(Clone, Default)]
+struct JobCancellation {
+    task: CancellationToken,
+    files: plexmaton_file_tools::FileCancellation,
+}
+
+impl JobCancellation {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn cancel(&self) {
+        self.task.cancel();
+        self.files.cancel();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.task.is_cancelled() || self.files.is_cancelled()
+    }
+}
+
 pub(super) enum Update {
     Listed(Vec<SessionChoice>, bool),
     Opened(Box<OpenedSession>),
@@ -30,7 +51,7 @@ pub(super) struct SessionPicker {
     pub current: Option<PersistedSession>,
     launcher: Launcher,
     job: Option<JoinHandle<Update>>,
-    cancel: CancellationToken,
+    cancel: JobCancellation,
 }
 
 impl SessionPicker {
@@ -39,7 +60,7 @@ impl SessionPicker {
             launcher,
             current: None,
             job: None,
-            cancel: CancellationToken::new(),
+            cancel: JobCancellation::new(),
         }
     }
 
@@ -72,8 +93,8 @@ impl SessionPicker {
             workspace.set_session_picker_status(SessionPickerStatus::Busy);
             return;
         }
-        self.cancel = CancellationToken::new();
-        let cancel = self.cancel.clone();
+        self.cancel = JobCancellation::new();
+        let cancel = self.cancel.task.clone();
         let root = self.launcher.root.clone();
         self.job = Some(tokio::task::spawn_blocking(move || {
             match listing::list(&root, &cancel) {
@@ -115,7 +136,7 @@ impl SessionPicker {
             return;
         }
         workspace.set_session_picker_status(SessionPickerStatus::Opening);
-        self.cancel = CancellationToken::new();
+        self.cancel = JobCancellation::new();
         let launcher = self.launcher.clone();
         let agent = runtime.agent_id().clone();
         let cancel = self.cancel.clone();
@@ -192,6 +213,10 @@ impl SessionPicker {
                 let events = std::iter::from_fn(|| opened.runtime.try_next_event()).collect();
                 workspace.close_session_picker();
                 workspace.replace_projection(events);
+                skills::sync_choices(&opened.runtime, workspace);
+                for diagnostic in opened.runtime.skill_diagnostics() {
+                    workspace.report_skill_diagnostic(diagnostic);
+                }
                 if let Some(feedback) = restoration_feedback(opened.recovery) {
                     workspace.report_session_recovery(feedback);
                 }
@@ -221,8 +246,9 @@ impl Launcher {
         self,
         selection: SessionSelection,
         agent: AgentId,
-        cancel: CancellationToken,
+        cancel: JobCancellation,
     ) -> anyhow::Result<OpenedSession> {
+        anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
         let key = resolve_api_key(&self.model, std::env::var_os(self.model.api_key_env()))?;
         self.open_with_key(selection, agent, cancel, key).await
     }
@@ -231,7 +257,7 @@ impl Launcher {
         self,
         selection: SessionSelection,
         agent: AgentId,
-        cancel: CancellationToken,
+        cancel: JobCancellation,
         key: plexmaton_provider::ApiKey,
     ) -> anyhow::Result<OpenedSession> {
         let model = self.model.clone();
@@ -239,13 +265,15 @@ impl Launcher {
         let selected = selection.clone();
         let (journal, tools, key) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
+            let project_root = project_config::discover_project_root(&self.workspace)?;
             let tools = NativeToolCatalog::open(
-                self.workspace,
+                &self.workspace,
                 self.model.api_key_env(),
                 self.ripgrep,
                 self.driver,
                 vec![OsString::from(INTERNAL_RG_DRIVER)],
-            )?;
+            )?
+            .with_skill_roots(&self.root, &project_root, &cancel.files)?;
             let journal = match selected {
                 SessionSelection::Resume(id) => {
                     Some(SessionDirectory::under(self.root)?.resume(&id)?)

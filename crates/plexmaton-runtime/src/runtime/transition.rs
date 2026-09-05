@@ -39,6 +39,7 @@ pub(super) fn failure_inputs(
     let direct = rejected_input.into_iter();
     let claimed = released.into_iter().map(|input| UndeliveredInput {
         text: input.text().to_owned(),
+        skill: input.skill().map(str::to_owned),
         reason: UndeliveredReason::PersistenceFailed,
     });
     direct.chain(claimed).collect()
@@ -69,20 +70,36 @@ impl LiveRuntime {
 
     pub(super) async fn finish_pending_inputs(&mut self) -> Result<(), RuntimeError> {
         self.finish_transition().await?;
+        if self.preparing_input.is_some() {
+            return Ok(());
+        }
         while !self.journal_failed {
             let Some(pending) = self.pending_inputs.pop_front() else {
                 break;
             };
+            let Some(pending) = self.prepare_skill_input(pending) else {
+                if self.preparing_input.is_some() {
+                    break;
+                }
+                continue;
+            };
+            let rejected_input = rejected_user_input(
+                &pending.input,
+                pending.selected_skill.as_deref(),
+                UndeliveredReason::PersistenceFailed,
+            );
             let reaction = self.agent.handle_at(pending.input, pending.observed_at);
-            let rejected_inputs = failure_inputs(&reaction, pending.rejected_input);
+            let rejected_inputs = failure_inputs(&reaction, rejected_input);
             self.begin_transition(reaction, rejected_inputs, pending.after)?;
             self.finish_transition().await?;
         }
         if self.journal_failed {
             while let Some(pending) = self.pending_inputs.pop_front() {
-                if let Some(input) =
-                    rejected_user_input(&pending.input, UndeliveredReason::PersistenceFailed)
-                {
+                if let Some(input) = rejected_user_input(
+                    &pending.input,
+                    pending.selected_skill.as_deref(),
+                    UndeliveredReason::PersistenceFailed,
+                ) {
                     self.report.undelivered.push(input);
                     self.report.persistence_failure = Some(PersistenceFailure::NotWritten);
                 }
@@ -249,7 +266,7 @@ impl LiveRuntime {
         for effect in reaction.effects {
             match effect {
                 Effect::CallModel(call) => self.authorize_model(call)?,
-                Effect::AdmitTool(request) => self.tools.start_admission(request)?,
+                Effect::AdmitTool(request) => self.tools.start_admission(request, &self.agent)?,
                 Effect::RunTool(call) => self.tools.start_execution(call)?,
             }
         }

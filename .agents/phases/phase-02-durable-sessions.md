@@ -28,8 +28,8 @@ constructor validation (PRV-3). An explicit lossless export remains later work. 
 the visible transcript, ordinary diagnostics, or a redacted export.
 
 User-owned configuration and runtime state remain under `~/.plexmaton/`; `PLEXMATON_HOME` redirects
-the whole root for isolated development and tests (PRV-6). A project-local `.plexmaton/`, XDG
-discovery, SQLite and redb are not introduced.
+the whole root for isolated development and tests (PRV-6). SKL-1 separately owns project model
+selection; XDG discovery, SQLite and redb are not introduced.
 
 ## Scope
 

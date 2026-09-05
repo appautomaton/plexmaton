@@ -28,7 +28,7 @@ mod workspace;
 
 pub use intent::{
     ApprovalIntent, AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
-    SelectionIntent, TextIntent, TuiIntent,
+    SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
@@ -37,8 +37,9 @@ pub use state::{
     CleanupNotice, Command, ConfigurationSummary, CopyRequest, InspectorView, MAX_SESSION_CHOICES,
     MailView, NoticeView, PersistenceNotice, ReduceError, RetryAction, RetryActions,
     RetrySubmission, RetryTarget, ScrollPosition, Selection, SessionChoice, SessionPickerStatus,
-    SessionRestoration, SessionTailRepair, Submission, SubmissionKind, ToolCallView,
-    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
+    SessionRestoration, SessionTailRepair, SkillChoice, SkillChoiceSource, Submission,
+    SubmissionKind, ToolCallView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
+    ViewRevision, ViewState,
 };
 pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{

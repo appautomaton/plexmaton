@@ -11,6 +11,7 @@ use super::{ReduceError, ViewState};
 /// Notices originate from producers the projection does not control, so the log discards its
 /// oldest entries and reports the discarded count rather than growing without limit.
 const CAPACITY: usize = 32;
+const MAX_SKILL_DIAGNOSTIC_BYTES: usize = 1024;
 
 /// A producer-contract defect surfaced without interrupting the user's work.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,6 +27,8 @@ pub enum NoticeView {
     PersistenceFailed(PersistenceNotice),
     /// One owner could not be joined cleanly while the runtime froze after persistence failure.
     CleanupFailed(CleanupNotice),
+    /// A project or user skill could not be discovered, loaded, or activated.
+    SkillDiagnostic { message: String },
 }
 
 /// What the session writer knows about a failed submission append.
@@ -91,11 +94,24 @@ impl ViewState {
         self.notices.push(NoticeView::CleanupFailed(failure));
         self.touch();
     }
+
+    /// Records bounded display-only skill diagnostics outside semantic model context (SKL-5).
+    pub(crate) fn report_skill_diagnostic(&mut self, mut message: String) {
+        if message.len() > MAX_SKILL_DIAGNOSTIC_BYTES {
+            let mut end = MAX_SKILL_DIAGNOSTIC_BYTES;
+            while !message.is_char_boundary(end) {
+                end = end.saturating_sub(1);
+            }
+            message.truncate(end);
+        }
+        self.notices.push(NoticeView::SkillDiagnostic { message });
+        self.touch();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{CAPACITY, NoticeLog, NoticeView};
+    use super::{CAPACITY, MAX_SKILL_DIAGNOSTIC_BYTES, NoticeLog, NoticeView};
 
     #[test]
     fn the_log_is_bounded_and_reports_what_it_discarded() {
@@ -119,5 +135,17 @@ mod tests {
             ),
             "the oldest survivor must be the one after the last discard"
         );
+    }
+
+    #[test]
+    fn skill_diagnostics_are_bounded_without_splitting_utf8() {
+        let mut state = super::ViewState::default();
+        state.report_skill_diagnostic("🦀".repeat(300));
+
+        let Some(NoticeView::SkillDiagnostic { message }) = state.notices().next() else {
+            panic!("skill diagnostic notice");
+        };
+        assert_eq!(message.len(), MAX_SKILL_DIAGNOSTIC_BYTES);
+        assert_eq!(message.chars().count(), MAX_SKILL_DIAGNOSTIC_BYTES / 4);
     }
 }

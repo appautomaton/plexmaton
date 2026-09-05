@@ -118,6 +118,8 @@ pub enum JournalProjectionError {
     DuplicateTurn(TurnId),
     /// A selected path repeated one model-step identity.
     DuplicateModelStep(ModelStepId),
+    /// A skill activation did not immediately follow user input for its named turn.
+    InvalidSkillActivationOrder(TurnId),
     /// Immutable usage facts exceeded the cumulative turn representation.
     TurnUsageOverflow(TurnId),
     /// Canonical facts could not form one indivisible context unit.

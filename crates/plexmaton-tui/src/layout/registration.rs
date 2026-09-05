@@ -11,6 +11,7 @@ use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 
 const BASE_Z_INDEX: u32 = 0;
 const FLOATING_Z_INDEX: u32 = 1;
+const POPUP_Z_INDEX: u32 = 5;
 const MODAL_Z_INDEX: u32 = 10;
 const CONFIGURATION_Z_INDEX: u32 = 15;
 const COMMAND_PALETTE_Z_INDEX: u32 = 20;
@@ -22,6 +23,7 @@ pub(super) fn surface_tree(
     attention: Option<Rect>,
     regions: BodyRegions,
     decision_mode: DecisionMode,
+    skill_picker_rows: u16,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
@@ -53,6 +55,26 @@ pub(super) fn surface_tree(
         SurfaceId::Composer,
         Some(regions.composer),
         SurfaceKind::Composer,
+    );
+    let picker_top = regions
+        .transcript
+        .map_or(regions.composer.y, |transcript| transcript.y);
+    let picker_bottom = regions
+        .decision
+        .map_or(regions.composer.y, |decision| decision.y);
+    let picker_height = skill_picker_rows.min(picker_bottom.saturating_sub(picker_top));
+    let picker = (picker_height >= 4).then_some(Rect::new(
+        regions.composer.x,
+        picker_bottom.saturating_sub(picker_height),
+        regions.composer.width,
+        picker_height,
+    ));
+    register_at(
+        &mut tree,
+        SurfaceId::SkillPicker,
+        picker,
+        SurfaceKind::Popup,
+        POPUP_Z_INDEX,
     );
     // A panel, not chrome: its tail can outgrow the strip, and a region the wheel can move must
     // also be reachable by keyboard -- every mouse interaction has a keyboard equivalent.

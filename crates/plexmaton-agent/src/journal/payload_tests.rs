@@ -5,7 +5,7 @@ use plexmaton_core::{
 
 use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
 use crate::test_support::{call_block, output_with_replay, reasoning_block, replay, step};
-use crate::{ActiveTurnStatus, ToolCall, ToolOutcome, UnixMillis};
+use crate::{ActiveTurnStatus, SkillActivation, SkillSource, ToolCall, ToolOutcome, UnixMillis};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -54,6 +54,18 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             turn_id: id("turn-started", TurnId::new),
             text: "also inspect tests".to_owned(),
             accepted_at: UnixMillis::new(130),
+        },
+        JournalEntryPayload::SkillActivated {
+            agent_id: agent_a.clone(),
+            turn_id: id("turn-started", TurnId::new),
+            activation: SkillActivation::new(
+                "review".to_owned(),
+                SkillSource::ProjectShared,
+                "/workspace/.agents/skills/review/SKILL.md".to_owned(),
+                "a".repeat(64),
+                "exact instructions".to_owned(),
+            )
+            .unwrap_or_else(|error| panic!("skill fixture: {error}")),
         },
         JournalEntryPayload::AssistantOutput {
             agent_id: agent_a.clone(),

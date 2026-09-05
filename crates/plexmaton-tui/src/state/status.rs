@@ -180,6 +180,7 @@ impl ViewState {
             && let Some(composer) = self.inputs.get_mut(to)
             && composer.clear()
         {
+            self.clear_skill_binding(to);
             // Do both before one touch: they are one user-visible transition (INV-7, FR-1).
             self.status.set_note(StatusNote::Quiet);
             self.touch();
