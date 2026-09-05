@@ -50,7 +50,8 @@ PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- cr
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
 ```
 
-Default sessions are durable; exit prints the JSONL path and ID. `--ephemeral` disables persistence.
+Default sessions create JSONL on the first message; blank launches save nothing. Exit names saved
+files. `--ephemeral` disables persistence.
 `create` reserves a name; `resume` restores history. Files are owner-only:
 `PLEXMATON_HOME/sessions/<session-id>.jsonl` (ASCII letters, digits, `-`, `_`).
 
@@ -59,8 +60,7 @@ Default sessions are durable; exit prints the JSONL path and ID. `--ephemeral` d
 resolved model configuration. Change `config.toml` and restart to apply settings.
 
 `/resume` opens searchable history; `/continue`, `/sessions` and `/session` are aliases.
-Use arrows and Enter or click. Escape cancels; loading never starts a model request.
-Stop active work and send or clear drafts before switching.
+Arrows/Enter or click resumes; Esc cancels. Stop work and send or clear drafts before switching.
 
 Unanswered rate limits offer **Retry** / **Edit & retry** beside the failed message, not in the
 palette. Click a button, or press `r` / `e` while the primary transcript has navigation focus.

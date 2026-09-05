@@ -55,11 +55,13 @@ rewrite rather than an adjustment.
 
 ### Session start: durable by default
 
-Launching without a session argument creates a durable, automatically named session. The restored
-shell names its JSONL path and session ID. Only explicit `--ephemeral` declines session
+Launching without a session argument prepares an automatically named durable session. Its JSONL
+is created on the first accepted user message; opening menus, editing a draft or exiting without
+sending creates no file. The restored shell names a saved file's path and session ID, and prints
+no session handoff for a blank launch. Explicit `create` reserves its file immediately.
+Only explicit `--ephemeral` declines session
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
-without the user choosing that behavior. A future picker may replace automatic creation, but never
-with implicit data loss.
+without the user choosing that behavior.
 
 ### Screen ownership: full alternate screen
 

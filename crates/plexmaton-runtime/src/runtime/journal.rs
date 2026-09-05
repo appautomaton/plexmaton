@@ -3,7 +3,7 @@
 use std::thread::{self, JoinHandle};
 
 use plexmaton_agent::JournalRecord;
-use plexmaton_session_store::{JournalFile, StoreError};
+use plexmaton_session_store::{AutomaticJournal, JournalFile, StoreError};
 use tokio::sync::{mpsc, oneshot};
 
 const COMMAND_CAPACITY: usize = 1;
@@ -15,6 +15,12 @@ pub(super) trait JournalStore: Send + 'static {
 impl JournalStore for JournalFile {
     fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
         JournalFile::append(self, record).map_err(|failure| failure.into_parts().0)
+    }
+}
+
+impl JournalStore for AutomaticJournal {
+    fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
+        AutomaticJournal::append(self, record)
     }
 }
 

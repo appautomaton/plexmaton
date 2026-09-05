@@ -6,6 +6,9 @@ use thiserror::Error;
 /// Why a session journal file could not be created, loaded, or advanced.
 #[derive(Debug, Error)]
 pub enum StoreError {
+    /// Automatic startup may retain only one announcement before the first user turn.
+    #[error("automatic session must start with one announcement followed by user input")]
+    InvalidAutomaticBootstrap,
     /// A user-facing session name cannot be represented as one safe file in the sessions root.
     #[error("session id is not a portable file name")]
     InvalidSessionFileName,

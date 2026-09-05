@@ -30,11 +30,14 @@ numeric versions, migration readers and dual canonical payloads before a public 
 contract exists.
 
 **JRN-4 — One record is one write, and loading keeps a valid prefix.** The adapter uses one
-unbuffered `write` per record and no `fsync`. A returned append survives process death; power loss
+unbuffered `write` per record and no `fsync`. A completed file append survives process death; power loss
 may discard the unflushed tail. Load repairs complete final JSON without a newline, isolates an
 incomplete tail, and stops at earlier corruption. Journal, staging and isolated-tail files are
 owner-only. Session names resolve beneath an owner-only `PLEXMATON_HOME/sessions`.
-Normal startup creates its JSONL file; only explicit `--ephemeral` declines file persistence.
+Normal startup allocates an automatic identity without creating a directory or JSONL. The writer
+retains exactly one bootstrap announcement; the first `TurnStarted` creates the file and writes
+both records before acknowledging user input. Extra pre-input mutations are typed refusals.
+Explicit `create` still reserves a file immediately; `--ephemeral` never persists.
 Automatic identities are portable UUIDv7 names while `created_at_unix_ms` remains independently
 injected chronology; explicit portable string identities remain valid. Rejected: timestamp-only
 automatic identities, which collide when stores combine.
@@ -59,7 +62,9 @@ work refuses rebuilding.
 
 **JRN-7 — Acknowledged records precede dependent effects.** The runtime stages each
 transition through one bounded writer, publishing events and starting effects only after appends
-return. Cancelled waits stay owned; shutdown joins accepted appends and the writer. Failure returns
+return. The automatic startup announcement is the sole in-memory exception defined by JRN-4;
+user input and dependent effects never cross that boundary without file writes.
+Cancelled waits stay owned; shutdown joins accepted appends and the writer. Failure returns
 text in arrival order, distinguishes unwritten from unknown outcomes, reports cleanup and requires
 reopen. The TUI loop performs no filesystem operation.
 
@@ -75,6 +80,7 @@ duplicating the question on retry, deleting failed attempts, or automatically re
 
 | Invariant | Proven by |
 | --- | --- |
+| JRN-4 | `automatic_journal_materializes_exact_bootstrap_and_first_turn_only_on_input`, `automatic_journal_rejects_extra_bootstrap_without_creating_storage`, `automatic_first_message_is_saved_and_resumes_without_another_request`, `failed_automatic_creation_returns_first_input_without_dispatch`, offline PTY blank-start smoke |
 | JRN-8 | `repeated_retry_preserves_context_and_reopens_without_duplicate_user_input`, `edit_retry_branches_but_normal_submission_keeps_both_questions`, `edit_retry_archive_collision_is_typed_and_keeps_both_heads_unchanged`, `partial_text_and_reasoning_disqualify_unanswered_retry`, `failed_retry_append_returns_edited_input_without_starting_another_request`, `cancelled_edit_retry_delivers_projection_reset_before_later_interrupt_events`, `retry_and_normal_continuation_survive_jsonl_and_both_wire_codecs` |
 | JRN-1 | `jrn_1_append_and_head_mutations_form_one_checked_tree` |
 | JRN-2 | `jrn_2_invalid_records_change_nothing`, `jrn_2_the_same_records_build_equal_journals_and_paths`, `jrn_2_each_head_mutation_rejects_a_stale_revision`, `jrn_2_each_head_mutation_rejects_a_missing_head`, `jrn_2_an_unknown_append_parent_is_a_missing_entry`, `jrn_2_head_names_are_never_reused`, `jrn_2_model_steps_cannot_skip_rewind_or_repeat`, `tim_1_invalid_terminal_records_change_nothing`, `tim_1_partial_head_mutations_preserve_or_refuse_the_open_turn`, `tim_1_jsonl_rejects_untimed_turns_and_unscoped_lifecycle_records` |

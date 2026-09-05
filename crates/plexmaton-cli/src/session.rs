@@ -10,7 +10,7 @@ use plexmaton_agent::UnixMillis;
 use plexmaton_core::{AgentId, SessionId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_runtime::{JournalTailRecovery, LiveRuntime, NativeToolCatalog, SessionRecovery};
-use plexmaton_session_store::{JournalFile, SessionDirectory};
+use plexmaton_session_store::{AutomaticJournal, JournalFile, SessionDirectory};
 use plexmaton_tui::{SessionRestoration, SessionTailRepair};
 
 pub(super) const USAGE: &str =
@@ -70,11 +70,26 @@ pub(super) async fn open_selected_session(
 ) -> anyhow::Result<OpenedSession> {
     Ok(match selection {
         SessionSelection::Automatic => {
-            let sessions = SessionDirectory::under(root).context("open sessions directory")?;
-            let (session_id, journal) = sessions
-                .create_automatic(created_at_now()?)
-                .context("create automatic session")?;
-            open_fresh_session(agent_id, model, key, tools, session_id, journal).await?
+            let journal = AutomaticJournal::new(root, created_at_now()?);
+            let persisted = PersistedSession {
+                id: journal.metadata().session_id().clone(),
+                path: journal.path().to_path_buf(),
+            };
+            let runtime = LiveRuntime::openai_with_automatic_journal(
+                agent_id,
+                "Plexmaton",
+                model,
+                key,
+                tools,
+                journal,
+            )
+            .await
+            .context("configure automatic session")?;
+            OpenedSession {
+                runtime,
+                recovery: None,
+                persisted: Some(persisted),
+            }
         }
         SessionSelection::Ephemeral => OpenedSession {
             runtime: LiveRuntime::openai(agent_id, "Plexmaton", model, key, tools)
@@ -294,7 +309,7 @@ output_reserve_tokens = 5000
         assert!(parse_startup_action(&[OsString::from("resume")]).is_err());
     }
 
-    /// JRN-4: an ordinary launch reserves durable storage while the opt-out owns none.
+    /// JRN-4: automatic startup allocates identity but no file; the opt-out has no file owner.
     #[tokio::test]
     async fn a_default_session_is_durable_and_ephemeral_is_an_explicit_opt_out() {
         let root = FixtureWorkspace::new();
@@ -321,17 +336,15 @@ output_reserve_tokens = 5000
         let uuid = Uuid::parse_str(raw_uuid)
             .unwrap_or_else(|error| panic!("automatic session UUID: {error}"));
         assert_eq!(uuid.get_version(), Some(Version::SortRand));
-        assert!(persisted.path.is_file());
+        assert!(!persisted.path.exists());
         let persisted_path = persisted.path.clone();
         automatic
             .runtime
             .shutdown()
             .await
             .unwrap_or_else(|error| panic!("shutdown automatic session: {error}"));
-        let reopened = JournalFile::open(&persisted_path)
-            .unwrap_or_else(|error| panic!("reopen automatic session: {error}"));
-        assert_ne!(reopened.journal().created_at_unix_ms(), UnixMillis::EPOCH);
-        drop(reopened);
+        assert!(!persisted_path.exists());
+        assert!(!root.path().join("sessions").exists());
 
         let ephemeral_root = FixtureWorkspace::new();
         let (profile, key, tools) = transport(ephemeral_root.path(), "http://127.0.0.1:9/v1");
@@ -354,6 +367,140 @@ output_reserve_tokens = 5000
         assert!(
             !ephemeral_root.path().join("sessions").exists(),
             "ephemeral startup must not create a session store"
+        );
+    }
+
+    /// JRN-4/JRN-7: the automatic writer crosses its file boundary before model dispatch.
+    #[tokio::test]
+    async fn automatic_first_message_is_saved_and_resumes_without_another_request() {
+        let root = FixtureWorkspace::new();
+        let (url, server) = fixture_http_server([include_str!(
+            "../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"
+        )]);
+        let (model, key, tools) = transport(root.path(), &url);
+        let mut opened = open_selected_session(
+            root.path(),
+            SessionSelection::Automatic,
+            agent_id(),
+            model,
+            key,
+            tools,
+        )
+        .await
+        .expect("automatic startup");
+        let saved = opened.persisted.as_ref().expect("planned identity");
+        let path = saved.path.clone();
+        let id = saved.id.clone();
+        assert!(!path.exists());
+        opened
+            .runtime
+            .submit(
+                agent_id(),
+                Input::Submitted {
+                    text: "Keep this first message".into(),
+                },
+            )
+            .await
+            .expect("first submission");
+        assert!(path.exists());
+        let _live = project_until_idle(&mut opened.runtime).await;
+        let before = opened
+            .runtime
+            .acknowledged_session()
+            .expect("acknowledged session")
+            .0
+            .clone();
+        opened.runtime.shutdown().await.expect("shutdown");
+        drop(opened);
+        assert_eq!(
+            server
+                .join()
+                .expect("server joins")
+                .expect("fixture request")
+                .len(),
+            1
+        );
+        let file = JournalFile::open(&path).expect("reopen JSONL");
+        assert_eq!(file.journal().session_id(), &id);
+        assert_ne!(file.journal().created_at_unix_ms(), UnixMillis::EPOCH);
+        drop(file);
+        let (model, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
+        let mut resumed = open_selected_session(
+            root.path(),
+            SessionSelection::Resume(id),
+            agent_id(),
+            model,
+            key,
+            tools,
+        )
+        .await
+        .expect("resume");
+        assert!(!resumed.runtime.has_active_work());
+        let restored = project_until_idle(&mut resumed.runtime).await;
+        assert!(
+            restored
+                .primary_agent()
+                .expect("agent")
+                .transcript()
+                .any(|item| item.role == TranscriptRole::User
+                    && item.source == "Keep this first message")
+        );
+        assert_eq!(
+            resumed
+                .runtime
+                .acknowledged_session()
+                .expect("acknowledged replay")
+                .0,
+            &before
+        );
+        resumed.runtime.shutdown().await.expect("shutdown resumed");
+    }
+
+    /// JRN-7: lazy creation failure retains exact user input and starts no request.
+    #[tokio::test]
+    async fn failed_automatic_creation_returns_first_input_without_dispatch() {
+        let root = FixtureWorkspace::new();
+        std::fs::write(root.path().join("sessions"), "blocking file").expect("failure fixture");
+        let (model, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
+        let mut opened = open_selected_session(
+            root.path(),
+            SessionSelection::Automatic,
+            agent_id(),
+            model,
+            key,
+            tools,
+        )
+        .await
+        .expect("startup does no session IO");
+        let report = opened
+            .runtime
+            .submit(
+                agent_id(),
+                Input::Submitted {
+                    text: "Keep my exact draft\nplease".into(),
+                },
+            )
+            .await
+            .expect("typed failure report");
+        assert!(report.persistence_failure.is_some());
+        assert_eq!(report.undelivered.len(), 1);
+        assert_eq!(report.undelivered[0].text, "Keep my exact draft\nplease");
+        assert!(!opened.runtime.has_active_work());
+        let events: Vec<_> = std::iter::from_fn(|| opened.runtime.try_next_event()).collect();
+        assert!(!events.iter().any(|event| matches!(
+            event.event,
+            plexmaton_core::SessionEvent::TranscriptItemStarted {
+                role: TranscriptRole::User,
+                ..
+            }
+        )));
+        assert!(matches!(
+            opened.runtime.shutdown().await,
+            Err(plexmaton_runtime::RuntimeError::JournalRequiresReopen)
+        ));
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("sessions")).expect("fixture intact"),
+            "blocking file"
         );
     }
 

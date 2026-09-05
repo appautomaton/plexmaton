@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import fcntl
 import base64
-import json
 import os
 import pty
 import re
@@ -479,27 +478,14 @@ output_reserve_tokens = 5000
         failures.append("exit code")
 
     created_sessions = set(default_sessions_root.glob("*.jsonl"))
-    if len(created_sessions) != 1:
+    if created_sessions:
         print(
-            f"smoke: default launch created {len(created_sessions)} sessions, expected one",
+            f"smoke: blank launch created {len(created_sessions)} sessions, expected none",
             file=sys.stderr,
         )
-        failures.append("default durable session")
-    else:
-        created_session = created_sessions.pop()
-        header = json.loads(created_session.read_text(encoding="utf-8").splitlines()[0])
-        session_id = created_session.stem
-        if header.get("session_id") != session_id:
-            print("smoke: generated file and header identities differ", file=sys.stderr)
-            failures.append("default session identity")
-        terminal_output = captured.decode("utf-8", errors="replace")
-        for handoff in (
-            f"Session saved: {created_session}",
-            f"Session ID: {session_id}",
-        ):
-            if handoff not in terminal_output:
-                print(f"smoke: restored shell is missing {handoff!r}", file=sys.stderr)
-                failures.append("default session handoff")
+        failures.append("lazy automatic session")
+    if b"Session saved:" in captured or b"Session ID:" in captured:
+        failures.append("blank launch reported a nonexistent session")
 
     if failures:
         return 1
@@ -508,7 +494,7 @@ output_reserve_tokens = 5000
         f"smoke: painted the idle live runtime at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
         "transcript and none to the status line, expired and re-armed the quit chord, and released "
-        "mouse and focus reporting before the alternate screen, with one durable default session"
+        "mouse and focus reporting before the alternate screen, without creating an empty JSONL"
     )
     return 0
 

@@ -13,7 +13,11 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use plexmaton_agent::{JournalRecord, SessionJournal, UnixMillis};
 use plexmaton_core::SessionId;
 
+mod automatic;
+#[cfg(test)]
+mod automatic_tests;
 mod codec;
+pub use automatic::AutomaticJournal;
 mod error;
 mod fork;
 mod load;

@@ -178,6 +178,14 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
 }
 
 fn report_persisted_session(session: &PersistedSession) -> anyhow::Result<()> {
+    // Terminal ownership has ended; a planned automatic filename is not a saved conversation.
+    if !session
+        .path
+        .try_exists()
+        .context("check saved session file")?
+    {
+        return Ok(());
+    }
     writeln!(io::stdout(), "Session saved: {}", session.path.display())
         .context("write saved session path")?;
     writeln!(io::stdout(), "Session ID: {}", session.id).context("write saved session identity")

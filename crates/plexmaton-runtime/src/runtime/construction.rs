@@ -3,7 +3,7 @@ use std::{collections::VecDeque, sync::Arc};
 use plexmaton_agent::{Agent, ApprovalPolicy, SessionMetadata, TurnBudget};
 use plexmaton_core::{AgentId, SessionId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
-use plexmaton_session_store::{JournalFile, JournalRecovery};
+use plexmaton_session_store::{AutomaticJournal, JournalFile, JournalRecovery};
 use tokio::sync::mpsc;
 
 use super::clock::{SystemWallClock, WallClock};
@@ -55,6 +55,50 @@ impl LiveRuntime {
         tools: NativeToolCatalog,
         journal: JournalFile,
     ) -> Result<Self, RuntimeError> {
+        let metadata = journal.journal().metadata().clone();
+        Self::openai_with_new_store(
+            agent_id,
+            label.into(),
+            model,
+            key,
+            tools,
+            metadata,
+            Box::new(journal),
+        )
+        .await
+    }
+
+    /// Owns a lazy automatic writer: no file until the first user turn, no effect before its append.
+    pub async fn openai_with_automatic_journal(
+        agent_id: AgentId,
+        label: impl Into<String>,
+        model: ResolvedModel,
+        key: ApiKey,
+        tools: NativeToolCatalog,
+        journal: AutomaticJournal,
+    ) -> Result<Self, RuntimeError> {
+        let metadata = journal.metadata().clone();
+        Self::openai_with_new_store(
+            agent_id,
+            label.into(),
+            model,
+            key,
+            tools,
+            metadata,
+            Box::new(journal),
+        )
+        .await
+    }
+
+    async fn openai_with_new_store(
+        agent_id: AgentId,
+        label: String,
+        model: ResolvedModel,
+        key: ApiKey,
+        tools: NativeToolCatalog,
+        metadata: SessionMetadata,
+        store: Box<dyn JournalStore>,
+    ) -> Result<Self, RuntimeError> {
         if !tools.matches_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
@@ -66,17 +110,8 @@ impl LiveRuntime {
             definitions,
             Arc::clone(&clock),
         )?);
-        let metadata = journal.journal().metadata().clone();
-        Self::with_driver_store_and_clock(
-            agent_id,
-            label.into(),
-            driver,
-            tools,
-            metadata,
-            Box::new(journal),
-            clock,
-        )
-        .await
+        Self::with_driver_store_and_clock(agent_id, label, driver, tools, metadata, store, clock)
+            .await
     }
 
     /// Rebuilds one live owner from an existing journal and settles work orphaned by process death.

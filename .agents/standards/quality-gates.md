@@ -80,8 +80,8 @@ knowing before you touch it:
   resize is silently ignored.
 - Ratatui emits only changed cells, so an incremental frame carries `1` rather than `Agents · !1`.
   The script forces one full repaint through a resize and asserts against that frame.
-- A normal smoke launch creates one new JSONL session in an isolated `PLEXMATON_HOME` and names its
-  path and ID after restoring the screen. Test commands never contact a configured provider; see
+- A normal smoke launch uses an isolated `PLEXMATON_HOME`; menus, draft edits and blank exit must
+  create no JSONL or saved-session handoff. Test commands never contact a configured provider; see
   [testing](./testing.md) §Tier 5.
 - An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
   defect; run the smoke outside it. Two `Ctrl-D` presses inside the one-second window are how it
