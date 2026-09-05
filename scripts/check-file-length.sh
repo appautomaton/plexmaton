@@ -15,6 +15,8 @@ cd "$(dirname "$0")/.."
 
 LIMIT="${FILE_LENGTH_LIMIT:-550}"
 fail=0
+# Capture discovery outside process substitution so an unreadable/missing source tree fails.
+source_files=$(rg --files crates -g '*.rs' | sort)
 
 while IFS= read -r file; do
     case "$file" in
@@ -23,14 +25,25 @@ while IFS= read -r file; do
             ;;
     esac
 
-    total=$(wc -l < "$file")
-    code=$(awk '/#\[cfg\(test\)\]/{print NR-1; exit}' "$file")
-    code=${code:-$total}
+    # Only a trailing inline test module ends the source section. External test modules and
+    # test-only helper methods must not hide production that follows them. This is the
+    # rustfmt-shaped module convention, not a Rust parser; helpers count conservatively.
+    code=$(awk '
+        /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*mod[[:space:]]+[[:alnum:]_]+[[:space:]]*\{/ {
+            print NR-1; found=1; exit
+        }
+        /^[[:space:]]*#\[cfg\(test\)\][[:space:]]*$/ { attribute=NR; next }
+        attribute && /^[[:space:]]*mod[[:space:]]+[[:alnum:]_]+[[:space:]]*\{/ {
+            print attribute-1; found=1; exit
+        }
+        { attribute=0 }
+        END { if (!found) print NR }
+    ' "$file")
     if [[ "$code" -gt "$LIMIT" ]]; then
         printf '%s: %d code lines exceeds the %d line sentinel\n' "$file" "$code" "$LIMIT" >&2
         fail=1
     fi
-done < <(find crates -name '*.rs' -type f | sort)
+done <<< "$source_files"
 
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'

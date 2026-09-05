@@ -9,8 +9,6 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence,
         SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
@@ -56,10 +54,6 @@ mod tests {
     const PRODUCT_WIDTHS: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
 
-    /// Notice copy never wraps, so a second and third width would freeze border padding alone.
-    /// The strip's responsive layout is proven once, by the session-recovery frames.
-    const NOTICE_WIDTH: [(&str, u16, u16); 1] = [("wide", 120, 40)];
-
     /// One disclosed native-tool entry across the same product widths.
     const DISCLOSURE_FRAMES: [(&str, u16, u16); 3] = [
         ("tool-open-wide", 120, 40),
@@ -91,37 +85,12 @@ mod tests {
         ),
     ];
 
-    const CLEANUP_FAILURE_FRAMES: [(&str, u16, u16); 1] = [("cleanup-failure-wide", 120, 40)];
-
     /// INV-13: the command list stays a compact overlay across all three widths.
     const COMMAND_PALETTE_FRAMES: [(&str, u16, u16); 3] = [
         ("command-palette-wide", 120, 40),
         ("command-palette-medium", 95, 40),
         ("command-palette-narrow", 60, 40),
     ];
-
-    fn fixture_path(name: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("frames")
-            .join(format!("{name}.txt"))
-    }
-
-    /// The first line that differs, numbered, so the failure says where to look.
-    fn first_difference(expected: &str, actual: &str) -> String {
-        for (index, (want, got)) in expected.lines().zip(actual.lines()).enumerate() {
-            if want != got {
-                return format!(
-                    "line {}:\n  fixture: {want:?}\n  drawn:   {got:?}",
-                    index + 1
-                );
-            }
-        }
-        format!(
-            "line count: fixture {} lines, drawn {} lines",
-            expected.lines().count(),
-            actual.lines().count()
-        )
-    }
 
     fn composer_frame(state: &ViewState, width: u16, height: u16) -> String {
         let (surfaces, buffer) = draw_frame(state, &Palette::default(), width, height);
@@ -134,7 +103,6 @@ mod tests {
     /// COM-5: every accepted ambient label is frozen at all three widths.
     #[test]
     fn the_current_work_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         let states = [
             ("responding", current_responding_state(), "Responding"),
             (
@@ -157,23 +125,7 @@ mod tests {
                     "{name}: the fixture is only the composer boundary and body"
                 );
 
-                let path = fixture_path(&name);
-                if write {
-                    std::fs::write(&path, &drawn)
-                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                    continue;
-                }
-                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                    panic!(
-                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                        path.display()
-                    )
-                });
-                assert!(
-                    fixture == drawn,
-                    "{name} drifted from its fixture at {}",
-                    first_difference(&fixture, &drawn)
-                );
+                crate::test_support::assert_frame(&name, &drawn);
             }
         }
     }
@@ -181,7 +133,6 @@ mod tests {
     /// Phase 01 §scope 1: the composition at wide, medium and narrow, checked in.
     #[test]
     fn the_command_palette_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in COMMAND_PALETTE_FRAMES {
             let mut state = canonical_state();
             state.open_command_palette(&SurfaceTree::default());
@@ -198,31 +149,13 @@ mod tests {
                 "{name}: every row painted"
             );
 
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}\nif the change is intended, refresh with \
-                 PLEXMATON_WRITE_FRAMES=1 and review the diff",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
     /// INV-12, INV-13: the configuration page is readable in the complete workspace at each width.
     #[test]
     fn the_configuration_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width) in [
             ("configuration-wide", 120),
             ("configuration-medium", 95),
@@ -242,19 +175,12 @@ mod tests {
             ] {
                 assert!(drawn.contains(signature), "{name}: {signature} absent");
             }
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn).expect("write configuration fixture");
-            } else {
-                let fixture = std::fs::read_to_string(&path).expect("configuration fixture exists");
-                assert_eq!(fixture, drawn, "{name}: review frame changes");
-            }
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
     #[test]
     fn the_canonical_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in FRAMES {
             let drawn = draw(&canonical_state(), width, height);
             // Structural first, so an empty or truncated fixture cannot pass by matching nothing.
@@ -275,24 +201,7 @@ mod tests {
                 "{name}: every row painted"
             );
 
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}\nif the change is intended, refresh with \
-                 PLEXMATON_WRITE_FRAMES=1 and review the diff",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
@@ -589,34 +498,23 @@ mod tests {
     /// JRN-7/ui-ux §responsive interaction: a failed durable boundary is legible at every width.
     #[test]
     fn the_persistence_failure_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (failure, failure_name, signature) in PERSISTENCE_FAILURES {
             let mut state = canonical_state();
             state.report_cleanup_failure(CleanupNotice::JournalWriter);
             state.report_persistence_failure(failure);
-            for (width_name, width, height) in NOTICE_WIDTH {
+            for (width_name, width, height) in PRODUCT_WIDTHS {
                 let name = format!("persistence-{failure_name}-{width_name}");
-                let drawn = draw(&state, width, height);
+                let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+                let bounds = surfaces
+                    .get(SurfaceId::Notices)
+                    .expect("notice strip")
+                    .bounds;
+                let drawn = crate::test_support::snapshot_text(&buffer, bounds);
                 assert!(drawn.contains(signature), "{name}: failure copy is absent");
-                assert_eq!(drawn.lines().count(), usize::from(height));
-
-                let path = fixture_path(&name);
-                if write {
-                    std::fs::write(&path, &drawn)
-                        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                    continue;
+                assert_eq!(bounds, Rect::new(0, 0, width, 4));
+                if width_name == "wide" {
+                    crate::test_support::assert_frame(&name, &drawn);
                 }
-                let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                    panic!(
-                        "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                        path.display()
-                    )
-                });
-                assert!(
-                    fixture == drawn,
-                    "{name} drifted from its fixture at {}",
-                    first_difference(&fixture, &drawn)
-                );
             }
         }
     }
@@ -624,41 +522,29 @@ mod tests {
     /// JRN-7/ui-ux §responsive interaction: failed cleanup remains one bounded visible strip.
     #[test]
     fn the_cleanup_failure_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         let mut state = canonical_state();
         state.report_cleanup_failure(CleanupNotice::JournalWriter);
-        for (name, width, height) in CLEANUP_FAILURE_FRAMES {
-            let drawn = draw(&state, width, height);
+        for (width_name, width, height) in PRODUCT_WIDTHS {
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+            let bounds = surfaces
+                .get(SurfaceId::Notices)
+                .expect("notice strip")
+                .bounds;
+            let drawn = crate::test_support::snapshot_text(&buffer, bounds);
             assert!(
                 drawn.contains("journal writer cleanup failed"),
-                "{name}: cleanup copy is absent"
+                "{width_name}: cleanup copy is absent"
             );
-            assert_eq!(drawn.lines().count(), usize::from(height));
-
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
+            assert_eq!(bounds, Rect::new(0, 0, width, 4));
+            if width_name == "wide" {
+                crate::test_support::assert_frame("cleanup-failure-wide", &drawn);
             }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
         }
     }
 
     /// JRN-4/JRN-5: tail repair and turn interruption each have one visible source at every width.
     #[test]
     fn the_session_recovery_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         let mut state = ViewState::default();
         let agent_id = AgentId::new("agent-primary")
             .unwrap_or_else(|error| panic!("recovery agent id: {error}"));
@@ -709,23 +595,7 @@ mod tests {
             );
             assert_eq!(drawn.lines().count(), usize::from(height));
 
-            let path = fixture_path(&name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(&name, &drawn);
         }
     }
 
@@ -769,7 +639,6 @@ mod tests {
     /// ENT-4: one expanded entry remains part of its conversation at every product width.
     #[test]
     fn the_open_tool_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in DISCLOSURE_FRAMES {
             let drawn = draw(&disclosed_tool_state(width, height), width, height);
             for signature in [
@@ -783,23 +652,7 @@ mod tests {
             }
             assert_eq!(drawn.lines().count(), usize::from(height));
 
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
@@ -807,7 +660,6 @@ mod tests {
     /// patch stay legible together at wide, medium, and narrow.
     #[test]
     fn the_remaining_transcript_grammar_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in GRAMMAR_FRAMES {
             let drawn = draw(&transcript_grammar_state(width, height), width, height);
             for signature in [
@@ -838,23 +690,7 @@ mod tests {
             }
             assert_eq!(drawn.lines().count(), usize::from(height));
 
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
@@ -890,7 +726,6 @@ mod tests {
     /// APV-4 and SURF-4: the blocking decision surface is frozen at every supported composition.
     #[test]
     fn the_approval_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in APPROVAL_FRAMES {
             let drawn = draw(&approval_state(width, height), width, height);
             for signature in [
@@ -905,23 +740,7 @@ mod tests {
                     "{name}: {signature:?} is not on screen"
                 );
             }
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 
@@ -982,7 +801,6 @@ mod tests {
     /// LIVE-1 and APV-4: the concrete native command decision remains legible at every width.
     #[test]
     fn the_native_approval_frames_match_their_fixtures() {
-        let write = std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some();
         for (name, width, height) in NATIVE_APPROVAL_FRAMES {
             let state = native_approval_state(width, height);
             let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
@@ -1006,23 +824,7 @@ mod tests {
                     "{name}: {signature:?} is not on the approval card"
                 );
             }
-            let path = fixture_path(name);
-            if write {
-                std::fs::write(&path, &drawn)
-                    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-                continue;
-            }
-            let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!(
-                    "read {}: {error}\nwrite the fixtures with PLEXMATON_WRITE_FRAMES=1 and review them",
-                    path.display()
-                )
-            });
-            assert!(
-                fixture == drawn,
-                "{name} drifted from its fixture at {}",
-                first_difference(&fixture, &drawn)
-            );
+            crate::test_support::assert_frame(name, &drawn);
         }
     }
 

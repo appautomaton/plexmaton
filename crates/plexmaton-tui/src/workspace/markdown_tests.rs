@@ -171,20 +171,8 @@ fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {
 fn markdown_frames_show_messages_at_three_widths() {
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
         let (_, terminal) = fixture(width);
-        let frame = (0..48)
-            .map(|y| {
-                let mut row = String::new();
-                let mut x = 0;
-                while x < width {
-                    let symbol = terminal.backend().buffer()[(x, y)].symbol();
-                    row.push_str(symbol);
-                    x += unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
-                }
-                row.trim_end().to_owned()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
+        let buffer = terminal.backend().buffer();
+        let frame = crate::test_support::snapshot_text(buffer, buffer.area);
         assert!(
             frame.contains("Show **Markdown**")
                 && frame.contains("Build summary")
@@ -193,11 +181,6 @@ fn markdown_frames_show_messages_at_three_widths() {
         if width == 60 {
             assert!(frame.contains("Item: tests") && frame.contains("Cache: 84%"));
         }
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("frames/markdown-{name}.txt"));
-        if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
-            std::fs::write(&path, &frame).expect("write frame");
-        }
-        assert_eq!(std::fs::read_to_string(path).expect("read frame"), frame);
+        crate::test_support::assert_frame(&format!("markdown-{name}"), &frame);
     }
 }

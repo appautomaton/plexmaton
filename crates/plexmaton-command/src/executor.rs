@@ -615,7 +615,8 @@ mod tests {
     async fn wait_for_file(path: &Path) {
         tokio::time::timeout(Duration::from_secs(5), async {
             while std::fs::metadata(path).map_or(true, |metadata| metadata.len() == 0) {
-                tokio::task::yield_now().await;
+                // Poll the explicit marker at a bounded cadence; elapsed time is not readiness.
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
         })
         .await
@@ -646,7 +647,7 @@ mod tests {
         let workspace = TestWorkspace::new();
         let operations = InjectingProcessOperations::new(failure);
         let arguments = crate::admission::CanonicalArguments {
-            cmd: "trap '' TERM; while :; do :; done".to_owned(),
+            cmd: "trap '' TERM; exec /bin/sleep 30".to_owned(),
             timeout_ms: 25,
             workspace_root: workspace.0.to_string_lossy().into_owned(),
         };
@@ -965,7 +966,8 @@ mod tests {
         let tool = workspace.tool();
         let ready = workspace.0.join("ready.pid");
         let term_seen = workspace.0.join("term-seen");
-        let command = "trap 'printf term > term-seen; exit 0' TERM; printf '%s' $$ > ready.pid; while :; do :; done";
+        // Shell wait is interruptible: the trap must run before the grace deadline (CMD-5).
+        let command = "trap 'printf term > term-seen; exit 0' TERM; /bin/sleep 30 & printf '%s' $$ > ready.pid; wait";
         let cancellation = CancellationToken::new();
         let runner = {
             let tool = tool.clone();
@@ -998,7 +1000,7 @@ mod tests {
         let ready = workspace.0.join("timeout.pid");
         let call = admitted(
             &tool,
-            "trap '' TERM; printf '%s' $$ > timeout.pid; while :; do :; done",
+            "trap '' TERM; printf '%s' $$ > timeout.pid; exec /bin/sleep 30",
             100,
         );
         let output = tool
@@ -1071,7 +1073,8 @@ mod tests {
         let tool = workspace.tool();
         let group = workspace.0.join("group.pid");
         let descendant = workspace.0.join("descendant.pid");
-        let command = r#"/bin/sh -c 'trap "" TERM; printf "%s" $$ > descendant.pid; while :; do :; done' & printf '%s' $$ > group.pid; while [ ! -s descendant.pid ]; do :; done; exit 0"#;
+        // exec preserves the descendant PID and ignored SIGTERM without creating another child.
+        let command = r#"/bin/sh -c 'trap "" TERM; printf "%s" $$ > descendant.pid; exec /bin/sleep 30' & printf '%s' $$ > group.pid; while [ ! -s descendant.pid ]; do /bin/sleep 0.01; done; exit 0"#;
         let output = tool
             .execute(&admitted(&tool, command, 5_000), CancellationToken::new())
             .await

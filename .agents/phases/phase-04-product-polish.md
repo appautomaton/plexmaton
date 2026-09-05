@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–4 implemented and verified; test-quality audit and branding remain |
+| Status | Active; stages 1–6 complete |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -44,7 +44,30 @@ Visual changes are reviewed against real frames before the contract adopts them.
    `native-approval-*` frames. 287 TUI tests, offline workspace tests, Clippy and terminal smoke
    passed. FR-4 records text-drag timings and the remaining cold-layout budget gap. Manual live
    model/terminal use remains unverified; no model requests were made by validation.
-5. **Branding.** A rounded-square frame and circular gradient center form the user's visual
+5. **Test-quality hardening — complete.** [Testing](../standards/testing.md) and
+   [quality gates](../standards/quality-gates.md)
+   covers gate integrity, readiness-driven smoke, blocking process fixtures, parser/cache witnesses,
+   owned test directories and shared/cropped frame fixtures. A reproducible duplicate-descriptor
+   regression also fixes JRN-4 writer-lock release. Workspace gates, 17 script regressions and
+   offline PTY smokes passed; the runtime suite passed two extra consecutive runs after the fix.
+   Warm debug terminal smoke measured 49.17 s before readiness-based waits and 1.98/1.90 s after;
+   configured-footer smoke passed in 3.38/3.67 s. These local `/usr/bin/time -p` samples are not CI
+   budgets; the old footer baseline failed a stale eager-file assertion and is not a speed comparison.
+6. **Markdown styling — approved and complete.** [MD-5](../specs/markdown.md)
+   defines Markdown-only pastel color/weight choices beside the unchanged status line.
+   User-approved colors are the CLI's Markdown default; terminal chrome and the script are unchanged.
+   All TUI/CLI targets, workspace Clippy and both offline PTY smokes passed.
+   Reviewed real single-agent renderings at [120 × 40](../../crates/plexmaton-tui/frames/markdown-style-120.svg),
+   [88 × 42](../../crates/plexmaton-tui/frames/markdown-style-88.svg) and
+   [60 × 46](../../crates/plexmaton-tui/frames/markdown-style-60.svg), plus an 88 × 20 short viewport;
+   the user opened and approved the 88-column sample. The SVG export models a dark terminal's ANSI
+   slots and fonts, not their exact terminal configuration. Reproduce with
+   `cargo run -p plexmaton-tui --example markdown_style_preview -- target/markdown-style`.
+   Copy fragments, nested styles and cache invalidation are tested. No code syntax highlighter or
+   new dependency was added; a rich-Markdown performance budget remains unmeasured.
+   Single-agent samples do not prescribe an A2A layout. Notification and agent interaction changes
+   are explicitly deferred by the user.
+7. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
 

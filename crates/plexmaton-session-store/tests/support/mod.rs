@@ -1,36 +1,9 @@
-use std::path::{Path, PathBuf};
+#[path = "../../src/test_support.rs"]
+mod directory;
+pub use directory::TestDir;
 
 use plexmaton_agent::{JournalEntryPayload, JournalRecord, SessionEntry, SessionJournal};
 use plexmaton_core::{AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId};
-
-pub struct TestDir(PathBuf);
-
-impl TestDir {
-    pub fn new(label: &str) -> Self {
-        for ordinal in 0..32_u8 {
-            let path = std::env::temp_dir().join(format!(
-                "plexmaton-session-{label}-{}-{ordinal}",
-                std::process::id()
-            ));
-            match std::fs::create_dir(&path) {
-                Ok(()) => return Self(path),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => panic!("create test directory: {error}"),
-            }
-        }
-        panic!("could not reserve test directory")
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ignored = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 pub fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))

@@ -342,7 +342,7 @@ async fn cancelled_next_event_keeps_command_work_owned_until_interrupt_joins_it(
             "command-1",
             "exec_command",
             serde_json::json!({
-                "cmd":"trap '' TERM; printf '%s' $$ > command.pid; while :; do :; done",
+                "cmd":"trap '' TERM; printf '%s' $$ > command.pid; exec /bin/sleep 30",
                 "timeout_ms":5000
             }),
         ),

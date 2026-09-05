@@ -39,17 +39,7 @@ fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
         .get(SurfaceId::CommandPalette)
         .expect("picker")
         .bounds;
-    (bounds.y..bounds.bottom())
-        .map(|y| {
-            (bounds.x..bounds.right())
-                .map(|x| terminal.backend().buffer()[(x, y)].symbol())
-                .collect::<String>()
-                .trim_end()
-                .to_owned()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        + "\n"
+    crate::test_support::snapshot_text(terminal.backend().buffer(), bounds)
 }
 
 /// INV-11: message actions cannot enter global discovery, while every resume alias selects one command.
@@ -186,6 +176,7 @@ fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
 /// SPK-1: empty, populated and failure surfaces keep the search and controls visible at three widths.
 #[test]
 fn session_picker_frames_cover_empty_populated_and_failure_states() {
+    let mut wide = None;
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
         let (mut workspace, mut terminal) = setup(width);
         let mut frame = String::new();
@@ -207,12 +198,18 @@ fn session_picker_frames_cover_empty_populated_and_failure_states() {
             frame.push_str(&drawn);
             frame.push('\n');
         }
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("frames/session-picker-{name}.txt"));
-        if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
-            std::fs::write(&path, &frame).expect("write frames");
+        if width == 95 {
+            assert_eq!(
+                wide.as_deref(),
+                Some(frame.as_str()),
+                "the capped panel is identical at medium width"
+            );
+        } else {
+            crate::test_support::assert_frame(&format!("session-picker-{name}"), &frame);
+            if width == 120 {
+                wide = Some(frame);
+            }
         }
-        assert_eq!(std::fs::read_to_string(path).expect("read frames"), frame);
     }
 }
 

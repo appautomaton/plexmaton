@@ -9,6 +9,30 @@ use plexmaton_core::{AgentId, AgentStatus, HeadName, JournalRecordId, SessionEnt
 
 use super::{JournalFile, JournalRecovery, MAX_JOURNAL_LINE_BYTES, StoreError, WriterState};
 
+/// JRN-4: a transient duplicate descriptor cannot extend the writer's exclusive lifetime.
+/// A dup deterministically models the shared open-file description inherited between fork/exec.
+#[cfg(unix)]
+#[test]
+fn jrn_4_writer_drop_releases_the_lock_even_while_a_duplicate_descriptor_survives() {
+    let directory = crate::test_support::TestDir::new("duplicate-lock");
+    let path = directory.path().join("session.jsonl");
+    let store = JournalFile::create(&path, id("lock-owner", SessionId::new), UnixMillis::EPOCH)
+        .expect("create writer");
+    let inherited = store.file.try_clone().expect("duplicate descriptor");
+    assert!(matches!(
+        JournalFile::open(&path),
+        Err(StoreError::WriterLocked)
+    ));
+    drop(store);
+    let reopened = JournalFile::open(&path)
+        .unwrap_or_else(|error| panic!("writer ended but lock survived: {error}"));
+    assert!(
+        inherited.metadata().is_ok(),
+        "duplicate remains open throughout the proof"
+    );
+    drop(reopened);
+}
+
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
 }

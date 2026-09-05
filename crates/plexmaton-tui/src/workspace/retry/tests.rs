@@ -86,23 +86,8 @@ fn retry_frames_keep_actions_with_the_failed_request_at_three_widths() {
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
         let (_, terminal, _) = fixture(width);
         let buffer = terminal.backend().buffer();
-        let frame = (0..24)
-            .map(|y| {
-                (0..width)
-                    .map(|x| buffer[(x, y)].symbol())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("frames/retry-{name}.txt"));
-        if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
-            std::fs::write(&path, &frame).expect("write fixture");
-        }
-        assert_eq!(std::fs::read_to_string(path).expect("fixture"), frame);
+        let frame = crate::test_support::snapshot_text(buffer, buffer.area);
+        crate::test_support::assert_frame(&format!("retry-{name}"), &frame);
         assert!(!frame.contains("Notices"));
         assert!(frame.find("Request was rate limited.") < frame.find("[ Retry ]"));
     }
@@ -283,23 +268,9 @@ fn message_copy_hover_frames_are_local_and_clicking_body_never_copies() {
             95 => "medium",
             _ => "narrow",
         };
-        let frame = (0..24)
-            .map(|y| {
-                (0..width)
-                    .map(|x| terminal.backend().buffer()[(x, y)].symbol())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("frames/message-actions-{name}.txt"));
-        if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
-            std::fs::write(&path, &frame).expect("write fixture");
-        }
-        assert_eq!(std::fs::read_to_string(path).expect("fixture"), frame);
+        let buffer = terminal.backend().buffer();
+        let frame = crate::test_support::snapshot_text(buffer, buffer.area);
+        crate::test_support::assert_frame(&format!("message-actions-{name}"), &frame);
         assert_ne!(
             base.fg,
             terminal.backend().buffer()[(icon.x, icon.y)].style().fg

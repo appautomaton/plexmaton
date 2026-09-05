@@ -75,9 +75,7 @@ pub(super) fn render(
                     let label_bytes = label.len() + 2;
                     let mut line = vec![Span::styled(
                         format!("{label}: "),
-                        palette
-                            .style(Role::SectionHeading)
-                            .add_modifier(Modifier::BOLD),
+                        out.appearance.headings[0],
                     )];
                     line.extend(value.spans.clone());
                     let combined = Line::from(line);
@@ -150,7 +148,7 @@ pub(super) fn render(
             let mut x = 0;
             for (column, cell) in cells.iter().enumerate() {
                 if column > 0 {
-                    spans.push(Span::styled(" │ ", palette.style(Role::Border)));
+                    spans.push(Span::styled(" │ ", out.appearance.rule));
                     x += 3;
                 }
                 let (line, range) = cell.get(line_index).cloned().unwrap_or_default();
@@ -172,7 +170,7 @@ pub(super) fn render(
                     if index == 0 {
                         span.style = span
                             .style
-                            .patch(palette.style(Role::SectionHeading))
+                            .patch(out.appearance.headings[0])
                             .add_modifier(Modifier::BOLD);
                     }
                     span
@@ -192,7 +190,7 @@ pub(super) fn render(
                     .map(|n| "─".repeat(*n))
                     .collect::<Vec<_>>()
                     .join("─┼─"),
-                palette.style(Role::Border),
+                out.appearance.rule,
             ))?;
         }
     }

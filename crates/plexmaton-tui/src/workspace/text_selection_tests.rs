@@ -356,23 +356,7 @@ fn text_selection_frames_cover_three_widths() {
             "selection now copies only the chosen words.\n\n    println!(\"hello, 世界\");"
         );
         let buffer = terminal.backend().buffer();
-        let mut frame = String::new();
-        for y in 0..buffer.area.height {
-            let mut row = String::new();
-            let mut x = 0;
-            while x < width {
-                let symbol = buffer[(x, y)].symbol();
-                row.push_str(symbol);
-                x += symbol.width().max(1) as u16;
-            }
-            frame.push_str(row.trim_end());
-            frame.push('\n');
-        }
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("frames/text-selection-{name}.txt"));
-        if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
-            std::fs::write(&path, &frame).expect("write frame");
-        }
-        assert_eq!(std::fs::read_to_string(path).expect("frame"), frame);
+        let frame = crate::test_support::snapshot_text(buffer, buffer.area);
+        crate::test_support::assert_frame(&format!("text-selection-{name}"), &frame);
     }
 }

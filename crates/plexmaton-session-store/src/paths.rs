@@ -132,19 +132,11 @@ mod tests {
     use super::SessionDirectory;
     use crate::{JournalFile, StoreError};
 
-    fn test_home(label: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "plexmaton-session-path-{label}-{}",
-            std::process::id()
-        ));
-        let _ignored = std::fs::remove_dir_all(&path);
-        path
-    }
-
     #[test]
     fn jrn_4_session_paths_stay_inside_an_owner_only_directory() {
-        let home = test_home("safe");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("safe");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let session =
             SessionId::new("work-01").unwrap_or_else(|error| panic!("session id: {error}"));
@@ -163,13 +155,13 @@ mod tests {
                 & 0o777;
             assert_eq!(mode, 0o700);
         }
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
     #[test]
     fn jrn_4_session_file_names_cannot_escape_the_sessions_directory() {
-        let home = test_home("escape");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("escape");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
 
         for value in ["../outside", ".hidden", "two words", "slash/name", "é"] {
@@ -180,13 +172,13 @@ mod tests {
                 Err(StoreError::InvalidSessionFileName)
             ));
         }
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
     #[test]
     fn jrn_4_automatic_session_identity_is_portable_uuid_v7() {
-        let home = test_home("automatic-v7");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("automatic-v7");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let created_at = UnixMillis::new(1_234);
 
@@ -207,13 +199,13 @@ mod tests {
             home.join(format!("sessions/{}.jsonl", session_id.as_str()))
         );
         drop(journal);
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
     #[test]
     fn jrn_4_automatic_session_names_retry_uuid_collisions() {
-        let home = test_home("automatic-collision");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("automatic-collision");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let first_uuid = Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099c75b0")
             .unwrap_or_else(|error| panic!("first UUIDv7 fixture: {error}"));
@@ -236,7 +228,6 @@ mod tests {
         assert_eq!(first.journal().created_at_unix_ms(), created_at);
         assert_eq!(second.journal().created_at_unix_ms(), created_at);
         drop((first, second));
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
     #[cfg(unix)]
@@ -244,8 +235,9 @@ mod tests {
     fn jrn_4_an_insecure_existing_sessions_directory_is_refused() {
         use std::os::unix::fs::PermissionsExt as _;
 
-        let home = test_home("insecure");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("insecure");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let mut permissions = std::fs::metadata(sessions.path())
             .unwrap_or_else(|error| panic!("sessions metadata: {error}"))
@@ -255,10 +247,9 @@ mod tests {
             .unwrap_or_else(|error| panic!("weaken fixture permissions: {error}"));
 
         assert!(matches!(
-            SessionDirectory::under(&home),
+            SessionDirectory::under(home),
             Err(StoreError::InsecureDirectoryPermissions(0o755))
         ));
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 
     #[cfg(unix)]
@@ -267,30 +258,28 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         use std::os::unix::fs::symlink;
 
-        let home = test_home("symlink-directory");
-        let target = test_home("symlink-target");
-        std::fs::create_dir(&home).unwrap_or_else(|error| panic!("create home: {error}"));
-        std::fs::create_dir(&target).unwrap_or_else(|error| panic!("create target: {error}"));
-        let mut target_permissions = std::fs::metadata(&target)
+        let home_owner = crate::test_support::TestDir::new("symlink-directory");
+        let home = home_owner.path();
+        let target_owner = crate::test_support::TestDir::new("symlink-target");
+        let target = target_owner.path();
+        let mut target_permissions = std::fs::metadata(target)
             .unwrap_or_else(|error| panic!("target metadata: {error}"))
             .permissions();
         target_permissions.set_mode(0o700);
-        std::fs::set_permissions(&target, target_permissions)
+        std::fs::set_permissions(target, target_permissions)
             .unwrap_or_else(|error| panic!("secure target: {error}"));
-        symlink(&target, home.join("sessions"))
+        symlink(target, home.join("sessions"))
             .unwrap_or_else(|error| panic!("link sessions directory: {error}"));
         assert!(matches!(
-            SessionDirectory::under(&home),
+            SessionDirectory::under(home),
             Err(StoreError::SymlinkPath)
         ));
         std::fs::remove_file(home.join("sessions"))
             .unwrap_or_else(|error| panic!("remove sessions link: {error}"));
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
-        std::fs::remove_dir_all(target)
-            .unwrap_or_else(|error| panic!("remove test target: {error}"));
 
-        let home = test_home("symlink-file");
-        let sessions = SessionDirectory::under(&home)
+        let home_owner = crate::test_support::TestDir::new("symlink-file");
+        let home = home_owner.path();
+        let sessions = SessionDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let target = home.join("outside.jsonl");
         std::fs::write(&target, b"not a journal")
@@ -315,6 +304,5 @@ mod tests {
             sessions.resume(&session),
             Err(StoreError::SymlinkPath)
         ));
-        std::fs::remove_dir_all(home).unwrap_or_else(|error| panic!("remove test home: {error}"));
     }
 }

@@ -34,6 +34,12 @@ outlives layout eviction, preserving scroll geometry. `text_layouts()` counts la
 Plain prose without any supported syntax trigger keeps the literal path; admission never parses
 Markdown or infers formatting from regular expressions.
 
+**MD-5 — Markdown color is independent of workspace chrome.** An explicit Markdown theme is
+part of the retained palette/cache identity; changing it preserves rendered text, wrapping and
+copy fragments. The inherited choice follows the workspace palette, including monochrome. The
+user-approved CLI default uses the existing pastel blue/green/lavender heading accents, teal links
+and warm-yellow inline code, while body text and terminal-owned chrome stay neutral/ANSI.
+
 Rejected: regular-expression Markdown parsing; storing decorated text in JSONL; executing HTML or
 fetching image/link targets; hiding table cells on narrow terminals; styling user instructions as
 Markdown without an explicit product decision.
@@ -45,4 +51,5 @@ Markdown without an explicit product decision.
 | MD-1 | `markdown_styles_blocks_and_keeps_code_literal`, `markdown_controls_and_limits_are_explicit`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_frames_show_messages_at_three_widths` |
 | MD-2 | `markdown_tables_keep_all_values_at_wide_and_narrow_widths`, `markdown_streaming_prefixes_and_unicode_never_overflow`, `markdown_frames_show_messages_at_three_widths`, `markdown_resize_round_trip_preserves_the_parked_frame` |
 | MD-3 | `markdown_controls_and_limits_are_explicit`, `markdown_streaming_prefixes_and_unicode_never_overflow` |
-| MD-4 | `markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_admission_keeps_plain_history_on_the_lightweight_path`, `markdown_resize_round_trip_preserves_the_parked_frame` |
+| MD-4 | `markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions`, `markdown_cache_byte_pressure_evicts_and_rebuilds_the_lru`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_admission_keeps_plain_history_on_the_lightweight_path`, `markdown_resize_round_trip_preserves_the_parked_frame` |
+| MD-5 | `markdown_pastel_leaves_all_workspace_roles_unchanged`, `markdown_pastel_changes_only_style_and_keeps_nested_modifiers`, `markdown_theme_change_rebuilds_once_then_reuses_colored_rows`; user-approved [88-column sample](../../crates/plexmaton-tui/frames/markdown-style-88.svg), with 60/120-column review frames alongside it |

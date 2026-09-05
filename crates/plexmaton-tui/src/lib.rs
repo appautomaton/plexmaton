@@ -44,6 +44,6 @@ pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
 };
-pub use theme::{Palette, Role, agent_role, tool_role};
+pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
 pub use transcript::TranscriptMetrics;
 pub use workspace::{Flow, FrameWork, Outcome, Workspace};

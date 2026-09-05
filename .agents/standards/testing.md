@@ -32,8 +32,10 @@ Good targets include:
 - Tool-schema and capability decisions
 - Truncation, budgeting, and identity rules
 
-Unit tests should not boot the entire application. Use table-driven tests and property tests where
-the input space has meaningful invariants.
+Unit tests must not boot the application. Use table-driven tests and property tests where
+the input space has meaningful invariants. Parser properties need generated accepted cases as
+well as rejected ones; arbitrary-byte fuzzing alone rarely reaches valid UTF-8/grammar. A test of
+successful behavior must fail on unexpected rejection, not skip its assertions with `if let Ok`.
 
 ## Tier 2 — component tests
 
@@ -110,7 +112,11 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 - Mock clocks, IDs, randomness, network byte streams, and external processes when determinism
   requires it.
 - Do not use arbitrary sleeps to coordinate tests. Use events, barriers, paused/mock time, or
-  explicit readiness signals.
+  explicit readiness signals. Where a file/process boundary has no event seam, bounded polling
+  may wait between checks; the marker, not elapsed time, establishes readiness. Idle process
+  fixtures block instead of spinning, preserving the PID, signal and descendant behavior under test.
+- Own temporary directories through scope exit, including assertion failure. Reserve a unique
+  directory before use; never delete a guessed stale path to make a fixture fit.
 - Inject failures intentionally: partial writes, malformed events, cancellation at boundaries,
   queue saturation, storage errors, and terminal resize.
 - A test must fail for a plausible bug. Before keeping it, be able to name the regression it
@@ -118,6 +124,9 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 - Do not duplicate the same assertion at every tier; each tier should add distinct confidence.
 - Flaky tests are bugs. Fix the synchronization or contract; do not add retries until they turn
   green.
+
+Rejected: a workspace-wide assertion macro solely to rewrite every `matches!`; put diagnostic
+context at ambiguous failures, and use direct equality when the expected value is the contract.
 
 ## Snapshots and golden files
 
@@ -131,6 +140,10 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 - Pair important snapshots with structural assertions so an empty or truncated snapshot cannot pass
   unnoticed.
 - Review snapshot updates as behavior changes; never bulk-accept them without inspection.
+- TUI snapshot helpers share file comparison and display-cell extraction, while geometry tests
+  retain the actual buffer. Readable snapshots trim ASCII padding only. Rejected: claiming that
+  `trim_end` conceals a disappearing non-whitespace icon; it does not, and the right-edge regression
+  test proves that distinction. Copy fidelity is tested against semantic source, not snapshots.
 
 ## Evidence tooling
 

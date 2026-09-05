@@ -25,6 +25,7 @@ any single edit:
 | `cargo machete` | Dependencies that are declared but unused |
 | `typos` | Prose and identifier spelling |
 | `./scripts/check-file-length.sh` | Module sprawl in `crates/**/*.rs` |
+| `python3 -m unittest discover -s scripts/tests` | Gate boundary regressions and offline smoke-fixture ownership |
 | `./scripts/check-crate-graph.sh` | A dependency arrow the design forbids: a runtime, a client or a terminal reachable from the loop or the vocabulary, and a producer reachable from the projection |
 | `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
@@ -46,7 +47,9 @@ line-count style rules.
 because a large file of small functions is usually fine while a long function never is.
 `check-file-length.sh` adds a 550-line file-level sentinel. Test-only files following the
 workspace's `tests/`, `tests.rs`, `*_tests.rs`, or `test_support.rs` conventions are excluded; in a
-mixed module, measurement stops above the first inline `#[cfg(test)]` module.
+mixed module, measurement stops above the trailing inline `#[cfg(test)] mod tests { ... }`.
+External test-module declarations and test-gated helper functions never truncate the count;
+helpers count conservatively until placed inside the test module. Discovery failure fails the gate.
 
 Rejected: a 400-line file sentinel and counting standalone tests, because both repeatedly forced
 mechanical splits without identifying a production responsibility boundary. When either active
@@ -83,6 +86,9 @@ knowing before you touch it:
 - A normal smoke launch uses an isolated `PLEXMATON_HOME`; menus, draft edits and blank exit must
   create no JSONL or saved-session handoff. Test commands never contact a configured provider; see
   [testing](./testing.md) §Tier 5.
+- Both smoke scripts use an owned loopback connection trap and a whitelisted child environment:
+  no real API credentials, proxy routing or live tmux clipboard. Blank launches assert zero JSONL;
+  the independent connection trap checks the absence of model work without relying on journal shape.
 - An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
   defect; run the smoke outside it. Two `Ctrl-D` presses inside the one-second window are how it
   quits; the script first lets one window expire, so a change to that chord changes this script in

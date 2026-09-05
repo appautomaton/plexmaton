@@ -364,3 +364,81 @@ pub fn region_text(buffer: &Buffer, bounds: Rect) -> String {
 fn buffer_text(buffer: &Buffer) -> String {
     region_text(buffer, *buffer.area())
 }
+
+/// Snapshot text follows display cells, skips wide continuations, and trims only terminal padding.
+/// Geometry assertions use `region_text` or the buffer itself; this readable projection is not copy.
+pub fn snapshot_text(buffer: &Buffer, bounds: Rect) -> String {
+    use unicode_width::UnicodeWidthStr as _;
+
+    assert_eq!(
+        bounds.intersection(buffer.area),
+        bounds,
+        "snapshot bounds exceed the buffer"
+    );
+    let mut text = String::new();
+    for y in bounds.top()..bounds.bottom() {
+        let mut row = String::new();
+        let mut x = bounds.left();
+        while x < bounds.right() {
+            let symbol = buffer[(x, y)].symbol();
+            row.push_str(symbol);
+            x += symbol.width().max(1) as u16;
+        }
+        text.push_str(row.trim_end_matches(' '));
+        text.push('\n');
+    }
+    text
+}
+
+/// Compare one named frame with a compact first-difference diagnostic; writes remain opt-in.
+pub fn assert_frame(name: &str, drawn: &str) {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("frames")
+        .join(format!("{name}.txt"));
+    if std::env::var_os("PLEXMATON_WRITE_FRAMES").is_some() {
+        std::fs::write(&path, drawn)
+            .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+    }
+    let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!(
+            "read {}: {error}; use PLEXMATON_WRITE_FRAMES=1 and review the diff",
+            path.display()
+        )
+    });
+    assert!(
+        fixture == drawn,
+        "{name}: {}; refresh with PLEXMATON_WRITE_FRAMES=1 and review the diff",
+        first_difference(&fixture, drawn)
+    );
+}
+
+fn first_difference(expected: &str, actual: &str) -> String {
+    for (index, (want, got)) in expected.lines().zip(actual.lines()).enumerate() {
+        if want != got {
+            return format!(
+                "line {}:\n  fixture: {want:?}\n  drawn:   {got:?}",
+                index + 1
+            );
+        }
+    }
+    format!(
+        "line count: fixture {}, drawn {}; final newline: fixture {}, drawn {}",
+        expected.lines().count(),
+        actual.lines().count(),
+        expected.ends_with('\n'),
+        actual.ends_with('\n')
+    )
+}
+
+#[test]
+fn snapshot_projection_keeps_wide_graphemes_combining_marks_and_right_edge_icons() {
+    let mut buffer = Buffer::empty(Rect::new(2, 3, 10, 1));
+    buffer.set_string(2, 3, "中e\u{301} 󰆏", ratatui::style::Style::default());
+    assert_eq!(snapshot_text(&buffer, buffer.area), "中e\u{301} 󰆏\n");
+    buffer[(11, 3)].set_symbol("󰆏");
+    let with_icon = snapshot_text(&buffer, buffer.area);
+    assert!(with_icon.ends_with("󰆏\n"));
+    buffer[(11, 3)].set_symbol(" ");
+    assert_ne!(snapshot_text(&buffer, buffer.area), with_icon);
+    assert!(first_difference("same\n", "same").contains("final newline"));
+}

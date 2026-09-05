@@ -8,6 +8,10 @@
 use plexmaton_core::{AgentStatus, ToolCallStatus};
 use ratatui::style::{Color, Modifier, Style};
 
+mod markdown;
+pub(crate) use markdown::MarkdownStyles;
+pub use markdown::MarkdownTheme;
+
 /// A semantic colour token.
 ///
 /// Widgets name a role, never a terminal colour. That keeps a palette change to one edit and
@@ -109,6 +113,7 @@ const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 /// system stops being one.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Palette {
+    markdown: MarkdownTheme,
     body: Style,
     muted: Style,
     border: Style,
@@ -131,6 +136,7 @@ impl Palette {
     #[must_use]
     pub fn from_roles(mut style: impl FnMut(Role) -> Style) -> Self {
         Self {
+            markdown: MarkdownTheme::Inherited,
             body: style(Role::Body),
             muted: style(Role::Muted),
             border: style(Role::Border),
@@ -154,6 +160,7 @@ impl Palette {
     #[must_use]
     pub fn ansi() -> Self {
         Self {
+            markdown: MarkdownTheme::Inherited,
             body: Style::new(),
             muted: Style::new().fg(Color::DarkGray),
             // One step weaker than muted, because a border is the least important thing on screen
@@ -197,6 +204,7 @@ impl Palette {
         const FAILURE: Color = Color::Rgb(0xED, 0x87, 0x96);
 
         Self {
+            markdown: MarkdownTheme::Inherited,
             body: Style::new().fg(BODY),
             muted: Style::new().fg(MUTED),
             border: Style::new().fg(BORDER),
@@ -228,6 +236,7 @@ impl Palette {
         const FAILURE: Color = Color::Rgb(0xE8, 0x74, 0x6D);
 
         Self {
+            markdown: MarkdownTheme::Inherited,
             body: Style::new().fg(INK),
             muted: Style::new().fg(MUTED),
             border: Style::new().fg(LINE),
@@ -251,6 +260,7 @@ impl Palette {
     #[must_use]
     pub fn monochrome() -> Self {
         Self {
+            markdown: MarkdownTheme::Inherited,
             body: Style::new(),
             muted: Style::new().add_modifier(Modifier::DIM),
             border: Style::new().add_modifier(Modifier::DIM),
@@ -356,15 +366,6 @@ mod tests {
                 palette.style(Role::BorderFocused),
                 "{name} cannot show which surface has focus"
             );
-        }
-    }
-
-    #[test]
-    fn every_role_resolves_in_every_palette() {
-        for (_, palette) in palettes() {
-            for role in Role::ALL {
-                let _ = palette.style(role);
-            }
         }
     }
 

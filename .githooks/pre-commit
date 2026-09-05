@@ -23,6 +23,7 @@ run() {
 }
 
 run cargo fmt --all --check
+run python3 -m unittest discover -s scripts/tests
 run ./scripts/check-file-length.sh
 run ./scripts/check-crate-graph.sh
 run ./scripts/check-citations.sh

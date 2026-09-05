@@ -23,7 +23,7 @@ use plexmaton_runtime::{
     RuntimeUpdate, SessionRecovery,
 };
 use plexmaton_tui::{
-    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, Flow, Palette,
+    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, Flow, MarkdownTheme, Palette,
     PersistenceNotice, Submission, SubmissionKind, Workspace,
 };
 use ratatui::DefaultTerminal;
@@ -230,10 +230,10 @@ async fn run(
     mut picker: session_picker::SessionPicker,
     mut status_line: Option<statusline::StatusLine>,
 ) -> anyhow::Result<Option<PersistedSession>> {
-    // The user already chose these colours when they themed their terminal, and slots 0-15 are the
-    // only values a theme can reach: `Indexed(16..)` and `Rgb` paint over it. Truecolour presets
-    // stay available, but none of them may be the default a first run lands on.
-    let mut workspace = Workspace::with_palette(Palette::ansi());
+    // MD-5: terminal-owned chrome surrounds the user-approved pastel Markdown accents.
+    // The script footer retains its independent colors; neither choice rethemes the other.
+    let mut workspace =
+        Workspace::with_palette(Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel));
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
@@ -533,38 +533,6 @@ fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchR
 }
 
 #[cfg(test)]
-fn dispatch_synthetic(
-    runtime: &mut plexmaton_sim::ScriptedRuntime,
-    workspace: &mut Workspace,
-    addressed: AddressedInput,
-) -> anyhow::Result<()> {
-    use plexmaton_sim::RuntimeCommand;
-
-    let command = match addressed.input {
-        Input::Submitted { text } | Input::Steered { text } => RuntimeCommand::SendMessage {
-            to: addressed.to,
-            text,
-        },
-        Input::Interrupted => RuntimeCommand::Interrupt { to: addressed.to },
-        Input::ApprovalDecided {
-            approval_id,
-            decision,
-        } => RuntimeCommand::Approval {
-            to: addressed.to,
-            approval_id,
-            decision,
-        },
-        Input::Streamed { .. }
-        | Input::Failed { .. }
-        | Input::ToolAdmissionResolved(_)
-        | Input::ToolFinished { .. }
-        | Input::ShuttingDown => bail!("the TUI produced an input reserved for the producer"),
-    };
-    workspace.emit(runtime.submit(command).context("dispatch user input")?);
-    Ok(())
-}
-
-#[cfg(test)]
 mod tests {
     use std::{
         io::{Read as _, Write as _},
@@ -590,9 +558,42 @@ mod tests {
     };
 
     use super::{
-        AddressedInput, dispatch_live, dispatch_synthetic, restore_undelivered, route_approval,
-        route_interrupt, route_submission, surface_shutdown_report,
+        AddressedInput, dispatch_live, restore_undelivered, route_approval, route_interrupt,
+        route_submission, surface_shutdown_report,
     };
+
+    fn dispatch_synthetic(
+        runtime: &mut ScriptedRuntime,
+        workspace: &mut Workspace,
+        addressed: AddressedInput,
+    ) -> anyhow::Result<()> {
+        use anyhow::{Context as _, bail};
+        use plexmaton_agent::Input;
+        use plexmaton_sim::RuntimeCommand;
+
+        let command = match addressed.input {
+            Input::Submitted { text } | Input::Steered { text } => RuntimeCommand::SendMessage {
+                to: addressed.to,
+                text,
+            },
+            Input::Interrupted => RuntimeCommand::Interrupt { to: addressed.to },
+            Input::ApprovalDecided {
+                approval_id,
+                decision,
+            } => RuntimeCommand::Approval {
+                to: addressed.to,
+                approval_id,
+                decision,
+            },
+            Input::Streamed { .. }
+            | Input::Failed { .. }
+            | Input::ToolAdmissionResolved(_)
+            | Input::ToolFinished { .. }
+            | Input::ShuttingDown => bail!("the TUI produced an input reserved for the producer"),
+        };
+        workspace.emit(runtime.submit(command).context("dispatch user input")?);
+        Ok(())
+    }
 
     trait AgentTestExt {
         fn handle(&mut self, input: plexmaton_agent::Input) -> plexmaton_agent::Reaction;

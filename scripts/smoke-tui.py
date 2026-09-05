@@ -30,24 +30,19 @@ import base64
 import os
 import pty
 import re
-import select
 import struct
 import subprocess
 import sys
 import tempfile
 import termios
-import time
 import unicodedata
 from pathlib import Path
+from smoke_support import NoModelRequests, fixture_environment, observe_for, read_until, read_to_eof
 
-# Every size stays in the Wide layout class so the agent column is present throughout.
+# A blank single-agent session has no rail; these sizes exercise its owned terminal geometry.
 INITIAL_SIZE = (40, 120)
 RESIZED = (30, 100)
 REPAINT_PROBE_SIZE = (31, 101)
-# Long enough for the runtime to announce its idle primary agent; no request reaches a network.
-STREAM_SECONDS = 0.8
-REPAINT_SECONDS = 1.5
-SHUTDOWN_SECONDS = 3.0
 EXPECTED_ON_FULL_FRAME = (
     "Plexmaton · idle",
     "Message Plexmaton",
@@ -67,9 +62,11 @@ FOCUS_OFF = b"\x1b[?1004l"
 CLICK_IN_TRANSCRIPT = (40, 10)
 CLICK_IN_STATUS = (5, RESIZED[0] - 1)
 CLICK_IN_RESIZED_COMPOSER = (50, RESIZED[0] - 3)
-CLICK_SETTLE_SECONDS = 0.8
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 WHITESPACE = re.compile(r"\s+")
+# The pinned Ratatui Crossterm backend resets attributes after a completed draw, followed only
+# by cursor controls. Readiness includes this boundary, not a partial matching caption.
+FRAME_END = re.compile(rb"\x1b\[0m(?:\x1b\[(?:\?[0-9;]+[hl]|[0-9;]+H))*$")
 
 
 def set_size(fd: int, size: tuple[int, int]) -> None:
@@ -82,28 +79,21 @@ def sgr_press(column: int, row: int) -> bytes:
     return f"\x1b[<0;{column + 1};{row + 1}M".encode()
 
 
-def click(master: int, at: tuple[int, int], sink: bytearray) -> bytes:
-    """Sends a press and returns only the bytes the TUI emitted in response."""
+def cursor_visible(raw: bytes) -> bool:
+    return raw.rfind(b"\x1b[?25h") > raw.rfind(b"\x1b[?25l")
+
+
+def click(master: int, at: tuple[int, int], sink: bytearray, cursor=None) -> bytes:
     before = len(sink)
     os.write(master, sgr_press(*at))
-    drain(master, CLICK_SETTLE_SECONDS, sink)
+    if cursor is None:
+        observe_for(master, 0.05, sink)  # Explicit no-op observation, not transition readiness.
+    else:
+        read_until(master, sink, lambda: cursor_visible(bytes(sink)) == cursor
+                   and FRAME_END.search(bytes(sink)) is not None
+                   and (cursor or len(sink) > before),
+                   description="pointer focus")
     return bytes(sink[before:])
-
-
-def drain(master: int, seconds: float, sink: bytearray) -> None:
-    """Reads available output until the deadline or end of file."""
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
-        ready, _, _ = select.select([master], [], [], 0.1)
-        if not ready:
-            continue
-        try:
-            chunk = os.read(master, 65536)
-        except OSError:
-            return
-        if not chunk:
-            return
-        sink.extend(chunk)
 
 
 def collapsed(raw: bytes) -> str:
@@ -182,138 +172,86 @@ def rendered_screen(raw: bytes, size: tuple[int, int]) -> str:
     return "\n".join("".join(line) for line in cells)
 
 
-def frame_is_settled(raw: bytes) -> bool:
-    """Recognizes one full repaint after the agent has returned to idle."""
-    painted = collapsed(rendered_screen(raw, RESIZED).encode())
-    return all(collapsed(text.encode()) in painted for text in EXPECTED_ON_FULL_FRAME)
+def await_screen(master, captured, size, markers=(), absent=(), start=0, complete=True, exact_lines=()):
+    def ready():
+        screen = rendered_screen(bytes(captured[start:]), size)
+        flat = collapsed(screen.encode())
+        return (FRAME_END.search(bytes(captured[start:])) is not None
+                and all(collapsed(marker.encode()) in flat for marker in markers)
+                and all(collapsed(marker.encode()) not in flat for marker in absent)
+                and all(any(row.strip(" │") == value for row in screen.splitlines()) for value in exact_lines)
+                and (not complete or any(row.endswith("┘") for row in screen.splitlines())))
+    read_until(master, captured, ready, timeout=5,
+               description=f"screen {size} with {markers!r} without {absent!r}")
+    return rendered_screen(bytes(captured[start:]), size)
 
 
-def check_command_palette(master: int, captured: bytearray) -> list[str]:
-    """INV-11, INV-12: aliases open the real configuration page through the composition root."""
-    failures = []
-    for query in (b"config", b"/config", b"settings", b"/settings"):
-        os.write(master, b"\x10" + query)
-        drain(master, 0.2, captured)
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
+def repaint(master, captured, markers=(), absent=(), exact_lines=()):
+    for size in (REPAINT_PROBE_SIZE, RESIZED):
         start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
-        if not all(collapsed(text) in screen for text in (b"Commands", b"> /config")):
-            print(f"smoke: command discovery failed for {query!r}: {screen!r}", file=sys.stderr)
-            failures.append(f"command discovery: {query.decode()}")
+        set_size(master, size)
+        screen = await_screen(master, captured, size, markers, absent, start, exact_lines=exact_lines)
+    return screen, bytes(captured[start:])
+
+
+def check_command_palette(master: int, captured: bytearray) -> None:
+    """INV-11/INV-12/SPK-1: every action waits for its own visible result."""
+    for query in ("config", "/config", "settings", "/settings"):
+        os.write(master, b"\x10" + query.encode())
+        repaint(master, captured, ("Commands", "> /config"), exact_lines=(query,))
         os.write(master, b"\r")
-        drain(master, 0.2, captured)
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
-        start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
-        if not all(collapsed(text) in screen for text in (
-            b"Configuration", b"Provider", b"smoke", b"gpt-5.6-luna", b"Reasoning effort", b"none", b"Esc back"
-        )):
-            print(f"smoke: configuration did not open for {query!r}", file=sys.stderr)
-            failures.append(f"configuration page: {query.decode()}")
+        repaint(master, captured, ("Configuration", "Provider", "smoke", "gpt-5.6-luna",
+                                   "Reasoning effort", "none", "Esc back"))
         os.write(master, b"\x1b")
-        drain(master, 0.2, captured)
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
-        start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
-        if not all(collapsed(text) in screen for text in (b"Commands", query, b"> /config")):
-            print(f"smoke: Escape did not restore the palette for {query!r}", file=sys.stderr)
-            failures.append(f"configuration back: {query.decode()}")
+        repaint(master, captured, ("Commands", "> /config"), ("Configuration",), exact_lines=(query,))
         os.write(master, b"\x1b")
-        drain(master, 0.2, captured)
-    for query in (b"resume", b"continue", b"sessions", b"session"):
-        os.write(master, b"\x10" + query + b"\r")
-        drain(master, 0.2, captured)
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
-        start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
-        if not all(collapsed(text) in screen for text in (b"Sessions", b"Enter resume", b"Esc close")):
-            failures.append(f"session discovery: {query.decode()}")
+        repaint(master, captured, ("Message Plexmaton",), ("Commands", "Configuration"))
+    for query in ("resume", "continue", "sessions", "session"):
+        os.write(master, b"\x10" + query.encode() + b"\r")
+        repaint(master, captured, ("Sessions", "Enter resume", "Esc close"))
         os.write(master, b"\x1b")
-        drain(master, 0.2, captured)
-    # SPK-2/JRN-4: /new takes the production command route without submitting model input.
+        repaint(master, captured, ("Message Plexmaton",), ("Sessions", "Commands"))
     os.write(master, b"\x10new\r")
-    drain(master, 0.4, captured)
-    set_size(master, REPAINT_PROBE_SIZE)
-    drain(master, 0.2, captured)
-    start = len(captured)
-    set_size(master, RESIZED)
-    drain(master, REPAINT_SECONDS, captured)
-    screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
-    if collapsed(b"Message Plexmaton") not in screen or any(
-        collapsed(label) in screen for label in (b"Sessions", b"Commands", b"Cannot open")
-    ):
-        failures.append("new conversation did not replace the palette")
-    return failures
+    repaint(master, captured, ("Message Plexmaton",), ("Sessions", "Commands", "Cannot open"))
 
 
-def check_input_pointer(master: int, captured: bytearray) -> list[str]:
-    """COM-1, COM-2: click and drag Chinese input through actual SGR reports, preserving borders."""
-    failures = []
+def check_input_pointer(master: int, captured: bytearray) -> None:
+    """COM-1/COM-2: real SGR placement, source copy and replacement over Chinese input."""
     row = RESIZED[0] - 3
-
     def report(button: int, column: int, release: bool = False) -> None:
         end = "m" if release else "M"
         os.write(master, f"\x1b[<{button};{column + 1};{row + 1}{end}".encode())
 
-    def screen() -> str:
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
-        start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        return rendered_screen(bytes(captured[start:]), RESIZED)
-
     report(0, 1)
     report(0, 1, True)
     os.write(master, b"\x1b[200~" + "中文abc".encode() + b"\x1b[201~")
-    drain(master, 0.2, captured)
+    repaint(master, captured, ("中文abc",))
     report(0, 3)
     report(0, 3, True)
     os.write(master, b"X")
-    drain(master, 0.2, captured)
-    painted = screen()
-    if "中X文abc" not in collapsed(painted.encode()):
-        failures.append("composer click insertion")
-    if painted.splitlines()[row][-1] != "│":
-        failures.append("composer right border after Chinese input")
+    painted, _ = repaint(master, captured, ("中X文abc",))
+    assert painted.splitlines()[row][-1] == "│", "composer right border after Chinese input"
     start = len(captured)
     report(0, 1)
     report(32, 6)
     report(0, 6, True)
-    drain(master, 0.2, captured)
-    if b"]52;c;" + base64.b64encode("中X文".encode()) not in bytes(captured[start:]):
-        failures.append("composer drag source copy")
+    expected = b"]52;c;" + base64.b64encode("中X文".encode())
+    read_until(master, captured, lambda: expected in bytes(captured[start:]),
+               description="composer source copy")
     os.write(master, b"z")
-    drain(master, 0.2, captured)
-    if "zabc" not in collapsed(screen().encode()):
-        failures.append("composer replace selection")
+    repaint(master, captured, ("zabc",))
     os.write(master, b"\x03")
-    drain(master, 0.2, captured)
-    for failure in failures:
-        print(f"smoke: {failure}", file=sys.stderr)
-    return failures
+    repaint(master, captured, ("Message Plexmaton",), ("zabc",))
 
 
-def main() -> int:
+def run_smoke(model_url: str) -> int:
     if sys.argv[1:]:
         print("usage: smoke-tui.py", file=sys.stderr)
         return 2
     root = Path(__file__).resolve().parent.parent
     capture_dir = root / "target" / "smoke"
     capture_dir.mkdir(parents=True, exist_ok=True)
-    child_env = os.environ.copy()
+    child_env = fixture_environment()
     # Exercise terminal delivery without touching the machine's native clipboard.
     child_env["SSH_TTY"] = "/dev/plexmaton-smoke"
     config_directory = tempfile.TemporaryDirectory(
@@ -333,7 +271,7 @@ reasoning_effort = "none"
 context_window_tokens = 100000
 max_output_tokens = 10000
 output_reserve_tokens = 5000
-""",
+""".replace("http://127.0.0.1:9/v1", model_url),
         encoding="utf-8",
     )
     child_env["PLEXMATON_HOME"] = str(config_root)
@@ -361,81 +299,52 @@ output_reserve_tokens = 5000
     os.close(slave)
 
     captured = bytearray()
+    full_frame = b""
     failures: list[str] = []
     try:
-        drain(master, STREAM_SECONDS, captured)
-
-        # Resizing forces a full repaint, which is the only frame that carries the whole screen.
-        full_frame_start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        full_frame = bytes(captured[full_frame_start:])
-        repaint_deadline = time.monotonic() + 5.0
-        while not frame_is_settled(full_frame) and time.monotonic() < repaint_deadline:
-            # A semantic event can land during a repaint, leaving a full older frame plus an
-            # incremental patch. Toggle through another Wide size until one complete settled
-            # buffer exists; this applies to the startup announcement as well.
-            set_size(master, REPAINT_PROBE_SIZE)
-            drain(master, 0.2, captured)
-            full_frame_start = len(captured)
-            set_size(master, RESIZED)
-            drain(master, REPAINT_SECONDS, captured)
-            full_frame = bytes(captured[full_frame_start:])
-
-        # Put focus somewhere known before testing the transcript press.
-        click(master, CLICK_IN_RESIZED_COMPOSER, captured)
-        # The idle projection is static, so any repaint from here on was caused by the click.
+        await_screen(master, captured, INITIAL_SIZE, EXPECTED_ON_FULL_FRAME)
+        _, full_frame = repaint(master, captured, EXPECTED_ON_FULL_FRAME)
+        click(master, CLICK_IN_RESIZED_COMPOSER, captured, cursor=True)
+        repaint(master, captured, EXPECTED_ON_FULL_FRAME)
         on_chrome = click(master, CLICK_IN_STATUS, captured)
-        on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured)
+        on_transcript = click(master, CLICK_IN_TRANSCRIPT, captured, cursor=False)
 
-        # Finish the pointer probe before opening a keyboard surface: an active capture consumes
-        # the first Escape (INV-5, INV-6), so a held press is not a completed click.
         column, row = CLICK_IN_TRANSCRIPT
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
-        drain(master, 0.2, captured)
-        failures.extend(check_command_palette(master, captured))
-        failures.extend(check_input_pointer(master, captured))
+        check_command_palette(master, captured)
+        check_input_pointer(master, captured)
 
-        # The first question expires without another input. A later Ctrl-D must re-arm rather than
-        # confirm the stale question; the immediately following press then confirms the new one.
+        question = "press Ctrl-D again to quit"
+        armed_start = len(captured)
         os.write(master, b"\x04")
-        drain(master, 1.2, captured)
-        set_size(master, REPAINT_PROBE_SIZE)
-        drain(master, 0.2, captured)
-        expired_frame_start = len(captured)
-        set_size(master, RESIZED)
-        drain(master, REPAINT_SECONDS, captured)
-        expired_frame = bytes(captured[expired_frame_start:])
-        expired_screen = collapsed(rendered_screen(expired_frame, RESIZED).encode())
-        if collapsed(EXPECTED_ON_FULL_FRAME[0].encode()) not in expired_screen:
-            print(
-                "smoke: the quit-deadline probe did not produce a complete frame",
-                file=sys.stderr,
-            )
-            failures.append("quit deadline frame")
-        elif collapsed(b"press Ctrl-D again to quit") in expired_screen:
-            print(
-                "smoke: the quit question remained visible after its deadline",
-                file=sys.stderr,
-            )
-            failures.append("quit deadline repaint")
-        os.write(master, b"\x04")
-        drain(master, 0.2, captured)
-        if process.poll() is not None:
-            failures.append("expired quit chord")
-        else:
-            os.write(master, b"\x04")
-        drain(master, SHUTDOWN_SECONDS, captured)
-        exit_code = process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        print("smoke: Plexmaton did not exit after the quit key", file=sys.stderr)
+        read_until(master, captured,
+                   lambda: collapsed(question.encode()) in collapsed(bytes(captured[armed_start:])),
+                   description="armed quit question")
+        # The status row must visibly return to its ordinary path without another key.
+        read_until(master, captured,
+                   lambda: question not in rendered_screen(bytes(captured[armed_start:]), RESIZED).splitlines()[-1]
+                   and "~/" in rendered_screen(bytes(captured[armed_start:]), RESIZED).splitlines()[-1],
+                   description="quit deadline expiry")
+        repaint(master, captured, EXPECTED_ON_FULL_FRAME, (question,))
+        assert process.poll() is None, "expiry must not exit"
+        rearm_start = len(captured)
+        # Both keys are queued together; the first must paint a NEW question after expiry.
+        os.write(master, b"\x04\x04")
+        read_until(master, captured, lambda: ALTERNATE_SCREEN_EXIT in captured,
+                   description="alternate-screen release")
+        exit_code = process.wait(timeout=3)
+        read_to_eof(master, captured)
+        assert collapsed(question.encode()) in collapsed(bytes(captured[rearm_start:])), "expired chord did not re-arm"
+    except (subprocess.TimeoutExpired, TimeoutError, EOFError) as error:
+        print(f"smoke: {error}", file=sys.stderr)
         return 1
     finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=3)
         os.close(master)
-
-    (capture_dir / "tui-session.raw").write_bytes(captured)
-    (capture_dir / "tui-full-frame.raw").write_bytes(full_frame)
+        (capture_dir / "tui-session.raw").write_bytes(captured)
+        (capture_dir / "tui-full-frame.raw").write_bytes(full_frame)
 
     if not full_frame:
         print("smoke: terminal resize produced no repaint", file=sys.stderr)
@@ -503,6 +412,14 @@ output_reserve_tokens = 5000
     if failures:
         return 1
 
+    return 0
+
+
+def main() -> int:
+    with NoModelRequests() as model:
+        result = run_smoke(model.base_url)
+    if result:
+        return result
     print(
         f"smoke: painted the idle live runtime at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "

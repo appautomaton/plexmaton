@@ -161,6 +161,83 @@ mod tests {
     use super::*;
     use crate::TranscriptItemView;
 
+    /// MD-4/MD-5: the same entry at the same width cannot reuse rows from another Markdown theme.
+    #[test]
+    fn markdown_theme_change_rebuilds_once_then_reuses_colored_rows() {
+        let agent = AgentId::new("primary").expect("agent");
+        let item = TranscriptEntryView::Text(TranscriptItemView {
+            id: TranscriptItemId::new("styled-heading").expect("item"),
+            source: "# Heading".into(),
+            role: TranscriptRole::Assistant,
+            kind: TranscriptTextKind::Message,
+            revision: 1,
+            finalized: true,
+        });
+        let mut cache = Cache::default();
+        let base = Palette::ansi();
+        let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
+        let plain = cache.layout(&agent, &item, &base, 60).expect("base").lines[0].spans[0].style;
+        let colored = cache
+            .layout(&agent, &item, &proposed, 60)
+            .expect("colored")
+            .lines[0]
+            .spans[0]
+            .style;
+        assert_ne!(plain.fg, colored.fg);
+        assert_eq!(cache.layouts(), 2);
+        cache.layout(&agent, &item, &proposed, 60).expect("hit");
+        assert_eq!(cache.layouts(), 2);
+    }
+
+    /// MD-4: the byte limit evicts a real entry before the count limit can intervene.
+    #[test]
+    fn markdown_cache_byte_pressure_evicts_and_rebuilds_the_lru() {
+        let agent = AgentId::new("primary").expect("agent");
+        let palette = Palette::pastel();
+        let item = |index| {
+            TranscriptEntryView::Text(TranscriptItemView {
+                id: TranscriptItemId::new(format!("large-{index}")).expect("item"),
+                source: "**bounded** ".repeat(1000),
+                role: TranscriptRole::Assistant,
+                kind: TranscriptTextKind::Message,
+                revision: 1,
+                finalized: false,
+            })
+        };
+        let first = item(0);
+        let mut cache = Cache::default();
+        cache.layout(&agent, &first, &palette, 60).expect("layout");
+        assert_eq!(
+            cache.entries.len(),
+            1,
+            "fixture must be individually cacheable"
+        );
+        let entry_bytes = cache.bytes;
+        assert!(
+            entry_bytes * MAX_ENTRIES > MAX_BYTES,
+            "fixture must hit byte limit first"
+        );
+        let mut evicted = false;
+        for index in 1..MAX_ENTRIES {
+            cache
+                .layout(&agent, &item(index), &palette, 60)
+                .expect("layout");
+            assert!(cache.bytes <= MAX_BYTES);
+            if !cache.entries.iter().any(|entry| &entry.item == first.id()) {
+                evicted = true;
+                assert!(cache.entries.len() < MAX_ENTRIES);
+                break;
+            }
+        }
+        assert!(evicted, "byte pressure never evicted the oldest entry");
+        let before = cache.layouts();
+        cache.layout(&agent, &first, &palette, 60).expect("rebuild");
+        assert_eq!(cache.layouts(), before + 1);
+        assert_eq!(&cache.entries[0].item, first.id());
+        cache.layout(&agent, &first, &palette, 60).expect("hit");
+        assert_eq!(cache.layouts(), before + 1);
+    }
+
     /// MD-4: history and streaming revisions cannot grow the layout LRU past either bound.
     #[test]
     fn markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions() {

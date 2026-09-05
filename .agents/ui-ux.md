@@ -230,11 +230,12 @@ alternate entry point for main-agent approvals.
   selection treatment without erasing those roles; unknown diff text remains undecorated source.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
-- Colour is twelve semantic roles. Widgets name a role, never a terminal colour. A palette is a
+- Workspace colour is twelve semantic roles. Widgets name a role, never a terminal colour. A palette is a
   complete assignment of the roles; the shipped palettes are presets, and a new colourway is a new
-  assignment, not a constructor and not a widget edit. The executable defaults to the dark-terminal
-  `pastel` palette; `ansi` lets the user's terminal theme win, and `monochrome` preserves the same
-  hierarchy without colour.
+  assignment, not a constructor and not a widget edit. The executable keeps terminal-owned `ansi`
+  chrome and neutral body text, with independently styled pastel assistant Markdown (MD-5).
+  Blue, green and lavender distinguish heading levels; links are teal and inline code warm yellow.
+  The status script owns its own colors. `monochrome` preserves hierarchy without colour.
 
 ### Selection and copy
 

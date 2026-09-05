@@ -62,7 +62,7 @@ fn a_cancelled_search_joins_its_exact_child_and_reader_tasks() {
     let executable = workspace.executable(
         "fake-rg",
         &format!(
-            "#!/bin/sh\n: > '{}'\nwhile :; do :; done\n",
+            "#!/bin/sh\n: > '{}'\nexec /bin/sleep 30\n",
             marker.display()
         ),
     );
@@ -72,8 +72,13 @@ fn a_cancelled_search_joins_its_exact_child_and_reader_tasks() {
     let canceller = cancellation.clone();
     let wait_marker = marker.clone();
     let cancellation_task = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while !wait_marker.exists() {
-            std::thread::yield_now();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "search did not publish readiness"
+            );
+            std::thread::sleep(Duration::from_millis(5));
         }
         canceller.cancel();
     });
@@ -94,7 +99,7 @@ fn a_cancelled_search_joins_its_exact_child_and_reader_tasks() {
 fn stdout_eof_does_not_disable_the_process_deadline() {
     let workspace = TestWorkspace::new();
     workspace.write("file", b"value\n");
-    let executable = workspace.executable("fake-rg", "#!/bin/sh\nexec 1>&-\nwhile :; do :; done\n");
+    let executable = workspace.executable("fake-rg", "#!/bin/sh\nexec 1>&-\nexec /bin/sleep 30\n");
     let runner =
         SearchRunner::new(executable, search_driver()).with_timeout(Duration::from_millis(20));
     let request = SearchRequest::new("value".to_owned(), None, None, None)

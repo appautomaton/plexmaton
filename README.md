@@ -80,9 +80,9 @@ edits. Context requires API-reported usage; unknown statistics stay hidden.
 Quit/Ctrl-P hints occupy the last terminal row.
 [Protocol, limits and configuration](.agents/specs/status-line.md).
 
-Assistant Markdown includes code blocks and responsive tables. Drag across entries to select text;
-release auto-copies plain text. The hover Copy icon keeps raw Markdown. Approvals stay inside the
-conversation; Esc returns to input, Tab/click returns to the card.
+Assistant Markdown has pastel accents, code blocks and tables; chrome follows the terminal.
+Drag to select across entries; release copies plain text. The Copy icon keeps raw Markdown.
+Approvals stay in the conversation; Esc returns to input, Tab/click returns to the card.
 See [keys](.agents/specs/interaction-routing.md#key-grammar) and
 [copy](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
 

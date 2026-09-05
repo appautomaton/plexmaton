@@ -1,10 +1,24 @@
 use super::*;
+use crate::test_support::TestDir;
 use plexmaton_agent::{Agent, ApprovalPolicy, Input, SessionMetadata, TurnBudget, UnixMillis};
 use plexmaton_core::AgentId;
 
-fn fixture() -> (PathBuf, AutomaticJournal, Agent) {
-    let root = std::env::temp_dir().join(format!("plexmaton-lazy-{}", uuid::Uuid::now_v7()));
-    let journal = AutomaticJournal::new(&root, UnixMillis::new(1234));
+#[test]
+fn test_directory_ownership_cleans_up_on_unwind() {
+    let mut path = PathBuf::new();
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let directory = TestDir::new("unwind");
+        path = directory.path().to_path_buf();
+        std::fs::write(path.join("fixture"), b"owned").expect("write fixture");
+        panic!("fixture assertion failed");
+    }));
+    assert!(failure.is_err());
+    assert!(!path.exists());
+}
+
+fn fixture() -> (TestDir, AutomaticJournal, Agent) {
+    let root = TestDir::new("lazy");
+    let journal = AutomaticJournal::new(root.path().join("home"), UnixMillis::new(1234));
     let agent = Agent::for_session(
         AgentId::new("primary").expect("id"),
         SessionMetadata::new(
@@ -24,7 +38,10 @@ fn automatic_journal_materializes_exact_bootstrap_and_first_turn_only_on_input()
     let bootstrap = agent.announce("Plexmaton").records;
     assert_eq!(bootstrap.len(), 1);
     journal.append(bootstrap[0].clone()).expect("bootstrap");
-    assert!(!root.exists(), "no directory creation on announcement");
+    assert!(
+        !root.path().join("home").exists(),
+        "no directory creation on announcement"
+    );
     let records = agent
         .handle_at(
             Input::Submitted {
@@ -46,7 +63,6 @@ fn automatic_journal_materializes_exact_bootstrap_and_first_turn_only_on_input()
         UnixMillis::new(1234)
     );
     drop(reopened);
-    std::fs::remove_dir_all(root).expect("remove unique fixture");
 }
 
 /// JRN-4: an unsupported pre-input mutation cannot silently accumulate or create an empty file.
@@ -63,5 +79,5 @@ fn automatic_journal_rejects_extra_bootstrap_without_creating_storage() {
         journal.append(bootstrap),
         Err(StoreError::WriterPoisoned)
     ));
-    assert!(!root.exists());
+    assert!(!root.path().join("home").exists());
 }

@@ -394,7 +394,7 @@ mod tests {
         let cancellation = FileCancellation::new();
         cancellation.cancel();
         let mut child = Command::new("/bin/sh")
-            .args(["-c", "while :; do :; done"])
+            .args(["-c", "exec /bin/sleep 30"])
             .spawn()
             .unwrap_or_else(|error| panic!("spawn fixture: {error}"));
         let (events, receiver) = mpsc::sync_channel(1);
@@ -468,7 +468,7 @@ mod tests {
         let cancellation = FileCancellation::new();
         cancellation.cancel();
         let mut child = Command::new("/bin/sh")
-            .args(["-c", "while :; do :; done"])
+            .args(["-c", "exec /bin/sleep 30"])
             .spawn()
             .unwrap_or_else(|error| panic!("spawn fixture: {error}"));
         let (sender, receiver) = mpsc::sync_channel(1);

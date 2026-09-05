@@ -22,6 +22,9 @@ mod error;
 mod fork;
 mod load;
 mod paths;
+
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -165,6 +168,15 @@ impl JournalFile {
             ));
         }
         Ok(())
+    }
+}
+
+impl Drop for JournalFile {
+    fn drop(&mut self) {
+        // JRN-4: a concurrent fork can briefly inherit this open-file description before exec.
+        // Closing only our descriptor would let that child prolong the departed writer's flock.
+        // No file handle is exposed; release writer authority before the owned descriptor closes.
+        let _release = self.file.unlock();
     }
 }
 

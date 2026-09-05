@@ -21,7 +21,7 @@ use crate::{
     runtime::{ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport},
 };
 
-const STUBBORN_COMMAND: &str = "trap '' TERM; printf '%s' $$ > command.pid; while :; do :; done";
+const STUBBORN_COMMAND: &str = "trap '' TERM; printf '%s' $$ > command.pid; exec /bin/sleep 30";
 
 struct TestWorkspace(PathBuf);
 

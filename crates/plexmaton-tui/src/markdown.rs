@@ -118,8 +118,7 @@ fn render_events(
                     .filter(|w| *w > 0)
                     .ok_or(PlainReason::Complexity)?;
                 let layout = table::render(body, alignment, palette, available)?;
-                out.layout
-                    .append(layout, &prefix, palette.style(Role::Muted));
+                out.layout.append(layout, &prefix, out.prefix_style());
                 out.check()?;
                 out.blank()?;
             }
@@ -128,19 +127,19 @@ fn render_events(
             Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
                 out.text(&text, out.style)?
             }
-            Event::Code(text) => out.text(&text, palette.style(Role::Accent))?,
+            Event::Code(text) => out.text(&text, out.style.patch(out.appearance.inline_code))?,
             Event::SoftBreak | Event::HardBreak => out.flush(true)?,
             Event::Rule => {
                 out.flush(false)?;
                 out.adornment(
                     &"─".repeat(width.saturating_sub(out.prefix().width()).min(48)),
-                    palette.style(Role::Border),
+                    out.appearance.rule,
                 )?;
                 out.blank()?;
             }
             Event::TaskListMarker(checked) => out.text(
                 if checked { "[x] " } else { "[ ] " },
-                palette.style(Role::Accent),
+                out.appearance.task_marker,
             )?,
             Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
                 return Err(PlainReason::Complexity);
@@ -160,6 +159,7 @@ enum Prefix {
 }
 struct Renderer<'a> {
     palette: &'a Palette,
+    appearance: crate::theme::MarkdownStyles,
     width: usize,
     layout: Layout,
     current: Vec<Span<'static>>,
@@ -177,6 +177,7 @@ impl<'a> Renderer<'a> {
     fn new(palette: &'a Palette, width: usize) -> Self {
         Self {
             palette,
+            appearance: palette.markdown_styles(),
             width,
             layout: Layout::default(),
             current: Vec::new(),
@@ -200,6 +201,17 @@ impl<'a> Renderer<'a> {
                 Prefix::Code => "│ ".into(),
             })
             .collect()
+    }
+    fn prefix_style(&self) -> Style {
+        if self
+            .prefixes
+            .iter()
+            .any(|prefix| matches!(prefix, Prefix::Item(_) | Prefix::Indent(_)))
+        {
+            self.appearance.marker
+        } else {
+            self.appearance.guide
+        }
     }
     fn row(&mut self, line: Line<'static>) -> Result<(), PlainReason> {
         self.layout.decoration(line);
@@ -234,10 +246,8 @@ impl<'a> Renderer<'a> {
             .ok_or(PlainReason::Complexity)?;
         for mut row in wrap::wrap(Line::styled(inert(text), style), width, true) {
             if !prefix.is_empty() {
-                row.spans.insert(
-                    0,
-                    Span::styled(prefix.clone(), self.palette.style(Role::Muted)),
-                );
+                row.spans
+                    .insert(0, Span::styled(prefix.clone(), self.prefix_style()));
             }
             self.row(row)?;
         }
@@ -260,7 +270,7 @@ impl<'a> Renderer<'a> {
             width,
             self.code_depth > 0,
             &prefix,
-            self.palette.style(Role::Muted),
+            self.prefix_style(),
         );
         // A list marker belongs only to its first visual row. Continuations keep its width.
         let mut continuation = false;
@@ -299,12 +309,10 @@ impl<'a> Renderer<'a> {
         self.styles.push(self.style);
         match tag {
             Tag::Paragraph | Tag::HtmlBlock => self.flush(false)?,
-            Tag::Heading { .. } => {
+            Tag::Heading { level, .. } => {
                 self.flush(false)?;
-                self.style = self
-                    .palette
-                    .style(Role::SectionHeading)
-                    .add_modifier(Modifier::BOLD);
+                let index = (level as usize - 1).min(self.appearance.headings.len() - 1);
+                self.style = self.appearance.headings[index];
             }
             Tag::Emphasis => self.style = self.style.add_modifier(Modifier::ITALIC),
             Tag::Strong => self.style = self.style.add_modifier(Modifier::BOLD),
@@ -312,7 +320,7 @@ impl<'a> Renderer<'a> {
             Tag::BlockQuote(_) => {
                 self.flush(false)?;
                 self.prefixes.push(Prefix::Quote);
-                self.style = self.palette.style(Role::Muted);
+                self.style = self.appearance.quote;
             }
             Tag::List(start) => {
                 self.flush(false)?;
@@ -342,16 +350,14 @@ impl<'a> Renderer<'a> {
                         .collect::<String>(),
                     CodeBlockKind::Indented => String::new(),
                 };
-                self.adornment(&format!("┌ {language}"), self.palette.style(Role::Muted))?;
+                self.adornment(&format!("┌ {language}"), self.appearance.guide)?;
                 self.prefixes.push(Prefix::Code);
                 self.code_depth += 1;
+                self.style = self.appearance.code;
             }
             Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
                 self.links.push(dest_url.into_string());
-                self.style = self
-                    .palette
-                    .style(Role::Accent)
-                    .add_modifier(Modifier::UNDERLINED);
+                self.style = self.style.patch(self.appearance.link);
             }
             _ => return Err(PlainReason::Complexity),
         }
@@ -385,12 +391,12 @@ impl<'a> Renderer<'a> {
                 self.flush(false)?;
                 self.prefixes.pop();
                 self.code_depth = self.code_depth.saturating_sub(1);
-                self.adornment("└", self.palette.style(Role::Muted))?;
+                self.adornment("└", self.appearance.guide)?;
                 self.blank()?;
             }
             TagEnd::Link | TagEnd::Image => {
                 if let Some(url) = self.links.pop() {
-                    self.text(&format!(" ({url})"), self.palette.style(Role::Muted))?;
+                    self.text(&format!(" ({url})"), self.appearance.guide)?;
                 }
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {}

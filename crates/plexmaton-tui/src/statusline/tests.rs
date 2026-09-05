@@ -189,6 +189,31 @@ fn statusline_resets_restore_the_renderers_base_style() {
 
 proptest! {
     #[test]
+    fn statusline_generated_valid_styles_preserve_every_text_fragment(
+        fragments in prop::collection::vec(("[a-zA-Z0-9 中🌸é]{1,24}", any::<u8>(), any::<u8>(), any::<u8>()), 1..16)
+    ) {
+        // STL-1: unlike arbitrary bytes, every generated case must exercise successful parsing.
+        let mut source = String::new();
+        let mut expected = String::new();
+        for (text, red, green, blue) in fragments {
+            source.push_str(&format!("\x1b[38;2;{red};{green};{blue}m{text}\x1b[0m"));
+            expected.push_str(&text);
+        }
+        let parsed = StatusLineText::parse(source.as_bytes()).expect("generated valid SGR");
+        prop_assert_eq!(plain(&parsed), vec![expected]);
+    }
+
+    #[test]
+    fn statusline_generated_control_injection_rejects_the_whole_result(
+        prefix in "[a-z 中]{1,40}", suffix in "[a-z 🌸]{1,40}",
+        control in prop::sample::select(vec!["\x1b]52;c;secret\x07", "\x1b[H", "\t", "\0", "\u{009b}"])
+    ) {
+        // STL-1: valid surrounding text cannot turn a forbidden instruction into partial success.
+        let source = format!("\x1b[31m{prefix}{control}{suffix}\x1b[0m");
+        prop_assert!(StatusLineText::parse(source.as_bytes()).is_err());
+    }
+
+    #[test]
     fn statusline_arbitrary_bytes_never_escape_as_controls(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
         // STL-1: every accepted span is inert text, even for malformed external bytes.
         if let Ok(value) = StatusLineText::parse(&bytes) {
