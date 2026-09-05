@@ -41,8 +41,8 @@ pub enum RequestTimingError {
         /// Field whose relationship to the rest of the report was invalid.
         field: &'static str,
     },
-    /// A known price was retained without the complete usage needed to calculate it.
-    CostWithoutCompleteUsage,
+    /// A known price was retained without its required input and cache categories.
+    CostWithoutPricingBreakdown,
 }
 
 impl fmt::Display for RequestTimingError {
@@ -62,7 +62,9 @@ impl fmt::Display for RequestTimingError {
             Self::InvalidUsage { field } => {
                 return write!(formatter, "provider usage field `{field}` is inconsistent");
             }
-            Self::CostWithoutCompleteUsage => "known request cost requires complete provider usage",
+            Self::CostWithoutPricingBreakdown => {
+                "known request cost requires the input cache breakdown"
+            }
         };
         formatter.write_str(message)
     }

@@ -1,6 +1,6 @@
 use plexmaton_agent::{ModelEvent, StopReason};
 use plexmaton_core::TokenUsage;
-use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, OpenAiCodec};
+use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, ProviderCodec};
 
 use super::support::profile;
 
@@ -8,7 +8,12 @@ use super::support::profile;
 #[test]
 fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
     let profile = profile(ModelApi::OpenaiChatCompletions);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        DecodeLimits::production(),
+    );
     let combined = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}"#;
 
     assert!(matches!(
@@ -26,7 +31,12 @@ fn a_combined_chat_terminal_chunk_orders_usage_before_stop() {
 #[test]
 fn responses_null_usage_breakdowns_are_partial_coverage() {
     let profile = profile(ModelApi::OpenaiResponses);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        DecodeLimits::production(),
+    );
     let completed = r#"{"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":null,"cache_write_tokens":null},"output_tokens":2,"output_tokens_details":{"reasoning_tokens":null},"total_tokens":10}}}"#;
 
     assert!(matches!(
@@ -48,7 +58,12 @@ fn responses_null_usage_breakdowns_are_partial_coverage() {
 #[test]
 fn combined_input_breakdowns_cannot_exceed_provider_input() {
     let profile = profile(ModelApi::OpenaiChatCompletions);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        DecodeLimits::production(),
+    );
     let invalid = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10,"prompt_tokens_details":{"cached_tokens":6,"cache_write_tokens":4},"completion_tokens_details":{"reasoning_tokens":0}}}"#;
 
     assert!(matches!(

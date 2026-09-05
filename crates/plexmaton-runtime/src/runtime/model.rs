@@ -147,6 +147,7 @@ fn completion_matches(
             RequestAttemptTerminalState::Dispatched {
                 outcome:
                     RequestDispatchedOutcome::TransportFailed
+                    | RequestDispatchedOutcome::ProviderFailed
                     | RequestDispatchedOutcome::RateLimited
                     | RequestDispatchedOutcome::ContextTooLong
                     | RequestDispatchedOutcome::Malformed,

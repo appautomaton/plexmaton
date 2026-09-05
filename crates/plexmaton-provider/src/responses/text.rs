@@ -9,6 +9,25 @@ pub(super) struct TextAssembly {
 }
 
 impl TextAssembly {
+    /// The enclosing completed item confirms a previously completed text part.
+    pub(super) fn confirm(
+        &mut self,
+        complete: &str,
+        output_index: usize,
+        content_index: usize,
+    ) -> Result<Option<String>, DecodeError> {
+        if !self.done {
+            return self.finish(complete, output_index, content_index);
+        }
+        if self.text != complete {
+            return Err(DecodeError::ConflictingOutputText {
+                output_index,
+                content_index,
+                field: "completed_item_text",
+            });
+        }
+        Ok(None)
+    }
     pub(super) fn append(
         &mut self,
         delta: &str,

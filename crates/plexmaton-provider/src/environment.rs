@@ -52,9 +52,19 @@ pub fn request_environment(
         None => field(&mut digest, b"max_output_tokens_absent", &[]),
     }
 
-    // The current codecs have no system/developer instruction input. Keeping an explicit marker
-    // makes adding one a deliberate fingerprint revision rather than an invisible cache break.
-    field(&mut digest, b"instructions_v1", &[]);
+    field(
+        &mut digest,
+        b"instructions_v1",
+        model.instructions().as_bytes(),
+    );
+    field(
+        &mut digest,
+        b"prompt_cache",
+        match model.prompt_cache() {
+            crate::PromptCache::Automatic => b"automatic",
+            crate::PromptCache::Disabled => b"disabled",
+        },
+    );
     field(
         &mut digest,
         b"tool_count",
@@ -123,3 +133,21 @@ fn hash_json(digest: &mut Sha256, value: &Value) {
 
 #[cfg(test)]
 mod tests;
+
+/// Hash arbitrary portable session names into a bounded, non-identifying routing key.
+pub(crate) fn session_cache_key(request: &plexmaton_agent::ModelRequest) -> String {
+    identity_key(b"plexmaton.prompt_cache.v1:", request.session_id.as_str())
+}
+
+pub(crate) fn identity_key(domain: &[u8], identity: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(domain);
+    digest.update(identity.as_bytes());
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut key = String::with_capacity(64);
+    for byte in digest.finalize() {
+        key.push(char::from(HEX[usize::from(byte >> 4)]));
+        key.push(char::from(HEX[usize::from(byte & 15)]));
+    }
+    key
+}

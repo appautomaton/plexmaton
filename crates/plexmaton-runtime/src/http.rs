@@ -1,11 +1,9 @@
-//! Pooled OpenAI-compatible HTTP transport for one resolved model.
+//! Pooled provider HTTP transport for one resolved model.
 
 use std::{sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
-use plexmaton_agent::{
-    ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestCost, RequestEnvironment,
-};
+use plexmaton_agent::{ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestEnvironment};
 use plexmaton_core::TokenUsage;
 use plexmaton_provider::{
     ApiKey, DecodeLimits, FunctionTool, ModelApi, ResolvedModel, SseDecodeError,
@@ -45,7 +43,7 @@ pub enum HttpSetupError {
     Client(#[source] reqwest::Error),
 }
 
-pub(crate) struct OpenAiHttp {
+pub(crate) struct ProviderHttp {
     client: Client,
     endpoint: Url,
     model: ResolvedModel,
@@ -55,7 +53,7 @@ pub(crate) struct OpenAiHttp {
     clock: Arc<dyn WallClock>,
 }
 
-impl OpenAiHttp {
+impl ProviderHttp {
     pub(crate) fn new(
         model: ResolvedModel,
         key: ApiKey,
@@ -78,6 +76,22 @@ impl OpenAiHttp {
             environment,
             clock,
         })
+    }
+
+    fn authenticated_request(&self) -> reqwest::RequestBuilder {
+        let request = self
+            .client
+            .post(self.endpoint.clone())
+            .header(header::ACCEPT, "text/event-stream");
+        match self.model.api() {
+            ModelApi::OpenaiResponses | ModelApi::OpenaiChatCompletions => {
+                request.bearer_auth(self.key.expose())
+            }
+            ModelApi::AnthropicMessages => request
+                .header("x-api-key", self.key.expose())
+                .header("anthropic-version", "2023-06-01"),
+            ModelApi::GoogleGenerateContent => request.header("x-goog-api-key", self.key.expose()),
+        }
     }
 
     async fn perform(
@@ -121,12 +135,7 @@ impl OpenAiHttp {
                 ModelCompletion::Cancelled,
             );
         }
-        let request = self
-            .client
-            .post(self.endpoint.clone())
-            .header(header::ACCEPT, "text/event-stream")
-            .bearer_auth(self.key.expose())
-            .json(&body);
+        let request = self.authenticated_request().json(&body);
         let mut timer = RequestTimer::start(self.clock.now());
         let response = {
             let send = request.send();
@@ -139,7 +148,6 @@ impl OpenAiHttp {
                         attempt_id,
                         call.step_id,
                         TokenUsage::Unavailable,
-                        RequestCost::Unavailable,
                     );
                 }
             }
@@ -154,7 +162,6 @@ impl OpenAiHttp {
                         message: error.to_string(),
                     },
                     TokenUsage::Unavailable,
-                    RequestCost::Unavailable,
                 );
             }
         };
@@ -171,6 +178,7 @@ impl OpenAiHttp {
         }
 
         let limits = DecodeLimits::production();
+        let retry_after = retry_after_seconds(&response);
         let step_id = call.step_id.clone();
         let stream = response.bytes_stream();
         let mut usage = None;
@@ -180,7 +188,7 @@ impl OpenAiHttp {
             Cancelled,
         }
         let decoded = {
-            let decoded = drive_sse(&self.model, stream, limits, |event| {
+            let decoded = drive_sse(&attempt_id, &self.model, stream, limits, |event| {
                 let signal = match event {
                     ModelEvent::Usage(report) => {
                         usage = Some(report);
@@ -217,13 +225,17 @@ impl OpenAiHttp {
             }
         };
         let usage = usage.unwrap_or(TokenUsage::Unavailable);
-        let cost = request_cost(&self.model, &usage);
         match decoded {
-            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage, cost),
-            DecodeResult::Finished(Err(error)) => {
-                timer.failed(attempt_id, call.step_id, decode_error(error), usage, cost)
-            }
+            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage),
+            DecodeResult::Finished(Err(error)) => timer.failed(
+                attempt_id,
+                call.step_id,
+                error.into_model_error(retry_after),
+                usage,
+            ),
             DecodeResult::Finished(Ok(())) => {
+                // TIM-3: a complete field breakdown does not make an interim snapshot a final bill.
+                let cost = request_cost(&self.model, &usage);
                 let reason = stop.unwrap_or_else(|| {
                     unreachable!("a successful SSE drive always emits its retained stop")
                 });
@@ -241,11 +253,7 @@ async fn failed_response_report(
     cancellation: &CancellationToken,
 ) -> ModelTerminalReport {
     let status = response.status().as_u16();
-    let retry_after = response
-        .headers()
-        .get(header::RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse().ok());
+    let retry_after = retry_after_seconds(&response);
     let body = bounded_error_body(response);
     tokio::pin!(body);
     tokio::select! {
@@ -255,20 +263,18 @@ async fn failed_response_report(
             step_id,
             classify_http_error(status, retry_after, &body),
             TokenUsage::Unavailable,
-            RequestCost::Unavailable,
         ),
         () = cancellation.cancelled() => {
             timer.cancelled(
                 attempt_id,
                 step_id,
                 TokenUsage::Unavailable,
-                RequestCost::Unavailable,
             )
         }
     }
 }
 
-impl ModelDriver for OpenAiHttp {
+impl ModelDriver for ProviderHttp {
     fn request_environment(&self) -> &RequestEnvironment {
         &self.environment
     }
@@ -315,9 +321,18 @@ fn endpoint(model: &ResolvedModel) -> Result<Url, HttpSetupError> {
         path.push('/');
         base.set_path(&path);
     }
+    if model.api() == ModelApi::GoogleGenerateContent {
+        let mut endpoint = base
+            .join(&format!("models/{}:streamGenerateContent", model.wire_id()))
+            .map_err(|_| HttpSetupError::InvalidEndpoint)?;
+        endpoint.set_query(Some("alt=sse"));
+        return Ok(endpoint);
+    }
     let resource = match model.api() {
         ModelApi::OpenaiResponses => "responses",
         ModelApi::OpenaiChatCompletions => "chat/completions",
+        ModelApi::AnthropicMessages => "messages",
+        ModelApi::GoogleGenerateContent => unreachable!("GenerateContent endpoint was returned"),
     };
     base.join(resource)
         .map_err(|_| HttpSetupError::InvalidEndpoint)
@@ -341,16 +356,12 @@ async fn bounded_error_body(response: reqwest::Response) -> Vec<u8> {
     body
 }
 
-fn decode_error(error: SseDecodeError<reqwest::Error>) -> ModelError {
-    let message = error.to_string();
-    match error {
-        SseDecodeError::Transport(error) => ModelError::Transport {
-            message: error.to_string(),
-        },
-        SseDecodeError::InvalidUtf8
-        | SseDecodeError::EventTooLarge { .. }
-        | SseDecodeError::Decode(_) => ModelError::Malformed { message },
-    }
+fn retry_after_seconds(response: &reqwest::Response) -> Option<u64> {
+    response
+        .headers()
+        .get(header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
 }
 
 #[cfg(test)]
@@ -363,13 +374,15 @@ mod tests {
         ModelApi, ModelRegistry, ResolvedModel, encode_request, resolve_api_key,
     };
 
-    use super::{HttpSetupError, OpenAiHttp, endpoint};
+    use super::{HttpSetupError, ProviderHttp, endpoint};
     use crate::{LiveRuntime, NativeToolCatalog};
 
     fn model(base_url: &str, api: ModelApi) -> ResolvedModel {
         let api = match api {
             ModelApi::OpenaiResponses => "openai_responses",
             ModelApi::OpenaiChatCompletions => "openai_chat_completions",
+            ModelApi::AnthropicMessages => "anthropic_messages",
+            ModelApi::GoogleGenerateContent => "google_generate_content",
         };
         ModelRegistry::parse(&format!(
             r#"
@@ -431,7 +444,7 @@ output_reserve_tokens = 16384
         .expect("catalog");
         let tools = catalog.provider_definitions();
         let key = resolve_api_key(&model, Some("unused-test-key".into())).expect("key");
-        let mut runtime = LiveRuntime::openai(
+        let mut runtime = LiveRuntime::provider(
             AgentId::new("agent-budget").expect("id"),
             "Agent",
             model.clone(),
@@ -487,7 +500,11 @@ output_reserve_tokens = 16384
         )
         .unwrap_or_else(|error| panic!("open native catalog: {error}"));
         let definitions = catalog.provider_definitions();
-        let request = ModelRequest { atoms: Vec::new() };
+        let request = ModelRequest {
+            session_id: plexmaton_core::SessionId::new("fixture-session")
+                .unwrap_or_else(|error| panic!("session: {error}")),
+            atoms: Vec::new(),
+        };
         let mut bodies = Vec::new();
 
         for api in [ModelApi::OpenaiResponses, ModelApi::OpenaiChatCompletions] {
@@ -497,7 +514,7 @@ output_reserve_tokens = 16384
             let clock = Arc::new(crate::runtime::FixedWallClock(
                 plexmaton_agent::UnixMillis::new(100),
             ));
-            let http = OpenAiHttp::new(model, key, definitions.clone(), clock)
+            let http = ProviderHttp::new(model, key, definitions.clone(), clock)
                 .unwrap_or_else(|error| panic!("open HTTP edge: {error}"));
             bodies.push(
                 encode_request(
@@ -582,7 +599,7 @@ output_reserve_tokens = 16384
             .unwrap_or_else(|error| panic!("fixture agent id: {error}"));
 
         assert!(matches!(
-            LiveRuntime::openai(agent, "fixture", model, key, catalog),
+            LiveRuntime::provider(agent, "fixture", model, key, catalog),
             Err(crate::RuntimeError::HttpSetup(
                 HttpSetupError::ToolCredentialEnvironmentMismatch
             ))

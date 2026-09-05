@@ -18,7 +18,7 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::OpenAiHttp;
+use super::ProviderHttp;
 use crate::runtime::{FixedWallClock, ModelCompletion, ModelDriver, ModelTerminalReport};
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -27,9 +27,11 @@ const FINAL_ANSWER: &str =
     include_str!("../../../plexmaton-provider/tests/fixtures/responses_final_answer.sse");
 
 fn model(base_url: &str, api: ModelApi) -> ResolvedModel {
-    let api = match api {
-        ModelApi::OpenaiResponses => "openai_responses",
-        ModelApi::OpenaiChatCompletions => "openai_chat_completions",
+    let (api, wire_id) = match api {
+        ModelApi::OpenaiResponses => ("openai_responses", "gpt-5.6-luna"),
+        ModelApi::OpenaiChatCompletions => ("openai_chat_completions", "gpt-5.6-luna"),
+        ModelApi::AnthropicMessages => ("anthropic_messages", "claude-opus-5"),
+        ModelApi::GoogleGenerateContent => ("google_generate_content", "gemini-3.8-flash"),
     };
     ModelRegistry::parse(&format!(
         r#"
@@ -39,7 +41,7 @@ base_url = "{base_url}"
 api_key_env = "TEST_KEY"
 [providers.test.models.luna]
 api = "{api}"
-id = "gpt-5.6-luna"
+id = "{wire_id}"
 reasoning_effort = "low"
 context_window_tokens = 272000
 max_output_tokens = 128000
@@ -52,11 +54,11 @@ cost = {{ input = 1.0, output = 2.0, cache_read = 0.1, cache_write = 1.5 }}
     .clone()
 }
 
-fn http(base_url: &str, api: ModelApi, wall: UnixMillis) -> OpenAiHttp {
+fn http(base_url: &str, api: ModelApi, wall: UnixMillis) -> ProviderHttp {
     let model = model(base_url, api);
     let key = resolve_api_key(&model, Some("fixture-secret".into()))
         .unwrap_or_else(|error| panic!("fixture key: {error}"));
-    OpenAiHttp::new(
+    ProviderHttp::new(
         model,
         key,
         Arc::<[FunctionTool]>::from([]),
@@ -106,6 +108,8 @@ fn opaque_chat_call(model: &ResolvedModel) -> ModelCall {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     call.request = ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(
                 SessionEntryId::new("entry-http-fixture")
@@ -145,7 +149,7 @@ async fn pre_dispatch_outcomes_have_no_request_measurements_or_signals() {
     let expected_environment = request_environment(&chat, &[], Some(chat.max_output_tokens()));
     let key = resolve_api_key(&chat, Some("fixture-secret".into()))
         .unwrap_or_else(|error| panic!("fixture key: {error}"));
-    let encoding_http = OpenAiHttp::new(
+    let encoding_http = ProviderHttp::new(
         chat.clone(),
         key,
         Arc::<[FunctionTool]>::from([]),
@@ -300,6 +304,15 @@ async fn dispatched_http_failures_preserve_their_terminal_measurements() {
         ),
         (
             Some(response(
+                "529 Overloaded",
+                r#"{"error":{"type":"overloaded_error"}}"#,
+            )),
+            RequestDispatchedOutcome::ProviderFailed,
+            true,
+            false,
+        ),
+        (
+            Some(response(
                 "400 Bad Request",
                 r#"{"error":{"code":"context_length_exceeded"}}"#,
             )),
@@ -344,6 +357,9 @@ async fn dispatched_http_failures_preserve_their_terminal_measurements() {
             (
                 RequestDispatchedOutcome::TransportFailed,
                 ModelCompletion::Failed(ModelError::Transport { .. })
+            ) | (
+                RequestDispatchedOutcome::ProviderFailed,
+                ModelCompletion::Failed(ModelError::ProviderFailed { .. })
             ) | (
                 RequestDispatchedOutcome::RateLimited,
                 ModelCompletion::Failed(ModelError::RateLimited { .. })
@@ -439,7 +455,7 @@ async fn first_output_distinguishes_semantic_content_from_usage_and_stop() {
     }
 }
 
-/// TIM-3/TIM-5: a failure after accounting retains the exact observed usage and frozen price.
+/// TIM-3/TIM-5: a failure retains observed usage, which cannot establish a final request cost.
 #[tokio::test]
 async fn malformed_stream_after_usage_preserves_reported_consumption() {
     let accounting = chat_chunk(serde_json::json!({}), Some("stop"), Some(usage_json()));
@@ -457,7 +473,7 @@ async fn malformed_stream_after_usage_preserves_reported_consumption() {
             usage,
             cost,
             ..
-        } if usage == &complete_usage() && cost == &complete_cost()
+        } if usage == &complete_usage() && cost == &RequestCost::Unavailable
     ));
     assert!(output.is_empty());
 }
@@ -534,13 +550,8 @@ async fn cancellation_after_output_preserves_only_observed_usage() {
         } else {
             TokenUsage::Unavailable
         };
-        let expected_cost = if with_usage {
-            complete_cost()
-        } else {
-            RequestCost::Unavailable
-        };
         assert_eq!(usage, &expected_usage);
-        assert_eq!(cost, &expected_cost);
+        assert_eq!(cost, &RequestCost::Unavailable);
         assert!(received.try_recv().is_err(), "accounting is terminal-only");
     }
 }
@@ -640,6 +651,11 @@ async fn exchange(
     let HttpFixture {
         base_url, server, ..
     } = fixture(response, false);
+    let base_url = if api == ModelApi::GoogleGenerateContent {
+        base_url.replace("/v1", "/v1beta")
+    } else {
+        base_url
+    };
     let http = http(&base_url, api, wall);
     let call = model_call();
     let step_id = call.step_id.clone();
@@ -696,4 +712,279 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+/// PRV-1/PRV-6/TIM-3: the native Messages route uses its headers and last cumulative usage.
+#[tokio::test]
+async fn native_messages_http_uses_api_key_headers_and_terminal_usage() {
+    let body = include_str!("../../../plexmaton-provider/tests/fixtures/messages_final_answer.sse");
+    let (report, outputs, request) = exchange(
+        Some(response("200 OK", body)),
+        ModelApi::AnthropicMessages,
+        UnixMillis::EPOCH,
+    )
+    .await;
+    let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+    assert!(request.starts_with("post /v1/messages "));
+    assert!(request.contains("x-api-key: fixture-secret\r\n"));
+    assert!(request.contains("anthropic-version: 2023-06-01\r\n"));
+    assert!(!request.contains("authorization:"));
+    assert!(matches!(
+        report.completion,
+        ModelCompletion::Stopped(plexmaton_agent::StopReason::EndOfTurn)
+    ));
+    assert!(outputs.iter().any(
+        |event| matches!(event, ModelEvent::TextDelta { delta, .. } if delta == "Plexmaton.")
+    ));
+    assert!(
+        matches!(report.terminal.terminal(), RequestAttemptTerminalState::Dispatched { usage: TokenUsage::Complete(counts), .. } if counts.input == 200 && counts.output == 7 && counts.total == 207)
+    );
+}
+
+/// TIM-3/PRV-6: a completed Messages report needs no optional thinking split to establish cost.
+#[tokio::test]
+async fn completed_messages_without_thinking_breakdown_keep_final_cost() {
+    let body = include_str!("../../../plexmaton-provider/tests/fixtures/messages_final_answer.sse")
+        .replace(",\"output_tokens_details\":{\"thinking_tokens\":0}", "");
+    let (report, _, _) = exchange(
+        Some(response("200 OK", &body)),
+        ModelApi::AnthropicMessages,
+        UnixMillis::EPOCH,
+    )
+    .await;
+    assert!(
+        matches!(report.terminal.terminal(), RequestAttemptTerminalState::Dispatched {
+        outcome: RequestDispatchedOutcome::Completed { .. },
+        usage: TokenUsage::Partial(counts), cost: RequestCost::Known { usd_ticks }, ..
+    } if counts.input == 200 && counts.output == 7 && counts.reasoning_output.is_none() && usd_ticks.get() == 790_000)
+    );
+}
+
+/// PRV-5/TIM-3: declared Gemini failures retain their code and usage and never authorize calls.
+/// Codes: Google's v1beta discovery Candidate.finishReason enum and descriptions.
+#[tokio::test]
+async fn gemini_declared_failures_preserve_diagnostics_without_dispatching_calls() {
+    let prefix = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"read_file\",\"args\":{}}}]}}]}\n\n";
+    for code in [
+        "MALFORMED_FUNCTION_CALL",
+        "UNEXPECTED_TOOL_CALL",
+        "TOO_MANY_TOOL_CALLS",
+        "MISSING_THOUGHT_SIGNATURE",
+        "MALFORMED_RESPONSE",
+    ] {
+        let chunk = serde_json::json!({
+            "usageMetadata":{"promptTokenCount":15,"candidatesTokenCount":2,"totalTokenCount":17},
+            "candidates":[{"finishReason":code,"content":{"parts":[{"functionCall":{"args":"invalid"}}]}}]
+        });
+        let body = format!("{prefix}data: {chunk}\n\n");
+        let (report, outputs, _) = exchange(
+            Some(response("200 OK", &body)),
+            ModelApi::GoogleGenerateContent,
+            UnixMillis::EPOCH,
+        )
+        .await;
+        let ModelCompletion::Failed(error @ ModelError::ProviderFailed { .. }) = report.completion
+        else {
+            panic!("declared provider failure: {code}");
+        };
+        assert!(error.message().contains(code));
+        assert_eq!(report.terminal.incurred_cost(), RequestCost::Unavailable);
+        assert!(
+            matches!(report.terminal.terminal(), RequestAttemptTerminalState::Dispatched {
+            outcome: RequestDispatchedOutcome::ProviderFailed, usage, ..
+        } if usage.counts().is_some_and(|counts| counts.input == 15 && counts.output == 2))
+        );
+        let mut agent = Agent::new(AgentId::new("http-fixture").expect("agent"));
+        let _submitted = agent.handle_at(
+            Input::Submitted {
+                text: "hello".into(),
+            },
+            UnixMillis::EPOCH,
+        );
+        let step_id = agent.active_model_step().expect("active step");
+        for event in outputs {
+            let reaction = agent.handle_at(
+                Input::Streamed {
+                    step_id: step_id.clone(),
+                    event,
+                },
+                UnixMillis::EPOCH,
+            );
+            assert!(reaction.effects.is_empty());
+        }
+        let failure = agent.handle_at(Input::Failed { step_id, error }, UnixMillis::EPOCH);
+        assert!(failure.effects.is_empty());
+        assert!(!agent.is_running());
+    }
+}
+
+/// PRV-1/PRV-6: native Gemini uses the configured version root and header authority.
+#[tokio::test]
+async fn native_gemini_http_uses_versioned_endpoint_and_header_authority() {
+    let body = include_str!("../../../plexmaton-provider/tests/fixtures/gemini_final_answer.sse");
+    let (report, outputs, request) = exchange(
+        Some(response("200 OK", body)),
+        ModelApi::GoogleGenerateContent,
+        UnixMillis::EPOCH,
+    )
+    .await;
+    let request = String::from_utf8_lossy(&request).to_ascii_lowercase();
+    assert!(
+        request.starts_with("post /v1beta/models/gemini-3.8-flash:streamgeneratecontent?alt=sse ")
+    );
+    assert!(request.contains("x-goog-api-key: fixture-secret\r\n"));
+    assert!(!request.contains("authorization:"));
+    assert!(
+        !request
+            .lines()
+            .next()
+            .expect("request line")
+            .contains("fixture-secret")
+    );
+    assert!(matches!(
+        report.completion,
+        ModelCompletion::Stopped(plexmaton_agent::StopReason::EndOfTurn)
+    ));
+    assert!(
+        outputs
+            .iter()
+            .any(|event| matches!(event, ModelEvent::Replay { .. }))
+    );
+    assert!(
+        matches!(report.terminal.terminal(), RequestAttemptTerminalState::Dispatched { usage:TokenUsage::Complete(counts),.. } if counts.input == 200 && counts.output == 9 && counts.reasoning_output == Some(3))
+    );
+}
+
+/// PRV-5/TIM-5: provider-declared stream errors retain their typed category.
+#[tokio::test]
+async fn native_stream_rate_limits_are_typed() {
+    for (api, body) in [
+        (
+            ModelApi::AnthropicMessages,
+            "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"private-provider-detail\"}}\n\n",
+        ),
+        (
+            ModelApi::GoogleGenerateContent,
+            "data: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"private-provider-detail\"}}\n\n",
+        ),
+    ] {
+        for retry_after in [None, Some(13)] {
+            let mut response = response("200 OK", body);
+            if let Some(seconds) = retry_after {
+                response = response.replacen("\r\n", &format!("\r\nRetry-After: {seconds}\r\n"), 1);
+            }
+            let (report, outputs, _) = exchange(Some(response), api, UnixMillis::EPOCH).await;
+            assert!(matches!(report.completion,
+                ModelCompletion::Failed(ModelError::RateLimited { retry_after: actual }) if actual == retry_after
+            ));
+            assert!(outputs.is_empty());
+            assert!(!format!("{report:?}").contains("private-provider-detail"));
+        }
+    }
+}
+
+/// PRV-5/TIM-5: declared errors after HTTP 200 are provider failures, retaining prior usage.
+/// Wire cases: https://platform.claude.com/docs/en/api/errors#http-errors
+#[tokio::test]
+async fn stream_provider_errors_keep_their_category_and_observed_usage() {
+    let start = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":1}}}\n\n";
+    for code in [
+        "overloaded_error",
+        "api_error",
+        "authentication_error",
+        "invalid_request_error",
+        "future_error",
+    ] {
+        for prefix in ["", start] {
+            let body = format!(
+                "{prefix}event: error\ndata: {{\"type\":\"error\",\"error\":{{\"type\":\"{code}\",\"message\":\"private-provider-detail\"}}}}\n\n"
+            );
+            let (report, outputs, _) = exchange(
+                Some(response("200 OK", &body)),
+                ModelApi::AnthropicMessages,
+                UnixMillis::EPOCH,
+            )
+            .await;
+            assert!(matches!(
+                &report.completion,
+                ModelCompletion::Failed(ModelError::ProviderFailed { .. })
+            ));
+            let RequestAttemptTerminalState::Dispatched {
+                timing,
+                outcome,
+                usage,
+                ..
+            } = report.terminal.terminal()
+            else {
+                panic!("error arrived after dispatch");
+            };
+            assert_eq!(outcome, &RequestDispatchedOutcome::ProviderFailed);
+            assert_eq!(report.terminal.incurred_cost(), RequestCost::Unavailable);
+            assert!(timing.headers_after_ms().is_some());
+            assert_eq!(timing.first_output_after_ms(), None);
+            if prefix.is_empty() {
+                assert_eq!(usage, &TokenUsage::Unavailable);
+            } else {
+                assert!(
+                    usage
+                        .counts()
+                        .is_some_and(|counts| counts.input == 10 && counts.output == 1)
+                );
+            }
+            assert!(outputs.is_empty());
+            assert!(!format!("{report:?}").contains("private-provider-detail"));
+        }
+    }
+}
+
+/// PRV-2/TIM-5: both native readers cancel and join with only the usage observed before cancellation.
+#[tokio::test]
+async fn native_stream_cancellation_preserves_observed_usage() {
+    let messages = concat!(
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":10,\"cache_read_input_tokens\":2,\"cache_creation_input_tokens\":3,\"output_tokens\":1}}}\n\n",
+        "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"observed\"}}\n\n"
+    );
+    let gemini = "data: {\"usageMetadata\":{\"promptTokenCount\":15,\"candidatesTokenCount\":1,\"totalTokenCount\":16},\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"observed\"}]}}]}\n\n";
+    for (api, body) in [
+        (ModelApi::AnthropicMessages, messages),
+        (ModelApi::GoogleGenerateContent, gemini),
+    ] {
+        let partial_response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n{body}\r\n",
+            body.len()
+        );
+        let HttpFixture {
+            base_url,
+            release,
+            server,
+            ..
+        } = fixture(Some(partial_response), true);
+        let http = http(&base_url, api, UnixMillis::EPOCH);
+        let cancellation = CancellationToken::new();
+        let (signals, mut received) = mpsc::channel(8);
+        let future = http.drive(attempt(), model_call(), signals, cancellation.child_token());
+        let client = async {
+            tokio::pin!(future);
+            let signal = tokio::select! {
+                report = &mut future => panic!("stream ended before cancellation: {report:?}"),
+                signal = received.recv() => signal.expect("marker after usage"),
+            };
+            assert!(
+                matches!(signal.output.into_event(),ModelEvent::TextDelta { delta,.. } if delta == "observed")
+            );
+            cancellation.cancel();
+            let report = future.await;
+            release.send(()).expect("release server");
+            report
+        };
+        let (report, _) =
+            tokio::time::timeout(TEST_TIMEOUT, async { tokio::join!(client, server) })
+                .await
+                .expect("both owners finish");
+        assert!(matches!(report.completion, ModelCompletion::Cancelled));
+        assert_eq!(report.terminal.incurred_cost(), RequestCost::Unavailable);
+        assert!(
+            matches!(report.terminal.terminal(),RequestAttemptTerminalState::Dispatched { usage,.. } if usage.counts().is_some_and(|counts| counts.input == 15 && counts.output == 1))
+        );
+    }
 }

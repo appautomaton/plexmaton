@@ -61,7 +61,7 @@ impl SessionJournal {
                 continue;
             };
             let Some(RequestAttemptTerminalState::Dispatched {
-                usage: TokenUsage::Complete(counts),
+                usage: TokenUsage::Complete(counts) | TokenUsage::Partial(counts),
                 ..
             }) = attempt.terminal().map(|terminal| terminal.terminal())
             else {

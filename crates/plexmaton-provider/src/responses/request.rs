@@ -5,6 +5,8 @@ use plexmaton_agent::{
 };
 use serde_json::{Value, json};
 
+use super::replay::{MessagePartKind, ResponseReplay};
+
 use crate::{
     FunctionTool, ResolvedModel,
     codec::{EncodeError, RESPONSES_CODEC_ID, tool_output},
@@ -35,9 +37,17 @@ pub(crate) fn encode(
         "stream": true,
         "store": false,
         "include": ["reasoning.encrypted_content"],
-        "reasoning": { "effort": model.reasoning_effort().as_str() },
         "parallel_tool_calls": true,
     });
+    if model.reasoning_effort() != crate::ReasoningEffort::Default {
+        body["reasoning"] = json!({"effort":model.reasoning_effort().as_str()});
+    }
+    if !model.instructions().is_empty() {
+        body["instructions"] = Value::String(model.instructions().to_owned());
+    }
+    if model.prompt_cache() == crate::PromptCache::Automatic {
+        body["prompt_cache_key"] = Value::String(crate::environment::session_cache_key(request));
+    }
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools);
         body["tool_choice"] = Value::String("auto".to_owned());
@@ -116,23 +126,51 @@ fn encode_assistant(
             })
         });
         match block {
-            AssistantBlock::Text { text, .. } => input.push(json!({
-                "type": "message",
-                "role": "assistant",
-                "content": [{ "type": "output_text", "text": text }],
-            })),
+            AssistantBlock::Text { text, .. } => {
+                if let Some(replay) = replay {
+                    encode_text_replay(replay, text, input)?;
+                } else {
+                    input.push(json!({
+                        "type": "message", "role": "assistant",
+                        "content": [{"type": "output_text", "text": text}],
+                    }));
+                }
+            }
+            AssistantBlock::ReplayOnly { .. } => {
+                let replay = replay.ok_or(EncodeError::InvalidReplayItem)?;
+                let item: Value = serde_json::from_str(replay.payload())
+                    .map_err(EncodeError::InvalidReplayJson)?;
+                if item.get("type").and_then(Value::as_str) == Some("reasoning") {
+                    input.push(decode_replay(replay)?);
+                } else {
+                    encode_text_replay(replay, "", input)?;
+                }
+            }
             AssistantBlock::Reasoning { .. } => {
-                let replay = replay.ok_or(EncodeError::PlainReasoningInResponses)?;
-                input.push(decode_replay(replay)?);
+                if let Some(replay) = replay {
+                    input.push(decode_replay(replay)?);
+                } else if output.tool_calls().next().is_some() {
+                    return Err(EncodeError::PlainReasoningInResponses);
+                }
+                // PRV-3: a summary interrupted before its replay item stays visible locally.
             }
             AssistantBlock::ToolCall { call, .. } => {
-                debug_assert!(replay.is_none(), "replay anchors are reasoning-only");
-                input.push(json!({
-                    "type": "function_call",
-                    "call_id": call.call_id.as_str(),
-                    "name": call.name,
-                    "arguments": call.arguments,
-                }));
+                let mut item = json!({"type":"function_call","call_id":call.call_id.as_str(),"name":call.name,"arguments":call.arguments});
+                if let Some(replay) = replay {
+                    let metadata: ResponseReplay = serde_json::from_str(replay.payload())
+                        .map_err(|_| EncodeError::InvalidReplayItem)?;
+                    let ResponseReplay::FunctionCall { id, status } = metadata else {
+                        return Err(EncodeError::InvalidReplayItem);
+                    };
+                    if let Some(id) = id {
+                        item["id"] = Value::String(id);
+                    }
+                    if let Some(status) = status {
+                        item["status"] =
+                            serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;
+                    }
+                }
+                input.push(item);
             }
         }
     }
@@ -157,4 +195,80 @@ fn decode_replay(replay: &BlockReplay) -> Result<Value, EncodeError> {
         return Err(EncodeError::InvalidReplayItem);
     }
     Ok(item)
+}
+
+fn encode_text_replay(
+    replay: &BlockReplay,
+    text: &str,
+    input: &mut Vec<Value>,
+) -> Result<(), EncodeError> {
+    let metadata: ResponseReplay =
+        serde_json::from_str(replay.payload()).map_err(|_| EncodeError::InvalidReplayItem)?;
+    let (id, phase, status, content_index, part, annotations) = match metadata {
+        ResponseReplay::MessagePart {
+            id,
+            phase,
+            status,
+            content_index,
+            part,
+            annotations,
+        } => (id, phase, status, content_index, part, annotations),
+        ResponseReplay::EmptyMessage { id, phase, status } => {
+            if !text.is_empty() {
+                return Err(EncodeError::InvalidReplayItem);
+            }
+            let mut message = json!({"type":"message", "role":"assistant", "id":id, "content":[]});
+            if let Some(phase) = phase {
+                message["phase"] =
+                    serde_json::to_value(phase).map_err(EncodeError::InvalidReplayJson)?;
+            }
+            if let Some(status) = status {
+                message["status"] =
+                    serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;
+            }
+            input.push(message);
+            return Ok(());
+        }
+        ResponseReplay::FunctionCall { .. } => return Err(EncodeError::InvalidReplayItem),
+    };
+    let content = match part {
+        MessagePartKind::OutputText => {
+            json!({"type":"output_text", "text":text, "annotations":annotations})
+        }
+        MessagePartKind::Refusal => json!({"type":"refusal", "refusal":text}),
+    };
+    if content_index == 0 {
+        let mut message =
+            json!({"type":"message", "role":"assistant", "id":id, "content":[content]});
+        if let Some(phase) = phase {
+            message["phase"] =
+                serde_json::to_value(phase).map_err(EncodeError::InvalidReplayJson)?;
+        }
+        if let Some(status) = status {
+            message["status"] =
+                serde_json::to_value(status).map_err(EncodeError::InvalidReplayJson)?;
+        }
+        input.push(message);
+    } else {
+        let prior = input.last_mut().ok_or(EncodeError::InvalidReplayItem)?;
+        if prior["type"] != "message"
+            || prior["id"] != id
+            || serde_json::from_value::<Option<super::replay::MessagePhase>>(prior["phase"].clone())
+                .map_err(EncodeError::InvalidReplayJson)?
+                != phase
+            || serde_json::from_value::<Option<super::replay::ItemStatus>>(prior["status"].clone())
+                .map_err(|_| EncodeError::InvalidReplayItem)?
+                != status
+        {
+            return Err(EncodeError::InvalidReplayItem);
+        }
+        let parts = prior["content"]
+            .as_array_mut()
+            .ok_or(EncodeError::InvalidReplayItem)?;
+        if parts.len() != content_index {
+            return Err(EncodeError::InvalidReplayItem);
+        }
+        parts.push(content);
+    }
+    Ok(())
 }

@@ -54,7 +54,7 @@ fn tim_3_complete_usage_calculates_one_stable_fixed_point_cost() {
 
 /// TIM-3/TIM-5: an unknown bill remains unavailable instead of becoming free or approximate.
 #[test]
-fn tim_3_missing_price_partial_usage_and_invalid_subsets_have_no_cost() {
+fn tim_3_missing_price_required_categories_and_invalid_subsets_have_no_cost() {
     assert_eq!(
         request_cost(&model(None), &complete()),
         RequestCost::Unavailable
@@ -63,7 +63,10 @@ fn tim_3_missing_price_partial_usage_and_invalid_subsets_have_no_cost() {
         "{ input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }",
     ));
     let partial = match complete() {
-        TokenUsage::Complete(counts) => TokenUsage::Partial(counts),
+        TokenUsage::Complete(mut counts) => {
+            counts.cache_write_input = None;
+            TokenUsage::Partial(counts)
+        }
         _ => unreachable!("fixture is complete"),
     };
     assert_eq!(request_cost(&priced, &partial), RequestCost::Unavailable);
@@ -77,4 +80,18 @@ fn tim_3_missing_price_partial_usage_and_invalid_subsets_have_no_cost() {
         total: 11,
     });
     assert_eq!(request_cost(&priced, &invalid), RequestCost::Unavailable);
+}
+
+/// TIM-3: reasoning is included in output and is not a separately priced category.
+#[test]
+fn tim_3_cost_does_not_require_the_optional_reasoning_breakdown() {
+    let model = model(Some(
+        "{ input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }",
+    ));
+    let mut counts = complete().counts().expect("counts").clone();
+    counts.reasoning_output = None;
+    assert_eq!(
+        request_cost(&model, &TokenUsage::Partial(counts)),
+        request_cost(&model, &complete())
+    );
 }

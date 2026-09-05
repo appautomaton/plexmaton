@@ -73,7 +73,7 @@ async fn current(launcher: &Launcher) -> (LiveRuntime, Workspace) {
         Vec::new(),
     )
     .expect("tools");
-    let mut runtime = LiveRuntime::openai(
+    let mut runtime = LiveRuntime::provider(
         agent_id(),
         "Plexmaton",
         launcher.model.clone(),

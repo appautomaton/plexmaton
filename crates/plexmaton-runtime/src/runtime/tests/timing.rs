@@ -94,6 +94,57 @@ async fn journal_runtime(workspace: &TestWorkspace, driver: Arc<FakeDriver>) -> 
     .unwrap_or_else(|error| panic!("create journaled runtime: {error}"))
 }
 
+/// PRV-5/TIM-5/JRN-8: provider failure survives JSONL without becoming transport failure or retry.
+#[tokio::test]
+async fn provider_failure_reopens_as_the_same_non_retryable_outcome() {
+    let workspace = TestWorkspace::new("provider-failure-audit");
+    let error = plexmaton_agent::ModelError::ProviderFailed {
+        message: "provider returned HTTP 529".into(),
+    };
+    let driver = FakeDriver::new([Script::Fail(error.clone())]);
+    let mut runtime = journal_runtime(&workspace, driver.clone()).await;
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "hello".into(),
+            },
+        )
+        .await
+        .expect("submit");
+    let events = finish_active(&mut runtime).await;
+    assert!(events.iter().any(|envelope| matches!(
+        &envelope.event,
+        SessionEvent::RuntimeError { message, .. } if message == &error.message()
+    )));
+    assert!(runtime.retry_candidate().is_none());
+    assert_eq!(driver.calls().await.len(), 1);
+    let live = runtime.agent.journal().clone();
+    runtime.shutdown().await.expect("shutdown");
+    drop(runtime);
+
+    let file = JournalFile::open(workspace.0.join("session.jsonl")).expect("reopen");
+    assert_eq!(file.journal().records(), live.records());
+    let attempts = file.journal().request_attempts().collect::<Vec<_>>();
+    assert_eq!(attempts.len(), 1);
+    assert!(matches!(
+        attempts[0].terminal().map(|terminal| terminal.terminal()),
+        Some(RequestAttemptTerminalState::Dispatched {
+            outcome: plexmaton_agent::RequestDispatchedOutcome::ProviderFailed,
+            ..
+        })
+    ));
+    let resumed = Agent::from_journal(
+        agent_id(),
+        file.journal().clone(),
+        TurnBudget::default(),
+        ApprovalPolicy::default(),
+    )
+    .expect("resume");
+    assert!(!resumed.is_running());
+    assert!(resumed.retry_candidate().is_none());
+}
+
 /// TIM-2/TIM-3/TIM-4/JRN-7: real writer acknowledgement and JSONL reload preserve the exact
 /// attempt facts and both projections, without persisting streamed usage as another authority.
 #[tokio::test]

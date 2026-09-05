@@ -88,6 +88,13 @@ fn assistant_output_round_trips_order_and_redacts_replay() {
     assert!(serde_json::from_value::<AssistantOutput>(invalid).is_err());
 }
 
+/// JRN-3/PRV-3: a persisted invisible block must carry actual replay data.
+#[test]
+fn replay_only_wire_without_a_payload_is_rejected() {
+    let wire = r#"{"blocks":[{"type":"replay_only","item_id":"opaque-only"}],"replay":null}"#;
+    assert!(serde_json::from_str::<AssistantOutput>(wire).is_err());
+}
+
 #[test]
 fn assistant_output_rejects_duplicate_semantic_identities() {
     let repeated_item = AssistantOutput::new(

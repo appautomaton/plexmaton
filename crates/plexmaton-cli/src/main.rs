@@ -646,7 +646,7 @@ output_reserve_tokens = 5000
             Vec::new(),
         )
         .expect("tools");
-        let mut runtime = super::LiveRuntime::openai(
+        let mut runtime = super::LiveRuntime::provider(
             super::AgentId::new("primary").expect("agent"),
             "Plexmaton",
             model.clone(),
@@ -1337,7 +1337,7 @@ output_reserve_tokens = 5000
         )
         .unwrap_or_else(|error| panic!("test native tools: {error}"));
         let mut runtime =
-            LiveRuntime::openai(agent_id.clone(), "Agent A", model.clone(), key, tools)
+            LiveRuntime::provider(agent_id.clone(), "Agent A", model.clone(), key, tools)
                 .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
         dispatch_live(
@@ -1503,7 +1503,7 @@ output_reserve_tokens = 5000
         let agent_id =
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture agent: {error}"));
         let mut runtime =
-            LiveRuntime::openai(agent_id.clone(), "Agent A", model.clone(), key, tools)
+            LiveRuntime::provider(agent_id.clone(), "Agent A", model.clone(), key, tools)
                 .unwrap_or_else(|error| panic!("test runtime: {error}"));
         let mut workspace = Workspace::default();
         let mut terminal = Terminal::new(TestBackend::new(120, 40))

@@ -62,10 +62,10 @@ impl RequestTimer {
         step_id: ModelStepId,
         error: ModelError,
         usage: TokenUsage,
-        cost: RequestCost,
     ) -> ModelTerminalReport {
         let outcome = match &error {
             ModelError::Transport { .. } => RequestDispatchedOutcome::TransportFailed,
+            ModelError::ProviderFailed { .. } => RequestDispatchedOutcome::ProviderFailed,
             ModelError::RateLimited { .. } => RequestDispatchedOutcome::RateLimited,
             ModelError::ContextTooLong => RequestDispatchedOutcome::ContextTooLong,
             ModelError::Malformed { .. } => RequestDispatchedOutcome::Malformed,
@@ -75,7 +75,7 @@ impl RequestTimer {
             step_id,
             outcome,
             usage,
-            cost,
+            RequestCost::Unavailable,
             ModelCompletion::Failed(error),
         )
     }
@@ -85,14 +85,13 @@ impl RequestTimer {
         attempt_id: RequestAttemptId,
         step_id: ModelStepId,
         usage: TokenUsage,
-        cost: RequestCost,
     ) -> ModelTerminalReport {
         self.finish(
             attempt_id,
             step_id,
             RequestDispatchedOutcome::Cancelled,
             usage,
-            cost,
+            RequestCost::Unavailable,
             ModelCompletion::Cancelled,
         )
     }

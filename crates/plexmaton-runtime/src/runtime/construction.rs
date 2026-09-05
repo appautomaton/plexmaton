@@ -12,14 +12,14 @@ use super::{
 };
 use crate::{
     HttpSetupError, JournalTailRecovery, NativeToolCatalog, RuntimeError, SessionRecovery,
-    http::OpenAiHttp,
+    http::ProviderHttp,
 };
 
 const MODEL_SIGNAL_CAPACITY: usize = 32;
 
 impl LiveRuntime {
     /// Validates HTTP ownership and announces one idle live agent without touching the network.
-    pub fn openai(
+    pub fn provider(
         agent_id: AgentId,
         label: impl Into<String>,
         model: ResolvedModel,
@@ -31,7 +31,7 @@ impl LiveRuntime {
         }
         let definitions = tools.provider_definitions();
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
-        let driver = Arc::new(OpenAiHttp::new(
+        let driver = Arc::new(ProviderHttp::new(
             model,
             key,
             definitions,
@@ -47,7 +47,7 @@ impl LiveRuntime {
     }
 
     /// Opens one new live agent whose canonical reactions must reach an empty journal first.
-    pub async fn openai_with_fresh_journal(
+    pub async fn provider_with_fresh_journal(
         agent_id: AgentId,
         label: impl Into<String>,
         model: ResolvedModel,
@@ -56,7 +56,7 @@ impl LiveRuntime {
         journal: JournalFile,
     ) -> Result<Self, RuntimeError> {
         let metadata = journal.journal().metadata().clone();
-        Self::openai_with_new_store(
+        Self::provider_with_new_store(
             agent_id,
             label.into(),
             model,
@@ -69,7 +69,7 @@ impl LiveRuntime {
     }
 
     /// Owns a lazy automatic writer: no file until the first user turn, no effect before its append.
-    pub async fn openai_with_automatic_journal(
+    pub async fn provider_with_automatic_journal(
         agent_id: AgentId,
         label: impl Into<String>,
         model: ResolvedModel,
@@ -78,7 +78,7 @@ impl LiveRuntime {
         journal: AutomaticJournal,
     ) -> Result<Self, RuntimeError> {
         let metadata = journal.metadata().clone();
-        Self::openai_with_new_store(
+        Self::provider_with_new_store(
             agent_id,
             label.into(),
             model,
@@ -90,7 +90,7 @@ impl LiveRuntime {
         .await
     }
 
-    async fn openai_with_new_store(
+    async fn provider_with_new_store(
         agent_id: AgentId,
         label: String,
         model: ResolvedModel,
@@ -104,7 +104,7 @@ impl LiveRuntime {
         }
         let definitions = tools.provider_definitions();
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
-        let driver = Arc::new(OpenAiHttp::new(
+        let driver = Arc::new(ProviderHttp::new(
             model,
             key,
             definitions,
@@ -115,7 +115,7 @@ impl LiveRuntime {
     }
 
     /// Rebuilds one live owner from an existing journal and settles work orphaned by process death.
-    pub async fn openai_with_resumed_journal(
+    pub async fn provider_with_resumed_journal(
         agent_id: AgentId,
         model: ResolvedModel,
         key: ApiKey,
@@ -127,7 +127,7 @@ impl LiveRuntime {
         }
         let definitions = tools.provider_definitions();
         let clock: Arc<dyn WallClock> = Arc::new(SystemWallClock::new()?);
-        let driver = Arc::new(OpenAiHttp::new(
+        let driver = Arc::new(ProviderHttp::new(
             model,
             key,
             definitions,

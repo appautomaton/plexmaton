@@ -435,6 +435,7 @@ impl SessionJournal {
             .collect();
         Ok(JournalProjection {
             request: ModelRequest {
+                session_id: self.session_id().clone(),
                 atoms: projector.atoms,
             },
             events: projector.events,

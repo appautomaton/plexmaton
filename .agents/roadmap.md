@@ -32,7 +32,7 @@ table in `AGENTS.md` allows.
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
-| 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active 2026-09-03; durable JSONL sessions, context atoms, model registry, request accounting and budget ledger complete; compaction planning remains |
+| 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active 2026-09-03; journal and budget foundation complete; stage 3 provider dialects complete; compaction remains |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–6 complete; turn metadata and branding remain |
 
@@ -63,6 +63,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | --- | --- | --- |
 | [Math rendering](./research/math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
 | [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source spike and finite model complete; production integration unproven |
+| [Provider adapter parity spike](./spikes/provider-adapter-parity/README.md) | Compare harness wire/replay and token accounting | Six-source comparison; four dialects verified hermetically, live compatibility unverified |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:

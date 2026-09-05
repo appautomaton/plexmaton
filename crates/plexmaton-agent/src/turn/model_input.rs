@@ -121,6 +121,7 @@ impl Agent {
         let diagnostic = match reason {
             StopReason::EndOfTurn | StopReason::ToolCalls => None,
             StopReason::OutputLimit => Some("the model reached its output limit mid-answer"),
+            StopReason::ContextLimit => Some("the model reached its context limit mid-answer"),
             StopReason::Refused => Some("the model declined to answer"),
             StopReason::Unspecified => Some("the model stopped without saying why"),
         };

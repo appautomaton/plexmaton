@@ -103,6 +103,29 @@ fn snapshot<'a>(model: &'a ResolvedModel) -> Snapshot<'a> {
     )
 }
 
+/// STL-3: omitted effort is unknown, never serialized as a claim that thinking is enabled.
+#[test]
+fn status_snapshot_default_thinking_is_explicitly_null() {
+    let config = super::super::tests::CONFIG.replace("reasoning_effort = \"high\"", "");
+    let registry = plexmaton_provider::ModelRegistry::parse(&config).expect("default effort");
+    let json = serde_json::to_value(snapshot(registry.active_model())).expect("snapshot JSON");
+    assert!(
+        json["thinking"]
+            .as_object()
+            .expect("thinking object")
+            .contains_key("enabled")
+    );
+    assert!(json["thinking"]["enabled"].is_null());
+
+    // PRV-6/STL-3: Messages explicitly enables adaptive thinking to expose summaries, even at default effort.
+    let config = config.replace("openai_responses", "anthropic_messages");
+    let registry =
+        plexmaton_provider::ModelRegistry::parse(&config).expect("Messages default effort");
+    let json = serde_json::to_value(snapshot(registry.active_model())).expect("Messages snapshot");
+    assert_eq!(json["thinking"]["enabled"], true);
+    assert_eq!(json["effort"]["level"], "default");
+}
+
 #[test]
 fn status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically() {
     // STL-3: real journal mutations, not a status-line copy of usage or source text.

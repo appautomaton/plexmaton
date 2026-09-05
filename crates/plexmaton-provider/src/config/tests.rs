@@ -251,3 +251,86 @@ output_reserve_tokens = 10
         second.active_model().replay_compatibility().owner()
     );
 }
+
+/// PRV-6: native options are checked against their dialect before an HTTP owner can exist.
+#[test]
+fn prv_6_native_thinking_options_are_explicit_and_validated() {
+    let source = |api: &str, effort: &str, budget: Option<u32>| {
+        let budget = budget.map_or(String::new(), |value| {
+            format!("thinking_budget_tokens = {value}")
+        });
+        format!(
+            r#"
+active_model = {{ provider = "native", model = "model" }}
+[providers.native]
+base_url = "http://127.0.0.1:1/v1"
+api_key_env = "FIXTURE_KEY"
+api = "{api}"
+[providers.native.models.model]
+id = "fixture-model"
+reasoning_effort = "{effort}"
+context_window_tokens = 8192
+max_output_tokens = 4096
+output_reserve_tokens = 1024
+{budget}
+"#
+        )
+    };
+    for (api, effort, budget) in [
+        ("anthropic_messages", "default", None),
+        ("anthropic_messages", "high", None),
+        ("google_generate_content", "low", None),
+        ("google_generate_content", "medium", None),
+        ("google_generate_content", "high", None),
+        ("google_generate_content", "default", None),
+    ] {
+        ModelRegistry::parse(&source(api, effort, budget)).expect("supported explicit options");
+    }
+    for (api, effort, budget) in [
+        ("anthropic_messages", "minimal", None),
+        ("anthropic_messages", "default", Some(1024)),
+        ("anthropic_messages", "high", Some(1024)),
+        ("anthropic_messages", "none", Some(1024)),
+        ("anthropic_messages", "default", Some(4096)),
+        ("google_generate_content", "minimal", None),
+        ("google_generate_content", "none", None),
+        ("google_generate_content", "none", Some(0)),
+        ("google_generate_content", "default", Some(128)),
+        ("google_generate_content", "max", None),
+        ("google_generate_content", "high", Some(128)),
+        ("openai_responses", "minimal", None),
+        ("openai_chat_completions", "minimal", None),
+        ("openai_responses", "high", Some(1024)),
+    ] {
+        assert!(ModelRegistry::parse(&source(api, effort, budget)).is_err());
+    }
+    assert!(
+        ModelRegistry::parse(
+            &source("google_generate_content", "default", None)
+                .replace("fixture-model", "../other-endpoint")
+        )
+        .is_err()
+    );
+}
+
+/// PRV-6: the documented four-dialect configuration resolves without hidden defaults or aliases.
+#[test]
+fn prv_6_provider_example_selects_each_documented_dialect() {
+    let registry = ModelRegistry::parse(include_str!("../../../../examples/providers.toml"))
+        .expect("provider example config");
+    for (provider, name, api) in [
+        ("openai", "responses", ModelApi::OpenaiResponses),
+        ("proxy", "chat", ModelApi::OpenaiChatCompletions),
+        ("anthropic", "messages", ModelApi::AnthropicMessages),
+        ("google", "gemini", ModelApi::GoogleGenerateContent),
+        ("cliproxy_gemini", "gemini", ModelApi::GoogleGenerateContent),
+    ] {
+        assert_eq!(
+            registry
+                .model(provider, name)
+                .expect("documented model")
+                .api(),
+            api
+        );
+    }
+}

@@ -24,7 +24,7 @@ rewind and branches durable without copying entries or replaying effects.
 - Retain every reasoning artifact the model exposes and replay it when its adapter says compatible.
   Opaque replay is block-anchored and requires adapter-owned non-secret scope, codec revision and
   model family; typed incompatibility never translates, merges, drops or truncates ciphertext.
-- Usage anchors require the exact atom prefix and environment fingerprint: resolved model,
+- Reported input anchors require the exact atom prefix and environment fingerprint: resolved model,
   instructions and tool definitions. Runtime prompt inputs are budgeted but not copied into JSONL.
 - Equal path, checkpoint and environment encode byte-identically. Verbatim compaction appends one
   stable instruction after the prior input; fitted/lossy paths name their cache break. A checkpoint
@@ -66,7 +66,7 @@ rewind and branches durable without copying entries or replaying effects.
    reconcile a provider usage report only with the exact prefix/fingerprint it measured. Return
    typed `Fits`, `CompactionNeeded` or `ImpossibleItem`, keeping reserve and hard limit separate.
    *Closes when* suffixes, changed environment, encrypted replay, maximal tool output and provider
-   totals have boundary tests; missing usage is never zero. Evidence: [context-budget](../specs/context-budget.md).
+   totals have boundary tests; missing usage is never zero; optional breakdowns do not erase measured input. Evidence: [context-budget](../specs/context-budget.md).
 7. **Pure compaction plan.** Select a covered prefix and byte-exact retained suffix in atom units;
    build a summarization request as an append-only extension of the old request. Use a bounded
    verbatim → fitted → lossy input ladder and retain source identities plus current user/workspace

@@ -87,7 +87,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |
 | `thiserror` | Library error types | No `anyhow::Error` in core contracts |
 | `anyhow` | Composition-root errors | Binary boundary only |
-| `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |
+| `tracing` / `tracing-subscriber` | Structured diagnostics | `tracing`: std, no attributes; subscriber: formatting/filtering. PRV-5 logs omit payloads and stay off screen |
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |

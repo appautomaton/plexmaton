@@ -18,10 +18,17 @@ pub async fn decode_fixture(
     let chunks = chunks(fixture.as_bytes(), chunk_sizes);
     let source = stream::iter(chunks.into_iter().map(Ok::<_, Infallible>));
     let mut events = Vec::new();
-    drive_sse(profile, source, DecodeLimits::production(), |event| {
-        events.push(event);
-        std::future::ready(())
-    })
+    drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        profile,
+        source,
+        DecodeLimits::production(),
+        |event| {
+            events.push(event);
+            std::future::ready(())
+        },
+    )
     .await
     .unwrap_or_else(|error| panic!("fixture should decode: {error}"));
     events
@@ -211,6 +218,8 @@ pub fn profile(api: ModelApi) -> ResolvedModel {
     let api = match api {
         ModelApi::OpenaiResponses => "openai_responses",
         ModelApi::OpenaiChatCompletions => "openai_chat_completions",
+        ModelApi::AnthropicMessages => "anthropic_messages",
+        ModelApi::GoogleGenerateContent => "google_generate_content",
     };
     let effort = if api == "openai_responses" {
         "xhigh"

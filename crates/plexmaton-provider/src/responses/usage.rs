@@ -17,6 +17,14 @@ pub(super) fn event_usage(event: &Value) -> Result<ModelEvent, DecodeError> {
     let input = usage_u64(usage, "input_tokens")?;
     let output = usage_u64(usage, "output_tokens")?;
     let total = usage_u64(usage, "total_tokens")?;
+    for field in ["input_tokens_details", "output_tokens_details"] {
+        if usage
+            .get(field)
+            .is_some_and(|details| !details.is_null() && !details.is_object())
+        {
+            return Err(DecodeError::InvalidUsage { field });
+        }
+    }
     let input_details = usage.get("input_tokens_details");
     let output_details = usage.get("output_tokens_details");
     let counts = TokenCounts {

@@ -35,9 +35,9 @@ impl UsdCostTicks {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "availability", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RequestCost {
-    /// Usage or configured model pricing was insufficient to calculate a cost.
+    /// Final usage or configured model pricing was insufficient to calculate a cost.
     Unavailable,
-    /// Exact fixed-point USD amount calculated for complete provider usage.
+    /// Exact fixed-point USD amount calculated from final usage and its priced categories.
     Known {
         /// Non-negative USD ticks at the fixed public precision.
         usd_ticks: UsdCostTicks,
@@ -98,6 +98,8 @@ pub enum RequestDispatchedOutcome {
     Cancelled,
     /// Transport failed before a complete response arrived.
     TransportFailed,
+    /// An HTTP or stream error arrived from the provider without a more specific category.
+    ProviderFailed,
     /// The provider refused the request for rate-limit reasons.
     RateLimited,
     /// The provider rejected the context length.
@@ -284,8 +286,12 @@ fn validate_terminal(terminal: &RequestAttemptTerminalState) -> Result<(), Reque
     let RequestAttemptTerminalState::Dispatched { usage, cost, .. } = terminal else {
         return Ok(());
     };
-    if matches!(cost, RequestCost::Known { .. }) && !matches!(usage, TokenUsage::Complete(_)) {
-        return Err(RequestTimingError::CostWithoutCompleteUsage);
+    if matches!(cost, RequestCost::Known { .. })
+        && usage.counts().is_none_or(|counts| {
+            counts.cached_input.is_none() || counts.cache_write_input.is_none()
+        })
+    {
+        return Err(RequestTimingError::CostWithoutPricingBreakdown);
     }
     let Some(counts) = usage.counts() else {
         return Ok(());

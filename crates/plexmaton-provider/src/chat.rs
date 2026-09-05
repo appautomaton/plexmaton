@@ -2,9 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_agent::{ModelEvent, StopReason, ToolCall};
+use plexmaton_agent::{ModelEvent, ProviderReplay, ReplayCompatibility, StopReason, ToolCall};
 use plexmaton_core::{TokenUsage, ToolCallId};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::codec::{DecodeError, DecodeLimits, output_position, retain_bytes};
 
@@ -24,6 +25,8 @@ pub(crate) struct ChatDecoder {
     stopped: bool,
     done: bool,
     usage_reported: bool,
+    reasoning_field: Option<ReasoningField>,
+    compatibility: ReplayCompatibility,
 }
 
 #[derive(Debug, Default)]
@@ -34,7 +37,7 @@ struct CallAssembly {
 }
 
 impl ChatDecoder {
-    pub(crate) fn new(limits: DecodeLimits) -> Self {
+    pub(crate) fn new(limits: DecodeLimits, compatibility: ReplayCompatibility) -> Self {
         Self {
             limits,
             retained: 0,
@@ -44,6 +47,8 @@ impl ChatDecoder {
             stopped: false,
             done: false,
             usage_reported: false,
+            reasoning_field: None,
+            compatibility,
         }
     }
 
@@ -98,16 +103,65 @@ impl ChatDecoder {
         }
 
         let mut events = Vec::new();
-        if let Some(reasoning) = choice
+        crate::wire::check_additive_fields(&choice.delta.extra, "chat_delta")?;
+        if choice
             .delta
-            .reasoning_content
-            .filter(|text| !text.is_empty())
+            .role
+            .as_deref()
+            .is_some_and(|role| role != "assistant")
         {
+            return Err(DecodeError::UnsupportedEvent("chat_delta_role".to_owned()));
+        }
+        if choice
+            .delta
+            .reasoning_details
+            .as_ref()
+            .is_some_and(|value| value != &Value::Null && value != &serde_json::json!([]))
+        {
+            return Err(DecodeError::UnsupportedEvent(
+                "chat_reasoning_details".to_owned(),
+            ));
+        }
+        for (field, text) in [
+            (
+                ReasoningField::ReasoningContent,
+                choice.delta.reasoning_content,
+            ),
+            (ReasoningField::Reasoning, choice.delta.reasoning),
+            (ReasoningField::ReasoningText, choice.delta.reasoning_text),
+        ] {
+            let Some(reasoning) = text.filter(|text| !text.is_empty()) else {
+                continue;
+            };
+            if self.reasoning_field.is_some_and(|prior| prior != field) {
+                return Err(DecodeError::UnsupportedEvent(
+                    "conflicting_chat_reasoning_fields".to_owned(),
+                ));
+            }
             self.retain(reasoning.len())?;
             events.push(ModelEvent::ReasoningDelta {
                 position: output_position(0, 0)?,
                 delta: reasoning,
             });
+            if self.reasoning_field.replace(field).is_none()
+                && field != ReasoningField::ReasoningContent
+            {
+                let payload = serde_json::to_string(&ChatReplay::Reasoning { field })?;
+                if self.limits.max_replay_items == 0 {
+                    return Err(DecodeError::TooManyReplayItems { limit: 0 });
+                }
+                if payload.len() > self.limits.max_replay_bytes {
+                    return Err(DecodeError::RetainedReplayTooLarge {
+                        limit: self.limits.max_replay_bytes,
+                    });
+                }
+                let replay = ProviderReplay::new(self.compatibility.clone(), payload)
+                    .map_err(DecodeError::Replay)?;
+                events.push(ModelEvent::Replay {
+                    position: output_position(0, 0)?,
+                    replay,
+                });
+            }
         }
         if let Some(content) = choice.delta.content.filter(|text| !text.is_empty()) {
             self.retain(content.len())?;
@@ -313,11 +367,17 @@ struct ChatChoice {
 
 #[derive(Default, Deserialize)]
 struct ChatDelta {
+    role: Option<String>,
+    reasoning: Option<String>,
+    reasoning_text: Option<String>,
+    reasoning_details: Option<Value>,
     content: Option<String>,
     reasoning_content: Option<String>,
     refusal: Option<String>,
     #[serde(default)]
     tool_calls: Vec<ChatToolFragment>,
+    #[serde(flatten)]
+    extra: serde_json::Map<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -331,4 +391,27 @@ struct ChatToolFragment {
 struct ChatFunctionFragment {
     name: Option<String>,
     arguments: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ReasoningField {
+    #[default]
+    ReasoningContent,
+    Reasoning,
+    ReasoningText,
+}
+impl ReasoningField {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ReasoningContent => "reasoning_content",
+            Self::Reasoning => "reasoning",
+            Self::ReasoningText => "reasoning_text",
+        }
+    }
+}
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+enum ChatReplay {
+    Reasoning { field: ReasoningField },
 }

@@ -95,7 +95,7 @@ pub(super) async fn open_selected_session(
                 id: journal.metadata().session_id().clone(),
                 path: journal.path().to_path_buf(),
             };
-            let runtime = LiveRuntime::openai_with_automatic_journal(
+            let runtime = LiveRuntime::provider_with_automatic_journal(
                 agent_id,
                 "Plexmaton",
                 model,
@@ -112,7 +112,7 @@ pub(super) async fn open_selected_session(
             }
         }
         SessionSelection::Ephemeral => OpenedSession {
-            runtime: LiveRuntime::openai(agent_id, "Plexmaton", model, key, tools)
+            runtime: LiveRuntime::provider(agent_id, "Plexmaton", model, key, tools)
                 .context("configure live provider transport")?,
             recovery: None,
             persisted: None,
@@ -131,7 +131,7 @@ pub(super) async fn open_selected_session(
                 .context("resume session")?;
             let path = journal.path().to_path_buf();
             let (runtime, recovery) =
-                LiveRuntime::openai_with_resumed_journal(agent_id, model, key, tools, journal)
+                LiveRuntime::provider_with_resumed_journal(agent_id, model, key, tools, journal)
                     .await
                     .context("resume durable runtime")?;
             OpenedSession {
@@ -164,7 +164,7 @@ async fn open_fresh_session(
     journal: JournalFile,
 ) -> anyhow::Result<OpenedSession> {
     let path = journal.path().to_path_buf();
-    let runtime = match LiveRuntime::openai_with_fresh_journal(
+    let runtime = match LiveRuntime::provider_with_fresh_journal(
         agent_id,
         "Plexmaton",
         model,

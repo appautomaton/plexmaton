@@ -63,6 +63,9 @@ Commits run the fast gates through a repository-managed hook. Enable it once per
 git config core.hooksPath .githooks
 ```
 
+The hook clears Git's repository-local environment before running gates. Git subprocesses in
+fixtures must discover their own repository; inherited `GIT_DIR` can redirect even `git init`.
+
 ## The terminal smoke
 
 `./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, the quit key, and mouse

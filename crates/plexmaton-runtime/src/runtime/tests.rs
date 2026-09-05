@@ -284,6 +284,7 @@ fn failed_report(
 ) -> ModelTerminalReport {
     let outcome = match &error {
         ModelError::Transport { .. } => RequestDispatchedOutcome::TransportFailed,
+        ModelError::ProviderFailed { .. } => RequestDispatchedOutcome::ProviderFailed,
         ModelError::RateLimited { .. } => RequestDispatchedOutcome::RateLimited,
         ModelError::ContextTooLong => RequestDispatchedOutcome::ContextTooLong,
         ModelError::Malformed { .. } => RequestDispatchedOutcome::Malformed,

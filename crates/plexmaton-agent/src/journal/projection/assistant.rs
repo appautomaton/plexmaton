@@ -67,7 +67,9 @@ impl Projector {
                     );
                     calls.push(call_id);
                 }
-                AssistantBlock::Text { .. } | AssistantBlock::Reasoning { .. } => {}
+                AssistantBlock::Text { .. }
+                | AssistantBlock::Reasoning { .. }
+                | AssistantBlock::ReplayOnly { .. } => {}
             }
         }
         if calls.is_empty() {

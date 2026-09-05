@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use futures_util::stream;
 use plexmaton_agent::ModelEvent;
 use plexmaton_provider::{
-    DecodeLimits, ModelApi, ModelRegistry, OpenAiCodec, ResolvedModel, SseDecodeError, drive_sse,
+    DecodeLimits, ModelApi, ModelRegistry, ProviderCodec, ResolvedModel, SseDecodeError, drive_sse,
 };
 
 const CHAT_DUPLICATE_TOOL_CALL_ID: &str = include_str!("fixtures/chat_duplicate_tool_call_id.sse");
@@ -14,6 +14,8 @@ fn profile(api: ModelApi) -> ResolvedModel {
     let api = match api {
         ModelApi::OpenaiResponses => "openai_responses",
         ModelApi::OpenaiChatCompletions => "openai_chat_completions",
+        ModelApi::AnthropicMessages => "anthropic_messages",
+        ModelApi::GoogleGenerateContent => "google_generate_content",
     };
     ModelRegistry::parse(&format!(
         r#"
@@ -41,10 +43,17 @@ async fn prv_2_rejects_duplicate_chat_tool_call_ids_before_emission() {
     let source = stream::iter([Ok::<_, Infallible>(CHAT_DUPLICATE_TOOL_CALL_ID.as_bytes())]);
     let mut emitted = Vec::new();
 
-    let result = drive_sse(&profile, source, DecodeLimits::production(), |event| {
-        emitted.push(event);
-        std::future::ready(())
-    })
+    let result = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        DecodeLimits::production(),
+        |event| {
+            emitted.push(event);
+            std::future::ready(())
+        },
+    )
     .await;
     let Err(error) = result else {
         panic!("duplicate Chat call unexpectedly decoded");
@@ -70,10 +79,17 @@ async fn prv_2_rejects_incremental_duplicate_responses_tool_call_ids() {
     )]);
     let mut emitted = Vec::new();
 
-    let result = drive_sse(&profile, source, DecodeLimits::production(), |event| {
-        emitted.push(event);
-        std::future::ready(())
-    })
+    let result = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        DecodeLimits::production(),
+        |event| {
+            emitted.push(event);
+            std::future::ready(())
+        },
+    )
     .await;
     let Err(error) = result else {
         panic!("duplicate Responses call unexpectedly decoded");
@@ -86,7 +102,7 @@ async fn prv_2_rejects_incremental_duplicate_responses_tool_call_ids() {
         }) if call_id.as_str() == "call_duplicate"
     ));
     assert!(
-        matches!(emitted.as_slice(), [ModelEvent::Called { call, .. }]
+        matches!(emitted.as_slice(), [ModelEvent::Called { call, .. }, ModelEvent::Replay { .. }]
         if call.call_id.as_str() == "call_duplicate" && call.arguments.contains("one"))
     );
 }
@@ -96,13 +112,18 @@ fn prv_2_responses_counts_incrementally_completed_calls_toward_the_step_bound() 
     let profile = profile(ModelApi::OpenaiResponses);
     let mut limits = DecodeLimits::production();
     limits.max_tool_calls = 1;
-    let mut codec = OpenAiCodec::new(&profile, limits);
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let first = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"fc_one","type":"function_call","call_id":"call_one","name":"read_file","arguments":"{}","status":"completed"}}"#;
     let second = r#"{"type":"response.output_item.done","output_index":1,"item":{"id":"fc_two","type":"function_call","call_id":"call_two","name":"read_file","arguments":"{}","status":"completed"}}"#;
 
     assert!(matches!(
         codec.push_sse("response.output_item.done", first),
-        Ok(events) if matches!(events.as_slice(), [ModelEvent::Called { call, .. }]
+        Ok(events) if matches!(events.as_slice(), [ModelEvent::Called { call, .. }, ModelEvent::Replay { .. }]
             if call.call_id.as_str() == "call_one")
     ));
     assert!(matches!(

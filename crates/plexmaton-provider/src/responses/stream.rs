@@ -2,30 +2,30 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_agent::{ModelEvent, ProviderReplay, ReplayCompatibility, StopReason};
+use plexmaton_agent::{ModelEvent, ReplayCompatibility, StopReason};
 use plexmaton_core::ToolCallId;
 use serde_json::Value;
 
 use super::call::CallAssembly;
 use super::text::TextAssembly;
 use super::usage::event_usage;
-use super::wire::{object_field, optional_string, provider_failed, string_field, usize_field};
 use crate::codec::{DecodeError, DecodeLimits, output_position, retain_bytes};
+use crate::wire::{object_field, optional_string, provider_failed, string_field, usize_field};
 
 #[derive(Debug)]
 pub(crate) struct ResponsesDecoder {
-    limits: DecodeLimits,
-    retained: usize,
-    replay_bytes: usize,
-    replay_items: usize,
-    replay_compatibility: ReplayCompatibility,
+    pub(super) limits: DecodeLimits,
+    pub(super) retained: usize,
+    pub(super) replay_bytes: usize,
+    pub(super) replay_items: usize,
+    pub(super) replay_compatibility: ReplayCompatibility,
     calls: BTreeMap<usize, CallAssembly>,
     text_parts: BTreeMap<(usize, usize), TextAssembly>,
     reasoning_summaries: BTreeMap<usize, TextAssembly>,
     finished_items: BTreeSet<usize>,
     finished_calls: BTreeSet<usize>,
     completed_call_ids: BTreeSet<ToolCallId>,
-    saw_refusal: bool,
+    pub(super) saw_refusal: bool,
     stopped: bool,
 }
 
@@ -243,7 +243,7 @@ impl ResponsesDecoder {
         let events = match string_field(item, "type")? {
             "reasoning" => self.reasoning_replay(index, item),
             "function_call" => self.function_call_done(index, item),
-            "message" => Ok(Vec::new()),
+            "message" => self.message_done(index, item),
             other => Err(DecodeError::UnsupportedEvent(format!(
                 "response.output_item.done:{other}"
             ))),
@@ -274,6 +274,7 @@ impl ResponsesDecoder {
                 index,
                 field: "call",
             })?;
+        let item_id = call.item_id().map(str::to_owned);
         let call = call.finish(index)?;
         if !self.completed_call_ids.insert(call.call_id.clone()) {
             return Err(DecodeError::DuplicateToolCallId {
@@ -281,77 +282,11 @@ impl ResponsesDecoder {
             });
         }
         self.finished_calls.insert(index);
-        Ok(vec![ModelEvent::Called {
+        let mut events = vec![ModelEvent::Called {
             position: output_position(index, 0)?,
             call,
-        }])
-    }
-
-    fn reasoning_replay(
-        &mut self,
-        index: usize,
-        item: &Value,
-    ) -> Result<Vec<ModelEvent>, DecodeError> {
-        if item
-            .get("encrypted_content")
-            .and_then(Value::as_str)
-            .is_none()
-        {
-            return Err(DecodeError::UnsupportedEvent(
-                "reasoning_without_encrypted_content".to_owned(),
-            ));
-        }
-        if self.replay_items >= self.limits.max_replay_items {
-            return Err(DecodeError::TooManyReplayItems {
-                limit: self.limits.max_replay_items,
-            });
-        }
-        let summary = item
-            .get("summary")
-            .and_then(Value::as_array)
-            .ok_or_else(|| DecodeError::UnsupportedEvent("reasoning_without_summary".to_owned()))?
-            .iter()
-            .map(|part| {
-                if part.get("type").and_then(Value::as_str) != Some("summary_text") {
-                    return Err(DecodeError::UnsupportedEvent(
-                        "unsupported_reasoning_summary_part".to_owned(),
-                    ));
-                }
-                string_field(part, "text")
-            })
-            .collect::<Result<String, _>>()?;
-        let unstreamed = self.reasoning_summary(index)?.finish(&summary, index, 0)?;
-        let payload = serde_json::to_string(item)?;
-        let Some(next) = self.replay_bytes.checked_add(payload.len()) else {
-            return Err(DecodeError::RetainedReplayTooLarge {
-                limit: self.limits.max_replay_bytes,
-            });
-        };
-        if next > self.limits.max_replay_bytes {
-            return Err(DecodeError::RetainedReplayTooLarge {
-                limit: self.limits.max_replay_bytes,
-            });
-        }
-        let replay = ProviderReplay::new(self.replay_compatibility.clone(), payload)
-            .map_err(DecodeError::Replay)?;
-        self.replay_bytes = next;
-        self.replay_items += 1;
-        let mut events = Vec::with_capacity(2);
-        if let Some(summary) = unstreamed {
-            retain_bytes(
-                &mut self.retained,
-                summary.len(),
-                self.limits.max_retained_output_bytes,
-            )?;
-            events.push(ModelEvent::ReasoningDelta {
-                position: output_position(index, 0)?,
-                delta: summary,
-            });
-        }
-        events.push(ModelEvent::Replay {
-            position: output_position(index, 0)?,
-            replay,
-        });
+        }];
+        events.extend(self.call_replay(index, item_id, item)?);
         Ok(events)
     }
 
@@ -433,7 +368,7 @@ impl ResponsesDecoder {
         Ok(())
     }
 
-    fn text_part(
+    pub(super) fn text_part(
         &mut self,
         output_index: usize,
         content_index: usize,
@@ -449,7 +384,10 @@ impl ResponsesDecoder {
         Ok(self.text_parts.entry(key).or_default())
     }
 
-    fn reasoning_summary(&mut self, output_index: usize) -> Result<&mut TextAssembly, DecodeError> {
+    pub(super) fn reasoning_summary(
+        &mut self,
+        output_index: usize,
+    ) -> Result<&mut TextAssembly, DecodeError> {
         if !self.reasoning_summaries.contains_key(&output_index)
             && self
                 .reasoning_summaries

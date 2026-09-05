@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// Token counts reported by a provider for one step or aggregated for one turn.
 ///
-/// The provider's total is retained instead of recomputed. Optional breakdowns remain optional so
-/// a dialect that omits one cannot turn absence into zero (LIVE-4, LIVE-5).
+/// Adapters retain the reported total or derive it from the dialect's exact components when that
+/// dialect has no total field. Optional breakdowns remain unknown unless the protocol defines
+/// omission as zero; consumers do not infer missing categories (LIVE-4, LIVE-5).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TokenCounts {
     /// Tokens in the request context, including any cached or cache-written subset.
@@ -18,7 +19,7 @@ pub struct TokenCounts {
     pub output: u64,
     /// Generated reasoning tokens, when reported separately.
     pub reasoning_output: Option<u64>,
-    /// Provider-reported total. Consumers must not reconstruct this field.
+    /// Normalized request total. Consumers read the adapter result rather than reconstruct it.
     pub total: u64,
 }
 
@@ -47,7 +48,9 @@ fn checked_add_known(left: Option<u64>, right: Option<u64>) -> Option<Option<u64
 
 /// How much of a step or turn's provider usage is known.
 ///
-/// Counts cannot accompany `Unavailable`, and `Partial` cannot be mistaken for a complete bill.
+/// Counts cannot accompany `Unavailable`. In a single request report, mandatory input/output
+/// counts remain measured when an optional breakdown is absent. Aggregated partial usage may also
+/// lack entire attempts and must not be used as one request's context measurement.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "coverage", content = "counts", rename_all = "snake_case")]
 pub enum TokenUsage {

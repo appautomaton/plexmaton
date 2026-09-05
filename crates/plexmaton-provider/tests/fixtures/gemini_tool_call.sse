@@ -1,0 +1,6 @@
+data: {"responseId":"gemini_fixture_call","candidates":[{"index":0,"content":{"role":"model","parts":[{"thought":true,"text":"Need README.","thoughtSignature":"thought-fixture"}]}}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":64,"totalTokenCount":100}}
+
+data: {"responseId":"gemini_fixture_call","candidates":[{"index":0,"content":{"role":"model","parts":[{"functionCall":{"id":"0","name":"read_file","args":{"path":"README.md"}},"thoughtSignature":"call-fixture"}]}}]}
+
+data: {"responseId":"gemini_fixture_call","candidates":[{"index":0,"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":64,"candidatesTokenCount":4,"thoughtsTokenCount":5,"totalTokenCount":109}}
+

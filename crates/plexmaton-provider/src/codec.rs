@@ -1,4 +1,4 @@
-//! Shared OpenAI-compatible codec seam and its bounded vocabulary.
+//! Shared provider codec seam and its bounded vocabulary.
 
 use plexmaton_agent::{
     AdmissionRefusal, MAX_ASSISTANT_TEXT_BYTES, MAX_PROVIDER_REPLAY_BYTES,
@@ -13,6 +13,8 @@ use thiserror::Error;
 use crate::{
     ModelApi, ResolvedModel,
     chat::{self, ChatDecoder},
+    gemini::{self, GeminiDecoder},
+    messages::{self, MessagesDecoder},
     responses::{self, ResponsesDecoder},
 };
 
@@ -50,7 +52,7 @@ impl DecodeLimits {
             max_tool_identity_bytes: MAX_TOOL_IDENTITY_BYTES,
             max_tool_calls: 64,
             max_replay_bytes: MAX_PROVIDER_REPLAY_BYTES,
-            max_replay_items: 16,
+            max_replay_items: 128,
             max_output_items: 128,
         }
     }
@@ -112,6 +114,12 @@ pub enum FunctionToolError {
 pub enum EncodeError {
     #[error("plaintext Chat reasoning cannot be replayed through the Responses codec")]
     PlainReasoningInResponses,
+    #[error("thinking replay requires a complete signature")]
+    MissingThinkingSignature,
+    #[error("tool arguments must be a JSON object")]
+    InvalidToolArguments,
+    #[error("tool name is invalid for the selected dialect")]
+    InvalidToolName,
     #[error("opaque provider replay cannot be sent through Chat Completions")]
     OpaqueReplayInChat,
     #[error("ordered assistant blocks cannot be represented by Chat Completions")]
@@ -123,9 +131,9 @@ pub enum EncodeError {
         found: Box<ReplayCompatibility>,
         expected: Box<ReplayCompatibility>,
     },
-    #[error("stored Responses replay is not valid JSON: {0}")]
+    #[error("stored provider replay is not valid JSON: {0}")]
     InvalidReplayJson(#[source] serde_json::Error),
-    #[error("stored Responses replay is not a reasoning item")]
+    #[error("stored provider replay does not match the selected dialect's item grammar")]
     InvalidReplayItem,
     #[error("a tool result `{0}` has no preceding provider call in the semantic record")]
     OrphanToolResult(String),
@@ -183,7 +191,7 @@ pub enum DecodeError {
     },
     #[error("provider replay could not be retained: {0:?}")]
     Replay(ProviderReplayError),
-    #[error("the provider failed the response with code {code:?}")]
+    #[error("{description}", description = provider_failure_description(.code.as_deref()))]
     ProviderFailed { code: Option<String> },
     #[error("the provider reported an unknown completion reason `{0}`")]
     UnknownStopReason(String),
@@ -193,9 +201,24 @@ pub enum DecodeError {
     DuplicateUsage,
 }
 
+fn provider_failure_description(code: Option<&str>) -> String {
+    let Some(code) = code else {
+        return "unspecified failure".to_owned();
+    };
+    let description = match code {
+        "MISSING_THOUGHT_SIGNATURE" => "missing reasoning signature",
+        "MALFORMED_FUNCTION_CALL" => "invalid tool call",
+        "UNEXPECTED_TOOL_CALL" => "unexpected tool call",
+        "TOO_MANY_TOOL_CALLS" => "tool-call limit reached",
+        "MALFORMED_RESPONSE" => "invalid response",
+        _ => return code.to_owned(),
+    };
+    format!("{description} ({code})")
+}
+
 /// One explicitly selected dialect decoder. It cannot fall back or change protocol mid-stream.
 #[derive(Debug)]
-pub struct OpenAiCodec {
+pub struct ProviderCodec {
     decoder: Decoder,
 }
 
@@ -203,17 +226,33 @@ pub struct OpenAiCodec {
 enum Decoder {
     Chat(ChatDecoder),
     Responses(ResponsesDecoder),
+    Messages(MessagesDecoder),
+    Gemini(GeminiDecoder),
 }
 
-impl OpenAiCodec {
+impl ProviderCodec {
     /// Opens a fresh step decoder for one explicit protocol.
     #[must_use]
-    pub fn new(model: &ResolvedModel, limits: DecodeLimits) -> Self {
+    pub fn new(
+        scope: &plexmaton_agent::RequestAttemptId,
+        model: &ResolvedModel,
+        limits: DecodeLimits,
+    ) -> Self {
         let decoder = match model.api() {
             ModelApi::OpenaiResponses => {
                 Decoder::Responses(ResponsesDecoder::new(limits, model.replay_compatibility()))
             }
-            ModelApi::OpenaiChatCompletions => Decoder::Chat(ChatDecoder::new(limits)),
+            ModelApi::OpenaiChatCompletions => {
+                Decoder::Chat(ChatDecoder::new(limits, model.replay_compatibility()))
+            }
+            ModelApi::AnthropicMessages => {
+                Decoder::Messages(MessagesDecoder::new(limits, model.replay_compatibility()))
+            }
+            ModelApi::GoogleGenerateContent => Decoder::Gemini(GeminiDecoder::new(
+                scope,
+                limits,
+                model.replay_compatibility(),
+            )),
         };
         Self { decoder }
     }
@@ -227,6 +266,8 @@ impl OpenAiCodec {
         match &mut self.decoder {
             Decoder::Chat(decoder) => decoder.push(event_name, data),
             Decoder::Responses(decoder) => decoder.push(event_name, data),
+            Decoder::Messages(decoder) => decoder.push(event_name, data),
+            Decoder::Gemini(decoder) => decoder.push(event_name, data),
         }
     }
 
@@ -235,6 +276,8 @@ impl OpenAiCodec {
         match self.decoder {
             Decoder::Chat(decoder) => decoder.finish(),
             Decoder::Responses(decoder) => decoder.finish(),
+            Decoder::Messages(decoder) => decoder.finish(),
+            Decoder::Gemini(decoder) => decoder.finish(),
         }
     }
 }
@@ -262,6 +305,8 @@ pub fn encode_request(
     match model.api() {
         ModelApi::OpenaiResponses => responses::encode(model, request, tools, max_output_tokens),
         ModelApi::OpenaiChatCompletions => chat::encode(model, request, tools, max_output_tokens),
+        ModelApi::AnthropicMessages => messages::encode(model, request, tools, max_output_tokens),
+        ModelApi::GoogleGenerateContent => gemini::encode(model, request, tools, max_output_tokens),
     }
 }
 
@@ -292,7 +337,7 @@ pub fn classify_http_error(
             message: format!("HTTP {status} response was not a valid provider stream"),
         };
     }
-    ModelError::Transport {
+    ModelError::ProviderFailed {
         message: format!("provider returned HTTP {status}"),
     }
 }
@@ -481,7 +526,7 @@ mod tests {
         );
         assert_eq!(
             error,
-            ModelError::Transport {
+            ModelError::ProviderFailed {
                 message: "provider returned HTTP 401".to_owned()
             }
         );

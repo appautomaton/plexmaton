@@ -4,10 +4,10 @@ use eventsource_stream2::Eventsource;
 use std::future::Future;
 
 use futures_util::{Stream, StreamExt};
-use plexmaton_agent::ModelEvent;
+use plexmaton_agent::{ModelError, ModelEvent};
 use thiserror::Error;
 
-use crate::{DecodeError, DecodeLimits, OpenAiCodec, ResolvedModel};
+use crate::{DecodeError, DecodeLimits, ProviderCodec, ResolvedModel};
 
 /// Failure while framing provider bytes or translating one framed event.
 #[derive(Debug, Error)]
@@ -22,6 +22,31 @@ pub enum SseDecodeError<E> {
     Decode(#[from] DecodeError),
 }
 
+impl<E: std::fmt::Display> SseDecodeError<E> {
+    /// Maps protocol failures at the adapter boundary, preserving a transport's retry hint.
+    #[must_use]
+    pub fn into_model_error(self, retry_after: Option<u64>) -> ModelError {
+        let message = self.to_string();
+        match self {
+            Self::Transport(error) => ModelError::Transport {
+                message: error.to_string(),
+            },
+            Self::Decode(DecodeError::ProviderFailed { code }) => match code.as_deref() {
+                Some("rate_limit_error" | "rate_limit_exceeded" | "RESOURCE_EXHAUSTED") => {
+                    ModelError::RateLimited { retry_after }
+                }
+                Some("context_window_exceeded" | "context_length_exceeded") => {
+                    ModelError::ContextTooLong
+                }
+                _ => ModelError::ProviderFailed { message },
+            },
+            Self::InvalidUtf8 | Self::EventTooLarge { .. } | Self::Decode(_) => {
+                ModelError::Malformed { message }
+            }
+        }
+    }
+}
+
 /// Applies backpressure from `emit` while framing arbitrary byte chunks into semantic events.
 ///
 /// The caller owns the byte stream, cancellation and any channel used by `emit`; this function
@@ -29,6 +54,7 @@ pub enum SseDecodeError<E> {
 /// accepts the stream trailer, so a malformed close cannot become `Stopped` followed by `Failed`
 /// in a caller (PRV-1, PRV-2, PRV-7).
 pub async fn drive_sse<S, B, E, F, Fut>(
+    scope: &plexmaton_agent::RequestAttemptId,
     model: &ResolvedModel,
     stream: S,
     limits: DecodeLimits,
@@ -50,7 +76,7 @@ where
     });
     let framed = guarded.eventsource();
     futures_util::pin_mut!(framed);
-    let mut codec = OpenAiCodec::new(model, limits);
+    let mut codec = ProviderCodec::new(scope, model, limits);
     let mut pending_stop = None;
 
     while let Some(event) = framed.next().await {

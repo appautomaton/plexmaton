@@ -265,7 +265,7 @@ impl Launcher {
             path: journal.path().to_path_buf(),
         };
         let (runtime, recovery) =
-            LiveRuntime::openai_with_resumed_journal(agent, model, key, tools, journal).await?;
+            LiveRuntime::provider_with_resumed_journal(agent, model, key, tools, journal).await?;
         Ok(OpenedSession {
             runtime,
             recovery: Some(recovery),

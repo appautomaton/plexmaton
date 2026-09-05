@@ -9,12 +9,18 @@ use plexmaton_agent::{
 };
 use plexmaton_core::{SessionEntryId, TokenUsage, ToolCallId, TranscriptItemId};
 use plexmaton_provider::{
-    DecodeLimits, ModelApi, OpenAiCodec, SseDecodeError, drive_sse, encode_request,
+    DecodeLimits, ModelApi, ProviderCodec, SseDecodeError, drive_sse, encode_request,
 };
 use serde_json::Value;
 
 #[path = "provider_fixtures/argument_boundaries.rs"]
 mod argument_boundaries;
+#[path = "provider_fixtures/gemini.rs"]
+mod gemini;
+#[path = "provider_fixtures/messages.rs"]
+mod messages;
+#[path = "provider_fixtures/request_options.rs"]
+mod request_options;
 mod support;
 #[path = "provider_fixtures/usage_boundaries.rs"]
 mod usage_boundaries;
@@ -109,6 +115,7 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
             ModelEvent::ReasoningDelta { .. },
             ModelEvent::Replay { .. },
             ModelEvent::Called { .. },
+            ModelEvent::Replay { .. },
             ModelEvent::Usage(TokenUsage::Complete(_)),
             ModelEvent::Stopped(StopReason::ToolCalls)
         ]
@@ -151,7 +158,8 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
         recorded_replay.compatible_with(),
         streamed_replay.compatible_with()
     );
-    assert_eq!(recorded_replay.attachments().len(), 1);
+    assert_eq!(recorded_replay.attachments().len(), 2);
+    assert_eq!(recorded_replay.attachments()[1].block(), 1);
     assert_eq!(
         recorded_replay.attachments()[0].payload(),
         streamed_replay.payload()
@@ -163,6 +171,8 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
     assert!(encoded.get("previous_response_id").is_none());
     assert_eq!(encoded["input"][1], replay_item);
     assert_eq!(encoded["input"][2]["call_id"], "call_read_1");
+    assert_eq!(encoded["input"][2]["id"], "fc_fixture_1");
+    assert_eq!(encoded["input"][2]["status"], "completed");
     assert_eq!(encoded["input"][3]["type"], "function_call_output");
     assert_eq!(encoded["tools"][0]["strict"], true);
 
@@ -175,6 +185,7 @@ async fn prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_t
             ModelEvent::Replay { .. },
             ModelEvent::TextDelta { .. },
             ModelEvent::TextDelta { .. },
+            ModelEvent::Replay { .. },
             ModelEvent::Usage(_),
             ModelEvent::Stopped(StopReason::EndOfTurn),
         ]
@@ -210,6 +221,8 @@ fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     let request = ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("opaque-output"), output)
                 .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
@@ -229,15 +242,18 @@ fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     let request = ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("plain-output"), output)
                 .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
         ],
     };
-    assert!(matches!(
-        encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None),
-        Err(plexmaton_provider::EncodeError::PlainReasoningInResponses)
-    ));
+    assert_eq!(
+        encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None)
+            .expect("unsigned summaries are not fabricated into replay")["input"],
+        serde_json::json!([])
+    );
 }
 
 #[test]
@@ -283,6 +299,8 @@ fn prv_1_both_protocols_preserve_parallel_call_and_result_order() {
     )
     .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
     let request = ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::tool_batch(vec![session_entry("parallel-batch")], batch)
                 .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
@@ -341,6 +359,8 @@ fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
     )
     .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
     let request = ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::tool_batch(vec![session_entry("cross-kind")], batch)
                 .unwrap_or_else(|error| panic!("fixture context atom: {error}")),
@@ -423,9 +443,16 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
     let mut limits = DecodeLimits::production();
     limits.max_retained_output_bytes = 3;
     let source = stream::iter([Ok::<_, Infallible>(CHAT_FINAL_ANSWER.as_bytes())]);
-    let error = drive_sse(&profile, source, limits, |_| std::future::ready(()))
-        .await
-        .unwrap_err_or_else();
+    let error = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        limits,
+        |_| std::future::ready(()),
+    )
+    .await
+    .unwrap_err_or_else();
     assert!(matches!(
         error,
         SseDecodeError::Decode(plexmaton_provider::DecodeError::RetainedOutputTooLarge {
@@ -435,9 +462,14 @@ async fn prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input() {
 
     let incomplete = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n";
     let source = stream::iter([Ok::<_, Infallible>(incomplete.as_bytes())]);
-    let error = drive_sse(&profile, source, DecodeLimits::production(), |_| {
-        std::future::ready(())
-    })
+    let error = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        DecodeLimits::production(),
+        |_| std::future::ready(()),
+    )
     .await
     .unwrap_err_or_else();
     assert!(matches!(
@@ -456,10 +488,17 @@ async fn prv_2_stopped_is_withheld_until_the_stream_trailer_is_valid() {
     let source = stream::iter([Ok::<_, Infallible>(missing_done.as_bytes())]);
     let mut emitted = Vec::new();
 
-    let error = drive_sse(&profile, source, DecodeLimits::production(), |event| {
-        emitted.push(event);
-        std::future::ready(())
-    })
+    let error = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        DecodeLimits::production(),
+        |event| {
+            emitted.push(event);
+            std::future::ready(())
+        },
+    )
     .await
     .unwrap_err_or_else();
 
@@ -481,7 +520,12 @@ fn prv_2_rejects_tool_arguments_before_they_can_reach_admission() {
     let profile = profile(ModelApi::OpenaiChatCompletions);
     let mut limits = DecodeLimits::production();
     limits.max_tool_argument_bytes = 4;
-    let mut codec = OpenAiCodec::new(&profile, limits);
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let event = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"12345"}}]},"finish_reason":null}]}"#;
 
     assert!(matches!(
@@ -495,7 +539,12 @@ fn prv_3_rejects_opaque_replay_before_step_state_can_grow() {
     let profile = profile(ModelApi::OpenaiResponses);
     let mut limits = DecodeLimits::production();
     limits.max_replay_bytes = 8;
-    let mut codec = OpenAiCodec::new(&profile, limits);
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let event = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[],"encrypted_content":"ciphertext","status":"completed"}}"#;
 
     assert!(matches!(
@@ -509,7 +558,12 @@ fn prv_2_bounds_even_empty_responses_output_items() {
     let profile = profile(ModelApi::OpenaiResponses);
     let mut limits = DecodeLimits::production();
     limits.max_output_items = 1;
-    let mut codec = OpenAiCodec::new(&profile, limits);
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let first = r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[],"status":"completed"}}"#;
     let second = r#"{"type":"response.output_item.done","output_index":1,"item":{"id":"msg_2","type":"message","role":"assistant","content":[],"status":"completed"}}"#;
 
@@ -524,7 +578,12 @@ fn prv_2_bounds_even_empty_responses_output_items() {
 fn prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy() {
     let profile = profile(ModelApi::OpenaiResponses);
     let limits = DecodeLimits::production();
-    let mut done_only = OpenAiCodec::new(&profile, limits);
+    let mut done_only = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let done =
         r#"{"type":"response.output_text.done","output_index":0,"content_index":0,"text":"whole"}"#;
     assert!(matches!(
@@ -535,7 +594,12 @@ fn prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy() {
         }]
     ));
 
-    let mut conflicting = OpenAiCodec::new(&profile, limits);
+    let mut conflicting = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        limits,
+    );
     let delta = r#"{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"part"}"#;
     conflicting
         .push_sse("response.output_text.delta", delta)
@@ -553,7 +617,12 @@ fn prv_2_responses_text_done_confirms_deltas_or_supplies_the_only_copy() {
 #[test]
 fn prv_5_responses_done_only_refusal_is_visible_and_typed() {
     let profile = profile(ModelApi::OpenaiResponses);
-    let mut codec = OpenAiCodec::new(&profile, DecodeLimits::production());
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        DecodeLimits::production(),
+    );
     let refusal = r#"{"type":"response.refusal.done","output_index":0,"content_index":0,"refusal":"declined"}"#;
     assert!(matches!(
         codec.push_sse("response.refusal.done", refusal),
@@ -582,9 +651,14 @@ async fn prv_2_sse_framing_rejects_partial_utf8() {
     let source = stream::iter([Ok::<_, Infallible>(vec![
         b'd', b'a', b't', b'a', b':', b' ', 0xff, b'\n', b'\n',
     ])]);
-    let error = drive_sse(&profile, source, DecodeLimits::production(), |_| {
-        std::future::ready(())
-    })
+    let error = drive_sse(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &profile,
+        source,
+        DecodeLimits::production(),
+        |_| std::future::ready(()),
+    )
     .await
     .unwrap_err_or_else();
     assert!(matches!(error, SseDecodeError::InvalidUtf8));
@@ -625,6 +699,8 @@ fn opaque_replay_request(compatible_with: ReplayCompatibility) -> ModelRequest {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     ModelRequest {
+        session_id: plexmaton_core::SessionId::new("fixture-session")
+            .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("private-output"), output)
                 .unwrap_or_else(|error| panic!("fixture context atom: {error}")),

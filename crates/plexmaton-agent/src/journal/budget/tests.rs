@@ -109,14 +109,10 @@ fn bud_2_anchor_uses_exact_input_and_survives_record_reload() {
     assert_eq!(basis.request, replayed.request);
 }
 
-/// BUD-2: missing, partial and different-environment reports cannot silently become measurements.
+/// BUD-2: missing and different-environment reports cannot silently become measurements.
 #[test]
-fn bud_2_missing_partial_and_changed_environment_have_no_anchor() {
-    for usage in [
-        None,
-        Some(TokenUsage::Unavailable),
-        Some(TokenUsage::Partial(counts())),
-    ] {
+fn bud_2_missing_and_changed_environment_have_no_anchor() {
+    for usage in [None, Some(TokenUsage::Unavailable)] {
         let mut agent = open();
         complete(&mut agent, usage);
         assert!(
@@ -334,5 +330,23 @@ fn bud_2_parallel_batch_anchors_require_every_result_in_model_order() {
             .map(|result| result.call_id())
             .collect::<Vec<_>>(),
         calls.iter().map(|call| &call.call_id).collect::<Vec<_>>()
+    );
+}
+
+/// BUD-2: an absent optional breakdown does not erase the measured input of this exact attempt.
+#[test]
+fn bud_2_exact_input_with_missing_breakdowns_remains_an_anchor() {
+    let mut agent = open();
+    let mut measured = counts();
+    measured.reasoning_output = None;
+    measured.cache_write_input = None;
+    complete(&mut agent, Some(TokenUsage::Partial(measured.clone())));
+    let basis = agent
+        .journal()
+        .budget_basis(&main_head(), &environment(1))
+        .expect("basis");
+    assert_eq!(
+        basis.anchor.as_ref().map(|anchor| anchor.input_tokens),
+        Some(measured.input)
     );
 }

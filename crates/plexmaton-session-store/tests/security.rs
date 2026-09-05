@@ -157,7 +157,7 @@ fn jrn_3_and_jrn_4_encrypted_replay_round_trips_through_the_file() {
     };
     assert!(matches!(
         output.blocks(),
-        [AssistantBlock::Reasoning { text, .. }] if text.is_empty()
+        [AssistantBlock::ReplayOnly { .. }]
     ));
     let retained = output
         .replay()

@@ -38,7 +38,10 @@ pub fn budget_ledger(
     )?;
     let empty = encode_request(
         model,
-        &ModelRequest { atoms: Vec::new() },
+        &ModelRequest {
+            session_id: journal.session_id().clone(),
+            atoms: Vec::new(),
+        },
         tools,
         Some(model.max_output_tokens()),
     )?;
@@ -74,6 +77,8 @@ fn estimate_atom(
     let encoded = match model.api() {
         ModelApi::OpenaiResponses => crate::responses::encode_atom(model, atom)?,
         ModelApi::OpenaiChatCompletions => crate::chat::encode_atom(model, atom)?,
+        ModelApi::AnthropicMessages => crate::messages::encode_atom(model, atom)?,
+        ModelApi::GoogleGenerateContent => crate::gemini::encode_atom(model, atom)?,
     };
     let output = match atom.value() {
         ContextAtomValue::User { .. } => None,

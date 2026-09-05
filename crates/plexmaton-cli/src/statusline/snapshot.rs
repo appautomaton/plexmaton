@@ -45,7 +45,7 @@ struct Effort<'a> {
 }
 #[derive(Serialize)]
 struct Thinking {
-    enabled: bool,
+    enabled: Option<bool>,
 }
 #[derive(Serialize)]
 struct Cost {
@@ -170,7 +170,13 @@ impl<'a> Snapshot<'a> {
                 level: model.reasoning_effort().as_str(),
             },
             thinking: Thinking {
-                enabled: model.reasoning_effort() != plexmaton_provider::ReasoningEffort::None,
+                enabled: match model.reasoning_effort() {
+                    plexmaton_provider::ReasoningEffort::Default => (model.api()
+                        == plexmaton_provider::ModelApi::AnthropicMessages)
+                        .then_some(true),
+                    plexmaton_provider::ReasoningEffort::None => Some(false),
+                    _ => Some(true),
+                },
             },
             session_id: None,
             context_window: ContextWindow {

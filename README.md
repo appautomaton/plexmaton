@@ -1,7 +1,7 @@
 # Plexmaton
 
-Plexmaton is an early-stage Rust agentic harness with a Ratatui workspace, OpenAI-compatible
-Responses and Chat Completions, and native file/search/edit/command tools.
+Plexmaton is a Rust agentic harness with a Ratatui workspace, Responses, Chat Completions,
+Anthropic Messages, Gemini GenerateContent, and native file/search/edit/command tools.
 
 ## Development
 
@@ -24,20 +24,13 @@ reasoning_effort = "xhigh"
 context_window_tokens = 272000
 max_output_tokens = 128000
 output_reserve_tokens = 16384
-
-[providers.local.models.sol]
-id = "gpt-5.6-sol"
-display_name = "Sol"
-api = "openai_chat_completions"
-reasoning_effort = "high"
-context_window_tokens = 272000
-max_output_tokens = 128000
-output_reserve_tokens = 32768
-cost = { input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }
 ```
 
-Models may override their route's `api`. Estimation has a default; missing pricing is unavailable.
+Estimation has a default; missing pricing is unavailable.
 Set `PLEXMATON_HOME` for isolation.
+
+[Provider examples](examples/providers.toml) and [request options](.agents/specs/provider-adapter.md#request-configuration)
+cover native endpoints, instructions, optional reasoning and cache hints.
 
 The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
 symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or

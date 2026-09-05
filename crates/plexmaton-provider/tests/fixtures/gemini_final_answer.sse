@@ -1,0 +1,6 @@
+data: {"responseId":"gemini_fixture_answer","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Plex"}]}}]}
+
+data: {"responseId":"gemini_fixture_answer","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"maton."}]}}]}
+
+data: {"responseId":"gemini_fixture_answer","candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"","thoughtSignature":"answer-fixture"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":200,"cachedContentTokenCount":128,"candidatesTokenCount":6,"thoughtsTokenCount":3,"totalTokenCount":209}}
+

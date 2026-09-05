@@ -290,13 +290,17 @@ fn tim_3_terminal_cost_is_immutable_validated_and_non_floating_point() {
                 outcome: RequestDispatchedOutcome::Completed {
                     stop_reason: StopReason::EndOfTurn,
                 },
-                usage: TokenUsage::Partial(counts()),
+                usage: TokenUsage::Partial({
+                    let mut counts = counts();
+                    counts.cache_write_input = None;
+                    counts
+                }),
                 cost: RequestCost::Known {
                     usd_ticks: UsdCostTicks::new(42),
                 },
             },
         ),
-        Err(RequestTimingError::CostWithoutCompleteUsage)
+        Err(RequestTimingError::CostWithoutPricingBreakdown)
     );
 
     let priced = RequestAttemptTerminal::new(
@@ -321,5 +325,26 @@ fn tim_3_terminal_cost_is_immutable_validated_and_non_floating_point() {
         serde_json::from_str::<RequestAttemptTerminal>(&json)
             .unwrap_or_else(|error| panic!("decode priced terminal: {error}")),
         priced
+    );
+}
+
+/// TIM-3: durable cost requires priced categories, not the optional reasoning split.
+#[test]
+fn tim_3_priced_request_with_missing_reasoning_breakdown_round_trips() {
+    let mut counts = counts();
+    counts.reasoning_output = None;
+    let mut terminal = dispatched_state(TokenUsage::Partial(counts));
+    if let RequestAttemptTerminalState::Dispatched { cost, .. } = &mut terminal {
+        *cost = RequestCost::Known {
+            usd_ticks: UsdCostTicks::new(42),
+        };
+    }
+    let terminal = RequestAttemptTerminal::new(attempt("priced-partial"), terminal)
+        .expect("required pricing categories are known");
+    let encoded = serde_json::to_string(&terminal).expect("serialize terminal");
+    assert_eq!(
+        serde_json::from_str::<RequestAttemptTerminal>(&encoded)
+            .expect("validate persisted terminal"),
+        terminal
     );
 }

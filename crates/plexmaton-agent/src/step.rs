@@ -28,6 +28,9 @@ pub(crate) struct Step {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum PendingOutput {
+    ReplayOnly {
+        item_id: TranscriptItemId,
+    },
     Text(StreamedText),
     Reasoning(StreamedText),
     ToolCall {
@@ -154,6 +157,16 @@ impl Step {
             TranscriptRole::Reasoning => PendingOutput::Reasoning(StreamedText::new(role, item)),
             TranscriptRole::User | TranscriptRole::System => unreachable!("provider text role"),
         });
+        if matches!(output, PendingOutput::ReplayOnly { .. }) {
+            let item = Record::stream_item_id(&self.turn_id, self.index, role, position);
+            *output = match role {
+                TranscriptRole::Assistant => PendingOutput::Text(StreamedText::new(role, item)),
+                TranscriptRole::Reasoning => {
+                    PendingOutput::Reasoning(StreamedText::new(role, item))
+                }
+                TranscriptRole::User | TranscriptRole::System => unreachable!("provider text role"),
+            };
+        }
         let text = match (role, output) {
             (TranscriptRole::Assistant, PendingOutput::Text(text))
             | (TranscriptRole::Reasoning, PendingOutput::Reasoning(text)) => text,
@@ -194,14 +207,9 @@ impl Step {
             TranscriptRole::Reasoning,
             position,
         );
-        match self.outputs.entry(position).or_insert_with(|| {
-            PendingOutput::Reasoning(StreamedText::new(TranscriptRole::Reasoning, item))
-        }) {
-            PendingOutput::Reasoning(_) => {}
-            PendingOutput::Text(_) | PendingOutput::ToolCall { .. } => {
-                return Err(StepAssemblyError::ConflictingPosition);
-            }
-        }
+        self.outputs
+            .entry(position)
+            .or_insert(PendingOutput::ReplayOnly { item_id: item });
         self.replay.insert(position, replay);
         self.replay_bytes = replay_bytes;
         Ok(())
@@ -261,7 +269,12 @@ impl Step {
         position: ModelOutputPosition,
     ) -> Result<(), StepAssemblyError> {
         self.reserve_output_position(position)?;
-        if !self.outputs.contains_key(&position) {
+        if !self.outputs.contains_key(&position)
+            || matches!(
+                self.outputs.get(&position),
+                Some(PendingOutput::ReplayOnly { .. })
+            )
+        {
             if self
                 .last_visible_output_position
                 .is_some_and(|prior| position < prior)
@@ -280,6 +293,8 @@ impl Step {
     pub(crate) fn abort(mut self, record: &mut Record, reaction: &mut Reaction) {
         self.outputs
             .retain(|_, output| !matches!(output, PendingOutput::ToolCall { .. }));
+        self.replay
+            .retain(|position, _| self.outputs.contains_key(position));
         let calls = self.close_retained(record, reaction);
         debug_assert!(
             calls.is_empty(),
@@ -296,6 +311,7 @@ impl Step {
         let mut streamed = Vec::new();
         for (position, output) in self.outputs {
             let block = match output {
+                PendingOutput::ReplayOnly { item_id } => AssistantBlock::ReplayOnly { item_id },
                 PendingOutput::Text(text) => {
                     if !text.opened {
                         continue;
@@ -307,7 +323,7 @@ impl Step {
                     }
                 }
                 PendingOutput::Reasoning(text) => {
-                    if !text.opened && !self.replay.contains_key(&position) {
+                    if !text.opened {
                         continue;
                     }
                     streamed.push(text.clone());
@@ -333,7 +349,7 @@ impl Step {
                 let block = positions
                     .get(&position)
                     .copied()
-                    .unwrap_or_else(|| unreachable!("replay creates its reasoning anchor"));
+                    .unwrap_or_else(|| unreachable!("replay has a retained block anchor"));
                 (block, replay)
             }))
             .unwrap_or_else(|error| unreachable!("step validates replay assembly: {error}"));

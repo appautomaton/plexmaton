@@ -3,17 +3,15 @@
 use std::{collections::BTreeMap, fmt};
 
 mod environment;
+mod model;
 pub use environment::{resolve_api_key, resolve_home};
+pub use model::ResolvedModel;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use url::Url;
 
 pub use plexmaton_agent::TokenEstimator;
-use plexmaton_agent::{
-    ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId, ProviderReplayOwnerId,
-    ReplayCompatibility,
-};
 
 #[cfg(test)]
 mod tests;
@@ -24,6 +22,8 @@ mod tests;
 pub enum ModelApi {
     OpenaiResponses,
     OpenaiChatCompletions,
+    AnthropicMessages,
+    GoogleGenerateContent,
 }
 
 impl ModelApi {
@@ -31,14 +31,19 @@ impl ModelApi {
         match self {
             Self::OpenaiResponses => "openai_responses",
             Self::OpenaiChatCompletions => "openai_chat_completions",
+            Self::AnthropicMessages => "anthropic_messages",
+            Self::GoogleGenerateContent => "google_generate_content",
         }
     }
 }
 
 /// Provider reasoning effort selected for one resolved model.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReasoningEffort {
+    /// Use the provider's default effort level; summary display remains a dialect setting.
+    #[default]
+    Default,
     None,
     Low,
     Medium,
@@ -50,6 +55,7 @@ pub enum ReasoningEffort {
 impl ReasoningEffort {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Default => "default",
             Self::None => "none",
             Self::Low => "low",
             Self::Medium => "medium",
@@ -58,6 +64,15 @@ impl ReasoningEffort {
             Self::Max => "max",
         }
     }
+}
+
+/// Explicit cache intent; no provider cache retention is promised by this setting.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptCache {
+    #[default]
+    Automatic,
+    Disabled,
 }
 
 /// Optional price snapshot expressed in US dollars per million tokens.
@@ -130,24 +145,6 @@ impl ModelSelection {
     }
 }
 
-/// One credential-blind model profile after provider defaults and model overrides resolve.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ResolvedModel {
-    provider_name: String,
-    model_name: String,
-    api: ModelApi,
-    base_url: String,
-    wire_id: String,
-    display_name: String,
-    api_key_env: String,
-    reasoning_effort: ReasoningEffort,
-    context_window_tokens: u32,
-    max_output_tokens: u32,
-    output_reserve_tokens: u32,
-    token_estimator: TokenEstimator,
-    cost: Option<ModelCost>,
-}
-
 /// User-owned provider routes and the models reachable through each one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelRegistry {
@@ -194,7 +191,12 @@ struct RawModel {
     id: String,
     display_name: Option<String>,
     api: Option<ModelApi>,
+    #[serde(default)]
     reasoning_effort: ReasoningEffort,
+    #[serde(default)]
+    instructions: String,
+    #[serde(default)]
+    prompt_cache: PromptCache,
     context_window_tokens: u32,
     max_output_tokens: u32,
     output_reserve_tokens: u32,
@@ -240,6 +242,12 @@ pub enum ConfigError {
     },
     #[error("model `{model}` under provider `{provider}` has an invalid replay identity")]
     InvalidReplayIdentity { provider: String, model: String },
+    #[error("model `{model}` under provider `{provider}` has an invalid `{field}` request option")]
+    InvalidRequestOption {
+        provider: String,
+        model: String,
+        field: &'static str,
+    },
     #[error("cannot resolve the Plexmaton user configuration root")]
     HomeUnavailable,
     #[error("provider API key environment variable `{0}` is absent")]
@@ -324,167 +332,6 @@ impl ModelRegistry {
     #[must_use]
     pub fn model(&self, provider: &str, model: &str) -> Option<&ResolvedModel> {
         self.models.get(&(provider.to_owned(), model.to_owned()))
-    }
-}
-
-impl ResolvedModel {
-    fn resolve(
-        provider_name: String,
-        model_name: String,
-        base_url: &str,
-        api_key_env: &str,
-        provider_api: Option<ModelApi>,
-        model: RawModel,
-    ) -> Result<Self, ConfigError> {
-        let api = model
-            .api
-            .or(provider_api)
-            .ok_or_else(|| ConfigError::MissingModelApi {
-                provider: provider_name.clone(),
-                model: model_name.clone(),
-            })?;
-        let display_name = model.display_name.unwrap_or_else(|| model.id.clone());
-        let resolved = Self {
-            provider_name,
-            model_name,
-            api,
-            base_url: base_url.to_owned(),
-            wire_id: model.id,
-            display_name,
-            api_key_env: api_key_env.to_owned(),
-            reasoning_effort: model.reasoning_effort,
-            context_window_tokens: model.context_window_tokens,
-            max_output_tokens: model.max_output_tokens,
-            output_reserve_tokens: model.output_reserve_tokens,
-            token_estimator: model.token_estimator,
-            cost: model.cost,
-        };
-        resolved.validate()?;
-        Ok(resolved)
-    }
-
-    fn validate(&self) -> Result<(), ConfigError> {
-        for (field, value) in [
-            ("id", self.wire_id.as_str()),
-            ("display_name", self.display_name.as_str()),
-        ] {
-            if value.trim().is_empty() {
-                return Err(ConfigError::EmptyModelField {
-                    provider: self.provider_name.clone(),
-                    model: self.model_name.clone(),
-                    field,
-                });
-            }
-        }
-        if self.context_window_tokens == 0
-            || self.max_output_tokens == 0
-            || self.output_reserve_tokens == 0
-            || self.max_output_tokens >= self.context_window_tokens
-            || self.output_reserve_tokens > self.max_output_tokens
-        {
-            return Err(ConfigError::InvalidTokenLimits {
-                provider: self.provider_name.clone(),
-                model: self.model_name.clone(),
-            });
-        }
-        if let Some(cost) = &self.cost {
-            cost.validate(&self.provider_name, &self.model_name)?;
-        }
-        if ProviderReplayOwnerId::new(self.replay_owner_value()).is_err()
-            || ProviderModelFamilyId::new(self.wire_id.clone()).is_err()
-        {
-            return Err(ConfigError::InvalidReplayIdentity {
-                provider: self.provider_name.clone(),
-                model: self.model_name.clone(),
-            });
-        }
-        Ok(())
-    }
-
-    #[must_use]
-    pub fn provider_name(&self) -> &str {
-        &self.provider_name
-    }
-
-    #[must_use]
-    pub fn model_name(&self) -> &str {
-        &self.model_name
-    }
-
-    #[must_use]
-    pub const fn api(&self) -> ModelApi {
-        self.api
-    }
-
-    #[must_use]
-    pub fn base_url(&self) -> &str {
-        &self.base_url
-    }
-
-    #[must_use]
-    pub fn wire_id(&self) -> &str {
-        &self.wire_id
-    }
-
-    #[must_use]
-    pub fn display_name(&self) -> &str {
-        &self.display_name
-    }
-
-    #[must_use]
-    pub fn api_key_env(&self) -> &str {
-        &self.api_key_env
-    }
-
-    #[must_use]
-    pub const fn reasoning_effort(&self) -> ReasoningEffort {
-        self.reasoning_effort
-    }
-
-    #[must_use]
-    pub const fn context_window_tokens(&self) -> u32 {
-        self.context_window_tokens
-    }
-
-    #[must_use]
-    pub const fn max_output_tokens(&self) -> u32 {
-        self.max_output_tokens
-    }
-
-    #[must_use]
-    pub const fn output_reserve_tokens(&self) -> u32 {
-        self.output_reserve_tokens
-    }
-
-    #[must_use]
-    pub const fn token_estimator(&self) -> TokenEstimator {
-        self.token_estimator
-    }
-
-    #[must_use]
-    pub const fn cost(&self) -> Option<&ModelCost> {
-        self.cost.as_ref()
-    }
-
-    /// Adapter-owned realm in which opaque replay remains valid.
-    #[must_use]
-    pub fn replay_compatibility(&self) -> ReplayCompatibility {
-        let owner = ProviderReplayOwnerId::new(self.replay_owner_value())
-            .unwrap_or_else(|_| unreachable!("model registry validates replay owner"));
-        let codec = ProviderCodecId::new(self.api.codec_id())
-            .unwrap_or_else(|_| unreachable!("static codec identity is valid"));
-        let revision = ProviderCodecRevision::new(1)
-            .unwrap_or_else(|_| unreachable!("static codec revision is valid"));
-        let family = ProviderModelFamilyId::new(self.wire_id.clone())
-            .unwrap_or_else(|_| unreachable!("model registry validates model family"));
-        ReplayCompatibility::new(owner, codec, revision, family)
-    }
-
-    fn replay_owner_value(&self) -> String {
-        format!(
-            "provider_route:{}",
-            serde_json::json!([self.provider_name, self.base_url, self.api_key_env])
-        )
     }
 }
 

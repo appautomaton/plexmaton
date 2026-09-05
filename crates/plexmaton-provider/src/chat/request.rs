@@ -5,6 +5,8 @@ use plexmaton_agent::{
 };
 use serde_json::{Value, json};
 
+use super::{ChatReplay, ReasoningField};
+
 use crate::{
     FunctionTool, ResolvedModel,
     codec::{EncodeError, tool_output},
@@ -36,8 +38,13 @@ pub(crate) fn encode(
         "messages": messages,
         "stream": true,
         "stream_options": { "include_usage": true },
-        "reasoning_effort": model.reasoning_effort().as_str(),
     });
+    if model.reasoning_effort() != crate::ReasoningEffort::Default {
+        body["reasoning_effort"] = Value::String(model.reasoning_effort().as_str().to_owned());
+    }
+    if model.prompt_cache() == crate::PromptCache::Automatic {
+        body["prompt_cache_key"] = Value::String(crate::environment::session_cache_key(request));
+    }
     if !tools.is_empty() {
         body["tools"] = Value::Array(tools);
         body["tool_choice"] = Value::String("auto".to_owned());
@@ -51,6 +58,7 @@ pub(crate) fn encode(
 #[derive(Default)]
 struct PendingAssistant {
     reasoning: String,
+    reasoning_field: ReasoningField,
     content: Option<String>,
     calls: Vec<Value>,
 }
@@ -70,7 +78,7 @@ impl PendingAssistant {
             "content": self.content,
         });
         if !self.reasoning.is_empty() {
-            message["reasoning_content"] = Value::String(self.reasoning);
+            message[self.reasoning_field.as_str()] = Value::String(self.reasoning);
         }
         if !self.calls.is_empty() {
             message["tool_calls"] = Value::Array(self.calls);
@@ -84,6 +92,9 @@ fn encode_messages(
     request: &ModelRequest,
 ) -> Result<Vec<Value>, EncodeError> {
     let mut messages = Vec::new();
+    if !model.instructions().is_empty() {
+        messages.push(json!({"role":"system", "content":model.instructions()}));
+    }
     for atom in &request.atoms {
         messages.extend(encode_atom(model, atom)?);
     }
@@ -125,14 +136,34 @@ fn encode_assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<V
                 expected: Box::new(expected),
             });
         }
-        return Err(EncodeError::OpaqueReplayInChat);
     }
 
     let mut pending = PendingAssistant::default();
     let mut phase = AssistantPhase::default();
-    for block in output.blocks() {
+    for (index, block) in output.blocks().iter().enumerate() {
+        let replay = output.replay().and_then(|replay| {
+            replay
+                .attachments()
+                .iter()
+                .find(|item| usize::from(item.block()) == index)
+        });
+        if replay.is_some() && !matches!(block, AssistantBlock::Reasoning { .. }) {
+            return Err(EncodeError::OpaqueReplayInChat);
+        }
         match block {
+            AssistantBlock::ReplayOnly { .. } => return Err(EncodeError::OpaqueReplayInChat),
             AssistantBlock::Reasoning { text, .. } => {
+                let field = if let Some(replay) = replay {
+                    let ChatReplay::Reasoning { field } = serde_json::from_str(replay.payload())
+                        .map_err(|_| EncodeError::OpaqueReplayInChat)?;
+                    field
+                } else {
+                    ReasoningField::ReasoningContent
+                };
+                if !pending.reasoning.is_empty() && pending.reasoning_field != field {
+                    return Err(EncodeError::UnrepresentableChatOrder);
+                }
+                pending.reasoning_field = field;
                 if !matches!(phase, AssistantPhase::Reasoning) {
                     return Err(EncodeError::UnrepresentableChatOrder);
                 }

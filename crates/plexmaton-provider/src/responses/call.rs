@@ -15,6 +15,10 @@ pub(super) struct CallAssembly {
 }
 
 impl CallAssembly {
+    pub(super) fn item_id(&self) -> Option<&str> {
+        self.item_id.as_deref()
+    }
+
     pub(super) fn merge_identity(
         &mut self,
         item_id: Option<String>,

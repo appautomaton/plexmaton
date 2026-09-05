@@ -1,0 +1,24 @@
+┌ Plexmaton · idle ────────────────────────────────────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│▌Inspect the project.                                     │
+│                                                          │
+│error                                                     │
+│the provider reported an error: missing reasoning         │
+│signature (MISSING_THOUGHT_SIGNATURE)                     │
+│                                                          │
+├ Message Plexmaton ───────────────────────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+

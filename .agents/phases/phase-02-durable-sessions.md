@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 and stage 2 slices 1–6 complete; compaction planning remains |
+| Status | Active; stage 1 and stage 2 slices 1–6 complete; stage 3 provider dialects complete; compaction remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -59,7 +59,30 @@ discovery, SQLite and redb are not introduced.
 
 Each stage receives a sliced plan when it starts. Stage 1 delivered the journal foundation and the
 head mechanics in scope items 1–2. [Stage 2](../plans/phase-02-stage-02-context-projection.md)
-finishes their production journey and owns scope item 3; later stages consume both.
+finishes their production journey and owns scope item 3. Stage 3 delivered the provider transports
+in scope item 4. Compaction, durable policy and MCP remain separate work.
+
+### Provider dialects — complete
+
+[PRV-1–PRV-7](../specs/provider-adapter.md) define Responses, Chat Completions, Messages and native
+Gemini GenerateContent over the same canonical journal and loop. The
+[spike](../spikes/provider-adapter-parity/README.md) retains the source comparison. On base `3983bca`,
+795 tests passed in the default parallel workspace suite, including JRN-4's inherited-descriptor
+lock regression. Formatting, all-target compilation, Clippy, corpus gates, typos, machete and the
+offline dependency audit passed; the audit retains existing hashbrown/syn duplicate warnings.
+
+Real codec output survives JSONL reopen with exact replay and stable cache identity. Interrupted
+reasoning and failures remain in the journal while subsequent live and reopened wire requests
+match. Three-width frames were inspected for
+[provider errors](../spikes/provider-adapter-parity/frames/provider-failure-wide.txt)
+([medium](../spikes/provider-adapter-parity/frames/provider-failure-medium.txt),
+[narrow](../spikes/provider-adapter-parity/frames/provider-failure-narrow.txt)) and
+[interrupted thinking followed by continuation](../spikes/provider-adapter-parity/frames/interrupted-thinking-wide.txt)
+([medium](../spikes/provider-adapter-parity/frames/interrupted-thinking-medium.txt),
+[narrow](../spikes/provider-adapter-parity/frames/interrupted-thinking-narrow.txt)), using the
+[real agent and TUI renderer](../spikes/provider-adapter-parity/render-review.rs).
+No live provider/proxy inference, PTY smoke or performance measurement was run for this stage;
+realized cache hits and provider billing remain unverified.
 
 ## Not in this phase
 

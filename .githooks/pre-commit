@@ -17,6 +17,13 @@ fi
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Git exports repository-local variables to hooks. Gates spawn their own fixture repositories;
+# let each child resolve its working directory instead of inheriting this repository's authority.
+git_repository_variables=$(git rev-parse --local-env-vars)
+while IFS= read -r git_repository_variable; do
+    unset "$git_repository_variable"
+done <<< "$git_repository_variables"
+
 run() {
     printf '\033[36m→ %s\033[0m\n' "$*"
     "$@"

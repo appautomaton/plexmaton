@@ -1,0 +1,108 @@
+# Current frontier series; select the exact route/model pair your account can access.
+# These conservative local budgets are below the models' published ceilings.
+# Credentials come only from the named environment variables.
+# Native Astra tool conversations require Responses.
+active_model = { provider = "openai", model = "responses" }
+
+[providers.openai]
+base_url = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+api = "openai_responses"
+
+[providers.openai.models.responses]
+id = "gpt-6-astra"
+reasoning_effort = "medium"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+instructions = "You are a coding assistant. Preserve tool results accurately."
+# Example only, USD per million tokens; replace with the selected model's actual rates:
+# cost = { input = 1.0, output = 2.0, cache_read = 0.1, cache_write = 1.25 }
+
+[providers.openai.models.sol]
+id = "gpt-5.6-sol"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.openai.models.terra]
+id = "gpt-5.6-terra"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.openai.models.luna]
+id = "gpt-5.6-luna"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.anthropic]
+base_url = "https://api.anthropic.com/v1"
+api_key_env = "ANTHROPIC_API_KEY"
+api = "anthropic_messages"
+
+[providers.anthropic.models.messages]
+id = "claude-opus-5"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.anthropic.models.fable]
+id = "claude-fable-5"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.anthropic.models.sonnet]
+id = "claude-sonnet-5"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+[providers.google]
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+api_key_env = "GEMINI_API_KEY"
+api = "google_generate_content"
+
+[providers.google.models.gemini]
+id = "gemini-3.8-flash"
+reasoning_effort = "medium"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+
+# Set the actual proxy URL, advertised model ID and API; no backend is inferred from its name.
+
+[providers.proxy]
+base_url = "http://127.0.0.1:8317/v1"
+api_key_env = "PLEXMATON_PROXY_API_KEY"
+api = "openai_chat_completions"
+
+[providers.proxy.models.chat]
+id = "YOUR_FRONTIER_PROXY_MODEL_ID"
+reasoning_effort = "high"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
+# prompt_cache = "disabled" # Explicitly omit cache hints if this proxy does not accept them.
+
+# Gemini facade of CLIProxyAPI; its backend owns Antigravity OAuth and CloudCode wrapping.
+# Select this route only when the proxy advertises the model ID below (or its configured alias).
+[providers.cliproxy_gemini]
+base_url = "http://127.0.0.1:8317/v1beta"
+api_key_env = "PLEXMATON_PROXY_API_KEY"
+api = "google_generate_content"
+
+[providers.cliproxy_gemini.models.gemini]
+id = "gemini-3.8-flash"
+reasoning_effort = "medium"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096

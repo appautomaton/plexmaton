@@ -1,5 +1,5 @@
 use plexmaton_agent::{MAX_REQUESTED_TOOL_ARGUMENT_BYTES, MAX_TOOL_IDENTITY_BYTES};
-use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, OpenAiCodec};
+use plexmaton_provider::{DecodeError, DecodeLimits, ModelApi, ProviderCodec};
 use serde_json::json;
 
 use super::support::profile;
@@ -15,15 +15,23 @@ fn prv_2_production_tool_argument_limit_remains_64_kibibytes() {
             limits.max_tool_argument_bytes,
             MAX_REQUESTED_TOOL_ARGUMENT_BYTES
         );
-        let mut codec = OpenAiCodec::new(&profile, limits);
+        let mut codec = ProviderCodec::new(
+            &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+                .unwrap_or_else(|error| panic!("attempt: {error}")),
+            &profile,
+            limits,
+        );
         match api {
             ModelApi::OpenaiChatCompletions => check_chat(&mut codec),
             ModelApi::OpenaiResponses => check_responses(&mut codec),
+            ModelApi::AnthropicMessages | ModelApi::GoogleGenerateContent => {
+                unreachable!("this fixture enumerates the two OpenAI dialects")
+            }
         }
     }
 }
 
-fn check_chat(codec: &mut OpenAiCodec) {
+fn check_chat(codec: &mut ProviderCodec) {
     let at_limit = json!({
         "choices": [{
             "index": 0,
@@ -48,7 +56,7 @@ fn check_chat(codec: &mut OpenAiCodec) {
     assert_too_large(codec.push_sse("message", &over_limit));
 }
 
-fn check_responses(codec: &mut OpenAiCodec) {
+fn check_responses(codec: &mut ProviderCodec) {
     let added = json!({
         "type": "response.output_item.added",
         "output_index": 0,
@@ -93,7 +101,12 @@ fn assert_too_large(result: Result<Vec<plexmaton_agent::ModelEvent>, DecodeError
 fn prv_2_both_protocols_bound_tool_identity_before_emission() {
     let oversized = "x".repeat(MAX_TOOL_IDENTITY_BYTES + 1);
     let chat_profile = profile(ModelApi::OpenaiChatCompletions);
-    let mut chat = OpenAiCodec::new(&chat_profile, DecodeLimits::production());
+    let mut chat = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &chat_profile,
+        DecodeLimits::production(),
+    );
     let chat_event = json!({
         "choices": [{
             "index": 0,
@@ -116,7 +129,12 @@ fn prv_2_both_protocols_bound_tool_identity_before_emission() {
     ));
 
     let responses_profile = profile(ModelApi::OpenaiResponses);
-    let mut responses = OpenAiCodec::new(&responses_profile, DecodeLimits::production());
+    let mut responses = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &responses_profile,
+        DecodeLimits::production(),
+    );
     let responses_event = json!({
         "type": "response.output_item.added",
         "output_index": 0,

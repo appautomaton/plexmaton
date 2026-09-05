@@ -78,6 +78,8 @@ impl ModelStepId {
 /// rather than per delta. When it is measured and matters, the fix is to borrow the history.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelRequest {
+    /// Stable session identity used by adapters for cache affinity.
+    pub session_id: plexmaton_core::SessionId,
     /// Indivisible conversation units, oldest first.
     pub atoms: Vec<ContextAtom>,
 }
@@ -138,6 +140,8 @@ pub enum StopReason {
     ToolCalls,
     /// The model was cut off by the output limit.
     OutputLimit,
+    /// Generation reached the context window boundary.
+    ContextLimit,
     /// The model declined.
     Refused,
     /// The dialect did not say. Treated as the end of the turn, and reported.
@@ -153,6 +157,11 @@ pub enum ModelError {
     /// The request never reached the model, or its response never arrived intact.
     Transport {
         /// What to tell the user. Never matched on.
+        message: String,
+    },
+    /// The provider returned an HTTP or stream error without a more specific category.
+    ProviderFailed {
+        /// Sanitized explanation for the user. Never matched on.
         message: String,
     },
     /// The provider refused the traffic for now.
@@ -175,6 +184,9 @@ impl ModelError {
     pub fn message(&self) -> String {
         match self {
             Self::Transport { message } => format!("the model could not be reached: {message}"),
+            Self::ProviderFailed { message } => {
+                format!("the provider reported an error: {message}")
+            }
             Self::RateLimited {
                 retry_after: Some(seconds),
             } => {
