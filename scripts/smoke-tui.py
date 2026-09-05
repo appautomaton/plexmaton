@@ -242,6 +242,19 @@ def check_command_palette(master: int, captured: bytearray) -> list[str]:
             failures.append(f"session discovery: {query.decode()}")
         os.write(master, b"\x1b")
         drain(master, 0.2, captured)
+    # SPK-2/JRN-4: /new takes the production command route without submitting model input.
+    os.write(master, b"\x10new\r")
+    drain(master, 0.4, captured)
+    set_size(master, REPAINT_PROBE_SIZE)
+    drain(master, 0.2, captured)
+    start = len(captured)
+    set_size(master, RESIZED)
+    drain(master, REPAINT_SECONDS, captured)
+    screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
+    if collapsed(b"Message Plexmaton") not in screen or any(
+        collapsed(label) in screen for label in (b"Sessions", b"Commands", b"Cannot open")
+    ):
+        failures.append("new conversation did not replace the palette")
     return failures
 
 
@@ -484,7 +497,7 @@ output_reserve_tokens = 5000
             file=sys.stderr,
         )
         failures.append("lazy automatic session")
-    if b"Session saved:" in captured or b"Session ID:" in captured:
+    if b"To continue this session, run:" in captured:
         failures.append("blank launch reported a nonexistent session")
 
     if failures:

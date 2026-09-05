@@ -13,6 +13,7 @@ thiserror.workspace = true
 # one grapheme cluster, and the cursor sits at the display width of the line rather than its length.
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
+pulldown-cmark.workspace = true
 
 [dev-dependencies]
 plexmaton-sim = { path = "../plexmaton-sim" }
@@ -23,4 +24,3 @@ proptest.workspace = true
 
 [lints]
 workspace = true
-

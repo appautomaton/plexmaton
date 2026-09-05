@@ -6,7 +6,7 @@
 
 use ratatui::layout::Rect;
 
-use super::BodyRegions;
+use super::{BodyRegions, DecisionMode};
 use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 
 const BASE_Z_INDEX: u32 = 0;
@@ -21,6 +21,7 @@ pub(super) fn surface_tree(
     notices: Option<Rect>,
     attention: Option<Rect>,
     regions: BodyRegions,
+    decision_mode: DecisionMode,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
@@ -70,7 +71,10 @@ pub(super) fn surface_tree(
         &mut tree,
         SurfaceId::Approval,
         regions.decision,
-        SurfaceKind::Modal,
+        match decision_mode {
+            DecisionMode::Inline => SurfaceKind::Panel,
+            DecisionMode::Modal => SurfaceKind::Modal,
+        },
         MODAL_Z_INDEX,
     );
     register_at(

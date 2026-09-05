@@ -21,6 +21,8 @@ pub enum Command {
     Config,
     /// Find and resume an existing conversation without dispatching a request.
     Resume,
+    /// Start an empty conversation; storage is created on its first submitted message.
+    New,
 }
 
 impl Command {
@@ -31,7 +33,7 @@ impl Command {
         })
     }
     /// Every command, in the order the list shows them.
-    pub const ALL: [Self; 2] = [Self::Config, Self::Resume];
+    pub const ALL: [Self; 3] = [Self::Config, Self::Resume, Self::New];
 
     /// The name the list shows and the user types.
     #[must_use]
@@ -39,6 +41,7 @@ impl Command {
         match self {
             Self::Config => "/config",
             Self::Resume => "/resume",
+            Self::New => "/new",
         }
     }
 
@@ -48,6 +51,7 @@ impl Command {
         match self {
             Self::Config => "Provider, model, and reasoning effort",
             Self::Resume => "Find and resume a saved conversation",
+            Self::New => "Start a new conversation",
         }
     }
 
@@ -60,6 +64,7 @@ impl Command {
         match self {
             Self::Config => &["settings"],
             Self::Resume => &["continue", "sessions", "session"],
+            Self::New => &[],
         }
     }
 

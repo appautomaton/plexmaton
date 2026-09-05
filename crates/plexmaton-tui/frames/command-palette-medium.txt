@@ -5,9 +5,9 @@
 │○ Agent │ Type to filter                                                           │         │
 │done · 1│> /config  Provider, model, and reasoning effort                          │         │
 │        │  /resume  Find and resume a saved conversation                           │         │
+│        │  /new  Start a new conversation                                          │         │
 │        │ ↑↓ choose · Enter run · Esc close                                        │         │
 │        └──────────────────────────────────────────────────────────────────────────┘         │
-│                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │

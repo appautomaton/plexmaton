@@ -47,6 +47,7 @@ impl Workspace {
         self.surfaces = SurfaceTree::default();
         self.pressed_entry = None;
         self.pressed_retry = None;
+        self.pressed_approval = None;
         self.pressed_palette = None;
         self.drag_autoscroll = None;
         self.painted = None;

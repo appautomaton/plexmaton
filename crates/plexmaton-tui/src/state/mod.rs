@@ -47,6 +47,7 @@ pub(crate) use restoration::FeedbackPlacement;
 pub use restoration::{SessionRestoration, SessionTailRepair};
 pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
+pub(crate) use selection::TextPoint;
 pub use selection::{CopyRequest, Selection};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};

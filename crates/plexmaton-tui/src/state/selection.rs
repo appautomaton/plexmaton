@@ -1,9 +1,7 @@
 //! What the user has selected, and what copying it returns.
 //!
-//! A selection is a range over a conversation's semantic entries and never a rectangle of cells.
-//! That is the whole design: because a
-//! range names content, scrolling it out of view, resizing the terminal, or re-wrapping the text
-//! cannot change what is selected or what copying it returns. The contract is
+//! Keyboard ranges name entries; pointer ranges name visible text within them, never terminal
+//! cells. Scrolling and reflow preserve those content endpoints. The contract is
 //! [`specs/selection-and-copy.md`](../../../../.agents/specs/selection-and-copy.md).
 
 use plexmaton_core::{AgentId, ToolDetail};
@@ -13,6 +11,15 @@ use crate::{
     intent::Direction,
     surface::{SurfaceId, SurfaceTree},
 };
+mod text;
+pub(crate) use text::TextPoint;
+use text::TextRange;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Range {
+    Entries { anchor: usize, focus: usize },
+    Text(TextRange),
+}
 
 /// A range over one surface's entries, in that surface's own order.
 ///
@@ -25,8 +32,7 @@ pub struct Selection {
     pub surface: SurfaceId,
     /// Whose content it is, so a selection cannot survive onto a different agent's list.
     pub agent: AgentId,
-    anchor: usize,
-    focus: usize,
+    range: Range,
 }
 
 impl Selection {
@@ -34,18 +40,21 @@ impl Selection {
         Self {
             surface,
             agent,
-            anchor: index,
-            focus: index,
+            range: Range::Entries {
+                anchor: index,
+                focus: index,
+            },
         }
     }
 
     /// First and last selected entry, in list order.
     #[must_use]
     pub const fn bounds(&self) -> (usize, usize) {
-        if self.anchor <= self.focus {
-            (self.anchor, self.focus)
+        let (anchor, focus) = self.indices();
+        if anchor <= focus {
+            (anchor, focus)
         } else {
-            (self.focus, self.anchor)
+            (focus, anchor)
         }
     }
 
@@ -59,9 +68,20 @@ impl Selection {
         last.saturating_sub(first).saturating_add(1)
     }
 
+    pub(crate) const fn is_text(&self) -> bool {
+        matches!(self.range, Range::Text(_))
+    }
+
     /// The moving end of the range, which is the entry a disclosure command addresses.
     pub(super) const fn focus_index(&self) -> usize {
-        self.focus
+        self.indices().1
+    }
+
+    const fn indices(&self) -> (usize, usize) {
+        match &self.range {
+            Range::Entries { anchor, focus } => (*anchor, *focus),
+            Range::Text(range) => (range.anchor.index, range.focus.index),
+        }
     }
 }
 
@@ -87,7 +107,7 @@ impl Selected {
 /// crate may touch the terminal or the host, so the composition root is what owns the sink.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CopyRequest {
-    /// Exact selected source from entries or editable input, never painted cells or borders.
+    /// Original source for entry/input selections, visible plain text for pointer ranges; never terminal cells.
     pub text: String,
     /// How many transcript entries it came from; zero for an editable input selection.
     pub entries: usize,
@@ -103,8 +123,10 @@ impl ViewState {
     /// Which entries of one surface's list are selected, for the frame drawing it.
     pub(crate) fn selected_in(&self, surface: SurfaceId, agent_id: &AgentId) -> Selected {
         Selected(self.selection.as_ref().and_then(|selection| {
-            (selection.surface == surface && &selection.agent == agent_id)
-                .then(|| selection.bounds())
+            (selection.surface == surface
+                && &selection.agent == agent_id
+                && matches!(selection.range, Range::Entries { .. }))
+            .then(|| selection.bounds())
         }))
     }
 
@@ -125,12 +147,16 @@ impl ViewState {
         // must not cost a frame — the same rule `move_selection` follows on the agent rail (FR-1).
         let changed = match self.selection.as_mut() {
             Some(selection) if selection.surface == surface && selection.agent == agent_id => {
+                let (anchor, focus) = selection.indices();
                 let next = match direction {
-                    Direction::Forward => selection.focus.saturating_add(1).min(last),
-                    Direction::Backward => selection.focus.saturating_sub(1),
+                    Direction::Forward => focus.saturating_add(1).min(last),
+                    Direction::Backward => focus.saturating_sub(1),
                 };
-                let moved = next != selection.focus;
-                selection.focus = next;
+                let moved = next != focus || matches!(selection.range, Range::Text(_));
+                selection.range = Range::Entries {
+                    anchor,
+                    focus: next,
+                };
                 moved
             }
             _ => {
@@ -143,39 +169,14 @@ impl ViewState {
         }
     }
 
-    /// Starts a one-entry selection where the pointer went down (SEL-1).
-    ///
-    /// Every entry, not only a foldable one: the pointer addressing a narrower set of the
-    /// conversation than the keyboard is what made a click select a tool and do nothing at all on
-    /// the message beside it.
+    /// Establishes a keyboard-style entry selection for component fixtures.
+    #[cfg(test)]
     pub(crate) fn begin_selection(&mut self, surface: SurfaceId, agent: AgentId, index: usize) {
         let next = Selection::at(surface, agent, index);
         if self.selection.as_ref() != Some(&next) {
             self.selection = Some(next);
             self.touch();
         }
-    }
-
-    /// Moves the selection's moving end to the entry the pointer is over, keeping its anchor.
-    ///
-    /// A drag that leaves the surface or reaches a row with no entry under it holds the last range
-    /// rather than collapsing: the gesture is still in progress, and a selection that flickered
-    /// away at the edge of the panel would be one the user cannot end on purpose.
-    pub(crate) fn extend_selection_to(
-        &mut self,
-        surface: SurfaceId,
-        agent: &AgentId,
-        index: usize,
-    ) -> bool {
-        let Some(selection) = self.selection.as_mut() else {
-            return false;
-        };
-        if selection.surface != surface || &selection.agent != agent || selection.focus == index {
-            return false;
-        }
-        selection.focus = index;
-        self.touch();
-        true
     }
 
     /// Drops the selection, reporting whether there was one. A rung on the `Escape` ladder (INV-6).
@@ -232,6 +233,9 @@ impl ViewState {
     pub fn copy(&self) -> Option<CopyRequest> {
         let selection = self.selection.as_ref()?;
         let agent = self.agents.get(&selection.agent)?;
+        if let Range::Text(range) = &selection.range {
+            return self.copy_text_range(agent, range);
+        }
         let (first, last) = selection.bounds();
         let sources = self.sources(
             selection.surface,
@@ -354,8 +358,10 @@ mod tests {
         state.selection = Some(Selection {
             surface: SurfaceId::Inspector,
             agent,
-            anchor: 0,
-            focus: count.saturating_sub(1),
+            range: super::Range::Entries {
+                anchor: 0,
+                focus: count.saturating_sub(1),
+            },
         });
 
         let copied = state
@@ -544,7 +550,7 @@ mod tests {
             .handle(&release(rows["charlie"]))
             .copied
             .unwrap_or_else(|| panic!("releasing a drag copies what it crossed"));
-        assert_eq!(copied.text, "alpha\nbravo\ncharlie");
+        assert_eq!(copied.text, "alpha\n\nbravo\n\ncharlie");
 
         // Pressing off the content is the gesture's own undo: without it the only way out of a
         // highlight the mouse made is a key.
@@ -748,7 +754,11 @@ mod tests {
     }
 
     fn press(row: u16) -> Event {
-        mouse(MouseEventKind::Down(MouseButton::Left), row)
+        let mut event = mouse(MouseEventKind::Down(MouseButton::Left), row);
+        if let Event::Mouse(event) = &mut event {
+            event.column = 1;
+        }
+        event
     }
 
     fn drag(row: u16) -> Event {

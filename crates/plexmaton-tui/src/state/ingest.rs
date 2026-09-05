@@ -11,7 +11,7 @@ use plexmaton_core::{
 };
 use thiserror::Error;
 
-use super::{AgentView, AttentionView, NoticeView, SurfaceId, ViewState};
+use super::{AgentView, AttentionView, NoticeView, ViewState};
 
 /// Why the projection rejected one semantic event.
 ///
@@ -223,12 +223,10 @@ impl ViewState {
                 // conversation that asked (ui-ux §input). The record still enters the queue,
                 // because that is where its resolution finds it (ATT-3).
                 let answer_here = matches!(request, AttentionRequest::Approval { .. })
-                    && self.agents.peeked().is_none()
                     && self
                         .agents
                         .primary()
                         .is_some_and(|primary| primary.id == agent_id);
-                let opened = attention_id.clone();
                 let queued = self.attention.request(AttentionView {
                     id: attention_id,
                     agent_id,
@@ -237,12 +235,8 @@ impl ViewState {
                     // user had seen is a fresh ask (ATT-3).
                     acknowledged: false,
                 });
-                if answer_here && self.approval.open(opened, SurfaceId::Composer) {
-                    // Back to typing, not to the transcript: the draft the user was in the middle
-                    // of is still there, and `Esc` keeps the request pending beside it.
-                    self.focus.prefer(SurfaceId::Approval);
-                }
-                queued
+                let opened = answer_here && self.open_next_primary_approval();
+                queued || opened
             }
             SessionEvent::AttentionResolved {
                 agent_id,
@@ -262,8 +256,10 @@ impl ViewState {
                 }
                 let return_focus = self.approval.resolved(&attention_id);
                 let removed = self.attention.resolve(&attention_id);
-                let restored = return_focus.is_some_and(|surface| self.focus.prefer(surface));
-                removed || restored
+                let advanced = return_focus.is_some() && self.open_next_primary_approval();
+                let restored =
+                    !advanced && return_focus.is_some_and(|surface| self.focus.prefer(surface));
+                removed || restored || advanced
             }
             SessionEvent::MailDelivered {
                 item_id,

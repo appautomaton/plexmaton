@@ -88,6 +88,15 @@ impl ViewState {
             return true;
         }
         if surfaces.get(SurfaceId::Approval).is_some()
+            && self.approval_in_primary()
+            && self.focus.resolve(surfaces) == Some(SurfaceId::Approval)
+        {
+            self.focus.prefer(SurfaceId::Composer);
+            self.touch();
+            return true;
+        }
+        if surfaces.get(SurfaceId::Approval).is_some()
+            && !self.approval_in_primary()
             && let Some(return_focus) = self.approval.dismiss()
         {
             self.focus.prefer(return_focus);

@@ -69,7 +69,48 @@ fn resume_aliases_share_one_command_and_retry_is_not_a_global_command() {
     for name in ["retry", "edit-retry"] {
         assert_eq!(Command::from_slash(&format!("/{name}")), None);
     }
-    assert_eq!(Command::ALL, [Command::Config, Command::Resume]);
+    assert_eq!(
+        Command::ALL,
+        [Command::Config, Command::Resume, Command::New]
+    );
+    assert_eq!(Command::from_slash("/new"), Some(Command::New));
+}
+
+/// SPK-1/INV-11: /new shares keyboard and pointer dispatch at every supported width.
+#[test]
+fn new_command_keyboard_and_pointer_emit_the_same_intent() {
+    for width in [120, 95, 60] {
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
+        for pointer in [false, true] {
+            workspace.handle(&Event::Key(KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::CONTROL,
+            )));
+            workspace.draw(&mut terminal).expect("opened palette");
+            workspace.handle(&Event::Paste("/new".into()));
+            workspace.draw(&mut terminal).expect("palette");
+            assert!(panel(&workspace, &terminal).contains("/new  Start a new conversation"));
+            let outcome = if pointer {
+                let bounds = workspace
+                    .surfaces()
+                    .get(SurfaceId::CommandPalette)
+                    .expect("palette")
+                    .bounds;
+                let point = Point {
+                    x: bounds.x + 3,
+                    y: bounds.y + 2,
+                };
+                workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), point));
+                workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), point))
+            } else {
+                workspace.handle(&key(KeyCode::Enter))
+            };
+            assert_eq!(outcome.command, Some(Command::New));
+            assert!(outcome.submitted.is_none());
+            workspace.close_session_picker();
+        }
+    }
 }
 
 /// SPK-1/INV-1: filtering, moving beyond the visible window and a click resolve the same stable identity.

@@ -74,6 +74,12 @@ impl LayoutClass {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DecisionMode {
+    Inline,
+    Modal,
+}
+
 /// What the workspace needs from the projection in order to lay itself out.
 ///
 /// A value rather than a borrow of `ViewState`, so layout stays testable without constructing a
@@ -88,6 +94,8 @@ pub struct WorkspaceInput {
     pub attention: usize,
     /// Rows the decision region asks for, divider included. Zero registers no region at all.
     pub decision_rows: u16,
+    /// Primary approvals are inline inputs; a user-opened background request can be modal.
+    pub decision_mode: DecisionMode,
     /// Rows the command list asks for, borders included. Zero registers no region at all.
     pub command_palette_rows: u16,
     /// Rows requested by the read-only configuration page. Zero while closed.
@@ -107,6 +115,7 @@ impl Default for WorkspaceInput {
             has_notices: false,
             attention: 0,
             decision_rows: 0,
+            decision_mode: DecisionMode::Inline,
             command_palette_rows: 0,
             configuration_rows: 0,
             rail: false,
@@ -216,7 +225,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
 
     regions.configuration = workspace_overlay_region(overlay_area, input.configuration_rows);
 
-    registration::surface_tree(status, notices, attention, regions)
+    registration::surface_tree(status, notices, attention, regions, input.decision_mode)
 }
 
 /// Width the primary composer will occupy for this frame.

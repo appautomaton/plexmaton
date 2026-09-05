@@ -8,7 +8,7 @@ use ratatui::layout::Rect;
 use crate::{
     Workspace, content,
     intent::{PointerIntent, ScrollDirection},
-    state::{CopyRequest, EntryTarget, inner_width},
+    state::{CopyRequest, EntryTarget, TextPoint, inner_width},
     surface::{Point, SurfaceId},
 };
 
@@ -21,11 +21,13 @@ pub(super) struct PressedEntry {
     target: EntryTarget,
     at: Point,
     action: PressAction,
+    anchor: Option<(TextPoint, u16)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PressAction {
     Content,
+    TextOnly,
     Selecting,
     Copy,
     CancelledCopy,
@@ -70,7 +72,13 @@ impl Workspace {
                 // Read both before focus changes the inspector's input geometry: an event resolves
                 // against the frame the user pressed in (FR-3).
                 let entry = self.entry_at(surface, at);
-                let target = self.entry_target_at(surface, at);
+                let compact_target = self.entry_target_at(surface, at);
+                let anchor = self.text_point_at(surface, at, false);
+                let target = compact_target.clone().or_else(|| {
+                    anchor
+                        .as_ref()
+                        .and_then(|(_, point, _)| self.state.entry_target(surface, point.index))
+                });
                 let copy_button = target.as_ref().is_some_and(|target| {
                     self.copy_button_hit(target, at)
                         && self
@@ -85,9 +93,12 @@ impl Workspace {
                     at,
                     action: if copy_button {
                         PressAction::Copy
+                    } else if compact_target.is_none() {
+                        PressAction::TextOnly
                     } else {
                         PressAction::Content
                     },
+                    anchor: anchor.map(|(_, point, width)| (point, width)),
                 });
                 if copy_button {
                     return None;
@@ -133,19 +144,20 @@ impl Workspace {
                         self.pressed_entry = Some(pressed);
                         return None;
                     }
-                    if pressed.action == PressAction::Content {
-                        self.state.begin_selection(
+                    if matches!(pressed.action, PressAction::Content | PressAction::TextOnly)
+                        && let Some((anchor, width)) = pressed.anchor.take()
+                    {
+                        self.state.begin_text_selection(
                             surface,
                             pressed.target.agent.clone(),
-                            pressed.target.index,
+                            anchor,
+                            width,
                         );
                         pressed.action = PressAction::Selecting;
                     }
                     self.pressed_entry = Some(pressed);
                 }
-                if let Some((agent, index)) = self.dragged_entry_at(surface, at) {
-                    let _changed = self.state.extend_selection_to(surface, &agent, index);
-                }
+                self.extend_pointer_text(surface, at);
                 self.state.drag(&self.surfaces, pointer);
                 self.update_drag_autoscroll(surface, at, now);
                 None
@@ -177,9 +189,8 @@ impl Workspace {
             .pressed_entry
             .as_ref()
             .is_some_and(|pressed| pressed.action == PressAction::Selecting)
-            && let Some((agent, index)) = self.dragged_entry_at(surface, at)
         {
-            let _changed = self.state.extend_selection_to(surface, &agent, index);
+            self.extend_pointer_text(surface, at);
         }
         let released = self.entry_target_at(surface, at);
         self.state.hover_entry(released.clone());
@@ -203,9 +214,14 @@ impl Workspace {
             .as_ref()
             .is_some_and(|pressed| pressed.action == PressAction::Selecting)
         {
-            return self.state.copy();
+            let copied = self.state.copy();
+            if copied.is_none() {
+                self.state.clear_selection();
+            }
+            return copied;
         }
         if let Some(pressed) = pressed
+            && pressed.action == PressAction::Content
             && pressed.target.surface == surface
             && (released.as_ref() == Some(&pressed.target) || pressed.at == at)
         {
@@ -265,12 +281,7 @@ impl Workspace {
         if now < active.next_at {
             return false;
         }
-        let selected = self
-            .dragged_entry_at(active.surface, active.at)
-            .is_some_and(|(agent, index)| {
-                self.state
-                    .extend_selection_to(active.surface, &agent, index)
-            });
+        let selected = self.extend_pointer_text(active.surface, active.at);
         let Some((direction, rows)) = self.autoscroll_motion(active.surface, active.at) else {
             self.drag_autoscroll = None;
             return selected;
@@ -363,25 +374,7 @@ impl Workspace {
         self.entry_at_inside(surface, at, bounds)
     }
 
-    /// Resolves the nearest content row while a captured drag has crossed an edge.
-    fn dragged_entry_at(&self, surface: SurfaceId, at: Point) -> Option<(AgentId, usize)> {
-        let bounds = self.conversation_bounds(surface)?;
-        if bounds.width < 3 || bounds.height < 3 {
-            return None;
-        }
-        let at = Point {
-            x: at
-                .x
-                .clamp(bounds.x.saturating_add(1), bounds.right().saturating_sub(2)),
-            y: at.y.clamp(
-                bounds.y.saturating_add(1),
-                bounds.bottom().saturating_sub(2),
-            ),
-        };
-        self.entry_at_inside(surface, at, bounds)
-    }
-
-    fn conversation_bounds(&self, surface: SurfaceId) -> Option<Rect> {
+    pub(super) fn conversation_bounds(&self, surface: SurfaceId) -> Option<Rect> {
         match surface {
             SurfaceId::Inspector => self.state.inspector_conversation_bounds(&self.surfaces),
             SurfaceId::Transcript => self.surfaces.get(surface).map(|surface| surface.bounds),

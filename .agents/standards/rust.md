@@ -67,8 +67,7 @@
 
 ## Audited foundation
 
-Versions and features are declared once, in `[workspace.dependencies]`. This table owns only what a
-manifest cannot express: why each crate is here and what its feature set is allowed to become.
+Versions/features live in `[workspace.dependencies]`; this table owns rationale and feature limits.
 
 Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 
@@ -91,8 +90,9 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `tracing` / `tracing-subscriber` | Structured diagnostics | Only the formatting and filtering layers in use; logs are redirected away from the owned screen |
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
-| `proptest` | Property tests, `dev-dependencies` only | Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which pulls `rusty-fork` and `tempfile` for nothing these properties need |
+| `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |
 | `uuid` | Session identity | Defaults off; `std` and UUIDv7; chronology is separate |
+| `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
 
 ### Considered and not adopted
 

@@ -40,6 +40,26 @@ pub(super) struct OpenedSession {
     pub(super) persisted: Option<PersistedSession>,
 }
 
+pub(super) fn report_persisted_session(
+    session: &PersistedSession,
+    output: &mut impl std::io::Write,
+) -> anyhow::Result<()> {
+    // Terminal ownership has ended; a planned automatic filename is not a saved conversation.
+    if !session
+        .path
+        .try_exists()
+        .context("check saved session file")?
+    {
+        return Ok(());
+    }
+    writeln!(
+        output,
+        "To continue this session, run:\n  plexmaton resume {}",
+        session.id
+    )
+    .context("write session continuation command")
+}
+
 pub(super) fn parse_startup_action(arguments: &[OsString]) -> anyhow::Result<StartupAction> {
     match arguments {
         [] => Ok(StartupAction::Run(SessionSelection::Automatic)),

@@ -9,23 +9,32 @@
 
 ## Invariants
 
-**SEL-1 — A selection names content, never cells.** A transcript selection is a range over one conversation's entries,
-in first-appearance order, so scrolling, resizing, re-wrapping, and re-styling cannot change what
-is selected or what copying returns, and it extends past the viewport by construction. A selection
-started with none selects the newest entry, because everything here is append-ordered.
+**SEL-1 — A selection names content, never cells.** One explicit range is either keyboard-selected
+entries or pointer-selected visible text. Pointer endpoints carry entry identity, order and a
+grapheme-boundary offset validated by the exact text prefix; scrolling and reflow preserve them.
+Pure append preserves endpoints; a changed prefix invalidates the range rather than copying a
+different slice. A keyboard selection started with none selects the newest entry.
 
-The pointer makes the same range after movement: a press retains its anchor without selecting,
-then a drag creates and extends the range. A plain message click clears an old selection and does
-not copy; a press with no entry also clears it. Every entry can anchor a drag.
+The pointer retains its anchor on press, selects only after movement, and automatically copies on
+release. Partial endpoints can span entries, including disclosed tool text. An empty released range
+copies nothing and is cleared. A plain message click clears selection without copying.
 
 Editable inputs select source offsets under COM-6. They use the same copy boundary, with zero
 transcript entries in the resulting `CopyRequest`.
 
-**SEL-2 — Copy returns the producer's source.** The text comes from the projection, which holds what
-the producer sent: an artifact copies as its stable pointer and a message as the text of its deltas,
+**SEL-2 — Copy follows the selected representation.** The Copy icon and keyboard entry ranges read
+the producer's source: an artifact copies as its stable pointer and a message as the text of its deltas,
 never the cells, the label, or the decorated line. A tool copies its retained invocation followed
 by its retained outcome, omitting whichever is absent and joining both with one newline. Disclosure
 headings, gutters, clipping, and omission labels are presentation and never enter that source.
+This original-source path preserves Markdown delimiters, fences, link targets and table source.
+Pointer ranges instead slice a deterministic plain-text projection. Soft wraps add no copy
+newlines; code indentation and semantic line breaks remain; entries join with a blank line.
+Table cells use tabs/newlines in row-major order, without grid padding or repeated narrow-view
+labels. Fragments map text offsets to drawn columns; headings for code/diagnostics, borders,
+buttons and recovery feedback supply no text ranges. No copy path reads terminal cells.
+Maps and styled rows share MD-4's bounded cache; cache hits borrow mapping data, and highlighting
+copies only the rows it paints. Copying reads only the selected entries, not the whole history.
 
 **SEL-3 — One selection, in one surface, for one agent.** A selection carries the surface and the
 agent it indexes. Extending in a different surface replaces it, and a selection whose surface stops
@@ -66,19 +75,19 @@ row, which makes actions indistinguishable from a retained selection.
 ## Model
 
 ```text
-focused surface + its agent ──▶ entries ──▶ Selection { surface, agent, anchor, focus }
-                                   │                        │
-        content paints entry n ────┘                        └──▶ copy() ──▶ Outcome.copied
-        highlighted if in range                                              │
-                                                       plexmaton-cli::clipboard
-                                                          ├─ local macOS pbcopy
-                                                          ├─ direct OSC 52
-                                                          └─ tmux DCS + load-buffer -w
+retained entry ──┬─ original source ─────────────▶ Copy icon / keyboard entry range
+                └─ text layout ─┬─ styled rows ─▶ conversation surface
+                                ├─ offset map ──▶ pointer text range / highlight
+                                └─ visible text ▶ plain-text copy
+                                                        │
+                                                  Outcome.copied
+                                                        │
+                                               CLI clipboard transport
 ```
 
 | Surface | Entries, in order | What one copies as |
 | --- | --- | --- |
-| Conversation, Inspector | Text, tool, artifact and mail entries in first-appearance order | Text source; a tool's retained invocation then outcome; an artifact pointer; or a mail recipient and summary |
+| Conversation, Inspector | Text, tool, artifact and mail entries in first-appearance order | Pointer: selected visible text. Keyboard entries: source, retained tool details, artifact pointer, or mail recipient and summary |
 
 The order is `AgentView::entries()`, which is also what transcript measurement and content consume,
 so one index names one entry in every path. The bindings are in the routing spec's key grammar; the
@@ -92,7 +101,8 @@ be selected while its input holds the cursor.
 | Extending on a surface with no entries | Nothing selected, no repaint |
 | Extending past either end | Clamped |
 | Copying with nothing selected | No `CopyRequest`; the composition root has nothing to deliver |
-| A selected tool has no retained invocation or outcome | It contributes no source; its painted label is never substituted |
+| Streaming reinterprets text before an endpoint | Clear the range and pending drag; never copy a shifted substring |
+| A keyboard-selected tool has no retained invocation or outcome | It contributes no source; its painted label is never substituted |
 | The selected agent leaves the roster | `copy` finds no agent and returns nothing rather than stale text |
 | The outer terminal declines OSC 52 | Undetectable here, and claimed nowhere (SEL-5) |
 | Local macOS rejects `pbcopy` or exceeds its deadline | Error returned to the composition root; no unacknowledged fallback reported as success |
@@ -105,9 +115,9 @@ be selected while its input holds the cursor.
 | Invariant | Proven by |
 | --- | --- |
 | SEL-7 | `message_copy_hover_frames_are_local_and_clicking_body_never_copies`, `retry_hover_does_not_reverse_the_button_row_or_interfere_with_selection`, `copying_or_cancelling_copy_preserves_an_existing_selection`, `copy_icons_share_one_right_edge_across_roles_and_wrapped_text` |
-| SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
-| SEL-2 | `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
-| SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents` |
+| SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed`, `text_drag_crosses_entries_without_selecting_their_uncovered_text`, `streamed_text_preserves_or_invalidates_selection_by_its_exact_prefix`, `text_selection_frames_cover_three_widths`, `text_drag_reuses_maps_and_records_every_sample_at_both_history_scales` |
+| SEL-2 | `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state`, `mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown`, `text_drag_copies_wrapped_code_without_its_frame`, `mapped_markdown_has_width_independent_plain_text_and_exact_fragments`, `mapped_tables_copy_cell_text_without_alignment_padding` |
+| SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents`, `inspector_text_drag_survives_input_geometry_and_empty_drag_clears` |
 | SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `direct_copy_writes_the_exact_terminated_osc_52_sequence` |
 | SEL-5 | `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52`, `native_copy_requires_an_unambiguous_local_macos_terminal`, `native_copy_uses_the_system_helper_with_utf8`, `clipboard_helper_receives_exact_unicode_source_and_eof`, `clipboard_helper_rejection_is_not_reported_as_delivery`, `clipboard_deadline_bounds_a_blocked_stdin_pipe`, `clipboard_deadline_also_bounds_waiting_after_eof`; local macOS/iTerm clipboard delivery manually confirmed by the user on 2026-09-04 at `96917a4`; cancellation reaping remains unproven |
 | SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |

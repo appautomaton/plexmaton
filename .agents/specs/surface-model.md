@@ -24,12 +24,10 @@ the focus ring contains. Whether a text cursor exists is derived from the focuse
 never asserted independently.
 
 **SURF-4 — A modal blocks delivery below it.** While a surface that blocks is registered, pointer
-hit testing stops at it and the focus ring contains only it. The decision region is opened by a
-user action from Attention, or by the primary agent's own approval arriving in the conversation the
-user is already in (ATT-1); a request from a *background* agent alone registers no modal. It takes
-rows of its own between that conversation and its composer rather than the composer's rectangle:
-answering a tool call and typing the next instruction are two inputs, and the second is not the
-place to put the first.
+hit testing stops at it and the focus ring contains only it. Main-agent approvals use a non-blocking
+`Panel` inside their conversation (ATT-1): their rows remain above the composer, and Esc returns
+focus to input without removing the card. Configuration and user-opened background request
+overlays use `Modal`; a background request arriving alone registers no modal.
 
 The configuration page uses `Modal` above approvals; `CommandPalette` is a blocking text input
 above both. Their dismissal and compact geometry are INV-12 and INV-13.
@@ -39,6 +37,10 @@ to the frame that drew it. Covering, unregistering for a frame, or re-registerin
 them, so reopening restores what the user left.
 
 ## Model
+
+Product vocabulary is defined in ui-ux §Product vocabulary. The primary conversation surface uses
+`SurfaceId::Transcript`; `Inspector` is a composite containing a sub-agent conversation and its
+steering input. `SurfaceId::Agents` is the roster, never another name for a transcript.
 
 ```text
 layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface into visible()

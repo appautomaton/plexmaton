@@ -5,9 +5,9 @@
 │○ │ Type to filter                                     │  │
 │  │> /config  Provider, model, and reasoning effort    │  │
 │  │  /resume  Find and resume a saved conversation     │  │
-└──│ ↑↓ choose · Enter run · Esc close                  │──┘
-┌ A└────────────────────────────────────────────────────┘) ┐
-│                                                          │
+└──│  /new  Start a new conversation                    │──┘
+┌ A│ ↑↓ choose · Enter run · Esc close                  │) ┐
+│  └────────────────────────────────────────────────────┘  │
 │                                                          │
 │                                                          │
 │                                                          │

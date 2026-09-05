@@ -16,6 +16,7 @@ use crate::{
 };
 
 use super::tool;
+use crate::text_layout::Layout;
 
 /// One transcript entry, as the logical lines a viewport measures and paints.
 ///
@@ -29,9 +30,26 @@ pub(crate) fn transcript_entry(
     appearance: EntryAppearance,
     width: u16,
 ) -> Vec<Line<'static>> {
-    match entry {
+    let mut layout = transcript_layout(entry, palette, appearance, width);
+    if appearance.selected {
+        for line in &mut layout.lines {
+            if !line.spans.is_empty() {
+                *line = Line::styled(line.to_string(), palette.style(Role::Selection));
+            }
+        }
+    }
+    layout.lines
+}
+
+pub(crate) fn transcript_layout(
+    entry: &TranscriptEntryView,
+    palette: &Palette,
+    appearance: EntryAppearance,
+    width: u16,
+) -> Layout {
+    let lines = match entry {
         TranscriptEntryView::Text(item) => {
-            transcript_text(item, palette, appearance.selected, width)
+            return transcript_text(item, palette, appearance.selected, width);
         }
         TranscriptEntryView::Tool(tool) => tool::entry(tool, palette, appearance),
         TranscriptEntryView::Artifact(artifact) => {
@@ -53,7 +71,21 @@ pub(crate) fn transcript_entry(
             ]);
             vec![select_line(line, palette, appearance.selected)]
         }
+    };
+    let mut layout = Layout::default();
+    for line in lines {
+        layout.logical(
+            line,
+            usize::from(width),
+            false,
+            "",
+            palette.style(Role::Body),
+        );
     }
+    layout
+        .text
+        .truncate(layout.text.trim_end_matches('\n').len());
+    layout
 }
 
 /// Which side of the conversation a message is on, said in the margin rather than in a word.
@@ -72,7 +104,7 @@ fn transcript_text(
     palette: &Palette,
     selected: bool,
     width: u16,
-) -> Vec<Line<'static>> {
+) -> Layout {
     let (heading, default_body) = text_treatment(item);
     let body = if selected {
         Role::Selection
@@ -85,28 +117,73 @@ fn transcript_text(
     );
     let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
 
+    let markdown = matches!(
+        (item.kind, item.role),
+        (TranscriptTextKind::Message, TranscriptRole::Assistant)
+    );
+    let mut fallback = None;
+    if markdown && crate::markdown::may_format(&item.source) {
+        match crate::markdown::render_layout(&item.source, palette, reserved) {
+            Ok(mut layout) => {
+                if selected {
+                    for line in &mut layout.lines {
+                        *line = Line::styled(
+                            pad(line.to_string(), reserved),
+                            palette.style(Role::Selection),
+                        );
+                    }
+                }
+                layout.decoration(Line::default());
+                return layout;
+            }
+            Err(reason) => fallback = Some(reason),
+        }
+    }
+
     // Wrapped here rather than by the paragraph, because a margin painted on a logical line only
     // reaches the first row it wraps onto, and a selection painted on one only reaches as far as
     // the text does. Both have to run the full height and the full width of what they mark.
     // A fixed right gutter holds the first-row action; hovering adds no row or reflow.
-    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut layout = Layout::default();
+    if let Some(reason) = fallback {
+        for row in wrap_line(reason.label(), reserved) {
+            layout.decoration(Line::styled(row, palette.style(Role::Muted)));
+        }
+    }
     if let Some((word, role)) = heading {
-        lines.push(Line::styled(
+        layout.decoration(Line::styled(
             word,
             palette.style(if selected { Role::Selection } else { role }),
         ));
     }
-    for row in wrap_line(&item.source, reserved) {
-        let text = if selected { pad(row, reserved) } else { row };
-        let mut spans = Vec::new();
-        if gutter {
-            spans.push(Span::styled(GUTTER, palette.style(Role::Accent)));
-        }
-        spans.push(Span::styled(text, palette.style(body)));
-        lines.push(Line::from(spans));
+    let literal;
+    let source = if fallback.is_some() {
+        literal = crate::markdown::inert(&item.source);
+        literal.as_str()
+    } else {
+        &item.source
+    };
+    for line in source.split('\n') {
+        layout.logical(
+            Line::styled(line.to_owned(), palette.style(body)),
+            reserved,
+            false,
+            if gutter { GUTTER } else { "" },
+            palette.style(Role::Accent),
+        );
     }
-    lines.push(Line::default());
-    lines
+    // split preserves explicit trailing line breaks; discard only the builder's final separator.
+    layout.text.pop();
+    if selected {
+        for line in &mut layout.lines {
+            *line = Line::styled(
+                pad(line.to_string(), reserved + usize::from(gutter)),
+                palette.style(Role::Selection),
+            );
+        }
+    }
+    layout.decoration(Line::default());
+    layout
 }
 
 /// Pads a row out to `width` display columns so a selection is a rectangle, not a ragged edge.
@@ -210,13 +287,13 @@ mod tests {
                 finalized: true,
             };
             let lines = transcript_text(&item, &palette, false, 40);
-            assert_eq!(lines[0].to_string(), label);
-            assert_eq!(lines[0].style, palette.style(heading));
-            assert_eq!(lines[1].spans[0].style, palette.style(body));
+            assert_eq!(lines.lines[0].to_string(), label);
+            assert_eq!(lines.lines[0].style, palette.style(heading));
+            assert_eq!(lines.lines[1].spans[0].style, palette.style(body));
 
             let monochrome = transcript_text(&item, &Palette::monochrome(), false, 40);
-            assert_eq!(monochrome[0].to_string(), label);
-            assert_eq!(monochrome[1].to_string(), format!("{label} source"));
+            assert_eq!(monochrome.lines[0].to_string(), label);
+            assert_eq!(monochrome.lines[1].to_string(), format!("{label} source"));
         }
     }
 }

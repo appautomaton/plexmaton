@@ -13,8 +13,10 @@
 same wrapper that paints it (surface-model §viewports) and is recomputed only when that entry's
 revision, open state, anchored restoration feedback/retry actions, or the panel's width changes: a delta re-measures one entry, disclosure
 re-measures one entry at each retained width, a resize re-measures each entry once, a tool lifecycle
-update re-measures its one stable entry, and an unchanged frame re-measures none. Text, tool,
-artifact and mail entries use the same ordered cache. Width is part of the key,
+update re-measures its one stable entry, and an unchanged frame re-measures none. A palette change
+invalidates its styled layouts and heights once (MD-4). Text, tool, artifact and mail entries use
+the same ordered height cache. Markdown's separately bounded layout cache follows MD-4; evicting
+styled rows does not discard heights or anchors. Width is part of the key,
 because a conversation changes
 width when the second window opens beside it at ultrawide and comes back; a conversation keeps one
 set of heights per width, bounded at two, evicting the width least recently measured.

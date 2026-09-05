@@ -135,7 +135,11 @@ pub(super) fn transcript_title(state: &ViewState, palette: &Palette) -> Line<'st
 fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     state.selection().map_or_else(String::new, |selection| {
         if selection.surface == surface {
-            format!(" · {} selected", selection.entries())
+            if selection.is_text() {
+                " · text selected".into()
+            } else {
+                format!(" · {} selected", selection.entries())
+            }
         } else {
             String::new()
         }

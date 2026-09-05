@@ -5,8 +5,8 @@ Responses and Chat Completions, and native file/search/edit/command tools.
 
 ## Development
 
-The normal configuration root is `~/.plexmaton/`; repositories are never searched for a
-`.plexmaton/` directory. The file names the environment variable containing its credential:
+Configuration lives in `~/.plexmaton/`, never a repository's `.plexmaton/`.
+Credentials are read from the named environment variable:
 
 ```toml
 # ~/.plexmaton/config.toml
@@ -36,8 +36,8 @@ output_reserve_tokens = 32768
 cost = { input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }
 ```
 
-A route can own several models; each may override `api`. Estimation defaults when omitted;
-omitted pricing is unavailable. Set `PLEXMATON_HOME` for isolated development.
+Models may override their route's `api`. Estimation has a default; missing pricing is unavailable.
+Set `PLEXMATON_HOME` for isolation.
 
 The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
 symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or
@@ -50,8 +50,8 @@ PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- cr
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- resume work-01
 ```
 
-Default sessions create JSONL on the first message; blank launches save nothing. Exit names saved
-files. `--ephemeral` disables persistence.
+Default sessions create JSONL on the first message; blank launches save nothing.
+Exit prints a resume command for the selected saved session. `--ephemeral` disables persistence.
 `create` reserves a name; `resume` restores history. Files are owner-only:
 `PLEXMATON_HOME/sessions/<session-id>.jsonl` (ASCII letters, digits, `-`, `_`).
 
@@ -59,7 +59,7 @@ files. `--ephemeral` disables persistence.
 `Esc` backs out one layer. `Ctrl-P` opens the palette: `/config` (alias `/settings`) shows the
 resolved model configuration. Change `config.toml` and restart to apply settings.
 
-`/resume` opens searchable history; `/continue`, `/sessions` and `/session` are aliases.
+`/new` starts an empty session. `/resume` opens history; `/continue`, `/sessions`, `/session` are aliases.
 Arrows/Enter or click resumes; Esc cancels. Stop work and send or clear drafts before switching.
 
 Unanswered rate limits offer **Retry** / **Edit & retry** beside the failed message, not in the
@@ -75,14 +75,15 @@ max_rows = 6
 refresh_ms = 30000
 ```
 
-The example needs Bash, jq and a Nerd Font. It receives JSON snapshots on stdin;
-editing the script requires no rebuild. Context appears only after API-reported usage; missing
-statistics are omitted. Quit/Ctrl-P hints occupy the last terminal row.
+The example needs Bash, jq and a Nerd Font; JSON arrives on stdin. No rebuild needed for script
+edits. Context requires API-reported usage; unknown statistics stay hidden.
+Quit/Ctrl-P hints occupy the last terminal row.
 [Protocol, limits and configuration](.agents/specs/status-line.md).
 
-Inputs support pointer selection and grapheme-safe editing. Hover a message for its upper-right
-Nerd Font Copy icon; plain clicks do not copy. Transcript drags select entries; tools disclose
-retained detail. See [keys](.agents/specs/interaction-routing.md#key-grammar) and
+Assistant Markdown includes code blocks and responsive tables. Drag across entries to select text;
+release auto-copies plain text. The hover Copy icon keeps raw Markdown. Approvals stay inside the
+conversation; Esc returns to input, Tab/click returns to the card.
+See [keys](.agents/specs/interaction-routing.md#key-grammar) and
 [copy](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
 
 Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md).

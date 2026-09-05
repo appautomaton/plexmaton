@@ -44,22 +44,7 @@ pub fn render(
         return SurfaceTree::default();
     }
 
-    let inspector = state.inspector_request();
-    let composer_width = layout::composer_width(area, inspector);
-    let mut surfaces = layout::workspace(
-        area,
-        WorkspaceInput {
-            status_rows: state.status().rows(),
-            has_notices: state.notices().next().is_some(),
-            attention: state.attention_listed_count(),
-            decision_rows: state.decision_rows(composer_width),
-            command_palette_rows: state.command_palette_rows(),
-            configuration_rows: state.configuration_rows(),
-            rail: state.sub_agents().next().is_some(),
-            composer_rows: state.composer_rows(composer_width),
-            inspector,
-        },
-    );
+    let mut surfaces = layout::workspace(area, workspace_input(area, state));
     let stacking = Stacking::of(&surfaces);
     let focused = state.focused(&surfaces);
     // Both are resolved before anything is painted, and both come from the projection: whether the
@@ -282,12 +267,29 @@ fn collapsed_composer_panel(state: &ViewState, palette: &Palette, stacking: &Sta
     }
 }
 
-/// The decision region: a section of the asking conversation's box, above its composer.
-///
-/// Not a centred modal, and not the composer's rectangle. `ui-ux.md` §input says every input lives
-/// inside the box of the conversation it addresses, and answering a tool call is an input addressed
-/// to that conversation — but it is not the *same* input as the next instruction, so it gets its own
-/// section rather than the one the user types into. The tool entry it is about is directly above.
+/// Derives layout inputs once from the current projection and terminal geometry.
+fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
+    let inspector = state.inspector_request();
+    let composer_width = layout::composer_width(area, inspector);
+    WorkspaceInput {
+        status_rows: state.status().rows(),
+        has_notices: state.notices().next().is_some(),
+        attention: state.attention_listed_count(),
+        decision_rows: state.decision_rows(composer_width),
+        decision_mode: if state.approval_in_primary() {
+            layout::DecisionMode::Inline
+        } else {
+            layout::DecisionMode::Modal
+        },
+        command_palette_rows: state.command_palette_rows(),
+        configuration_rows: state.configuration_rows(),
+        rail: state.sub_agents().next().is_some(),
+        composer_rows: state.composer_rows(composer_width),
+        inspector,
+    }
+}
+
+/// The decision region is a section of its conversation, above rather than covering the composer.
 fn approval_panel(
     state: &ViewState,
     palette: &Palette,

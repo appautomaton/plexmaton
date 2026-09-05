@@ -62,28 +62,29 @@ scan. These passes are arithmetic, not wrapping, and become the budget somewhere
 thousand entries, which is where to look first and not before.
 
 Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
-machine, release profile, 120 × 40, over 5,000-entry histories; the message history has 625
-additional interleaved tool entries:
+machine on 2026-09-05, release profile, 120 × 40, over 5,000-entry histories; the message history
+has 625 additional interleaved tool entries. This corpus is predominantly plain text; these timings
+do not establish a rich-Markdown history budget:
 
 | Workload | Observed | Work |
 | --- | --- | --- |
-| `streaming delta` | 1.5 ms p50, 1.8 ms max | 1 entry wrapped, 31 lines built, at any history length |
-| `compact tool entry` | 1.4 ms p50, 1.6 ms max | 1 entry wrapped, 35 lines built, at any history length |
-| `open tool entry` | 1.7 ms p50, 2.1 ms max | 1 entry wrapped, 39 lines built, at any history length |
-| `wheel` | 1.5 ms p50, 1.7 ms max | 0 wrapped |
-| `open inspector` | 2.7 ms p50, 4.0 ms max | 0 wrapped |
-| `two conversations` | 2.9 ms p50, 4.0 ms max | 0 wrapped |
-| `extend selection` | 1.8 ms p50, 2.1 ms max | 0 wrapped |
-| `cold open`, `open hidden conversation` | 14.7 to 15.8 ms p50, 16.7 ms max | 5,625 wrapped, once |
-| `resize` | 14.8 ms p50, 16.4 ms max | 5,625 wrapped, once per width |
+| `streaming delta` | 1.4 ms p50, 1.8 ms max | 1 entry wrapped, 37 lines built, at any history length |
+| `compact tool entry` | 1.4 ms p50, 1.5 ms max | 1 entry wrapped, 35 lines built, at any history length |
+| `open tool entry` | 1.6 ms p50, 1.7 ms max | 1 entry wrapped, 39 lines built, at any history length |
+| `wheel` | 1.4 ms p50, 1.5 ms max | 0 wrapped |
+| `open inspector` | 2.7 ms p50, 2.8 ms max | 0 wrapped |
+| `two conversations` | 2.7 ms p50, 3.2 ms max | 0 wrapped |
+| `extend selection` | 1.7 ms p50, 1.9 ms max | 0 wrapped |
+| `text drag` | 1.7 ms p50, 1.8 ms max | 0 wrapped, 0 map rebuilds; every sample paints |
+| `cold open`, `open hidden conversation` | 25.4 to 27.2 ms p50, 27.3 ms max | 5,625 wrapped, once |
+| `resize` | 25.5 ms p50, 26.1 ms p95, 26.8 ms max | 5,625 wrapped, once per width |
 | retained | 11,250 entries for two 5,625-entry conversations; at most two widths per conversation (TR-1) | |
 
-Read the timings as an order of magnitude: the same binary on the same laptop under compile load
-measured roughly double every row, and a third machine under its own load reported 25.9 ms and
-29.1 ms for the two cold rows. The three rows that scale with history are one cost, measuring every
-entry once; when it matters, the fix is a retention limit or a lazily measured tail, not a faster
-wrap. Opening the window and selecting measure nothing, because only a change of width invalidates
-a height.
+Read the timings as machine-local observations, not latency guarantees. Cold open and new-width
+layout exceed the 16 ms frame target. The three rows that
+scale with history measure every entry once. A retained-layout hit avoids Markdown parsing, but
+does not remove those cold passes. Opening an already measured window and selecting require no
+height measurement; a new width, changed entry or palette invalidates the affected heights.
 
 ## Failure modes
 

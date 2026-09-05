@@ -2,8 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented |
-| Owns | What happens when a background agent needs the user, and what the user can do about it |
+| Status | Main-agent approval routing implemented; background Attention remains a reference interaction for future A2A |
+| Owns | Pending request presentation, main-agent approval sequencing and the background-only Attention boundary |
 | Depends on | The attention rules in [`ui-ux.md`](../ui-ux.md) §attention management; the focused-surface grammar in [interaction-routing](./interaction-routing.md) INV-10 |
 | Proven by | `plexmaton-tui::state::attention` and `::workspace` tests |
 
@@ -16,11 +16,16 @@ notice strip (ui-ux §attention management): it appears under the strip when it 
 say, and its rows come out of what has already been read, so the newest conversation rows and the
 composer stay where they are.
 
-The primary agent's own approval is not a background request and does not wait in line: it opens
-the decision region in that conversation's box, below the tool entry that raised it, and takes the
-focus that was already in that conversation. It still enters the queue, because that is where its
-resolution finds it (ATT-3), and it is the one item the band does not list — it is on screen
-already, and listing it would draw the same request twice.
+Primary-agent requests never enter the visible Attention list. A pending primary approval opens
+inside its conversation; later arrivals cannot replace that card or its chosen decision. Producer
+resolution advances to the oldest remaining approval, with Deny selected. Esc returns to the
+composer and leaves the card visible; Tab/click can return to it. The card is a non-blocking input,
+so reading history and composing remain possible. Pointer decisions require a matching, unchanged
+request and press/release; drag, focus loss, resize or replacement cancels activation.
+
+The existing `AttentionRequested`/`AttentionResolved` wire events still correlate pending requests;
+their names do not require an Attention surface. The current single-agent runtime cannot populate
+the background-only band. Its A2A interaction remains deferred to Phase 03.
 
 **ATT-2 — Going to a request is a keypress the user made.** The queue has its own cursor, and
 `Enter` on it selects the requesting agent and moves the keyboard there. No producer path reaches
@@ -65,6 +70,6 @@ SessionEvent::AttentionResolved ─────────────┴──
 
 | Invariant | Proven by |
 | --- | --- |
-| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row` |
+| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row`, `parallel_primary_approvals_stay_inline_and_advance_in_arrival_order`, `primary_approval_escape_returns_to_composer_without_creating_attention_ui` |
 | ATT-2 | `going_to_a_request_is_the_users_move_and_marks_it_seen`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `the_cursor_clamps_at_both_ends_and_survives_an_empty_queue` |
-| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision` |
+| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request` |

@@ -10,7 +10,7 @@ use std::time::Instant;
 use plexmaton_sim::Scenario;
 use plexmaton_tui::SurfaceId;
 use ratatui::crossterm::event::{
-    Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind,
+    Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
 use super::{Harness, RESIZES, Run, SIZE, WorkloadSamples};
@@ -325,6 +325,91 @@ pub(super) fn select(messages: usize, samples: WorkloadSamples) -> anyhow::Resul
     Ok(run.finish(&harness))
 }
 
+/// A held text drag updates only its partial highlight after the entry's map is warm.
+pub(super) fn text_drag(messages: usize, samples: WorkloadSamples) -> anyhow::Result<Run> {
+    let mut harness = Harness::new(Scenario::streaming(messages)?, SIZE)?;
+    harness.warm(usize::MAX)?;
+    let needle = harness
+        .workspace
+        .state()
+        .primary_agent()
+        .into_iter()
+        .flat_map(|agent| agent.entries())
+        .filter_map(|entry| match entry {
+            plexmaton_tui::TranscriptEntryView::Text(text) => {
+                Some(text.source.chars().take(16).collect::<String>())
+            }
+            _ => None,
+        })
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("text fixture is empty"))?;
+    anyhow::ensure!(
+        needle.is_ascii() && needle.len() >= 10,
+        "measurement fixture needs an ASCII prefix"
+    );
+    let bounds = harness
+        .workspace
+        .surfaces()
+        .get(SurfaceId::Transcript)
+        .ok_or_else(|| anyhow::anyhow!("missing transcript"))?
+        .bounds;
+    let buffer = harness.terminal.backend().buffer();
+    let (column, row) = (bounds.y + 1..bounds.bottom() - 1)
+        .rev()
+        .find_map(|row| {
+            (bounds.x + 1..bounds.right().saturating_sub(needle.len() as u16))
+                .find(|column| {
+                    (0..needle.len() as u16)
+                        .map(|offset| buffer[(*column + offset, row)].symbol())
+                        .collect::<String>()
+                        == needle
+                })
+                .map(|column| (column, row))
+        })
+        .ok_or_else(|| anyhow::anyhow!("latest text is not visible"))?;
+    let pointer = |kind, offset| {
+        Event::Mouse(MouseEvent {
+            kind,
+            column: column + offset,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    };
+    harness
+        .workspace
+        .handle(&pointer(MouseEventKind::Down(MouseButton::Left), 0));
+    harness
+        .workspace
+        .handle(&pointer(MouseEventKind::Drag(MouseButton::Left), 4));
+    harness.draw()?;
+    let layouts = harness.workspace.metrics().text_layouts();
+    let mut run = Run::new("text drag");
+    let mut end = 4;
+    for sample in 0..samples.repeated {
+        end = if sample.is_multiple_of(2) { 8 } else { 4 };
+        let started = Instant::now();
+        harness
+            .workspace
+            .handle(&pointer(MouseEventKind::Drag(MouseButton::Left), end));
+        let work = harness.draw()?;
+        run.record(started.elapsed(), work);
+    }
+    anyhow::ensure!(
+        harness.workspace.metrics().text_layouts() == layouts,
+        "text drag rebuilt its map"
+    );
+    let copied = harness
+        .workspace
+        .handle(&pointer(MouseEventKind::Up(MouseButton::Left), end))
+        .copied
+        .ok_or_else(|| anyhow::anyhow!("drag did not copy"))?;
+    anyhow::ensure!(
+        copied.text == needle[..usize::from(end)],
+        "drag copied outside its endpoints"
+    );
+    Ok(run.finish(&harness))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Harness, RESIZES, SIZE, WorkloadSamples};
@@ -338,6 +423,16 @@ mod tests {
         repeated: 40,
         cold: 2,
     };
+
+    /// SEL-1/MD-4/FR-4: text dragging produces every frame without layout work at either history scale.
+    #[test]
+    fn text_drag_reuses_maps_and_records_every_sample_at_both_history_scales() {
+        for scale in [500, 5000] {
+            let run = super::text_drag(scale, TEST_SAMPLES).expect("text drag workload");
+            assert_eq!(run.latencies.len(), TEST_SAMPLES.repeated);
+            assert_eq!(run.wrapped, 0);
+        }
+    }
 
     /// The harness measures the claims it reports, at a scale small enough for the test suite.
     ///

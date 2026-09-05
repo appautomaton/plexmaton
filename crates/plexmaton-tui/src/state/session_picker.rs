@@ -30,9 +30,9 @@ impl SessionPickerStatus {
         match self {
             Self::Loading => "Loading saved conversations…",
             Self::Ready => "No saved conversation matches",
-            Self::Opening => "Restoring conversation…",
+            Self::Opening => "Opening conversation…",
             Self::ListFailed => "Could not read saved conversations. Esc to return.",
-            Self::OpenFailed => "Cannot open: session locked, damaged, or missing.",
+            Self::OpenFailed => "Cannot open: check configuration or session file.",
             Self::Busy => "Stop the current run before switching conversations.",
             Self::DraftPresent => "Send or clear your draft before switching conversations.",
         }

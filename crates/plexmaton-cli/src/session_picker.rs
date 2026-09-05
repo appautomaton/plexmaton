@@ -43,12 +43,26 @@ impl SessionPicker {
         }
     }
 
-    pub fn execute_command(&mut self, workspace: &mut Workspace, command: Command) {
+    pub fn execute_command(
+        &mut self,
+        workspace: &mut Workspace,
+        runtime: &LiveRuntime,
+        command: Command,
+    ) {
         match command {
             Command::Config => {
                 workspace.show_configuration(configuration_summary(&self.launcher.model))
             }
             Command::Resume => self.open(workspace),
+            Command::New => {
+                workspace.open_session_picker();
+                let selection = if self.current.is_some() {
+                    SessionSelection::Automatic
+                } else {
+                    SessionSelection::Ephemeral
+                };
+                self.start(selection, runtime, workspace);
+            }
         }
     }
 
@@ -70,7 +84,17 @@ impl SessionPicker {
     }
 
     pub fn select(&mut self, id: SessionId, runtime: &LiveRuntime, workspace: &mut Workspace) {
+        self.start(SessionSelection::Resume(id), runtime, workspace);
+    }
+
+    fn start(
+        &mut self,
+        selection: SessionSelection,
+        runtime: &LiveRuntime,
+        workspace: &mut Workspace,
+    ) {
         if self.job.is_some() {
+            workspace.set_session_picker_status(SessionPickerStatus::Opening);
             return;
         }
         if runtime.has_active_work() {
@@ -81,10 +105,11 @@ impl SessionPicker {
             workspace.set_session_picker_status(SessionPickerStatus::DraftPresent);
             return;
         }
-        if self
-            .current
-            .as_ref()
-            .is_some_and(|current| current.id == id)
+        if let SessionSelection::Resume(id) = &selection
+            && self
+                .current
+                .as_ref()
+                .is_some_and(|current| &current.id == id)
         {
             workspace.close_session_picker();
             return;
@@ -95,7 +120,7 @@ impl SessionPicker {
         let agent = runtime.agent_id().clone();
         let cancel = self.cancel.clone();
         self.job = Some(tokio::spawn(async move {
-            match launcher.resume(id, agent, cancel).await {
+            match launcher.open(selection, agent, cancel).await {
                 Ok(opened) => Update::Opened(Box::new(opened)),
                 Err(_) => Update::Failed(SessionPickerStatus::OpenFailed),
             }
@@ -192,24 +217,26 @@ impl SessionPicker {
 }
 
 impl Launcher {
-    async fn resume(
+    async fn open(
         self,
-        id: SessionId,
+        selection: SessionSelection,
         agent: AgentId,
         cancel: CancellationToken,
     ) -> anyhow::Result<OpenedSession> {
         let key = resolve_api_key(&self.model, std::env::var_os(self.model.api_key_env()))?;
-        self.resume_with_key(id, agent, cancel, key).await
+        self.open_with_key(selection, agent, cancel, key).await
     }
 
-    async fn resume_with_key(
+    async fn open_with_key(
         self,
-        id: SessionId,
+        selection: SessionSelection,
         agent: AgentId,
         cancel: CancellationToken,
         key: plexmaton_provider::ApiKey,
     ) -> anyhow::Result<OpenedSession> {
         let model = self.model.clone();
+        let root = self.root.clone();
+        let selected = selection.clone();
         let (journal, tools, key) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
             let tools = NativeToolCatalog::open(
@@ -219,12 +246,20 @@ impl Launcher {
                 self.driver,
                 vec![OsString::from(INTERNAL_RG_DRIVER)],
             )?;
-            let journal = SessionDirectory::under(self.root)?.resume(&id)?;
+            let journal = match selected {
+                SessionSelection::Resume(id) => {
+                    Some(SessionDirectory::under(self.root)?.resume(&id)?)
+                }
+                _ => None,
+            };
             anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
             Ok((journal, tools, key))
         })
         .await
         .context("join session file reader")??;
+        let Some(journal) = journal else {
+            return open_selected_session(&root, selection, agent, model, key, tools).await;
+        };
         let persisted = PersistedSession {
             id: journal.journal().session_id().clone(),
             path: journal.path().to_path_buf(),

@@ -37,7 +37,7 @@ mod statusline;
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
     OpenedSession, PersistedSession, SessionSelection, StartupAction, USAGE, open_selected_session,
-    parse_startup_action, restoration_feedback,
+    parse_startup_action, report_persisted_session, restoration_feedback,
 };
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
@@ -112,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
         Err(error) => Err(error),
         Ok(persisted) => persisted
             .as_ref()
-            .map(report_persisted_session)
+            .map(|session| report_persisted_session(session, &mut io::stdout()))
             .transpose()
             .map(|_| ()),
     }
@@ -175,20 +175,6 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
         model: model.wire_id().to_owned(),
         reasoning_effort: model.reasoning_effort().as_str().to_owned(),
     }
-}
-
-fn report_persisted_session(session: &PersistedSession) -> anyhow::Result<()> {
-    // Terminal ownership has ended; a planned automatic filename is not a saved conversation.
-    if !session
-        .path
-        .try_exists()
-        .context("check saved session file")?
-    {
-        return Ok(());
-    }
-    writeln!(io::stdout(), "Session saved: {}", session.path.display())
-        .context("write saved session path")?;
-    writeln!(io::stdout(), "Session ID: {}", session.id).context("write saved session identity")
 }
 
 /// Where the process runs, the way a shell prompt shows it: the home directory as `~`.
@@ -408,7 +394,7 @@ async fn apply_workspace_outcome(
     picker: &mut session_picker::SessionPicker,
 ) -> anyhow::Result<bool> {
     if let Some(command) = outcome.command {
-        picker.execute_command(workspace, command);
+        picker.execute_command(workspace, runtime, command);
     }
     if let Some(id) = outcome.resume {
         picker.select(id, runtime, workspace);
@@ -623,8 +609,8 @@ mod tests {
     }
 
     /// INV-12, PRV-6: the real composition-root handler opens the resolved model's display.
-    #[test]
-    fn config_and_settings_commands_open_the_resolved_configuration() {
+    #[tokio::test]
+    async fn config_and_settings_commands_open_the_resolved_configuration() {
         let registry = plexmaton_provider::ModelRegistry::parse(
             r#"
 active_model = { provider = "fixture", model = "chosen" }
@@ -649,6 +635,25 @@ output_reserve_tokens = 5000
                 ripgrep: "/bin/false".into(),
                 driver: "/bin/false".into(),
             });
+        let root = FixtureWorkspace::new();
+        let model = registry.active_model().clone();
+        let tools = super::NativeToolCatalog::open(
+            root.path(),
+            model.api_key_env(),
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .expect("tools");
+        let mut runtime = super::LiveRuntime::openai(
+            super::AgentId::new("primary").expect("agent"),
+            "Plexmaton",
+            model.clone(),
+            super::resolve_api_key(&model, Some(std::ffi::OsString::from("fixture-only")))
+                .expect("key"),
+            tools,
+        )
+        .expect("runtime");
         for query in ["config", "/config", "settings", "/settings"] {
             let mut workspace = Workspace::default();
             workspace.emit(
@@ -670,7 +675,7 @@ output_reserve_tokens = 5000
                 .handle(&press(KeyCode::Enter))
                 .command
                 .expect("matched command");
-            picker.execute_command(&mut workspace, command);
+            picker.execute_command(&mut workspace, &runtime, command);
             workspace.draw(&mut terminal).expect("draw configuration");
             let shown = workspace
                 .state()
@@ -701,6 +706,7 @@ output_reserve_tokens = 5000
             workspace.draw(&mut terminal).expect("draw conversation");
             assert_eq!(workspace.state().focused(workspace.surfaces()), before);
         }
+        runtime.shutdown().await.expect("shutdown");
     }
 
     fn succeeded_tool_result(output: &str) -> plexmaton_agent::ToolExecutionResult {

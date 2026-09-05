@@ -13,6 +13,7 @@ mod intent;
 #[cfg(test)]
 mod journey;
 mod layout;
+mod markdown;
 mod render;
 mod router;
 mod state;
@@ -20,6 +21,7 @@ mod statusline;
 mod surface;
 #[cfg(test)]
 mod test_support;
+mod text_layout;
 mod theme;
 mod transcript;
 mod workspace;

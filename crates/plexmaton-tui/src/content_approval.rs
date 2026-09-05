@@ -57,6 +57,13 @@ pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'stati
 /// at the cost of asking for a decision above the thing being decided. Rejected: scrolling the
 /// region, which moved the options off it — a decision surface whose decision can leave the screen
 /// is not one.
+pub(crate) const fn approval_option_label(decision: ApprovalDecision) -> &'static str {
+    match decision {
+        ApprovalDecision::AllowOnce => "Allow once",
+        ApprovalDecision::Deny => "Deny",
+    }
+}
+
 pub(crate) fn approval(state: &ViewState, palette: &Palette, width: u16) -> Vec<Line<'static>> {
     let Some(approval) = state.approval() else {
         return Vec::new();
@@ -125,7 +132,7 @@ pub(crate) fn approval(state: &ViewState, palette: &Palette, width: u16) -> Vec<
     lines.push(clip(
         choice(
             ApprovalDecision::AllowOnce,
-            "Allow once",
+            approval_option_label(ApprovalDecision::AllowOnce),
             "↑↓ choose · Enter decide".to_owned(),
         ),
         width,
@@ -133,13 +140,18 @@ pub(crate) fn approval(state: &ViewState, palette: &Palette, width: u16) -> Vec<
     lines.push(clip(
         choice(
             ApprovalDecision::Deny,
-            "Deny",
+            approval_option_label(ApprovalDecision::Deny),
             format!(
-                "{} · Esc later",
+                "{} · Esc {}",
                 if approval.expanded {
                     "⌃O less"
                 } else {
                     "⌃O more"
+                },
+                if state.approval_in_primary() {
+                    "input"
+                } else {
+                    "later"
                 }
             ),
         ),

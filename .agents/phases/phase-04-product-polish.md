@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–2 complete; remaining polish not yet staged |
+| Status | Active; stages 1–4 implemented and verified; test-quality audit and branding remain |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -23,9 +23,28 @@ Visual changes are reviewed against real frames before the contract adopts them.
    [SPK-1–SPK-3](../specs/session-picker.md) cover lazy JSONL creation, restoration feedback,
    message-local retry/edit-retry, hover Copy and the session picker. Offline workspace tests,
    three-width frames and PTY smoke passed. It consumes Phase 02's journal/context APIs;
-   compaction remains owned there. Attention/approval layout, per-turn usage presentation and
-   character-level transcript selection remain separate follow-ups; current drags span entries.
-3. **Branding.** A rounded-square frame and circular gradient center form the user's visual
+   compaction remains owned there. Text selection and main-agent approval refinements are stage 4;
+   per-turn usage presentation remains a follow-up.
+   `/new` reuses SPK-2's replacement owner and lazy storage. Its palette row was inspected at
+   [wide](../../crates/plexmaton-tui/frames/command-palette-wide.txt),
+   [medium](../../crates/plexmaton-tui/frames/command-palette-medium.txt) and
+   [narrow](../../crates/plexmaton-tui/frames/command-palette-narrow.txt) widths.
+3. **Markdown transcript — complete.** [MD-1–MD-4](../specs/markdown.md) provide bounded assistant
+   formatting while preserving journal source and virtualized scrolling. Reviewed
+   [wide](../../crates/plexmaton-tui/frames/markdown-wide.txt),
+   [medium](../../crates/plexmaton-tui/frames/markdown-medium.txt) and
+   [narrow](../../crates/plexmaton-tui/frames/markdown-narrow.txt) frames.
+4. **Text selection and local approvals — complete.** [SEL-1–SEL-7](../specs/selection-and-copy.md)
+   provide cross-entry plain-text drags and auto-copy; the Copy icon retains source. ATT-1/ATT-3
+   keep main approvals in their conversation, including after Esc, and advance pending cards in
+   arrival order. Reviewed selection frames at
+   [wide](../../crates/plexmaton-tui/frames/text-selection-wide.txt),
+   [medium](../../crates/plexmaton-tui/frames/text-selection-medium.txt),
+   [narrow](../../crates/plexmaton-tui/frames/text-selection-narrow.txt), plus the corresponding
+   `native-approval-*` frames. 287 TUI tests, offline workspace tests, Clippy and terminal smoke
+   passed. FR-4 records text-drag timings and the remaining cold-layout budget gap. Manual live
+   model/terminal use remains unverified; no model requests were made by validation.
+5. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
 

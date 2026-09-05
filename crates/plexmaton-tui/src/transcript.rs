@@ -9,6 +9,10 @@
 //! [`specs/transcript-layout.md`](../../../.agents/specs/transcript-layout.md).
 
 use std::{collections::BTreeMap, ops::Range};
+mod text_selection;
+mod window;
+pub(crate) use window::Window;
+use window::trim_scroll_prefix;
 
 use plexmaton_core::{AgentId, TranscriptItemId};
 use ratatui::{
@@ -58,6 +62,7 @@ struct Measured {
     leading_rows: usize,
     retry: Option<crate::RetryTarget>,
     compact_rows: usize,
+    body_rows: usize,
     rows: usize,
 }
 
@@ -65,6 +70,7 @@ struct Measured {
 #[derive(Debug)]
 struct AtWidth {
     width: u16,
+    palette: Palette,
     items: Vec<Measured>,
 }
 
@@ -89,6 +95,7 @@ const MEASURED_WIDTHS: usize = 2;
 /// heights to turn a row back into an entry.
 #[derive(Debug, Default)]
 pub struct TranscriptMetrics {
+    layouts: crate::text_layout::Cache,
     by_agent: BTreeMap<AgentId, Vec<AtWidth>>,
     wrapped: usize,
     built: usize,
@@ -114,6 +121,9 @@ impl TranscriptMetrics {
         disclosure: &DisclosureState,
     ) -> usize {
         let cached = self.by_agent.entry(agent.id.clone()).or_default();
+        if cached.iter().any(|cached| cached.palette != *palette) {
+            cached.clear();
+        }
         // Front is most recently measured, so the width a frame stopped drawing at is the one
         // evicted. Both live widths are measured every frame, so neither can evict the other.
         match cached.iter().position(|entry| entry.width == width) {
@@ -126,11 +136,17 @@ impl TranscriptMetrics {
                 0,
                 AtWidth {
                     width,
+                    palette: *palette,
                     items: Vec::new(),
                 },
             ),
         }
         cached.truncate(MEASURED_WIDTHS);
+        self.layouts.retain_widths(
+            &agent.id,
+            &cached.iter().map(|cache| cache.width).collect::<Vec<_>>(),
+            palette,
+        );
         // The match above always leaves this width at the front, so the fallback is unreachable
         // rather than a case: reporting no entries is what a caller can safely draw if it ever is.
         let Some(entries) = cached.first_mut().map(|entry| &mut entry.items) else {
@@ -157,12 +173,21 @@ impl TranscriptMetrics {
                         == restoration
             });
             if !reusable {
-                let compact_rows = wrap_rows(item, palette, width, false);
+                let formatted = self.layouts.layout(&agent.id, item, palette, width);
+                let compact_rows = formatted.map_or_else(
+                    || wrap_rows(item, palette, width, false),
+                    |layout| layout.lines.len(),
+                );
                 let feedback_rows = restoration.map_or(0, |(_, summary)| {
                     Paragraph::new(content::recovery_lines(summary, palette))
                         .wrap(Wrap { trim: false })
                         .line_count(width)
                 });
+                let body_rows = if open {
+                    wrap_rows(item, palette, width, true)
+                } else {
+                    compact_rows
+                };
                 let measured = Measured {
                     id: item.id().clone(),
                     revision: item.revision(),
@@ -177,13 +202,10 @@ impl TranscriptMetrics {
                         0
                     },
                     compact_rows,
-                    rows: (if open {
-                        wrap_rows(item, palette, width, true)
-                    } else {
-                        compact_rows
-                    })
-                    .saturating_add(feedback_rows)
-                    .saturating_add(if retry.is_some() { 2 } else { 0 }),
+                    body_rows,
+                    rows: body_rows
+                        .saturating_add(feedback_rows)
+                        .saturating_add(if retry.is_some() { 2 } else { 0 }),
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
                 match entries.get_mut(count) {
@@ -371,7 +393,20 @@ impl TranscriptMetrics {
                     item.id(),
                     selected.contains(index),
                 );
-                let mut lines = content::transcript_entry(item, palette, appearance, width);
+                let mut lines = if state.selected_text_range(surface, &agent.id, index, usize::MAX).is_some() {
+                    let layout = self.layouts.mapped(&agent.id, item, palette, width, appearance);
+                    if let Some(range) = state.selected_text_range(surface, &agent.id, index, layout.text.len()) {
+                        layout.highlighted_lines(range, palette.style(crate::Role::Selection))
+                    } else { crate::text_layout::into_lines(layout) }
+                } else if let Some(cached) = self.layouts.layout(&agent.id, item, palette, width) {
+                    crate::text_layout::into_lines(cached).into_iter().map(|line| {
+                        if appearance.selected && !line.spans.is_empty() {
+                            let mut text = line.to_string();
+                            text.push_str(&" ".repeat(usize::from(width.saturating_sub(4)).saturating_sub(line.width())));
+                            Line::styled(text, palette.style(crate::Role::Selection))
+                        } else { line }
+                    }).collect()
+                } else { content::transcript_entry(item, palette, appearance, width) };
                 if agent.retry.as_ref().is_some_and(|actions| &actions.error_item == item.id()) {
                     let hovered = state.retry_hovered(item.id());
                     let style = |command| palette.style(if hovered == Some(command) { crate::theme::Role::Accent } else { crate::theme::Role::Muted });
@@ -402,6 +437,11 @@ impl TranscriptMetrics {
     #[must_use]
     pub fn wrapped(&self) -> usize {
         self.wrapped
+    }
+
+    /// Styled text layouts/maps built; interaction over retained entries adds none (MD-4/SEL-1).
+    pub const fn text_layouts(&self) -> usize {
+        self.layouts.layouts()
     }
 
     /// How many conversation lines have been built since this cache was created.
@@ -446,28 +486,6 @@ impl TranscriptMetrics {
     }
 }
 
-/// The slice of a conversation one viewport reaches.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Window {
-    /// Entries to build, in arrival order.
-    pub(crate) items: Range<usize>,
-    /// Rows to skip inside the first of them, because the viewport starts partway through it.
-    pub(crate) skip_rows: usize,
-    /// Width at which `skip_rows` was measured.
-    width: u16,
-}
-
-impl Window {
-    /// A window that reaches nothing, positioned past the end of the conversation.
-    const fn empty(len: usize, width: u16) -> Self {
-        Self {
-            items: len..len,
-            skip_rows: 0,
-            width,
-        }
-    }
-}
-
 /// Wraps one entry at the panel's inner width.
 ///
 /// No block is attached: `Paragraph::line_count` adds a block's border rows when one is set, and an
@@ -490,34 +508,6 @@ fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16, open: bo
     ))
     .wrap(Wrap { trim: false });
     paragraph.line_count(width)
-}
-
-/// Removes complete logical lines before a large semantic scroll offset until Ratatui's `u16`
-/// widget scroll can express the remainder. The semantic viewport keeps the full `usize` offset;
-/// this is only an adapter at the terminal boundary.
-fn trim_scroll_prefix(lines: &mut Vec<Line<'static>>, mut skip_rows: usize, width: u16) -> u16 {
-    if width == 0 {
-        return 0;
-    }
-    let mut remove = 0_usize;
-    while skip_rows > usize::from(u16::MAX) {
-        let Some(line) = lines.get(remove) else {
-            break;
-        };
-        let rows = Paragraph::new(line.clone())
-            .wrap(Wrap { trim: false })
-            .line_count(width)
-            .max(1);
-        if rows > skip_rows {
-            break;
-        }
-        skip_rows = skip_rows.saturating_sub(rows);
-        remove = remove.saturating_add(1);
-    }
-    if remove > 0 {
-        lines.drain(..remove);
-    }
-    u16::try_from(skip_rows).unwrap_or(u16::MAX)
 }
 
 #[cfg(test)]

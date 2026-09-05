@@ -186,7 +186,7 @@ mod tests {
             let mut state = canonical_state();
             state.open_command_palette(&SurfaceTree::default());
             let drawn = draw(&state, width, height);
-            for signature in ["Commands", "/config", "Esc close"] {
+            for signature in ["Commands", "/config", "/new", "Esc close"] {
                 assert!(
                     drawn.contains(signature),
                     "{name}: {signature:?} is not on screen"

@@ -34,7 +34,12 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Term | Meaning |
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
-| Session | The durable conversation and work record owned by one agent identity |
+| Session | One agent's conversation and work history, durable by default |
+| Journal | The authoritative session record; JSONL is its on-disk encoding, not the visible transcript |
+| Context | Semantic input prepared for a model request; journal history combines with the applicable instructions and tools, excluding UI diagnostics |
+| Transcript | The user-facing interaction history: messages, tool activity and diagnostics |
+| Transcript entry | One identified content item in that history; a user or assistant message is a message entry |
+| Conversation surface | The interactive region displaying an agent's transcript; its title and border are conversation chrome |
 | Turn | One admitted unit of work in a session: what the user asked, everything the model and its tools did about it, and the answer that ended it |
 | Step | One request to the model and the tool calls it comes back with. A turn is one or more steps, and a turn's budget is counted in them |
 | Tool call | One invocation the model asked for, with a declared effect, a lifecycle, and bounded output |
@@ -46,7 +51,8 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Peek | Looking at a sub-agent in the list, which opens the second window; `Escape` closes it. The primary is not in the list, because its conversation is the screen |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
-presentation, not a session.
+presentation, not a session. A widget is a Rust rendering component, not a synonym for an entry
+or surface. `Agents` names the sub-agent list; it does not name the conversation surface.
 
 ## Locked interaction decisions
 
@@ -57,8 +63,8 @@ rewrite rather than an adjustment.
 
 Launching without a session argument prepares an automatically named durable session. Its JSONL
 is created on the first accepted user message; opening menus, editing a draft or exiting without
-sending creates no file. The restored shell names a saved file's path and session ID, and prints
-no session handoff for a blank launch. Explicit `create` reserves its file immediately.
+sending creates no file. The restored shell offers a resume command for only the selected saved
+session, and no handoff for a blank launch. Explicit `create` reserves its file immediately.
 Only explicit `--ephemeral` declines session
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
 without the user choosing that behavior.
@@ -157,19 +163,17 @@ scroll without moving the transcript behind it.
 
 ### Attention management
 
-- Ambient activity, new information, action required, and failure are distinguished. They never
-  share one generic notification treatment. Background progress is ambient; completed mail is new
-  information; approval or clarification is action required; a failed or disconnected agent is
-  failure.
-- Background agents never open modal prompts over the user's active work.
-- Action-required items enter a visible, ordered Attention queue. The user chooses when to go to the
-  requesting agent, unless an already-focused action blocks the current command.
-- Repeated updates from one agent coalesce into one attention item.
-- Acknowledging a notification is distinct from resolving the underlying mail, approval, or failure.
-- The queue carries both directions of the relationship: an agent asking the user for something, and
-  a delegating agent objecting to something the user changed. Neither may open a modal or take focus.
-- The queue is chrome, like the notice strip: it appears when it has something to say, takes no
-  focus, and is never a surface in the sense of §user control.
+The current runtime has one main agent. Its approval requests are handled inside its conversation,
+never in an Attention bar. Multiple approvals appear in arrival order without replacing the card
+being answered. Only producer confirmation advances to the next request. Click an option or use
+arrows/Enter; Esc returns focus to the composer while keeping the card visible. Tab or a click
+returns to it. Drafts remain intact, and no approval is implied by leaving the card.
+
+Attention is reserved for future background-agent/A2A workflows. Their reference interaction keeps
+ambient progress, new mail, action-required requests and failure distinct. Background requests
+cannot steal focus or open modals; the user explicitly visits them. Repeated identities coalesce,
+and acknowledgement is distinct from resolving the underlying work. This future queue is not an
+alternate entry point for main-agent approvals.
 
 ### Stable spatial memory
 
@@ -209,6 +213,8 @@ scroll without moving the transcript behind it.
   Arrows choose, Enter or a click resumes, and Escape closes without switching. Loading and errors
   stay inside the picker. Switching waits for idle work and an empty draft; it never silently
   interrupts work or discards input. SPK-1–SPK-3 own discovery and replacement.
+  `/new` starts an empty conversation with the same switching protection; its first message creates
+  storage, unless ephemeral. Exit offers a resume command for only the selected saved conversation.
 
 ### Readability
 
@@ -240,8 +246,10 @@ scroll without moving the transcript behind it.
   Plain message clicks only focus/clear selection. A drag starts selection; dragging off an action
   cancels that action. Retry and Edit & retry have independent muted labels and accent hover, with
   unchanged keyboard commands; their gaps and surroundings never reverse as a selection.
-- A transcript selection is a range over its *entries*, never a rectangle of cells, so copying is
-  unaffected by width, scroll position, and decoration. Holding a captured drag on the content row
+- Pointer selection is a grapheme-safe range of visible text, including partial endpoints across
+  entries. Releasing copies plain text automatically, preserving code indentation and semantic
+  line breaks, without Markdown syntax, chrome or soft-wrap newlines. Keyboard entry selection
+  remains a range of whole entries. Both survive scrolling and reflow. Holding a captured drag on the content row
   beside either edge's chrome scrolls that same conversation and carries the moving end into entries
   that began off-screen; the chrome and the row outside it accelerate the motion. Moving inward,
   releasing, cancelling, or reaching the content boundary stops it. Losing terminal focus pauses
@@ -252,9 +260,9 @@ scroll without moving the transcript behind it.
   disclosure address the same stable entry. Open detail grows inside the conversation and uses its
   existing viewport. Rejected: a nested tool-output surface, whose second scroll owner makes the
   same wheel gesture depend on an invisible boundary.
-- `Ctrl-Y`, or completing a mouse selection, copies the semantic source: an equation's exact
-  source, an artifact's stable value rather than its truncated label, and a tool's retained
-  invocation then outcome, never disclosure headings, gutters, border glyphs, or clipped cells.
+- `Ctrl-Y` copies the current selection: plain text for pointer ranges, original source for
+  keyboard entry ranges. The Copy icon always copies the whole message's original source,
+  including Markdown. SEL-1/SEL-2 own mapping, table separators and streaming validation.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Editable inputs support pointer placement and dragging over text. Selected source is highlighted

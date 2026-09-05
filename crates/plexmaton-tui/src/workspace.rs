@@ -28,11 +28,19 @@ use crate::{
     transcript::TranscriptMetrics,
 };
 
+mod approval_pointer;
+#[cfg(test)]
+mod approval_queue_tests;
+#[cfg(test)]
+mod markdown_tests;
 mod pointer;
 mod retry;
 mod session_picker;
 #[cfg(test)]
 mod session_picker_tests;
+mod text_selection;
+#[cfg(test)]
+mod text_selection_tests;
 
 use pointer::{DragAutoScroll, PressedEntry};
 
@@ -116,6 +124,7 @@ pub struct Workspace {
     frames: u64,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
+    pressed_approval: Option<approval_pointer::PressedApproval>,
     /// Timer-owned motion for a captured conversation drag held at a viewport edge.
     drag_autoscroll: Option<DragAutoScroll>,
     pressed_retry: Option<retry::PressedRetry>,
@@ -183,6 +192,7 @@ impl Workspace {
             let _outcome = self.state.apply(envelope);
         }
         if self.state.revision() != before {
+            self.validate_text_selection();
             // Producer changes can move rows under a stationary pointer. The next motion resolves
             // a fresh frame target; keeping the old identity would make the accent move with it.
             self.state.hover_entry(None);
@@ -245,7 +255,9 @@ impl Workspace {
             focused: state.focused(surfaces),
             // A fact about the frame that was drawn, not about intent: `Escape` resolves the
             // layer the user can see (FR-3).
-            dismissible: surfaces.has_dismissible() || state.editing_retry(),
+            dismissible: surfaces.has_dismissible()
+                || state.editing_retry()
+                || state.focused(surfaces) == Some(crate::SurfaceId::Approval),
             selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
         };
         let routed = router.translate(event, &context);
@@ -402,6 +414,9 @@ impl Workspace {
                 if let Some(outcome) = self.retry_pointer(pointer) {
                     return outcome;
                 }
+                if let Some(outcome) = self.approval_pointer(pointer) {
+                    return outcome;
+                }
                 return Outcome {
                     copied: self.pointer(pointer, now),
                     ..Outcome::default()
@@ -425,6 +440,7 @@ impl Workspace {
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
                 self.pressed_retry = None;
+                self.pressed_approval = None;
                 self.painted = None;
             }
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus

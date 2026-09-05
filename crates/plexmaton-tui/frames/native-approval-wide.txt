@@ -33,7 +33,7 @@
 │                          ││Access  read files, change files, run processes                                               │
 │                          ││Command "cargo test" · cwd "/home/dev/plexmaton" · timeout 120000 ms                          │
 │                          ││  Allow once      ↑↓ choose · Enter decide                                                    │
-│                          ││> Deny            ⌃O more · Esc later                                                         │
+│                          ││> Deny            ⌃O more · Esc input                                                         │
 │                          │├ Message Agent A · primary · Approval required ───────────────────────────────────────────────┤
 │                          ││Type a message · ⇥ to focus                                                                   │
 └──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────┘

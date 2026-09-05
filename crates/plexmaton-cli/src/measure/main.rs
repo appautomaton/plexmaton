@@ -50,7 +50,7 @@ mod workloads;
 
 use workloads::{
     cold_open, compact_tool_entries, hidden_conversation, inspector, interleaved, open_tool_entry,
-    resize, select, streaming, two_conversations, wheel,
+    resize, select, streaming, text_drag, two_conversations, wheel,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -67,6 +67,7 @@ fn main() -> anyhow::Result<()> {
         runs.push(hidden_conversation(messages, REPORT_SAMPLES)?);
         runs.push(two_conversations(messages, REPORT_SAMPLES)?);
         runs.push(select(messages, REPORT_SAMPLES)?);
+        runs.push(text_drag(messages, REPORT_SAMPLES)?);
     }
     report(&runs);
     Ok(())

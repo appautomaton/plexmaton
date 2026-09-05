@@ -42,17 +42,16 @@ impl ViewState {
 
     /// Queued items the band still has something to say about.
     ///
-    /// The request being answered in its own decision region is not one of them: it is already on
-    /// screen, in front of the tool entry it concerns, and listing it again makes the band a
-    /// second copy of the thing the user is looking at. It stays *queued* — that is where its
-    /// resolution finds it (ATT-3) — and the pill still counts it.
+    /// Main-agent requests stay in their conversation, including when the composer holds focus.
+    /// Only future background requests belong here; the open background card is also excluded.
     pub fn attention_listed(&self) -> impl Iterator<Item = &AttentionView> {
-        let open = self
-            .approval()
-            .map(|approval| approval.attention_id.clone());
-        self.attention
-            .iter()
-            .filter(move |item| Some(&item.id) != open.as_ref())
+        let open = self.approval();
+        let primary = self.agents.primary().map(|agent| &agent.id);
+        self.attention.iter().filter(move |item| {
+            open.as_ref()
+                .is_none_or(|approval| &item.id != approval.attention_id)
+                && Some(&item.agent_id) != primary
+        })
     }
 
     /// How many the band would list, which is what decides whether it takes any rows.
@@ -77,6 +76,45 @@ impl ViewState {
     #[must_use]
     pub fn approval(&self) -> Option<ApprovalView<'_>> {
         self.approval.view(&self.attention)
+    }
+
+    /// One inline card drains the primary's existing queue; a later arrival never replaces it.
+    pub(super) fn open_next_primary_approval(&mut self) -> bool {
+        if self.approval().is_some() {
+            return false;
+        }
+        let Some(primary) = self.agents.primary() else {
+            return false;
+        };
+        let next = self
+            .attention
+            .iter()
+            .find(|item| {
+                item.agent_id == primary.id
+                    && matches!(
+                        item.request,
+                        plexmaton_core::AttentionRequest::Approval { .. }
+                    )
+            })
+            .map(|item| item.id.clone());
+        let Some(next) = next else {
+            return false;
+        };
+        if self.approval.open(next, SurfaceId::Composer) {
+            if self.agents.peeked().is_none() {
+                self.focus.prefer(SurfaceId::Approval);
+            }
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn approval_in_primary(&self) -> bool {
+        self.approval().is_some_and(|approval| {
+            self.agents
+                .primary()
+                .is_some_and(|primary| &primary.id == approval.agent_id)
+        })
     }
 
     /// Applies one user action to the Attention queue.

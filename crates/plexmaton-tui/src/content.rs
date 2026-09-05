@@ -25,8 +25,10 @@ mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;
 
-pub(crate) use approval_presentation::{approval, attention, detail_rows};
-pub(crate) use transcript_presentation::{conversation_placeholder, transcript_entry};
+pub(crate) use approval_presentation::{approval, approval_option_label, attention, detail_rows};
+pub(crate) use transcript_presentation::{
+    conversation_placeholder, transcript_entry, transcript_layout,
+};
 
 /// The list of sub-agents: identity, lifecycle, and which one is being looked at.
 ///

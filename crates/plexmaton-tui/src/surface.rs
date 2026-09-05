@@ -139,7 +139,7 @@ pub enum SurfaceId {
     /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
     /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
     Attention,
-    /// A tool approval the user chose to open from Attention.
+    /// A pending tool approval, inline for the main agent and modal for an explicitly opened background request.
     Approval,
     /// Read-only configuration, opened by the workspace command and dismissed with Escape.
     Configuration,

@@ -32,8 +32,9 @@ focus loss pauses motion but preserves capture for a later drag.
 release produces `Ignored::NoCapture`, never a second drag intent.
 
 **INV-6 — The Escape ladder resolves one layer per press.** Cancel active capture first, then
-resolve the focused input selection or topmost overlay. Inside conversations, clear entry selection
-before closing the inspector. `Escape` never quits.
+resolve the focused input selection or topmost overlay. A focused primary approval returns focus
+to its composer while its card stays visible. Inside conversations, clear selection before closing
+the inspector. `Escape` never quits.
 
 **INV-7 — Quit is a timed chord, and `Ctrl-C` never quits.** `Ctrl-D` asks, then leaves only on a
 second press before its one-second monotonic deadline; expiry clears the question, and unrelated
@@ -58,6 +59,7 @@ user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
 commands. `Enter` returns the chosen command to the composition root;
 `config` and its `settings` alias open the same configuration page.
 `resume`, with `continue`, `sessions` and `session` aliases, opens session discovery (SPK-1).
+`new` starts an empty conversation under SPK-2's switching and lazy-storage rules.
 Submitting those exact slash commands from the primary composer also dispatches them. Retry and
 Edit & retry are message-local actions (JRN-8), invoked by their inline buttons or `r` / `e` while
 the primary transcript has navigation focus; they are absent from command discovery. A button
@@ -117,9 +119,10 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 | `Delete`, `Ctrl-W`, `Ctrl-U` / `Ctrl-K` | Unbound | Delete forward, previous word, or to the line's edge |
 | `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
-Control chords are never text (INV-2); reducers decide whether their target exists. The decision
-region owns non-global keys: arrows choose, `Enter` decides, `Ctrl-O` discloses, `Escape` closes
-without answering. It never scrolls: its options are its last two rows at every size.
+Control chords are never text (INV-2); reducers decide whether their target exists. A focused
+decision region uses arrows to choose, `Enter` to decide and `Ctrl-O` to disclose. Matching button
+press/release decides the exact displayed request. Primary approval uses `Esc` to return to input
+without answering or hiding the card; a background modal closes. Options remain its last two rows.
 
 The command palette owns typing and editing while open: `↑` / `↓` chooses, `Enter` runs, and
 `Esc` closes it and restores the previous focus. Its filter uses the caret contract in COM-1.
