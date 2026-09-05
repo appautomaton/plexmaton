@@ -178,9 +178,9 @@ impl ModelError {
             Self::RateLimited {
                 retry_after: Some(seconds),
             } => {
-                format!("the provider is rate limiting, retry in {seconds}s")
+                format!("Request was rate limited. Retry in {seconds}s.")
             }
-            Self::RateLimited { retry_after: None } => "the provider is rate limiting".to_owned(),
+            Self::RateLimited { retry_after: None } => "Request was rate limited.".to_owned(),
             Self::ContextTooLong => {
                 "the conversation no longer fits the model's context".to_owned()
             }

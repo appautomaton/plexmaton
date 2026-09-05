@@ -16,6 +16,7 @@ mod clock;
 mod construction;
 mod journal;
 mod model;
+mod retry;
 mod terminal;
 mod tools;
 mod transition;
@@ -160,6 +161,10 @@ impl LiveRuntime {
 
     /// Returns an event already produced without waiting for provider traffic.
     pub fn try_next_event(&mut self) -> Option<SessionEventEnvelope> {
+        // A replacement projection establishes the sequence base of all queued events.
+        if self.report.projection_reset.is_some() {
+            return None;
+        }
         self.pending.pop_front()
     }
 

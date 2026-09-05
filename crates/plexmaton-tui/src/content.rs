@@ -14,7 +14,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
+    CleanupNotice, NoticeView, PersistenceNotice, SessionRestoration, SessionTailRepair,
     TranscriptEntryView, ViewState,
     theme::{Palette, Role, agent_role},
 };
@@ -206,20 +206,6 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     Role::Failure,
                     "journal writer cleanup failed".to_owned(),
                 ),
-                NoticeView::SessionRecovered(SessionRecoveryNotice {
-                    tail: TailRecoveryNotice::AddedFinalNewline,
-                }) => (
-                    "[resume] ",
-                    Role::NewInformation,
-                    "completed final record repaired".to_owned(),
-                ),
-                NoticeView::SessionRecovered(SessionRecoveryNotice {
-                    tail: TailRecoveryNotice::IsolatedFinalTail { bytes },
-                }) => (
-                    "[resume] ",
-                    Role::NewInformation,
-                    format!("isolated {bytes}-byte incomplete tail"),
-                ),
             };
             Line::from(vec![
                 Span::styled(marker, palette.style(role)),
@@ -227,6 +213,28 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
             ])
         })
         .collect()
+}
+
+pub(crate) fn recovery_lines(
+    recovery: &SessionRestoration,
+    palette: &Palette,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if let Some(tail) = recovery.tail {
+        let text = match tail {
+            SessionTailRepair::AddedFinalNewline => "completed final record repaired".to_owned(),
+            SessionTailRepair::IsolatedFinalTail { bytes } => {
+                format!("isolated {bytes}-byte incomplete tail")
+            }
+        };
+        lines.push(Line::styled(text, palette.style(Role::ActionRequired)));
+    }
+    lines.push(Line::styled(
+        "✓ Conversation restored.",
+        palette.style(Role::NewInformation),
+    ));
+    lines.push(Line::default());
+    lines
 }
 
 /// The draft, or the hint that stands in for it when nobody is typing.
@@ -335,6 +343,7 @@ pub(crate) fn command_palette(
     state: &ViewState,
     palette: &Palette,
     width: u16,
+    height: u16,
 ) -> Vec<Line<'static>> {
     let Some(commands) = state.command_palette() else {
         return Vec::new();
@@ -350,6 +359,66 @@ pub(crate) fn command_palette(
         ));
     }
     let mut lines = vec![Line::from(filter)];
+    if let Some(sessions) = &commands.sessions {
+        let matches = sessions.matches(commands.filter().text());
+        let window = commands.choice_window(height);
+        for (index, entry) in matches.iter().enumerate().skip(window.start).take(
+            if commands.session_rows_visible(height) {
+                window.len()
+            } else {
+                0
+            },
+        ) {
+            let role = if index == commands.chosen_index() {
+                Role::Accent
+            } else {
+                Role::Muted
+            };
+            let marker = if index == commands.chosen_index() {
+                "> "
+            } else {
+                "  "
+            };
+            let label = format!("{marker}{}", entry.title);
+            lines.push(Line::styled(
+                command_summary(&label, usize::from(width)),
+                palette.style(role),
+            ));
+        }
+        if matches.is_empty() && height >= 6 {
+            lines.push(Line::default());
+        }
+        let note = if sessions.status == crate::SessionPickerStatus::Ready && !matches.is_empty() {
+            if sessions.limited {
+                "Recent sessions only · older files remain on disk"
+            } else {
+                matches
+                    .get(commands.chosen_index())
+                    .map_or("", |entry| entry.id.as_str())
+            }
+        } else {
+            sessions.status.message()
+        };
+        if height >= 6 || matches.is_empty() || !commands.session_rows_visible(height) {
+            let role = if matches!(
+                sessions.status,
+                crate::SessionPickerStatus::OpenFailed | crate::SessionPickerStatus::ListFailed
+            ) {
+                Role::Failure
+            } else {
+                Role::Muted
+            };
+            lines.push(Line::styled(
+                command_summary(note, usize::from(width)),
+                palette.style(role),
+            ));
+        }
+        lines.push(Line::styled(
+            " ↑↓ choose · Enter resume · Esc close",
+            palette.style(Role::Muted),
+        ));
+        return lines;
+    }
     let matches = commands.matches();
     if matches.is_empty() {
         lines.push(Line::styled(
@@ -357,7 +426,13 @@ pub(crate) fn command_palette(
             palette.style(Role::Muted),
         ));
     }
-    for (index, command) in matches.into_iter().enumerate() {
+    let window = commands.choice_window(height);
+    for (index, command) in matches
+        .into_iter()
+        .enumerate()
+        .skip(window.start)
+        .take(window.len())
+    {
         let chosen = index == commands.chosen_index();
         let (marker, role) = if chosen {
             ("> ", Role::Accent)
@@ -405,12 +480,29 @@ fn command_summary(source: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-
     use ratatui::widgets::{Paragraph, Wrap};
 
     use super::agents;
-
     use crate::{test_support::canonical_state, theme::Palette};
+
+    #[test]
+    fn restoration_confirmation_is_green_and_tail_repair_is_separate() {
+        // JRN-5 / ui-ux §responsive interaction: success and repair have distinct named cues.
+        let palette = Palette::ansi();
+        for tail in [
+            None,
+            Some(crate::SessionTailRepair::IsolatedFinalTail { bytes: 37 }),
+        ] {
+            let lines = super::recovery_lines(&crate::SessionRestoration { tail }, &palette);
+            let confirmation = &lines[lines.len() - 2];
+            assert_eq!(confirmation.to_string(), "✓ Conversation restored.");
+            assert_eq!(confirmation.style.fg, Some(ratatui::style::Color::Green));
+            assert_eq!(lines.len(), if tail.is_some() { 3 } else { 2 });
+            if tail.is_some() {
+                assert_eq!(lines[0].style.fg, Some(ratatui::style::Color::Yellow));
+            }
+        }
+    }
 
     /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
     #[test]

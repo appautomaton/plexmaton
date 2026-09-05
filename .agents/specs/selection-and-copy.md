@@ -14,10 +14,9 @@ in first-appearance order, so scrolling, resizing, re-wrapping, and re-styling c
 is selected or what copying returns, and it extends past the viewport by construction. A selection
 started with none selects the newest entry, because everything here is append-ordered.
 
-The pointer makes the same range: a press anchors on the entry under it, a drag carries the moving
-end, and a press where there is no entry clears it. Every entry, not only a foldable one — the
-pointer addressing a narrower set than the keyboard is what made a click select a tool row and do
-nothing at all on the message beside it, over a screen whose mouse this process had taken.
+The pointer makes the same range after movement: a press retains its anchor without selecting,
+then a drag creates and extends the range. A plain message click clears an old selection and does
+not copy; a press with no entry also clears it. Every entry can anchor a drag.
 
 Editable inputs select source offsets under COM-6. They use the same copy boundary, with zero
 transcript entries in the resulting `CopyRequest`.
@@ -53,6 +52,16 @@ the chrome and the first row beyond it increase that rate. Each wake moves that 
 extends the semantic range; moving inward, release, cancel, a lost-button bare move, or the content
 boundary disarms it without another frame. Losing terminal focus pauses the timer while retaining
 the semantic selection and pointer capture; a later drag resumes from the same anchor.
+
+**SEL-7 — Message actions are separate from content selection.** A text entry reserves a small
+right gutter; hover reveals its first-row Nerd Font Copy glyph without changing height or text
+width. Its screen column is anchored to the viewport, independent of role, source spans or gutters.
+Gentle boundary rules use existing blank separator rows only, never cover content or create
+spacing. The button has padded hit geometry and accent hover, and emits exact source only on
+an unchanged press/release. Dragging away cancels it; clipping, resize and focus loss cannot leave
+an invisible action active. Retry buttons use separate muted/accent spans, never selection reversal.
+Repeated hover is free. Rejected: copying on a plain message click and reversing an entire action
+row, which makes actions indistinguishable from a retained selection.
 
 ## Model
 
@@ -95,6 +104,7 @@ be selected while its input holds the cursor.
 
 | Invariant | Proven by |
 | --- | --- |
+| SEL-7 | `message_copy_hover_frames_are_local_and_clicking_body_never_copies`, `retry_hover_does_not_reverse_the_button_row_or_interfere_with_selection`, `copying_or_cancelling_copy_preserves_an_existing_selection`, `copy_icons_share_one_right_edge_across_roles_and_wrapped_text` |
 | SEL-1 | `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | SEL-2 | `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state` |
 | SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents` |

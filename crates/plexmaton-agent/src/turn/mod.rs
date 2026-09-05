@@ -24,6 +24,7 @@ mod input;
 mod lifecycle;
 mod model_input;
 mod request_attempt;
+mod retry;
 mod tool_projection;
 mod user_input;
 
@@ -2174,6 +2175,36 @@ mod tests {
 
         let expected: Vec<u64> = (1..=sequences.len() as u64).collect();
         assert_eq!(sequences, expected);
+    }
+
+    /// JRN-5: an explicitly finished turn needs no recovery just because it has no answer.
+    #[test]
+    fn failed_or_cancelled_unanswered_turns_do_not_become_process_recovery() {
+        for interrupted in [false, true] {
+            let mut live = agent();
+            submit(&mut live, "keep the original question");
+            if interrupted {
+                live.handle(Input::Interrupted);
+            } else {
+                fail_step(&mut live, ModelError::RateLimited { retry_after: None });
+            }
+            let before = live.journal().clone();
+            let mut resumed = Agent::from_journal(
+                AgentId::new("agent-a").expect("agent"),
+                before.clone(),
+                TurnBudget::default(),
+                ApprovalPolicy::default(),
+            )
+            .expect("restore completed turn");
+            assert!(resumed.recover_after_process_death().is_none());
+            assert_eq!(resumed.journal(), &before);
+            let projection = resumed.rebuild_projection().expect("context");
+            assert_eq!(projection.request().atoms.len(), 1);
+            assert!(matches!(
+                projection.request().atoms[0].value(),
+                ContextAtomValue::User { .. }
+            ));
+        }
     }
 
     /// JRN-5/JRN-7: process recovery settles canonical debt without rerunning its tool effect.

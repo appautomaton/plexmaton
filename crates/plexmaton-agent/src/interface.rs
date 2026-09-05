@@ -208,6 +208,8 @@ pub struct Reaction {
     pub released_inputs: Vec<ReleasedInput>,
     /// Events for the projection, numbered on this agent's one sequence.
     pub events: Vec<SessionEventEnvelope>,
+    /// A rare explicit branch selection replaces the UI projection after persistence acknowledgement.
+    pub projection_reset: Option<Vec<SessionEventEnvelope>>,
     /// Work for whoever owns the outside world.
     pub effects: Vec<Effect>,
     /// User input whose intended boundary cannot claim it. Ownership returns to the caller with
@@ -232,6 +234,7 @@ impl Reaction {
             records: Vec::new(),
             released_inputs: Vec::new(),
             events: Vec::new(),
+            projection_reset: None,
             effects: Vec::new(),
             undelivered: Vec::new(),
             unresolved_approvals: Vec::new(),

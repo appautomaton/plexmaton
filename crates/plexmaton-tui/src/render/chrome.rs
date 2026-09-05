@@ -181,6 +181,15 @@ pub(super) fn notices_title(state: &ViewState, palette: &Palette) -> Line<'stati
 /// The title names the target, which keeps the binding visible rather than remembered when the
 /// selection is on a different agent (COM-4).
 pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+    if state.editing_retry() {
+        return title_with(
+            palette,
+            "Editing previous message".to_owned(),
+            Role::SectionHeading,
+            " · Esc to cancel".to_owned(),
+            Role::Muted,
+        );
+    }
     let name = state.primary_agent().map_or_else(
         || "Message".to_owned(),
         |agent| format!("Message {}", agent.label),

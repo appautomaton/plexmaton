@@ -369,3 +369,4 @@ async fn drive_until_store_blocks(runtime: &mut LiveRuntime, control: &StoreCont
 mod barriers;
 mod cancellation;
 mod failures;
+mod retry;

@@ -227,6 +227,10 @@ impl LiveRuntime {
     ) -> Result<(), RuntimeError> {
         reaction.records.clear();
         reaction.released_inputs.clear();
+        if let Some(projection) = reaction.projection_reset.take() {
+            self.pending.clear();
+            self.report.projection_reset = Some(projection);
+        }
         self.pending.extend(reaction.events);
         self.report.undelivered.append(&mut reaction.undelivered);
         self.report

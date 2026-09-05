@@ -21,7 +21,7 @@ use crate::{
     router::{Routed, Router, RouterContext},
     state::{
         ApprovalSubmission, CleanupNotice, Command, CopyRequest, PersistenceNotice, QuitPress,
-        SessionRecoveryNotice, Submission, ViewRevision, ViewState,
+        SessionRestoration, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -29,6 +29,10 @@ use crate::{
 };
 
 mod pointer;
+mod retry;
+mod session_picker;
+#[cfg(test)]
+mod session_picker_tests;
 
 use pointer::{DragAutoScroll, PressedEntry};
 
@@ -62,6 +66,10 @@ pub struct Outcome {
     /// The command the user ran from the list. What it *does* belongs to the composition root, so
     /// it leaves as a value rather than being carried out here.
     pub command: Option<Command>,
+    /// Explicit retry, separate from ordinary composer submission.
+    pub retry: Option<crate::RetrySubmission>,
+    /// A session chosen by identity; only the composition root can load it.
+    pub resume: Option<plexmaton_core::SessionId>,
 }
 
 impl Outcome {
@@ -73,6 +81,8 @@ impl Outcome {
             approval: None,
             copied: None,
             command: None,
+            retry: None,
+            resume: None,
         }
     }
 }
@@ -108,6 +118,8 @@ pub struct Workspace {
     pressed_entry: Option<PressedEntry>,
     /// Timer-owned motion for a captured conversation drag held at a viewport edge.
     drag_autoscroll: Option<DragAutoScroll>,
+    pressed_retry: Option<retry::PressedRetry>,
+    pressed_palette: Option<(session_picker::PaletteChoice, crate::Point)>,
 }
 
 impl Workspace {
@@ -194,8 +206,8 @@ impl Workspace {
         self.state.report_cleanup_failure(failure);
     }
 
-    /// Shows one startup summary when a durable session needed recovery while resuming.
-    pub fn report_session_recovery(&mut self, recovery: SessionRecoveryNotice) {
+    /// Confirms successful restoration, including any file-tail repair, outside the journal.
+    pub fn report_session_recovery(&mut self, recovery: SessionRestoration) {
         self.state.report_session_recovery(recovery);
     }
 
@@ -233,7 +245,7 @@ impl Workspace {
             focused: state.focused(surfaces),
             // A fact about the frame that was drawn, not about intent: `Escape` resolves the
             // layer the user can see (FR-3).
-            dismissible: surfaces.has_dismissible(),
+            dismissible: surfaces.has_dismissible() || state.editing_retry(),
             selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
         };
         let routed = router.translate(event, &context);
@@ -304,6 +316,12 @@ impl Workspace {
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
         match intent {
+            TuiIntent::Retry(action) => {
+                return Outcome {
+                    retry: self.perform_retry_action(action),
+                    ..Outcome::default()
+                };
+            }
             TuiIntent::Quit => match self.state.press_quit(now) {
                 QuitPress::Confirmed => return Outcome::quit(),
                 QuitPress::Asked => {}
@@ -321,12 +339,28 @@ impl Workspace {
                 self.state.step_command(direction == Direction::Forward);
             }
             TuiIntent::CommandPalette(CommandPaletteIntent::Run) => {
-                return Outcome {
-                    command: self.state.chosen_command(),
-                    ..Outcome::default()
-                };
+                return self.activate_palette();
             }
             TuiIntent::Text(edit) => {
+                if matches!(edit, TextIntent::Submit)
+                    && self.state.editing_retry()
+                    && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
+                {
+                    return Outcome {
+                        retry: self.state.retry_submission(),
+                        ..Outcome::default()
+                    };
+                }
+                if matches!(edit, TextIntent::Submit)
+                    && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
+                    && let Some(command) = Command::from_slash(self.state.composer().text())
+                {
+                    self.state.edit(&self.surfaces, edit);
+                    return Outcome {
+                        command: Some(command),
+                        ..Outcome::default()
+                    };
+                }
                 // A `/` that opens an empty draft is the one keystroke that says the user may be
                 // reaching for a command. Every other keystroke answers the offer and takes it down.
                 let offers = matches!(edit, TextIntent::Insert('/'))
@@ -362,6 +396,12 @@ impl Workspace {
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
+                if let Some(outcome) = self.palette_pointer(pointer) {
+                    return outcome;
+                }
+                if let Some(outcome) = self.retry_pointer(pointer) {
+                    return outcome;
+                }
                 return Outcome {
                     copied: self.pointer(pointer, now),
                     ..Outcome::default()
@@ -375,16 +415,16 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
-            // The phase's one dismissible layer. `Escape` reaches here only when the router found
-            // nothing closer to resolve, which is the ladder's last rung before nothing (INV-6).
             TuiIntent::Dismiss => {
                 self.state.dismiss(&self.surfaces);
             }
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
+                self.pressed_palette = None;
                 self.state.hover_entry(None);
-                self.pressed_entry = None;
+                self.cancel_pointer_click();
+                self.pressed_retry = None;
                 self.painted = None;
             }
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus
@@ -397,11 +437,24 @@ impl Workspace {
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
             TuiIntent::Hover { surface, at } => {
+                self.pressed_palette = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
                 self.drag_autoscroll = None;
+                self.pressed_entry = None;
+                self.pressed_retry = None;
                 let target = surface.and_then(|surface| self.entry_target_at(surface, at));
-                self.state.hover_entry(target);
+                let copy = target
+                    .as_ref()
+                    .is_some_and(|target| self.copy_button_hit(target, at));
+                let retry = surface
+                    .and_then(|surface| self.retry_hit(surface, at))
+                    .and_then(|(_, command)| {
+                        self.state
+                            .retry_actions()
+                            .map(|actions| (actions.error_item.clone(), command))
+                    });
+                self.state.hover_controls(target, copy, retry);
             }
         }
         Outcome::default()
@@ -3348,7 +3401,7 @@ mod tests {
                 "growing to {width} shrank the palette"
             );
             assert!(area.width < width);
-            assert_eq!(area.height, 5);
+            assert_eq!(usize::from(area.height), crate::Command::ALL.len() + 4);
             previous_width = area.width;
             let shown = painted(&terminal, &workspace, SurfaceId::CommandPalette);
             assert!(shown.contains("> /config"), "{width}: {shown}");
@@ -3358,7 +3411,8 @@ mod tests {
                 .viewport(SurfaceId::CommandPalette)
                 .expect("measured palette");
             assert_eq!(
-                viewport.content_rows, 3,
+                viewport.content_rows,
+                crate::Command::ALL.len() + 2,
                 "each item stays one row at {width}"
             );
         }
@@ -3476,8 +3530,8 @@ mod tests {
         for query in [
             "",
             "/",
-            "con",
-            "/con",
+            "conf",
+            "/conf",
             "config",
             "/config",
             "settings",
@@ -3492,7 +3546,11 @@ mod tests {
             let palette = workspace.state.command_palette().expect("opened palette");
             assert_eq!(
                 palette.matches(),
-                vec![crate::state::Command::Config],
+                if query.trim_matches('/').is_empty() {
+                    crate::Command::ALL.to_vec()
+                } else {
+                    vec![crate::Command::Config]
+                },
                 "{query:?}"
             );
             assert!(
@@ -3546,7 +3604,7 @@ mod tests {
 
         let palette = workspace.state.command_palette().expect("open");
         assert_eq!(palette.filter().text(), "con");
-        assert_eq!(palette.matches().len(), 1);
+        assert_eq!(palette.matches().len(), 2);
         assert_eq!(workspace.state.composer().text(), "");
     }
 

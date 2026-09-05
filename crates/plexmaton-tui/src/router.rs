@@ -83,11 +83,13 @@ impl Router {
             Event::Resize(width, height) => {
                 Routed::Intent(TuiIntent::TerminalResized { width, height })
             }
-            Event::FocusLost => self
-                .capture
-                .map_or(Routed::Ignored(Ignored::Unbound), |surface| {
-                    Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend { surface }))
+            Event::FocusLost => self.capture.map_or(
+                Routed::Intent(TuiIntent::Hover {
+                    surface: None,
+                    at: Point { x: 0, y: 0 },
                 }),
+                |surface| Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend { surface })),
+            ),
             Event::Paste(ref text) if context.focus == KeyboardFocus::TextInput => {
                 Routed::Intent(TuiIntent::Text(TextIntent::Paste(text.clone())))
             }
@@ -270,6 +272,14 @@ impl Router {
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
 /// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
+    if context.surfaces.hit_test(at) == Some(SurfaceId::CommandPalette) {
+        return Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Step(
+            match direction {
+                ScrollDirection::Up => Direction::Backward,
+                ScrollDirection::Down => Direction::Forward,
+            },
+        )));
+    }
     if let Some(surface) = context.surfaces.wheel_target(at) {
         return Routed::Intent(TuiIntent::Scroll { surface, direction });
     }
@@ -383,6 +393,12 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
         return Routed::Ignored(Ignored::Unbound);
     }
     match key.code {
+        KeyCode::Char('r') if context.focused == Some(SurfaceId::Transcript) => {
+            Routed::Intent(TuiIntent::Retry(crate::RetryAction::Retry))
+        }
+        KeyCode::Char('e') if context.focused == Some(SurfaceId::Transcript) => {
+            Routed::Intent(TuiIntent::Retry(crate::RetryAction::EditRetry))
+        }
         // `Enter` means "open what I am on". In the queue that is a request, and going to it is
         // the user choosing to, which is the only way a background request ever moves anything.
         KeyCode::Enter if context.focused == Some(SurfaceId::Attention) => {

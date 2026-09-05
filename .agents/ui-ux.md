@@ -190,6 +190,23 @@ scroll without moving the transcript behind it.
 - Streaming updates do not re-layout content outside the affected visible blocks.
 - A background agent may update an ambient status indicator without forcing a full-screen redraw.
 - Loading and failure states appear in the affected surface and freeze nothing else.
+- Successful resume places **✓ Conversation restored.** in green after the restored conversation's
+  final entry and any recovery warning. It scrolls with that position but is UI-only: no semantic
+  transcript item, copy payload, journal record, Notices entry or status-line override. A genuinely
+  unfinished prior turn additionally gets a yellow warning:
+  **The previous turn didn't finish. You can continue from here; no model requests or tools were
+  rerun.** A failed or cancelled turn is already finished and does not warrant that warning.
+- **Notices** is reserved for future multi-agent workflows, not routine operation feedback.
+- An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error, by
+  click or `r` / `e` with the primary transcript focused. These are message-local actions, absent
+  from the global command palette. Retry continues the same path without duplicating the question.
+  Edit & retry fills the composer and preserves the old path when submitted; `Esc` restores the
+  displaced draft. Sending a new message normally keeps both user messages and retires old actions.
+  Neither action automatically repeats tools; eligibility and history ownership follow JRN-8.
+- `/resume` opens a searchable Sessions picker; `/continue`, `/sessions` and `/session` are aliases.
+  Arrows choose, Enter or a click resumes, and Escape closes without switching. Loading and errors
+  stay inside the picker. Switching waits for idle work and an empty draft; it never silently
+  interrupts work or discards input. SPK-1–SPK-3 own discovery and replacement.
 
 ### Readability
 
@@ -214,6 +231,13 @@ scroll without moving the transcript behind it.
 ### Selection and copy
 
 - Mouse capture never makes transcript, tool output, paths, mail, or equations uncopyable.
+- Hovering a message reveals a padded Nerd Font Copy icon at the right of its first row; hovering
+  the icon adds accent, without moving focus, covering text or reflowing history. Subtle top/bottom
+  rules occupy existing blank separators only; message spacing does not grow. The icon scrolls
+  with its message, not with the pointer. Clicking it copies the whole source without selecting it.
+  Plain message clicks only focus/clear selection. A drag starts selection; dragging off an action
+  cancels that action. Retry and Edit & retry have independent muted labels and accent hover, with
+  unchanged keyboard commands; their gaps and surroundings never reverse as a selection.
 - A transcript selection is a range over its *entries*, never a rectangle of cells, so copying is
   unaffected by width, scroll position, and decoration. Holding a captured drag on the content row
   beside either edge's chrome scrolls that same conversation and carries the moving end into entries

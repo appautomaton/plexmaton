@@ -34,7 +34,7 @@ table in `AGENTS.md` allows.
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active 2026-09-03; durable JSONL sessions, context atoms, model registry, request accounting and budget ledger complete; compaction planning remains |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Active 2026-09-04; configurable shell status line complete; approval/resume/turn-metadata UI and branding remain |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active 2026-09-04; shell status line, restoration, retry and session picker delivered; lazy creation, approval/turn-metadata UI and branding remain |
 
 ## Locked
 
@@ -62,6 +62,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | Track | Purpose | Status |
 | --- | --- | --- |
 | [Math rendering](./research/math-rendering.md) | Select the math layout engine and both display transports | Not started; its entry condition is met |
+| [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source spike and finite model complete; production integration unproven |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:

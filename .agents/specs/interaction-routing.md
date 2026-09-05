@@ -57,6 +57,11 @@ user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
 `config`, `/config`, and aliases select the same single command; an empty filter or `/` shows all
 commands. `Enter` returns the chosen command to the composition root;
 `config` and its `settings` alias open the same configuration page.
+`resume`, with `continue`, `sessions` and `session` aliases, opens session discovery (SPK-1).
+Submitting those exact slash commands from the primary composer also dispatches them. Retry and
+Edit & retry are message-local actions (JRN-8), invoked by their inline buttons or `r` / `e` while
+the primary transcript has navigation focus; they are absent from command discovery. A button
+activates only on a matching press/release without a drag; stale or unavailable targets do nothing.
 
 A first `/` in an empty conversation input offers the palette chord for three seconds; every
 following key settles the offer. Whitespace is existing input, the filter never offers itself,
@@ -103,6 +108,7 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 | `Shift-↑` / `Shift-↓` | Extend the selection; with none, select the newest entry (SEL-1) | The same |
 | `Ctrl-O` | Toggle retained detail for the selection's moving end (ENT-4) | The same |
 | `Ctrl-Y` | Copy (SEL-4) | Copy |
+| `r` / `e` | Retry / Edit & retry on an eligible failure in the primary transcript | Insert text |
 | Printable character | Unbound unless bound above | Insert |
 | `Backspace` | Unbound | Delete backward |
 | `Left` / `Right`, `Home` / `End` | Unbound | Move by grapheme or to the logical line's edge |
@@ -144,6 +150,8 @@ page and preserves its original return path, keeping navigation bounded.
 
 | Invariant | Proven by |
 | --- | --- |
+| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` |
+| INV-11 | `resume_aliases_share_one_command_and_retry_is_not_a_global_command` |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
 | INV-3 | `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |

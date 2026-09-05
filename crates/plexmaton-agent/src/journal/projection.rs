@@ -406,6 +406,7 @@ impl Projector {
             }
             JournalEntryPayload::TurnStatusChanged { .. }
             | JournalEntryPayload::TurnStarted { .. }
+            | JournalEntryPayload::TurnRetried { .. }
             | JournalEntryPayload::SteeringAccepted { .. }
             | JournalEntryPayload::AssistantOutput { .. }
             | JournalEntryPayload::ToolCallRequested { .. }
@@ -450,7 +451,8 @@ impl SessionJournal {
                     unreachable!("every accepted entry retains its journal sequence")
                 });
             ordered.push((sequence, SelectedFact::Entry(entry)));
-            if let JournalEntryPayload::TurnStarted { turn_id, .. } = &entry.payload
+            if let JournalEntryPayload::TurnStarted { turn_id, .. }
+            | JournalEntryPayload::TurnRetried { turn_id, .. } = &entry.payload
                 && let Some(finished) = self.turn_finishes.get(turn_id)
                 && selected.contains(&finished.fact.semantic_boundary)
             {
@@ -537,6 +539,15 @@ fn project_entry(
 ) -> Result<(), JournalProjectionError> {
     let source = entry.id.clone();
     match &entry.payload {
+        JournalEntryPayload::TurnRetried {
+            agent_id, turn_id, ..
+        } => {
+            projector.turns.insert(turn_id.clone(), agent_id.clone());
+            projector.emit(SessionEvent::AgentStatusChanged {
+                agent_id: agent_id.clone(),
+                status: plexmaton_core::AgentStatus::Running,
+            })
+        }
         JournalEntryPayload::TurnStarted {
             agent_id,
             item_id,

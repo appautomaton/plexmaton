@@ -229,6 +229,7 @@ mod tests {
                     selected: false,
                     open: true,
                     hovered: false,
+                    copy_hovered: false,
                 },
             );
             let rendered = lines
@@ -304,6 +305,7 @@ mod tests {
                 selected: true,
                 open: true,
                 hovered: false,
+                copy_hovered: false,
             },
         );
         assert_eq!(

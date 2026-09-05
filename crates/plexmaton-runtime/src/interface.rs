@@ -38,6 +38,8 @@ impl SessionRecovery {
 /// Non-event results retained when an input could not enter the loop boundary it named.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
+    /// A committed branch selection replaces the conversation projection atomically in the UI.
+    pub projection_reset: Option<Vec<SessionEventEnvelope>>,
     /// User input returned with its exact text and reason.
     pub undelivered: Vec<UndeliveredInput>,
     /// Approval decisions that named no pending request.
@@ -52,7 +54,8 @@ pub struct DispatchReport {
 
 impl DispatchReport {
     pub(crate) fn is_empty(&self) -> bool {
-        self.undelivered.is_empty()
+        self.projection_reset.is_none()
+            && self.undelivered.is_empty()
             && self.unresolved_approvals.is_empty()
             && self.undelivered_model.is_empty()
             && self.persistence_failure.is_none()
@@ -94,6 +97,9 @@ pub enum CleanupFailure {
 /// A live-runtime ownership or routing failure.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    /// The selected request is no longer an eligible idle retry target.
+    #[error("this retry is no longer available")]
+    RetryUnavailable,
     /// Durable construction failed at the existing HTTP/profile boundary.
     #[error(transparent)]
     HttpSetup(#[from] crate::HttpSetupError),

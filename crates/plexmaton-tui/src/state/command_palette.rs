@@ -14,23 +14,31 @@ use crate::surface::SurfaceId;
 
 /// One thing the workspace can be asked to do.
 ///
-/// An enum rather than a registry: there is one command, and a registry would be a lookup table
-/// with a single row plus the machinery to register into it.
+/// The built-in commands share typed dispatch; aliases only affect discovery.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Command {
     /// Show the resolved provider, model and reasoning effort.
     Config,
+    /// Find and resume an existing conversation without dispatching a request.
+    Resume,
 }
 
 impl Command {
+    pub(crate) fn from_slash(text: &str) -> Option<Self> {
+        let name = text.trim().strip_prefix('/')?;
+        Self::ALL.into_iter().find(|command| {
+            command.name().trim_start_matches('/') == name || command.aliases().contains(&name)
+        })
+    }
     /// Every command, in the order the list shows them.
-    pub const ALL: [Self; 1] = [Self::Config];
+    pub const ALL: [Self; 2] = [Self::Config, Self::Resume];
 
     /// The name the list shows and the user types.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Config => "/config",
+            Self::Resume => "/resume",
         }
     }
 
@@ -39,6 +47,7 @@ impl Command {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::Config => "Provider, model, and reasoning effort",
+            Self::Resume => "Find and resume a saved conversation",
         }
     }
 
@@ -50,6 +59,7 @@ impl Command {
     pub const fn aliases(self) -> &'static [&'static str] {
         match self {
             Self::Config => &["settings"],
+            Self::Resume => &["continue", "sessions", "session"],
         }
     }
 
@@ -72,6 +82,7 @@ impl Command {
 /// cannot disagree.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandPalette {
+    pub(crate) sessions: Option<super::session_picker::SessionPicker>,
     filter: TextInput,
     /// Index into the *matching* commands, clamped every time the filter changes.
     chosen: usize,
@@ -84,6 +95,7 @@ impl CommandPalette {
     #[must_use]
     pub fn opened_from(return_focus: SurfaceId) -> Self {
         Self {
+            sessions: None,
             filter: TextInput::new(),
             chosen: 0,
             return_focus,
@@ -179,6 +191,9 @@ impl CommandPalette {
     /// Commands the current filter admits, in list order.
     #[must_use]
     pub fn matches(&self) -> Vec<Command> {
+        if self.sessions.is_some() {
+            return Vec::new();
+        }
         let needle = self.filter.text();
         Command::ALL
             .into_iter()
@@ -203,7 +218,14 @@ impl CommandPalette {
     /// Stopping is what the approval card does with the same keys; wrapping in a filtered list also
     /// means a held arrow silently returns to where it started.
     pub fn step(&mut self, forward: bool) -> bool {
-        let last = self.matches().len().saturating_sub(1);
+        if self
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.status == super::SessionPickerStatus::Opening)
+        {
+            return false;
+        }
+        let last = self.match_count().saturating_sub(1);
         let next = if forward {
             self.chosen.saturating_add(1).min(last)
         } else {
@@ -218,7 +240,14 @@ impl CommandPalette {
 
     /// Re-clamps the choice after the filter changed, so it always names a visible row.
     pub fn reclamp(&mut self) {
-        self.chosen = self.chosen.min(self.matches().len().saturating_sub(1));
+        self.chosen = self.chosen.min(self.match_count().saturating_sub(1));
+    }
+
+    pub(crate) fn match_count(&self) -> usize {
+        self.sessions.as_ref().map_or_else(
+            || self.matches().len(),
+            |sessions| sessions.matches(self.filter.text()).len(),
+        )
     }
 }
 
@@ -240,15 +269,13 @@ mod tests {
     #[test]
     fn an_alias_finds_its_command_without_adding_a_second_row() {
         for typed in [
-            "con",
-            "/con",
+            "conf",
+            "/conf",
             "config",
             "/config",
             "settings",
             "/settings",
             "SETTING",
-            "",
-            "/",
         ] {
             let palette = filtered(typed);
             assert_eq!(palette.matches(), vec![Command::Config], "typed {typed:?}");
@@ -268,7 +295,10 @@ mod tests {
     fn stepping_stops_at_the_ends_of_the_matches() {
         let mut palette = filtered("");
         assert!(!palette.step(false));
+        for command in Command::ALL.into_iter().skip(1) {
+            assert!(palette.step(true));
+            assert_eq!(palette.chosen(), Some(command));
+        }
         assert!(!palette.step(true));
-        assert_eq!(palette.chosen(), Some(Command::Config));
     }
 }

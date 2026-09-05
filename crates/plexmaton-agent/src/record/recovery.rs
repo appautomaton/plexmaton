@@ -6,9 +6,7 @@ use plexmaton_core::{
 };
 
 use super::Record;
-use crate::{
-    AssistantBlock, ContextAtomValue, JournalEntryPayload, JournalProjection, SessionEntry,
-};
+use crate::{AssistantBlock, JournalEntryPayload, JournalProjection, SessionEntry};
 
 pub(crate) struct RecoverableTool {
     pub(crate) call_id: ToolCallId,
@@ -100,6 +98,7 @@ impl Record {
             matches!(
                 entry.payload,
                 JournalEntryPayload::TurnStarted { .. }
+                    | JournalEntryPayload::TurnRetried { .. }
                     | JournalEntryPayload::SteeringAccepted { .. }
             )
         });
@@ -112,15 +111,9 @@ impl Record {
         include_unrequested_calls(&projection, &path, &mut order, &mut tools);
         let needs_marker =
             last_recovery.is_none_or(|done| last_user.is_none_or(|user| done < user));
-        let incomplete_request = (matches!(
-            projection
-                .request()
-                .atoms
-                .last()
-                .map(crate::ContextAtom::value),
-            Some(ContextAtomValue::User { .. })
-        ) && needs_marker)
-            || projection.recovery().is_some();
+        // An unanswered user atom may belong to a failed or cancelled, already finished turn.
+        // Turn terminals, not the shape of the model input, establish whether work is unfinished.
+        let incomplete_request = projection.recovery().is_some();
         if open_turn.is_none()
             && !matches!(status, Some(AgentStatus::Running | AgentStatus::Waiting))
             && !incomplete_request

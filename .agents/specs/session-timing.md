@@ -15,6 +15,8 @@ text and opened wall time. One terminal fact records its typed outcome and eithe
 wall time or separately named recovery-observed wall time. These boundary facts are the durable
 lifecycle authority and project the starting/terminal agent status. Idle emits no time record;
 sequence and ancestry, never time, decide order.
+An explicit retry starts a separately timed execution through `TurnRetried` without another user
+item (JRN-8); prior turn and request accounting remain unchanged.
 
 Intra-turn status facts may still project current work, but cannot independently start or finish a
 turn; no separate terminal status append follows `TurnFinished`. Recovery of every valid prefix is

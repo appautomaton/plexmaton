@@ -4,9 +4,9 @@
 ┌ Agents ─────────────┌ Commands ────────────────────────────────────────────────────────────────┐───────────── ( !1 ) ┐
 │○ Agent B · UI study │ Type to filter                                                           │                     │
 │· 1 tool @1 1 mail   │> /config  Provider, model, and reasoning effort                          │                     │
+│                     │  /resume  Find and resume a saved conversation                           │                     │
 │                     │ ↑↓ choose · Enter run · Esc close                                        │                     │
 │                     └──────────────────────────────────────────────────────────────────────────┘                     │
-│                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │

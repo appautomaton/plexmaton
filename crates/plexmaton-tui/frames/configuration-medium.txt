@@ -30,9 +30,9 @@
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
-│                        ││I will inspect the workspace and delegate the focused UI study.    │
-│                        ││Agent B is running independently; this transcript remains          │
-│                        ││interactive.                                                       │
+│                        ││I will inspect the workspace and delegate the focused UI           │
+│                        ││study. Agent B is running independently; this transcript           │
+│                        ││remains interactive.                                               │
 │                        ││                                                                   │
 │                        │├ Message Agent A · primary · Thinking ─────────────────────────────┤
 │                        ││Type a message · ⇥ to focus                                        │

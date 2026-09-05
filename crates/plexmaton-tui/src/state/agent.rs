@@ -20,6 +20,15 @@ pub struct AgentView {
     pub status: AgentStatus,
     entries: OrderedById<TranscriptItemId, TranscriptEntryView>,
     usage: Option<(TurnId, TokenUsage)>,
+    pub(crate) restoration: Option<RestorationFeedback>,
+    pub(crate) retry: Option<super::RetryActions>,
+}
+
+/// One presentation-only annotation anchored after the restored history, never a semantic entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RestorationFeedback {
+    pub(crate) after: Option<TranscriptItemId>,
+    pub(crate) summary: super::SessionRestoration,
 }
 
 impl AgentView {
@@ -30,6 +39,8 @@ impl AgentView {
             status,
             entries: OrderedById::default(),
             usage: None,
+            restoration: None,
+            retry: None,
         }
     }
 
@@ -46,6 +57,36 @@ impl AgentView {
     /// Iterates every semantic entry in first-appearance order.
     pub fn entries(&self) -> impl Iterator<Item = &TranscriptEntryView> {
         self.entries.iter()
+    }
+
+    pub(super) fn report_restoration(&mut self, summary: super::SessionRestoration) -> bool {
+        let feedback = RestorationFeedback {
+            after: self
+                .entries
+                .len()
+                .checked_sub(1)
+                .and_then(|index| self.entries.key_at(index))
+                .cloned(),
+            summary,
+        };
+        if self.restoration.as_ref() == Some(&feedback) {
+            return false;
+        }
+        self.restoration = Some(feedback);
+        true
+    }
+
+    pub(crate) fn restoration_for(
+        &self,
+        id: &TranscriptItemId,
+    ) -> Option<(super::FeedbackPlacement, &super::SessionRestoration)> {
+        let feedback = self.restoration.as_ref()?;
+        let placement = match &feedback.after {
+            Some(after) if after == id => super::FeedbackPlacement::After,
+            None if self.entries.key_at(0) == Some(id) => super::FeedbackPlacement::Before,
+            _ => return None,
+        };
+        Some((placement, &feedback.summary))
     }
 
     /// Iterates tool calls in arrival order.

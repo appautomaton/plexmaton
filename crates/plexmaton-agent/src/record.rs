@@ -22,6 +22,7 @@ use crate::{
 };
 
 mod recovery;
+mod retry;
 
 /// One agent's canonical journal plus its transient live-event delivery cursor.
 #[derive(Clone, Debug, Eq, PartialEq)]

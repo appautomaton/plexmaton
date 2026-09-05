@@ -30,6 +30,7 @@ pub(crate) struct EntryAppearance {
     pub(crate) selected: bool,
     pub(crate) open: bool,
     pub(crate) hovered: bool,
+    pub(crate) copy_hovered: bool,
 }
 
 impl EntryAppearance {
@@ -39,6 +40,7 @@ impl EntryAppearance {
             selected,
             open: false,
             hovered: false,
+            copy_hovered: false,
         }
     }
 }
@@ -47,7 +49,19 @@ impl EntryAppearance {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DisclosureState {
     open: BTreeSet<TranscriptItemId>,
-    hovered: Option<EntryTarget>,
+    hovered: Option<HoverTarget>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HoverTarget {
+    Entry {
+        target: EntryTarget,
+        copy_button: bool,
+    },
+    Retry {
+        item: TranscriptItemId,
+        command: super::RetryAction,
+    },
 }
 
 impl DisclosureState {
@@ -61,7 +75,20 @@ impl DisclosureState {
         }
     }
 
-    fn hover(&mut self, target: Option<EntryTarget>) -> bool {
+    fn hover(
+        &mut self,
+        target: Option<EntryTarget>,
+        copy: bool,
+        retry: Option<(TranscriptItemId, super::RetryAction)>,
+    ) -> bool {
+        let target = if let Some((item, command)) = retry {
+            Some(HoverTarget::Retry { item, command })
+        } else {
+            target.map(|target| HoverTarget::Entry {
+                target,
+                copy_button: copy,
+            })
+        };
         if self.hovered == target {
             return false;
         }
@@ -70,9 +97,8 @@ impl DisclosureState {
     }
 
     fn is_hovered(&self, surface: SurfaceId, agent: &AgentId, item: &TranscriptItemId) -> bool {
-        self.hovered.as_ref().is_some_and(|hovered| {
-            hovered.surface == surface && &hovered.agent == agent && &hovered.item == item
-        })
+        matches!(&self.hovered, Some(HoverTarget::Entry { target, .. })
+            if target.surface == surface && &target.agent == agent && &target.item == item)
     }
 }
 
@@ -92,36 +118,83 @@ impl ViewState {
             selected,
             open: self.disclosure.is_open(item),
             hovered: self.disclosure.is_hovered(surface, agent, item),
+            copy_hovered: matches!(
+                self.disclosure.hovered,
+                Some(HoverTarget::Entry {
+                    copy_button: true,
+                    ..
+                })
+            ) && self.disclosure.is_hovered(surface, agent, item),
         }
     }
 
-    /// Resolves a foldable tool at one semantic entry index.
+    /// Resolves a message action, disclosure or drag anchor at one semantic entry index.
     pub(crate) fn entry_target(&self, surface: SurfaceId, index: usize) -> Option<EntryTarget> {
         let agent = self.agent_shown_by(surface)?;
         let entry = self.agents.get(&agent)?.entries().nth(index)?;
-        let TranscriptEntryView::Tool(tool) = entry else {
-            return None;
-        };
-        (tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()).then(|| {
-            EntryTarget {
-                surface,
-                agent,
-                item: tool.entry_id.clone(),
-                index,
-            }
+        Some(EntryTarget {
+            surface,
+            agent,
+            item: entry.id().clone(),
+            index,
         })
     }
 
     /// Changes only the visual hover target and never focus, selection, scroll, or semantic data.
     pub(crate) fn hover_entry(&mut self, target: Option<EntryTarget>) {
+        self.hover_controls(target, false, None);
+    }
+
+    pub(crate) fn hover_controls(
+        &mut self,
+        target: Option<EntryTarget>,
+        copy: bool,
+        retry: Option<(TranscriptItemId, super::RetryAction)>,
+    ) {
         let target = target.filter(|target| {
             !self
                 .selected_in(target.surface, &target.agent)
                 .contains(target.index)
         });
-        if self.disclosure.hover(target) {
+        if self.disclosure.hover(target, copy, retry) {
             self.touch();
         }
+    }
+
+    pub(crate) fn retry_hovered(&self, item: &TranscriptItemId) -> Option<super::RetryAction> {
+        match &self.disclosure.hovered {
+            Some(HoverTarget::Retry { item: id, command }) if id == item => Some(*command),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn hovered_message(&self, surface: SurfaceId) -> Option<&EntryTarget> {
+        let Some(HoverTarget::Entry { target, .. }) = &self.disclosure.hovered else {
+            return None;
+        };
+        (target.surface == surface && self.message_source(target).is_some()).then_some(target)
+    }
+
+    pub(crate) fn copy_message(&self, target: &EntryTarget) -> Option<super::CopyRequest> {
+        self.message_source(target).map(|text| super::CopyRequest {
+            text: text.to_owned(),
+            entries: 1,
+        })
+    }
+
+    pub(crate) fn message_source(&self, target: &EntryTarget) -> Option<&str> {
+        if self.agent_shown_by(target.surface).as_ref() != Some(&target.agent) {
+            return None;
+        }
+        let entry = self
+            .agents
+            .get(&target.agent)?
+            .entries()
+            .find(|entry| entry.id() == &target.item)?;
+        let TranscriptEntryView::Text(item) = entry else {
+            return None;
+        };
+        Some(&item.source)
     }
 
     /// Toggles the tool at the moving end of the current selection (`Ctrl-O`).
@@ -177,7 +250,7 @@ impl ViewState {
         }
         if select {
             self.selection = Some(Selection::at(target.surface, target.agent.clone(), index));
-            let _changed = self.disclosure.hover(None);
+            let _changed = self.disclosure.hover(None, false, None);
         }
         self.disclosure.toggle(target.item);
         self.touch();

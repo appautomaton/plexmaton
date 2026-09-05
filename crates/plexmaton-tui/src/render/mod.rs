@@ -2,6 +2,7 @@ use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
 mod chrome;
 mod configuration;
+mod message_actions;
 mod panel;
 
 use configuration::render_configuration;
@@ -196,6 +197,7 @@ pub fn render(
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
+        message_actions::render(frame, state, palette, metrics, id, bounds, viewport);
 
         // The cursor belongs to whichever surface the projection says owns it, which is the same
         // answer routing and editing use (SURF-3, COM-1, INS-7) rather than a second one derived
@@ -226,10 +228,28 @@ pub fn render(
 fn command_palette_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
         body: Body::Whole {
-            lines: content::command_palette(state, palette, inner_width(bounds.width)),
+            lines: content::command_palette(
+                state,
+                palette,
+                inner_width(bounds.width),
+                bounds.height,
+            ),
             follows_tail: false,
         },
-        title: title(palette, "Commands".to_owned(), Role::SectionHeading, ""),
+        title: title(
+            palette,
+            if state
+                .command_palette()
+                .is_some_and(|p| p.is_session_picker())
+            {
+                "Sessions"
+            } else {
+                "Commands"
+            }
+            .to_owned(),
+            Role::SectionHeading,
+            "",
+        ),
         badge: None,
         edges: Edges::All,
     }
@@ -389,7 +409,10 @@ fn conversation_body(
     let width = inner_width(area.width);
     if metrics.measure_with(agent, palette, width, state.disclosure()) == 0 {
         return Body::Whole {
-            lines: content::conversation_placeholder(palette, surface, true),
+            lines: agent.restoration.as_ref().map_or_else(
+                || content::conversation_placeholder(palette, surface, true),
+                |feedback| content::recovery_lines(&feedback.summary, palette),
+            ),
             follows_tail: false,
         };
     }

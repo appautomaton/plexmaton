@@ -27,7 +27,7 @@ pulled up to contain the caret, computed rather than stored, so no scroll offset
 where the caret is. Rejected: deriving the caret by measuring painted cells, which can only ever put
 it after the last line and is why the draft previously had no insertion point to move.
 
-**COM-3 — Submit is a command, not a write.** Submitting hands text to the runtime and clears the
+**COM-3 — Submit is a command, not a write.** Normal submission hands text to the runtime and clears the
 draft; the message reaches the screen only as the events the runtime emits back. A draft that is
 only whitespace submits nothing and is left alone. Rejected: `ratatui-textarea`, which consumes
 terminal events when only the router may (INV-1); and the projection appending its own transcript,
@@ -49,6 +49,12 @@ The composer, entered worker input and command filter share this model. An edit 
 repairs the caret against the complete text; an exactly full row reserves the following caret row.
 Bracketed terminal paste replaces the selected range atomically, normalizes CRLF/CR to newlines,
 and never submits. A command filter flattens pasted line breaks to spaces to remain single-line.
+
+**COM-7 — Edited retry retains draft ownership until acknowledgment.** Edit & retry fills the
+composer from the addressed question and labels it `Editing previous message · Esc to cancel`.
+Submit retains that text until the runtime acknowledges the replacement projection; failure leaves
+it editable. Cancel or successful acknowledgment restores the displaced draft. No branch mutation
+occurs while merely editing (JRN-8).
 
 ## Model
 
@@ -90,6 +96,7 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 
 | Invariant | Proven by |
 | --- | --- |
+| COM-7 | `edit_retry_keeps_exact_text_until_ack_and_escape_restores_displaced_draft`, `failed_retry_append_returns_edited_input_without_starting_another_request`, `plain_retry_leaves_edit_mode_and_restores_the_displaced_draft`, `escape_clears_retry_input_selection_before_cancelling_the_edit`, `acknowledged_edit_retry_restores_the_draft_without_losing_keyboard_focus` |
 | COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists`, `a_wrapped_draft_puts_the_caret_at_the_end_of_the_text_not_on_the_border`, `the_caret_reports_the_row_and_column_it_is_painted_on`, `a_wide_glyph_advances_the_caret_by_two_cells`, `a_click_lands_on_the_boundary_under_it`, `a_draft_reserves_the_rows_it_needs_in_an_ultrawide_split`, `the_command_filter_paints_its_own_caret_while_editing`, `a_long_command_filter_keeps_the_caret_inside_its_row` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing`, `editing_happens_at_the_caret_rather_than_at_the_end`, `motion_steps_over_whole_clusters_and_stops_at_the_ends`, `word_deletion_takes_the_trailing_space_and_the_word`, `killing_binds_to_the_logical_line_the_caret_is_on`, `the_visible_window_follows_the_caret_above_the_tail` |
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `returned_text_lands_after_the_existing_draft`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text`, `persistence_failure_restores_the_draft_and_opens_one_notice` |

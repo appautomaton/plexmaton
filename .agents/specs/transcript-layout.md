@@ -9,9 +9,9 @@
 
 ## Invariants
 
-**TR-1 — A height is measured once per entry, revision, disclosure, and width.** An entry's height comes from the
+**TR-1 — A height is measured once per entry, revision, disclosure, feedback, and width.** An entry's height comes from the
 same wrapper that paints it (surface-model §viewports) and is recomputed only when that entry's
-revision, open state, or the panel's width changes: a delta re-measures one entry, disclosure
+revision, open state, anchored restoration feedback/retry actions, or the panel's width changes: a delta re-measures one entry, disclosure
 re-measures one entry at each retained width, a resize re-measures each entry once, a tool lifecycle
 update re-measures its one stable entry, and an unchanged frame re-measures none. Text, tool,
 artifact and mail entries use the same ordered cache. Width is part of the key,
@@ -71,6 +71,7 @@ from the built prefix before the remaining scroll is narrowed.
 | A new entry | 1 |
 | A tool lifecycle transition | 1 |
 | Opening or closing one tool detail | 1 per retained width when that width is next drawn |
+| Attaching restoration feedback | 1 anchored entry; no semantic revision or copy content changes |
 | A resize | every entry, once |
 | Anything else, including scrolling | 0 |
 
@@ -84,7 +85,7 @@ what make the claim testable. What those walks cost is measured in [frame-loop](
 | Situation | Response |
 | --- | --- |
 | Panel too narrow to wrap into | An entry measures zero rows rather than dividing by a zero width |
-| A conversation with no entries | A placeholder; there is nothing to virtualize |
+| A conversation with no entries | A placeholder, or its restoration confirmation; no semantic entry is invented. Restoration at an empty-history anchor stays before the first later entry |
 | A conversation nothing has measured | No window and no anchor, so the wheel leaves it alone rather than parking it at a guess |
 | An offset past the end of the content | An empty window. Drawing something arbitrary would hide the clamping error that produced it |
 | Content taller than `u16::MAX` rows | Retain the full semantic offset and remove complete built-prefix lines until the terminal widget can express the remainder |
@@ -94,8 +95,8 @@ what make the claim testable. What those walks cost is measured in [frame-loop](
 
 | Invariant | Proven by |
 | --- | --- |
-| TR-1 | `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
+| TR-1 | `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `measurement_is_proportional_to_what_changed`, `a_tool_transition_remeasures_only_its_original_entry`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `item_heights_sum_to_the_height_of_the_whole_conversation`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `two_widths_of_one_conversation_do_not_invalidate_each_other`, `a_run_of_widths_retains_only_the_last_two`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
 | TR-2 | `a_virtualized_conversation_paints_what_the_whole_one_did`, `interleaved_text_and_tools_keep_their_positions_when_tools_finish_out_of_order`, `a_window_covers_the_viewport_and_starts_inside_the_item_it_lands_in`, `a_conversation_nothing_has_measured_has_no_window_and_no_anchor`, `maximum_newline_detail_and_the_entry_after_it_remain_reachable`, `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_open_tool_frames_match_their_fixtures` |
-| TR-3 | `an_anchor_round_trips_through_the_row_it_names`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
+| TR-3 | `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `an_anchor_round_trips_through_the_row_it_names`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |

@@ -3,6 +3,8 @@ mod approval;
 mod asking;
 mod attention;
 mod command_palette;
+mod session_picker;
+pub use session_picker::{MAX_SESSION_CHOICES, SessionChoice, SessionPickerStatus};
 mod composer;
 mod configuration;
 mod current_work;
@@ -14,6 +16,8 @@ mod inspect;
 mod inspector;
 mod notices;
 mod ordered;
+mod restoration;
+mod retry;
 mod roster;
 mod scroll;
 mod selection;
@@ -38,9 +42,10 @@ pub use entry::{
 };
 pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
-pub use notices::{
-    CleanupNotice, NoticeView, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
-};
+pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
+pub(crate) use restoration::FeedbackPlacement;
+pub use restoration::{SessionRestoration, SessionTailRepair};
+pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
 pub use selection::{CopyRequest, Selection};
 pub(crate) use status::Footer;
@@ -105,6 +110,7 @@ pub struct ViewState {
     /// The command list, present only while it is open (SURF-4).
     command_palette: Option<CommandPalette>,
     configuration: Option<configuration::ConfigurationView>,
+    retry_edit: Option<retry::RetryEdit>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -198,6 +204,13 @@ impl ViewState {
         let Some(palette) = self.command_palette.as_mut() else {
             return false;
         };
+        if palette
+            .sessions
+            .as_ref()
+            .is_some_and(|s| s.status == SessionPickerStatus::Opening)
+        {
+            return false;
+        }
         let intent = match intent {
             TextIntent::Paste(text) => TextIntent::Paste(text.replace(['\r', '\n', '\t'], " ")),
             intent => intent,
@@ -221,6 +234,15 @@ impl ViewState {
         };
         // The filter, one row per match — or the one row saying nothing matched — the key line,
         // and two borders.
+        if palette.is_session_picker() {
+            return u16::try_from(
+                palette
+                    .match_count()
+                    .clamp(1, session_picker::VISIBLE_SESSIONS),
+            )
+            .unwrap_or(1)
+                + 5;
+        }
         let listed = u16::try_from(palette.matches().len())
             .unwrap_or(u16::MAX)
             .max(1);

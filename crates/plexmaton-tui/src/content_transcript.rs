@@ -83,11 +83,12 @@ fn transcript_text(
         (item.kind, item.role),
         (TranscriptTextKind::Message, TranscriptRole::User)
     );
-    let reserved = usize::from(width).saturating_sub(usize::from(gutter));
+    let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
 
     // Wrapped here rather than by the paragraph, because a margin painted on a logical line only
     // reaches the first row it wraps onto, and a selection painted on one only reaches as far as
     // the text does. Both have to run the full height and the full width of what they mark.
+    // A fixed right gutter holds the first-row action; hovering adds no row or reflow.
     let mut lines: Vec<Line<'static>> = Vec::new();
     if let Some((word, role)) = heading {
         lines.push(Line::styled(
@@ -104,7 +105,7 @@ fn transcript_text(
         spans.push(Span::styled(text, palette.style(body)));
         lines.push(Line::from(spans));
     }
-    lines.push(Line::raw(""));
+    lines.push(Line::default());
     lines
 }
 

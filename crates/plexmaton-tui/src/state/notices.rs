@@ -26,24 +26,6 @@ pub enum NoticeView {
     PersistenceFailed(PersistenceNotice),
     /// One owner could not be joined cleanly while the runtime froze after persistence failure.
     CleanupFailed(CleanupNotice),
-    /// One summary of a syntactic file-tail repair while resuming a session.
-    SessionRecovered(SessionRecoveryNotice),
-}
-
-/// Syntactic journal-tail repair reported by the storage adapter.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TailRecoveryNotice {
-    /// A complete final JSON record lacked only its newline.
-    AddedFinalNewline,
-    /// An incomplete final fragment was moved beside the canonical journal.
-    IsolatedFinalTail { bytes: u64 },
-}
-
-/// Startup-only summary shown once after a journal tail is repaired.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SessionRecoveryNotice {
-    /// File-tail repair performed before the session was loaded.
-    pub tail: TailRecoveryNotice,
 }
 
 /// What the session writer knows about a failed submission append.
@@ -107,12 +89,6 @@ impl ViewState {
     /// Records one owner that could not be joined cleanly after the durable stream froze.
     pub(crate) fn report_cleanup_failure(&mut self, failure: CleanupNotice) {
         self.notices.push(NoticeView::CleanupFailed(failure));
-        self.touch();
-    }
-
-    /// Records exactly one summary of a journal-tail repair performed during resume.
-    pub(crate) fn report_session_recovery(&mut self, recovery: SessionRecoveryNotice) {
-        self.notices.push(NoticeView::SessionRecovered(recovery));
         self.touch();
     }
 }

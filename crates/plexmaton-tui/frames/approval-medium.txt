@@ -25,9 +25,9 @@
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
-│                        ││I will inspect the workspace and delegate the focused UI study.    │
-│                        ││Agent B is running independently; this transcript remains          │
-│                        ││interactive.                                                       │
+│                        ││I will inspect the workspace and delegate the focused UI           │
+│                        ││study. Agent B is running independently; this transcript           │
+│                        ││remains interactive.                                               │
 │                        ││                                                                   │
 │                        │├ Allow edit? ──────────────────────────────────────────────────────┤
 │                        ││Access  change files                                               │

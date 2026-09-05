@@ -97,6 +97,10 @@ impl ViewState {
         if self.clear_selection() {
             return true;
         }
+        if self.editing_retry() {
+            self.finish_retry_edit();
+            return true;
+        }
         if self.agents.peeked().is_none() {
             return false;
         }

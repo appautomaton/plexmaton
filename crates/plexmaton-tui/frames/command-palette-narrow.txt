@@ -4,9 +4,9 @@
 ┌ A┌ Commands ──────────────────────────────────────────┐──┐
 │○ │ Type to filter                                     │  │
 │  │> /config  Provider, model, and reasoning effort    │  │
-│  │ ↑↓ choose · Enter run · Esc close                  │  │
-└──└────────────────────────────────────────────────────┘──┘
-┌ Agent A · primary · running ───────────────────── ( !1 ) ┐
+│  │  /resume  Find and resume a saved conversation     │  │
+└──│ ↑↓ choose · Enter run · Esc close                  │──┘
+┌ A└────────────────────────────────────────────────────┘) ┐
 │                                                          │
 │                                                          │
 │                                                          │
@@ -30,9 +30,9 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│I will inspect the workspace and delegate the focused UI  │
-│study. Agent B is running independently; this transcript  │
-│remains interactive.                                      │
+│I will inspect the workspace and delegate the focused     │
+│UI study. Agent B is running independently; this          │
+│transcript remains interactive.                           │
 │                                                          │
 ├ Message Agent A · primary · Thinking ────────────────────┤
 │Type a message · ⇥ to focus                               │

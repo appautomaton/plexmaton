@@ -230,6 +230,19 @@ def check_command_palette(master: int, captured: bytearray) -> list[str]:
             failures.append(f"configuration back: {query.decode()}")
         os.write(master, b"\x1b")
         drain(master, 0.2, captured)
+    for query in (b"resume", b"continue", b"sessions", b"session"):
+        os.write(master, b"\x10" + query + b"\r")
+        drain(master, 0.2, captured)
+        set_size(master, REPAINT_PROBE_SIZE)
+        drain(master, 0.2, captured)
+        start = len(captured)
+        set_size(master, RESIZED)
+        drain(master, REPAINT_SECONDS, captured)
+        screen = collapsed(rendered_screen(bytes(captured[start:]), RESIZED).encode())
+        if not all(collapsed(text) in screen for text in (b"Sessions", b"Enter resume", b"Esc close")):
+            failures.append(f"session discovery: {query.decode()}")
+        os.write(master, b"\x1b")
+        drain(master, 0.2, captured)
     return failures
 
 

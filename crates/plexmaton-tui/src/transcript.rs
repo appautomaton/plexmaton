@@ -18,7 +18,7 @@ use ratatui::{
 
 use crate::{
     AgentView, TranscriptEntryView, ViewState, content,
-    state::{DisclosureState, EntryAppearance},
+    state::{DisclosureState, EntryAppearance, FeedbackPlacement},
     surface::SurfaceId,
     theme::Palette,
 };
@@ -54,6 +54,9 @@ struct Measured {
     id: TranscriptItemId,
     revision: u64,
     open: bool,
+    restoration: Option<(FeedbackPlacement, crate::SessionRestoration)>,
+    leading_rows: usize,
+    retry: Option<crate::RetryTarget>,
     compact_rows: usize,
     rows: usize,
 }
@@ -136,21 +139,51 @@ impl TranscriptMetrics {
         let mut count = 0_usize;
         for item in agent.entries() {
             let open = disclosure.is_open(item.id());
+            let restoration = agent.restoration_for(item.id());
+            let retry = agent
+                .retry
+                .as_ref()
+                .filter(|actions| &actions.error_item == item.id())
+                .map(|actions| &actions.target);
             let reusable = entries.get(count).is_some_and(|entry| {
-                &entry.id == item.id() && entry.revision == item.revision() && entry.open == open
+                &entry.id == item.id()
+                    && entry.revision == item.revision()
+                    && entry.open == open
+                    && entry.retry.as_ref() == retry
+                    && entry
+                        .restoration
+                        .as_ref()
+                        .map(|(place, summary)| (*place, summary))
+                        == restoration
             });
             if !reusable {
                 let compact_rows = wrap_rows(item, palette, width, false);
+                let feedback_rows = restoration.map_or(0, |(_, summary)| {
+                    Paragraph::new(content::recovery_lines(summary, palette))
+                        .wrap(Wrap { trim: false })
+                        .line_count(width)
+                });
                 let measured = Measured {
                     id: item.id().clone(),
                     revision: item.revision(),
+                    retry: retry.cloned(),
                     open,
+                    restoration: restoration.map(|(place, summary)| (place, summary.clone())),
+                    leading_rows: if restoration
+                        .is_some_and(|(place, _)| place == FeedbackPlacement::Before)
+                    {
+                        feedback_rows
+                    } else {
+                        0
+                    },
                     compact_rows,
-                    rows: if open {
+                    rows: (if open {
                         wrap_rows(item, palette, width, true)
                     } else {
                         compact_rows
-                    },
+                    })
+                    .saturating_add(feedback_rows)
+                    .saturating_add(if retry.is_some() { 2 } else { 0 }),
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
                 match entries.get_mut(count) {
@@ -233,7 +266,47 @@ impl TranscriptMetrics {
     ) -> Option<usize> {
         let (index, inside) = self.locate(agent_id, width, row)?;
         let measured = self.items(agent_id, width).get(index)?;
-        (inside < measured.compact_rows).then_some(index)
+        (inside >= measured.leading_rows && inside < measured.leading_rows + measured.compact_rows)
+            .then_some(index)
+    }
+
+    pub(crate) fn retry_entry_at_row(
+        &self,
+        agent_id: &AgentId,
+        width: u16,
+        row: usize,
+    ) -> Option<&TranscriptItemId> {
+        let (index, inside) = self.locate(agent_id, width, row)?;
+        let measured = self.items(agent_id, width).get(index)?;
+        (measured.retry.is_some() && inside == measured.leading_rows + measured.compact_rows)
+            .then_some(&measured.id)
+    }
+
+    pub(crate) fn entry_header_at_row(
+        &self,
+        agent: &AgentId,
+        width: u16,
+        row: usize,
+    ) -> Option<&TranscriptItemId> {
+        let (index, inside) = self.locate(agent, width, row)?;
+        let entry = self.items(agent, width).get(index)?;
+        (inside == entry.leading_rows).then_some(&entry.id)
+    }
+
+    pub(crate) fn message_rows(
+        &self,
+        agent: &AgentId,
+        width: u16,
+        index: usize,
+    ) -> Option<Range<usize>> {
+        let entries = self.items(agent, width);
+        let entry = entries.get(index)?;
+        let start = entries[..index]
+            .iter()
+            .map(|entry| entry.rows)
+            .sum::<usize>()
+            + entry.leading_rows;
+        Some(start..start.saturating_add(entry.compact_rows))
     }
 
     /// The row a position resolves to at `width`.
@@ -298,7 +371,21 @@ impl TranscriptMetrics {
                     item.id(),
                     selected.contains(index),
                 );
-                content::transcript_entry(item, palette, appearance, width)
+                let mut lines = content::transcript_entry(item, palette, appearance, width);
+                if agent.retry.as_ref().is_some_and(|actions| &actions.error_item == item.id()) {
+                    let hovered = state.retry_hovered(item.id());
+                    let style = |command| palette.style(if hovered == Some(command) { crate::theme::Role::Accent } else { crate::theme::Role::Muted });
+                    lines.push(Line::from(vec![ratatui::text::Span::styled("[ Retry ]", style(crate::RetryAction::Retry)), ratatui::text::Span::raw("   "), ratatui::text::Span::styled("[ Edit & retry ]", style(crate::RetryAction::EditRetry)), ratatui::text::Span::styled(" · r / e", palette.style(crate::Role::Muted))]));
+                    lines.push(Line::default());
+                }
+                if let Some((place, summary)) = agent.restoration_for(item.id()) {
+                    let feedback = content::recovery_lines(summary, palette);
+                    match place {
+                        FeedbackPlacement::Before => { lines.splice(0..0, feedback); }
+                        FeedbackPlacement::After => lines.extend(feedback),
+                    }
+                }
+                lines
             })
             .collect();
         self.built = self.built.saturating_add(lines.len());
@@ -462,6 +549,102 @@ mod tests {
         match position {
             TranscriptPosition::At { item, .. } => item,
             TranscriptPosition::Tail => panic!("this position was expected to name an item"),
+        }
+    }
+
+    #[test]
+    fn restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy() {
+        // TR-1/TR-3, JRN-5: presentation has measured rows but no semantic item or copy identity.
+        for width in [118, 93, 58] {
+            let palette = Palette::ansi();
+            let mut conversation = Conversation::canonical();
+            conversation.extend(30);
+            let mut metrics = TranscriptMetrics::default();
+            let count = metrics.measure(agent(&conversation.state), &palette, width);
+            let id = agent(&conversation.state).id.clone();
+            let sources: Vec<_> = agent(&conversation.state).entries().cloned().collect();
+            conversation
+                .state
+                .begin_selection(SurfaceId::Transcript, id.clone(), count - 1);
+            let original_copy = conversation.state.copy();
+            let old_rows = metrics.total_rows(&id, width);
+            let wraps = metrics.wrapped();
+            conversation
+                .state
+                .report_session_recovery(crate::SessionRestoration { tail: None });
+            let once = conversation.state.clone();
+            conversation
+                .state
+                .report_session_recovery(crate::SessionRestoration { tail: None });
+            assert_eq!(
+                conversation.state, once,
+                "identical confirmation is a no-op"
+            );
+            assert_eq!(conversation.state.notices().count(), 0);
+            assert_eq!(conversation.state.copy(), original_copy);
+            assert_eq!(
+                agent(&conversation.state)
+                    .entries()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                sources
+            );
+            assert_eq!(
+                metrics.measure(agent(&conversation.state), &palette, width),
+                count
+            );
+            assert_eq!(
+                metrics.wrapped() - wraps,
+                1,
+                "only the adorned entry remeasures"
+            );
+            assert_eq!(metrics.total_rows(&id, width), old_rows + 2);
+            assert_eq!(metrics.compact_entry_at_row(&id, width, old_rows), None);
+            let top = metrics.window(&id, width, 0, 3);
+            let (lines, _) = metrics.build(
+                agent(&conversation.state),
+                &palette,
+                &top,
+                &conversation.state,
+                SurfaceId::Transcript,
+            );
+            assert!(
+                !lines
+                    .iter()
+                    .any(|line| line.to_string().contains("Conversation restored"))
+            );
+            let tail = metrics.window(&id, width, old_rows, 2);
+            let (lines, _) = metrics.build(
+                agent(&conversation.state),
+                &palette,
+                &tail,
+                &conversation.state,
+                SurfaceId::Transcript,
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.to_string() == "✓ Conversation restored.")
+            );
+            conversation.extend(1);
+            metrics.measure(agent(&conversation.state), &palette, width);
+            let all = metrics.window(&id, width, 0, u16::MAX);
+            let (lines, _) = metrics.build(
+                agent(&conversation.state),
+                &palette,
+                &all,
+                &conversation.state,
+                SurfaceId::Transcript,
+            );
+            let text = lines
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                text.find("Conversation restored.").expect("confirmation")
+                    < text.rfind("Filler message").expect("new content")
+            );
         }
     }
 

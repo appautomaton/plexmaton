@@ -29,6 +29,7 @@ use crate::NativeToolCatalog;
 enum Script {
     Events(Vec<ModelEvent>),
     Fail(ModelError),
+    OutputThenFail(ModelEvent, ModelError),
     WaitForCancellation {
         started: Arc<Notify>,
         finished: Arc<AtomicBool>,
@@ -133,6 +134,25 @@ impl ModelDriver for FakeDriver {
                             emitted_output,
                         ),
                     }
+                }
+                Script::OutputThenFail(event, error) => {
+                    let output =
+                        ModelOutput::from_event(event).expect("nonterminal fixture output");
+                    signals
+                        .send(ModelSignal {
+                            attempt_id: attempt_id.clone(),
+                            step_id: call.step_id.clone(),
+                            output,
+                        })
+                        .await
+                        .expect("runtime retains receiver");
+                    failed_report(
+                        attempt_id,
+                        call.step_id,
+                        error,
+                        TokenUsage::Unavailable,
+                        true,
+                    )
                 }
                 Script::Fail(error) => failed_report(
                     attempt_id,
@@ -297,6 +317,7 @@ mod cancellation;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod retry;
 mod timing;
 mod tools;
 

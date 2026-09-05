@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 configurable status line complete; interaction follow-ups not started |
+| Status | Active; stage 1 complete; stage 2 session interaction in progress |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -19,9 +19,11 @@ Visual changes are reviewed against real frames before the contract adopts them.
    snapshot, owned command, inert styled output and user-approved variable-height footer. The pastel
    Powerline example includes rainbow path components and omits unavailable statistics. Workspace
    tests, two independent code reviews and the real PTY status-line smoke passed without model calls.
-2. **Interaction follow-ups.** The reported Attention/approval layout, in-app resume and per-turn
-   usage presentation need focused plans and user-reviewed frames. Resume consumes Phase 02's
-   existing session APIs; storage, head mutations and compaction remain owned there.
+2. **Session interaction — in progress.** [Stage 2](../plans/phase-04-stage-02-session-interaction.md)
+   has verified restoration feedback, message-local retry/edit-retry and the session picker;
+   lazy automatic creation remains.
+   It consumes Phase 02's journal/context APIs; compaction remains owned there. Attention/approval
+   layout and per-turn usage presentation remain separate follow-ups.
 3. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.

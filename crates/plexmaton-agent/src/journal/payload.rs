@@ -6,8 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{AssistantOutput, ModelStepId, ToolOutcome};
 
-pub(crate) const PROCESS_RECOVERY_MESSAGE: &str =
-    "unfinished turn was interrupted during process recovery";
+pub(crate) const PROCESS_RECOVERY_MESSAGE: &str = "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.";
 
 /// One canonical session fact from which model and screen projections are derived (JRN-5).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -32,6 +31,13 @@ pub enum JournalEntryPayload {
         turn_id: TurnId,
         text: String,
         accepted_at: crate::UnixMillis,
+        opened_at: crate::UnixMillis,
+    },
+    /// A new execution of the existing unanswered question; contributes no user/model atom.
+    TurnRetried {
+        agent_id: AgentId,
+        source_turn_id: TurnId,
+        turn_id: TurnId,
         opened_at: crate::UnixMillis,
     },
     /// User steering claimed by an already-open turn boundary (TIM-1, LOOP-6).

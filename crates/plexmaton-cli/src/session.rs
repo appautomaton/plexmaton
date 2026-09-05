@@ -11,7 +11,7 @@ use plexmaton_core::{AgentId, SessionId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_runtime::{JournalTailRecovery, LiveRuntime, NativeToolCatalog, SessionRecovery};
 use plexmaton_session_store::{JournalFile, SessionDirectory};
-use plexmaton_tui::{SessionRecoveryNotice, TailRecoveryNotice};
+use plexmaton_tui::{SessionRestoration, SessionTailRepair};
 
 pub(super) const USAGE: &str =
     "Usage: plexmaton [--ephemeral | create <session-id> | resume <session-id>]";
@@ -36,7 +36,7 @@ pub(super) struct PersistedSession {
 
 pub(super) struct OpenedSession {
     pub(super) runtime: LiveRuntime,
-    pub(super) recovery: SessionRecovery,
+    pub(super) recovery: Option<SessionRecovery>,
     pub(super) persisted: Option<PersistedSession>,
 }
 
@@ -79,7 +79,7 @@ pub(super) async fn open_selected_session(
         SessionSelection::Ephemeral => OpenedSession {
             runtime: LiveRuntime::openai(agent_id, "Plexmaton", model, key, tools)
                 .context("configure live provider transport")?,
-            recovery: SessionRecovery::default(),
+            recovery: None,
             persisted: None,
         },
         SessionSelection::Create(session_id) => {
@@ -101,7 +101,7 @@ pub(super) async fn open_selected_session(
                     .context("resume durable runtime")?;
             OpenedSession {
                 runtime,
-                recovery,
+                recovery: Some(recovery),
                 persisted: Some(PersistedSession {
                     id: session_id,
                     path,
@@ -152,7 +152,7 @@ async fn open_fresh_session(
     };
     Ok(OpenedSession {
         runtime,
-        recovery: SessionRecovery::default(),
+        recovery: None,
         persisted: Some(PersistedSession {
             id: session_id,
             path,
@@ -160,14 +160,16 @@ async fn open_fresh_session(
     })
 }
 
-pub(super) fn recovery_notice(recovery: SessionRecovery) -> Option<SessionRecoveryNotice> {
-    let tail = recovery.tail.map(|tail| match tail {
-        JournalTailRecovery::AddedFinalNewline => TailRecoveryNotice::AddedFinalNewline,
+pub(super) fn restoration_feedback(
+    recovery: Option<SessionRecovery>,
+) -> Option<SessionRestoration> {
+    let tail = recovery?.tail.map(|tail| match tail {
+        JournalTailRecovery::AddedFinalNewline => SessionTailRepair::AddedFinalNewline,
         JournalTailRecovery::IsolatedFinalTail { bytes } => {
-            TailRecoveryNotice::IsolatedFinalTail { bytes }
+            SessionTailRepair::IsolatedFinalTail { bytes }
         }
-    })?;
-    Some(SessionRecoveryNotice { tail })
+    });
+    Some(SessionRestoration { tail })
 }
 
 #[cfg(test)]
@@ -179,14 +181,24 @@ mod tests {
     use plexmaton_provider::{ApiKey, ModelRegistry, ResolvedModel, resolve_api_key};
     use plexmaton_runtime::{JournalTailRecovery, NativeToolCatalog, RuntimeUpdate};
     use plexmaton_session_store::{JournalFile, SessionDirectory};
-    use plexmaton_tui::{NoticeView, ViewState, Workspace};
+    use plexmaton_tui::{ViewState, Workspace};
     use uuid::{Uuid, Version};
 
     use super::{
         OpenedSession, SessionSelection, StartupAction, open_selected_session,
-        parse_startup_action, recovery_notice,
+        parse_startup_action, restoration_feedback,
     };
     use crate::tests::{FixtureWorkspace, fixture_http_server};
+
+    #[test]
+    fn only_a_resumed_session_gets_a_restoration_confirmation() {
+        // JRN-5: startup confirmation is UI data, not a journal entry or a model message.
+        assert!(restoration_feedback(None).is_none());
+        assert_eq!(
+            restoration_feedback(Some(plexmaton_runtime::SessionRecovery::default())),
+            Some(plexmaton_tui::SessionRestoration { tail: None })
+        );
+    }
 
     fn agent_id() -> AgentId {
         AgentId::new("agent-primary").unwrap_or_else(|error| panic!("agent id: {error}"))
@@ -462,7 +474,8 @@ output_reserve_tokens = 5000
         )
         .await
         .unwrap_or_else(|error| panic!("resume runtime: {error}"));
-        assert!(recovery.is_clean());
+        assert!(recovery.as_ref().expect("resumed").is_clean());
+        assert!(restoration_feedback(recovery).is_some());
         let after = project_until_idle(&mut resumed).await;
         assert_eq!(after, expected);
         resumed
@@ -541,18 +554,17 @@ output_reserve_tokens = 5000
         .await
         .unwrap_or_else(|error| panic!("resume torn fixture: {error}"));
         assert_eq!(
-            recovery.tail,
+            recovery.as_ref().expect("resumed").tail,
             Some(JournalTailRecovery::IsolatedFinalTail { bytes: 8 })
         );
         let mut workspace = Workspace::default();
+        while let Some(event) = resumed.try_next_event() {
+            workspace.emit(vec![event]);
+        }
         workspace.report_session_recovery(
-            recovery_notice(recovery).unwrap_or_else(|| panic!("missing recovery notice")),
+            restoration_feedback(recovery).unwrap_or_else(|| panic!("missing recovery notice")),
         );
-        assert_eq!(workspace.state().notices().count(), 1);
-        assert!(matches!(
-            workspace.state().notices().next(),
-            Some(NoticeView::SessionRecovered(_))
-        ));
+        assert_eq!(workspace.state().notices().count(), 0);
         resumed
             .shutdown()
             .await
@@ -605,10 +617,10 @@ output_reserve_tokens = 5000
         )
         .await
         .unwrap_or_else(|error| panic!("resume unfinished fixture: {error}"));
-        assert!(recovery.interrupted_turn);
+        assert!(recovery.as_ref().expect("resumed").interrupted_turn);
         assert!(
-            recovery_notice(recovery.clone()).is_none(),
-            "the durable transcript marker is the one visible interruption report"
+            restoration_feedback(recovery.clone()).is_some(),
+            "restoration success is separate from the durable interruption warning"
         );
         assert!(!resumed.has_active_work());
         let state = project_until_idle(&mut resumed).await;
@@ -624,7 +636,7 @@ output_reserve_tokens = 5000
                 .transcript()
                 .filter(|item| {
                     item.role == TranscriptRole::System
-                        && item.source == "unfinished turn was interrupted during process recovery"
+                        && item.source == "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun."
                 })
                 .count(),
             1
@@ -650,7 +662,10 @@ output_reserve_tokens = 5000
         )
         .await
         .unwrap_or_else(|error| panic!("reopen recovered fixture: {error}"));
-        assert!(again.is_clean(), "the interruption marker must be durable");
+        assert!(
+            again.expect("resumed").is_clean(),
+            "the interruption marker must be durable"
+        );
         let reopened_state = project_until_idle(&mut reopened).await;
         assert_eq!(reopened_state, state);
         reopened

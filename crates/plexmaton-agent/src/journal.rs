@@ -25,6 +25,7 @@ mod payload;
 mod payload_tests;
 mod projection;
 mod record;
+mod retry;
 mod turns;
 #[cfg(test)]
 mod validation_tests;
@@ -36,6 +37,7 @@ pub use payload::JournalEntryPayload;
 pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;
 pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
 pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
+pub use retry::{RetryCandidate, RetryTarget};
 
 /// Immutable identity and chronology shared by every projection of one session.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -240,6 +242,9 @@ impl SessionJournal {
                     .and_then(|state| state.open_turn.clone());
                 if let JournalEntryPayload::TurnStarted {
                     agent_id, turn_id, ..
+                }
+                | JournalEntryPayload::TurnRetried {
+                    agent_id, turn_id, ..
                 } = &entry.payload
                 {
                     self.turn_starts.insert(
@@ -259,7 +264,8 @@ impl SessionJournal {
                     .insert(entry.id.clone(), entry.as_ref().clone());
                 self.entry_sequences.insert(entry.id.clone(), *sequence);
                 let next_open_turn = match &entry.payload {
-                    JournalEntryPayload::TurnStarted { turn_id, .. } => Some(turn_id.clone()),
+                    JournalEntryPayload::TurnStarted { turn_id, .. }
+                    | JournalEntryPayload::TurnRetried { turn_id, .. } => Some(turn_id.clone()),
                     _ => prior_open_turn,
                 };
                 if next_open_turn.is_none() {
@@ -413,6 +419,12 @@ impl SessionJournal {
                             return Err(JournalError::UnstableTurnTarget(open_turn.clone()));
                         }
                     }
+                    JournalEntryPayload::TurnRetried {
+                        source_turn_id,
+                        turn_id,
+                        agent_id,
+                        ..
+                    } => self.validate_retry(head, agent_id, source_turn_id, turn_id)?,
                     JournalEntryPayload::SteeringAccepted {
                         agent_id, turn_id, ..
                     } => self.validate_steering(agent_id, turn_id, state.open_turn.as_ref())?,

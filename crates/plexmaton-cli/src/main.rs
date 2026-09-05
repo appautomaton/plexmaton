@@ -29,13 +29,15 @@ use plexmaton_tui::{
 use ratatui::DefaultTerminal;
 
 mod clipboard;
+mod retry;
 mod session;
+mod session_picker;
 mod statusline;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
     OpenedSession, PersistedSession, SessionSelection, StartupAction, USAGE, open_selected_session,
-    parse_startup_action, recovery_notice,
+    parse_startup_action, restoration_feedback,
 };
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
@@ -75,13 +77,14 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (opened, workspace_root, configuration, status_line) =
+    let (opened, workspace_root, mut picker, status_line) =
         live_runtime_from_process(selection).await?;
     let OpenedSession {
         runtime,
         recovery,
         persisted,
     } = opened;
+    picker.current = persisted;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
     let restore_terminal = RestoreTerminal;
     let terminal = ratatui::init();
@@ -100,15 +103,18 @@ async fn main() -> anyhow::Result<()> {
         &mut TerminalClipboard::from_environment(io::stdout()),
         working_directory(&workspace_root),
         recovery,
-        configuration,
+        picker,
         status_line,
     )
     .await;
     drop(restore_terminal);
-    let handoff_result = persisted.as_ref().map(report_persisted_session).transpose();
     match run_result {
         Err(error) => Err(error),
-        Ok(()) => handoff_result.map(|_| ()),
+        Ok(persisted) => persisted
+            .as_ref()
+            .map(report_persisted_session)
+            .transpose()
+            .map(|_| ()),
     }
 }
 
@@ -117,7 +123,7 @@ async fn live_runtime_from_process(
 ) -> anyhow::Result<(
     OpenedSession,
     PathBuf,
-    ConfigurationSummary,
+    session_picker::SessionPicker,
     Option<statusline::StatusLine>,
 )> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
@@ -129,7 +135,6 @@ async fn live_runtime_from_process(
         .with_context(|| format!("read provider configuration at {}", path.display()))?;
     let (config, status_config) = statusline::parse(&source)?;
     let model = config.active_model().clone();
-    let configuration = configuration_summary(&model);
     let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
     let workspace_root = std::env::current_dir()
@@ -144,16 +149,23 @@ async fn live_runtime_from_process(
     let tools = NativeToolCatalog::open(
         &workspace_root,
         model.api_key_env(),
-        ripgrep,
-        driver,
+        ripgrep.clone(),
+        driver.clone(),
         vec![OsString::from(INTERNAL_RG_DRIVER)],
     )
     .context("configure native workspace tools")?;
+    let picker = session_picker::SessionPicker::new(session_picker::Launcher {
+        root: root.clone(),
+        workspace: workspace_root.clone(),
+        model: model.clone(),
+        ripgrep,
+        driver,
+    });
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
     let status_line = status_config
         .map(|config| statusline::StatusLine::new(config, model.clone(), workspace_root.clone()));
     let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
-    Ok((opened, workspace_root, configuration, status_line))
+    Ok((opened, workspace_root, picker, status_line))
 }
 
 /// Project only display values from the same model handed to the runtime (INV-12, PRV-6).
@@ -162,16 +174,6 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
         provider: model.provider_name().to_owned(),
         model: model.wire_id().to_owned(),
         reasoning_effort: model.reasoning_effort().as_str().to_owned(),
-    }
-}
-
-fn execute_workspace_command(
-    workspace: &mut Workspace,
-    command: Command,
-    configuration: &ConfigurationSummary,
-) {
-    match command {
-        Command::Config => workspace.show_configuration(configuration.clone()),
     }
 }
 
@@ -230,10 +232,10 @@ async fn run(
     mut runtime: LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
-    recovery: SessionRecovery,
-    configuration: ConfigurationSummary,
+    recovery: Option<SessionRecovery>,
+    mut picker: session_picker::SessionPicker,
     mut status_line: Option<statusline::StatusLine>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<PersistedSession>> {
     // The user already chose these colours when they themed their terminal, and slots 0-15 are the
     // only values a theme can reach: `Indexed(16..)` and `Rgb` paint over it. Truecolour presets
     // stay available, but none of them may be the default a first run lands on.
@@ -241,28 +243,35 @@ async fn run(
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
-    if let Some(recovery) = recovery_notice(recovery) {
+    if let Some(recovery) = restoration_feedback(recovery) {
+        // Install the acknowledged replay before anchoring presentation after its final entry.
+        while let Some(event) = runtime.try_next_event() {
+            workspace.emit(vec![event]);
+        }
         workspace.report_session_recovery(recovery);
     }
+    retry::sync_actions(&runtime, &mut workspace);
     let loop_result = drive_session(
         &mut terminal,
         &mut runtime,
         clipboard,
         &mut workspace,
-        &configuration,
+        &mut picker,
         &mut status_line,
     )
     .await;
+    let picker_shutdown = picker.shutdown().await;
     let status_shutdown = match &mut status_line {
         Some(status) => status.shutdown().await,
         None => Ok(()),
     };
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     session_result(
-        loop_result,
+        loop_result.and(picker_shutdown),
         shutdown.and_then(surface_shutdown_report),
         status_shutdown,
-    )
+    )?;
+    Ok(picker.current)
 }
 
 /// Optional presentation cleanup must never mask retained input or a durable-session failure.
@@ -313,7 +322,7 @@ async fn drive_session(
     runtime: &mut LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     workspace: &mut Workspace,
-    configuration: &ConfigurationSummary,
+    picker: &mut session_picker::SessionPicker,
     status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
@@ -323,6 +332,11 @@ async fn drive_session(
         let drag_deadline = workspace.drag_autoscroll_deadline();
 
         tokio::select! {
+            update = picker.next() => {
+                if picker.apply(update, runtime, workspace).await? && let Some(status) = status_line {
+                    status.mark_dirty();
+                }
+            }
             update = next_status_update(status_line) => {
                 if let Some(status) = status_line {
                     match update {
@@ -348,10 +362,12 @@ async fn drive_session(
                             | plexmaton_core::SessionEvent::TurnUsageUpdated { .. })
                             && let Some(status) = status_line { status.mark_dirty(); }
                         workspace.emit(vec![event]);
+                        retry::sync_actions(runtime, workspace);
                     }
                     RuntimeUpdate::Report(report) => {
                         if let Some(status) = status_line { status.mark_dirty(); }
                         restore_undelivered(workspace, runtime.agent_id().clone(), report);
+                        retry::sync_actions(runtime, workspace);
                     }
                     RuntimeUpdate::Finished => break,
                 }
@@ -362,7 +378,8 @@ async fn drive_session(
                         if matches!(event, crossterm::event::Event::Resize(..))
                             && let Some(status) = status_line { status.mark_dirty(); }
                         let outcome = workspace.handle(&event);
-                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, configuration).await? {
+                        picker.observe_closed(workspace);
+                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker).await? {
                             break;
                         }
                     }
@@ -380,13 +397,20 @@ async fn apply_workspace_outcome(
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
     clipboard: &mut impl ClipboardSink,
-    configuration: &ConfigurationSummary,
+    picker: &mut session_picker::SessionPicker,
 ) -> anyhow::Result<bool> {
     if let Some(command) = outcome.command {
-        execute_workspace_command(workspace, command, configuration);
+        picker.execute_command(workspace, command);
+    }
+    if let Some(id) = outcome.resume {
+        picker.select(id, runtime, workspace);
+    }
+    if let Some(retry) = outcome.retry {
+        retry::execute(runtime, workspace, retry).await?;
     }
     if let Some(submission) = outcome.submitted {
         dispatch_live(runtime, workspace, route_submission(submission)).await?;
+        retry::sync_actions(runtime, workspace);
     }
     if let Some(agent_id) = outcome.interrupted {
         dispatch_live(runtime, workspace, route_interrupt(agent_id)).await?;
@@ -490,6 +514,10 @@ async fn dispatch_live(
 }
 
 fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchReport) {
+    if let Some(projection) = report.projection_reset {
+        workspace.complete_retry_edit();
+        workspace.replace_projection(projection);
+    }
     for input in report.undelivered {
         workspace.return_input(to.clone(), input.text);
     }
@@ -605,7 +633,14 @@ output_reserve_tokens = 5000
 "#,
         )
         .expect("valid registry fixture");
-        let configuration = super::configuration_summary(registry.active_model());
+        let mut picker =
+            super::session_picker::SessionPicker::new(super::session_picker::Launcher {
+                root: PathBuf::new(),
+                workspace: PathBuf::new(),
+                model: registry.active_model().clone(),
+                ripgrep: "/bin/false".into(),
+                driver: "/bin/false".into(),
+            });
         for query in ["config", "/config", "settings", "/settings"] {
             let mut workspace = Workspace::default();
             workspace.emit(
@@ -627,7 +662,7 @@ output_reserve_tokens = 5000
                 .handle(&press(KeyCode::Enter))
                 .command
                 .expect("matched command");
-            super::execute_workspace_command(&mut workspace, command, &configuration);
+            picker.execute_command(&mut workspace, command);
             workspace.draw(&mut terminal).expect("draw configuration");
             let shown = workspace
                 .state()
@@ -766,6 +801,12 @@ output_reserve_tokens = 5000
     pub(crate) fn fixture_http_server<const N: usize>(
         responses: [&'static str; N],
     ) -> (String, FixtureServer) {
+        fixture_http_responses(responses.map(|body| (200, body)))
+    }
+
+    pub(crate) fn fixture_http_responses<const N: usize>(
+        responses: [(u16, &'static str); N],
+    ) -> (String, FixtureServer) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .unwrap_or_else(|error| panic!("bind fixture HTTP server: {error}"));
         listener
@@ -777,7 +818,7 @@ output_reserve_tokens = 5000
         let handle = thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             let mut requests = Vec::with_capacity(responses.len());
-            for response in responses {
+            for (status, response) in responses {
                 let mut stream = loop {
                     match listener.accept() {
                         Ok((stream, _peer)) => break stream,
@@ -801,7 +842,7 @@ output_reserve_tokens = 5000
                     .map_err(|error| format!("set fixture read timeout: {error}"))?;
                 requests.push(read_http_request(&mut stream)?);
                 let headers = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} Fixture\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     response.len()
                 );
                 stream

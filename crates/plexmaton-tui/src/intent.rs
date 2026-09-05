@@ -156,6 +156,8 @@ pub enum SelectionIntent {
 /// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
+    /// Contextual action on the primary conversation's eligible failed message.
+    Retry(crate::RetryAction),
     /// Open, work, or dismiss the workspace's command list.
     CommandPalette(CommandPaletteIntent),
     /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves only when a second

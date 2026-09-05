@@ -32,10 +32,11 @@ pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    CleanupNotice, Command, ConfigurationSummary, CopyRequest, InspectorView, MailView, NoticeView,
-    PersistenceNotice, ReduceError, ScrollPosition, Selection, SessionRecoveryNotice, Submission,
-    SubmissionKind, TailRecoveryNotice, ToolCallView, TranscriptEntryView, TranscriptItemView,
-    TranscriptTextKind, ViewRevision, ViewState,
+    CleanupNotice, Command, ConfigurationSummary, CopyRequest, InspectorView, MAX_SESSION_CHOICES,
+    MailView, NoticeView, PersistenceNotice, ReduceError, RetryAction, RetryActions,
+    RetrySubmission, RetryTarget, ScrollPosition, Selection, SessionChoice, SessionPickerStatus,
+    SessionRestoration, SessionTailRepair, Submission, SubmissionKind, ToolCallView,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{

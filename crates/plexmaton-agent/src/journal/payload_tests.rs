@@ -42,6 +42,12 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             accepted_at: UnixMillis::new(100),
             opened_at: UnixMillis::new(120),
         },
+        JournalEntryPayload::TurnRetried {
+            agent_id: agent_a.clone(),
+            source_turn_id: id("turn-started", TurnId::new),
+            turn_id: id("turn-retried", TurnId::new),
+            opened_at: UnixMillis::new(130),
+        },
         JournalEntryPayload::SteeringAccepted {
             agent_id: agent_a.clone(),
             item_id: id("steering-item", TranscriptItemId::new),

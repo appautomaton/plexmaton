@@ -526,8 +526,8 @@ mod tests {
         workspace.handle(&press(rows["alpha"]));
         assert_eq!(
             workspace.state().selection().map(Selection::bounds),
-            Some((0, 0)),
-            "a press anchors on the message under it, foldable or not"
+            None,
+            "a press is pending; only a drag creates a selection"
         );
 
         workspace.handle(&drag(rows["charlie"]));
@@ -539,6 +539,7 @@ mod tests {
         // Releasing the button is the copy. On macOS the terminal keeps `Cmd-C` for its own
         // selection, which over an owned screen is empty, so a mouse selection that waited for a
         // key was a selection the habit could not copy.
+        workspace.handle(&Event::Resize(100, 24));
         let copied = workspace
             .handle(&release(rows["charlie"]))
             .copied

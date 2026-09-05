@@ -83,6 +83,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
         JournalEntryPayload::AssistantOutput { .. }
         | JournalEntryPayload::TurnStatusChanged { .. }
         | JournalEntryPayload::TurnStarted { .. }
+        | JournalEntryPayload::TurnRetried { .. }
         | JournalEntryPayload::SteeringAccepted { .. }
         | JournalEntryPayload::ToolCallRequested { .. }
         | JournalEntryPayload::ToolCallChanged { .. } => {

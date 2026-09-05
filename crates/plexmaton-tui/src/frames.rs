@@ -19,8 +19,8 @@ mod tests {
     use ratatui::{buffer::Buffer, layout::Rect};
 
     use crate::{
-        CleanupNotice, PersistenceNotice, SessionRecoveryNotice, TailRecoveryNotice,
-        TranscriptMetrics, ViewState,
+        CleanupNotice, PersistenceNotice, SessionRestoration, SessionTailRepair, TranscriptMetrics,
+        ViewState,
         intent::{AttentionIntent, Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
@@ -676,20 +676,20 @@ mod tests {
                 agent_id,
                 item_id: TranscriptItemId::new("recovery-warning")
                     .unwrap_or_else(|error| panic!("recovery item id: {error}")),
-                message: "unfinished turn was interrupted during process recovery".to_owned(),
+                message: "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.".to_owned(),
             },
         });
-        state.report_session_recovery(SessionRecoveryNotice {
-            tail: TailRecoveryNotice::IsolatedFinalTail { bytes: 37 },
+        state.report_session_recovery(SessionRestoration {
+            tail: Some(SessionTailRepair::IsolatedFinalTail { bytes: 37 }),
         });
-        assert_eq!(state.notices().count(), 1);
+        assert_eq!(state.notices().count(), 0);
         assert_eq!(
             state
                 .primary_agent()
                 .unwrap_or_else(|| panic!("recovered agent missing"))
                 .transcript()
                 .filter(|item| {
-                    item.source == "unfinished turn was interrupted during process recovery"
+                    item.source == "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun."
                 })
                 .count(),
             1
@@ -697,6 +697,12 @@ mod tests {
         for (width_name, width, height) in PRODUCT_WIDTHS {
             let name = format!("session-recovery-{width_name}");
             let drawn = draw(&state, width, height);
+            assert!(drawn.contains("Conversation restored."));
+            assert!(!drawn.contains("Notices"));
+            assert!(
+                drawn.find("warning").expect("warning")
+                    < drawn.find("Conversation restored.").expect("confirmation")
+            );
             assert!(
                 drawn.contains("isolated 37-byte incomplete tail"),
                 "{name}: recovery copy is absent"

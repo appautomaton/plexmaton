@@ -15,11 +15,20 @@ use crate::{
 const DRAG_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(60);
 const DRAG_INSIDE_EDGE_ROWS: u16 = 1;
 
-/// A foldable row resolved from the frame where the primary button went down.
+/// The content or action resolved from the frame where the primary button went down.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PressedEntry {
     target: EntryTarget,
     at: Point,
+    action: PressAction,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PressAction {
+    Content,
+    Selecting,
+    Copy,
+    CancelledCopy,
 }
 
 /// A held pointer at a conversation edge and the next monotonic step it owns.
@@ -31,13 +40,19 @@ pub(super) struct DragAutoScroll {
 }
 
 impl Workspace {
+    pub(super) fn cancel_pointer_click(&mut self) {
+        if self
+            .pressed_entry
+            .as_ref()
+            .is_some_and(|pressed| pressed.action != PressAction::Selecting)
+        {
+            self.pressed_entry = None;
+        }
+    }
     /// Routes a complete pointer gesture, keeping a cancelled or dragged press from opening work.
     ///
-    /// Returns what the finished gesture put on the clipboard, if anything. Selecting with the
-    /// mouse and then copying with a key is a gesture nobody makes: on macOS the terminal keeps
-    /// `Cmd-C` for its own selection, which over an owned screen is empty, so a mouse selection
-    /// that waited to be copied could not be copied at all. Releasing the button is the copy
-    /// (SEL-4 still applies: the text leaves as a value and this crate reaches no clipboard).
+    /// Only an explicit Copy activation or completed selection drag emits copied source.
+    /// A plain content click changes focus/disclosure without a clipboard side effect (SEL-4).
     pub(super) fn pointer(&mut self, pointer: PointerIntent, now: Instant) -> Option<CopyRequest> {
         let surface = match pointer {
             PointerIntent::Press { .. } => None,
@@ -56,9 +71,27 @@ impl Workspace {
                 // against the frame the user pressed in (FR-3).
                 let entry = self.entry_at(surface, at);
                 let target = self.entry_target_at(surface, at);
+                let copy_button = target.as_ref().is_some_and(|target| {
+                    self.copy_button_hit(target, at)
+                        && self
+                            .state
+                            .entry_appearance(surface, &target.agent, &target.item, false)
+                            .hovered
+                });
                 let input = self.state.click_text_input(&self.surfaces, surface, at);
                 self.state.hover_entry(target.clone());
-                self.pressed_entry = target.map(|target| PressedEntry { target, at });
+                self.pressed_entry = target.map(|target| PressedEntry {
+                    target,
+                    at,
+                    action: if copy_button {
+                        PressAction::Copy
+                    } else {
+                        PressAction::Content
+                    },
+                });
+                if copy_button {
+                    return None;
+                }
                 self.state.focus_surface(&self.surfaces, surface);
                 if input
                     || matches!(
@@ -75,9 +108,10 @@ impl Workspace {
                     self.click_agent(at);
                 }
                 match entry {
-                    // Where the drag anchors, and what a click on its own selects. A press is the
-                    // start of a selection whatever kind of entry it landed on (SEL-1).
-                    Some((agent, index)) => self.state.begin_selection(surface, agent, index),
+                    // The press remains pending until movement; a click does not select a block.
+                    Some(_) => {
+                        self.state.clear_selection();
+                    }
                     // Pressing where there is no content is how a selection ends. Without it the
                     // only way out of a highlight is a key, and the gesture that made it has no
                     // undo of its own.
@@ -90,7 +124,25 @@ impl Workspace {
             }
             PointerIntent::Drag { surface, at } => {
                 self.state.hover_entry(None);
-                self.pressed_entry = None;
+                if let Some(mut pressed) = self.pressed_entry.take() {
+                    if matches!(
+                        pressed.action,
+                        PressAction::Copy | PressAction::CancelledCopy
+                    ) {
+                        pressed.action = PressAction::CancelledCopy;
+                        self.pressed_entry = Some(pressed);
+                        return None;
+                    }
+                    if pressed.action == PressAction::Content {
+                        self.state.begin_selection(
+                            surface,
+                            pressed.target.agent.clone(),
+                            pressed.target.index,
+                        );
+                        pressed.action = PressAction::Selecting;
+                    }
+                    self.pressed_entry = Some(pressed);
+                }
                 if let Some((agent, index)) = self.dragged_entry_at(surface, at) {
                     let _changed = self.state.extend_selection_to(surface, &agent, index);
                 }
@@ -101,7 +153,11 @@ impl Workspace {
             PointerIntent::Suspend { .. } => {
                 self.drag_autoscroll = None;
                 self.state.hover_entry(None);
-                self.pressed_entry = None;
+                if let Some(pressed) = &mut self.pressed_entry
+                    && pressed.action != PressAction::Selecting
+                {
+                    pressed.action = PressAction::CancelledCopy;
+                }
                 None
             }
             PointerIntent::Cancel { .. } => {
@@ -111,28 +167,89 @@ impl Workspace {
                 self.state.drag(&self.surfaces, pointer);
                 None
             }
-            PointerIntent::Release { surface, at } => {
-                self.drag_autoscroll = None;
-                if let Some((agent, index)) = self.dragged_entry_at(surface, at) {
-                    let _changed = self.state.extend_selection_to(surface, &agent, index);
-                }
-                let released = self.entry_target_at(surface, at);
-                self.state.hover_entry(released.clone());
-                let pressed = self.pressed_entry.take();
-                self.state.drag(&self.surfaces, pointer);
-                if let Some(pressed) = pressed
-                    && pressed.target.surface == surface
-                    && (released.as_ref() == Some(&pressed.target) || pressed.at == at)
-                {
-                    // Focus may have inserted the inspector's input strip between press and
-                    // release. An unchanged cell still completes the gesture against the frame
-                    // pressed; otherwise both frames must resolve the same stable item (FR-3).
-                    self.state
-                        .toggle_pointer_entry(&self.surfaces, &self.metrics, pressed.target);
-                }
-                self.state.copy()
-            }
+            PointerIntent::Release { surface, at } => self.release_pointer(surface, at),
         }
+    }
+
+    fn release_pointer(&mut self, surface: SurfaceId, at: Point) -> Option<CopyRequest> {
+        self.drag_autoscroll = None;
+        if self
+            .pressed_entry
+            .as_ref()
+            .is_some_and(|pressed| pressed.action == PressAction::Selecting)
+            && let Some((agent, index)) = self.dragged_entry_at(surface, at)
+        {
+            let _changed = self.state.extend_selection_to(surface, &agent, index);
+        }
+        let released = self.entry_target_at(surface, at);
+        self.state.hover_entry(released.clone());
+        let pressed = self.pressed_entry.take();
+        self.state
+            .drag(&self.surfaces, PointerIntent::Release { surface, at });
+        if let Some(pressed) = &pressed
+            && matches!(
+                pressed.action,
+                PressAction::Copy | PressAction::CancelledCopy
+            )
+        {
+            return (pressed.action == PressAction::Copy
+                && pressed.at == at
+                && released.as_ref() == Some(&pressed.target)
+                && self.copy_button_hit(&pressed.target, at))
+            .then(|| self.state.copy_message(&pressed.target))
+            .flatten();
+        }
+        if pressed
+            .as_ref()
+            .is_some_and(|pressed| pressed.action == PressAction::Selecting)
+        {
+            return self.state.copy();
+        }
+        if let Some(pressed) = pressed
+            && pressed.target.surface == surface
+            && (released.as_ref() == Some(&pressed.target) || pressed.at == at)
+        {
+            // Focus may have inserted the inspector's input strip between press and
+            // release. An unchanged cell still completes the gesture against the frame
+            // pressed; otherwise both frames must resolve the same stable item (FR-3).
+            self.state
+                .toggle_pointer_entry(&self.surfaces, &self.metrics, pressed.target);
+            return None;
+        }
+        None
+    }
+
+    pub(super) fn copy_button_hit(&self, target: &EntryTarget, at: Point) -> bool {
+        if self.state.message_source(target).is_none() {
+            return false;
+        }
+        let Some(bounds) = self.conversation_bounds(target.surface) else {
+            return false;
+        };
+        let Some(viewport) = self.surfaces.viewport(target.surface) else {
+            return false;
+        };
+        let Some(x) = at.x.checked_sub(bounds.x + 1) else {
+            return false;
+        };
+        if x < viewport.content_width.saturating_sub(4) || x >= viewport.content_width {
+            return false;
+        }
+        let Some(local) = at.y.checked_sub(bounds.y + 1).map(usize::from) else {
+            return false;
+        };
+        if local >= usize::from(viewport.visible_rows) {
+            return false;
+        }
+        let slack = usize::from(viewport.visible_rows).saturating_sub(viewport.content_rows);
+        let Some(row) = local.checked_sub(slack) else {
+            return false;
+        };
+        self.metrics.entry_header_at_row(
+            &target.agent,
+            viewport.content_width,
+            viewport.offset + row,
+        ) == Some(&target.item)
     }
 
     /// Next edge-drag wakeup, absent while no conversation drag needs motion.

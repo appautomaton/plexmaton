@@ -1,7 +1,3 @@
-┌ Notices · 1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│[resume] isolated 37-byte incomplete tail                                                                             │
-│                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Plexmaton · idle ────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                                                                                                      │
 │                                                                                                                      │
@@ -31,8 +27,12 @@
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
+│                                                                                                                      │
 │warning                                                                                                               │
-│unfinished turn was interrupted during process recovery                                                               │
+│The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.                   │
+│                                                                                                                      │
+│isolated 37-byte incomplete tail                                                                                      │
+│✓ Conversation restored.                                                                                              │
 │                                                                                                                      │
 ├ Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────┤
 │Type a message · ⇥ to focus                                                                                           │
