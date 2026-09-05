@@ -24,6 +24,7 @@ budget_for() {
         .agents/ui-ux.md) echo 32768 ;;
         .agents/phases/*.md) echo 32768 ;;
         .agents/research/*.md) echo 8192 ;;
+        .agents/spikes/*/*.md) echo 8192 ;;
         .agents/handoffs/*.md) echo 8192 ;;
         *) echo 0 ;;
     esac

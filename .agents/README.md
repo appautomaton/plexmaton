@@ -13,7 +13,7 @@ known; everything else is pushed down until pushing further would hurt.
 | --- | --- | --- |
 | Always | Every turn | `AGENTS.md` |
 | On trigger | When the trigger table names it | `standards/*.md` |
-| On demand | When the work touches the subject | `roadmap.md`, `ui-ux.md`, `phases/*`, `plans/*`, `specs/*`, `research/*` |
+| On demand | When the work touches the subject | `roadmap.md`, `ui-ux.md`, `phases/*`, `plans/*`, `specs/*`, `research/*`, `spikes/*` |
 
 ## Documents
 
@@ -28,6 +28,7 @@ known; everything else is pushed down until pushing further would hurt.
 | `plans/phase-NN-stage-MM-*.md` | One stage's slices | Every slice | Consumed. Deleted |
 | `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
 | `research/*.md` | A research gate: the invariants its result must satisfy, its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
+| `spikes/<topic>/README.md` | Bounded investigation: read trigger, question, evidence, run command and limits; prototypes beside it, build output outside the corpus | Evidence changes | Promote decisions; delete when evidence is no longer useful |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
 
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
@@ -100,11 +101,9 @@ implies reading it.
 
 ## Budgets
 
-Budgets are in bytes, because a line budget is satisfied by writing longer lines. They warn and
-never block: `./scripts/check-doc-budget.sh` reports and exits zero. One firing means content sits
-at the wrong layer, so the escape hatch matters more than the number. Short-format documents have
-tight budgets because there the number is the mechanism; a phase and the interaction contract are
-long-format, and their ceiling only catches runaway growth.
+Budgets count bytes, not lines. `./scripts/check-doc-budget.sh` warns and exits zero; use the
+escape hatch to move content to its owning layer. Short documents have tight budgets; phase and
+interaction-contract ceilings catch runaway growth.
 
 | Path | Budget | Escape hatch when it fires |
 | --- | --- | --- |
@@ -118,4 +117,5 @@ long-format, and their ceiling only catches runaway growth.
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |
 | `.agents/phases/*.md` | 32 KB | Rewrite the scope to what is true; move mechanism detail into `specs/` |
 | `.agents/research/*.md` | 8 KB | A track this long has started building; give it a phase |
+| `.agents/spikes/*/*.md` | 8 KB | Promote decisions; keep evidence beside the report |
 | `.agents/handoffs/*.md` | 8 KB | Delete the stale letter instead of trimming it |
