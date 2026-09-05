@@ -1,0 +1,15 @@
+[package]
+name = "plexmaton-math-typesetting-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+tui-math = "=0.1.1"
+katex-rs = { version = "=0.3.0", default-features = false }
+
+[[bin]]
+name = "cell-corpus"
+path = "corpus.rs"

@@ -5,6 +5,10 @@
 Ratatui = "Ratatui"
 ratatui = "ratatui"
 
+[default.extend-identifiers]
+# Pinned upstream math AST field; not first-party prose.
+numer = "numer"
+
 [files]
 # Generated or vendored content is not ours to correct.
 extend-exclude = ["Cargo.lock", "target/", ".references/"]

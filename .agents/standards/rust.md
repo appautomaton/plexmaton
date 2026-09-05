@@ -49,9 +49,8 @@
 - Before adding one, inspect maintenance status, license, Minimum Supported Rust Version (MSRV),
   features, native/system requirements, and foundational-version compatibility.
 - Declare common versions in `[workspace.dependencies]` and inherit them in member crates.
-- Use an audited concrete version as the manifest baseline and commit the exact resolved graph in
-  `Cargo.lock`; do not use wildcard (`*`) requirements or unreviewed `latest` aliases.
-- Commit `Cargo.lock` because Plexmaton ships binaries.
+- Use audited concrete manifest versions, never wildcards or unreviewed `latest`; commit the
+  exact resolved `Cargo.lock` because Plexmaton ships binaries.
 - Re-run the active phase's dependency audit before initial resolution and at deliberate upgrade
   points. Review changelogs and `cargo tree` output; a numerically newer release is not
   automatically the right release. Use `cargo tree -d` and `cargo tree -e features`.
@@ -93,6 +92,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |
 | `uuid` | Session identity | Defaults off; `std` and UUIDv7; chronology is separate |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
+| RaTeX core | Native math | Defaults off; exact pins and [audit](../specs/math-layout.md#dependency-admission) |
 
 ### Considered and not adopted
 
@@ -104,8 +104,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 
 ## Maintenance
 
-- Keep one supported path for each behavior. Migrations must have a bounded start, cutover
-  criterion, and removal step.
+- Keep one supported path per behavior. Bound migrations with a start, cutover and removal.
 - Refactor when a real responsibility boundary becomes visible; do not postpone obvious state
   duplication or ownership confusion under the label of future cleanup.
 - Preserve backward compatibility only when the project explicitly declares a public contract that

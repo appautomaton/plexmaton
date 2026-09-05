@@ -48,8 +48,8 @@ forbid() {
 only() {
     local crate="$1" allowed="$2" closure reached
     closure=$(closure_of "$crate") || return
-    reached=$(printf '%s\n' "$closure" | awk 'NR > 1 {print $1}' |
-        grep '^plexmaton-' | sort -u | tr '\n' ' ')
+    reached=$(printf '%s\n' "$closure" | awk 'NR > 1 && $1 ~ /^plexmaton-/ {print $1}' |
+        sort -u | tr '\n' ' ')
     reached="${reached% }"
     if [[ "$reached" != "$allowed" ]]; then
         printf '%s reaches [%s], expected [%s]\n' "$crate" "$reached" "$allowed" >&2
@@ -62,6 +62,12 @@ only() {
 forbid plexmaton-agent "a runtime, a network client, or a terminal" \
     'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui'
 only plexmaton-agent "plexmaton-core"
+
+# Formula geometry owns no terminal, runtime or semantic session state. Review examples consume
+# its public native runs without adding a terminal backend to the production dependency closure.
+forbid plexmaton-math "a runtime, network client, or terminal" \
+    'tokio|tokio-util|reqwest|hyper|crossterm|ratatui|ratatui-core'
+only plexmaton-math ""
 
 # The shared vocabulary answers to both sides, so it may not carry either side's machinery.
 forbid plexmaton-core "either side's machinery" \

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–6 complete; stage 7 rendering performance delivered, native math foundation pending |
+| Status | Active; stages 1–6 complete; stage 7 rendering/math foundations delivered, live integration pending |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -68,9 +68,10 @@ Visual changes are reviewed against real frames before the contract adopts them.
    Single-agent samples do not prescribe an A2A layout. Notification and agent interaction changes
    are explicitly deferred by the user.
 7. **Responsive native math — in progress.** [Stage 7](../plans/phase-04-stage-07-math-typesetting.md)
-   delivers bounded streaming frames, shared wrap geometry and palette-independent heights.
-   [FR-4/FR-5](../specs/frame-loop.md) own performance and source-preservation evidence.
-   Native math admission, owned preparation/transport and atomic formula interaction remain.
+   delivers bounded streaming frames, shared geometry/height reuse and the standalone math
+   engine/native projection. [MTH-1–MTH-4](../specs/math-layout.md) own the complete source-linked reply
+   and three-width Kitty evidence. Owned preparation/transport, conversation integration and atomic
+   formula selection/highlighting remain; complete typography acceptance is not yet claimed.
 8. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.

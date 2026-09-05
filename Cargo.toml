@@ -5,6 +5,7 @@ members = [
     "crates/plexmaton-command",
     "crates/plexmaton-core",
     "crates/plexmaton-file-tools",
+    "crates/plexmaton-math",
     "crates/plexmaton-provider",
     "crates/plexmaton-runtime",
     "crates/plexmaton-session-store",
@@ -25,6 +26,10 @@ anyhow = "1.0.104"
 crossterm = { version = "0.29.0", features = ["event-stream", "osc52"] }
 eventsource-stream2 = { version = "0.4.0", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
+ratex-parser = { version = "=0.1.14", default-features = false }
+ratex-layout = { version = "=0.1.14", default-features = false }
+ratex-types = { version = "=0.1.14", default-features = false }
+ratex-font = { version = "=0.1.14", default-features = false }
 # Defaults off: `fork` and `timeout` isolate a failing case in a subprocess, which these properties
 # do not need, and they pull `rusty-fork` and `tempfile` into a workspace that has neither.
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }

@@ -1,0 +1,311 @@
+{
+  "description": "User-provided attention, softmax and backpropagation reply, 2026-09-05. Exact source with verified formula byte ranges; not a general Markdown parser.",
+  "text": "You’re very close. The standard **scaled dot-product attention** equation is\n\n\\[\n\\boxed{\n\\operatorname{Attention}(Q,K,V)\n=\n\\operatorname{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right)V\n}\n\\]\n\nwhere:\n\n- \\(Q\\): queries\n- \\(K\\): keys\n- \\(V\\): values\n- \\(d_k\\): dimensionality of each key/query vector **within one head**\n- \\(QK^\\top\\): similarity scores between every query and key\n\nIt is **not** divided by \\(\\sqrt{\\text{number of heads}}\\). If the model dimension is \\(d_{\\text{model}}\\) and there are \\(h\\) heads, usually\n\n\\[\nd_k = \\frac{d_{\\text{model}}}{h}.\n\\]\n\nSo the number of heads affects \\(d_k\\), but the divisor is specifically \\(\\sqrt{d_k}\\).\n\n---\n\n## Expand the equation\n\nDefine the scaled scores:\n\n\\[\nS=\\frac{QK^\\top}{\\sqrt{d_k}}.\n\\]\n\nThen apply softmax row-by-row:\n\n\\[\nA=\\operatorname{softmax}(S),\n\\]\n\nwhere \\(A\\) contains the attention weights. Finally:\n\n\\[\nY=AV.\n\\]\n\nFor one query row \\(i\\),\n\n\\[\nA_{ij}\n=\n\\frac{e^{S_{ij}}}\n{\\sum_{\\ell}e^{S_{i\\ell}}},\n\\]\n\nand\n\n\\[\nY_i=\\sum_j A_{ij}V_j.\n\\]\n\n---\n\n# Softmax derivative\n\nFor one softmax vector \\(a=\\operatorname{softmax}(s)\\),\n\n\\[\n\\frac{\\partial a_j}{\\partial s_k}\n=\na_j(\\delta_{jk}-a_k),\n\\]\n\nwhere \\(\\delta_{jk}=1\\) if \\(j=k\\), otherwise \\(0\\).\n\nEquivalently, the Jacobian is\n\n\\[\n\\boxed{\n\\frac{\\partial a}{\\partial s}\n=\n\\operatorname{diag}(a)-aa^\\top\n}\n\\]\n\nThe diagonal terms are\n\n\\[\n\\frac{\\partial a_j}{\\partial s_j}\n=\na_j(1-a_j),\n\\]\n\nbut the off-diagonal terms matter too:\n\n\\[\n\\frac{\\partial a_j}{\\partial s_k}\n=\n-a_ja_k\n\\qquad j\\neq k.\n\\]\n\nThat negative term exists because increasing one score affects the normalization of every softmax output.\n\nGiven an upstream gradient \\(\\bar a=\\frac{\\partial L}{\\partial a}\\), the useful vector form is\n\n\\[\n\\boxed{\n\\bar s\n=\na\\odot\n\\left(\n\\bar a\n-\n\\left(\\bar a^\\top a\\right)\\mathbf 1\n\\right)\n}\n\\]\n\nwhere \\(\\odot\\) is elementwise multiplication.\n\n---\n\n# Attention backward pass\n\nSuppose\n\n\\[\nY=AV\n\\]\n\nand the loss gives us an upstream gradient\n\n\\[\n\\bar Y=\\frac{\\partial L}{\\partial Y}.\n\\]\n\nFirst differentiate with respect to \\(A\\) and \\(V\\):\n\n\\[\n\\boxed{\n\\bar A=\\frac{\\partial L}{\\partial A}\n=\n\\bar YV^\\top\n}\n\\]\n\n\\[\n\\boxed{\n\\bar V=\\frac{\\partial L}{\\partial V}\n=\nA^\\top\\bar Y\n}\n\\]\n\nThen pass \\(\\bar A\\) through the row-wise softmax:\n\n\\[\n\\boxed{\n\\bar S_i\n=\nA_i\\odot\n\\left(\n\\bar A_i\n-\n(\\bar A_i^\\top A_i)\\mathbf 1\n\\right)\n}\n\\]\n\nFinally, since\n\n\\[\nS=\\frac{QK^\\top}{\\sqrt{d_k}},\n\\]\n\nwe get\n\n\\[\n\\boxed{\n\\bar Q\n=\n\\frac{\\bar S K}{\\sqrt{d_k}}\n}\n\\]\n\nand\n\n\\[\n\\boxed{\n\\bar K\n=\n\\frac{\\bar S^\\top Q}{\\sqrt{d_k}}\n}\n\\]\n\nSo the complete backward chain is:\n\n\\[\n\\bar Y\n\\longrightarrow\n\\bar A,\\bar V\n\\longrightarrow\n\\bar S\n\\longrightarrow\n\\bar Q,\\bar K.\n\\]\n\n---\n\n# Why cross-entropy plus softmax becomes simple\n\nSuppose we have logits \\(z\\), probabilities\n\n\\[\np=\\operatorname{softmax}(z),\n\\]\n\nand one-hot target \\(y\\). The cross-entropy loss is\n\n\\[\nL=-\\sum_j y_j\\log p_j.\n\\]\n\nThe combined derivative is\n\n\\[\n\\boxed{\n\\frac{\\partial L}{\\partial z_j}=p_j-y_j\n}\n\\]\n\nThis is the famous simplification:\n\n\\[\n\\boxed{\n\\frac{\\partial \\operatorname{CE}(\\operatorname{softmax}(z))}\n{\\partial z}\n=\np-y\n}\n\\]\n\nThe simplification happens because the softmax normalization and the logarithm in cross-entropy cancel neatly.\n\nFor example, if the target is class \\(2\\),\n\n\\[\ny=(0,1,0)\n\\]\n\nand the model predicts\n\n\\[\np=(0.2,0.5,0.3),\n\\]\n\nthen\n\n\\[\n\\frac{\\partial L}{\\partial z}\n=\np-y\n=\n(0.2,-0.5,0.3).\n\\]\n\n---\n\n## If cross-entropy is applied directly to attention\n\nAttention normally does **not** use cross-entropy directly. Cross-entropy is usually applied to the model’s final vocabulary logits.\n\nBut if you supervise the attention weights themselves, with\n\n\\[\nA_i=\\operatorname{softmax}(S_i)\n\\]\n\nand target attention distribution \\(T_i\\),\n\n\\[\nL_i=-\\sum_j T_{ij}\\log A_{ij},\n\\]\n\nthen the softmax-plus-cross-entropy derivative is simply\n\n\\[\n\\boxed{\n\\frac{\\partial L_i}{\\partial S_i}\n=\nA_i-T_i\n}\n\\]\n\nIf \\(R=QK^\\top\\) is the **unscaled** score matrix, then because\n\n\\[\nS=\\frac{R}{\\sqrt{d_k}},\n\\]\n\nwe additionally have\n\n\\[\n\\boxed{\n\\frac{\\partial L}{\\partial R}\n=\n\\frac{A-T}{\\sqrt{d_k}}\n}\n\\]\n\nThe key distinction is:\n\n- Softmax alone: use the full Jacobian  \n  \\[\n  \\operatorname{diag}(A)-AA^\\top\n  \\]\n- Softmax immediately followed by cross-entropy: the chain simplifies to  \n  \\[\n  A-T.\n  \\]\n\n",
+  "math": [
+    {
+      "start": 80,
+      "end": 192,
+      "display": true
+    },
+    {
+      "start": 204,
+      "end": 209,
+      "display": false
+    },
+    {
+      "start": 221,
+      "end": 226,
+      "display": false
+    },
+    {
+      "start": 235,
+      "end": 240,
+      "display": false
+    },
+    {
+      "start": 251,
+      "end": 258,
+      "display": false
+    },
+    {
+      "start": 322,
+      "end": 333,
+      "display": false
+    },
+    {
+      "start": 407,
+      "end": 440,
+      "display": false
+    },
+    {
+      "start": 468,
+      "end": 488,
+      "display": false
+    },
+    {
+      "start": 503,
+      "end": 508,
+      "display": false
+    },
+    {
+      "start": 525,
+      "end": 564,
+      "display": true
+    },
+    {
+      "start": 597,
+      "end": 604,
+      "display": false
+    },
+    {
+      "start": 638,
+      "end": 652,
+      "display": false
+    },
+    {
+      "start": 711,
+      "end": 746,
+      "display": true
+    },
+    {
+      "start": 780,
+      "end": 814,
+      "display": true
+    },
+    {
+      "start": 822,
+      "end": 827,
+      "display": false
+    },
+    {
+      "start": 870,
+      "end": 881,
+      "display": true
+    },
+    {
+      "start": 901,
+      "end": 906,
+      "display": false
+    },
+    {
+      "start": 909,
+      "end": 969,
+      "display": true
+    },
+    {
+      "start": 976,
+      "end": 1003,
+      "display": true
+    },
+    {
+      "start": 1055,
+      "end": 1086,
+      "display": false
+    },
+    {
+      "start": 1089,
+      "end": 1152,
+      "display": true
+    },
+    {
+      "start": 1160,
+      "end": 1177,
+      "display": false
+    },
+    {
+      "start": 1181,
+      "end": 1188,
+      "display": false
+    },
+    {
+      "start": 1200,
+      "end": 1205,
+      "display": false
+    },
+    {
+      "start": 1239,
+      "end": 1317,
+      "display": true
+    },
+    {
+      "start": 1343,
+      "end": 1396,
+      "display": true
+    },
+    {
+      "start": 1438,
+      "end": 1503,
+      "display": true
+    },
+    {
+      "start": 1639,
+      "end": 1679,
+      "display": false
+    },
+    {
+      "start": 1708,
+      "end": 1799,
+      "display": true
+    },
+    {
+      "start": 1807,
+      "end": 1816,
+      "display": false
+    },
+    {
+      "start": 1890,
+      "end": 1900,
+      "display": true
+    },
+    {
+      "start": 1946,
+      "end": 1989,
+      "display": true
+    },
+    {
+      "start": 2027,
+      "end": 2032,
+      "display": false
+    },
+    {
+      "start": 2037,
+      "end": 2042,
+      "display": false
+    },
+    {
+      "start": 2045,
+      "end": 2112,
+      "display": true
+    },
+    {
+      "start": 2114,
+      "end": 2181,
+      "display": true
+    },
+    {
+      "start": 2193,
+      "end": 2203,
+      "display": false
+    },
+    {
+      "start": 2235,
+      "end": 2325,
+      "display": true
+    },
+    {
+      "start": 2343,
+      "end": 2378,
+      "display": true
+    },
+    {
+      "start": 2388,
+      "end": 2440,
+      "display": true
+    },
+    {
+      "start": 2447,
+      "end": 2504,
+      "display": true
+    },
+    {
+      "start": 2542,
+      "end": 2638,
+      "display": true
+    },
+    {
+      "start": 2717,
+      "end": 2722,
+      "display": false
+    },
+    {
+      "start": 2739,
+      "end": 2773,
+      "display": true
+    },
+    {
+      "start": 2794,
+      "end": 2799,
+      "display": false
+    },
+    {
+      "start": 2828,
+      "end": 2856,
+      "display": true
+    },
+    {
+      "start": 2886,
+      "end": 2941,
+      "display": true
+    },
+    {
+      "start": 2979,
+      "end": 3074,
+      "display": true
+    },
+    {
+      "start": 3224,
+      "end": 3229,
+      "display": false
+    },
+    {
+      "start": 3232,
+      "end": 3247,
+      "display": true
+    },
+    {
+      "start": 3273,
+      "end": 3295,
+      "display": true
+    },
+    {
+      "start": 3303,
+      "end": 3362,
+      "display": true
+    },
+    {
+      "start": 3620,
+      "end": 3657,
+      "display": true
+    },
+    {
+      "start": 3693,
+      "end": 3700,
+      "display": false
+    },
+    {
+      "start": 3703,
+      "end": 3739,
+      "display": true
+    },
+    {
+      "start": 3799,
+      "end": 3858,
+      "display": true
+    },
+    {
+      "start": 3863,
+      "end": 3876,
+      "display": false
+    },
+    {
+      "start": 3925,
+      "end": 3954,
+      "display": true
+    },
+    {
+      "start": 3978,
+      "end": 4048,
+      "display": true
+    },
+    {
+      "start": 4118,
+      "end": 4158,
+      "display": true
+    },
+    {
+      "start": 4236,
+      "end": 4250,
+      "display": true
+    }
+  ]
+}
