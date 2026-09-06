@@ -153,7 +153,7 @@ pub fn render(
             SurfaceId::Attention => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 body: Body::Whole {
-                    lines: content::attention(state, palette),
+                    lines: content::attention(state, palette, inner_width(bounds.width)),
                     // Oldest first, and the oldest unanswered request is the one that has been
                     // waiting longest: this band opens at its head, not at its tail.
                     follows_tail: false,

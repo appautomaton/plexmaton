@@ -257,11 +257,11 @@ It is never an entry point for main-agent approvals.
   selection treatment without erasing those roles; unknown diff text remains undecorated source.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
-- Workspace colour is twelve semantic roles. Widgets name a role, never a terminal colour. A
-  palette is a complete assignment of the roles; a new colourway is a new assignment, not a
-  constructor and not a widget edit, and `monochrome` preserves hierarchy without colour. Chrome
-  stays terminal-owned and body text neutral; assistant Markdown carries its own pastel accents
-  (MD-5), and the status script owns its own colours.
+- Workspace colour is thirteen semantic roles; widgets name a role, never a terminal colour, and
+  a palette is a complete assignment of them. The default is the status line's named colours:
+  colour says what a thing is, weight what reads first, italic what stays quiet, and the row
+  `Enter` acts on carries all three (`Chosen`). Without truecolor the chrome keeps its ANSI
+  slots. The status script owns its own colours (MD-5).
 
 ### Selection and copy
 

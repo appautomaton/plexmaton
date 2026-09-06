@@ -27,7 +27,7 @@ by any part of their names. `↑` / `↓` and the wheel move the marker, stoppin
 or a matching press and release on a row hands the page to the composition root as a value, which
 owns what opening it costs. The page replaces the list inside the same surface, keeping the list's
 filter and choice for its return (SURF-5). `Escape` returns page, list, then origin, one layer per
-press. The chosen row carries `Accent` against `Muted`.
+press. The chosen row carries `Chosen` across its whole width, a bar with weight and a hue, against `Muted`.
 
 **DRW-4 — Configuration shows the model this process resolved.** The composition root projects
 provider, wire model ID and reasoning effort from the model handed to the runtime, without keys or
@@ -68,5 +68,5 @@ Esc    ──▶ drawer_back(): page → Pages → closed, focus back where it w
 | --- | --- |
 | DRW-1 | `the_chord_pulls_the_drawer_open_and_takes_the_keyboard`, `the_drawer_opens_over_a_waiting_approval_and_leaves_the_card_alone`, `typing_filters_the_list_and_never_reaches_the_composer`, `a_page_is_found_by_its_name_and_a_slash_is_a_character`; `scripts/smoke-tui.py` pulls it open and closes it in a real terminal |
 | DRW-2 | `the_drawer_spans_the_width_and_keeps_its_top_edge`, `the_drawer_spans_every_width_with_one_row_per_page`, `short_drawer_and_wheel_use_the_visible_choice_window`, `short_conversation_page_keeps_selected_result_and_footer_visible`, `the_drawer_frames_match_their_fixtures` with the `drawer-*` frames, `the_drawer_filter_paints_its_own_caret_while_editing`, `a_long_drawer_filter_keeps_the_caret_inside_its_row` |
-| DRW-3 | `the_list_finds_a_page_by_name_and_hands_it_to_the_root`, `the_escape_ladder_returns_page_then_list_then_origin`, `escape_closes_the_drawer_and_returns_the_keyboard`, `stepping_stops_at_the_ends_of_the_pages`, `a_filter_matching_nothing_leaves_no_choice`, `the_chosen_drawer_row_carries_the_accent_role`; `scripts/smoke-permissions.py` walks the ladder from the Permissions page |
+| DRW-3 | `the_list_finds_a_page_by_name_and_hands_it_to_the_root`, `the_escape_ladder_returns_page_then_list_then_origin`, `escape_closes_the_drawer_and_returns_the_keyboard`, `stepping_stops_at_the_ends_of_the_pages`, `a_filter_matching_nothing_leaves_no_choice`, `the_chosen_drawer_row_carries_the_chosen_role_across_its_width`; `scripts/smoke-permissions.py` walks the ladder from the Permissions page |
 | DRW-4 | `the_configuration_page_shows_the_resolved_model`, `short_configuration_pages_scroll_to_the_remaining_values`, `the_configuration_page_frame_matches_its_fixture` with the `drawer-configuration` frame |

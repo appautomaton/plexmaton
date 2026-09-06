@@ -10,6 +10,26 @@ use ratatui::style::{Color, Modifier, Style};
 
 mod markdown;
 pub(crate) use markdown::MarkdownStyles;
+
+/// The named colours, as the user wrote them for the status line, on a dark terminal ground.
+///
+/// Names, not hex values, are what a widget or a document refers to. A colour separates what a
+/// thing *is*; weight separates what reads first; italic separates what stays quiet.
+pub(crate) mod tokens {
+    use ratatui::style::Color;
+
+    pub(crate) const BODY: Color = Color::Rgb(0xE6, 0xE9, 0xF0);
+    pub(crate) const STEEL: Color = Color::Rgb(142, 162, 196);
+    pub(crate) const LINE: Color = Color::Rgb(0x3D, 0x46, 0x64);
+    pub(crate) const BAR: Color = Color::Rgb(0x1C, 0x22, 0x33);
+    pub(crate) const SKY: Color = Color::Rgb(130, 180, 240);
+    pub(crate) const TEAL: Color = Color::Rgb(120, 210, 205);
+    pub(crate) const MINT: Color = Color::Rgb(140, 218, 165);
+    pub(crate) const GOLD: Color = Color::Rgb(245, 208, 114);
+    pub(crate) const ORANGE: Color = Color::Rgb(255, 196, 102);
+    pub(crate) const CORAL: Color = Color::Rgb(255, 120, 120);
+    pub(crate) const VIOLET: Color = Color::Rgb(180, 150, 235);
+}
 pub use markdown::MarkdownTheme;
 
 /// A semantic colour token.
@@ -45,11 +65,14 @@ pub enum Role {
     Failure,
     /// Content the user has selected for copying.
     Selection,
+    /// The row the next `Enter` acts on: a bar, weight and a hue together, so it is found at a
+    /// glance, read first, and tied to the action colour.
+    Chosen,
 }
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Body,
         Self::Muted,
         Self::Border,
@@ -62,6 +85,7 @@ impl Role {
         Self::ActionRequired,
         Self::Failure,
         Self::Selection,
+        Self::Chosen,
     ];
 
     /// The attention hierarchy, which must stay mutually distinguishable in every palette.
@@ -126,6 +150,7 @@ pub struct Palette {
     action_required: Style,
     failure: Style,
     selection: Style,
+    chosen: Style,
 }
 
 impl Palette {
@@ -149,6 +174,7 @@ impl Palette {
             action_required: style(Role::ActionRequired),
             failure: style(Role::Failure),
             selection: style(Role::Selection),
+            chosen: style(Role::Chosen),
         }
     }
 
@@ -184,39 +210,39 @@ impl Palette {
             action_required: Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
             selection: SELECTION,
+            chosen: Style::new()
+                .fg(Color::Yellow)
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
         }
     }
 
-    /// Soft truecolour palette designed for a dark terminal background.
+    /// The designed palette: the status line's named colours on a dark terminal ground.
     ///
-    /// The terminal still owns its background. Pastel identity, activity, attention, and failure
-    /// hues remain separate while the monochrome grammar continues to carry their meaning.
+    /// Each colour names what a thing is: sky for where you are, teal for work in progress, mint
+    /// for what finished, orange for what needs you, coral for what failed, violet for who is
+    /// speaking, gold for what `Enter` acts on. Weight makes titles and the chosen row read first;
+    /// italic keeps work in progress quiet. Its Markdown is the same tokens, designed for reading.
+    /// Rejected: Catppuccin's mauve-tinted tokens, which were nobody's here; and ANSI slots as the
+    /// default, which let the terminal theme decide what our semantics look like.
     #[must_use]
     pub fn pastel() -> Self {
-        const BODY: Color = Color::Rgb(0xEA, 0xE4, 0xF2);
-        const MUTED: Color = Color::Rgb(0x93, 0x8F, 0xA8);
-        const BORDER: Color = Color::Rgb(0x51, 0x4D, 0x66);
-        const FOCUS: Color = Color::Rgb(0x8B, 0xD5, 0xCA);
-        const ACCENT: Color = Color::Rgb(0xC6, 0xA0, 0xF6);
-        const AMBIENT: Color = Color::Rgb(0x8A, 0xAD, 0xF4);
-        const INFO: Color = Color::Rgb(0xA6, 0xDA, 0x95);
-        const ATTENTION: Color = Color::Rgb(0xEE, 0xD4, 0x9F);
-        const FAILURE: Color = Color::Rgb(0xED, 0x87, 0x96);
-
+        use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL, VIOLET};
         Self {
-            markdown: MarkdownTheme::Inherited,
+            markdown: MarkdownTheme::Pastel,
             body: Style::new().fg(BODY),
-            muted: Style::new().fg(MUTED),
-            border: Style::new().fg(BORDER),
-            border_focused: Style::new().fg(FOCUS),
-            section_heading: Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(ACCENT),
+            muted: Style::new().fg(STEEL),
+            border: Style::new().fg(LINE),
+            border_focused: Style::new().fg(SKY),
+            section_heading: Style::new().fg(BODY).add_modifier(Modifier::BOLD),
+            accent: Style::new().fg(VIOLET),
             key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().fg(AMBIENT),
-            new_information: Style::new().fg(INFO),
-            action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
-            failure: Style::new().fg(FAILURE).add_modifier(Modifier::BOLD),
+            ambient: Style::new().fg(TEAL).add_modifier(Modifier::ITALIC),
+            new_information: Style::new().fg(MINT),
+            action_required: Style::new().fg(ORANGE).add_modifier(Modifier::BOLD),
+            failure: Style::new().fg(CORAL).add_modifier(Modifier::BOLD),
             selection: SELECTION,
+            chosen: Style::new().fg(GOLD).bg(BAR).add_modifier(Modifier::BOLD),
         }
     }
 
@@ -249,6 +275,10 @@ impl Palette {
             action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(FAILURE).add_modifier(Modifier::BOLD),
             selection: SELECTION,
+            chosen: Style::new()
+                .fg(ACCENT)
+                .bg(LINE)
+                .add_modifier(Modifier::BOLD),
         }
     }
 
@@ -273,6 +303,7 @@ impl Palette {
             action_required: Style::new().add_modifier(Modifier::BOLD),
             failure: Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
             selection: SELECTION,
+            chosen: Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
         }
     }
 
@@ -292,6 +323,7 @@ impl Palette {
             Role::ActionRequired => self.action_required,
             Role::Failure => self.failure,
             Role::Selection => self.selection,
+            Role::Chosen => self.chosen,
         }
     }
 }

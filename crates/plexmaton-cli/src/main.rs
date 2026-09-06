@@ -209,10 +209,17 @@ async fn run(
     mut status_line: Option<statusline::StatusLine>,
     mut render_preparation: preparation::LivePreparation,
 ) -> anyhow::Result<Option<PersistedConversation>> {
-    // MD-5: terminal-owned chrome surrounds the user-approved pastel Markdown accents.
+    // The designed palette needs 24-bit colour. A terminal without it keeps its own slots for
+    // the chrome and the designed Markdown, which is the most that can be asked of it (MD-5).
     // The script footer retains its independent colors; neither choice rethemes the other.
+    let designed = std::env::var("COLORTERM")
+        .is_ok_and(|value| matches!(value.as_str(), "truecolor" | "24bit"));
     let mut workspace = Workspace::with_presentation(
-        Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel),
+        if designed {
+            Palette::pastel()
+        } else {
+            Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel)
+        },
         output.math,
     );
     skills::sync_choices(&runtime, &mut workspace);

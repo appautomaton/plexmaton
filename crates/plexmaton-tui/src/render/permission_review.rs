@@ -98,7 +98,11 @@ pub(super) fn render(
         .first()
         .map_or(String::new(), |(_, label)| format!("> {label}"));
     frame.render_widget(
-        Paragraph::new(Line::styled(choice, palette.style(Role::Accent))),
+        Paragraph::new(crate::content::chosen_row(
+            vec![ratatui::text::Span::raw(choice)],
+            palette,
+            inside.width,
+        )),
         Rect::new(inside.x, choice_row(area), inside.width, 1),
     );
     frame.render_widget(

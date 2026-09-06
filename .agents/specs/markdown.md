@@ -52,9 +52,9 @@ Markdown or infers formatting from regular expressions.
 workspace/Markdown role and modifier patches, never resolved terminal colors; painting uses the
 current palette without parsing, wrapping or rebuilding copy fragments. The explicit Markdown
 theme belongs to palette identity, independently of workspace chrome; its inherited choice follows
-the workspace palette, including monochrome. The
-user-approved CLI default uses the existing pastel blue/green/lavender heading accents, teal links
-and warm-yellow inline code, while body text and terminal-owned chrome stay neutral/ANSI.
+the workspace palette, including monochrome. The designed palette's Markdown is the same named
+tokens: sky, mint and teal headings, sky links and gold inline code. Without truecolor the chrome
+keeps its ANSI slots and Markdown keeps the tokens.
 
 Rejected: regular-expression Markdown parsing; storing decorated text in JSONL; executing HTML or
 fetching image/link targets; hiding table cells on narrow terminals; styling user instructions as

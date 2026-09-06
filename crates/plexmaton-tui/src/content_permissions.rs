@@ -53,14 +53,15 @@ pub(crate) fn content(
     for (index, (choice, label)) in choices.into_iter().enumerate().skip(start).take(count) {
         positions.push((lines.len(), choice));
         let selected = index == panel.selected();
-        let role = if selected { Role::Accent } else { Role::Body };
-        lines.push(Line::from(vec![
-            Span::styled(if selected { "> " } else { "  " }, palette.style(role)),
-            Span::styled(
-                crate::content::command_summary(&label, usize::from(width.saturating_sub(2))),
-                palette.style(role),
-            ),
-        ]));
+        let label = crate::content::command_summary(&label, usize::from(width.saturating_sub(2)));
+        lines.push(if selected {
+            crate::content::chosen_row(vec![Span::raw("> "), Span::raw(label)], palette, width)
+        } else {
+            Line::from(vec![
+                Span::styled("  ", palette.style(Role::Body)),
+                Span::styled(label, palette.style(Role::Body)),
+            ])
+        });
     }
     if extras > 0 {
         lines.push(Line::default());

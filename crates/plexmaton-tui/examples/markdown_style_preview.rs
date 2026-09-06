@@ -4,7 +4,7 @@ use plexmaton_core::{
     AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
     TranscriptItemId, TranscriptRole,
 };
-use plexmaton_tui::{MarkdownTheme, Palette, StatusLineText, Workspace};
+use plexmaton_tui::{Palette, StatusLineText, Workspace};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 use std::{
     io::Write as _,
@@ -31,10 +31,7 @@ fn main() -> Result<()> {
         let footer = footer(width)?;
         for (name, palette) in [
             ("before", Palette::ansi()),
-            (
-                "pastel",
-                Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel),
-            ),
+            ("pastel", Palette::pastel()),
             ("mono", Palette::monochrome()),
         ] {
             let buffer = preview(palette, footer.clone(), width, height)?;

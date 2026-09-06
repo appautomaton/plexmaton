@@ -3996,27 +3996,49 @@ mod tests {
         );
     }
 
-    /// The chosen row carries `Accent` and the rest `Muted` (ui-ux §readability), so the marker
-    /// is never the only thing telling them apart.
+    /// DRW-3: the chosen row carries `Chosen` across its whole width, a bar with weight and a
+    /// hue, and the rest `Muted`, so the marker is never the only thing telling them apart.
     #[test]
-    fn the_chosen_drawer_row_carries_the_accent_role() {
+    fn the_chosen_drawer_row_carries_the_chosen_role_across_its_width() {
         let (mut workspace, mut terminal) = drawn(95, 40);
         step(&mut workspace, &mut terminal, &ctrl('p'));
         let area = bounds(&workspace, SurfaceId::Drawer);
         let palette = Palette::default();
+        let chosen = palette.style(Role::Chosen);
         // Border, one blank inset row, the filter, one gap: the first row is four down.
         let first = area.y + 4;
-        let style = |terminal: &Terminal<TestBackend>, row: u16| {
-            terminal.backend().buffer()[(area.x + 3, row)].style().fg
+        let cell = |terminal: &Terminal<TestBackend>, x: u16, row: u16| {
+            terminal.backend().buffer()[(x, row)].style()
         };
-        assert_eq!(style(&terminal, first), palette.style(Role::Accent).fg);
-        assert_eq!(style(&terminal, first + 1), palette.style(Role::Muted).fg);
+        let name = area.x + 5;
+        let far_right = area.right() - 4;
+        assert_eq!(cell(&terminal, name, first).fg, chosen.fg);
+        assert_eq!(cell(&terminal, name, first).bg, chosen.bg);
+        assert!(
+            cell(&terminal, name, first)
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD)
+        );
+        assert_eq!(
+            cell(&terminal, far_right, first).bg,
+            chosen.bg,
+            "the bar runs the width"
+        );
+        assert_eq!(
+            cell(&terminal, name, first + 1).fg,
+            palette.style(Role::Muted).fg
+        );
+        assert_ne!(cell(&terminal, name, first + 1).bg, chosen.bg);
         step(
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
         );
-        assert_eq!(style(&terminal, first), palette.style(Role::Muted).fg);
-        assert_eq!(style(&terminal, first + 1), palette.style(Role::Accent).fg);
+        assert_eq!(
+            cell(&terminal, name, first).fg,
+            palette.style(Role::Muted).fg
+        );
+        assert_eq!(cell(&terminal, name, first + 1).fg, chosen.fg);
+        assert_eq!(cell(&terminal, far_right, first + 1).bg, chosen.bg);
     }
 }

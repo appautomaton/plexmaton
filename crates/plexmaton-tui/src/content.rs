@@ -21,6 +21,7 @@ use crate::{
 
 #[path = "content_approval.rs"]
 mod approval_presentation;
+mod drawer;
 mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;
@@ -28,6 +29,7 @@ mod transcript_presentation;
 pub(crate) use approval_presentation::{
     approval, approval_choice_rows, approval_scope_fits, attention,
 };
+pub(crate) use drawer::drawer;
 pub(crate) use transcript_presentation::{
     conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout,
 };
@@ -247,10 +249,12 @@ pub(crate) fn skill_picker(
             choice.name,
             description
         );
-        lines.push(Line::styled(
-            command_summary(&row, usize::from(width)),
-            palette.style(if chosen { Role::Accent } else { Role::Body }),
-        ));
+        let row = command_summary(&row, usize::from(width));
+        lines.push(if chosen {
+            chosen_row(vec![Span::raw(row)], palette, width)
+        } else {
+            Line::styled(row, palette.style(Role::Body))
+        });
     }
     lines.push(Line::styled(
         " ↑↓ choose · Tab/Enter insert · Esc close",
@@ -381,133 +385,25 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-/// The Drawer's body: the filter, the rows of what it shows, and how to work them.
-///
-/// The chosen row is marked and coloured exactly as the Attention list and the approval card mark
-/// theirs (`Accent` against `Muted`), because it is the same interaction: `↑↓` to choose, `Enter` to
-/// act. `Selection` is deliberately not used — that role means content selected for copying.
-///
-/// The keys are a muted last row rather than a badge on the title: they are a sentence, and the
-/// badge is where a short status goes.
-pub(crate) fn drawer(
-    state: &ViewState,
+/// The row `Enter` acts on, wherever it is: every span sits on `Chosen`, a bar with weight and a
+/// hue, and the remainder of the row is padded so the bar does not stop where the text does. A
+/// span's own colour survives on the bar, so a marker keeps saying what it said.
+pub(crate) fn chosen_row(
+    spans: Vec<Span<'static>>,
     palette: &Palette,
     width: u16,
-    height: u16,
-) -> Vec<Line<'static>> {
-    let Some(drawer) = state.drawer() else {
-        return Vec::new();
-    };
-    if let Some(panel) = drawer.permissions() {
-        return crate::content_permissions::content(panel, palette, width, height).lines;
-    }
-    let mut filter = Vec::new();
-    if drawer.filter().text().is_empty() {
-        filter.push(Span::styled("Type to filter", palette.style(Role::Muted)));
-    } else {
-        filter.extend(input_spans(
-            drawer.filter(),
-            palette,
-            drawer.filter_range(width),
-        ));
-    }
-    let gap = drawer.choice_gap(height);
-    let mut lines = vec![Line::from(filter)];
-    lines.extend((0..gap).map(|_| Line::default()));
-    if let Some(picker) = drawer.conversations() {
-        let rows = picker.rows();
-        let window = drawer.choice_window(height);
-        for (index, row) in rows
-            .iter()
-            .enumerate()
-            .skip(window.start)
-            .take(window.len())
-        {
-            let chosen = index == drawer.chosen_index();
-            let (marker, role) = if chosen {
-                ("> ", Role::Accent)
-            } else {
-                ("  ", Role::Muted)
-            };
-            lines.push(Line::styled(
-                command_summary(&format!("{marker}{}", row.label()), usize::from(width)),
-                palette.style(role),
-            ));
-        }
-        let note = if picker.status == crate::ConversationPickerStatus::Ready && !rows.is_empty() {
-            if picker.limited {
-                "Recent conversations only · older files remain on disk"
-            } else {
-                rows.get(drawer.chosen_index()).map_or("", |row| row.note())
-            }
-        } else {
-            picker.status.message()
-        };
-        if drawer.conversation_note_visible(height) {
-            let role = if matches!(
-                picker.status,
-                crate::ConversationPickerStatus::OpenFailed
-                    | crate::ConversationPickerStatus::ListFailed
-            ) {
-                Role::Failure
-            } else {
-                Role::Muted
-            };
-            lines.push(Line::styled(
-                command_summary(note, usize::from(width)),
-                palette.style(role),
-            ));
-        }
-        lines.extend((0..gap).map(|_| Line::default()));
-        lines.push(Line::styled(
-            "↑↓ choose · Enter open · Esc back",
-            palette.style(Role::Muted),
-        ));
-        return lines;
-    }
-    let pages = drawer.pages();
-    if pages.is_empty() {
-        lines.push(Line::styled(
-            "No page matches".to_owned(),
-            palette.style(Role::Muted),
-        ));
-    }
-    // Names in one column, so the summaries line up whatever page is listed.
-    let name_width = crate::Page::ALL
-        .iter()
-        .map(|page| page.name().width())
-        .max()
-        .unwrap_or(0);
-    let window = drawer.choice_window(height);
-    for (index, page) in pages
+) -> Line<'static> {
+    let chosen = palette.style(Role::Chosen);
+    let used: usize = spans.iter().map(|span| span.content.width()).sum();
+    let mut spans: Vec<Span<'static>> = spans
         .into_iter()
-        .enumerate()
-        .skip(window.start)
-        .take(window.len())
-    {
-        let chosen = index == drawer.chosen_index();
-        let (marker, role) = if chosen {
-            ("> ", Role::Accent)
-        } else {
-            ("  ", Role::Muted)
-        };
-        let name = format!("{:<name_width$}  ", page.name());
-        let remaining = usize::from(width).saturating_sub(2 + name.width());
-        lines.push(Line::from(vec![
-            Span::styled(marker, palette.style(role)),
-            Span::styled(name, palette.style(role)),
-            Span::styled(
-                command_summary(page.summary(), remaining),
-                palette.style(Role::Muted),
-            ),
-        ]));
+        .map(|span| Span::styled(span.content, chosen.patch(span.style)))
+        .collect();
+    let padding = usize::from(width).saturating_sub(used);
+    if padding > 0 {
+        spans.push(Span::styled(" ".repeat(padding), chosen));
     }
-    lines.extend((0..gap).map(|_| Line::default()));
-    lines.push(Line::styled(
-        "↑↓ choose · Enter open · Esc close".to_owned(),
-        palette.style(Role::Muted),
-    ));
-    lines
+    Line::from(spans)
 }
 
 /// A row occupies one line so its text cannot push the controls out of the panel.

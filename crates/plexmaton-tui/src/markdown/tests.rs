@@ -29,13 +29,10 @@ fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
             .expect("fixture span")
             .style
     };
-    let pastel = Palette::pastel();
-    assert_eq!(style("Blue heading").fg, pastel.style(Role::Ambient).fg);
-    assert_eq!(
-        style("Green heading").fg,
-        pastel.style(Role::NewInformation).fg
-    );
-    assert_eq!(style("Lavender heading").fg, pastel.style(Role::Accent).fg);
+    let designed = Palette::pastel().markdown_styles();
+    assert_eq!(style("Blue heading").fg, designed.headings[0].fg);
+    assert_eq!(style("Green heading").fg, designed.headings[1].fg);
+    assert_eq!(style("Lavender heading").fg, designed.headings[2].fg);
     assert!(style("command").add_modifier.contains(Modifier::BOLD));
     assert!(
         style("link")
