@@ -28,7 +28,7 @@ pub(super) fn publish_replace(
     expected_source: &[u8],
     replacement: &[u8],
     expected_version: &FileVersion,
-    mode: u16,
+    mode: Mode,
     cancellation: &FileCancellation,
     hooks: PublishHooks<'_>,
 ) -> Result<(), MutationError> {
@@ -40,7 +40,7 @@ pub(super) fn publish_replace(
             hooks.fail_write_after,
             hooks.after_write_chunk,
         )?;
-        rustix::fs::fchmod(staged.file(), Mode::from_bits_retain(mode)).map_err(map_rustix)?;
+        rustix::fs::fchmod(staged.file(), mode).map_err(map_rustix)?;
         staged.file().sync_all().map_err(map_io)?;
         if let Some(hook) = hooks.before_publish {
             hook();
@@ -126,7 +126,7 @@ pub(super) fn publish_create(
 struct StagedFile {
     file: File,
     name: OsString,
-    device: u64,
+    device: rustix::fs::Dev,
     inode: u64,
     committed: bool,
     parent: File,
@@ -160,7 +160,7 @@ impl StagedFile {
                     return Ok(Self {
                         file,
                         name,
-                        device: metadata.st_dev as u64,
+                        device: metadata.st_dev,
                         inode: metadata.st_ino,
                         committed: false,
                         parent,
@@ -252,7 +252,7 @@ impl StagedFile {
         else {
             return;
         };
-        if metadata.st_dev as u64 == self.device && metadata.st_ino == self.inode {
+        if metadata.st_dev == self.device && metadata.st_ino == self.inode {
             let _cleanup = rustix::fs::unlinkat(&self.parent, &self.name, AtFlags::empty());
         }
     }

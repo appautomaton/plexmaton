@@ -58,6 +58,9 @@ guard fires, split by responsibility and invariant rather than raising it again.
 
 ## Local setup
 
+The executable and corpus gates require `rg` on PATH; script tests require Python 3 and Bash.
+The configured-footer smoke also requires jq. Ubuntu CI installs ripgrep and jq explicitly.
+
 Commits run the fast gates through a repository-managed hook. Enable it once per clone:
 
 ```console

@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep jq
       # The toolchain is pinned by rust-toolchain.toml; this action honors it and caches builds.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --all --check
@@ -52,6 +56,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install test prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep jq
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       # Terminal lifecycle in a real pseudo-terminal: alternate-screen release, resize repaint,
       # and the quit key. TestBackend cannot represent any of these.

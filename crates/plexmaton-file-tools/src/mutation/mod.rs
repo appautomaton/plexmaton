@@ -231,15 +231,15 @@ pub(super) fn read_source(
 }
 
 #[cfg(unix)]
-fn file_mode(file: &File) -> Result<u16, MutationError> {
-    use std::os::unix::fs::MetadataExt as _;
+fn file_mode(file: &File) -> Result<rustix::fs::Mode, MutationError> {
+    use rustix::fs::Mode;
 
-    file.metadata()
-        .and_then(|metadata| {
-            u16::try_from(metadata.mode() & 0o777)
-                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidData))
+    // MUT-4: mode_t has different widths on Unix targets; keep the adapter's native type.
+    rustix::fs::fstat(file)
+        .map(|metadata| {
+            Mode::from_raw_mode(metadata.st_mode) & (Mode::RWXU | Mode::RWXG | Mode::RWXO)
         })
-        .map_err(|error| MutationError::Io(error.kind()))
+        .map_err(|error| MutationError::Io(std::io::Error::from(error).kind()))
 }
 
 fn map_stale_path(error: crate::PathError) -> MutationError {

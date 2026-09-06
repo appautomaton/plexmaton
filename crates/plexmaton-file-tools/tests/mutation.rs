@@ -118,6 +118,44 @@ fn exact_batch_preserves_byte_shape_and_mode() {
     );
 }
 
+/// MUT-4: publication preserves the native Unix permission mask for restrictive and executable files.
+#[test]
+fn replacement_preserves_unix_mode_matrix() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    for mode in [0o600, 0o751, 0o444] {
+        let workspace = TestWorkspace::new();
+        workspace.write("mode", b"before\n");
+        let path = workspace.path().join("mode");
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).expect("fixture mode");
+        let mut tools =
+            FileTools::open(workspace.path(), "/bin/false", "/bin/false").expect("tools");
+        let observed = observation(&mut tools, "mode", 1, 20);
+        let call = admitted(tools.admit(
+            call(
+                EDIT_TOOL_NAME,
+                json!({
+                    "path": "mode", "observation": observed,
+                    "edits": [{"old_text": "before", "new_text": "after"}]
+                }),
+            ),
+            &FileCancellation::new(),
+        ));
+        assert!(
+            matches!(
+                tools.execute(&call, &FileCancellation::new()).outcome(),
+                ToolOutcome::Succeeded { .. }
+            ),
+            "mode {mode:o}"
+        );
+        assert_eq!(fs::read(&path).expect("replacement"), b"after\n");
+        assert_eq!(
+            fs::metadata(&path).expect("metadata").permissions().mode() & 0o777,
+            mode
+        );
+    }
+}
+
 /// MUT-1/MUT-2: exactness is scoped to bytes the named observation actually returned.
 #[test]
 fn admission_enforces_the_observed_window_and_unique_target() {

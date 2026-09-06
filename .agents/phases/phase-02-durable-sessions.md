@@ -123,7 +123,7 @@ Other reviewed Ratatui frames retain their owning component evidence:
 | Trust confirmation | [frame](../../crates/plexmaton-tui/frames/project-trust-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-narrow.txt) |
 | Saved grant after audit failure | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-narrow.txt) |
 
-Current-main integration on 2026-09-06 passed 1,074 Rust tests, 22 Python tests, all-target
+Current-main integration on 2026-09-06 passed 1,075 Rust tests, 22 Python tests, all-target
 Clippy, formatting, crate/citation/file-length gates, typos and machete. The offline dependency
 audit passed using an isolated copy of cached advisories; existing duplicate-crate warnings remain.
 CPL-3/SKL-5 now retain the complete current skill invocation, and CPL-7/SKL-6 let skill completion
@@ -137,6 +137,8 @@ matched the reviewed assets byte-for-byte; wide/medium/narrow reply renderings w
 
 Publication hygiene adds tested private-state/build ignores without hiding fixtures, skills,
 project settings or Cargo.lock, and read-only CI authority with the script/corpus/terminal gates.
+CI installs its rg/jq prerequisites explicitly; MUT-4 carries native Unix mode/device types
+through file publication instead of assuming macOS integer widths.
 History, staged source and all ten existing Actions logs passed local secret scans. Licensing is unchanged. The UI contract
 retains a 748-byte soft-budget warning; no product rule was removed to silence it.
 No live model, live configuration, command containment, multi-agent runtime or performance benchmark
