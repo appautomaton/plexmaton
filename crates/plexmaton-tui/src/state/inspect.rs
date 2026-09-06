@@ -41,7 +41,9 @@ impl ViewState {
         }
         let bounds = surfaces.get(SurfaceId::Inspector)?.bounds;
         let agent = self.inspector()?.agent;
-        let wanted = self.draft(&agent).requested_rows(inner_width(bounds.width));
+        let wanted = self
+            .draft(&agent)
+            .requested_rows(inner_width(bounds.width), crate::state::MAX_VISIBLE_LINES);
         layout::steer_split(bounds, wanted).map(|split| (split, agent))
     }
 

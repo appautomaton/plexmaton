@@ -90,7 +90,8 @@ ordinary bindings below apply.
 | `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
-| `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | Unbound |
+| `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | `↑` / `↓` move the caret one painted row and the window follows (COM-2); `k` / `j` insert |
+| Wheel over the composer | Nothing scrollable | Walk the draft one row per notch (COM-2) |
 | `Enter` | Enter the second window | Submit |
 | `Ctrl-F` | Maximize the second window | Maximize the second window |
 | `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the second window | Shrink, grow the second window |

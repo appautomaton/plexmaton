@@ -235,7 +235,8 @@ pub(crate) fn skill_picker(
 ) -> Vec<Line<'static>> {
     let picker = state.skill_picker();
     let input = state.composer();
-    let visible = usize::from(height.saturating_sub(3));
+    // The titled rule and the key line; the composer's top rule closes the menu (SKP-4).
+    let visible = usize::from(height.saturating_sub(2));
     let matches = picker.current_matches(input.text(), input.cursor());
     let window = picker.window(input.text(), input.cursor(), visible);
     let mut lines = Vec::with_capacity(window.len().saturating_add(1));
@@ -300,6 +301,7 @@ pub(crate) fn composer(
     palette: &Palette,
     focused: bool,
     width: u16,
+    window: u16,
 ) -> Vec<Line<'static>> {
     let composer = state.composer();
     if composer.text().is_empty() && !focused {
@@ -308,16 +310,17 @@ pub(crate) fn composer(
             palette.style(Role::Muted),
         )];
     }
-    input_lines(composer, palette, width)
+    input_lines(composer, palette, width, window)
 }
 
 pub(crate) fn input_lines(
     input: &crate::state::TextInput,
     palette: &Palette,
     width: u16,
+    window: u16,
 ) -> Vec<Line<'static>> {
     input
-        .visible_ranges(width)
+        .visible_ranges(width, window)
         .into_iter()
         .map(|range| Line::from(input_spans(input, palette, range)))
         .collect()

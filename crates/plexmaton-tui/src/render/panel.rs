@@ -154,8 +154,12 @@ pub(super) fn render_steer(
     let label = state
         .agent(agent_id)
         .map_or_else(|| agent_id.to_string(), |agent| agent.label.clone());
-    let lines =
-        crate::content::input_lines(state.draft(agent_id), palette, inner_width(area.width));
+    let lines = crate::content::input_lines(
+        state.draft(agent_id),
+        palette,
+        inner_width(area.width),
+        crate::state::input_window(area),
+    );
     let paragraph = Paragraph::new(lines.clone())
         .wrap(Wrap { trim: false })
         .block(block(
@@ -173,7 +177,9 @@ pub(super) fn render_steer(
     place_cursor(
         frame,
         area,
-        state.draft(agent_id).caret(inner_width(area.width)),
+        state
+            .draft(agent_id)
+            .caret(inner_width(area.width), crate::state::input_window(area)),
         Edges::All,
     );
 }

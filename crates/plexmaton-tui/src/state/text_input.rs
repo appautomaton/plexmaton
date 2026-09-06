@@ -16,7 +16,8 @@ use unicode_width::UnicodeWidthStr;
 mod selection;
 use selection::Selection;
 
-/// Rows of text an input shows before it starts showing only the window around the caret.
+/// The fewest rows an input's window may be asked to hold: what a sub-agent's input keeps, and
+/// the primary composer's floor when the column is short (ui-ux §input).
 pub const MAX_VISIBLE_LINES: u16 = 3;
 
 /// One wrapped row, and where it starts in the source text.
@@ -213,8 +214,8 @@ impl TextInput {
     ///
     /// `row` is an index into the rows currently visible, which is what a click resolves to: the
     /// caller knows where it drew the input, not where the text scrolled to.
-    pub fn click(&mut self, width: u16, row: u16, column: u16) -> bool {
-        let target = self.offset_at(width, row, column);
+    pub fn click(&mut self, width: u16, window: u16, row: u16, column: u16) -> bool {
+        let target = self.offset_at(width, window, row, column);
         self.place_caret(target)
     }
 
@@ -293,24 +294,25 @@ impl TextInput {
         self.settle_cursor();
     }
 
-    /// Rows the input paints at `width`, being the window that contains the caret.
+    /// Rows the input paints at `width` in a `window` that many rows tall: the ones around the
+    /// caret.
     #[must_use]
-    pub fn visible_rows(&self, width: u16) -> Vec<String> {
+    pub fn visible_rows(&self, width: u16, window: u16) -> Vec<String> {
         let rows = self.rows(width);
-        let start = Self::window_start(&rows, self.caret_row(&rows));
+        let start = Self::window_start(&rows, self.caret_row(&rows), window);
         rows.into_iter()
             .skip(start)
-            .take(usize::from(MAX_VISIBLE_LINES))
+            .take(usize::from(window.max(1)))
             .map(|row| row.text)
             .collect()
     }
 
-    /// Where to paint the caret among [`TextInput::visible_rows`] at the same width.
+    /// Where to paint the caret among [`TextInput::visible_rows`] at the same width and window.
     #[must_use]
-    pub fn caret(&self, width: u16) -> Caret {
+    pub fn caret(&self, width: u16, window: u16) -> Caret {
         let rows = self.rows(width);
         let caret_row = self.caret_row(&rows);
-        let start = Self::window_start(&rows, caret_row);
+        let start = Self::window_start(&rows, caret_row, window);
         let column = rows.get(caret_row).map_or(0, |row| {
             UnicodeWidthStr::width(&self.text[row.start..self.cursor.max(row.start)])
         });
@@ -320,24 +322,47 @@ impl TextInput {
         }
     }
 
-    /// Rows the input asks layout for at `width`, borders included.
+    /// Rows the input asks layout for at `width`, up to `cap` lines, borders included.
     #[must_use]
-    pub fn requested_rows(&self, width: u16) -> u16 {
-        let rows = u16::try_from(self.rows(width).len()).unwrap_or(MAX_VISIBLE_LINES);
+    pub fn requested_rows(&self, width: u16, cap: u16) -> u16 {
+        let rows = u16::try_from(self.rows(width).len()).unwrap_or(u16::MAX);
         // At least one row, so an empty input is still a place to type; two borders around it.
-        rows.clamp(1, MAX_VISIBLE_LINES).saturating_add(2)
+        rows.clamp(1, cap.max(1)).saturating_add(2)
     }
 
-    fn offset_at(&self, width: u16, row: u16, column: u16) -> usize {
+    /// Moves the caret one painted row up or down, keeping its display column, so a draft
+    /// taller than its window is walked with the arrows and the window follows (ui-ux §input).
+    pub fn move_row(&mut self, width: u16, direction: crate::Direction) -> bool {
+        let rows = self.rows(width);
+        let caret_row = self.caret_row(&rows);
+        let target = match direction {
+            crate::Direction::Backward => caret_row.checked_sub(1),
+            crate::Direction::Forward => Some(caret_row.saturating_add(1)),
+        };
+        let Some(target) = target.filter(|target| *target < rows.len()) else {
+            return false;
+        };
+        let column = rows.get(caret_row).map_or(0, |row| {
+            UnicodeWidthStr::width(&self.text[row.start..self.cursor.max(row.start)])
+        });
+        let offset = Self::offset_in_row(&rows[target], u16::try_from(column).unwrap_or(u16::MAX));
+        self.place_caret(offset)
+    }
+
+    fn offset_at(&self, width: u16, window: u16, row: u16, column: u16) -> usize {
         let rows = self.rows(width);
         if rows.is_empty() {
             return 0;
         }
-        let start = Self::window_start(&rows, self.caret_row(&rows));
+        let start = Self::window_start(&rows, self.caret_row(&rows), window);
         let index = start
             .saturating_add(usize::from(row))
             .min(rows.len().saturating_sub(1));
-        let row = &rows[index];
+        Self::offset_in_row(&rows[index], column)
+    }
+
+    /// The grapheme boundary at or before a display column of one painted row.
+    fn offset_in_row(row: &Row, column: u16) -> usize {
         let mut offset = row.start;
         let mut used = 0_usize;
         for cluster in row.text.graphemes(true) {
@@ -355,8 +380,8 @@ impl TextInput {
     ///
     /// Computed rather than stored. A stored scroll offset would be a second answer to "which rows
     /// are on screen" that could disagree with the caret after an edit.
-    fn window_start(rows: &[Row], caret_row: usize) -> usize {
-        let tail = rows.len().saturating_sub(usize::from(MAX_VISIBLE_LINES));
+    fn window_start(rows: &[Row], caret_row: usize, window: u16) -> usize {
+        let tail = rows.len().saturating_sub(usize::from(window.max(1)));
         caret_row.min(tail)
     }
 
@@ -533,7 +558,7 @@ mod tests {
     #[test]
     fn edits_that_join_clusters_restore_the_grapheme_boundary() {
         let mut emoji = typed("👩👩");
-        emoji.click(10, 0, 2);
+        emoji.click(10, 3, 0, 2);
         emoji.insert('\u{200d}');
         assert_eq!(emoji.cursor(), emoji.text().len());
         emoji.delete_backward();
@@ -635,19 +660,19 @@ mod tests {
     fn the_caret_reports_the_row_and_column_it_is_painted_on() {
         let mut input = typed("aaa bbb");
         assert_eq!(
-            input.visible_rows(4),
+            input.visible_rows(4, 3),
             vec!["aaa ".to_owned(), "bbb".to_owned()]
         );
-        assert_eq!(input.caret(4), Caret { row: 1, column: 3 });
+        assert_eq!(input.caret(4, 3), Caret { row: 1, column: 3 });
         input.move_caret(Motion::LineStart);
-        assert_eq!(input.caret(4), Caret { row: 0, column: 0 });
+        assert_eq!(input.caret(4, 3), Caret { row: 0, column: 0 });
     }
 
     /// COM-1: a wide glyph advances the caret by the cells it occupies.
     #[test]
     fn a_wide_glyph_advances_the_caret_by_two_cells() {
         let input = typed("宽");
-        assert_eq!(input.caret(10), Caret { row: 0, column: 2 });
+        assert_eq!(input.caret(10, 3), Caret { row: 0, column: 2 });
     }
 
     /// COM-2: the visible window follows the caret instead of always showing the tail.
@@ -657,32 +682,32 @@ mod tests {
     #[test]
     fn the_visible_window_follows_the_caret_above_the_tail() {
         let mut input = typed("l1\nl2\nl3\nl4");
-        assert_eq!(input.visible_rows(10), ["l2", "l3", "l4"]);
-        assert_eq!(input.caret(10), Caret { row: 2, column: 2 });
+        assert_eq!(input.visible_rows(10, 3), ["l2", "l3", "l4"]);
+        assert_eq!(input.caret(10, 3), Caret { row: 2, column: 2 });
 
         // Eight clusters back is the start of `l2`, the first row of the tail. Still inside it.
         for _ in 0..8 {
             input.move_caret(Motion::Left);
         }
-        assert_eq!(input.visible_rows(10), ["l2", "l3", "l4"]);
-        assert_eq!(input.caret(10), Caret { row: 0, column: 0 });
+        assert_eq!(input.visible_rows(10, 3), ["l2", "l3", "l4"]);
+        assert_eq!(input.caret(10, 3), Caret { row: 0, column: 0 });
 
         // Three more is the start of `l1`, which the tail does not reach.
         for _ in 0..3 {
             input.move_caret(Motion::Left);
         }
-        assert_eq!(input.visible_rows(10), ["l1", "l2", "l3"]);
-        assert_eq!(input.caret(10), Caret { row: 0, column: 0 });
+        assert_eq!(input.visible_rows(10, 3), ["l1", "l2", "l3"]);
+        assert_eq!(input.caret(10, 3), Caret { row: 0, column: 0 });
     }
 
     /// COM-1: a click resolves to the boundary under it, and round-trips with the caret.
     #[test]
     fn a_click_lands_on_the_boundary_under_it() {
         let mut input = typed("aaa bbb");
-        assert!(input.click(4, 0, 2));
+        assert!(input.click(4, 3, 0, 2));
         assert_eq!(input.cursor(), 2);
-        assert_eq!(input.caret(4), Caret { row: 0, column: 2 });
-        input.click(4, 1, 99);
+        assert_eq!(input.caret(4, 3), Caret { row: 0, column: 2 });
+        input.click(4, 3, 1, 99);
         assert_eq!(input.cursor(), "aaa bbb".len());
     }
 

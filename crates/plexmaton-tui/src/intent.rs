@@ -61,6 +61,8 @@ pub enum TextIntent {
     KillToLineEnd,
     /// Move the cursor without changing the text.
     Move(Motion),
+    /// Move the cursor one painted row up or down; the window follows it (ui-ux §input).
+    MoveRow(Direction),
     /// Break the line without submitting.
     Newline,
     /// Submit the input's current contents.

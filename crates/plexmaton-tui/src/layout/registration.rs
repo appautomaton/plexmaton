@@ -63,7 +63,8 @@ pub(super) fn surface_tree(
         .decision
         .map_or(regions.composer.y, |decision| decision.y);
     let picker_height = skill_picker_rows.min(picker_bottom.saturating_sub(picker_top));
-    let picker = (picker_height >= 4).then_some(Rect::new(
+    // A titled rule, one choice and the key line: less than that hides the choice or the keys.
+    let picker = (picker_height >= 3).then_some(Rect::new(
         regions.composer.x,
         picker_bottom.saturating_sub(picker_height),
         regions.composer.width,

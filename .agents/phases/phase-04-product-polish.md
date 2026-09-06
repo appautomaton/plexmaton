@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stages 12 streaming continuity and 13 chrome diet complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -133,14 +133,16 @@ Visual changes are reviewed against real frames before the contract adopts them.
     physical-terminal streaming remain unmeasured. A separate literal-TeX wireframe awaits the
     user's choice; unfinished-math grammar and the UI/UX contract are unchanged.
 
-13. **Chrome diet — in progress.** The conversation column loses its box: the transcript runs
-    into the composer's top rule, the composer sits between two rules that carry only the
-    addressee and the reasoning effort, the conversation's last row is its activity line, and
-    menus are a titled section above the top rule. Decided by the user on 2026-09-06 from
-    hand-composed frames at 95 columns; real frames replace them slice by slice under the
-    [plan](../plans/phase-04-stage-13-chrome-diet.md), and stage 11's composer menu lands on this
-    chrome. Rejected: the box, chrome that said nothing; and current work on the composer's
-    rule, which mixed the agent's doing with the user's typing.
+13. **Chrome diet — complete.** The conversation column has no box: the transcript runs into
+    the composer's top rule and ends with its activity line, which also carries the selection
+    note and the attention pill; the composer sits between two rules that carry only the
+    addressee and the reasoning effort, grows to a third of the terminal and walks a taller
+    draft with `↑`/`↓` and the wheel; menus are a titled rule and rows the composer's top rule
+    closes. Decided by the user on 2026-09-06 from hand-composed frames; the real frames are the
+    regenerated composition fixtures, the `composer-grown-*` and `composer-windowed-*` crops and
+    the Markdown SVGs. The Drawer, the rail and the strips keep their boxes. Rejected: the box,
+    chrome that said nothing; and current work on the composer's rule, which mixed the agent's
+    doing with the user's typing.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

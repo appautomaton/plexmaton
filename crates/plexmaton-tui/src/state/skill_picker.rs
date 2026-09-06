@@ -260,7 +260,9 @@ impl ViewState {
             .current_matches(self.composer().text(), self.composer().cursor())
             .len()
             .min(VISIBLE_SKILLS);
-        u16::try_from(listed).unwrap_or(0).saturating_add(3)
+        // The titled rule above and the key line below the rows; the composer's own top rule
+        // closes the menu, so it spends no bottom edge (SKP-4).
+        u16::try_from(listed).unwrap_or(0).saturating_add(2)
     }
 
     pub(crate) fn sync_skill_picker(&mut self) {

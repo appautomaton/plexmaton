@@ -38,6 +38,7 @@ pub use approval::{
 };
 pub use attention::AttentionView;
 pub(crate) use composer::apply_text;
+pub(crate) use composer::input_window;
 pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
@@ -60,7 +61,7 @@ pub use skill_picker::{SkillChoice, SkillChoiceSource};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
-pub use text_input::{Caret, Motion, TextInput};
+pub use text_input::{Caret, MAX_VISIBLE_LINES, Motion, TextInput};
 
 use crate::{
     intent::{Direction, ScrollDirection, TextIntent},
@@ -357,15 +358,16 @@ impl ViewState {
     /// workspace is what needs the answer and there is no tree yet when it asks.
     ///
     /// `width` is the composer rectangle layout will register; the draft wraps inside its borders.
-    /// A height asked for without that width is a height for a draft nobody paints.
+    /// A height asked for without that width is a height for a draft nobody paints. `cap` is the
+    /// most lines the column lets a draft take before its window scrolls (ui-ux §input).
     #[must_use]
-    pub fn composer_rows(&self, width: u16) -> u16 {
+    pub fn composer_rows(&self, width: u16, cap: u16) -> u16 {
         if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {
             // One row, not none. A composer that vanishes costs the affordance and jumps the tail
             // of the transcript by three rows; one row of jump is what INS-5 accepts.
             1
         } else {
-            self.composer().requested_rows(inner_width(width))
+            self.composer().requested_rows(inner_width(width), cap)
         }
     }
 

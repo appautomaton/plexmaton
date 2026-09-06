@@ -20,12 +20,12 @@
 
 
 
+
 ── Skills ─────────────────────────────────────────────────────────────────────────────────────
  > project · $review  Review this change for correctness across every affected boundary
    shared · $research  Gather focused source evidence
    user · $release  Prepare release notes
   ↑↓ choose · Tab/Enter insert · Esc close
-
 ── Message Plexmaton ──────────────────────────────────────────────────────────────────────────
  $r
 ───────────────────────────────────────────────────────────────────────────────────────────────

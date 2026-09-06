@@ -29,6 +29,8 @@ mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
 #[cfg(test)]
+mod composer_tests;
+#[cfg(test)]
 mod conversation_picker_tests;
 mod copy;
 mod drawer;

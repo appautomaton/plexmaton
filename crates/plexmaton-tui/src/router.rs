@@ -300,6 +300,14 @@ fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) ->
             ScrollDirection::Down => Direction::Forward,
         })));
     }
+    // The composer's window follows its caret rather than a scroll offset (COM-2), so the wheel
+    // over it walks the draft one row per notch; the reducer ignores it when nothing is typing.
+    if context.surfaces.hit_test(at) == Some(SurfaceId::Composer) {
+        return Routed::Intent(TuiIntent::Text(TextIntent::MoveRow(match direction {
+            ScrollDirection::Up => Direction::Backward,
+            ScrollDirection::Down => Direction::Forward,
+        })));
+    }
     if let Some(surface) = context.surfaces.wheel_target(at) {
         return Routed::Intent(TuiIntent::Scroll { surface, direction });
     }
@@ -356,6 +364,8 @@ fn editing_chord(code: KeyCode, control: bool, alt: bool) -> Option<TextIntent> 
         KeyCode::Char('e') if control => Motion::LineEnd,
         KeyCode::Char('b') if alt => Motion::WordLeft,
         KeyCode::Char('f') if alt => Motion::WordRight,
+        KeyCode::Up if !control && !alt => return Some(TextIntent::MoveRow(Direction::Backward)),
+        KeyCode::Down if !control && !alt => return Some(TextIntent::MoveRow(Direction::Forward)),
         KeyCode::Delete => return Some(TextIntent::DeleteForward),
         KeyCode::Char('w') if control => return Some(TextIntent::DeleteWordBackward),
         KeyCode::Char('u') if control => return Some(TextIntent::KillToLineStart),
