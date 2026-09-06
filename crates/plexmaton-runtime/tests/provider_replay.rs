@@ -11,6 +11,9 @@ use serde_json::json;
 #[path = "provider_replay/interrupted.rs"]
 mod interrupted;
 
+#[path = "provider_replay/compaction.rs"]
+mod compaction;
+
 struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> Self {

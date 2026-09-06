@@ -451,7 +451,8 @@ async fn explicit_user_only_skill_allows_resource_but_not_unprompted_body() {
             ContextAtomValue::ToolBatch(batch) => batch.results(),
             ContextAtomValue::User { .. }
             | ContextAtomValue::Skill(_)
-            | ContextAtomValue::Assistant(_) => &[],
+            | ContextAtomValue::Assistant(_)
+            | ContextAtomValue::CompactionSummary { .. } => &[],
         })
         .map(|result| result.outcome())
         .collect();

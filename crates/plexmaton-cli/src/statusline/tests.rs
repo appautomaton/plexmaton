@@ -413,11 +413,19 @@ fn status_cleanup_error_does_not_hide_session_shutdown_failures() {
         Err(anyhow::anyhow!("terminal failure")),
         Err(anyhow::anyhow!("retained user input; persistence failure")),
         Err(anyhow::anyhow!("status-line cleanup failure")),
+        Err(anyhow::anyhow!("clipboard cleanup failure")),
+        Err(anyhow::anyhow!("preparation cleanup failure")),
+        Err(anyhow::anyhow!("picker cleanup failure")),
+        Err(anyhow::anyhow!("permission cleanup failure")),
     )
     .expect_err("combined shutdown failures")
     .to_string();
     assert!(error.starts_with("retained user input"));
     assert!(error.contains("terminal failure"));
     assert!(error.contains("status-line cleanup failure"));
-    assert!(crate::session_result(Ok(()), Ok(()), Ok(())).is_ok());
+    assert!(error.contains("clipboard cleanup failure"));
+    assert!(error.contains("preparation cleanup failure"));
+    assert!(error.contains("picker cleanup failure"));
+    assert!(error.contains("permission cleanup failure"));
+    assert!(crate::session_result(Ok(()), Ok(()), Ok(()), Ok(()), Ok(()), Ok(()), Ok(())).is_ok());
 }

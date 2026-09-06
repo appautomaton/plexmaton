@@ -13,11 +13,13 @@ use crate::{CleanupFailure, DispatchReport, RuntimeError, RuntimeUpdate};
 
 mod budget;
 mod clock;
+mod compaction;
 mod construction;
 mod journal;
 mod model;
 mod permissions;
 pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
+mod owned_future;
 mod retry;
 mod skills;
 mod terminal;
@@ -27,10 +29,11 @@ mod transition;
 #[cfg(test)]
 pub(crate) use clock::FixedWallClock;
 pub(crate) use clock::WallClock;
-use model::RetainedModelFuture;
+use compaction::{CompactionOperation, TurnCompactionBudget};
 pub(crate) use model::{
     ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport,
 };
+use owned_future::RetainedFuture;
 use skills::PreparingSkillInput;
 use tools::{ToolResolution, ToolTasks};
 use transition::{AfterCommit, PendingCommit};
@@ -50,6 +53,7 @@ struct PendingInput {
 struct PendingModelStart {
     attempt_id: RequestAttemptId,
     call: ModelCall,
+    cancelled: bool,
 }
 
 enum ModelSettlement {
@@ -68,7 +72,7 @@ struct ActiveModel {
     attempt_id: RequestAttemptId,
     step_id: ModelStepId,
     cancellation: CancellationToken,
-    future: RetainedModelFuture,
+    future: RetainedFuture<ModelTerminalReport>,
     settlement: ModelSettlement,
 }
 
@@ -83,6 +87,10 @@ pub struct LiveRuntime {
     active: Option<ActiveModel>,
     pending_model_start: Option<PendingModelStart>,
     deferred_model_call: Option<ModelCall>,
+    deferred_compaction_failure: Option<ModelCall>,
+    compaction: Option<CompactionOperation>,
+    compaction_budget: TurnCompactionBudget,
+    compaction_timeout: std::time::Duration,
     tools: ToolTasks,
     permissions: CodingSessionPermissions,
     report: DispatchReport,
@@ -178,6 +186,13 @@ impl LiveRuntime {
             selected_skill,
             after,
         });
+        if matches!(
+            self.pending_inputs.back().map(|pending| &pending.input),
+            Some(Input::Interrupted)
+        ) {
+            self.cancel_compaction_continuation();
+            self.cancel_pending_model_before_dispatch();
+        }
         if let Err(error) = self.finish_pending_inputs().await {
             if self.journal_failed {
                 self.finish_failed_owners().await;
@@ -245,6 +260,11 @@ impl LiveRuntime {
                 WaitOutcome::Signal(Some(signal)) => self.apply_signal(signal).await,
                 WaitOutcome::Signal(None) => return Ok(RuntimeUpdate::Finished),
                 WaitOutcome::ModelEnded(result) => self.model_ended(result).await,
+                WaitOutcome::CompactionEnded(result) => self.compaction_ended(result).await,
+                WaitOutcome::CompactionDeadline => {
+                    self.compaction_deadline_reached();
+                    Ok(())
+                }
                 WaitOutcome::Tool(Ok(Some(resolution))) => {
                     self.apply_tool_resolution(resolution).await
                 }
@@ -270,6 +290,8 @@ impl LiveRuntime {
             self.shutdown_state = ShutdownState::Requested;
         }
         self.cancel_skill_inputs(UndeliveredReason::Shutdown).await;
+        self.cancel_compaction_continuation();
+        self.cancel_pending_model_before_dispatch();
         if let Err(error) = self.finish_pending_inputs().await {
             return self.shutdown_after_journal_failure(error).await;
         }
@@ -324,8 +346,10 @@ impl LiveRuntime {
             .await;
         self.pending_model_start = None;
         self.deferred_model_call = None;
+        self.deferred_compaction_failure = None;
         self.after_commit = None;
         let provider = self.discard_active_after_journal_failure().await;
+        let compaction = self.discard_compaction_after_journal_failure().await;
         let tools = self
             .tools
             .cancel_and_join(&mut self.report.saved_project_permissions)
@@ -337,7 +361,7 @@ impl LiveRuntime {
                 .map_err(|_| RuntimeError::JournalWriterUnavailable),
             None => Ok(()),
         };
-        if provider.is_err() {
+        if provider.is_err() || compaction.is_err() {
             self.report.cleanup_failures.push(CleanupFailure::Provider);
         }
         if tools.is_err() {
@@ -371,7 +395,9 @@ impl LiveRuntime {
             || self.after_commit.is_some()
             || self.pending_model_start.is_some()
             || self.deferred_model_call.is_some()
+            || self.deferred_compaction_failure.is_some()
             || self.active.is_some()
+            || self.compaction.is_some()
             || !self.tools.is_empty()
     }
 
@@ -381,6 +407,12 @@ impl LiveRuntime {
     }
 
     async fn wait_for_work(&mut self) -> WaitOutcome {
+        let compaction = async {
+            match &mut self.compaction {
+                Some(operation) => operation.next().await,
+                None => std::future::pending().await,
+            }
+        };
         let has_tools = !self.tools.is_empty();
         let model = async {
             match &mut self.active {
@@ -397,6 +429,7 @@ impl LiveRuntime {
         tokio::select! {
             biased;
             loaded = skill => WaitOutcome::Skill(loaded),
+            outcome = compaction => outcome,
             signal = self.signal_rx.recv() => WaitOutcome::Signal(signal),
             ended = model => WaitOutcome::ModelEnded(ended),
             tool = self.tools.next(), if has_tools => WaitOutcome::Tool(tool),
@@ -455,12 +488,17 @@ impl Drop for LiveRuntime {
         if let Some(active) = self.active.take() {
             active.cancellation.cancel();
         }
+        if let Some(operation) = self.compaction.as_mut() {
+            operation.cancel();
+        }
     }
 }
 
 enum WaitOutcome {
     Signal(Option<ModelSignal>),
     ModelEnded(Result<ModelTerminalReport, ()>),
+    CompactionEnded(Result<plexmaton_agent::CompactionAttemptFinished, ()>),
+    CompactionDeadline,
     Tool(Result<Option<ToolResolution>, RuntimeError>),
     Skill(Result<plexmaton_agent::SkillActivation, crate::native::ExplicitSkillError>),
 }

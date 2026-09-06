@@ -10,7 +10,7 @@
 ## Invariants
 
 **LIVE-1 — One runtime owns one live agent and all its work.** The runtime accepts addressed user
-input, drives `Agent::handle`, publishes its `SessionEvent` envelopes, and performs effects; the
+input, drives `Agent::handle`, publishes its `ConversationEvent` envelopes, and performs effects; the
 provider is one retained future rather than a detached task, and every native admission or
 execution runs on a bounded per-call worker the runtime joins. `Drop` cancels and joins those
 workers and drops the provider future; orderly shutdown remains the semantic transition. One
@@ -51,7 +51,7 @@ reasoning and authorization headers have redacted diagnostics.
 ## Model
 
 ```text
-TUI intent ─▶ CLI route ─▶ LiveRuntime ─▶ Agent::handle ─▶ SessionEvent ─▶ TUI
+TUI intent ─▶ CLI route ─▶ LiveRuntime ─▶ Agent::handle ─▶ ConversationEvent ─▶ TUI
                                 ▲              │
                                 │         CallModel(step)
                    provider future ◀───────────┤
@@ -64,6 +64,9 @@ TUI intent ─▶ CLI route ─▶ LiveRuntime ─▶ Agent::handle ─▶ Sessi
 One user turn may issue several model steps. Usage belongs to a step; the turn total is their
 checked sum, with coverage saying whether that sum is complete.
 Cached input remains a subset of input and reasoning remains a subset of output.
+CPL-6/CPL-7 own compaction attempts alongside the pending step. The runtime retains their future,
+deadline and continuation across cancellation of a poll; CPL-4 acknowledgement precedes refreshing
+that same step from its new checkpoint.
 
 ## Failure modes
 

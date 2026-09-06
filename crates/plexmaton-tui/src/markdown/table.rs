@@ -1,13 +1,38 @@
 //! Tables keep every value: aligned cells when they fit, labelled rows on narrow viewports.
 use super::*;
-use crate::text_layout::Fragment;
+use crate::text_layout::{Fragment, FragmentKind};
 use pulldown_cmark::Alignment;
+mod formulas;
 
 fn parse_cells(
     events: Vec<Event<'_>>,
     columns: usize,
-    palette: &Palette,
-) -> Result<Vec<Vec<Line<'static>>>, PlainReason> {
+    math: MathPresentation,
+) -> Result<Vec<Vec<Line>>, PlainReason> {
+    split_cells(events, columns)?
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|cell| {
+                    let lines = render_events(cell, 512, math)?;
+                    let mut spans = Vec::new();
+                    for (index, line) in lines.lines.into_iter().enumerate() {
+                        if index > 0 {
+                            spans.push(Span::raw(" "));
+                        }
+                        spans.extend(line.spans);
+                    }
+                    Ok(Line::from(spans))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn split_cells(
+    events: Vec<Event<'_>>,
+    columns: usize,
+) -> Result<Vec<Vec<Vec<Event<'_>>>>, PlainReason> {
     if columns == 0 || columns > 16 {
         return Err(PlainReason::Complexity);
     }
@@ -18,15 +43,7 @@ fn parse_cells(
         match event {
             Event::Start(Tag::TableCell | Tag::TableHead | Tag::TableRow) => {}
             Event::End(TagEnd::TableCell) => {
-                let lines = render_events(std::mem::take(&mut cell), palette, 512)?;
-                let mut spans = Vec::new();
-                for (index, line) in lines.lines.into_iter().enumerate() {
-                    if index > 0 {
-                        spans.push(Span::raw(" "));
-                    }
-                    spans.extend(line.spans);
-                }
-                row.push(Line::from(spans));
+                row.push(std::mem::take(&mut cell));
             }
             Event::End(TagEnd::TableHead | TagEnd::TableRow) => {
                 if row.len() != columns || rows.len() >= 256 {
@@ -43,26 +60,24 @@ fn parse_cells(
 pub(super) fn render(
     events: Vec<Event<'_>>,
     alignment: Vec<Alignment>,
-    palette: &Palette,
     width: usize,
+    math: MathPresentation,
 ) -> Result<Layout, PlainReason> {
-    let rows = parse_cells(events, alignment.len(), palette)?;
-    let mut out = Renderer::new(palette, width);
-    // Canonical plain text is row-major cell text, separated by tabs/newlines, at every width.
-    let mut offsets = Vec::new();
-    for row in &rows {
-        let mut positions = Vec::new();
-        for (index, cell) in row.iter().enumerate() {
-            if index > 0 {
-                out.layout.text.push('\t');
-            }
-            let start = out.layout.text.len();
-            out.layout.text.push_str(&cell.to_string());
-            positions.push(start);
-        }
-        out.layout.text.push('\n');
-        offsets.push(positions);
+    if events
+        .iter()
+        .any(|event| matches!(event, Event::InlineMath(_) | Event::DisplayMath(_)))
+    {
+        return formulas::render(
+            split_cells(events, alignment.len())?,
+            alignment,
+            width,
+            math,
+        );
     }
+    let rows = parse_cells(events, alignment.len(), math)?;
+    let mut out = Renderer::new(width, math);
+    let (text, offsets) = canonical_text(&rows, |cell| cell.to_string().into());
+    out.layout.text = text;
     if width < alignment.len() * 8 + (alignment.len() - 1) * 3 {
         if let Some(headers) = rows.first() {
             for (row_index, values) in rows.iter().enumerate().skip(1) {
@@ -73,16 +88,14 @@ pub(super) fn render(
                         header.to_string()
                     };
                     let label_bytes = label.len() + 2;
-                    let mut line = vec![Span::styled(
-                        format!("{label}: "),
-                        out.appearance.headings[0],
-                    )];
+                    let mut line = vec![Span::styled(format!("{label}: "), MarkdownRole::Heading1)];
                     line.extend(value.spans.clone());
                     let combined = Line::from(line);
                     let text = combined.to_string();
                     for (line, range) in wrap::ranges(combined, width, false) {
                         let start = range.start.max(label_bytes);
                         let fragment = (start < range.end).then(|| Fragment {
+                            kind: FragmentKind::Text,
                             column: text[range.start..start].width(),
                             text: offsets[row_index][index] + start - label_bytes
                                 ..offsets[row_index][index] + range.end - label_bytes,
@@ -108,6 +121,7 @@ pub(super) fn render(
                             .last_mut()
                             .expect("row just pushed")
                             .push(Fragment {
+                                kind: FragmentKind::Text,
                                 column: 0,
                                 text: offsets[0][index] + range.start
                                     ..offsets[0][index] + range.end,
@@ -148,7 +162,7 @@ pub(super) fn render(
             let mut x = 0;
             for (column, cell) in cells.iter().enumerate() {
                 if column > 0 {
-                    spans.push(Span::styled(" │ ", out.appearance.rule));
+                    spans.push(Span::styled(" │ ", MarkdownRole::Rule));
                     x += 3;
                 }
                 let (line, range) = cell.get(line_index).cloned().unwrap_or_default();
@@ -160,6 +174,7 @@ pub(super) fn render(
                 };
                 if !range.is_empty() {
                     fragments.push(Fragment {
+                        kind: FragmentKind::Text,
                         column: x + left,
                         text: offsets[index][column] + range.start
                             ..offsets[index][column] + range.end,
@@ -170,7 +185,7 @@ pub(super) fn render(
                     if index == 0 {
                         span.style = span
                             .style
-                            .patch(out.appearance.headings[0])
+                            .patch(MarkdownRole::Heading1.into())
                             .add_modifier(Modifier::BOLD);
                     }
                     span
@@ -190,9 +205,31 @@ pub(super) fn render(
                     .map(|n| "─".repeat(*n))
                     .collect::<Vec<_>>()
                     .join("─┼─"),
-                out.appearance.rule,
+                MarkdownRole::Rule,
             ))?;
         }
     }
     Ok(out.layout)
+}
+
+/// SEL-2: ordinary and multi-row native cells share exactly one row-major copy grammar.
+fn canonical_text<T>(
+    rows: &[Vec<T>],
+    text: impl Fn(&T) -> std::borrow::Cow<'_, str>,
+) -> (String, Vec<Vec<usize>>) {
+    let mut source = String::new();
+    let mut offsets = Vec::new();
+    for row in rows {
+        let mut positions = Vec::new();
+        for (index, cell) in row.iter().enumerate() {
+            if index > 0 {
+                source.push('\t');
+            }
+            positions.push(source.len());
+            source.push_str(&text(cell));
+        }
+        source.push('\n');
+        offsets.push(positions);
+    }
+    (source, offsets)
 }

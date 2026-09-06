@@ -23,6 +23,11 @@ pub(super) enum AfterCommit {
     Shutdown,
     StartModel,
     SettleModel,
+    StartCompaction,
+    FinishCompaction,
+    PublishCompaction,
+    FailCompaction,
+    CompleteCompactionFailure,
 }
 
 enum CommitFailure {
@@ -117,9 +122,8 @@ impl LiveRuntime {
         rejected_inputs: Vec<UndeliveredInput>,
         after: AfterCommit,
     ) -> Result<(), RuntimeError> {
-        if self.pending_commit.is_some()
-            || (after != AfterCommit::None && self.after_commit.is_some())
-        {
+        // CPL-4 advances between acknowledged phases; only an outstanding write blocks the next.
+        if self.pending_commit.is_some() {
             return self
                 .fail_before_queue(rejected_inputs)
                 .map_err(|error| permission_audit_failure(&reaction, error));
@@ -179,7 +183,7 @@ impl LiveRuntime {
             self.finish_after_commit().await?;
             if self.pending_commit.is_none() && self.after_commit.is_none() {
                 if let Some(call) = self.deferred_model_call.take() {
-                    self.authorize_model(call)?;
+                    self.route_model_call(call)?;
                 } else {
                     return Ok(());
                 }
@@ -242,14 +246,22 @@ impl LiveRuntime {
             AfterCommit::None => {}
             AfterCommit::Interrupt | AfterCommit::Shutdown => {
                 self.cancel_active().await?;
+                self.cancel_compaction().await?;
                 self.tools
                     .cancel_and_join(&mut self.report.saved_project_permissions)
                     .await?;
             }
             AfterCommit::StartModel => self.start_authorized_model()?,
             AfterCommit::SettleModel => self.settle_model_completion().await?,
+            AfterCommit::StartCompaction => self.start_authorized_compaction()?,
+            AfterCommit::FinishCompaction => self.finish_compaction_attempt()?,
+            AfterCommit::PublishCompaction => self.publish_compaction().await?,
+            AfterCommit::FailCompaction => self.fail_deferred_compaction()?,
+            AfterCommit::CompleteCompactionFailure => self.complete_compaction_failure()?,
         }
-        self.after_commit = None;
+        if self.after_commit == Some(after) {
+            self.after_commit = None;
+        }
         Ok(())
     }
 
@@ -280,7 +292,7 @@ impl LiveRuntime {
         }
         for effect in reaction.effects {
             match effect {
-                Effect::CallModel(call) => self.authorize_model(call)?,
+                Effect::CallModel(call) => self.route_model_call(call)?,
                 Effect::AdmitTool(request) => self.tools.start_admission(request, &self.agent)?,
                 Effect::RunTool {
                     call,

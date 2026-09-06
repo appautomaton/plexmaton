@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::{FixtureWorkspace, fixture_http_responses};
 use plexmaton_core::ConversationId;
+use plexmaton_runtime::RuntimeUpdate;
 
 #[test]
 fn skill_retry_failure_retains_one_editor_copy_until_handoff() {

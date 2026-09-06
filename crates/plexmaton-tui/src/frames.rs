@@ -323,7 +323,7 @@ mod tests {
             },
         );
         let (surfaces, _) = draw_frame(&state, &Palette::default(), width, height);
-        state.toggle_pointer_entry(
+        state.toggle_entry(
             &surfaces,
             &TranscriptMetrics::default(),
             EntryTarget {
@@ -501,7 +501,7 @@ mod tests {
             .and_then(|agent| agent.entries().position(|entry| entry.id() == &item))
             .unwrap_or_else(|| panic!("the edit is in the transcript"));
         let (surfaces, _) = draw_frame(&state, &Palette::pastel(), width, height);
-        state.toggle_pointer_entry(
+        state.toggle_entry(
             &surfaces,
             &TranscriptMetrics::default(),
             EntryTarget {

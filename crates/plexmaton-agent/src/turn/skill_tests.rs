@@ -39,6 +39,7 @@ fn append_payloads(reaction: &Reaction) -> Vec<&JournalEntryPayload> {
             | JournalRecord::AbandonHead { .. }
             | JournalRecord::TurnFinished { .. }
             | JournalRecord::RequestAttemptAuthorized { .. }
+            | JournalRecord::CompactionAttemptFinished { .. }
             | JournalRecord::RequestAttemptFinished { .. } => None,
         })
         .collect()

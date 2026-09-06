@@ -113,6 +113,31 @@ pub struct CopyRequest {
     pub entries: usize,
 }
 
+/// Local conversation feedback for a selected-text request; never a delivery acknowledgement.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CopyNote {
+    Preparing,
+    Unavailable,
+    Capacity,
+    Changed,
+}
+
+impl ViewState {
+    pub(crate) fn set_copy_note(&mut self, note: Option<CopyNote>) {
+        let next = note.and_then(|note| self.selection.clone().map(|selection| (selection, note)));
+        if self.copy_note != next {
+            self.copy_note = next;
+            self.touch();
+        }
+    }
+
+    pub(crate) fn copy_note(&self, surface: SurfaceId) -> Option<CopyNote> {
+        let (selection, note) = self.copy_note.as_ref()?;
+        (selection.surface == surface && self.selection.as_ref() == Some(selection))
+            .then_some(*note)
+    }
+}
+
 impl ViewState {
     /// The current selection, if there is one.
     #[must_use]
@@ -230,11 +255,11 @@ impl ViewState {
     /// renderer painted. That is what makes the answer independent of width, scroll position, and
     /// decoration — and it is why an artifact copies as its pointer rather than as its label.
     #[must_use]
-    pub fn copy(&self) -> Option<CopyRequest> {
+    pub(crate) fn copy_entries(&self) -> Option<CopyRequest> {
         let selection = self.selection.as_ref()?;
         let agent = self.agents.get(&selection.agent)?;
-        if let Range::Text(range) = &selection.range {
-            return self.copy_text_range(agent, range);
+        if selection.is_text() {
+            return None;
         }
         let (first, last) = selection.bounds();
         let sources = self.sources(
@@ -365,7 +390,7 @@ mod tests {
         });
 
         let copied = state
-            .copy()
+            .copy_entries()
             .unwrap_or_else(|| panic!("the selected conversation has semantic source"));
         assert_eq!(
             copied.entries, 3,
@@ -429,7 +454,7 @@ mod tests {
                 workspace.handle(event);
             }
             let _frame = workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
         // Look at B, enter its window, and select something in it.
@@ -445,8 +470,7 @@ mod tests {
         step(&mut workspace, Some(&key(KeyCode::Up, KeyModifiers::SHIFT)));
 
         let selected = workspace
-            .state()
-            .copy()
+            .copy_selection()
             .unwrap_or_else(|| panic!("shift-up in the window must select something"));
         assert!(!selected.text.is_empty());
 
@@ -480,7 +504,7 @@ mod tests {
         );
         assert!(workspace.state().selection().is_none());
         assert_eq!(
-            workspace.state().copy(),
+            workspace.copy_selection(),
             None,
             "the copy key must not reach a conversation the user cannot see"
         );
@@ -585,7 +609,7 @@ mod tests {
         for _ in 0..4 {
             workspace.handle(&Event::Mouse(wheel_at));
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("draw scrolled conversation: {error}"));
         }
 
@@ -645,7 +669,7 @@ mod tests {
         for _ in 0..8 {
             workspace.handle(&Event::Mouse(wheel_at));
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("draw scrolled conversation: {error}"));
         }
         let before_offset = workspace
@@ -671,7 +695,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("edge drag owns a wakeup"));
             assert!(workspace.advance_drag_autoscroll(deadline));
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("draw autoscrolled conversation: {error}"));
         }
 
@@ -701,7 +725,7 @@ mod tests {
             };
             let _changed = workspace.advance_drag_autoscroll(deadline);
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("draw autoscroll boundary: {error}"));
         }
         assert_eq!(
@@ -732,7 +756,7 @@ mod tests {
             .unwrap_or_else(|| panic!("edge drag owns a wakeup"));
         assert!(workspace.advance_drag_autoscroll(deadline));
         workspace
-            .draw(terminal)
+            .settled_draw(terminal)
             .unwrap_or_else(|error| panic!("draw autoscrolled conversation: {error}"));
     }
 
@@ -776,7 +800,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(timeline(messages));
         let _frame = workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         (workspace, terminal)
     }
@@ -883,7 +907,7 @@ mod tests {
                 workspace.handle(event);
             }
             let _frame = workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
         step(&mut workspace, None);
@@ -936,8 +960,7 @@ mod tests {
             prop_assert_eq!(first, messages.len().saturating_sub(1).saturating_sub(extend.min(messages.len() - 1)));
 
             let copied = workspace
-                .state()
-                .copy()
+                .copy_selection()
                 .unwrap_or_else(|| panic!("a selection must copy to something"));
             let expected: Vec<&str> = messages
                 .get(first..=last)
@@ -971,13 +994,13 @@ mod tests {
             for _ in 0..6 {
                 at_wide.handle(&key(KeyCode::Up, KeyModifiers::NONE));
                 let _frame = at_wide
-                    .draw(&mut terminal)
+                    .settled_draw(&mut terminal)
                     .unwrap_or_else(|error| panic!("test render: {error}"));
             }
 
             prop_assert_eq!(
-                at_narrow.state().copy().map(|request| request.text),
-                at_wide.state().copy().map(|request| request.text)
+                at_narrow.copy_selection().map(|request| request.text),
+                at_wide.copy_selection().map(|request| request.text)
             );
         }
     }

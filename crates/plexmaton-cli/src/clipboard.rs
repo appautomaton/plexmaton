@@ -1,4 +1,4 @@
-//! Where copied text goes once it leaves the workspace.
+//! Where copied text goes once it leaves the workspace (SEL-5/SEL-8).
 //!
 //! The projection produces a [`CopyRequest`](plexmaton_tui::CopyRequest) and hands it back as a
 //! value; nothing in `plexmaton-tui` knows a clipboard exists. This adapter owns the
@@ -6,15 +6,25 @@
 
 use std::{
     ffi::OsStr,
+    future::Future,
     io::{self, Write},
+    pin::Pin,
     process::Stdio,
     time::Duration,
 };
 
 use crossterm::{clipboard::CopyToClipboard, execute};
-use tokio::{io::AsyncWriteExt as _, process::Command};
+use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
+
+mod helper;
+#[cfg(test)]
+mod owned_tests;
+use helper::{Completion, Failure, copy_through_command};
 
 const COPY_DEADLINE: Duration = Duration::from_millis(500);
+// Count retained capacity, including an over-allocated short String, before accepting any effect.
+const MAX_COPY_BYTES: usize = 8 * 1024 * 1024;
 
 /// How the process reaches the terminal that owns the user's clipboard.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,29 +83,45 @@ impl ClipboardRoute {
             Some(_) | None => Self::Direct,
         }
     }
-
-    const fn uses_tmux(self) -> bool {
-        matches!(self, Self::Tmux { .. })
-    }
 }
 
-/// One place copied text can be delivered.
-///
-/// The operation is async because clipboard helpers are external processes. Each remains owned and
-/// bounded instead of blocking the event-loop thread or detaching a child.
-pub(crate) trait ClipboardSink {
-    async fn copy(&mut self, text: &str) -> io::Result<()>;
+struct Active {
+    // Retain the future across select iterations: cancelling write_all by dropping it could replay
+    // an already-written prefix. This owner, not a detached task, holds the child and source.
+    operation: Pin<Box<dyn Future<Output = Result<Completion, Failure>>>>,
+    cancel: CancellationToken,
+    terminal: Option<io::Result<()>>,
+    pending: Option<String>,
 }
 
-/// Delivers semantic source through the route belonging to the user's terminal.
+enum Delivery {
+    Idle,
+    Active(Active),
+    CleanupFailed,
+}
+
+/// Owned clipboard delivery, polled beside input; only the interaction loop writes terminal bytes.
 pub(crate) struct TerminalClipboard<W> {
     writer: W,
     route: ClipboardRoute,
+    // The two real process boundaries are pbcopy and tmux. Tests substitute only that executable,
+    // never the delivery lifecycle or the terminal write path.
+    helper: Box<dyn Fn() -> Command>,
+    delivery: Delivery,
 }
 
 impl<W: Write> TerminalClipboard<W> {
-    pub(crate) const fn new(writer: W, route: ClipboardRoute) -> Self {
-        Self { writer, route }
+    pub(crate) fn new(writer: W, route: ClipboardRoute) -> Self {
+        Self {
+            writer,
+            route,
+            helper: Box::new(if route == ClipboardRoute::LocalMacOs {
+                pbcopy_command
+            } else {
+                tmux_copy_command
+            }),
+            delivery: Delivery::Idle,
+        }
     }
 
     pub(crate) fn from_environment(writer: W) -> Self {
@@ -106,25 +132,85 @@ impl<W: Write> TerminalClipboard<W> {
         self.writer.write_all(&osc52_sequence(text, self.route)?)?;
         self.writer.flush()
     }
-}
 
-impl<W: Write> ClipboardSink for TerminalClipboard<W> {
-    async fn copy(&mut self, text: &str) -> io::Result<()> {
-        if self.route == ClipboardRoute::LocalMacOs {
-            return copy_through_command(pbcopy_command(), text, COPY_DEADLINE).await;
+    /// Accept the newest exact source without waiting for a helper. At most one child and one
+    /// pending source exist; replacement reaps the old child before any newer terminal write.
+    pub(crate) fn submit(&mut self, text: String) -> io::Result<()> {
+        if text.capacity() > MAX_COPY_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "clipboard source exceeds the 8 MiB allocation limit",
+            ));
         }
-        // Try every route before inspecting either result. A disconnected terminal must not stop
-        // tmux from delivering, and a wedged tmux must not suppress the escape sequence.
-        let terminal = self.write_terminal(text);
-        let tmux = self.route.uses_tmux().then(|| copy_through_tmux(text));
-        let tmux = match tmux {
-            Some(copy) => Some(copy.await),
-            None => None,
+        match &mut self.delivery {
+            Delivery::Idle => self.start(text),
+            Delivery::Active(active) => {
+                active.cancel.cancel();
+                active.pending = Some(text);
+                Ok(())
+            }
+            Delivery::CleanupFailed => Err(io::Error::other("clipboard cleanup failed")),
+        }
+    }
+
+    fn start(&mut self, text: String) -> io::Result<()> {
+        if self.route == ClipboardRoute::Direct {
+            return self.write_terminal(&text);
+        }
+        let terminal =
+            matches!(self.route, ClipboardRoute::Tmux { .. }).then(|| self.write_terminal(&text));
+        let cancel = CancellationToken::new();
+        self.delivery = Delivery::Active(Active {
+            operation: Box::pin(copy_through_command(
+                (self.helper)(),
+                text,
+                COPY_DEADLINE,
+                cancel.clone(),
+            )),
+            cancel,
+            terminal,
+            pending: None,
+        });
+        Ok(())
+    }
+
+    /// Cancellation-safe: the owned helper future survives losing the outer select to input.
+    /// Idle work has no wake; completion itself does not change the projection or request a frame.
+    pub(crate) async fn next(&mut self) -> io::Result<()> {
+        let result = match &mut self.delivery {
+            Delivery::Active(active) => active.operation.as_mut().await,
+            Delivery::Idle => std::future::pending().await,
+            Delivery::CleanupFailed => return Err(io::Error::other("clipboard cleanup failed")),
         };
-        match (terminal, tmux) {
-            (Ok(()), _) | (_, Some(Ok(()))) => Ok(()),
-            (Err(error), None | Some(Err(_))) => Err(error),
+        let Delivery::Active(active) = std::mem::replace(&mut self.delivery, Delivery::Idle) else {
+            unreachable!("only the retained active operation can complete")
+        };
+        if let Err(Failure::Cleanup(error)) = result {
+            self.delivery = Delivery::CleanupFailed;
+            return Err(error);
         }
+        if let Some(text) = active.pending {
+            return self.start(text);
+        }
+        match (active.terminal, result) {
+            (_, Ok(Completion::Accepted | Completion::Cancelled)) | (Some(Ok(())), _) => Ok(()),
+            (Some(Err(error)), _) => Err(error),
+            (None, Err(error)) => Err(error.into()),
+        }
+    }
+
+    /// Cancel requested work and reap it before the caller releases the terminal. No pending
+    /// source may start another effect after shutdown begins; cleanup failure stays observable.
+    pub(crate) async fn shutdown(&mut self) -> io::Result<()> {
+        match &mut self.delivery {
+            Delivery::Idle => return Ok(()),
+            Delivery::CleanupFailed => return Err(io::Error::other("clipboard cleanup failed")),
+            Delivery::Active(active) => {
+                active.pending = None;
+                active.cancel.cancel();
+            }
+        }
+        self.next().await
     }
 }
 
@@ -160,54 +246,6 @@ fn osc52_sequence(text: &str, route: ClipboardRoute) -> io::Result<Vec<u8>> {
     Ok(wrapped)
 }
 
-/// Asks tmux to retain the text and send it to the outer client's clipboard.
-async fn copy_through_tmux(text: &str) -> io::Result<()> {
-    copy_through_command(tmux_copy_command(), text, COPY_DEADLINE).await
-}
-
-/// The deadline covers both a blocked stdin pipe and waiting for acknowledgement.
-async fn copy_through_command(
-    mut command: Command,
-    text: &str,
-    deadline: Duration,
-) -> io::Result<()> {
-    let mut child = command.spawn()?;
-    let operation = async {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| io::Error::other("clipboard helper stdin was not piped"))?;
-        stdin.write_all(text.as_bytes()).await?;
-        stdin.shutdown().await?;
-        drop(stdin);
-        child.wait().await
-    };
-    let result = tokio::time::timeout(deadline, operation).await;
-    let status = match result {
-        Ok(Ok(status)) => status,
-        Ok(Err(error)) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            return Err(error);
-        }
-        Err(_) => {
-            let _ = child.start_kill();
-            let _ = child.wait().await;
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "clipboard helper exceeded its deadline",
-            ));
-        }
-    };
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!(
-            "clipboard helper exited with {status}"
-        )))
-    }
-}
-
 fn tmux_copy_command() -> Command {
     let mut command = Command::new("tmux");
     command.args(["load-buffer", "-w", "-"]);
@@ -238,7 +276,7 @@ mod tests {
     use tokio::process::Command;
 
     use super::{
-        ClipboardRoute, ClipboardSink, TerminalClipboard, configure_copy_command,
+        CancellationToken, ClipboardRoute, Failure, TerminalClipboard, configure_copy_command,
         copy_through_command, osc52_sequence, pbcopy_command, tmux_copy_command,
     };
 
@@ -295,9 +333,14 @@ mod tests {
         ]);
         configure_copy_command(&mut command);
         assert!(
-            copy_through_command(command, source, Duration::from_secs(2))
-                .await
-                .is_ok()
+            copy_through_command(
+                command,
+                source.into(),
+                Duration::from_secs(2),
+                CancellationToken::new()
+            )
+            .await
+            .is_ok()
         );
     }
 
@@ -308,8 +351,14 @@ mod tests {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "/bin/cat > /dev/null; exit 7"]);
         configure_copy_command(&mut command);
-        let result = copy_through_command(command, "source", Duration::from_secs(2)).await;
-        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::Other));
+        let result = copy_through_command(
+            command,
+            "source".into(),
+            Duration::from_secs(2),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::Rejected(status)) if status.code() == Some(7)));
     }
 
     #[cfg(unix)]
@@ -319,9 +368,14 @@ mod tests {
         let mut command = Command::new("/bin/sleep");
         command.arg("30");
         configure_copy_command(&mut command);
-        let result =
-            copy_through_command(command, &"x".repeat(1_048_576), Duration::from_millis(50)).await;
-        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::TimedOut));
+        let result = copy_through_command(
+            command,
+            "x".repeat(1_048_576),
+            Duration::from_millis(50),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::TimedOut)));
     }
 
     #[cfg(unix)]
@@ -331,16 +385,21 @@ mod tests {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", "/bin/cat > /dev/null; exec /bin/sleep 30"]);
         configure_copy_command(&mut command);
-        let result = copy_through_command(command, "source", Duration::from_millis(50)).await;
-        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::TimedOut));
+        let result = copy_through_command(
+            command,
+            "source".into(),
+            Duration::from_millis(50),
+            CancellationToken::new(),
+        )
+        .await;
+        assert!(matches!(result, Err(Failure::TimedOut)));
     }
 
-    #[tokio::test]
-    async fn direct_copy_writes_the_exact_terminated_osc_52_sequence() {
+    #[test]
+    fn direct_copy_writes_the_exact_terminated_osc_52_sequence() {
         let mut sink = TerminalClipboard::new(Vec::new(), ClipboardRoute::Direct);
 
-        sink.copy("plexmaton")
-            .await
+        sink.submit("plexmaton".into())
             .unwrap_or_else(|error| panic!("writing to a vector cannot fail: {error}"));
 
         assert_eq!(sink.writer, b"\x1b]52;c;cGxleG1hdG9u\x1b\\");
@@ -384,7 +443,7 @@ mod tests {
     fn an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52() {
         let route = ClipboardRoute::from_environment(Some(OsStr::new("/tmp/tmux,1,0")), true);
 
-        assert!(route.uses_tmux());
+        assert!(matches!(route, ClipboardRoute::Tmux { .. }));
         assert_eq!(
             osc52_sequence("plexmaton", route)
                 .unwrap_or_else(|error| panic!("encode copy: {error}")),

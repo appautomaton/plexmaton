@@ -55,9 +55,9 @@ class Terminal:
             try:
                 if self.process.poll() is None:
                     self.process.kill()
-                    self.process.wait(timeout=10)
             finally:
                 os.close(self.master)
+            self.process.wait(timeout=10)
 
     def wait(self, *markers, absent=()):
         return smoke.await_screen(self.master, self.capture, self.size, markers, absent, self.frame_start)
@@ -76,6 +76,9 @@ class Terminal:
         for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
             screen = self.resize(width, *markers)
             if label:
+                # PRE-1: resize may first publish placeholders. Review the settled frame,
+                # and fail if the owned preparation never supplies it.
+                screen = self.wait(*markers, absent=("Preparing text",))
                 output = ROOT / "target/smoke"
                 output.mkdir(parents=True, exist_ok=True)
                 (output / f"permissions-{name}-{label}.txt").write_text(
@@ -100,8 +103,10 @@ class Terminal:
         os.write(self.master, b"\x04")
         smoke.read_until(self.master, self.capture, lambda: smoke.ALTERNATE_SCREEN_EXIT in self.capture,
                          description="permission terminal release")
-        assert self.process.wait(timeout=3) == 0
+        # Restoration and the durable-conversation handoff may still be writing. Keep draining
+        # the PTY until EOF before joining; waiting first can hold a terminal drain on macOS.
         smoke.read_to_eof(self.master, self.capture)
+        assert self.process.wait(timeout=3) == 0
 
 
 def changes(home):

@@ -38,7 +38,10 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Conversation | One agent's saved history; `/new` starts another Conversation |
 | Project | A physical checkout whose personal permissions survive Sessions and application restarts |
 | Journal | The authoritative Conversation record; JSONL is its on-disk encoding, not the visible transcript |
+| Branch | A named continuation of a Conversation that shares earlier history with other branches |
 | Context | Semantic input prepared for a model request; journal history combines with the applicable instructions and tools, excluding UI diagnostics |
+| Context epoch | A branch's fixed context base and the later turns following it |
+| Checkpoint | A durable compaction result that supplies the context base for its descendant heads |
 | Transcript | The user-facing interaction history: messages, tool activity and diagnostics |
 | Transcript entry | One identified content item in that history; a user or assistant message is a message entry |
 | Conversation surface | The interactive region displaying an agent's transcript; its title and border are conversation chrome |
@@ -70,6 +73,27 @@ Conversation, and no handoff for a blank launch. Explicit `create` reserves its 
 Only explicit `--ephemeral` declines Conversation
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
 without the user choosing that behavior.
+
+### Context epochs and branch selection
+
+Branches share earlier history and compact independently. New model requests use the selected
+branch's compacted base and subsequent turns, with the applicable instructions and tool definitions.
+The checkpoint's persisted summary and retained context are reused without regenerating a summary.
+
+Every rewind creates and selects a new branch at an eligible stable historical boundary. The
+original branch, its head and its checkpoints remain unchanged. The new head uses the most recent
+checkpoint on its own ancestry, followed by entries through the target; a path without a checkpoint
+starts from its original context. Rewinding before a later checkpoint is therefore permitted:
+that checkpoint does not belong to the new head's ancestry.
+
+Selecting an existing branch restores its head and applies the same ancestry-based context rule.
+Both operations share original entries without copying history or repeating tool effects. The
+context epoch belongs to the target path; the source branch's latest checkpoint is not a rewind ban.
+
+Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
+historical forks, because the original continuation and the target ancestry must remain independent.
+CPL-5 proves checkpoint ancestry. Branch and rewind interaction remains unproven;
+[Phase 02 stage 2](./plans/phase-02-stage-02-context-projection.md) owns that journey and review.
 
 ### Screen ownership: full alternate screen
 
@@ -260,15 +284,17 @@ alternate entry point for main-agent approvals.
   that began off-screen; the chrome and the row outside it accelerate the motion. Moving inward,
   releasing, cancelling, or reaching the content boundary stops it. Losing terminal focus pauses
   motion without dropping the selection; the next drag resumes from the same anchor.
-- A foldable tool row uses the accent role while the pointer is over it. A completed single click
-  selects that entry and toggles its retained detail; `Ctrl-O` toggles the moving end of the current
-  selection. Hover changes no focus, selection, scroll, or semantic state, and keyboard and pointer
-  disclosure address the same stable entry. Open detail grows inside the conversation and uses its
-  existing viewport. Rejected: a nested tool-output surface, whose second scroll owner makes the
-  same wheel gesture depend on an invisible boundary.
+- A foldable tool row uses accent on hover. Clicking toggles retained detail without selecting
+  or copying it; drag/keyboard gestures select source. `Ctrl-O` toggles the selection's moving end.
+  Hover changes no focus, selection, scroll or semantic state. Both disclosure paths address the
+  same entry; detail uses the conversation's viewport. Rejected: automatic selection on disclosure,
+  which obscures detail; and a nested viewport, which creates an invisible second scroll owner.
 - `Ctrl-Y` copies the current selection: plain text for pointer ranges, original source for
   keyboard entry ranges. The Copy icon always copies the whole message's original source,
   including Markdown. SEL-1/SEL-2 own mapping, table separators and streaming validation.
+- Formula hits select, highlight and copy whole original delimited TeX—even blank-edge drags in
+  either direction after clipping/reflow (MTH-1). Rejected: partial/bare-body copy or clipboard-only
+  expansion.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Editable inputs support pointer placement and dragging over text. Selected source is highlighted

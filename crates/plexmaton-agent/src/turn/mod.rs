@@ -20,6 +20,7 @@ use crate::step::Step;
 use crate::tools::{Batch, PendingApproval};
 
 mod batch;
+mod compaction;
 mod input;
 mod lifecycle;
 mod model_input;
@@ -549,6 +550,7 @@ mod tests {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
                 ContextAtomValue::User { .. }
                 | ContextAtomValue::Skill(_)
+                | ContextAtomValue::CompactionSummary { .. }
                 | ContextAtomValue::Assistant(_) => &[],
             })
             .map(|result| result.call_id().to_string())
@@ -569,6 +571,7 @@ mod tests {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
                 ContextAtomValue::User { .. }
                 | ContextAtomValue::Skill(_)
+                | ContextAtomValue::CompactionSummary { .. }
                 | ContextAtomValue::Assistant(_) => &[],
             })
             .collect()
@@ -1401,8 +1404,9 @@ mod tests {
                     .atoms
                     .iter()
                     .all(|atom| match atom.value() {
-                        ContextAtomValue::User { .. } => true,
-                        ContextAtomValue::Skill(_) => true,
+                        ContextAtomValue::User { .. }
+                        | ContextAtomValue::Skill(_)
+                        | ContextAtomValue::CompactionSummary { .. } => true,
                         ContextAtomValue::Assistant(output) => output.tool_calls().next().is_none(),
                         ContextAtomValue::ToolBatch(_) => false,
                     })

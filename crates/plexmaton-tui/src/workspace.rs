@@ -9,15 +9,12 @@
 use std::time::Instant;
 
 use plexmaton_core::{AgentId, ConversationEventEnvelope};
-use ratatui::{
-    Terminal,
-    backend::Backend,
-    crossterm::event::{Event, KeyEventKind},
-};
+#[cfg(test)]
+use ratatui::Terminal;
+use ratatui::crossterm::event::{Event, KeyEventKind};
 
 use crate::{
     intent::{CommandPaletteIntent, Direction, SelectionIntent, TextIntent, TuiIntent},
-    render::render,
     router::{Routed, Router, RouterContext},
     state::{
         ApprovalSubmission, CleanupNotice, Command, ConversationRestoration, CopyRequest,
@@ -31,13 +28,20 @@ use crate::{
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+mod copy;
 #[cfg(test)]
 mod markdown_tests;
+#[cfg(test)]
+mod math_tests;
+mod paint;
 #[cfg(test)]
 mod palette_tests;
 #[cfg(test)]
 mod permission_tests;
 mod pointer;
+mod preparation;
+#[cfg(test)]
+mod preparation_tests;
 mod retry;
 mod session_picker;
 #[cfg(test)]
@@ -109,7 +113,7 @@ impl Outcome {
 /// assert and what a report prints beside its timings (FR-4).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FrameWork {
-    /// Transcript entries whose height had to be wrapped for this frame.
+    /// Entry heights first resolved or invalidated for this frame; expensive preparation is external.
     pub entries_wrapped: usize,
     /// Conversation lines this frame built.
     pub lines_built: usize,
@@ -138,6 +142,9 @@ pub struct Workspace {
     pressed_retry: Option<retry::PressedRetry>,
     pressed_palette: Option<(session_picker::PaletteChoice, crate::Point)>,
     pressed_skill: Option<(String, crate::Point)>,
+    preparation: preparation::Preparation,
+    copy: copy::CopyPreparation,
+    native: crate::math::NativeFrame,
 }
 
 impl Workspace {
@@ -168,8 +175,16 @@ impl Workspace {
     /// value; replacing it with [`Self::set_palette`] changes presentation, not widget definitions.
     #[must_use]
     pub fn with_palette(palette: Palette) -> Self {
+        Self::with_presentation(palette, crate::math::MathPresentation::default())
+    }
+
+    /// Construct one generation with the output owner's measured native-text capability.
+    /// Capability is immutable for that generation; palette-only changes retain its geometry.
+    #[must_use]
+    pub fn with_presentation(palette: Palette, math: crate::math::MathPresentation) -> Self {
         Self {
             palette,
+            metrics: TranscriptMetrics::with_math(math),
             ..Self::default()
         }
     }
@@ -222,6 +237,7 @@ impl Workspace {
         }
         if self.state.revision() != before {
             self.validate_text_selection();
+            self.reconcile_copy();
             // Producer changes can move rows under a stationary pointer. The next motion resolves
             // a fresh frame target; keeping the old identity would make the accent move with it.
             self.state.hover_entry(None);
@@ -326,10 +342,15 @@ impl Workspace {
             state.hover_entry(None);
             state.settle_command_hint();
         }
-        match routed {
+        let outcome = match routed {
             Routed::Intent(intent) => self.apply(intent, now),
             Routed::Ignored(_) => Outcome::default(),
+        };
+        if outcome.copied.is_some() {
+            self.cancel_pending_copy();
         }
+        self.reconcile_copy();
+        outcome
     }
 
     /// Names where the process runs, for the status line. The composition root knows; this crate
@@ -349,39 +370,6 @@ impl Workspace {
     #[must_use]
     pub fn needs_draw(&self) -> bool {
         self.painted != Some(self.state.revision())
-    }
-
-    /// Draws a frame if the projection changed since the last one, and reports what it cost.
-    ///
-    /// `None` means nothing needed painting. Ambient background activity and input the workspace
-    /// ignores must not cost a full-screen redraw (FR-1), and a caller that cannot tell the
-    /// difference cannot measure how often that gate actually fires.
-    pub fn draw<B: Backend>(
-        &mut self,
-        terminal: &mut Terminal<B>,
-    ) -> Result<Option<FrameWork>, B::Error> {
-        if !self.needs_draw() {
-            return Ok(None);
-        }
-        let wrapped = self.metrics.wrapped();
-        let built = self.metrics.lines_built();
-
-        let Self {
-            state,
-            metrics,
-            palette,
-            ..
-        } = self;
-        let mut drawn = SurfaceTree::default();
-        terminal.draw(|frame| drawn = render(frame, state, palette, metrics))?;
-
-        self.surfaces = drawn;
-        self.painted = Some(self.state.revision());
-        self.frames = self.frames.saturating_add(1);
-        Ok(Some(FrameWork {
-            entries_wrapped: self.metrics.wrapped().saturating_sub(wrapped),
-            lines_built: self.metrics.lines_built().saturating_sub(built),
-        }))
     }
 
     /// Applies one intent to the workspace.
@@ -464,7 +452,7 @@ impl Workspace {
                     copied: self
                         .state
                         .copy_input(&self.surfaces)
-                        .or_else(|| self.state.copy()),
+                        .or_else(|| self.request_selection_copy()),
                     ..Outcome::default()
                 };
             }
@@ -581,7 +569,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(canonical_runtime().ready(u64::MAX));
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         (workspace, terminal)
     }
@@ -695,7 +683,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(canonical_runtime().ready(u64::MAX));
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
         // The conversation is not focused at start, so its corner wears the plain border role.
@@ -717,10 +705,14 @@ mod tests {
     #[test]
     fn a_frame_is_drawn_only_when_something_changed() {
         let (mut workspace, mut terminal) = drawn(120, 24);
-        assert_eq!(workspace.frames(), 1, "the first frame always paints");
+        let settled = workspace.frames();
+        assert_eq!(
+            settled, 2,
+            "the initial pending frame and its preparation both paint"
+        );
 
         let work = workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         assert_eq!(work, None, "an unchanged projection must not repaint");
 
@@ -731,7 +723,7 @@ mod tests {
         );
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "and an unbound key must not force a redraw"
@@ -740,12 +732,16 @@ mod tests {
         workspace.handle(&Event::Resize(100, 40));
         assert!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"))
                 .is_some(),
             "a resize changes no projection state, and must still force the next frame"
         );
-        assert_eq!(workspace.frames(), 2, "exactly two frames reached a screen");
+        assert_eq!(
+            workspace.frames(),
+            settled + 1,
+            "only the resize cost another frame"
+        );
     }
 
     /// ENT-4/TR-1/TR-3: disclosure addresses the moving end of a semantic range, preserves the
@@ -862,7 +858,7 @@ mod tests {
         workspace.handle(&mouse(MouseEventKind::Moved, at.x, at.y));
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "the same hover target is not another visible fact"
@@ -882,8 +878,8 @@ mod tests {
     }
 
     /// ENT-4/FR-3: one click opens the item from the frame pressed, even when focusing an
-    /// inspector inserts its input strip before release. `Ctrl-O` then closes that same identity;
-    /// a drag is not a click.
+    /// inspector inserts its input strip before release. `Ctrl-O` requires an explicit selection;
+    /// neither a disclosure click nor a hover manufactures that selection, and a drag is not a click.
     #[test]
     fn pointer_and_ctrl_o_toggle_the_same_item_while_drag_cancels_disclosure() {
         let FoldableTool {
@@ -915,13 +911,26 @@ mod tests {
                 .state
                 .selection()
                 .map(|selection| selection.entries()),
-            Some(1)
+            None
+        );
+        workspace.handle(&press(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert!(workspace.state.disclosure().is_open(&item));
+        assert!(
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("unselected Ctrl-O")
+                .is_none()
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
         );
         let selected_at = point_on(&terminal, &workspace, SurfaceId::Inspector, "read_file");
         workspace.handle(&mouse(MouseEventKind::Moved, selected_at.x, selected_at.y));
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "hover masked by the selected style is not retained as an invisible frame"
@@ -934,7 +943,7 @@ mod tests {
         );
         assert!(
             !workspace.state.disclosure().is_open(&item),
-            "the keyboard addresses the pointer's one-entry selection"
+            "the keyboard addresses the explicit one-entry selection"
         );
 
         let at = point_on(&terminal, &workspace, SurfaceId::Inspector, "read_file");
@@ -962,6 +971,292 @@ mod tests {
             ),
         );
         assert!(!workspace.state.disclosure().is_open(&item));
+    }
+
+    /// ENT-4/SEL-1/SEL-2: reading a tool is not selecting it. Header/detail retain their roles,
+    /// deliberate drag copies only its range, and keyboard selection still copies the whole source.
+    #[test]
+    fn tool_disclosure_never_creates_a_copy_range_or_reverses_detail_at_three_widths() {
+        for surface in [SurfaceId::Transcript, SurfaceId::Inspector] {
+            for width in [120, 88, 60] {
+                let FoldableTool {
+                    mut workspace,
+                    mut terminal,
+                    agent,
+                    item,
+                    invocation,
+                    ..
+                } = foldable_tool_on(surface);
+                terminal.backend_mut().resize(width, 40);
+                workspace.handle(&Event::Resize(width, 40));
+                frame(&mut workspace, &mut terminal);
+                let semantic = workspace.state.agent(&agent).cloned().expect("agent");
+                let at = point_on(&terminal, &workspace, surface, "read_file");
+                let pressed =
+                    workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y));
+                assert!(pressed.copied.is_none());
+                frame(&mut workspace, &mut terminal);
+                let release =
+                    workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y));
+                assert!(release.copied.is_none());
+                assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 1);
+                assert!(workspace.state.disclosure().is_open(&item));
+                assert!(workspace.state.selection().is_none());
+                assert!(
+                    workspace
+                        .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+                        .copied
+                        .is_none()
+                );
+                assert_eq!(workspace.state.agent(&agent), Some(&semantic));
+                for needle in ["read_file", "invocation", "path:"] {
+                    let row = point_on(&terminal, &workspace, surface, needle).y;
+                    let bounds = bounds(&workspace, surface);
+                    for x in bounds.x + 1..bounds.right() - 1 {
+                        assert!(
+                            !terminal.backend().buffer()[(x, row)]
+                                .modifier
+                                .contains(ratatui::style::Modifier::REVERSED),
+                            "disclosure reversed {needle} at {surface:?}/{width}"
+                        );
+                    }
+                }
+                let source_row = point_on(&terminal, &workspace, surface, "path:");
+                let start = Point {
+                    x: source_row.x + 4,
+                    ..source_row
+                };
+                assert_eq!(
+                    terminal.backend().buffer()[(start.x, start.y)].symbol(),
+                    "p"
+                );
+                workspace.handle(&mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    start.x,
+                    start.y,
+                ));
+                frame(&mut workspace, &mut terminal);
+                workspace.handle(&mouse(
+                    MouseEventKind::Drag(MouseButton::Left),
+                    start.x + 4,
+                    start.y,
+                ));
+                frame(&mut workspace, &mut terminal);
+                assert!(
+                    terminal.backend().buffer()[(start.x, start.y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED),
+                    "{surface:?}/{width} at {start:?}: selection {:?}, drawn {}",
+                    workspace.state.selection(),
+                    painted(&terminal, &workspace, surface)
+                );
+                assert!(
+                    !terminal.backend().buffer()[(start.x + 4, start.y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::REVERSED)
+                );
+                let copied = workspace
+                    .handle(&mouse(
+                        MouseEventKind::Up(MouseButton::Left),
+                        start.x + 4,
+                        start.y,
+                    ))
+                    .copied
+                    .expect("drag copies");
+                assert_eq!(copied.text, "path");
+                assert!(
+                    workspace.state.disclosure().is_open(&item),
+                    "drag cannot collapse the tool"
+                );
+                assert!(
+                    workspace
+                        .settled_draw(&mut terminal)
+                        .expect("unchanged released range")
+                        .is_none()
+                );
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &press(KeyCode::Esc, KeyModifiers::NONE),
+                );
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &press(KeyCode::Up, KeyModifiers::SHIFT),
+                );
+                let copied = workspace
+                    .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+                    .copied
+                    .expect("explicit whole selection");
+                let Some(ToolDetail::Text { source, .. }) = invocation.invocation else {
+                    panic!("retained invocation");
+                };
+                assert_eq!(copied.text, source);
+                assert_eq!(copied.entries, 1);
+            }
+        }
+    }
+
+    /// TR-1/MD-4/MD-5/ENT-4: disclosed tool preparation is shared by measurement, paint and copy;
+    /// palette/hover reuse it, while a lifecycle revision replaces precisely that prepared entry.
+    #[test]
+    fn open_tool_repaint_reuses_preparation_and_keeps_hover_local() {
+        for surface in [SurfaceId::Transcript, SurfaceId::Inspector] {
+            for width in [120, 88, 60] {
+                let FoldableTool {
+                    mut workspace,
+                    mut terminal,
+                    mut conversation,
+                    agent,
+                    item,
+                    call,
+                    invocation,
+                } = foldable_tool_on(surface);
+                terminal.backend_mut().resize(width, 44);
+                workspace.handle(&Event::Resize(width, 44));
+                frame(&mut workspace, &mut terminal);
+                let at = point_on(&terminal, &workspace, surface, "read_file");
+                workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y));
+                workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y));
+                let before = workspace.metrics.text_layouts();
+                frame(&mut workspace, &mut terminal);
+                assert_eq!(
+                    workspace.metrics.text_layouts(),
+                    before + 1,
+                    "open prepares once"
+                );
+                let prepared = workspace.metrics.text_layouts();
+                let source = workspace.state.agent(&agent).expect("agent").clone();
+                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                    workspace.set_palette(palette);
+                    assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
+                    let at = point_on(&terminal, &workspace, surface, "read_file");
+                    workspace.handle(&mouse(MouseEventKind::Moved, at.x, at.y));
+                    workspace
+                        .settled_draw(&mut terminal)
+                        .expect("hover may already be retained");
+                    let detail = point_on(&terminal, &workspace, surface, "path:");
+                    assert_eq!(
+                        terminal.backend().buffer()[(detail.x + 4, detail.y)].symbol(),
+                        "p"
+                    );
+                    assert_eq!(
+                        terminal.backend().buffer()[(at.x, at.y)].fg,
+                        palette.style(Role::Accent).fg.unwrap_or(Color::Reset)
+                    );
+                    assert_eq!(
+                        terminal.backend().buffer()[(detail.x + 4, detail.y)].fg,
+                        palette.style(Role::Body).fg.unwrap_or(Color::Reset)
+                    );
+                    assert_eq!(
+                        workspace.metrics.text_layouts(),
+                        prepared,
+                        "paint/hover re-prepared detail"
+                    );
+                    assert_eq!(workspace.state.agent(&agent), Some(&source));
+                }
+                let mut completed = invocation;
+                completed.outcome = Some(ToolDetail::Text {
+                    source: "done".into(),
+                    omitted_bytes: 0,
+                });
+                conversation.emit(ConversationEvent::ToolCallChanged {
+                    agent_id: agent,
+                    item_id: item.clone(),
+                    item_revision: 2,
+                    call_id: call,
+                    label: "read_file".into(),
+                    status: ToolCallStatus::Succeeded,
+                    presentation: completed,
+                });
+                workspace.emit(conversation.drain());
+                assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 1);
+                assert_eq!(workspace.metrics.text_layouts(), prepared + 1);
+                assert!(workspace.state.disclosure().is_open(&item));
+                assert!(painted(&terminal, &workspace, surface).contains("done"));
+            }
+        }
+    }
+
+    /// ENT-4/MD-4/MD-5/SEL-2: actual conversation selection adds reversal without flattening
+    /// canonical diff meaning; palette changes repaint the same prepared rows and exact source.
+    #[test]
+    fn selected_diff_keeps_semantic_colors_and_reuses_prepared_rows_at_three_widths() {
+        const PATCH: &str =
+            "*** Begin Patch\n*** Update File: config.toml\n-old\n+new\n*** End Patch";
+        for surface in [SurfaceId::Transcript, SurfaceId::Inspector] {
+            for width in [120, 88, 60] {
+                let FoldableTool {
+                    mut workspace,
+                    mut terminal,
+                    mut conversation,
+                    agent,
+                    item,
+                    call,
+                    mut invocation,
+                } = foldable_tool_on(surface);
+                invocation.outcome = Some(ToolDetail::Diff {
+                    patch: PATCH.into(),
+                });
+                conversation.emit(ConversationEvent::ToolCallChanged {
+                    agent_id: agent,
+                    item_id: item,
+                    item_revision: 2,
+                    call_id: call,
+                    label: "read_file".into(),
+                    status: ToolCallStatus::Succeeded,
+                    presentation: invocation.clone(),
+                });
+                workspace.emit(conversation.drain());
+                terminal.backend_mut().resize(width, 44);
+                workspace.handle(&Event::Resize(width, 44));
+                frame(&mut workspace, &mut terminal);
+                tab_to(&mut workspace, &mut terminal, surface);
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &press(KeyCode::Up, KeyModifiers::SHIFT),
+                );
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+                );
+                // Disclosure parks the original reading position; reach the enlarged tail in
+                // the inspector's shorter viewport before asserting its diff colors.
+                let region = bounds(&workspace, surface);
+                step(
+                    &mut workspace,
+                    &mut terminal,
+                    &mouse(MouseEventKind::ScrollDown, region.x + 1, region.y + 1),
+                );
+                let prepared = workspace.metrics.text_layouts();
+                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                    workspace.set_palette(palette);
+                    assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
+                    assert_eq!(workspace.metrics.text_layouts(), prepared);
+                    for (text, role) in [("-old", Role::Failure), ("+new", Role::NewInformation)] {
+                        let at = point_on(&terminal, &workspace, surface, text);
+                        let cell = &terminal.backend().buffer()[(at.x + 4, at.y)];
+                        assert_eq!(cell.fg, palette.style(role).fg.unwrap_or(Color::Reset));
+                        assert!(cell.modifier.contains(
+                            ratatui::style::Modifier::REVERSED | palette.style(role).add_modifier
+                        ));
+                    }
+                    let copied = workspace
+                        .handle(&press(KeyCode::Char('y'), KeyModifiers::CONTROL))
+                        .copied
+                        .expect("whole diff source");
+                    let Some(ToolDetail::Text { source, .. }) = &invocation.invocation else {
+                        panic!("retained invocation");
+                    };
+                    assert_eq!(copied.text, format!("{source}\n{PATCH}"));
+                    workspace
+                        .settled_draw(&mut terminal)
+                        .expect("copy feedback");
+                }
+            }
+        }
     }
 
     /// ENT-4/SEL-4: disclosure never changes clipboard source, and neither width, scroll, nor a
@@ -1121,7 +1416,7 @@ mod tests {
         workspace.emit(conversation.drain());
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "repeating the fact painted in the boundary must not produce a frame"
@@ -1137,7 +1432,7 @@ mod tests {
         let started = Instant::now();
         let redraw = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
             workspace
-                .draw(terminal)
+                .settled_draw(terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         };
         redraw(&mut workspace, &mut terminal);
@@ -1235,7 +1530,7 @@ mod tests {
         assert!(!workspace.expire_note(started + Duration::from_millis(999)));
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "waking before the deadline changes nothing"
@@ -1251,7 +1546,7 @@ mod tests {
         assert!(!workspace.expire_note(started + Duration::from_secs(2)));
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "a stale deadline costs no duplicate frame"
@@ -1289,7 +1584,7 @@ mod tests {
         );
         assert_eq!(workspace.state.composer().text(), "");
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         assert!(
             painted(&terminal, &workspace, SurfaceId::Status).contains("~/work"),
@@ -1302,7 +1597,7 @@ mod tests {
             Some("agent-a")
         );
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         let status = painted(&terminal, &workspace, SurfaceId::Status);
         assert!(
@@ -1324,7 +1619,7 @@ mod tests {
         );
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "and an unchanged status costs no duplicate frame"
@@ -1452,7 +1747,7 @@ mod tests {
         );
 
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         let transcript = bounds(&workspace, SurfaceId::Transcript);
         workspace.handle(&Event::Mouse(MouseEvent {
@@ -1468,7 +1763,7 @@ mod tests {
         );
         assert!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"))
                 .is_some(),
             "and the scroll is a visible change, so it repaints"
@@ -1578,7 +1873,12 @@ mod tests {
         let row = painted(terminal, workspace, surface)
             .lines()
             .position(|line| line.contains(text))
-            .unwrap_or_else(|| panic!("{text:?} must be painted in {surface:?}"));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{text:?} must be painted in {surface:?}:\n{}",
+                    painted(terminal, workspace, surface)
+                )
+            });
         Point {
             x: bounds.x.saturating_add(1),
             y: bounds
@@ -1600,7 +1900,7 @@ mod tests {
     fn step(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>, event: &Event) {
         workspace.handle(event);
         let _frame = workspace
-            .draw(terminal)
+            .settled_draw(terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
     }
 
@@ -1628,7 +1928,7 @@ mod tests {
     /// Draws and insists the frame happened, for tests whose subject is what one cost.
     fn frame(workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>) -> super::FrameWork {
         workspace
-            .draw(terminal)
+            .settled_draw(terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"))
             .unwrap_or_else(|| panic!("this frame was expected to paint"))
     }
@@ -1788,7 +2088,7 @@ mod tests {
         click(&mut workspace, row);
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "clicking the agent already looked at changes nothing, so it costs no frame (FR-1)"
@@ -2006,7 +2306,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         step(
             &mut workspace,
@@ -2076,7 +2376,7 @@ mod tests {
 
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "and having measured both, an unchanged frame has nothing to repaint"
@@ -2265,7 +2565,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
         // Look at B: its conversation opens over A's, which stays where it is (INS-1).
@@ -2973,7 +3273,7 @@ mod tests {
         for _ in 0..40 {
             workspace.handle(&grow);
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
         }
         let pinned_at_the_guarantee = rows(&workspace);
@@ -3042,7 +3342,7 @@ mod tests {
         );
         assert_eq!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}")),
             None,
             "a resize that cannot change the screen costs no frame"
@@ -3116,7 +3416,7 @@ mod tests {
             );
             assert_eq!(
                 workspace
-                    .draw(&mut terminal)
+                    .settled_draw(&mut terminal)
                     .unwrap_or_else(|error| panic!("test render: {error}")),
                 None,
                 "{label} resize costs no frame"
@@ -3172,7 +3472,7 @@ mod tests {
         );
         assert!(
             workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"))
                 .is_some(),
             "typing changed the screen, so the next frame paints"
@@ -3514,7 +3814,7 @@ mod tests {
         let mut found_effort = false;
         for _ in 0..4 {
             workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
-            workspace.draw(&mut terminal).expect("draw scroll");
+            workspace.settled_draw(&mut terminal).expect("draw scroll");
             assert!(footer(&terminal).contains("Esc back · ↑↓ scroll"));
             found_effort |=
                 painted(&terminal, &workspace, SurfaceId::Configuration).contains("high");
@@ -3621,7 +3921,7 @@ mod tests {
             for character in query.chars() {
                 workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
             }
-            workspace.draw(&mut terminal).expect("test render");
+            workspace.settled_draw(&mut terminal).expect("test render");
             let palette = workspace.state.command_palette().expect("opened palette");
             assert_eq!(
                 palette.matches(),
@@ -3647,7 +3947,7 @@ mod tests {
     fn the_chord_opens_the_list_and_takes_the_keyboard() {
         let (mut workspace, mut terminal) = drawn(120, 30);
         workspace.handle(&ctrl('p'));
-        workspace.draw(&mut terminal);
+        workspace.settled_draw(&mut terminal);
 
         assert!(workspace.state.command_palette().is_some());
         assert_eq!(
@@ -3663,9 +3963,9 @@ mod tests {
         let (mut workspace, mut terminal) = drawn(120, 30);
         let before = workspace.state.focused(&workspace.surfaces);
         workspace.handle(&ctrl('p'));
-        workspace.draw(&mut terminal);
+        workspace.settled_draw(&mut terminal);
         workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
-        workspace.draw(&mut terminal);
+        workspace.settled_draw(&mut terminal);
 
         assert!(workspace.state.command_palette().is_none());
         assert_eq!(workspace.state.focused(&workspace.surfaces), before);
@@ -3676,7 +3976,7 @@ mod tests {
     fn typing_filters_the_list_and_never_reaches_the_composer() {
         let (mut workspace, mut terminal) = drawn(120, 30);
         workspace.handle(&ctrl('p'));
-        workspace.draw(&mut terminal);
+        workspace.settled_draw(&mut terminal);
         for character in "con".chars() {
             workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
         }

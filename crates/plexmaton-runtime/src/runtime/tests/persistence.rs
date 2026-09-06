@@ -39,26 +39,10 @@ enum BlockPayload {
     ToolStatus(ToolCallStatus),
     RequestAuthorized,
     RequestFinished,
-}
-
-impl BlockPayload {
-    fn matches(self, record: &JournalRecord) -> bool {
-        match self {
-            Self::PermissionDecision => {
-                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolPermissionDecided { audit, .. } if audit.user.is_some()))
-            }
-            Self::ToolRequested => {
-                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolCallRequested { .. }))
-            }
-            Self::ToolStatus(expected) => {
-                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolCallChanged { status, .. } if *status == expected))
-            }
-            Self::RequestAuthorized => {
-                matches!(record, JournalRecord::RequestAttemptAuthorized { .. })
-            }
-            Self::RequestFinished => matches!(record, JournalRecord::RequestAttemptFinished { .. }),
-        }
-    }
+    CompactionAuthorized,
+    CompactionFinished,
+    CompactionCheckpoint,
+    AgentAuthorized,
 }
 
 impl Drop for ControlledStore {
@@ -142,11 +126,11 @@ impl JournalStore for ControlledStore {
         if self.block_at.load(Ordering::SeqCst) == attempt {
             self.gate.wait();
         }
-        let blocks_payload = self
+        let blocked_payload = *self
             .block_payload
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_some_and(|payload| payload.matches(&record));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let blocks_payload = blocked_payload.is_some_and(|payload| payload.matches(&record));
         if blocks_payload {
             self.gate.wait();
         }
@@ -193,6 +177,53 @@ impl JournalStore for ControlledStore {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(record);
         Ok(())
+    }
+}
+
+impl BlockPayload {
+    fn matches(self, record: &JournalRecord) -> bool {
+        match self {
+            Self::PermissionDecision => {
+                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolPermissionDecided { audit, .. } if audit.user.is_some()))
+            }
+            Self::ToolRequested => matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(&entry.payload, JournalEntryPayload::ToolCallRequested { .. })
+            ),
+            Self::ToolStatus(expected) => matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(
+                        &entry.payload,
+                        JournalEntryPayload::ToolCallChanged { status, .. } if *status == expected
+                    )
+            ),
+            Self::RequestAuthorized => {
+                matches!(record, JournalRecord::RequestAttemptAuthorized { .. })
+            }
+            Self::RequestFinished => {
+                matches!(record, JournalRecord::RequestAttemptFinished { .. })
+            }
+            Self::CompactionAuthorized => matches!(
+                record,
+                JournalRecord::RequestAttemptAuthorized { fact, .. }
+                    if matches!(fact.owner(), plexmaton_agent::RequestAttemptOwner::Compaction { .. })
+            ),
+            Self::AgentAuthorized => matches!(
+                record,
+                JournalRecord::RequestAttemptAuthorized { fact, .. }
+                    if matches!(fact.owner(), plexmaton_agent::RequestAttemptOwner::AgentStep { .. })
+            ),
+            Self::CompactionFinished => {
+                matches!(record, JournalRecord::CompactionAttemptFinished { .. })
+            }
+            Self::CompactionCheckpoint => matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            ),
+        }
     }
 }
 
@@ -292,7 +323,10 @@ impl StoreControl {
     }
 }
 
-async fn runtime(controlled: ControlledStore, driver: Arc<FakeDriver>) -> LiveRuntime {
+async fn runtime<D: super::ModelDriver>(
+    controlled: ControlledStore,
+    driver: Arc<D>,
+) -> LiveRuntime {
     let clock = Arc::new(
         crate::runtime::clock::SystemWallClock::new()
             .unwrap_or_else(|error| panic!("test wall clock: {error}")),
@@ -300,9 +334,9 @@ async fn runtime(controlled: ControlledStore, driver: Arc<FakeDriver>) -> LiveRu
     runtime_with_clock(controlled, driver, clock).await
 }
 
-async fn runtime_with_clock(
+async fn runtime_with_clock<D: super::ModelDriver>(
     controlled: ControlledStore,
-    driver: Arc<FakeDriver>,
+    driver: Arc<D>,
     clock: Arc<dyn crate::runtime::clock::WallClock>,
 ) -> LiveRuntime {
     let created_at_unix_ms = clock.now();
@@ -358,6 +392,8 @@ async fn drive_until_store_blocks(runtime: &mut LiveRuntime, control: &StoreCont
 }
 
 async fn drive_until_gate(runtime: &mut LiveRuntime, gate: &Gate) {
+    let deadline = tokio::time::sleep(Duration::from_secs(5));
+    tokio::pin!(deadline);
     loop {
         let entered = gate.entered.notified();
         let blocked = {
@@ -374,6 +410,10 @@ async fn drive_until_gate(runtime: &mut LiveRuntime, gate: &Gate) {
                     }
                 }
                 () = entered => true,
+                () = &mut deadline => {
+                    gate.release();
+                    panic!("runtime did not reach the store barrier");
+                }
             }
         };
         if blocked {

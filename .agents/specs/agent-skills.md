@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; live model behavior and automatic compaction unverified |
+| Status | Implemented; live model behavior unverified |
 | Owns | Project settings, skill discovery, scoped reads and explicit activation |
 | Depends on | PRV-6, WFS-1, APV-1/APV-2, JRN-5/JRN-7, BUD-2 |
 | Proven by | Filesystem, agent, provider, runtime and CLI tests in the evidence table |
@@ -39,8 +39,8 @@ completion; current catalog changes cannot reuse a mismatched measurement (BUD-2
 
 ## Grammar and bounds
 
-User configuration remains `PLEXMATON_HOME/config.toml`. Project configuration supports only optional
-`[active_model]` with `provider` and `model`; absence preserves user selection. Find the nearest valid
+User configuration remains `PLEXMATON_HOME/config.toml`. Project configuration supports optional
+`[active_model]` with `provider` and `model`, plus PER-8 permission rules; absence preserves user selection. Find the nearest valid
 Git root above cwd, accepting linked-worktree gitfiles; without Git use cwd. Project discovery never
 widens native workspace file tools. The project configuration limit is 64 KiB.
 
@@ -66,7 +66,8 @@ with literal currency when a load, queue handoff or durable write fails.
 
 The catalog is current request environment, like other tool definitions; historical tool outcomes
 and explicit skill atoms are journal facts. On resume, files may change the current catalog but never
-rewrite recorded instruction text. Automatic skill-context compaction is not implemented.
+rewrite recorded instruction text. CPL-3 retains the current user/skill pair exactly during automatic
+compaction; older activations may enter its digest, with their source records preserved.
 
 ## Evidence
 
@@ -76,5 +77,5 @@ rewrite recorded instruction text. Automatic skill-context compaction is not imp
 | SKL-2 | `collisions_select_one_origin_and_missing_winners_do_not_fall_back`, `metadata_is_strict_typed_and_unicode_normalized`, `candidate_frontmatter_catalog_and_content_bounds_are_typed`, `model_skill_call_records_real_read_while_catalog_omits_body` |
 | SKL-3 | `bounded_reads_are_pinned_no_follow_and_cancelled_before_return`, `bounded_read_reports_completion_without_retaining_the_probe_byte`, `resources_are_exact_confined_and_recheck_invocation_after_replacement`, `derived_skill_root_symlinks_never_load_external_metadata`, `directory_listing_is_bounded_and_cancellable`, `cancellation_precedes_discovery_and_reads` |
 | SKL-4 | `explicit_user_only_skill_allows_resource_but_not_unprompted_body`, `unavailable_explicit_skills_restore_input_without_model_dispatch` |
-| SKL-5 | `skl_5_explicit_submission_records_skill_separately_before_dispatch`, `skl_5_queued_turn_and_steering_retain_skill_activation`, `skl_5_skill_activation_rejects_wrong_ownership_and_order_without_mutation`, `explicit_skill_context_survives_source_deletion_and_jsonl_resume`, `edited_retry_prepares_skill_before_replacing_the_failed_branch` |
-| SKL-6 | `skl_6_every_codec_budgets_exact_skill_wire_content`, `skill_context_is_exact_and_uses_supported_user_roles_in_every_dialect`, `skill_preparation_cannot_starve_interrupt_at_input_capacity`, `skill_preparation_preserves_shutdown_and_persistence_failure_causes`, `the_skill_diagnostic_frames_match_their_fixtures` |
+| SKL-5 | `cpl_3_skill_invocation_survives_compaction_in_every_dialect`, `skl_5_explicit_submission_records_skill_separately_before_dispatch`, `skl_5_queued_turn_and_steering_retain_skill_activation`, `skl_5_skill_activation_rejects_wrong_ownership_and_order_without_mutation`, `explicit_skill_context_survives_source_deletion_and_jsonl_resume`, `edited_retry_prepares_skill_before_replacing_the_failed_branch` |
+| SKL-6 | `skill_preparation_completes_while_compaction_is_waiting`, `skl_6_every_codec_budgets_exact_skill_wire_content`, `skill_context_is_exact_and_uses_supported_user_roles_in_every_dialect`, `skill_preparation_cannot_starve_interrupt_at_input_capacity`, `skill_preparation_preserves_shutdown_and_persistence_failure_causes`, `the_skill_diagnostic_frames_match_their_fixtures` |

@@ -214,11 +214,21 @@ impl Workspace {
             .as_ref()
             .is_some_and(|pressed| pressed.action == PressAction::Selecting)
         {
-            let copied = self.state.copy();
-            if copied.is_none() {
-                self.state.clear_selection();
-            }
-            return copied;
+            return self.request_selection_copy();
+        }
+        if let Some(pressed) = &pressed
+            && pressed.at == at
+            && pressed.target.surface == surface
+            && let Some((anchor, width)) = &pressed.anchor
+            && anchor.is_atomic()
+        {
+            self.state.begin_text_selection(
+                surface,
+                pressed.target.agent.clone(),
+                anchor.clone(),
+                *width,
+            );
+            return self.request_selection_copy();
         }
         if let Some(pressed) = pressed
             && pressed.action == PressAction::Content
@@ -229,7 +239,7 @@ impl Workspace {
             // release. An unchanged cell still completes the gesture against the frame
             // pressed; otherwise both frames must resolve the same stable item (FR-3).
             self.state
-                .toggle_pointer_entry(&self.surfaces, &self.metrics, pressed.target);
+                .toggle_entry(&self.surfaces, &self.metrics, pressed.target);
             return None;
         }
         None

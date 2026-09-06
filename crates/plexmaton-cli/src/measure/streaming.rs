@@ -105,7 +105,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
     ] {
         frames.receive(&mut harness.workspace, envelope(&mut sequence, event));
     }
-    frames.draw(&mut harness.workspace, &mut harness.terminal, now)?;
+    harness.draw_coalesced(&mut frames, now)?;
     for _ in 0..harness.workspace.surfaces().len() {
         if harness
             .workspace
@@ -119,7 +119,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
             &mut harness.workspace,
             &Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
         );
-        frames.draw(&mut harness.workspace, &mut harness.terminal, now)?;
+        harness.draw_coalesced(&mut frames, now)?;
     }
     ensure!(
         harness
@@ -154,7 +154,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
             }
             Drawing::Coalesced => {
                 frames.receive(&mut harness.workspace, event);
-                frames.draw(&mut harness.workspace, &mut harness.terminal, at)?;
+                harness.draw_coalesced(&mut frames, at)?;
             }
         }
         if index == DELTAS / 2 {
@@ -163,7 +163,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
                 &mut harness.workspace,
                 &Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
             );
-            let work = frames.draw(&mut harness.workspace, &mut harness.terminal, at)?;
+            let work = harness.draw_coalesced(&mut frames, at)?;
             input = input_started.elapsed();
             ensure!(
                 work.is_some(),
@@ -172,11 +172,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
         }
     }
     frames.flush(&mut harness.workspace);
-    frames.draw(
-        &mut harness.workspace,
-        &mut harness.terminal,
-        now + arrivals.elapsed(DELTAS),
-    )?;
+    harness.draw_coalesced(&mut frames, now + arrivals.elapsed(DELTAS))?;
     let elapsed = started.elapsed();
     ensure!(
         frames.deadline().is_none(),
@@ -270,7 +266,11 @@ mod tests {
         for messages in [16, 160] {
             for arrivals in [Arrivals::Burst, Arrivals::EveryMillisecond] {
                 let direct = sample(messages, Drawing::Immediate, arrivals).expect("reference");
-                assert_eq!(direct.frames, DELTAS + 1);
+                assert_eq!(
+                    direct.frames,
+                    DELTAS * 2 + 1,
+                    "projection and preparation frames, plus input"
+                );
                 assert_eq!(
                     direct.layouts,
                     usize::try_from(DELTAS).expect("small count")
@@ -278,11 +278,11 @@ mod tests {
                 let coalesced = sample(messages, Drawing::Coalesced, arrivals).expect("production");
                 match arrivals {
                     Arrivals::Burst => {
-                        assert_eq!(coalesced.frames, 4);
+                        assert_eq!(coalesced.frames, 8);
                         assert_eq!(coalesced.layouts, 4);
                     }
                     Arrivals::EveryMillisecond => {
-                        assert_eq!(coalesced.frames, 11);
+                        assert_eq!(coalesced.frames, 21);
                         assert_eq!(coalesced.layouts, 10);
                     }
                 }

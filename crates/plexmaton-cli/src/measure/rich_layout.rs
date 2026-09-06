@@ -9,7 +9,7 @@ use plexmaton_sim::Scenario;
 use plexmaton_tui::{FrameWork, Palette};
 use std::time::{Duration, Instant};
 
-const SOURCE: &str = "## Notes\n\nA **bounded** paragraph with `inline code` and a [link](https://example.invalid).\n\n> Context.\n\n- First item\n- Second item\n";
+pub(super) const SOURCE: &str = "## Notes\n\nA **bounded** paragraph with `inline code` and a [link](https://example.invalid).\n\n> Context.\n\n- First item\n- Second item\n";
 const REPETITIONS: usize = 3;
 
 struct Observation {
@@ -69,13 +69,19 @@ fn sample(messages: usize) -> anyhow::Result<[Observation; 3]> {
     harness.workspace.set_palette(Palette::pastel());
     let painted = draw(&mut harness)?;
     ensure!(
-        cold.work.entries_wrapped == messages && resized.work.entries_wrapped == messages,
-        "cold rich history did not measure every entry once"
+        cold.layouts > 0
+            && cold.layouts <= usize::from(SIZE.1)
+            && resized.layouts > 0
+            && resized.layouts <= usize::from(SIZE.1)
+            && cold.work.entries_wrapped == cold.layouts
+            && resized.work.entries_wrapped == resized.layouts,
+        "rich preparation escaped the reached viewport or measured a prepared entry twice"
     );
     ensure!(
         painted.work.entries_wrapped == 0,
         "color invalidated rich history heights"
     );
+    ensure!(painted.layouts == 0, "color re-prepared rich history rows");
     Ok([cold, resized, painted])
 }
 
@@ -119,15 +125,22 @@ pub(super) fn report() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    /// FR-4/TR-1/MD-4: a rich-history palette repaint reaches only visible styled layouts.
+    /// FR-4/TR-1/MD-4: a rich-history palette repaint reuses prepared rows and all height geometry.
     #[test]
     fn rich_history_measurement_separates_cold_resize_and_paint_work() {
-        for messages in [16, 160] {
+        let mut reference = None;
+        for messages in [500, 5000] {
             let [cold, resized, paint] = super::sample(messages).expect("rich history");
-            assert_eq!(cold.layouts, messages);
-            assert_eq!(resized.layouts, messages);
+            let work = (cold.layouts, resized.layouts);
+            if let Some(previous) = reference {
+                assert_eq!(
+                    work, previous,
+                    "work scales with viewport, not rich history"
+                );
+            }
+            reference = Some(work);
             assert_eq!(paint.work.entries_wrapped, 0);
-            assert!(paint.layouts > 0 && paint.layouts < messages);
+            assert_eq!(paint.layouts, 0);
         }
     }
 }

@@ -55,7 +55,7 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>) {
             .collect(),
     );
     let mut terminal = Terminal::new(TestBackend::new(width, 48)).expect("terminal");
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     (workspace, terminal)
 }
 
@@ -65,14 +65,16 @@ fn markdown_resize_round_trip_preserves_the_parked_frame() {
     let (mut workspace, mut terminal) = fixture(60);
     terminal.backend_mut().resize(60, 20);
     workspace.handle(&Event::Resize(60, 20));
-    workspace.draw(&mut terminal).expect("short viewport");
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("short viewport");
     let bounds = workspace
         .surfaces()
         .get(crate::SurfaceId::Transcript)
         .expect("transcript")
         .bounds;
     workspace.handle(&mouse(MouseEventKind::ScrollUp, bounds.x + 2, bounds.y + 2));
-    workspace.draw(&mut terminal).expect("parked");
+    workspace.settled_draw(&mut terminal).expect("parked");
     let agent = AgentId::new("primary").expect("agent");
     let anchor = workspace
         .state()
@@ -87,7 +89,7 @@ fn markdown_resize_round_trip_preserves_the_parked_frame() {
     for width in [120, 60] {
         terminal.backend_mut().resize(width, 20);
         workspace.handle(&Event::Resize(width, 20));
-        workspace.draw(&mut terminal).expect("reflow");
+        workspace.settled_draw(&mut terminal).expect("reflow");
         assert_eq!(
             workspace.state().conversation_position(&agent),
             Some(&anchor)
@@ -110,7 +112,10 @@ fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {
     for width in [120, 95, 60] {
         let (mut workspace, mut terminal) = fixture(width);
         let initial = workspace.metrics().text_layouts();
-        assert_eq!(initial, 1);
+        assert_eq!(
+            initial, 2,
+            "one literal user message and one rich assistant message"
+        );
         let bounds = workspace
             .surfaces()
             .get(crate::SurfaceId::Transcript)
@@ -125,17 +130,17 @@ fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {
             })
             .expect("heading visible");
         workspace.handle(&mouse(MouseEventKind::Moved, bounds.x + 2, y));
-        workspace.draw(&mut terminal).expect("hover");
+        workspace.settled_draw(&mut terminal).expect("hover");
         let copy = (bounds.x..bounds.right())
             .find(|x| terminal.backend().buffer()[(*x, y)].symbol() == "󰆏")
             .expect("copy glyph");
         workspace.handle(&mouse(MouseEventKind::Moved, copy, y));
-        workspace.draw(&mut terminal).expect("copy hover");
+        workspace.settled_draw(&mut terminal).expect("copy hover");
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), copy, y));
         let outcome = workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), copy, y));
         assert_eq!(outcome.copied.expect("exact source").text, SOURCE);
         workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
-        workspace.draw(&mut terminal).expect("selection");
+        workspace.settled_draw(&mut terminal).expect("selection");
         assert_eq!(
             workspace.metrics().text_layouts(),
             initial,
@@ -162,7 +167,9 @@ fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {
                 text: "\n\n**Finished.**".into(),
             },
         }]);
-        workspace.draw(&mut terminal).expect("streamed suffix");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("streamed suffix");
         assert_eq!(workspace.metrics().wrapped(), before + 1);
         assert_eq!(workspace.metrics().text_layouts(), initial + 1);
     }

@@ -1,4 +1,8 @@
 use super::*;
+use crate::runtime::tests::{
+    compaction::{CompactionDriver, SummaryScript, large_answer},
+    finish_active, text_delta,
+};
 
 /// JRN-7: direct runtime drop closes and joins the writer instead of detaching its thread.
 #[tokio::test]
@@ -254,4 +258,64 @@ async fn failed_request_terminal_publishes_no_semantic_completion() {
         JournalRecord::AppendEntry { entry, .. }
             if matches!(&entry.payload, JournalEntryPayload::AssistantOutput { .. })
     )));
+}
+
+/// CPL-8/JRN-7: an uncertain checkpoint append freezes the owner and dispatches neither the stale
+/// nor prospective request; reopening the longest valid prefix is the only recovery authority.
+#[tokio::test]
+async fn uncertain_checkpoint_append_freezes_before_agent_continuation() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [
+            Script::Events(vec![
+                text_delta(&large_answer()),
+                ModelEvent::Stopped(StopReason::EndOfTurn),
+            ]),
+            Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+        ],
+        [SummaryScript::Complete("uncertain checkpoint".repeat(8))],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .expect("pressured submit");
+    control.block_on_payload(BlockPayload::CompactionFinished);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    control.fail_after(1, true);
+    control.gate.release();
+
+    let failure = loop {
+        match runtime.next_update().await {
+            Ok(RuntimeUpdate::Event(_)) => {}
+            Ok(other) => panic!("unexpected update before checkpoint failure: {other:?}"),
+            Err(error) => break error,
+        }
+    };
+    assert!(matches!(failure, RuntimeError::JournalAppendFailed { .. }));
+    assert_eq!(driver.agent_calls().await.len(), 1);
+    assert!(!runtime.has_active_work());
+    assert!(matches!(
+        runtime.context_budget().expect("frozen budget"),
+        crate::ContextBudgetSnapshot::Unavailable(
+            crate::ContextBudgetUnavailable::PersistenceFailed
+        )
+    ));
 }

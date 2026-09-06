@@ -15,6 +15,7 @@ mod intent;
 mod journey;
 mod layout;
 mod markdown;
+pub mod preparation;
 mod render;
 mod router;
 mod state;
@@ -42,6 +43,7 @@ pub use state::{
     SkillChoiceSource, Submission, SubmissionKind, ToolCallView, TranscriptEntryView,
     TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
+pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
 pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
@@ -49,5 +51,4 @@ pub use surface::{
 pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
 pub use transcript::TranscriptMetrics;
 pub use workspace::{Flow, FrameWork, Outcome, Workspace};
-
-pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
+pub mod math;

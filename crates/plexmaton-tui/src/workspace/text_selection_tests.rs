@@ -47,7 +47,7 @@ fn fixture(
             .collect(),
     );
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     (workspace, terminal, sequence)
 }
 
@@ -89,7 +89,7 @@ fn drag(
     workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), start));
     assert!(workspace.state().selection().is_none());
     workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
-    workspace.draw(terminal).expect("highlight");
+    workspace.settled_draw(terminal).expect("highlight");
     workspace
         .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))
         .copied
@@ -139,10 +139,10 @@ fn mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown() {
             .expect("copy key");
         assert_eq!(copied.text, "bold 中🙂e\u{301}");
         workspace.handle(&mouse(MouseEventKind::Moved, start));
-        workspace.draw(&mut terminal).expect("hover action");
+        workspace.settled_draw(&mut terminal).expect("hover action");
         let icon = point(&terminal, "󰆏");
         workspace.handle(&mouse(MouseEventKind::Moved, icon));
-        workspace.draw(&mut terminal).expect("hover icon");
+        workspace.settled_draw(&mut terminal).expect("hover icon");
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), icon));
         assert_eq!(
             workspace
@@ -154,8 +154,7 @@ fn mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown() {
         );
         assert_eq!(
             workspace
-                .state()
-                .copy()
+                .copy_selection()
                 .expect("selection survives icon")
                 .text,
             "bold 中🙂e\u{301}"
@@ -193,14 +192,16 @@ fn text_drag_crosses_entries_without_selecting_their_uncovered_text() {
         for next_width in [120, 60, width] {
             terminal.backend_mut().resize(next_width, 24);
             workspace.handle(&Event::Resize(next_width, 24));
-            workspace.draw(&mut terminal).expect("resize selection");
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("resize selection");
             assert_eq!(
-                workspace.state().copy().expect("stable offsets").text,
+                workspace.copy_selection().expect("stable offsets").text,
                 "pha bravo\ncharlie delta\n\necho fox"
             );
         }
         workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
-        assert!(workspace.state().copy().is_none());
+        assert!(workspace.copy_selection().is_none());
     }
 }
 
@@ -219,11 +220,16 @@ fn text_drag_copies_wrapped_code_without_its_frame() {
         drag(&mut workspace, &mut terminal, start, end),
         "    let greeting = \"hello world from a deliberately long line\";\n    println!(\"中文🙂\");"
     );
-    let selected = workspace.state().copy().expect("copy").text;
+    let selected = workspace.copy_selection().expect("copy").text;
     terminal.backend_mut().resize(120, 24);
     workspace.handle(&Event::Resize(120, 24));
-    workspace.draw(&mut terminal).expect("unwrapped code");
-    assert_eq!(workspace.state().copy().expect("same text").text, selected);
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("unwrapped code");
+    assert_eq!(
+        workspace.copy_selection().expect("same text").text,
+        selected
+    );
 }
 
 /// SEL-1/MD-3: append preserves endpoints; changed prefix cannot silently retarget a selection.
@@ -247,10 +253,12 @@ fn streamed_text_preserves_or_invalidates_selection_by_its_exact_prefix() {
                 text: suffix.into(),
             },
         }]);
-        workspace.draw(&mut terminal).expect("streamed frame");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("streamed frame");
         assert_eq!(workspace.state().selection().is_some(), retained);
         assert_eq!(
-            workspace.state().copy().map(|copy| copy.text),
+            workspace.copy_selection().map(|copy| copy.text),
             retained.then(|| "hello".into())
         );
     }
@@ -295,11 +303,11 @@ fn inspector_text_drag_survives_input_geometry_and_empty_drag_clears() {
                 .collect(),
         );
         workspace.state.select_agent(&agent).expect("peek");
-        workspace.draw(&mut terminal).expect("inspector");
+        workspace.settled_draw(&mut terminal).expect("inspector");
         let start = point(&terminal, "window text");
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), start));
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .expect("focused inspector adds input");
         let focused = point(&terminal, "window text");
         let end = Point {
@@ -307,7 +315,9 @@ fn inspector_text_drag_survives_input_geometry_and_empty_drag_clears() {
             ..focused
         };
         workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
-        workspace.draw(&mut terminal).expect("inspector selection");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("inspector selection");
         assert_eq!(
             workspace
                 .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))

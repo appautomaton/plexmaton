@@ -14,17 +14,22 @@ repaint. A terminal resize or changed palette alters what a frame means without 
 so it invalidates the last frame explicitly; an identical palette assignment is a no-op. The quit chord's owned one-shot deadline advances the
 projection once when its visible question expires. A captured edge drag owns a 60 ms deadline only
 while it can move; each wake changes its viewport or disarms. Neither is an ambient animation
-clock. Producer traffic that alters nothing visible costs no frame.
+clock. Producer traffic that alters nothing visible costs no frame. An admitted preparation
+completion invalidates presentation without changing semantic state (PRE-3).
 An owned status command may publish a changed footer (STL-4); only changed decoded output advances
 the view revision. Its optional refresh clock schedules a command, not a frame or transcript scan.
 
 **FR-2 — A frame's layout work is bounded by its viewport, not by the conversation's length.** What
-a frame wraps and builds is what its viewport reaches (TR-2). Two frames are the exceptions and cost
-one wrap per entry: the first frame on a conversation, and the first frame at a new width.
+a frame builds is what its viewport reaches (TR-2). Cold/new-width literal heights use count-only
+wrapping; rich/disclosed entries use provisional heights and request only reached preparation
+(PRE-3), never a full-history parser pass.
 
 **FR-3 — An event resolves against the frame that was drawn.** Hit testing, wheel targeting, and
 scroll anchoring read the registry and the heights the last frame produced. Before the first frame
 nothing is registered, so a pointer event resolves to nothing rather than a guessed region (SURF-1).
+Prepared text maps are pinned to the successful frame; cache admission cannot replace them beneath input.
+MTH-5 commits native reservations and those maps only after both cell and native output succeed;
+the native scene participates in the same resize, clipping and overlay ownership.
 
 **FR-4 — Work is asserted; time is reported.** Entries wrapped, lines built, frames painted, and
 cache entries retained are identical on every machine, so they are test assertions and a regression
@@ -38,8 +43,8 @@ can reproduce.
 deltas enter the projection in order before their frame or after an input target has resolved
 against the painted projection, never by rewriting or discarding source. A bounded batch owns one
 non-sliding deadline; non-text transitions, input, pressure and completion flush it early, and an
-empty batch owns no wake. Rejected: advancing text projection but delaying its frame, which lets
-hit testing rebuild a new Markdown map for old screen coordinates.
+empty batch owns no wake. Rejected: rebuilding a newer Markdown map during hit testing of old
+screen coordinates; PRE-3 removes that implicit parser path.
 
 ## Model
 
@@ -72,80 +77,82 @@ and explicit time; its stream workload drives the same batching, input and drawi
 
 ### Cost, measured
 
-Layout work per frame is flat in the conversation's length; total frame cost is not. Each visible
-conversation currently takes one full semantic-entry pass to validate cached heights and another
-to derive the counts in its title. Each sub-agent row takes one count pass, and an inspected
-conversation's title takes its own. The cached heights are walked once in full to sum rows, then
-partially to resolve the anchor and window; building reaches the visible entries through the
-semantic iterator. The current-work label adds one primary-entry
-scan. These passes are arithmetic, not wrapping, and become the budget somewhere around fifty
-thousand entries, which is where to look first and not before.
+`cargo run --release -p plexmaton-cli --bin plexmaton-measure` reports three distinct instruments:
+CPU-only reference samples explicitly prepare through the public worker seam outside `draw`;
+persistent-process batches include pipes and decoding; live preparation samples include actual
+process-to-workspace adoption and every cell-buffer frame until reached data settles. None includes
+terminal transport or waiting for the outer input loop. Work counts are asserted, timings are not.
 
-Observed with `cargo run --release -p plexmaton-cli --bin plexmaton-measure` on an `arm64` macOS
-machine on 2026-09-05, release profile, 120 × 40, over 5,000-entry histories; the message history
-has 625 additional interleaved tool entries. This first table measures individual frames over
-predominantly plain text, not the batch scheduler or a rich-Markdown history budget:
+A CPU sample may now include a pending frame and a prepared frame. Its wrapped/line counts are
+totals for the sample, not one physical frame, and cannot be compared directly with old synchronous
+single-frame timings. Palette, hover and retained selection still repaint without preparation.
+Visible conversations retain full entry walks for height validation, title counts and anchor
+resolution; request admission also locates its bounded set of source identities in that order.
 
-| Workload | Observed | Work |
+Observed on arm64 macOS, release, 2026-09-06, 120 × 40, with a 5,000-message base history and 625
+interleaved tools where the workload uses messages; repeated workloads use 200 samples, cold uses
+ten. New event workloads grow their history during the run:
+
+| CPU reference sample | p50 | Height work |
 | --- | --- | --- |
-| `streaming delta` | 1.5 ms p50, 1.9 ms max | 1 entry wrapped, 37 lines built, at any history length |
-| `compact tool entry` | 1.4 ms p50, 1.5 ms max | 1 entry wrapped, 35 lines built, at any history length |
-| `open tool entry` | 1.7 ms p50, 1.8 ms max | 1 entry wrapped, 39 lines built, at any history length |
-| `wheel` | 1.4 ms p50, 1.5 ms max | 0 wrapped |
-| `open inspector` | 2.7 ms p50, 3.0 ms max | 0 wrapped |
-| `two conversations` | 2.8 ms p50, 3.1 ms max | 0 wrapped |
-| `extend selection` | 1.7 ms p50, 1.9 ms max | 0 wrapped |
-| `text drag` | 1.7 ms p50, 1.8 ms max | 0 wrapped, 0 map rebuilds; every sample paints |
-| `cold open`, `open hidden conversation` | 6.3 / 8.9 ms p50, 9.2 ms max | 5,625 heights, once; literal messages count shared breaks without preparing hidden layouts |
-| `resize` | 7.1 ms p50, 7.9 ms p95, 8.2 ms max | 5,625 heights, once per width |
-| `palette change` | 1.5 ms p50, 1.6 ms max | 0 heights remeasured; every sample repaints |
-| retained | 11,250 entries for two 5,625-entry conversations; at most two widths per conversation (TR-1) | |
+| Streaming delta | 6.24 ms | One changed entry; two frames total |
+| Compact tool transition | 7.02 ms | One changed entry; two frames total |
+| Tool disclosure | 2.49 ms | One changed entry |
+| Wheel | 2.47 ms | No repeated height measurement; reached cache misses may add preparation |
+| Palette repaint | 1.85 ms | No heights or prepared rows rebuilt |
+| Inspector open / two conversations | 3.52 / 4.73 ms | Retained heights reused |
+| Entry selection / text drag | 2.12 / 2.41 ms | No repeated heights or text maps |
+| Cold open / hidden conversation | 21.66 / 17.89 ms | Literal heights once; reached preparation settles |
+| Resize | 18.50 ms; p95 23.45 ms | New-width literal heights once |
+| Retained heights | 11,250 for two 5,625-entry conversations | At most two widths per conversation |
 
-Read the timings as machine-local observations, not latency guarantees. The predominantly plain-text cold/new-width workload now fits the declared budgets. The three rows that
-scale with history measure every entry once. A retained-layout hit avoids Markdown parsing, but
-does not remove those cold passes. Opening an already measured window and selecting require no
-height measurement; a new width or changed entry invalidates the affected heights. Palette replacement rebuilds only
-reached styled layouts, without discarding height geometry or selection. The paired pre-change run
-on this worktree measured 25.9 ms cold open and 26.0 ms resize; work counts and visible output are
-unchanged by the shared-break/count-only path.
+These settled CPU samples do not establish the first-input-frame budget. Cold plain history and
+resize still exceed targets in some samples; moving preparation off-loop is not a claim that every
+remaining scan or terminal write is cheap.
 
-### Coalesced rich streaming, measured
+### Rich history and live preparation
 
-The same command compares 160 deltas appended to one existing rich-Markdown entry over warm
-500/5,000-message histories. The prefix repeats a heading, styled/link/code paragraph, quote and
-list 32 times; deltas include incomplete delimiters and Unicode. One typed character arrives
-halfway through. The immediate reference is the former per-event `Workspace::draw` path, not a
-second production implementation. Each run validates exact source, final revision and retained
-input; time is the median of three repetitions at 120 × 40.
+Every entry contains a heading, inline code/emphasis/link, quote and list. CPU-reference cold
+120 × 40 and new-width 88 × 40 samples take medians of three, followed by a palette-only repaint:
 
-| 5,626-entry workload | Frames | Layout/map builds | Processing time | Typed-input frame |
-| --- | --- | --- | --- | --- |
-| Burst, immediate reference | 161 | 160 | 259.0 ms | 1.45 ms |
-| Burst, production coalescer | 4 | 4 | 6.5 ms | 1.60 ms |
-| 1 ms arrivals, immediate reference | 161 | 160 | 258.1 ms | 1.41 ms |
-| 1 ms arrivals, production coalescer | 11 | 10 | 17.6 ms | 1.46 ms |
-
-The smaller history has the same frame/layout counts. Arrival time is explicit and deterministic;
-processing time excludes scheduled waiting and real terminal output, and the typed-input sample
-excludes waiting for the outer event loop. These figures do not establish end-to-end input latency
-under saturated provider traffic, animation or slow terminal I/O. Cold rich-text preparation, paint-only reuse of the visible styled layouts and awaited clipboard
-helpers remain separate work.
-
-### Cold rich histories, measured
-
-The same harness also measures 500/5,000 assistant entries, each with a short heading, inline
-code/emphasis/link, quote and list. The median of three runs measures cold 120 × 40, new-width
-88 × 40, then a palette-only repaint. Input and terminal I/O are excluded.
-
-| Entries | Cold / resize | Palette repaint | Work |
+| Entries | Cold / resize CPU sample | Palette repaint | Prepared entries |
 | --- | --- | --- | --- |
-| 500 | 3.0 / 3.1 ms | 0.2 ms | 500 layouts at cold/new width; 0 heights and 4 visible layouts on repaint |
-| 5,000 | 30.3 / 30.5 ms | 1.1 ms | 5,000 layouts at cold/new width; 0 heights and 4 visible layouts on repaint |
+| 500 | 1.19 / 1.27 ms | 0.22 ms | 16 cold/new width; zero on repaint |
+| 5,000 | 13.63 / 14.34 ms | 1.73 ms | 16 cold/new width; zero on repaint |
 
-This richer cold path still exceeds budget. Preparing it off the interaction loop requires owned
-jobs, bounded revision/cache handling and safe adoption against the painted source; it is not
-fixed by the faster literal path. Palette-driven animation must also stop reparsing visible rich
-entries. No end-to-end responsiveness or animation guarantee follows from these CPU samples.
+The real executable, framed pipes, workspace admission and cell-buffer painting use the same rich
+source. At 5,000 entries, median of three cold samples:
+
+| Width × height | First pending paint | Reached data settled | Frames / prepared entries |
+| --- | --- | --- | --- |
+| 120 × 40 | 1.18 ms | 15.78 ms | 2 / 16 |
+| 88 × 40 | 1.25 ms | 16.56 ms | 2 / 16 |
+| 60 × 40 | 1.20 ms | 16.24 ms | 2 / 16 |
+
+The preceding single-entry live adapter took nineteen frames and 41.6–42.4 ms for the same history
+and widths. Bounded batching removes those repeated paints; it does not prove physical terminal
+latency. The independent persistent-child workload runs 32 batches of sixteen rich entries:
+2.54 ms for its first batch and 0.209 ms warm median, including transport and decoding.
+
+### Coalesced rich streaming
+
+The reference driver appends 160 deltas to one existing rich entry over warm 500/5,000-message
+histories. Its prefix repeats a heading, styled/link/code paragraph, quote and list 32 times; deltas
+include incomplete delimiters and Unicode, with one typed character halfway through. Exact source,
+revision and retained input are checked. Both drawing strategies explicitly settle preparation
+in-process, so this compares scheduling/CPU work, not real-process input latency.
+
+| 5,626-entry CPU workload | Frames | Prepared entries | Processing median | Typed-input sample |
+| --- | --- | --- | --- | --- |
+| Burst, immediate reference | 321 | 160 | 763.8 ms | 1.89 ms |
+| Burst, production coalescer | 8 | 4 | 19.0 ms | 4.75 ms |
+| 1 ms arrivals, immediate reference | 321 | 160 | 759.6 ms | 1.89 ms |
+| 1 ms arrivals, production coalescer | 21 | 10 | 49.4 ms | 1.85 ms |
+
+The smaller history has identical frame/preparation counts. Arrival time is explicit;
+processing time excludes scheduled waiting. PRE-2 and SEL-8 separately prove real production-loop
+input, overlays and resize progress while preparation or clipboard helpers are blocked, including
+reaping on exit. Saturated real-terminal streaming and native-math output remain unmeasured.
 
 ## Failure modes
 
@@ -164,6 +171,6 @@ entries. No end-to-end responsiveness or animation guarantee follows from these 
 | --- | --- |
 | FR-1 | `palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths`, `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen` |
 | FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts` |
-| FR-3 | `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
+| FR-3 | `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `prepared_text_is_not_selectable_until_the_result_has_been_painted`, `blocked_preparation_never_holds_the_production_input_and_frame_loop`, `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
 | FR-4 | `palette_workload_repaints_without_height_work_at_both_history_scales`, `rich_history_measurement_separates_cold_resize_and_paint_work`; The FR-2 rows assert work counts; `extending_selection_records_every_declared_sample` pins sample accounting; `plexmaton-measure` prints time and asserts none of it |
 | FR-5 | `stream_deadline_is_fixed_and_idle_owns_no_wake`, `stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail`, `stream_byte_pressure_counts_capacity_and_does_not_drop_oversized_events`, `input_and_interrupt_flush_streams_without_waiting_for_the_frame_interval`, `stream_copy_uses_the_painted_markdown_before_applying_queued_delimiters`, `resize_flushes_pending_text_and_replaces_geometry_only_after_drawing`, `explicit_flush_retains_the_final_partial_stream_without_another_arrival`, `failed_stream_frame_does_not_acknowledge_paint_or_replay_its_deltas`, `rich_stream_measurement_asserts_frame_work_and_exact_source_at_both_scales`; applying deltas before mouse release was mutation-tested and failed the copy witness |

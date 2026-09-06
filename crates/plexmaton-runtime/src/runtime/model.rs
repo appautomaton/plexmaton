@@ -1,23 +1,19 @@
 //! Provider-operation future retained across cancellation of an event poll.
 
-use std::{
-    future::Future,
-    panic::AssertUnwindSafe,
-    pin::Pin,
-    task::{Context, Poll},
-};
-
 use futures_util::{FutureExt as _, future::BoxFuture};
 use plexmaton_agent::{
-    Input, ModelCall, ModelDeliveryRefusal, ModelError, ModelEvent, ModelStepId, RequestAttemptId,
+    CompactionAttemptFinished, CompactionFailure, CompactionInputMode, CompactionOutcome, Input,
+    ModelCall, ModelDeliveryRefusal, ModelError, ModelEvent, ModelStepId, RequestAttemptId,
     RequestAttemptTerminal, RequestAttemptTerminalState, RequestDispatchedOutcome,
     RequestEnvironment, RequestNotDispatchedOutcome, StopReason, UndeliveredModelInput,
 };
+use plexmaton_provider::CompactionInput;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    ActiveModel, LiveRuntime, ModelSettlement, PendingModelStart, transition::AfterCommit,
+    ActiveModel, LiveRuntime, ModelSettlement, PendingModelStart, RetainedFuture,
+    transition::AfterCommit,
 };
 use crate::RuntimeError;
 
@@ -41,6 +37,36 @@ pub(crate) trait ModelDriver: Send + Sync + 'static {
         signals: mpsc::Sender<ModelSignal>,
         cancellation: CancellationToken,
     ) -> BoxFuture<'static, ModelTerminalReport>;
+
+    /// Runs one summarizer request without fabricating an agent step or exposing tool effects.
+    fn summarize(
+        &self,
+        attempt_id: RequestAttemptId,
+        input: CompactionInput,
+        _max_summary_bytes: usize,
+        _cancellation: CancellationToken,
+    ) -> BoxFuture<'static, CompactionAttemptFinished> {
+        let _request = input.into_request();
+        async move {
+            let terminal = RequestAttemptTerminal::new(
+                attempt_id,
+                RequestAttemptTerminalState::NotDispatched {
+                    outcome: RequestNotDispatchedOutcome::PreparationFailed,
+                },
+            )
+            .unwrap_or_else(|error| unreachable!("default compaction terminal is valid: {error}"));
+            CompactionAttemptFinished::new(
+                terminal,
+                CompactionInputMode::Verbatim,
+                CompactionOutcome::Failed {
+                    kind: CompactionFailure::Unavailable,
+                    output: None,
+                },
+            )
+            .unwrap_or_else(|error| unreachable!("default compaction failure is valid: {error}"))
+        }
+        .boxed()
+    }
 }
 
 #[derive(Debug)]
@@ -156,47 +182,6 @@ fn completion_matches(
             ModelCompletion::Failed(_),
         ) => true,
         _ => false,
-    }
-}
-
-/// A completed future may be observed by a cancelled outer poll and awaited again during cleanup.
-pub(super) struct RetainedModelFuture {
-    future: Option<BoxFuture<'static, Result<ModelTerminalReport, ()>>>,
-    result: Option<Result<ModelTerminalReport, ()>>,
-}
-
-impl RetainedModelFuture {
-    pub(super) fn new(future: BoxFuture<'static, ModelTerminalReport>) -> Self {
-        let future = AssertUnwindSafe(future)
-            .catch_unwind()
-            .map(|result| result.map_err(|_| ()))
-            .boxed();
-        Self {
-            future: Some(future),
-            result: None,
-        }
-    }
-}
-
-impl Future for RetainedModelFuture {
-    type Output = Result<ModelTerminalReport, ()>;
-
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        if let Some(result) = &this.result {
-            return Poll::Ready(result.clone());
-        }
-        let Some(future) = this.future.as_mut() else {
-            return Poll::Ready(Err(()));
-        };
-        match future.as_mut().poll(context) {
-            Poll::Ready(result) => {
-                this.future = None;
-                this.result = Some(result.clone());
-                Poll::Ready(result)
-            }
-            Poll::Pending => Poll::Pending,
-        }
     }
 }
 
@@ -338,7 +323,11 @@ impl LiveRuntime {
                 self.clock.now(),
             )
             .map_err(RuntimeError::RequestAttemptRefused)?;
-        self.pending_model_start = Some(PendingModelStart { attempt_id, call });
+        self.pending_model_start = Some(PendingModelStart {
+            attempt_id,
+            call,
+            cancelled: false,
+        });
         if let Err(error) = self.begin_transition(reaction, Vec::new(), AfterCommit::StartModel) {
             self.pending_model_start = None;
             return Err(error);
@@ -351,7 +340,7 @@ impl LiveRuntime {
             .pending_model_start
             .as_ref()
             .ok_or(RuntimeError::MissingAuthorizedModelStart)?;
-        if self.shutdown_state != super::ShutdownState::Open {
+        if self.shutdown_state != super::ShutdownState::Open && !pending.cancelled {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(active) = &self.active {
@@ -367,6 +356,22 @@ impl LiveRuntime {
             .pending_model_start
             .take()
             .unwrap_or_else(|| unreachable!("the authorized model start remains owned"));
+        if pending.cancelled {
+            let terminal = RequestAttemptTerminal::new(
+                pending.attempt_id,
+                RequestAttemptTerminalState::NotDispatched {
+                    outcome: RequestNotDispatchedOutcome::Cancelled,
+                },
+            )
+            .unwrap_or_else(|error| {
+                unreachable!("cancelled pending model terminal is valid: {error}")
+            });
+            let reaction = self
+                .agent
+                .finish_request_attempt(&terminal)
+                .map_err(RuntimeError::RequestAttemptRefused)?;
+            return self.begin_transition(reaction, Vec::new(), AfterCommit::None);
+        }
         let step_id = pending.call.step_id.clone();
         let cancellation = CancellationToken::new();
         let future = self.driver.drive(
@@ -379,10 +384,16 @@ impl LiveRuntime {
             attempt_id: pending.attempt_id,
             step_id,
             cancellation,
-            future: RetainedModelFuture::new(future),
+            future: RetainedFuture::new(future),
             settlement: ModelSettlement::Running,
         });
         Ok(())
+    }
+
+    pub(super) fn cancel_pending_model_before_dispatch(&mut self) {
+        if let Some(pending) = self.pending_model_start.as_mut() {
+            pending.cancelled = true;
+        }
     }
 
     fn stage_attempt_terminal(&mut self, after: AfterCommit) -> Result<(), RuntimeError> {
@@ -416,6 +427,38 @@ impl LiveRuntime {
     }
 
     pub(super) async fn settle_model_completion(&mut self) -> Result<(), RuntimeError> {
+        let context_recovery = self.active.as_ref().and_then(|active| {
+            let ModelSettlement::Terminal {
+                report,
+                audit_staged: true,
+                delivery_staged: false,
+            } = &active.settlement
+            else {
+                return None;
+            };
+            let no_output = matches!(
+                report.terminal.terminal(),
+                RequestAttemptTerminalState::Dispatched { timing, .. }
+                    if timing.first_output_after_ms().is_none()
+            );
+            (no_output
+                && matches!(
+                    report.completion,
+                    ModelCompletion::Failed(ModelError::ContextTooLong)
+                ))
+            .then(|| active.step_id.clone())
+        });
+        if let Some(step_id) = context_recovery
+            && self.shutdown_state == super::ShutdownState::Open
+            && self.compaction_budget.take_context_recovery(&step_id)
+        {
+            let call = self
+                .agent
+                .model_call_for_active_step(&step_id)
+                .map_err(RuntimeError::CompactionRefused)?;
+            self.active = None;
+            return self.begin_compaction(call, super::compaction::CompactionTrigger::ContextError);
+        }
         let input = {
             let active = self
                 .active

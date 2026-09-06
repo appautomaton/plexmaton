@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -22,6 +25,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --all --check
       - run: ./scripts/check-file-length.sh
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: ./scripts/check-crate-graph.sh
+      - run: ./scripts/check-citations.sh
       # Reports documents that outgrew their layer. Never fails; read the log when it speaks up.
       - run: ./scripts/check-doc-budget.sh
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -50,3 +56,5 @@ jobs:
       # Terminal lifecycle in a real pseudo-terminal: alternate-screen release, resize repaint,
       # and the quit key. TestBackend cannot represent any of these.
       - run: ./scripts/smoke-tui.py
+      - run: python3 scripts/smoke-statusline.py
+      - run: python3 scripts/smoke-permissions.py

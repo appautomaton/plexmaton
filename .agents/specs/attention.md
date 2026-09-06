@@ -39,11 +39,11 @@ agent that asks again arrives unseen.
 ## Model
 
 ```text
-SessionEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
+ConversationEvent::AttentionRequested ──▶ AttentionQueue (arrival order, coalesced by AttentionId)
                                             │
    user presses Enter on the queue ─────────┴──▶ acknowledge + select the requesting agent
                                             │
-SessionEvent::AttentionResolved ─────────────┴──▶ remove the exact request
+ConversationEvent::AttentionResolved ─────────────┴──▶ remove the exact request
 ```
 
 | Fact | Value |

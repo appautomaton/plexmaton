@@ -1,103 +1,68 @@
 //! Compact and disclosed presentation for one typed tool entry.
 
+use crate::text_layout::paint::{Line, Span, Treatment};
 use plexmaton_core::{ToolCallStatus, ToolDetail};
-use ratatui::text::{Line, Span};
 
-use super::transcript_presentation::select_line;
 use crate::{
     state::{EntryAppearance, ToolCallView},
-    theme::{Palette, Role, tool_role},
+    theme::{Role, tool_role},
 };
 
-pub(super) fn entry(
-    tool: &ToolCallView,
-    palette: &Palette,
-    appearance: EntryAppearance,
-) -> Vec<Line<'static>> {
-    let compact = Line::from(vec![
-        Span::styled(
-            format!("{} ", marker(tool.status)),
-            palette.style(tool_role(tool.status)),
-        ),
-        Span::styled(tool.label.clone(), palette.style(Role::Body)),
+pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -> Vec<Line> {
+    let mut compact = Line::from(vec![
+        Span::styled(format!("{} ", marker(tool.status)), tool_role(tool.status)),
+        Span::styled(tool.label.clone(), Role::Body),
         Span::styled(
             format!(" · {}", status_label(tool.status)),
-            palette.style(tool_role(tool.status)),
+            tool_role(tool.status),
         ),
     ]);
-    let compact = if appearance.hovered && !appearance.selected {
-        Line::styled(compact.to_string(), palette.style(Role::Accent))
-    } else {
-        select_line(compact, palette, appearance.selected)
-    };
+    compact.treatment = Treatment::ToolHeading;
     let mut lines = vec![compact];
     if !appearance.open {
         return lines;
     }
     if let Some(invocation) = &tool.presentation.invocation {
-        append_detail(
-            &mut lines,
-            "invocation",
-            invocation,
-            palette,
-            appearance.selected,
-        );
+        append_detail(&mut lines, "invocation", invocation);
     }
     if let Some(outcome) = &tool.presentation.outcome {
-        append_detail(&mut lines, "outcome", outcome, palette, appearance.selected);
+        append_detail(&mut lines, "outcome", outcome);
     }
     lines
 }
 
-fn append_detail(
-    lines: &mut Vec<Line<'static>>,
-    heading: &str,
-    detail: &ToolDetail,
-    palette: &Palette,
-    selected: bool,
-) {
+fn append_detail(lines: &mut Vec<Line>, heading: &str, detail: &ToolDetail) {
     let omitted = match detail {
         ToolDetail::Text { omitted_bytes, .. } if *omitted_bytes > 0 => {
             format!(" · {omitted_bytes} bytes omitted")
         }
         ToolDetail::Text { .. } | ToolDetail::Diff { .. } => String::new(),
     };
-    let heading = Line::styled(format!("  {heading}{omitted}"), palette.style(Role::Muted));
-    lines.push(select_line(heading, palette, selected));
+    let heading = Line::styled(format!("  {heading}{omitted}"), Role::Muted);
+    lines.push(heading);
     match detail {
         ToolDetail::Text { source, .. } => {
-            append_source(lines, source, palette, selected, false, |_| Role::Body);
+            append_source(lines, source, Treatment::Content, |_| Role::Body);
         }
         ToolDetail::Diff { patch } => {
-            append_source(lines, patch, palette, selected, true, diff_role);
+            append_source(lines, patch, Treatment::Diff, diff_role);
         }
     }
 }
 
 fn append_source(
-    lines: &mut Vec<Line<'static>>,
+    lines: &mut Vec<Line>,
     source: &str,
-    palette: &Palette,
-    selected: bool,
-    preserve_role: bool,
+    treatment: Treatment,
     role: impl Fn(&str) -> Role,
 ) {
     lines.extend(source.split('\n').map(|row| {
-        let line = Line::from(vec![
-            Span::styled("  │ ", palette.style(Role::Muted)),
-            Span::styled(row.to_owned(), palette.style(role(row))),
+        let mut line = Line::from(vec![
+            Span::styled("  │ ", Role::Muted),
+            Span::styled(row.to_owned(), role(row)),
         ]);
-        if selected && preserve_role {
-            let selection = palette.style(Role::Selection);
-            Line::from(
-                line.spans
-                    .into_iter()
-                    .map(|span| span.patch_style(selection))
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            select_line(line, palette, selected)
-        }
+        line.treatment = treatment;
+        line
     }));
 }
 
@@ -148,11 +113,23 @@ mod tests {
         ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId,
     };
 
-    use super::{entry, marker};
+    use super::{marker, prepared_entry};
     use crate::{
         state::{EntryAppearance, ToolCallView},
         theme::{Palette, Role},
     };
+
+    fn entry(
+        tool: &ToolCallView,
+        palette: &Palette,
+        appearance: EntryAppearance,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        let colors = crate::text_layout::paint::Colors::new(palette);
+        prepared_entry(tool, appearance)
+            .into_iter()
+            .map(|line| line.paint_entry(&colors, appearance))
+            .collect()
+    }
 
     fn tool(status: ToolCallStatus, presentation: ToolPresentation) -> ToolCallView {
         ToolCallView {

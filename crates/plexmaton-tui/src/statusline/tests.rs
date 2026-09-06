@@ -238,19 +238,29 @@ fn status_footer_preserves_focus_and_uses_the_last_row_for_hints() {
     for width in [120, 95, 60] {
         let mut workspace = crate::Workspace::default();
         let mut terminal = Terminal::new(TestBackend::new(width, 26)).expect("terminal");
-        workspace.draw(&mut terminal).expect("draw");
+        workspace.settled_draw(&mut terminal).expect("draw");
         let focus = workspace.state().focused(workspace.surfaces());
         let text = StatusLineText::parse(b"tokens\nrainbow path").expect("text");
         workspace.set_status_line(text.clone(), 6);
-        assert!(workspace.draw(&mut terminal).expect("draw").is_some());
+        assert!(
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("draw")
+                .is_some()
+        );
         assert_eq!(workspace.state().focused(workspace.surfaces()), focus);
         workspace.set_status_line(text, 6);
-        assert!(workspace.draw(&mut terminal).expect("draw").is_none());
+        assert!(
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("draw")
+                .is_none()
+        );
         workspace.handle(&Event::Key(KeyEvent::new(
             KeyCode::Char('d'),
             KeyModifiers::CONTROL,
         )));
-        workspace.draw(&mut terminal).expect("quit frame");
+        workspace.settled_draw(&mut terminal).expect("quit frame");
         let row = |y| {
             (0..width)
                 .map(|x| terminal.backend().buffer()[(x, y)].symbol())
@@ -269,7 +279,7 @@ fn status_footer_clipping_reserves_a_cell_before_a_wide_grapheme() {
     let mut terminal = Terminal::new(TestBackend::new(48, 12)).expect("terminal");
     let input = format!("{}中\nhidden", "x".repeat(46));
     workspace.set_status_line(StatusLineText::parse(input.as_bytes()).expect("text"), 1);
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     assert_eq!(terminal.backend().buffer()[(47, 11)].symbol(), "…");
     assert_ne!(terminal.backend().buffer()[(46, 11)].symbol(), "中");
     assert_eq!(

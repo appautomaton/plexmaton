@@ -133,6 +133,16 @@ pub(super) fn transcript_title(state: &ViewState, palette: &Palette) -> Line<'st
 /// A copy leaves no trace of its own — OSC 52 is written and never answered — so the selection
 /// staying visible, and counted, is the whole of the feedback the user gets (SEL-5).
 fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
+    if let Some(note) = state.copy_note(surface) {
+        use crate::state::CopyNote;
+        return match note {
+            CopyNote::Preparing => " · preparing copy",
+            CopyNote::Unavailable => " · copy unavailable",
+            CopyNote::Capacity => " · copy size limit",
+            CopyNote::Changed => " · selected text changed",
+        }
+        .into();
+    }
     state.selection().map_or_else(String::new, |selection| {
         if selection.surface == surface {
             if selection.is_text() {

@@ -64,7 +64,7 @@ TextIntent ──▶ ViewState::edit ──▶ Option<Submission>
                      │                  └─ Steering ──▶ Input::Steered
                      └─ draft, in graphemes                │
                                                           ▼
-                                            SessionEvent stream ──▶ transcript
+                                            ConversationEvent stream ──▶ transcript
 
 Ctrl-C ──▶ non-empty draft ──▶ clear
        └─▶ empty draft ──▶ Outcome::interrupted(agent) ──▶ Input::Interrupted

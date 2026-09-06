@@ -1343,10 +1343,13 @@ name = "plexmaton-tui"
 version = "0.0.0"
 dependencies = [
  "plexmaton-core",
+ "plexmaton-math",
  "plexmaton-sim",
  "proptest",
  "pulldown-cmark",
  "ratatui",
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "unicode-segmentation",
  "unicode-width",

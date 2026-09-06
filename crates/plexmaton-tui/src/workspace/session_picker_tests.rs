@@ -30,7 +30,7 @@ fn setup(width: u16) -> (Workspace, Terminal<TestBackend>) {
     let mut workspace = Workspace::default();
     workspace.open_conversation_picker();
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     (workspace, terminal)
 }
 fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
@@ -106,9 +106,11 @@ fn new_command_keyboard_and_pointer_emit_the_same_intent() {
                 KeyCode::Char('p'),
                 KeyModifiers::CONTROL,
             )));
-            workspace.draw(&mut terminal).expect("opened palette");
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("opened palette");
             workspace.handle(&Event::Paste("/new".into()));
-            workspace.draw(&mut terminal).expect("palette");
+            workspace.settled_draw(&mut terminal).expect("palette");
             assert!(panel(&workspace, &terminal).contains("/new  Start a new conversation"));
             let outcome = if pointer {
                 let point = drawn_choice(&workspace, &terminal, "> /new");
@@ -133,7 +135,9 @@ fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
         for _ in 0..9 {
             workspace.handle(&key(KeyCode::Down));
         }
-        workspace.draw(&mut terminal).expect("draw selected window");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("draw selected window");
         let id = workspace
             .handle(&key(KeyCode::Enter))
             .resume
@@ -162,7 +166,7 @@ fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
             Some(id)
         );
         workspace.handle(&Event::Paste("conversation-03".into()));
-        workspace.draw(&mut terminal).expect("filtered");
+        workspace.settled_draw(&mut terminal).expect("filtered");
         assert_eq!(
             workspace
                 .handle(&key(KeyCode::Enter))
@@ -205,7 +209,7 @@ fn session_picker_frames_cover_empty_populated_and_failure_states() {
                 workspace.set_conversation_choices(choices(), false);
             }
             workspace.set_conversation_picker_status(state);
-            workspace.draw(&mut terminal).expect("draw state");
+            workspace.settled_draw(&mut terminal).expect("draw state");
             let drawn = panel(&workspace, &terminal);
             assert!(drawn.contains("Conversations") && drawn.contains("Esc close"));
             frame.push_str(&drawn);
@@ -235,7 +239,7 @@ fn short_session_picker_keeps_selected_result_and_footer_visible() {
     for _ in 0..9 {
         workspace.handle(&key(KeyCode::Down));
     }
-    workspace.draw(&mut terminal).expect("short draw");
+    workspace.settled_draw(&mut terminal).expect("short draw");
     let text = panel(&workspace, &terminal);
     assert!(text.contains("> Discuss project 09"), "{text}");
     assert!(
@@ -243,7 +247,9 @@ fn short_session_picker_keeps_selected_result_and_footer_visible() {
         "{text}"
     );
     workspace.set_conversation_picker_status(ConversationPickerStatus::OpenFailed);
-    workspace.draw(&mut terminal).expect("failed short draw");
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("failed short draw");
     assert!(panel(&workspace, &terminal).contains("Cannot open"));
     assert!(
         workspace.handle(&key(KeyCode::Enter)).resume.is_none(),
@@ -260,7 +266,7 @@ fn short_command_palette_and_wheel_use_the_visible_choice_window() {
         KeyCode::Char('p'),
         KeyModifiers::CONTROL,
     )));
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     let bounds = workspace
         .surfaces()
         .get(SurfaceId::CommandPalette)
@@ -273,7 +279,9 @@ fn short_command_palette_and_wheel_use_the_visible_choice_window() {
             y: bounds.y + 2,
         },
     ));
-    workspace.draw(&mut terminal).expect("draw selected");
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("draw selected");
     let drawn = panel(&workspace, &terminal);
     assert!(
         drawn.contains("> /resume") && drawn.contains("Enter run"),

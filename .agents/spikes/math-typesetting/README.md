@@ -6,10 +6,10 @@ Read for math display/source choices. Source comparison completed 2026-09-05.
 ## Finding
 
 The implementation selects RaTeX's reusable parser/layout and a first-party native projection;
-[MTH-1–MTH-4](../../specs/math-layout.md) own its boundary and evidence. The
+[MTH-1–MTH-5](../../specs/math-layout.md) own its boundary and evidence. The
 [direct-Kitty follow-up](../kitty-text-sizing/README.md) verifies the complete source-linked reply
-as **OSC 66 scaled text**. Ordinary cells cannot reproduce KaTeX typography; live worker,
-viewport and selection integration remain open. The fixed comparison below explains why the
+as **OSC 66 scaled text**, including the live CLI, owned worker and atomic source copy.
+Ordinary cells cannot reproduce KaTeX typography. The fixed comparison below explains why the
 earlier cell renderer was not adopted.
 
 KaTeX emits HTML/CSS and/or MathML, not terminal glyph commands. MathML loses exact TeX spelling;
@@ -104,22 +104,12 @@ CARGO_HOME="$math_spike_dir/cargo-home" CARGO_TARGET_DIR="$math_spike_dir/target
 Direct versions pinned; transitives resolve anew. Measured lockfile:
 `/tmp/plexmaton-math-typesetting.jtGrdu`. Crates API 403; `tui-math` clone failed.
 
-## Product acceptance (unproven)
+## Product acceptance
 
-The [stage plan](../../plans/phase-04-stage-07-math-typesetting.md) owns worker, cache, transport and
-conversation integration. The native crate reuses engine geometry instead of owning another TeX
-layout implementation. Source limits and exact whole-formula ownership are proven there;
-interruptible CPU work and aggregate resource ownership are not.
-
-Visual gate interactions:
-
-- Stable streaming: last valid preview marked “updating”, atomic replacement at the same anchor.
-  Rejected: silent brace insertion, which asserts unwritten math.
-- Source inspection: formula click and intersecting drags select the whole original delimited
-  formula, with a keyboard path. Rejected: subexpression selection and copy reconstructed from art.
-- Derivation reading: aligned relations/branches, structural wrapping or explicit overflow and
-  focused horizontal view. Rejected: shrinking/clipping terms; focus/scroll ownership needs review.
-
-Without proven scaling, the reply review shows source. Production capability/fallback behavior
-must be explicit and tested. Real probe/native text evidence belongs to the direct-Kitty follow-up;
-this source-comparison corpus does not prove terminal behavior.
+[MTH-1–MTH-5](../../specs/math-layout.md) and
+[PRE-1–PRE-4](../../specs/render-preparation.md) own production geometry, atomic selection,
+capability fallback, cache/revision admission and process cancellation. The user approved live
+direct-Kitty appearance on 2026-09-06. The native crate reuses engine geometry, not another TeX
+layout implementation. The [remaining research](../../research/math-rendering.md) covers broader
+terminal/font support and non-reflowing source reveal with a keyboard path; those are unproven.
+Real terminal evidence belongs to the direct-Kitty follow-up, not this historical cell comparison.

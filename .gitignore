@@ -1,77 +1,68 @@
-# ---------------------------------------------------------------------------
-# plexmaton — local-only Rust workspace
-# ---------------------------------------------------------------------------
-
-# --- Third-party reference snapshots -------------------------------------
-# Cloned upstream sources live here for study only. They are never vendored,
-# committed, or treated as this repo's source. Each child is its own git repo.
-.references/
-
-# --- Parallel checkouts ---------------------------------------------------
-# Worktrees live inside the repository but are never part of it. One location,
-# named for what it holds and belonging to no vendor. Without this line a
-# nested worktree doubles every corpus search hit, which is a worse failure
-# than the disk it costs.
+# Local references and parallel checkouts; never vendored source.
+/.references/
 /.worktrees/
 
-# --- Rust build artifacts -------------------------------------------------
-# Cargo's default output directory (and any CARGO_TARGET_DIR under the tree).
-/target/
-# Common alternative target dirs used by parallel/agent builds.
+# Reproducible binary builds keep Cargo.lock. Generated outputs stay local.
+target/
 /target-*/
-**/*.rs.bk
-
-# Native artifacts that leak out of build scripts, FFI experiments, or
-# cdylib/cbindgen output.
-**/*.o
-**/*.obj
-**/*.rlib
-**/*.rmeta
-**/*.so
-**/*.so.*
-**/*.dylib
-**/*.dll
-**/*.a
-**/*.lib
-**/*.pdb
-**/*.d
-
-# --- Cargo.lock policy ----------------------------------------------------
-# This is expected to ship a binary, so Cargo.lock SHOULD be committed for
-# reproducible builds. If this project ever becomes library-only, uncomment:
-# Cargo.lock
-
-# --- Crates.io packaging --------------------------------------------------
+*.rs.bk
+*.o
+*.obj
+*.rlib
+*.rmeta
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.pdb
+*.d
 *.crate
 /package/
 
-# --- Fuzzing (cargo-fuzz) -------------------------------------------------
-/fuzz/target/
+# Fuzz runs, coverage and machine-specific measurements.
 /fuzz/corpus/
 /fuzz/artifacts/
 /fuzz/symfog-exports/
-
-# --- Coverage, profiling, sanitizers --------------------------------------
 /coverage/
+/codecov/
+/bench-results/
+/benches/report/
 *.profraw
 *.profdata
 *.gcda
 *.gcno
 *.gcov
 .tarpaulin-cache/
-/codecov/
 miri/
 sanitizer.*
 
-# NOTE: proptest-regressions/ is intentionally NOT ignored. Those files are
-# repro seeds and belong in version control.
-
-# --- Benchmarks / local measurement output --------------------------------
-/bench-results/
-/benches/report/
+# Use PLEXMATON_HOME=.local/plexmaton for isolated development.
+# Project config/skills ARE shareable; personal journals, grants and trust are not.
+/.local/
+/.cache/
+/.tmp/
+/tmp/
+/scratch/
+/.plexmaton/sessions/
+/.plexmaton/projects/
 *.jsonl.bak
+*.log
+*.pid
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
 
-# --- Editor / IDE ---------------------------------------------------------
+# Editor state and operating-system noise.
 /.idea/
 /.vscode/
 /.fleet/
@@ -81,30 +72,13 @@ sanitizer.*
 *~
 \#*\#
 .\#*
-
-# --- OS noise -------------------------------------------------------------
 .DS_Store
 ._*
 .Spotlight-V100
 .Trashes
 Thumbs.db
 
-# --- Local runtime state, secrets, scratch --------------------------------
-# Anything this workspace decides to keep machine-local rather than shared.
-/.local/
-/.cache/
-/.tmp/
-/tmp/
-/scratch/
-*.log
-*.pid
-.env
-.env.*
-!.env.example
-!.env.template
-
-# --- Python / Node sidecars (scripts, tooling) ----------------------------
-# Allowed only if helper scripts get added later.
+# Local script/tool environments.
 __pycache__/
 *.py[cod]
 .venv/
@@ -113,5 +87,6 @@ venv/
 .ruff_cache/
 .pytest_cache/
 node_modules/
-npm-debug.log*
-yarn-error.log*
+
+# Deliberately track .agents/, project config/skill bundles, sanitized JSONL fixtures,
+# reviewed frames, and proptest-regressions/. Never blanket-ignore JSON/JSONL or images.

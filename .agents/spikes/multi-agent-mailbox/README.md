@@ -49,7 +49,7 @@ and operation before forwarding `ParentAgentMessage`. Completion auto-wake injec
 
 ## Plexmaton fit
 
-`plexmaton-core` has `MailId` and `SessionEvent::MailDelivered`; the agent journal retains endpoints
+`plexmaton-core` has `MailId` and `ConversationEvent::MailDelivered`; the agent journal retains endpoints
 and summary. Its projection validates both visible agents and emits an event, but creates no mail
 context atom. `Input` has no mail variant; `LiveRuntime` owns one agent. Reusing the existing mail
 event in a recipient-only journal also needs a solution for its both-endpoints validation.

@@ -25,7 +25,7 @@ allow = [
 confidence-threshold = 0.93
 
 [licenses.private]
-# The seven workspace crates are `publish = false` and carry no licence field. Choosing a licence
+# Workspace crates are `publish = false` and carry no licence field. Choosing a licence
 # for them is the owner's decision, not a lint's, so private members are skipped rather than
 # given a placeholder.
 ignore = true

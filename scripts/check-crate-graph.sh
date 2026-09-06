@@ -77,7 +77,7 @@ forbid plexmaton-core "either side's machinery" \
 # gate says so; this is where that sentence is enforced rather than asserted.
 forbid plexmaton-tui "a producer, a runtime, or a network client" \
     'tokio|reqwest|hyper|plexmaton-agent|plexmaton-command|plexmaton-file-tools|plexmaton-provider|plexmaton-runtime|plexmaton-sim'
-only plexmaton-tui "plexmaton-core"
+only plexmaton-tui "plexmaton-core plexmaton-math"
 
 # Wire codecs parse and encode. The live runtime owns HTTP, TLS, cancellation and task lifecycle;
 # putting a client here would turn an adapter into an unobservable second runtime.

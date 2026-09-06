@@ -66,7 +66,7 @@
 
 `[workspace.dependencies]` owns versions/features; this table owns rationale and limits.
 
-Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
+Foundation audited 2026-09-03; later admissions below.
 
 | Crate | Role | Feature and version decision |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
-| `serde` / `serde_json` | Deterministic scenario, snapshot and durable-journal data | `derive` enabled; identity and opaque-replay decoding still pass through validating constructors |
+| `serde` / `serde_json` | Scenario, snapshot, journal and preparation data | `derive`; validated identity/replay/preparation. TUI reuses locked versions/features |
 | `sha2` | Request, command and project fingerprints | Defaults off; SHA-256; command scopes pin execution context |
 | `toml` | Typed configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |
@@ -91,7 +91,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `tree-sitter` / `tree-sitter-bash` | Literal command scopes | Defaults off, engine `std`; bundled C, no Wasm. [Audit](../specs/permission-policy.md#dependency-admission) |
 | `uuid` | Conversation, Session and store identities | Defaults off; `std`, UUIDv7 |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
-| RaTeX core | Native math | Defaults off; exact pins and [audit](../specs/math-layout.md#dependency-admission) |
+| RaTeX core | Native math | Defaults off; [pins/audit](../specs/math-layout.md#dependency-admission). TUI → pure math adapter; no new external version |
 | `yaml_serde` / `unicode-normalization` | Skill metadata / NFKC names | Audited 2026-09-05; MIT/Apache-2.0, MSRV 1.82/1.36, `std` only; Rust `libyaml-rs`, no system library |
 
 ### Considered and not adopted

@@ -4,7 +4,7 @@ use plexmaton_core::{
 };
 
 use super::super::JournalError;
-use crate::{ContextError, ModelRequest, ModelStepId, RequestAttempt};
+use crate::{ContextEpoch, ContextError, ModelRequest, ModelStepId, RequestAttempt};
 
 /// A safe visible/model reconstruction of one selected journal head (JRN-5).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,6 +13,8 @@ pub struct JournalProjection {
     pub(super) events: Vec<ConversationEventEnvelope>,
     pub(super) recovery: Option<RecoveryProjection>,
     pub(super) request_attempts: Vec<RequestAttempt>,
+    pub(super) context_epoch: ContextEpoch,
+    pub(super) base_atom_count: usize,
 }
 
 impl JournalProjection {
@@ -44,6 +46,18 @@ impl JournalProjection {
     #[must_use]
     pub fn request_attempts(&self) -> &[RequestAttempt] {
         &self.request_attempts
+    }
+
+    /// Branch-local base selected from this path's nearest checkpoint.
+    #[must_use]
+    pub const fn context_epoch(&self) -> &ContextEpoch {
+        &self.context_epoch
+    }
+
+    /// Atom count present at the checkpoint boundary before later entries were projected.
+    #[must_use]
+    pub const fn base_atom_count(&self) -> usize {
+        self.base_atom_count
     }
 }
 

@@ -1,8 +1,6 @@
 //! Grapheme-aware wrapping carries visible-text byte ranges beside styled rows.
-use ratatui::{
-    style::Style,
-    text::{Line, Span},
-};
+#[cfg(test)]
+use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 
 mod breaks;
@@ -15,28 +13,49 @@ pub(crate) fn count(text: &str, width: usize, literal: bool) -> usize {
     Breaks::new(text, width, literal).count()
 }
 
-pub(crate) fn wrap(line: Line<'static>, width: usize, literal: bool) -> Vec<Line<'static>> {
-    ranges(line, width, literal)
-        .into_iter()
-        .map(|(line, _)| line)
-        .collect()
-}
-
-pub(crate) fn ranges(
+#[cfg(test)]
+fn ranges(
     line: Line<'static>,
     width: usize,
     literal: bool,
 ) -> Vec<(Line<'static>, std::ops::Range<usize>)> {
-    if width == 0 {
-        return Vec::new();
-    }
     let mut text = String::new();
     let mut styles = Vec::new();
     for span in line.spans {
         text.push_str(&span.content);
         styles.push((text.len(), line.style.patch(span.style)));
     }
+    styled_ranges(&text, &styles, width, literal)
+        .into_iter()
+        .map(|(run, range)| {
+            let line = match run {
+                Runs::Text(spans) => Line::from(
+                    spans
+                        .into_iter()
+                        .map(|(text, style)| Span::styled(text, style))
+                        .collect::<Vec<_>>(),
+                ),
+                Runs::Replacement(style) => Line::styled("�", style),
+            };
+            (line, range)
+        })
+        .collect()
+}
+
+/// Semantic and terminal styles consume exactly the same breaks and source intervals.
+pub(super) enum Runs<S> {
+    Text(Vec<(String, S)>),
+    Replacement(S),
+}
+
+pub(super) fn styled_ranges<S: Clone + Default + PartialEq>(
+    text: &str,
+    styles: &[(usize, S)],
+    width: usize,
+    literal: bool,
+) -> Vec<(Runs<S>, std::ops::Range<usize>)> {
     let mut style_index = 0;
+    let default_style = S::default();
     let mut style_at = |offset| {
         while styles
             .get(style_index)
@@ -46,24 +65,25 @@ pub(crate) fn ranges(
         }
         styles
             .get(style_index)
-            .map_or(Style::default(), |(_, style)| *style)
+            .map_or(&default_style, |(_, style)| style)
     };
-    Breaks::new(&text, width, literal)
+    Breaks::new(text, width, literal)
         .map(|row| {
             let range = row.source();
             if matches!(row, Row::Replacement(_)) {
-                return (Line::styled("�", style_at(range.start)), range);
+                return (Runs::Replacement(style_at(range.start).clone()), range);
             }
-            let mut spans: Vec<Span<'static>> = Vec::new();
+            let mut spans: Vec<(String, S)> = Vec::new();
             for (offset, grapheme) in text[range.clone()].grapheme_indices(true) {
                 let style = style_at(range.start + offset);
-                if let Some(last) = spans.last_mut().filter(|last| last.style == style) {
-                    last.content.to_mut().push_str(grapheme);
+                if let Some((text, _)) = spans.last_mut().filter(|(_, previous)| previous == style)
+                {
+                    text.push_str(grapheme);
                 } else {
-                    spans.push(Span::styled(grapheme.to_owned(), style));
+                    spans.push((grapheme.to_owned(), style.clone()));
                 }
             }
-            (Line::from(spans), range)
+            (Runs::Text(spans), range)
         })
         .collect()
 }

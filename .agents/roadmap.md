@@ -32,9 +32,9 @@ table in `AGENTS.md` allows.
 | --- | --- | --- |
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
-| 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active; journal/budget, providers and permission policy complete locally; compaction remains |
+| 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active; journal, providers, compaction and permissions complete; branch interaction and MCP remain |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–6 and 8–9 complete; stage 7 math integration and stage 10 branding remain |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9 complete; stage 10 branding remains |
 
 ## Locked
 
@@ -61,11 +61,12 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 
 | Track | Purpose | Status |
 | --- | --- | --- |
-| [Math rendering](./research/math-rendering.md) | Evaluate semantic math layout and terminal presentation | RaTeX selected; source-linked native reply verified; production integration unproven |
+| [Math rendering](./research/math-rendering.md) | Evaluate semantic math layout and terminal presentation | Native RaTeX conversation path approved; portability and source-reveal gates open |
 | [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source spike and finite model complete; production integration unproven |
 | [Provider adapter parity spike](./spikes/provider-adapter-parity/README.md) | Compare harness wire/replay and token accounting | Six-source comparison; four dialects verified hermetically, live compatibility unverified |
 | [Agent Skills spike](./spikes/agent-skills/README.md) | Compare skill discovery, project configuration and durable activation | Implemented and verified offline; live model behavior unverified |
 | [Permission policy spike](./spikes/permission-policy/README.md) | Compare scoped grants, rule precedence and durable authority | Source comparison retained; PER-1–PER-10 and PGR-1–PGR-5 implemented and verified locally |
+| [Compaction spike](./spikes/compaction/README.md) | Constrain compaction, branch-local context and recovery | Source/probe evidence retained; CPL-1–CPL-8 own implementation and regression evidence |
 
 Gates without a track yet, each opened with a prototype, a comparison corpus, and a decision
 criterion:

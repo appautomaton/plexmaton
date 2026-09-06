@@ -6,9 +6,10 @@ use plexmaton_core::{
 };
 
 use super::ReduceError;
+use serde::{Deserialize, Serialize};
 
 /// Projected transcript content. Semantic source is retained separately from terminal cells.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TranscriptItemView {
     pub id: TranscriptItemId,
     pub role: TranscriptRole,
@@ -19,7 +20,7 @@ pub struct TranscriptItemView {
 }
 
 /// Semantic treatment of text-shaped transcript content.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TranscriptTextKind {
     /// Ordinary user, assistant, reasoning, or system text.
     Message,
@@ -49,7 +50,7 @@ impl TranscriptItemView {
 ///
 /// Domain identities inside a variant correlate the entry with its source; only `id()` controls
 /// display order and replay updates.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TranscriptEntryView {
     /// User, assistant, reasoning, or system-authored text.
     Text(TranscriptItemView),
@@ -86,7 +87,7 @@ impl TranscriptEntryView {
 }
 
 /// One visible tool call and its current lifecycle state.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ToolCallView {
     /// Producer receipt shown beside this call; absent from semantic copy and replay.
     pub saved_project_permission: Option<plexmaton_core::PermissionGrantId>,
@@ -99,7 +100,7 @@ pub struct ToolCallView {
 }
 
 /// Durable work product announced by an agent, referenced by pointer rather than copied inline.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ArtifactView {
     pub entry_id: TranscriptItemId,
     pub id: ArtifactId,
@@ -111,7 +112,7 @@ pub struct ArtifactView {
 /// Typed mail delivered between sessions.
 ///
 /// Sender identity is part of the product contract, so it is retained rather than reduced away.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailView {
     pub entry_id: TranscriptItemId,
     pub id: MailId,

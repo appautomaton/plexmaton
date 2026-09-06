@@ -1,6 +1,6 @@
 //! Text ranges are offsets into the visible-text projection, never into decorated terminal cells.
 use super::*;
-use crate::{Palette, content, text_layout::Layout};
+use crate::text_layout::Layout;
 use plexmaton_core::TranscriptItemId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -10,6 +10,13 @@ pub(crate) struct TextPoint {
     // An exact prefix validates that streaming reinterpretation did not move this endpoint.
     // Pure append keeps it valid; each endpoint is bounded by one producer-bounded entry.
     before: String,
+    extent: PointExtent,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PointExtent {
+    Caret,
+    Atomic { start: usize },
 }
 
 impl TextPoint {
@@ -18,13 +25,49 @@ impl TextPoint {
             index,
             item,
             before: text.get(..offset)?.to_owned(),
+            extent: PointExtent::Caret,
+        })
+    }
+    pub fn atomic(
+        index: usize,
+        item: TranscriptItemId,
+        range: std::ops::Range<usize>,
+        text: &str,
+    ) -> Option<Self> {
+        if range.is_empty() || text.get(range.clone()).is_none() {
+            return None;
+        }
+        Some(Self {
+            index,
+            item,
+            before: text.get(..range.end)?.to_owned(),
+            extent: PointExtent::Atomic { start: range.start },
         })
     }
     pub fn offset(&self) -> usize {
+        match self.extent {
+            PointExtent::Caret => self.before.len(),
+            PointExtent::Atomic { start } => start,
+        }
+    }
+    fn end(&self) -> usize {
         self.before.len()
     }
+    pub fn is_atomic(&self) -> bool {
+        matches!(self.extent, PointExtent::Atomic { .. })
+    }
+    pub fn allocation_bytes(&self) -> usize {
+        self.before.capacity() + self.item.as_str().len()
+    }
     pub fn matches(&self, item: &TranscriptEntryView, layout: &Layout) -> bool {
-        &self.item == item.id() && layout.text.starts_with(&self.before)
+        &self.item == item.id()
+            && layout.text.starts_with(&self.before)
+            && match self.extent {
+                PointExtent::Caret => true,
+                PointExtent::Atomic { start } => layout.formulas.iter().any(|formula| {
+                    formula.text.start == start && formula.text.end == self.before.len()
+                }),
+            }
     }
 }
 
@@ -55,7 +98,11 @@ impl TextRange {
             0
         };
         let end = if index == last.index {
-            last.offset()
+            if first.index == last.index {
+                first.end().max(last.end())
+            } else {
+                last.end()
+            }
         } else {
             length
         };
@@ -136,39 +183,5 @@ impl ViewState {
             return None;
         };
         range.in_entry(index, length)
-    }
-
-    pub(super) fn copy_text_range(
-        &self,
-        agent: &AgentView,
-        range: &TextRange,
-    ) -> Option<CopyRequest> {
-        let (first, last) = range.ordered();
-        let mut parts = Vec::new();
-        for (index, entry) in agent
-            .entries()
-            .enumerate()
-            .skip(first.index)
-            .take(last.index - first.index + 1)
-        {
-            let appearance = super::super::EntryAppearance {
-                open: self.disclosure.is_open(entry.id()),
-                ..Default::default()
-            };
-            let layout =
-                content::transcript_layout(entry, &Palette::monochrome(), appearance, range.width);
-            if index == first.index && !first.matches(entry, &layout)
-                || index == last.index && !last.matches(entry, &layout)
-            {
-                return None;
-            }
-            if let Some(selected) = range.in_entry(index, layout.text.len()) {
-                parts.push(layout.text.get(selected)?.to_owned());
-            }
-        }
-        (!parts.is_empty()).then(|| CopyRequest {
-            entries: parts.len(),
-            text: parts.join("\n\n"),
-        })
     }
 }

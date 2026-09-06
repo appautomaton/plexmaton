@@ -1,35 +1,31 @@
 # Spike — Kitty native text sizing
 
 Read when evaluating real font scaling, script placement, or ML formula presentation.
-Status: direct-Kitty script typography accepted; source-linked full-reply transport verified
-2026-09-05. Complete typography acceptance and live integration remain pending.
-[Stage 7](../../plans/phase-04-stage-07-math-typesetting.md),
+Status: standalone source-linked transport verified 2026-09-05; live CLI verified and its
+direct-Kitty appearance approved 2026-09-06. Broader terminal/font fidelity remains unproven.
+[Phase 04](../../phases/phase-04-product-polish.md),
 [math layout](../../specs/math-layout.md), [source comparison](../math-typesetting/README.md).
 
 ## Question and boundary
 
-Can actual terminal text provide readable arbitrary script letters, paired scripts and common ML
-formulas without equation images? The user's daily environment is Kitty + tmux; this experiment
-uses a separate direct-Kitty window. The user approved the visible script-sizing direction, not
-general KaTeX fidelity or production integration. Two-thirds is a working script-size baseline.
+Can terminal text provide readable scripts and ML formulas without equation images? These
+reviews use an isolated direct-Kitty window; the user's daily tmux path is not proven here.
+MTH-2 owns production sizes and fidelity limits.
 
-[preview.py](./preview.py) owns a raw terminal and alternate screen. It uses
-[transport.py](./transport.py) to detect OSC 66 with three cursor reports before sending scaled
-fixtures. Runs reserve disjoint full-cell rectangles, even when their glyphs are smaller.
-Fixed scripts compare 1/2, 2/3 and 3/4 sizing with a centered base in a two-row band.
-Font scaling does not provide arbitrary pixel positioning or overlapping subcell ownership.
+[preview.py](./preview.py) / [transport.py](./transport.py) own raw input, the alternate screen and
+three-report OSC 66 probing. Fixed fixtures compare 1/2, 2/3 and 3/4 scripts in disjoint cell
+rectangles, without arbitrary pixel placement.
 [Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/).
 
-[ml_fixtures.py](./ml_fixtures.py) contains manually positioned transport fixtures and their exact
-TeX sources. **It is not a TeX renderer.** No Rust parser, asynchronous formula worker, Ratatui diff,
-source-selection interaction or production conversation is involved. Delete the manually positioned
-scenes when the Rust source-linked projection reproduces these formulas through its public API.
+[ml_fixtures.py](./ml_fixtures.py) contains manually positioned transport fixtures and exact TeX,
+not a renderer. Delete those scenes when Rust's public API reproduces them.
 
-[reply.py](./reply.py) consumes the `plexmaton-math` review export: all 61 formula occurrences in
-the complete supplied attention/derivatives reply come through the Rust public API. It only
-encodes already positioned native runs; it contains no TeX parser or math layout. Source-linked
-complete-formula pagination and original prose replace hand-positioned scenes on the reply page.
-Prose retains its Markdown markers; this is not the production Markdown renderer.
+[reply.py](./reply.py) paginates the Rust public API's 61-formula attention reply, without another
+parser/layout engine. Prose retains Markdown markers; this is not the production conversation.
+
+[check_live.py](./check_live.py) runs the actual CLI/worker with one loopback reply, real mouse
+copy, resize and overlays at 120/88/60. It whitelists the environment, disables host clipboard
+writes, uses ephemeral state and owns the terminal, control socket and HTTP server through exit.
 
 ## ML corpus
 
@@ -107,6 +103,16 @@ The explicit real-Kitty check opens and closes its own temporary window and cont
 python3 .agents/spikes/kitty-text-sizing/check_macos.py
 ```
 
+For the production path (build the worktree binary first):
+
+```console
+python3 .agents/spikes/kitty-text-sizing/check_live.py --binary target/debug/plexmaton --output target/live-math-review.json
+```
+
+The 2026-09-06 run passed all three widths and exact OSC 52 copies, observed 548,922 terminal
+bytes and clean exit, and made exactly one scripted request with no saved session. This is
+character-state/transport evidence; the user separately approved the live review build's appearance.
+
 Add `--reply-directory target/math-review --output target/math-review/kitty-reply-check.json` to
 verify all reply pages and retain a new character-state report; the output path must not exist.
 
@@ -122,7 +128,7 @@ Kitty reported an OpenGL copy fallback on this Mac; no performance claim follows
 
 ## Remaining gates
 
-Complete typography acceptance, broader Unicode/font coverage, partial viewport clipping,
-retained scrolling origins, selection/source-copy interaction, real tmux behavior,
-asynchronous cancellation and cache/revision ownership remain unproven. Running this review does
-not change the conversation UI, notifications, persistent terminal settings or dependency graph.
+Broader Unicode/font fidelity, real tmux/SSH sizing, true partial-multicell pixel display,
+non-reflowing source reveal and saturated physical-terminal latency remain unproven. MTH-1–MTH-5
+and PRE-1–PRE-4 own production selection, retained origins, visible clipping and process/cache
+evidence. Running these reviews changes no notifications, persistent user configuration or dependency graph.

@@ -9,7 +9,8 @@
 //! [`specs/transcript-layout.md`](../../../.agents/specs/transcript-layout.md).
 
 use std::{collections::BTreeMap, ops::Range};
-mod text_selection;
+mod native;
+mod preparation;
 mod window;
 pub(crate) use window::Window;
 use window::trim_scroll_prefix;
@@ -65,6 +66,7 @@ struct Measured {
     compact_rows: usize,
     body_rows: usize,
     rows: usize,
+    origin: preparation::HeightOrigin,
 }
 
 /// One conversation's heights at one panel width.
@@ -99,6 +101,8 @@ pub struct TranscriptMetrics {
     by_agent: BTreeMap<AgentId, Vec<AtWidth>>,
     wrapped: usize,
     built: usize,
+    drawing_text: preparation::PaintedText,
+    painted_text: preparation::PaintedText,
 }
 
 impl TranscriptMetrics {
@@ -141,7 +145,6 @@ impl TranscriptMetrics {
         self.layouts.retain_widths(
             &agent.id,
             &cached.iter().map(|cache| cache.width).collect::<Vec<_>>(),
-            palette,
         );
         // The match above always leaves this width at the front, so the fallback is unreachable
         // rather than a case: reporting no entries is what a caller can safely draw if it ever is.
@@ -158,7 +161,8 @@ impl TranscriptMetrics {
                 .as_ref()
                 .filter(|actions| &actions.error_item == item.id())
                 .map(|actions| &actions.target);
-            let reusable = entries.get(count).is_some_and(|entry| {
+            let prepared = self.layouts.for_entry(&agent.id, item, width, open);
+            let semantic_reusable = entries.get(count).is_some_and(|entry| {
                 &entry.id == item.id()
                     && entry.revision == item.revision()
                     && entry.open == open
@@ -170,11 +174,18 @@ impl TranscriptMetrics {
                         .map(|(place, summary)| (*place, summary))
                         == restoration
             });
+            let reusable = semantic_reusable
+                && entries.get(count).is_some_and(|entry| {
+                    entry.origin == preparation::HeightOrigin::Prepared || prepared.is_none()
+                });
             if !reusable {
-                let formatted = self.layouts.layout(&agent.id, item, palette, width);
-                let compact_rows = formatted.map_or_else(
-                    || wrap_rows(item, palette, width, false),
-                    |layout| layout.lines.len(),
+                let (compact_rows, body_rows, origin) = preparation::measure_entry(
+                    item,
+                    palette,
+                    width,
+                    open,
+                    prepared.as_ref(),
+                    entries.get(count),
                 );
                 let feedback_rows = restoration.map_or(0, |(_, summary)| {
                     Paragraph::new(content::recovery_lines(summary, palette))
@@ -187,11 +198,6 @@ impl TranscriptMetrics {
                         .line_count(width)
                 } else {
                     0
-                };
-                let body_rows = if open {
-                    wrap_rows(item, palette, width, true)
-                } else {
-                    compact_rows
                 };
                 let measured = Measured {
                     id: item.id().clone(),
@@ -209,12 +215,20 @@ impl TranscriptMetrics {
                     },
                     compact_rows,
                     body_rows,
+                    origin,
                     rows: body_rows
                         .saturating_add(feedback_rows)
                         .saturating_add(permission_rows)
                         .saturating_add(if retry.is_some() { 2 } else { 0 }),
                 };
-                self.wrapped = self.wrapped.saturating_add(1);
+                if origin != preparation::HeightOrigin::Estimated
+                    && (!semantic_reusable
+                        || entries.get(count).is_some_and(|entry| {
+                            entry.origin == preparation::HeightOrigin::Estimated
+                        }))
+                {
+                    self.wrapped = self.wrapped.saturating_add(1);
+                }
                 match entries.get_mut(count) {
                     Some(slot) => *slot = measured,
                     None => entries.push(measured),
@@ -382,10 +396,6 @@ impl TranscriptMetrics {
         state: &ViewState,
         surface: SurfaceId,
     ) -> (Vec<Line<'static>>, u16) {
-        let selected = state.selected_in(surface, &agent.id);
-        // The window carries the width it was measured at, and building at any other one would
-        // wrap the text differently from the heights the viewport was resolved against.
-        let width = window.width;
         let mut lines: Vec<_> = agent
             .entries()
             .enumerate()
@@ -394,26 +404,7 @@ impl TranscriptMetrics {
             // The index is the entry's position in the whole conversation, not in this window: a
             // selection names entries, and a window is only which of them this frame paints.
             .flat_map(|(index, item)| {
-                let appearance = state.entry_appearance(
-                    surface,
-                    &agent.id,
-                    item.id(),
-                    selected.contains(index),
-                );
-                let mut lines = if state.selected_text_range(surface, &agent.id, index, usize::MAX).is_some() {
-                    let layout = self.layouts.mapped(&agent.id, item, palette, width, appearance);
-                    if let Some(range) = state.selected_text_range(surface, &agent.id, index, layout.text.len()) {
-                        layout.highlighted_lines(range, palette.style(crate::Role::Selection))
-                    } else { crate::text_layout::into_lines(layout) }
-                } else if let Some(cached) = self.layouts.layout(&agent.id, item, palette, width) {
-                    crate::text_layout::into_lines(cached).into_iter().map(|line| {
-                        if appearance.selected && !line.spans.is_empty() {
-                            let mut text = line.to_string();
-                            text.push_str(&" ".repeat(usize::from(width.saturating_sub(4)).saturating_sub(line.width())));
-                            Line::styled(text, palette.style(crate::Role::Selection))
-                        } else { line }
-                    }).collect()
-                } else { content::transcript_entry(item, palette, appearance, width) };
+                let mut lines = self.paint_entry(item, palette, window, state, surface, index);
                 if agent.retry.as_ref().is_some_and(|actions| &actions.error_item == item.id()) {
                     let hovered = state.retry_hovered(item.id());
                     let style = |command| palette.style(if hovered == Some(command) { crate::theme::Role::Accent } else { crate::theme::Role::Muted });
@@ -449,7 +440,7 @@ impl TranscriptMetrics {
         self.wrapped
     }
 
-    /// Styled text layouts/maps built; interaction over retained entries adds none (MD-4/SEL-1).
+    /// Admitted preparation completions, including typed refusals; retained interaction adds none.
     pub const fn text_layouts(&self) -> usize {
         self.layouts.layouts()
     }
@@ -572,7 +563,7 @@ mod tests {
             conversation
                 .state
                 .begin_selection(SurfaceId::Transcript, id.clone(), count - 1);
-            let original_copy = conversation.state.copy();
+            let original_copy = conversation.state.copy_entries();
             let old_rows = metrics.total_rows(&id, width);
             let wraps = metrics.wrapped();
             conversation
@@ -587,7 +578,7 @@ mod tests {
                 "identical confirmation is a no-op"
             );
             assert_eq!(conversation.state.notices().count(), 0);
-            assert_eq!(conversation.state.copy(), original_copy);
+            assert_eq!(conversation.state.copy_entries(), original_copy);
             assert_eq!(
                 agent(&conversation.state)
                     .entries()
@@ -633,6 +624,12 @@ mod tests {
                     .any(|line| line.to_string() == "✓ Conversation restored.")
             );
             conversation.extend(1);
+            for entry in agent(&conversation.state).entries() {
+                metrics.accept_prepared(
+                    crate::preparation::Request::new(id.clone(), entry.clone(), width, false)
+                        .prepare(),
+                );
+            }
             metrics.measure(agent(&conversation.state), &palette, width);
             let all = metrics.window(&id, width, 0, u16::MAX);
             let (lines, _) = metrics.build(
@@ -999,9 +996,8 @@ mod tests {
         assert_eq!(metrics.anchor_at(&id, WIDTH, 0), None);
     }
 
-    /// ENT-4/TR-2: the maximum retained text can contain more logical lines than a terminal
-    /// coordinate can name. Semantic offsets still reach its tail and every later entry; only the
-    /// final widget scroll is narrowed after complete logical lines are removed.
+    /// ENT-4/TR-2/PRE-1: a preparation refusal is visible and never drops retained tool source
+    /// or makes the later semantic entry unreachable.
     #[test]
     fn maximum_newline_detail_and_the_entry_after_it_remain_reachable() {
         const MAX_RETAINED_TEXT_BYTES: usize = 64 * 1024;
@@ -1043,7 +1039,7 @@ mod tests {
             .entries()
             .position(|entry| entry.id() == &item)
             .unwrap_or_else(|| panic!("the tool is in the semantic transcript"));
-        state.toggle_pointer_entry(
+        state.toggle_entry(
             &SurfaceTree::default(),
             &metrics,
             EntryTarget {
@@ -1054,35 +1050,41 @@ mod tests {
             },
         );
         let palette = Palette::default();
+        for entry in agent(&state).entries() {
+            let prepared = crate::preparation::Request::new(
+                agent_id.clone(),
+                entry.clone(),
+                WIDTH,
+                state.disclosure().is_open(entry.id()),
+            )
+            .prepare();
+            if entry.id() == &item {
+                assert_eq!(
+                    prepared.refusal(),
+                    Some(crate::preparation::Refusal::Capacity)
+                );
+            }
+            metrics.accept_prepared(prepared);
+        }
         let count = metrics.measure_with(agent(&state), &palette, WIDTH, state.disclosure());
         let total = metrics.total_rows(&agent_id, WIDTH);
-        assert!(total > usize::from(u16::MAX));
-
-        let measured = metrics.items(&agent_id, WIDTH);
-        let tool_index = measured
-            .iter()
-            .position(|entry| entry.id == item)
-            .unwrap_or_else(|| panic!("the tool was measured"));
-        let tool_start = measured[..tool_index]
-            .iter()
-            .map(|entry| entry.rows)
-            .sum::<usize>();
-        let deep = tool_start.saturating_add(usize::from(u16::MAX) + 1);
-        let deep_window = metrics.window(&agent_id, WIDTH, deep, 1);
-        assert!(deep_window.skip_rows > usize::from(u16::MAX));
-        let (deep_lines, widget_scroll) = metrics.build(
+        state.begin_selection(SurfaceId::Transcript, agent_id.clone(), target_index);
+        assert_eq!(
+            state.copy_entries().expect("complete tool source").text,
+            "\n".repeat(MAX_RETAINED_TEXT_BYTES)
+        );
+        let whole = metrics.window(&agent_id, WIDTH, 0, 200);
+        let (lines, _) = metrics.build(
             agent(&state),
             &palette,
-            &deep_window,
+            &whole,
             &state,
             SurfaceId::Transcript,
         );
-        assert!(!deep_lines.is_empty());
-        assert_eq!(widget_scroll, u16::MAX);
-        assert_eq!(
-            deep_lines.len(),
-            MAX_RETAINED_TEXT_BYTES + 2,
-            "one complete logical line was removed before narrowing the widget scroll"
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.to_string().contains("Text preparation limit"))
         );
 
         let tail = metrics.window(

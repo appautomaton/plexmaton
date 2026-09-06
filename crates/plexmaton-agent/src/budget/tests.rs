@@ -36,6 +36,7 @@ fn ledger(
 fn anchor(count: usize, input: u64) -> InputUsageAnchor {
     InputUsageAnchor {
         attempt_id: RequestAttemptId::new("attempt").expect("id"),
+        context_epoch: ContextEpoch::Original,
         atom_count: count,
         input_tokens: input,
     }

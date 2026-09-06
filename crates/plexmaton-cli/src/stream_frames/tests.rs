@@ -71,13 +71,42 @@ impl Fixture {
     }
 
     fn draw(&mut self, millis: u64) -> Option<FrameWork> {
-        self.frames
+        let wrapped = self.workspace.metrics().wrapped();
+        let built = self.workspace.metrics().lines_built();
+        let drawn = self
+            .frames
             .draw(
                 &mut self.workspace,
                 &mut self.terminal,
                 self.now + Duration::from_millis(millis),
             )
-            .expect("draw")
+            .expect("draw");
+        if drawn.is_some() {
+            // Pure component fixture at the external preparation boundary. Timer tests still call
+            // StreamFrames first; neither production draw nor handle executes this parser.
+            for attempt in 0..32 {
+                let Some(work) = self.workspace.take_preparation() else {
+                    break;
+                };
+                assert!(attempt < 31, "fixture preparation did not settle");
+                assert!(
+                    self.workspace.complete_preparation(
+                        work.token,
+                        work.requests
+                            .iter()
+                            .map(plexmaton_tui::preparation::Request::prepare)
+                            .collect()
+                    )
+                );
+                self.workspace
+                    .draw(&mut self.terminal)
+                    .expect("prepared frame");
+            }
+        }
+        drawn.map(|_| FrameWork {
+            entries_wrapped: self.workspace.metrics().wrapped() - wrapped,
+            lines_built: self.workspace.metrics().lines_built() - built,
+        })
     }
 
     fn handle(&mut self, event: &Event) -> Outcome {
@@ -172,7 +201,11 @@ fn stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail() {
         assert!(fixture.frames.pending.len() < MAX_EVENTS);
         let _work = fixture.draw(1);
     }
-    assert_eq!(fixture.workspace.frames() - frames, 2);
+    assert_eq!(
+        fixture.workspace.frames() - frames,
+        4,
+        "two projection frames and their preparation completions"
+    );
     assert_eq!(fixture.frames.pending.len(), 32);
     fixture.revision += 1;
     fixture.emit(ConversationEvent::TranscriptItemFinalized {
@@ -181,7 +214,7 @@ fn stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail() {
         item_revision: fixture.revision,
     });
     assert!(fixture.draw(2).is_some());
-    assert_eq!(fixture.workspace.frames() - frames, 3);
+    assert_eq!(fixture.workspace.frames() - frames, 6);
     assert_eq!(fixture.workspace.metrics().text_layouts() - layouts, 3);
     assert_eq!(fixture.source(), expected);
     let entry = fixture
@@ -395,6 +428,10 @@ fn failed_stream_frame_does_not_acknowledge_paint_or_replay_its_deltas() {
     );
     assert!(fixture.draw(17).is_some());
     assert_eq!(fixture.source(), "**start** retained");
-    assert_eq!(fixture.workspace.frames(), painted + 1);
+    assert_eq!(
+        fixture.workspace.frames(),
+        painted + 2,
+        "recovered projection and prepared result both paint"
+    );
     assert_eq!(fixture.frames.deadline(), None);
 }

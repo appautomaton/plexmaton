@@ -1,0 +1,24 @@
+┌ Plexmaton · idle ────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│▌Inspect the session journal.                                                                                         │
+│                                                                                                                      │
+│The journal preserves original entries and records acknowledged transitions.                                          │
+│                                                                                                                      │
+│▌Continue with checkpoint recovery.                                                                                   │
+│                                                                                                                      │
+│error                                                                                                                 │
+│compaction produced no summary text                                                                                   │
+│                                                                                                                      │
+│error                                                                                                                 │
+│the conversation no longer fits the model's context                                                                   │
+│                                                                                                                      │
+├ Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────┤
+│Type a message · ⇥ to focus                                                                                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+

@@ -368,10 +368,10 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
         workspace
             .state
             .begin_selection(SurfaceId::Transcript, agent.clone(), 0);
-        let copy = workspace.state.copy();
+        let copy = workspace.copy_selection();
         assert!(copy.is_some());
         workspace
-            .draw(&mut terminal)
+            .settled_draw(&mut terminal)
             .expect("measure before receipt");
         let receipt = SavedProjectPermission {
             call_id,
@@ -381,7 +381,7 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
         let once = workspace.state.clone();
         workspace.report_saved_project_permission(&agent, receipt);
         assert_eq!(workspace.state, once, "repeat receipt costs no revision");
-        assert_eq!(workspace.state.copy(), copy);
+        assert_eq!(workspace.copy_selection(), copy);
         assert_eq!(workspace.state.notices().count(), 0);
         assert_eq!(
             workspace
@@ -394,7 +394,7 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
                 .revision,
             1
         );
-        workspace.draw(&mut terminal).expect("receipt");
+        workspace.settled_draw(&mut terminal).expect("receipt");
         let bounds = workspace
             .surfaces()
             .get(SurfaceId::Transcript)

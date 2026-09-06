@@ -4,7 +4,7 @@ use plexmaton_core::{HeadName, TokenUsage};
 
 use super::{ConversationJournal, JournalProjectionError, RecoveryProjection};
 use crate::{
-    InputUsageAnchor, ModelRequest, RequestAttemptOwner, RequestAttemptTerminalState,
+    ContextEpoch, InputUsageAnchor, ModelRequest, RequestAttemptOwner, RequestAttemptTerminalState,
     RequestEnvironment,
 };
 
@@ -14,6 +14,8 @@ pub struct BudgetBasis {
     pub request: ModelRequest,
     pub anchor: Option<InputUsageAnchor>,
     pub recovery: Option<RecoveryProjection>,
+    pub context_epoch: ContextEpoch,
+    pub base_atom_count: usize,
 }
 
 impl ConversationJournal {
@@ -31,30 +33,18 @@ impl ConversationJournal {
             .collect();
         let projection = self.project(head)?;
         let recovery = projection.recovery().cloned();
+        let context_epoch = projection.context_epoch().clone();
+        let base_atom_count = projection.base_atom_count();
         let request = projection.into_request();
-        let spans: Vec<_> = request
-            .atoms
-            .iter()
-            .map(|atom| {
-                let mut positions = atom.source_entries().iter().map(|id| {
-                    *positions.get(id).unwrap_or_else(|| {
-                        unreachable!("projected atoms belong to their selected path")
-                    })
-                });
-                let first = positions
-                    .next()
-                    .unwrap_or_else(|| unreachable!("atoms have source entries"));
-                positions.fold((first, first), |(min, max), next| {
-                    (min.min(next), max.max(next))
-                })
-            })
-            .collect();
         let mut anchor: Option<InputUsageAnchor> = None;
         for attempt in self.request_attempts() {
             let fact = attempt.authorization();
             if !matches!(fact.owner(), RequestAttemptOwner::AgentStep { .. })
                 || fact.environment() != environment
             {
+                continue;
+            }
+            if self.context_epoch_at(fact.semantic_boundary())? != context_epoch {
                 continue;
             }
             let Some(&boundary) = positions.get(fact.semantic_boundary()) else {
@@ -67,12 +57,31 @@ impl ConversationJournal {
             else {
                 continue;
             };
-            let count = spans.partition_point(|&(_, end)| end <= boundary);
-            // A boundary inside an atom cannot describe the encoded prefix of that whole atom.
-            if spans
-                .get(count)
-                .is_some_and(|&(start, _)| start <= boundary)
-            {
+            let covered = |atom: &crate::ContextAtom| {
+                atom.source_entries().iter().all(|id| {
+                    positions
+                        .get(id)
+                        .is_some_and(|position| *position <= boundary)
+                })
+            };
+            let splits_atom = request.atoms.iter().any(|atom| {
+                let before = atom
+                    .source_entries()
+                    .iter()
+                    .filter_map(|id| positions.get(id));
+                let any_covered = before.clone().any(|position| *position <= boundary);
+                let any_later = before.into_iter().any(|position| *position > boundary);
+                any_covered && any_later
+            });
+            if splits_atom {
+                continue;
+            }
+            let count = request
+                .atoms
+                .iter()
+                .take_while(|atom| covered(atom))
+                .count();
+            if request.atoms[count..].iter().any(covered) {
                 continue;
             }
             if anchor
@@ -81,6 +90,7 @@ impl ConversationJournal {
             {
                 anchor = Some(InputUsageAnchor {
                     attempt_id: fact.attempt_id().clone(),
+                    context_epoch: context_epoch.clone(),
                     atom_count: count,
                     input_tokens: counts.input,
                 });
@@ -90,6 +100,8 @@ impl ConversationJournal {
             request,
             anchor,
             recovery,
+            context_epoch,
+            base_atom_count,
         })
     }
 }

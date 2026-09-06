@@ -4,7 +4,9 @@ use super::{
     ConfigError, ModelApi, ModelRegistry, ReasoningEffort, TokenEstimator, resolve_api_key,
     resolve_home,
 };
-use crate::DecodeLimits;
+use crate::{DecodeLimits, encode_request};
+use plexmaton_agent::ModelRequest;
+use plexmaton_core::ConversationId;
 
 const LOCAL_CONFIG: &str = r#"
 active_model = { provider = "local", model = "luna" }
@@ -56,6 +58,7 @@ fn prv_6_one_provider_resolves_two_exact_models_without_repeating_authority() {
     assert_eq!(luna.context_window_tokens(), 272_000);
     assert_eq!(luna.max_output_tokens(), 128_000);
     assert_eq!(luna.output_reserve_tokens(), 16_384);
+    assert_eq!(luna.compaction_keep_recent_tokens(), 20_000);
     assert_eq!(luna.token_estimator(), TokenEstimator::Utf8HeuristicV1);
     assert!(luna.cost().is_none(), "missing pricing is not free pricing");
 
@@ -94,10 +97,18 @@ fn prv_6_selection_and_every_model_fail_closed_before_network_work() {
             "output_reserve_tokens = 16384",
             "output_reserve_tokens = 128001",
         ),
+        LOCAL_CONFIG.replace(
+            "output_reserve_tokens = 16384",
+            "output_reserve_tokens = 16384\ncompaction_keep_recent_tokens = 0",
+        ),
     ] {
         assert!(matches!(
             ModelRegistry::parse(&invalid),
             Err(ConfigError::InvalidTokenLimits { .. })
+                | Err(ConfigError::InvalidRequestOption {
+                    field: "compaction_keep_recent_tokens",
+                    ..
+                })
         ));
     }
     let invalid_cost = LOCAL_CONFIG.replace("input = 0.2", "input = -0.2");
@@ -120,6 +131,35 @@ fn prv_6_selection_and_every_model_fail_closed_before_network_work() {
         ModelRegistry::parse(&unknown_effort),
         Err(ConfigError::Toml)
     ));
+}
+
+/// PRV-6/TIM-4: retention policy defaults locally, validates, and never changes a wire request.
+#[test]
+fn compaction_keep_recent_tokens_is_configured_without_changing_request_bytes() {
+    let default = ModelRegistry::parse(LOCAL_CONFIG).expect("default model");
+    let override_source = LOCAL_CONFIG.replace(
+        "output_reserve_tokens = 16384",
+        "output_reserve_tokens = 16384\ncompaction_keep_recent_tokens = 24_000",
+    );
+    let overridden = ModelRegistry::parse(&override_source).expect("override model");
+    assert_eq!(
+        default.active_model().compaction_keep_recent_tokens(),
+        20_000
+    );
+    assert_eq!(
+        overridden.active_model().compaction_keep_recent_tokens(),
+        24_000
+    );
+    let request = ModelRequest {
+        session_id: ConversationId::new("config-retention-test").expect("session"),
+        atoms: Vec::new(),
+    };
+    assert_eq!(
+        encode_request(default.active_model(), &request, &[], Some(128_000))
+            .expect("default request"),
+        encode_request(overridden.active_model(), &request, &[], Some(128_000))
+            .expect("override request"),
+    );
 }
 
 #[test]

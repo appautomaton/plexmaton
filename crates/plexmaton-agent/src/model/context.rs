@@ -438,6 +438,7 @@ pub struct ContextAtom {
 pub enum ContextAtomValue {
     User { text: String },
     Skill(SkillActivation),
+    CompactionSummary { text: String },
     Assistant(AssistantOutput),
     ToolBatch(ToolBatch),
 }
@@ -455,6 +456,15 @@ impl ContextAtom {
         Self {
             source_entries: vec![source].into_boxed_slice(),
             value: ContextAtomValue::Skill(activation),
+        }
+    }
+
+    /// Creates the harness-supplied context base for one durable checkpoint (CPL-3).
+    #[must_use]
+    pub fn compaction_summary(source: ConversationEntryId, text: String) -> Self {
+        Self {
+            source_entries: vec![source].into_boxed_slice(),
+            value: ContextAtomValue::CompactionSummary { text },
         }
     }
 

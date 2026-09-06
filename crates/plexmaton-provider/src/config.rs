@@ -200,9 +200,15 @@ struct RawModel {
     context_window_tokens: u32,
     max_output_tokens: u32,
     output_reserve_tokens: u32,
+    #[serde(default = "default_compaction_keep_recent_tokens")]
+    compaction_keep_recent_tokens: u32,
     #[serde(default)]
     token_estimator: TokenEstimator,
     cost: Option<ModelCost>,
+}
+
+const fn default_compaction_keep_recent_tokens() -> u32 {
+    20_000
 }
 
 #[derive(Debug, Error)]

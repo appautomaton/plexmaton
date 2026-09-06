@@ -14,6 +14,8 @@ use std::{
 
 #[path = "support/frame_svg.rs"]
 mod frame_svg;
+#[path = "support/prepared_frame.rs"]
+mod prepared_frame;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -86,9 +88,9 @@ fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) ->
     );
     workspace.set_status_line(footer, 6);
     let mut terminal = Terminal::new(TestBackend::new(width, height))?;
-    workspace.draw(&mut terminal)?;
+    prepared_frame::draw(&mut workspace, &mut terminal)?;
     workspace.set_palette(palette);
-    workspace.draw(&mut terminal)?;
+    prepared_frame::draw(&mut workspace, &mut terminal)?;
     Ok(terminal.backend().buffer().clone())
 }
 

@@ -11,6 +11,7 @@
 
 mod admission;
 mod budget;
+mod compaction;
 mod interface;
 mod journal;
 mod model;
@@ -33,6 +34,11 @@ pub use admission::{
 pub use budget::{
     AtomBudget, BudgetDecision, BudgetError, BudgetLedger, BudgetLimits, BudgetPressure,
     InputUsageAnchor, OversizedInput, TokenEstimate, TokenEstimator,
+};
+pub use compaction::{
+    CompactionAttemptFinished, CompactionCheckpoint, CompactionCut, CompactionFailure,
+    CompactionInputMode, CompactionOutcome, CompactionPlan, CompactionPlanError, CompactionRefusal,
+    CompactionSource, ContextEpoch, MAX_COMPACTION_SUMMARY_BYTES, required_user_context,
 };
 pub use interface::{
     ApprovalDecisionRefusal, Effect, Input, ModelDeliveryRefusal, Reaction, ReleasedInput,

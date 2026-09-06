@@ -1,9 +1,11 @@
 //! Pooled provider HTTP transport for one resolved model.
 
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use futures_util::{FutureExt, StreamExt, future::BoxFuture};
-use plexmaton_agent::{ModelCall, ModelError, ModelEvent, RequestAttemptId, RequestEnvironment};
+use plexmaton_agent::{
+    ModelCall, ModelError, ModelEvent, ModelRequest, RequestAttemptId, RequestEnvironment,
+};
 use plexmaton_core::TokenUsage;
 use plexmaton_provider::{
     ApiKey, DecodeLimits, FunctionTool, ModelApi, ResolvedModel, SseDecodeError,
@@ -18,11 +20,12 @@ use crate::runtime::{
     ModelCompletion, ModelDriver, ModelOutput, ModelSignal, ModelTerminalReport, WallClock,
 };
 
+mod summary;
 mod timing;
 #[cfg(test)]
 mod timing_tests;
 
-use timing::{RequestTimer, not_dispatched_report};
+use timing::{AttemptReport, RequestTimer, not_dispatched_report};
 
 const MAX_ERROR_BODY_BYTES: usize = 64 * 1024;
 
@@ -43,6 +46,7 @@ pub enum HttpSetupError {
     Client(#[source] reqwest::Error),
 }
 
+#[derive(Clone)]
 pub(crate) struct ProviderHttp {
     client: Client,
     endpoint: Url,
@@ -101,17 +105,47 @@ impl ProviderHttp {
         signals: mpsc::Sender<ModelSignal>,
         cancellation: CancellationToken,
     ) -> ModelTerminalReport {
+        let step_id = call.step_id;
+        let output_step = step_id.clone();
+        let output_attempt = attempt_id.clone();
+        let report = self
+            .perform_events(attempt_id, call.request, cancellation, move |output| {
+                let signal = ModelSignal {
+                    attempt_id: output_attempt.clone(),
+                    step_id: output_step.clone(),
+                    output,
+                };
+                let signals = signals.clone();
+                async move {
+                    let _closed = signals.send(signal).await;
+                }
+            })
+            .await;
+        ModelTerminalReport::new(step_id, report.terminal, report.completion)
+    }
+
+    /// Shared wire execution; semantic delivery belongs to the operation that owns this attempt.
+    async fn perform_events<F, Delivery>(
+        &self,
+        attempt_id: RequestAttemptId,
+        context: ModelRequest,
+        cancellation: CancellationToken,
+        mut deliver: F,
+    ) -> AttemptReport
+    where
+        F: FnMut(ModelOutput) -> Delivery + Send,
+        Delivery: Future<Output = ()> + Send,
+    {
         if cancellation.is_cancelled() {
             return not_dispatched_report(
                 attempt_id,
-                call.step_id,
                 plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
                 ModelCompletion::Cancelled,
             );
         }
         let body = match encode_request(
             &self.model,
-            &call.request,
+            &context,
             &self.tools,
             Some(self.model.max_output_tokens()),
         ) {
@@ -119,7 +153,6 @@ impl ProviderHttp {
             Err(error) => {
                 return not_dispatched_report(
                     attempt_id,
-                    call.step_id,
                     plexmaton_agent::RequestNotDispatchedOutcome::EncodingFailed,
                     ModelCompletion::Failed(ModelError::Malformed {
                         message: error.to_string(),
@@ -130,7 +163,6 @@ impl ProviderHttp {
         if cancellation.is_cancelled() {
             return not_dispatched_report(
                 attempt_id,
-                call.step_id,
                 plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
                 ModelCompletion::Cancelled,
             );
@@ -146,7 +178,6 @@ impl ProviderHttp {
                 () = cancellation.cancelled() => {
                     return timer.cancelled(
                         attempt_id,
-                        call.step_id,
                         TokenUsage::Unavailable,
                     );
                 }
@@ -157,7 +188,6 @@ impl ProviderHttp {
             Err(error) => {
                 return timer.failed(
                     attempt_id,
-                    call.step_id,
                     ModelError::Transport {
                         message: error.to_string(),
                     },
@@ -167,19 +197,11 @@ impl ProviderHttp {
         };
         timer.headers_arrived();
         if !response.status().is_success() {
-            return failed_response_report(
-                timer,
-                attempt_id,
-                call.step_id,
-                response,
-                &cancellation,
-            )
-            .await;
+            return failed_response_report(timer, attempt_id, response, &cancellation).await;
         }
 
         let limits = DecodeLimits::production();
         let retry_after = retry_after_seconds(&response);
-        let step_id = call.step_id.clone();
         let stream = response.bytes_stream();
         let mut usage = None;
         let mut stop = None;
@@ -189,7 +211,7 @@ impl ProviderHttp {
         }
         let decoded = {
             let decoded = drive_sse(&attempt_id, &self.model, stream, limits, |event| {
-                let signal = match event {
+                let delivery = match event {
                     ModelEvent::Usage(report) => {
                         usage = Some(report);
                         None
@@ -203,17 +225,12 @@ impl ProviderHttp {
                             unreachable!("usage and stop were handled before model output")
                         });
                         timer.output_arrived(&output);
-                        Some(ModelSignal {
-                            attempt_id: attempt_id.clone(),
-                            step_id: step_id.clone(),
-                            output,
-                        })
+                        Some(deliver(output))
                     }
                 };
-                let signals = signals.clone();
                 async move {
-                    if let Some(signal) = signal {
-                        let _closed = signals.send(signal).await;
+                    if let Some(delivery) = delivery {
+                        delivery.await;
                     }
                 }
             });
@@ -226,20 +243,17 @@ impl ProviderHttp {
         };
         let usage = usage.unwrap_or(TokenUsage::Unavailable);
         match decoded {
-            DecodeResult::Cancelled => timer.cancelled(attempt_id, call.step_id, usage),
-            DecodeResult::Finished(Err(error)) => timer.failed(
-                attempt_id,
-                call.step_id,
-                error.into_model_error(retry_after),
-                usage,
-            ),
+            DecodeResult::Cancelled => timer.cancelled(attempt_id, usage),
+            DecodeResult::Finished(Err(error)) => {
+                timer.failed(attempt_id, error.into_model_error(retry_after), usage)
+            }
             DecodeResult::Finished(Ok(())) => {
                 // TIM-3: a complete field breakdown does not make an interim snapshot a final bill.
                 let cost = request_cost(&self.model, &usage);
                 let reason = stop.unwrap_or_else(|| {
                     unreachable!("a successful SSE drive always emits its retained stop")
                 });
-                timer.completed(attempt_id, call.step_id, reason, usage, cost)
+                timer.completed(attempt_id, reason, usage, cost)
             }
         }
     }
@@ -248,10 +262,9 @@ impl ProviderHttp {
 async fn failed_response_report(
     timer: RequestTimer,
     attempt_id: RequestAttemptId,
-    step_id: plexmaton_agent::ModelStepId,
     response: reqwest::Response,
     cancellation: &CancellationToken,
-) -> ModelTerminalReport {
+) -> AttemptReport {
     let status = response.status().as_u16();
     let retry_after = retry_after_seconds(&response);
     let body = bounded_error_body(response);
@@ -260,14 +273,12 @@ async fn failed_response_report(
         biased;
         body = &mut body => timer.failed(
             attempt_id,
-            step_id,
             classify_http_error(status, retry_after, &body),
             TokenUsage::Unavailable,
         ),
         () = cancellation.cancelled() => {
             timer.cancelled(
                 attempt_id,
-                step_id,
                 TokenUsage::Unavailable,
             )
         }
@@ -290,16 +301,23 @@ impl ModelDriver for ProviderHttp {
         signals: mpsc::Sender<ModelSignal>,
         cancellation: CancellationToken,
     ) -> BoxFuture<'static, ModelTerminalReport> {
-        let this = Self {
-            client: self.client.clone(),
-            endpoint: self.endpoint.clone(),
-            model: self.model.clone(),
-            key: Arc::clone(&self.key),
-            tools: Arc::clone(&self.tools),
-            environment: self.environment.clone(),
-            clock: Arc::clone(&self.clock),
-        };
+        let this = self.clone();
         async move { this.perform(attempt_id, call, signals, cancellation).await }.boxed()
+    }
+
+    fn summarize(
+        &self,
+        attempt_id: RequestAttemptId,
+        input: plexmaton_provider::CompactionInput,
+        max_summary_bytes: usize,
+        cancellation: CancellationToken,
+    ) -> BoxFuture<'static, plexmaton_agent::CompactionAttemptFinished> {
+        let this = self.clone();
+        async move {
+            this.perform_summary(attempt_id, input, max_summary_bytes, cancellation)
+                .await
+        }
+        .boxed()
     }
 }
 

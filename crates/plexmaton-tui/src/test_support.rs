@@ -328,10 +328,71 @@ pub fn draw_cached(
     let mut terminal = Terminal::new(TestBackend::new(width, height))
         .unwrap_or_else(|error| panic!("test terminal: {error}"));
     let mut surfaces = SurfaceTree::default();
-    terminal
-        .draw(|frame| surfaces = render(frame, state, palette, metrics))
-        .unwrap_or_else(|error| panic!("test render: {error}"));
+    for attempt in 0..512 {
+        metrics.begin_frame();
+        terminal
+            .draw(|frame| surfaces = render(frame, state, palette, metrics))
+            .expect("test render");
+        metrics.commit_frame();
+        let requests: Vec<_> = metrics
+            .preparation_needed()
+            .iter()
+            .filter_map(|key| {
+                let item = state
+                    .agent(&key.agent)?
+                    .entries()
+                    .find(|entry| entry.id() == &key.item)?;
+                Some(crate::preparation::Request::new(
+                    key.agent.clone(),
+                    item.clone(),
+                    key.width,
+                    key.open,
+                ))
+            })
+            .collect();
+        if requests.is_empty() {
+            break;
+        }
+        assert!(attempt < 511, "prepared fixture did not settle");
+        for request in requests {
+            metrics.accept_prepared(request.prepare());
+        }
+    }
     (surfaces, terminal.backend().buffer().clone())
+}
+
+impl crate::Workspace {
+    /// Explicit component-fixture pump at the public preparation boundary. Production `draw`
+    /// never calls a parser, including in test builds. Pending/failure tests use `draw` directly.
+    pub(crate) fn settled_draw<B: ratatui::backend::Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<Option<crate::FrameWork>, B::Error> {
+        let before_wrapped = self.metrics().wrapped();
+        let before_built = self.metrics().lines_built();
+        let before_frames = self.frames();
+        for attempt in 0..1024 {
+            self.draw(terminal)?;
+            if let Some(work) = self.take_preparation() {
+                assert!(attempt < 1023, "prepared fixture did not settle");
+                match crate::preparation::prepare_batch(&work.requests) {
+                    Ok(prepared) => assert!(
+                        self.complete_preparation(work.token, prepared),
+                        "fixture reply rejected"
+                    ),
+                    Err(crate::preparation::BatchRefusal::Capacity) => {
+                        self.fail_preparation(work.token, crate::preparation::Refusal::Capacity)
+                    }
+                }
+            } else if !self.needs_draw() {
+                return Ok((before_frames != self.frames()).then(|| crate::FrameWork {
+                    entries_wrapped: self.metrics().wrapped() - before_wrapped,
+                    lines_built: self.metrics().lines_built() - before_built,
+                }));
+            }
+        }
+        panic!("prepared fixture did not settle");
+    }
 }
 
 /// Draws one frame with an explicit palette and returns it as text.

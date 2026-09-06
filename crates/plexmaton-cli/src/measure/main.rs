@@ -46,6 +46,8 @@ pub(crate) struct WorkloadSamples {
 /// The sizes the resize workload cycles through: ultrawide, wide, and narrow.
 pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
 
+mod live_preparation;
+mod preparation;
 mod rich_layout;
 #[path = "../stream_frames.rs"]
 mod stream_frames;
@@ -58,6 +60,12 @@ use workloads::{
 };
 
 fn main() -> anyhow::Result<()> {
+    if std::env::args_os().skip(1).eq([std::ffi::OsStr::new(
+        plexmaton_cli::preparation::DRIVER_ARGUMENT,
+    )]) {
+        return plexmaton_cli::preparation::run_driver()
+            .context("run measurement preparation child");
+    }
     let mut runs = Vec::new();
     for messages in SCALES {
         runs.push(cold_open(messages, REPORT_SAMPLES)?);
@@ -77,6 +85,8 @@ fn main() -> anyhow::Result<()> {
     report(&runs);
     streaming::report()?;
     rich_layout::report()?;
+    preparation::report()?;
+    live_preparation::report()?;
     Ok(())
 }
 
@@ -112,10 +122,64 @@ impl Harness {
         self.advance_to(self.tick.saturating_add(1));
     }
 
+    /// CPU reference: the same public request/adoption path, with pure preparation at the external
+    /// worker seam. `preparation::report` measures the actual process and live frame path separately.
     pub(crate) fn draw(&mut self) -> anyhow::Result<Option<FrameWork>> {
-        self.workspace
+        let wrapped = self.workspace.metrics().wrapped();
+        let built = self.workspace.metrics().lines_built();
+        let drawn = self
+            .workspace
             .draw(&mut self.terminal)
-            .context("draw a measured frame")
+            .context("draw a measured frame")?;
+        if drawn.is_some() {
+            self.finish_preparation()?;
+        }
+        Ok(drawn.map(|_| FrameWork {
+            entries_wrapped: self.workspace.metrics().wrapped() - wrapped,
+            lines_built: self.workspace.metrics().lines_built() - built,
+        }))
+    }
+
+    fn draw_coalesced(
+        &mut self,
+        frames: &mut stream_frames::StreamFrames,
+        now: std::time::Instant,
+    ) -> anyhow::Result<Option<FrameWork>> {
+        let wrapped = self.workspace.metrics().wrapped();
+        let built = self.workspace.metrics().lines_built();
+        let drawn = frames.draw(&mut self.workspace, &mut self.terminal, now)?;
+        if drawn.is_some() {
+            self.finish_preparation()?;
+        }
+        Ok(drawn.map(|_| FrameWork {
+            entries_wrapped: self.workspace.metrics().wrapped() - wrapped,
+            lines_built: self.workspace.metrics().lines_built() - built,
+        }))
+    }
+
+    fn finish_preparation(&mut self) -> anyhow::Result<()> {
+        for _ in 0..1024 {
+            if let Some(work) = self.workspace.take_preparation() {
+                match plexmaton_tui::preparation::prepare_batch(&work.requests) {
+                    Ok(prepared) => anyhow::ensure!(
+                        self.workspace.complete_preparation(work.token, prepared),
+                        "measurement preparation rejected"
+                    ),
+                    Err(plexmaton_tui::preparation::BatchRefusal::Capacity) => {
+                        self.workspace.fail_preparation(
+                            work.token,
+                            plexmaton_tui::preparation::Refusal::Capacity,
+                        )
+                    }
+                }
+            } else if !self.workspace.needs_draw() {
+                return Ok(());
+            }
+            self.workspace
+                .draw(&mut self.terminal)
+                .context("draw prepared reference")?;
+        }
+        anyhow::bail!("measurement preparation did not settle")
     }
 
     pub(crate) fn resize(&mut self, size: (u16, u16)) {
@@ -212,6 +276,9 @@ impl Run {
 }
 
 fn report(runs: &[Run]) {
+    println!(
+        "CPU reference: public workspace request/adoption path; in-process preparation, no child I/O. Each sample settles all reached data."
+    );
     let profile = if cfg!(debug_assertions) {
         "debug"
     } else {
@@ -246,7 +313,7 @@ fn report(runs: &[Run]) {
         );
     }
     println!();
-    println!("wraps and lines are the worst frame in the run, not an average.");
+    println!("wraps and lines are the worst settled sample, not an average or one physical frame.");
 }
 
 fn micros(duration: Duration) -> String {

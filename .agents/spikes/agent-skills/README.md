@@ -78,6 +78,6 @@ python3 scripts/smoke-statusline.py
 
 The [stage record](../../phases/phase-04-product-polish.md) owns final gate receipts; the
 [mechanism spec](../../specs/agent-skills.md) owns named proofs. Live provider compatibility,
-realized performance and automatic compaction of active skills remain unverified. Installation,
+realized performance remain unverified. CPL-3 owns required skill retention during compaction. Installation,
 watching, recursive/flat formats and arbitrary project provider definitions are outside this change.
 The new typed activation uses journal epoch `2026-09-05`; earlier epochs have no migration reader.

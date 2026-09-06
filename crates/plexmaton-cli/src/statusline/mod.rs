@@ -59,6 +59,18 @@ impl StatusLine {
         }
     }
 
+    /// Capture semantic status/accounting changes, not text streaming deltas (STL-1).
+    pub fn observe(&mut self, event: &plexmaton_core::ConversationEvent) {
+        if matches!(
+            event,
+            plexmaton_core::ConversationEvent::AgentCreated { .. }
+                | plexmaton_core::ConversationEvent::AgentStatusChanged { .. }
+                | plexmaton_core::ConversationEvent::TurnUsageUpdated { .. }
+        ) {
+            self.mark_dirty();
+        }
+    }
+
     pub fn mark_dirty(&mut self) {
         if self.cleanup_failed {
             return;

@@ -57,7 +57,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
         );
         workspace.return_input(agent(), "keep this draft".into());
         emit(&mut workspace, &mut next, request(0));
-        workspace.draw(&mut terminal).expect("first card");
+        workspace.settled_draw(&mut terminal).expect("first card");
         workspace
             .state
             .decide_approval(ApprovalIntent::Move(Direction::Backward));
@@ -77,7 +77,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
             crate::ApprovalChoice::AllowOnce
         );
         for index in 0..3 {
-            workspace.draw(&mut terminal).expect("inline card");
+            workspace.settled_draw(&mut terminal).expect("inline card");
             assert!(workspace.surfaces().get(SurfaceId::Attention).is_none());
             assert_eq!(workspace.state().attention_listed_count(), 0);
             let approval = workspace.state().approval().expect("pending inline");
@@ -107,7 +107,9 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
                 },
             );
         }
-        workspace.draw(&mut terminal).expect("finished batch");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("finished batch");
         assert!(workspace.state().approval().is_none());
         assert_eq!(workspace.state().attention_count(), 0);
         assert_eq!(workspace.state().composer().text(), "keep this draft");
@@ -167,9 +169,13 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
         );
         emit(&mut workspace, &mut next, request(0));
         emit(&mut workspace, &mut next, request(1));
-        workspace.draw(&mut terminal).expect("inline approvals");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("inline approvals");
         workspace.handle(&key(KeyCode::Esc));
-        workspace.draw(&mut terminal).expect("composer focus");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("composer focus");
         assert_eq!(
             workspace.state().focused(workspace.surfaces()),
             Some(SurfaceId::Composer)
@@ -178,9 +184,9 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
         assert_eq!(workspace.state().attention_listed_count(), 0);
         assert!(workspace.surfaces().get(SurfaceId::Attention).is_none());
         workspace.handle(&Event::Paste("draft while approval waits".into()));
-        workspace.draw(&mut terminal).expect("draft");
+        workspace.settled_draw(&mut terminal).expect("draft");
         workspace.handle(&key(KeyCode::Tab));
-        workspace.draw(&mut terminal).expect("back to card");
+        workspace.settled_draw(&mut terminal).expect("back to card");
         assert_eq!(
             workspace.state().focused(workspace.surfaces()),
             Some(SurfaceId::Approval)
@@ -200,9 +206,11 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
                 attention_id: attention(0),
             },
         );
-        workspace.draw(&mut terminal).expect("next card");
+        workspace.settled_draw(&mut terminal).expect("next card");
         workspace.handle(&key(KeyCode::Esc));
-        workspace.draw(&mut terminal).expect("composer again");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("composer again");
         let at = allow_button(&workspace, &terminal);
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at));
         let decision = workspace
@@ -236,7 +244,7 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
     );
     emit(&mut workspace, &mut next, request(0));
     emit(&mut workspace, &mut next, request(1));
-    workspace.draw(&mut terminal).expect("card");
+    workspace.settled_draw(&mut terminal).expect("card");
     let at = allow_button(&workspace, &terminal);
     for cancellation in [
         mouse(
@@ -255,7 +263,7 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
                 .is_none()
         );
         workspace.handle(&Event::FocusGained);
-        workspace.draw(&mut terminal).expect("cancelled");
+        workspace.settled_draw(&mut terminal).expect("cancelled");
     }
     workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at));
     emit(
@@ -267,7 +275,7 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
         },
     );
     workspace
-        .draw(&mut terminal)
+        .settled_draw(&mut terminal)
         .expect("new request at same position");
     assert!(
         workspace

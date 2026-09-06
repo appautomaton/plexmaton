@@ -23,6 +23,7 @@ pub struct ResolvedModel {
     context_window_tokens: u32,
     max_output_tokens: u32,
     output_reserve_tokens: u32,
+    compaction_keep_recent_tokens: u32,
     token_estimator: TokenEstimator,
     cost: Option<ModelCost>,
 }
@@ -58,6 +59,7 @@ impl ResolvedModel {
             context_window_tokens: model.context_window_tokens,
             max_output_tokens: model.max_output_tokens,
             output_reserve_tokens: model.output_reserve_tokens,
+            compaction_keep_recent_tokens: model.compaction_keep_recent_tokens,
             token_estimator: model.token_estimator,
             cost: model.cost,
         };
@@ -88,6 +90,9 @@ impl ResolvedModel {
                 provider: self.provider_name.clone(),
                 model: self.model_name.clone(),
             });
+        }
+        if self.compaction_keep_recent_tokens == 0 {
+            return Err(self.invalid_option("compaction_keep_recent_tokens"));
         }
         if self.instructions.len() > 64 * 1024 {
             return Err(self.invalid_option("instructions"));
@@ -193,6 +198,12 @@ impl ResolvedModel {
     #[must_use]
     pub const fn output_reserve_tokens(&self) -> u32 {
         self.output_reserve_tokens
+    }
+
+    /// Desired retained-context tail for compaction, clamped by the planner's actual capacity.
+    #[must_use]
+    pub const fn compaction_keep_recent_tokens(&self) -> u32 {
+        self.compaction_keep_recent_tokens
     }
 
     #[must_use]

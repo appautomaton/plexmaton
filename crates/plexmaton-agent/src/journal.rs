@@ -21,6 +21,7 @@ mod accounting_tests;
 mod attempt_tests;
 mod attempts;
 mod budget;
+mod compaction;
 mod error;
 mod heads;
 mod payload;
@@ -113,6 +114,7 @@ pub struct ConversationJournal {
     request_attempts: BTreeMap<RequestAttemptId, RequestAttempt>,
     request_attempt_order: Vec<RequestAttemptId>,
     active_request_owners: BTreeMap<RequestAttemptOwner, RequestAttemptId>,
+    compaction_attempt_records: BTreeMap<RequestAttemptId, usize>,
 }
 
 impl ConversationJournal {
@@ -158,6 +160,7 @@ impl ConversationJournal {
             request_attempts: BTreeMap::new(),
             request_attempt_order: Vec::new(),
             active_request_owners: BTreeMap::new(),
+            compaction_attempt_records: BTreeMap::new(),
         }
     }
 
@@ -365,6 +368,9 @@ impl ConversationJournal {
                     .finish(fact.clone());
                 self.active_request_owners.remove(&owner);
             }
+            JournalRecord::CompactionAttemptFinished { fact, .. } => {
+                self.apply_compaction_attempt_finished(fact);
+            }
         }
         self.record_ids.insert(record.record_id().clone());
         self.records.push(record);
@@ -377,7 +383,7 @@ impl ConversationJournal {
         self.validate(record).map(|_| ())
     }
 
-    fn validate(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
+    fn validate_envelope(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
         if record.sequence() != self.next_sequence {
             return Err(JournalError::UnexpectedSequence {
                 expected: self.next_sequence,
@@ -393,7 +399,11 @@ impl ConversationJournal {
             .checked_add(1)
             .map(JournalSequence::new)
             .ok_or(JournalError::SequenceExhausted)?;
+        Ok(next_sequence)
+    }
 
+    fn validate(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
+        let next_sequence = self.validate_envelope(record)?;
         match record {
             JournalRecord::AppendEntry {
                 head,
@@ -464,6 +474,10 @@ impl ConversationJournal {
                             state.open_turn.as_ref(),
                         )?;
                     }
+                    JournalEntryPayload::CompactionCheckpoint {
+                        agent_id,
+                        checkpoint,
+                    } => self.validate_compaction_checkpoint(head, agent_id, checkpoint)?,
                     _ => {}
                 }
                 self.validate_revision_increment(head, state.revision)?;
@@ -524,7 +538,10 @@ impl ConversationJournal {
                 ..
             } => self.validate_request_authorization(head, *expected_head_revision, fact)?,
             JournalRecord::RequestAttemptFinished { fact, .. } => {
-                self.validate_request_terminal(fact)?;
+                self.validate_request_terminal(fact)?
+            }
+            JournalRecord::CompactionAttemptFinished { fact, .. } => {
+                self.validate_compaction_attempt_finished(fact)?
             }
         }
         Ok(next_sequence)
