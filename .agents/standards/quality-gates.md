@@ -41,11 +41,7 @@ Policy is pinned in `rustfmt.toml`, `clippy.toml`, `deny.toml`, `_typos.toml`, a
 
 ## Sprawl guards
 
-Guards exist at two levels, and both are thresholds for finding unseparated responsibilities, not
-line-count style rules.
-
-`too_many_lines` and `cognitive_complexity` work at function level and are the effective guard,
-because a large file of small functions is usually fine while a long function never is.
+Function-level `too_many_lines` and `cognitive_complexity` identify unseparated responsibilities.
 `check-file-length.sh` adds a 550-line file-level sentinel. Test-only files following the
 workspace's `tests/`, `tests.rs`, `*_tests.rs`, or `test_support.rs` conventions are excluded; in a
 mixed module, measurement stops above the trailing inline `#[cfg(test)] mod tests { ... }`.
@@ -59,7 +55,14 @@ guard fires, split by responsibility and invariant rather than raising it again.
 ## Local setup
 
 The executable and corpus gates require `rg` on PATH; script tests require Python 3 and Bash.
-The configured-footer smoke also requires jq. Ubuntu CI installs ripgrep and jq explicitly.
+The configured-footer smoke also requires jq. CI installs Bash, ripgrep and jq explicitly.
+
+The primary CI target is macOS Apple Silicon, matching local product development. One verification
+job runs the same workspace, supply-chain and PTY gates; it does not package or deploy releases.
+Actions use verified stable releases pinned to commit IDs.
+Linux compatibility is not established: the current Bash grammar has a known native parser crash
+on Linux ([upstream report](https://github.com/tree-sitter/tree-sitter-bash/issues/337)).
+Passing macOS CI is not evidence of Linux support.
 
 Commits run the fast gates through a repository-managed hook. Enable it once per clone:
 
@@ -81,8 +84,7 @@ mouse and focus events are byte sequences, and the click is sent as a real SGR r
 crossterm's parser is on the path. Release is asserted to happen *before* the alternate screen is
 handed back — the other order switches the modes off on the terminal the user is now looking at.
 
-Three properties of that boundary have already produced wrong evidence once, so they are worth
-knowing before you touch it:
+Terminal-boundary pitfalls:
 
 - A pseudo-terminal with no window size reports 0x0, and Ratatui then paints nothing. The script
   sets `TIOCSWINSZ` explicitly.
@@ -128,9 +130,9 @@ printf '\n#[cfg(test)]\nmod probe { #[test] fn only_in_the_worktree() {} }\n' \
 CARGO_TARGET_DIR=/tmp/shared cargo test -p plexmaton-core --lib -- --list
 ```
 
-The second listing, run against the main checkout, contains `only_in_the_worktree`. This is
-[cargo#12516](https://github.com/rust-lang/cargo/issues/12516), still open. A separate target
-directory per worktree costs 245 MB and a 4-second cold build, and is the only safe answer.
+The main checkout's listing contains `only_in_the_worktree`
+([cargo#12516](https://github.com/rust-lang/cargo/issues/12516)). Use a separate target directory
+per worktree.
 
 ## Claiming a result
 

@@ -25,8 +25,8 @@ use plexmaton_session_store::{JournalFile, JournalRecovery};
 use directory::TestDir;
 
 // Records captured through public APIs on base 2bb0a70f56660d95d4feb8f11ec7ead3336db5a7.
-// Integration adopts SKL-5's 2026-09-05 header; the checkpoint records are unchanged.
-const FIXTURE: &[u8] = include_bytes!("fixtures/checkpoint-schema-2026-09-05.jsonl");
+// Keep the original header and records: relabeling the fixture would hide a resume regression.
+const FIXTURE: &[u8] = include_bytes!("fixtures/checkpoint-schema-2026-09-04.jsonl");
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
@@ -173,7 +173,7 @@ fn assert_compaction_audit(journal: &ConversationJournal) {
 #[test]
 fn checkpoint_fixture_reopens_and_historical_fork_keeps_original_epoch() {
     assert!(FIXTURE.starts_with(
-        br#"{"format":"plexmaton.session","schema":"2026-09-05","session_id":"checkpoint-fixture-session""#,
+        br#"{"format":"plexmaton.session","schema":"2026-09-04","session_id":"checkpoint-fixture-session""#,
     ));
     let directory = TestDir::new("checkpoint-fixture");
     let path = materialize_fixture(&directory);

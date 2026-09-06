@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; journal, providers, compaction and permissions complete; branch interaction and MCP remain |
+| Status | Active; public-readiness verification in progress; branch interaction and MCP remain |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -63,8 +63,9 @@ head mechanics in scope items 1–2. [Stage 2](../plans/phase-02-stage-02-contex
 finishes their production journey and owns scope item 3, constrained by the
 [compaction spike](../spikes/compaction/README.md). Stage 3 delivered the provider transports
 in scope item 4. Stage 4 delivered [permission policy](../specs/permission-policy.md)
-and the reviewed approval flow. Current-main integration is verified; branch interaction and MCP
-remain separate work.
+and the reviewed approval flow. Current-main integration is verified;
+[public readiness](../plans/phase-02-stage-04-public-readiness.md) is in progress.
+Branch interaction and MCP remain separate work.
 
 ### Provider dialects — complete
 
@@ -137,12 +138,14 @@ matched the reviewed assets byte-for-byte; wide/medium/narrow reply renderings w
 
 Publication hygiene adds tested private-state/build ignores without hiding fixtures, skills,
 project settings or Cargo.lock, and read-only CI authority with the script/corpus/terminal gates.
-CI installs its rg/jq prerequisites explicitly; MUT-4 carries native Unix mode/device types
-through file publication instead of assuming macOS integer widths.
+CI verifies macOS Apple Silicon with current stable actions and explicit prerequisites.
+MUT-4 carries native Unix mode/device types through file publication.
 History, staged source and all ten existing Actions logs passed local secret scans. Licensing is unchanged. The UI contract
 retains a 748-byte soft-budget warning; no product rule was removed to silence it.
 No live model, live configuration, command containment, multi-agent runtime or performance benchmark
-was part of this integration. JRN-3 retains epoch `2026-09-05`; old epochs remain explicitly refused.
+was part of this integration. JRN-3 keeps `2026-09-04` and `2026-09-05` readable without header
+rewrites. The rebuilt macOS CLI resumed an unchanged copy of an existing conversation with no
+model request or journal write, then exited cleanly.
 
 ### Compaction — complete
 

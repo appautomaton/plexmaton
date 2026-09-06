@@ -1,78 +1,76 @@
+<div align="center">
+
 # Plexmaton
 
-A Rust/Ratatui coding harness with four provider dialects and native file/search/edit/command/skill tools.
+**AI coding, clearly in view.**
 
-## Development
+[![CI](https://github.com/appautomaton/plexmaton/actions/workflows/ci.yml/badge.svg)](https://github.com/appautomaton/plexmaton/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/Rust-1.98.0-7b7df2?logo=rust)](rust-toolchain.toml)
+[![Status](https://img.shields.io/badge/status-early_development-b76bd6)](.agents/roadmap.md)
+[![App Automaton](https://img.shields.io/badge/by-App_Automaton-e2894f)](https://appautomaton.renocrypt.com/)
 
-State/config: `~/.plexmaton/`; keys use environment variables.
-Project `.plexmaton/config.toml` selects a user-defined provider/model via `[active_model]`.
+</div>
 
-```toml
-# ~/.plexmaton/config.toml
-active_model = { provider = "local", model = "luna" }
+Plexmaton is an AI coding assistant for the terminal, built in Rust by App Automaton. Choose your model, follow the work, and return to saved conversations.
 
-[providers.local]
-base_url = "http://127.0.0.1:8317/v1"
-api_key_env = "PLEXMATON_LOCAL_API_KEY"
-api = "openai_responses"
+## Why Plexmaton?
 
-[providers.local.models.luna]
-id = "gpt-5.6-luna"
-reasoning_effort = "xhigh"
-context_window_tokens = 272000
-max_output_tokens = 128000
-output_reserve_tokens = 16384
-compaction_keep_recent_tokens = 20000
+- **Keep the work in view.** Streaming answers, tool activity and approvals share a responsive workspace with expandable details.
+- **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
+- **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it with `/permissions`.
+- **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
+- **Read comfortably.** Pastel Markdown, code, tables and native math make detailed answers easier to follow. Selection preserves the source you need to copy.
+
+<p align="center">
+<img src="crates/plexmaton-tui/frames/math/reply-88.svg" width="640" alt="Plexmaton terminal workspace displaying a formatted assistant response and native mathematical notation">
+<br><sub>Workspace render preview. <a href=".agents/specs/math-layout.md">Native math support</a>.</sub>
+</p>
+
+## Get started
+
+The current development target is **macOS on Apple Silicon**. Install the pinned Rust toolchain and ripgrep (`rg`).
+
+```sh
+git clone https://github.com/appautomaton/plexmaton.git
+cd plexmaton
+mkdir -p .local/plexmaton
+cp examples/providers.toml .local/plexmaton/config.toml
 ```
 
-`PLEXMATON_HOME` isolates state. [Provider examples](examples/providers.toml) ·
-[Options](.agents/specs/provider-adapter.md#request-configuration).
+Edit the copied configuration to select a provider and model you can access. Set the environment variable named by `api_key_env`, then launch:
 
-```console
-PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
-PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton -- --ephemeral
+```sh
+PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmaton
 ```
 
-Files stay under the start directory, without symlinks. Reads/searches allow; writes/commands ask:
-**Allow once**, **Allow and remember…**, or **Deny**. Session grants survive
-`/new`/resume until exit; Project grants survive restarts. `/permissions` manages grants, native
-presets and project trust. [Rules and prefixes](.agents/specs/permission-policy.md#configuration).
-Commands use a credential-scrubbed environment, not an OS sandbox.
+[Configuration reference](.agents/specs/provider-adapter.md#request-configuration)
 
-Conversations save owner-only JSONL on first message; blank launches save nothing. Exit prints a
-resume command. `--ephemeral` disables persistence. `plexmaton create work-01` / `plexmaton resume work-01`
-create/restore
-`PLEXMATON_HOME/sessions/<session-id>.jsonl` (ASCII letters, digits, `-`, `_`).
-Journal epoch: `2026-09-05`; older epochs are refused, with no migration.
-Automatic [compaction](.agents/specs/compaction.md) preserves original history and the current skill invocation.
+The interface, tools and journals run locally. Model requests go to your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
 
-Skills are `<name>/SKILL.md` bundles in project `.plexmaton/skills`, project `.agents/skills`, then
-`PLEXMATON_HOME/skills`, in precedence order. The model sees summaries and loads content through
-`skill`. In the main input, `$` lists skills; Tab/Enter completes, Enter sends, Esc closes the list.
-Failures return drafts. Skills never grant permissions.
-[Picker](.agents/specs/skill-picker.md) · [Format](.agents/specs/agent-skills.md).
+## Everyday controls
 
-`Ctrl-D` twice within one second quits. `Ctrl-C` clears a draft or interrupts its conversation;
-`Esc` backs out one layer. `Ctrl-P` opens the palette. `/config` (alias `/settings`) shows resolved
-settings; restart after configuration edits. `/new` starts an empty Conversation; `/resume` opens
-history (aliases: `/continue`, `/sessions`, `/session`). Stop work and send or clear drafts before switching.
+| Input | Action |
+| --- | --- |
+| `Ctrl-P` | Open the command palette |
+| `Ctrl-C` | Clear a draft or interrupt its conversation |
+| `Ctrl-D` twice within one second | Quit |
+| `Esc` | Back out one layer |
+| `$` | Find and complete a skill |
 
-Rate limits offer **Retry** / **Edit & retry**: click or press `r` / `e` with transcript focus.
-Editing preserves the old branch; Esc cancels.
+Use `/new` for a fresh conversation, `/resume` for saved history, `/config` for settings and `/permissions` for grants. Rate limits offer Retry and Edit & retry.
 
-Pastel Markdown supports code and tables. Native math needs verified text sizing (direct Kitty);
-tmux/unverified terminals show labelled source. Formula clicks copy delimited TeX; drags select
-whole formulas. [Limits](.agents/specs/math-layout.md).
-Drag across entries to copy plain text; the Copy icon keeps Markdown. Tool clicks expand/collapse
-without selecting. Approval cards stay in the conversation; Esc focuses input, Tab/click focuses the card.
-[Keys](.agents/specs/interaction-routing.md#key-grammar) · [Copy](.agents/specs/selection-and-copy.md).
+[Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 
-Copy uses local `pbcopy` or remote OSC 52: 8 MiB cap, no truncation, cancellation on exit.
-Clipboard and [render preparation](.agents/specs/render-preparation.md) do not hold input.
+## History and development
 
-Optional [pastel footer](examples/statusline-pastel.sh): Bash, jq, Nerd Font.
-[Configuration](.agents/specs/status-line.md).
+Conversations save on the first message; blank launches save nothing. Use `--ephemeral` to opt out. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.
 
-Run `cargo test --workspace` and [quality gates](.agents/standards/quality-gates.md), including
-offline terminal smokes. Hooks: `git config core.hooksPath .githooks`.
-Private state belongs in ignored `.local/`; fixtures, frames and `Cargo.lock` are tracked.
+One live agent is available today. Multi-agent collaboration is on the [roadmap](.agents/roadmap.md). Linux compatibility is not yet established.
+
+Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md). Tests use local model fixtures. Private state belongs in ignored `.local/`.
+
+## More from App Automaton
+
+[Website](https://appautomaton.renocrypt.com/) · [GitHub](https://github.com/appautomaton) · [Hugging Face](https://huggingface.co/appautomaton)
+
+[pi-arcweld](https://github.com/appautomaton/pi-arcweld): a curated Pi coding workspace. [webmaton](https://github.com/appautomaton/webmaton): browser and web-research skills.

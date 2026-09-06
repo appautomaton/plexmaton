@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,53 +17,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  gates:
-    name: Workspace gates
-    runs-on: ubuntu-latest
+  verify:
+    name: macOS Apple Silicon
+    runs-on: macos-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install test prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ripgrep jq
-      # The toolchain is pinned by rust-toolchain.toml; this action honors it and caches builds.
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run: cargo fmt --all --check
-      - run: ./scripts/check-file-length.sh
-      - run: python3 -m unittest discover -s scripts/tests
-      - run: ./scripts/check-crate-graph.sh
-      - run: ./scripts/check-citations.sh
-      # Reports documents that outgrew their layer. Never fails; read the log when it speaks up.
-      - run: ./scripts/check-doc-budget.sh
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-
-  supply-chain:
-    name: Supply chain
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - uses: taiki-e/install-action@v2
+        run: brew install bash ripgrep jq
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+      - uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
         with:
           tool: cargo-deny,cargo-machete,typos-cli
-      # Licences, advisories, and the ban on duplicate Ratatui/Crossterm generations.
+      - run: cargo fmt --all --check
+      - run: python3 -m unittest discover -s scripts/tests
+      - run: ./scripts/check-file-length.sh
+      - run: ./scripts/check-crate-graph.sh
+      - run: ./scripts/check-citations.sh
+      - run: ./scripts/check-doc-budget.sh
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
       - run: cargo deny check
       - run: cargo machete
       - run: typos
-
-  smoke:
-    name: Terminal smoke
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install test prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends ripgrep jq
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      # Terminal lifecycle in a real pseudo-terminal: alternate-screen release, resize repaint,
-      # and the quit key. TestBackend cannot represent any of these.
-      - run: ./scripts/smoke-tui.py
+      - run: python3 scripts/smoke-tui.py
       - run: python3 scripts/smoke-statusline.py
       - run: python3 scripts/smoke-permissions.py

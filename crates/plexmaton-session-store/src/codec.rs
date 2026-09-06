@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::StoreError;
 
 pub const SCHEMA_EPOCH: &str = "2026-09-05";
+// JRN-3: the skill/permission additions did not change existing record shapes. Both headers
+// use the same validating record decoder; healthy existing journals are never relabeled.
+const READABLE_SCHEMA_EPOCHS: [&str; 2] = ["2026-09-04", SCHEMA_EPOCH];
 pub const MAX_JOURNAL_LINE_BYTES: usize = 16 * 1024 * 1024;
 const HEADER_FORMAT: &str = "plexmaton.session";
 
@@ -42,7 +45,7 @@ pub(crate) fn decode_header(bytes: &[u8]) -> Result<DecodedHeader, StoreError> {
     if header.format != HEADER_FORMAT {
         return Err(StoreError::UnsupportedHeader);
     }
-    if header.schema != SCHEMA_EPOCH {
+    if !READABLE_SCHEMA_EPOCHS.contains(&header.schema.as_str()) {
         return Err(StoreError::UnsupportedSchema(header.schema));
     }
     Ok(DecodedHeader {

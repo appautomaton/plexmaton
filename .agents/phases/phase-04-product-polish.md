@@ -94,7 +94,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
    [medium](../../crates/plexmaton-tui/frames/skill-diagnostic-medium.txt) and
    [narrow](../../crates/plexmaton-tui/frames/skill-diagnostic-narrow.txt) widths.
    CPL-3 owns required skill retention during compaction. Live model behavior and performance remain
-   unverified. Journal epoch is `2026-09-05`; older epochs have no migration reader.
+   unverified. JRN-3 preserves readable `2026-09-04` history alongside new `2026-09-05` files.
 
 9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/skill-picker.md) put `$` discovery
    above the primary input, with keyboard/pointer completion and selected-name ownership through

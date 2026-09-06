@@ -19,8 +19,8 @@ use plexmaton_session_store::{JournalFile, JournalRecovery};
 use directory::TestDir;
 
 // Records captured through JournalFile's public API at 2bb0a70f56660d95d4feb8f11ec7ead3336db5a7.
-// Integration adopts SKL-5's 2026-09-05 header; the pre-compaction records are unchanged.
-const FIXTURE: &[u8] = include_bytes!("fixtures/schema-2026-09-05-conversation.jsonl");
+// Keep the original header and records: relabeling the fixture would hide a resume regression.
+const FIXTURE: &[u8] = include_bytes!("fixtures/schema-2026-09-04-session.jsonl");
 const REPLAY_PAYLOAD: &str = r#"{"type":"fixture_replay","opaque":"sanitized"}"#;
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
@@ -249,11 +249,11 @@ fn assert_continued_journal(
     assert_eq!(journal.incurred_accounting(), Ok(expected_accounting()));
 }
 
-/// JRN-3/JRN-5/TIM-3: pre-compaction records retain their semantics in the current schema epoch.
+/// JRN-3/JRN-5/TIM-3: an existing journal resumes and continues without relabeling its header.
 #[test]
-fn schema_2026_09_05_fixture_reopens_projects_and_continues() {
+fn schema_2026_09_04_fixture_reopens_projects_and_continues() {
     assert!(FIXTURE.starts_with(
-        br#"{"format":"plexmaton.session","schema":"2026-09-05","session_id":"pre-compaction-session""#,
+        br#"{"format":"plexmaton.session","schema":"2026-09-04","session_id":"pre-compaction-session""#,
     ));
     assert_eq!(FIXTURE.last(), Some(&b'\n'));
 
@@ -280,6 +280,12 @@ fn schema_2026_09_05_fixture_reopens_projects_and_continues() {
     let branch_request = branch_projection.into_request();
     append_continuation(&mut file, &main);
     drop(file);
+    assert!(
+        std::fs::read(&path)
+            .expect("continued bytes")
+            .starts_with(FIXTURE),
+        "continuation must append after the original header and records"
+    );
 
     let reopened = JournalFile::open(&path)
         .unwrap_or_else(|error| panic!("reopen continued fixture: {error}"));
@@ -293,19 +299,23 @@ fn schema_2026_09_05_fixture_reopens_projects_and_continues() {
     );
 }
 
-/// JRN-3: adopting skill records does not introduce an implicit old-epoch migration reader.
+/// JRN-3: both supported header generations use one validating decoder without rewriting healthy files.
 #[test]
-fn legacy_epoch_is_refused_without_modifying_fixture() {
-    let directory = TestDir::new("legacy-epoch-refusal");
-    let path = materialize_fixture(&directory);
-    let legacy = std::str::from_utf8(FIXTURE)
-        .expect("fixture UTF-8")
-        .replacen("\"schema\":\"2026-09-05\"", "\"schema\":\"2026-09-04\"", 1);
-    std::fs::write(&path, &legacy).expect("old header fixture");
-    assert!(matches!(JournalFile::open(&path),
-        Err(plexmaton_session_store::StoreError::UnsupportedSchema(epoch)) if epoch == "2026-09-04"));
-    assert_eq!(
-        std::fs::read(&path).expect("unchanged fixture"),
-        legacy.as_bytes()
-    );
+fn compatible_header_generations_open_without_rewriting_original_bytes() {
+    for epoch in ["2026-09-04", "2026-09-05"] {
+        let directory = TestDir::new("compatible-header");
+        let path = materialize_fixture(&directory);
+        let source = std::str::from_utf8(FIXTURE)
+            .expect("fixture UTF-8")
+            .replacen("2026-09-04", epoch, 1);
+        std::fs::write(&path, &source).expect("header fixture");
+        let journal = JournalFile::open(&path).expect("supported history");
+        assert_eq!(journal.recovery(), &JournalRecovery::Clean);
+        assert_eq!(journal.journal().records().len(), 17);
+        drop(journal);
+        assert_eq!(
+            std::fs::read(&path).expect("unchanged fixture"),
+            source.as_bytes()
+        );
+    }
 }
