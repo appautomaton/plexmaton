@@ -74,7 +74,7 @@ pub(crate) enum FormulaContent {
     Pending,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PlacedFormula {
     pub column: usize,
     pub row: usize,

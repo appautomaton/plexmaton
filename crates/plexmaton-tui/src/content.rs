@@ -31,7 +31,7 @@ pub(crate) use approval_presentation::{
 };
 pub(crate) use drawer::drawer;
 pub(crate) use transcript_presentation::{
-    conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout,
+    conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout_with_prefix,
 };
 
 /// The list of sub-agents: identity, lifecycle, and which one is being looked at.

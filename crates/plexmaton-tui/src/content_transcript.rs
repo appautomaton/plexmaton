@@ -44,9 +44,19 @@ pub(crate) fn transcript_layout(
     width: u16,
     math: crate::math::MathPresentation,
 ) -> Layout {
+    transcript_layout_with_prefix(entry, appearance, width, math, None).0
+}
+
+pub(crate) fn transcript_layout_with_prefix(
+    entry: &TranscriptEntryView,
+    appearance: EntryAppearance,
+    width: u16,
+    math: crate::math::MathPresentation,
+    prefix: Option<&crate::markdown::PrefixHint>,
+) -> (Layout, Option<crate::markdown::PrefixCheckpoint>, bool) {
     let lines = match entry {
         TranscriptEntryView::Text(item) => {
-            return transcript_text(item, width, math);
+            return transcript_text_with_prefix(item, width, math, prefix);
         }
         TranscriptEntryView::Tool(tool) => tool::prepared_entry(tool, appearance),
         TranscriptEntryView::Artifact(artifact) => {
@@ -73,7 +83,7 @@ pub(crate) fn transcript_layout(
     layout
         .text
         .truncate(layout.text.trim_end_matches('\n').len());
-    layout
+    (layout, None, false)
 }
 
 /// Which side of the conversation a message is on, said in the margin rather than in a word.
@@ -112,11 +122,21 @@ pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option
     Some(body + heading + 1)
 }
 
+#[cfg(test)]
 fn transcript_text(
     item: &TranscriptItemView,
     width: u16,
     math: crate::math::MathPresentation,
 ) -> Layout {
+    transcript_text_with_prefix(item, width, math, None).0
+}
+
+fn transcript_text_with_prefix(
+    item: &TranscriptItemView,
+    width: u16,
+    math: crate::math::MathPresentation,
+    prefix: Option<&crate::markdown::PrefixHint>,
+) -> (Layout, Option<crate::markdown::PrefixCheckpoint>, bool) {
     let (heading, body) = text_treatment(item);
     let gutter = matches!(
         (item.kind, item.role),
@@ -135,15 +155,24 @@ fn transcript_text(
         } else {
             crate::markdown::Completion::Streaming
         };
-        match crate::markdown::render_layout(&item.source, reserved, math, completion) {
-            Ok(mut layout) => {
+        match crate::markdown::render_layout_with_prefix(
+            &item.source,
+            reserved,
+            math,
+            completion,
+            // Finalization reveals every incomplete construct and establishes a canonical
+            // retained result; a streaming hint is valid only while the source may still grow.
+            if item.finalized { None } else { prefix },
+        ) {
+            Ok(rendered) => {
+                let mut layout = rendered.layout;
                 for line in &mut layout.lines {
                     if !line.spans.is_empty() {
                         line.treatment = Treatment::SelectionWidth(reserved);
                     }
                 }
                 layout.decoration(Line::default());
-                return layout;
+                return (layout, rendered.checkpoint, rendered.reused_prefix);
             }
             Err(reason) => fallback = Some(reason),
         }
@@ -184,7 +213,7 @@ fn transcript_text(
         line.treatment = Treatment::SelectionWidth(reserved + usize::from(gutter));
     }
     layout.decoration(Line::default());
-    layout
+    (layout, None, false)
 }
 
 /// The word above a message, when it needs one, and the role its body is drawn in.

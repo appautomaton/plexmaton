@@ -194,3 +194,293 @@ fn markdown_controls_and_limits_are_explicit() {
         Err(PlainReason::Complexity)
     );
 }
+
+/// MD-4/PRE-1: a completed heading is rendered once and its merged suffix matches one-shot rows.
+#[test]
+fn frozen_prefix_reuses_heading_and_keeps_full_layout_equivalent() {
+    let source = "# Heading\n\nTail with **bold** and $x$";
+    let full = render_layout_with_prefix(
+        source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("full preparation");
+    let checkpoint = full.checkpoint.clone().expect("safe heading checkpoint");
+    let prefix = full
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("row-aligned prefix");
+    let hint = PrefixHint::new(checkpoint, prefix).expect("bounded hint");
+    let reused = render_layout_with_prefix(
+        source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&hint),
+    )
+    .expect("suffix preparation");
+    assert!(reused.reused_prefix);
+    assert_eq!(reused.layout.text, full.layout.text);
+    assert_eq!(reused.layout.lines, full.layout.lines);
+    assert_eq!(reused.layout.rows, full.layout.rows);
+    assert_eq!(
+        serde_json::to_vec(&reused.layout.formulas).expect("formula maps"),
+        serde_json::to_vec(&full.layout.formulas).expect("formula maps")
+    );
+}
+
+/// MD-4/PRE-1: suffix rendering retains reference targets resolved by the complete parser pass.
+#[test]
+fn frozen_prefix_uses_full_parser_events_for_late_reference_targets() {
+    let initial = "[id]: /url\n\n# Heading\n\n";
+    let full = render_layout_with_prefix(
+        initial,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("full preparation");
+    let checkpoint = full.checkpoint.clone().expect("heading checkpoint");
+    let prefix = full
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("row-aligned prefix");
+    let hint = PrefixHint::new(checkpoint, prefix).expect("bounded hint");
+    let source = format!("{initial}[id]");
+    let reused = render_layout_with_prefix(
+        &source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&hint),
+    )
+    .expect("suffix preparation");
+    let canonical = render_layout(&source, 80, MathPresentation::Native, Completion::Streaming)
+        .expect("canonical preparation");
+    assert!(reused.reused_prefix);
+    assert_eq!(reused.layout, canonical);
+    assert!(
+        reused.layout.text.contains("(/url)"),
+        "{}",
+        reused.layout.text
+    );
+}
+
+/// MD-4/MTH-1: frozen native formulas keep their atomic source ranges while only the tail is laid out.
+#[test]
+fn frozen_prefix_preserves_an_atomic_display_formula_and_copy_range() {
+    let initial = "Intro\n\n$$x_i$$\n\n";
+    let first = render_layout_with_prefix(
+        initial,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("full preparation");
+    assert_eq!(first.formula_preparations, 1);
+    let checkpoint = first.checkpoint.clone().expect("formula checkpoint");
+    let prefix = first
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("row-aligned prefix");
+    let hint = PrefixHint::new(checkpoint, prefix).expect("bounded hint");
+    let source = format!("{initial}Tail with 中文 and $y$");
+    let reused = render_layout_with_prefix(
+        &source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&hint),
+    )
+    .expect("suffix preparation");
+    let canonical = render_layout_with_prefix(
+        &source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("canonical preparation");
+    assert!(reused.reused_prefix);
+    assert_eq!(
+        reused.formula_preparations, 1,
+        "only the mutable formula was prepared"
+    );
+    assert_eq!(canonical.formula_preparations, 2);
+    assert_eq!(reused.layout, canonical.layout);
+    let formula = reused.layout.formulas.first().expect("display formula");
+    assert_eq!(&reused.layout.text[formula.text.clone()], "$$x_i$$");
+    assert!(reused.layout.formulas_validate(80));
+}
+
+/// MD-4/PRE-3: a late reference definition invalidates the earlier event signature and falls back.
+#[test]
+fn frozen_prefix_invalidates_when_a_late_definition_changes_the_frozen_events() {
+    let initial = "[id]\n\n# Heading\n\n";
+    let first = render_layout_with_prefix(
+        initial,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("full preparation");
+    let checkpoint = first.checkpoint.clone().expect("heading checkpoint");
+    let prefix = first
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("row-aligned prefix");
+    let hint = PrefixHint::new(checkpoint, prefix).expect("bounded hint");
+    let source = format!("{initial}[id]: /url");
+    let prepared = render_layout_with_prefix(
+        &source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&hint),
+    )
+    .expect("canonical fallback");
+    assert!(!prepared.reused_prefix);
+    let canonical = render_layout(&source, 80, MathPresentation::Native, Completion::Streaming)
+        .expect("canonical preparation");
+    assert_eq!(prepared.layout, canonical);
+}
+
+/// MD-4/MD-3: setext, containers and unfinished math cannot be used as a frozen boundary.
+#[test]
+fn frozen_prefix_rejects_spanning_or_global_markdown_state() {
+    for source in [
+        "Title\n===\n\nTail",
+        "```text\ncode\n\nTail",
+        "- one\n\nTail",
+        "> quote\n\nTail",
+        "| A | B |\n| - | - |\n| x | y |\n\nTail",
+        "\\[x\n\nTail",
+    ] {
+        let prepared = render_layout_with_prefix(
+            source,
+            80,
+            MathPresentation::Native,
+            Completion::Streaming,
+            None,
+        )
+        .expect("bounded source");
+        assert!(
+            prepared.checkpoint.is_none(),
+            "unexpected checkpoint: {source:?}"
+        );
+        let canonical = render_layout(source, 80, MathPresentation::Native, Completion::Streaming)
+            .expect("canonical fallback");
+        assert_eq!(prepared.layout, canonical, "fallback changed {source:?}");
+    }
+
+    let crossing = render_layout_with_prefix(
+        "# Heading\n\n```text\ncode\n\nTail",
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("bounded open-fence source");
+    assert_eq!(
+        crossing
+            .checkpoint
+            .as_ref()
+            .map(PrefixCheckpoint::source_prefix),
+        Some("# Heading\n\n")
+    );
+}
+
+/// MD-4/MD-1: append boundaries and suffix block kinds preserve canonical rows and copy maps.
+#[test]
+fn frozen_prefix_suffix_matrix_matches_canonical_at_three_widths() {
+    for width in [120, 88, 60] {
+        for initial in ["# Heading\n\n", "# Heading\n\n\\[x^2\\]\n\n"] {
+            let first = render_layout_with_prefix(
+                initial,
+                width,
+                MathPresentation::Native,
+                Completion::Streaming,
+                None,
+            )
+            .expect("initial render");
+            let checkpoint = first.checkpoint.expect("complete prefix");
+            let layout = first
+                .layout
+                .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+                .expect("complete prefix rows");
+            let hint = PrefixHint::new(checkpoint, layout).expect("bounded prefix");
+            for suffix in [
+                "",
+                "\n",
+                "\nTail",
+                "\n\nTail",
+                "[id]: /url",
+                "Tail\n\n[id]: /url",
+                "中文 with **bold** and $y$",
+                "> quote\n> continuation",
+                "- one\n\n  continuation",
+                "```text\ncode\n\nmore",
+                "| A | B |\n| - | - |\n| x | y |",
+                "\\[x\n\n",
+            ] {
+                let source = format!("{initial}{suffix}");
+                let reused = render_layout_with_prefix(
+                    &source,
+                    width,
+                    MathPresentation::Native,
+                    Completion::Streaming,
+                    Some(&hint),
+                )
+                .expect("bounded hinted render");
+                let canonical = render_layout(
+                    &source,
+                    width,
+                    MathPresentation::Native,
+                    Completion::Streaming,
+                )
+                .expect("bounded canonical render");
+                assert_eq!(reused.layout, canonical, "{width}: {source:?}");
+            }
+        }
+    }
+}
+
+/// PRE-1/MD-4: an optional malformed copy map cannot turn valid source into unavailable text.
+#[test]
+fn frozen_prefix_rejects_malformed_hint_copy_ranges() {
+    let first = render_layout_with_prefix(
+        "# 中文\n\n",
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        None,
+    )
+    .expect("initial render");
+    let checkpoint = first.checkpoint.expect("heading checkpoint");
+    let layout = first
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("prefix rows");
+    let hint = PrefixHint::new(checkpoint, layout).expect("bounded prefix");
+    let mut invalid = serde_json::to_value(hint).expect("hint wire data");
+    invalid["layout"]["rows"][0][0]["text"]["end"] = 1.into();
+    let invalid = serde_json::from_value(invalid).expect("malformed hint");
+    let source = "# 中文\n\nTail";
+    let prepared = render_layout_with_prefix(
+        source,
+        80,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&invalid),
+    )
+    .expect("canonical fallback");
+    assert!(!prepared.reused_prefix);
+    let canonical = render_layout(source, 80, MathPresentation::Native, Completion::Streaming)
+        .expect("canonical render");
+    assert_eq!(prepared.layout, canonical);
+}

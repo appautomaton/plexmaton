@@ -133,6 +133,7 @@ impl Key {
 pub struct Request {
     key: Key,
     entry: TranscriptEntryView,
+    prefix: Option<crate::markdown::PrefixHint>,
 }
 
 impl Request {
@@ -148,6 +149,7 @@ impl Request {
                 math: crate::math::MathPresentation::default(),
             },
             entry,
+            prefix: None,
         }
     }
 
@@ -156,6 +158,18 @@ impl Request {
     pub fn with_math(mut self, math: crate::math::MathPresentation) -> Self {
         self.key.math = math;
         self
+    }
+
+    /// Supply a bounded, parser-checked prefix from the presentation cache. The child still
+    /// receives the complete source and validates the checkpoint before rendering its tail.
+    pub(crate) fn with_prefix(mut self, prefix: crate::markdown::PrefixHint) -> Self {
+        self.prefix = Some(prefix);
+        self
+    }
+
+    /// Drop an optional streaming hint before a bounded wire retry; the complete source remains.
+    pub fn discard_prefix(&mut self) {
+        self.prefix = None;
     }
 
     /// Identity checked before worker output is admitted to a retained cache.
@@ -175,7 +189,7 @@ impl Request {
         {
             Err(Refusal::InvalidRequest)
         } else {
-            let layout = content::transcript_layout(
+            let (layout, checkpoint, reused_prefix) = content::transcript_layout_with_prefix(
                 &self.entry,
                 EntryAppearance {
                     open: self.key.open,
@@ -183,18 +197,32 @@ impl Request {
                 },
                 self.key.width,
                 self.key.math,
+                self.prefix.as_ref(),
             );
             if layout.allocation_bytes() > MAX_PREPARED_BYTES
                 || layout.lines.len() > crate::markdown::MAX_LINES + 1
             {
                 Err(Refusal::Capacity)
             } else {
-                Ok(layout)
+                let checkpoint = checkpoint.filter(|checkpoint| {
+                    layout
+                        .allocation_bytes()
+                        .saturating_add(checkpoint.allocation_bytes())
+                        <= MAX_PREPARED_BYTES
+                });
+                return PreparedText {
+                    key: self.key.clone(),
+                    result: Ok(layout),
+                    checkpoint,
+                    reused_prefix,
+                };
             }
         };
         PreparedText {
             key: self.key.clone(),
             result,
+            checkpoint: None,
+            reused_prefix: false,
         }
     }
 }
@@ -215,6 +243,8 @@ pub enum Refusal {
 pub struct PreparedText {
     key: Key,
     pub(crate) result: Result<Layout, Refusal>,
+    checkpoint: Option<crate::markdown::PrefixCheckpoint>,
+    reused_prefix: bool,
 }
 
 impl PreparedText {
@@ -222,11 +252,19 @@ impl PreparedText {
         Self {
             key,
             result: Err(reason),
+            checkpoint: None,
+            reused_prefix: false,
         }
     }
 
-    pub(crate) fn into_parts(self) -> (Key, Result<Layout, Refusal>) {
-        (self.key, self.result)
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Key,
+        Result<Layout, Refusal>,
+        Option<crate::markdown::PrefixCheckpoint>,
+    ) {
+        (self.key, self.result, self.checkpoint)
     }
     /// Checks identity and structural bounds without reparsing or reconstructing semantic text.
     #[must_use]
@@ -235,9 +273,22 @@ impl PreparedText {
             return false;
         }
         let Ok(layout) = &self.result else {
-            return true;
+            return self.checkpoint.is_none() && !self.reused_prefix;
         };
-        layout.allocation_bytes() <= MAX_PREPARED_BYTES
+        let checkpoint_valid = self.checkpoint.as_ref().is_none_or(|checkpoint| {
+            checkpoint.source_bytes() == checkpoint.source_prefix().len()
+                && checkpoint.source_bytes() <= crate::markdown::MAX_FROZEN_PREFIX_BYTES
+                && checkpoint.source_prefix().ends_with("\n\n")
+                && checkpoint.rows() > 0
+                && checkpoint.rows() <= layout.rows.len()
+                && checkpoint.visible_text_bytes() <= layout.text.len()
+                && layout.prefix_valid(checkpoint.rows(), checkpoint.visible_text_bytes())
+        });
+        layout.allocation_bytes().saturating_add(
+            self.checkpoint
+                .as_ref()
+                .map_or(0, crate::markdown::PrefixCheckpoint::allocation_bytes),
+        ) <= MAX_PREPARED_BYTES
             && layout.lines.len() <= crate::markdown::MAX_LINES + 1
             && layout.lines.len() == layout.rows.len()
             && layout.formulas_validate(usize::from(self.key.width))
@@ -251,6 +302,7 @@ impl PreparedText {
                         && layout.text.get(fragment.text.clone()).is_some()
                 })
             })
+            && checkpoint_valid
     }
 
     /// Owned capacity, used before retaining a complete batch rather than each entry alone.
@@ -258,7 +310,21 @@ impl PreparedText {
         size_of::<Self>()
             + self.key.agent.as_str().len()
             + self.key.item.as_str().len()
+            + self
+                .checkpoint
+                .as_ref()
+                .map_or(0, crate::markdown::PrefixCheckpoint::allocation_bytes)
             + self.result.as_ref().map_or(0, Layout::allocation_bytes)
+    }
+
+    /// Whether this result rendered only the mutable suffix of a validated Markdown prefix.
+    pub const fn reused_prefix(&self) -> bool {
+        self.reused_prefix
+    }
+
+    #[cfg(test)]
+    pub(crate) fn checkpoint(&self) -> Option<&crate::markdown::PrefixCheckpoint> {
+        self.checkpoint.as_ref()
     }
 
     /// Refusal is carried explicitly to the presentation owner, never replaced with empty success.

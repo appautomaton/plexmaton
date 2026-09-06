@@ -62,3 +62,49 @@ fn mapped_tables_copy_cell_text_without_alignment_padding() {
         }
     }
 }
+
+/// MD-4/MTH-1: cache checkpoints cannot slice through UTF-8 or an atomic formula rectangle.
+#[test]
+fn prefix_validation_rejects_utf8_and_formula_straddles_without_allocating() {
+    let text = "é".to_owned();
+    let utf8 = Layout {
+        lines: vec![Line::default()],
+        text,
+        rows: vec![vec![Fragment {
+            column: 0,
+            text: 0..2,
+            kind: FragmentKind::Text,
+        }]],
+        formulas: Vec::new(),
+    };
+    assert!(!utf8.prefix_valid(1, 1));
+    assert!(utf8.prefix_valid(1, 2));
+
+    let formula = math::PlacedFormula {
+        column: 0,
+        row: 0,
+        width: 1,
+        height: 2,
+        text: 0..1,
+        content: math::FormulaContent::Pending,
+        style: Paint::default(),
+    };
+    let straddled = Layout {
+        lines: vec![Line::default(), Line::default()],
+        text: "x".into(),
+        rows: vec![
+            vec![Fragment {
+                column: 0,
+                text: 0..1,
+                kind: FragmentKind::Atomic { columns: 1 },
+            }],
+            vec![Fragment {
+                column: 0,
+                text: 0..1,
+                kind: FragmentKind::Atomic { columns: 1 },
+            }],
+        ],
+        formulas: vec![formula],
+    };
+    assert!(!straddled.prefix_valid(1, 1));
+}

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 14 math LaTeX support complete; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 14 math LaTeX support complete; stage 15 frozen Markdown prefix complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -149,6 +149,18 @@ Visual changes are reviewed against real frames before the contract adopts them.
     exact fixture. After rebasing onto the Drawer/palette changes, 1,093 Rust tests passed with
     serial scheduling, alongside workspace Clippy and three offline terminal smokes. Six inspected
     MTH frames remained byte-identical. Pixel-level streaming flicker remains unverified.
+
+15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the
+    owned worker while retaining a full parser pass. The formula-work witness prepares one formula
+    instead of two; 72 suffix/width cases retain canonical rows and copy maps. Malformed hints and
+    capacity pressure fall back without losing admissible source. Validation passed 1,105 workspace
+    tests, compilation, Clippy and corpus gates. Seven paced Kitty deltas,
+    250 ms apart, preserve formula copy, resize, Drawer interaction and clean exit at three widths.
+    Reviewed math frames at [120](../../crates/plexmaton-tui/frames/math/logits-120.svg),
+    [88](../../crates/plexmaton-tui/frames/math/logits-88.svg) and
+    [60](../../crates/plexmaton-tui/frames/math/logits-60.svg), with pending frames alongside,
+    remain byte-identical after regeneration. TR-4 still moves bottom-aligned content as rows grow;
+    this preparation optimization does not establish pixel-level flicker elimination.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

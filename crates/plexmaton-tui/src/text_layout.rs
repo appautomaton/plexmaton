@@ -15,7 +15,7 @@ mod tests;
 pub(crate) use cache::{Cache, PreparedEntry};
 pub(crate) mod wrap;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Fragment {
     pub column: usize,
     pub text: Range<usize>,
@@ -28,7 +28,7 @@ pub(crate) enum FragmentKind {
     Atomic { columns: usize },
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Layout {
     pub lines: Vec<Line>,
     pub text: String,
@@ -118,6 +118,67 @@ impl Layout {
             formula.text = offset + formula.text.start..offset + formula.text.end;
         }
         self.formulas.extend(other.formulas);
+    }
+
+    /// Validate a row-aligned prefix without allocating or cloning its presentation.
+    pub(crate) fn prefix_valid(&self, rows: usize, text_bytes: usize) -> bool {
+        if rows == 0
+            || rows > self.rows.len()
+            || rows > self.lines.len()
+            || text_bytes > self.text.len()
+            || !self.text.is_char_boundary(text_bytes)
+            || self.rows[..rows].iter().any(|row| {
+                row.iter().any(|fragment| {
+                    fragment.text.end > text_bytes
+                        || fragment.text.start > fragment.text.end
+                        || self.text.get(fragment.text.clone()).is_none()
+                })
+            })
+        {
+            return false;
+        }
+        if self.formulas.iter().any(|formula| {
+            let Some(end) = formula.row.checked_add(formula.height) else {
+                return true;
+            };
+            (formula.row < rows && (end > rows || formula.text.end > text_bytes))
+                || (formula.row >= rows && formula.text.start < text_bytes)
+                || (formula.text.start < text_bytes && formula.text.end > text_bytes)
+                || self.text.get(formula.text.clone()).is_none()
+        }) {
+            return false;
+        }
+        true
+    }
+
+    /// Clone a validated prefix while preserving every visible-text and atomic range.
+    ///
+    /// Checkpoints are created only at complete top-level blocks, so a formula cannot straddle
+    /// this boundary. Returning `None` for a forged or stale coordinate keeps the cache from
+    /// manufacturing a source map while assembling a suffix request.
+    pub(crate) fn prefix(&self, rows: usize, text_bytes: usize) -> Option<Self> {
+        if !self.prefix_valid(rows, text_bytes) {
+            return None;
+        }
+        let formulas = self
+            .formulas
+            .iter()
+            .filter(|formula| {
+                formula
+                    .row
+                    .checked_add(formula.height)
+                    .is_some_and(|end| end <= rows)
+                    && formula.text.end <= text_bytes
+                    && formula.text.start <= formula.text.end
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Some(Self {
+            lines: self.lines[..rows].to_vec(),
+            text: self.text[..text_bytes].to_owned(),
+            rows: self.rows[..rows].to_vec(),
+            formulas,
+        })
     }
 
     pub fn blank(&mut self) {

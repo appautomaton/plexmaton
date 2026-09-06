@@ -52,8 +52,17 @@ impl Pending {
         if requests.is_empty() || requests.len() > MAX_ITEMS {
             return Err(Error::Capacity);
         }
-        let batch = Batch { ticket, requests };
-        let bytes = encode(&batch, MAX_REQUEST_BYTES)?;
+        let mut batch = Batch { ticket, requests };
+        let bytes = match encode(&batch, MAX_REQUEST_BYTES) {
+            Err(Error::Capacity) => {
+                // PRE-1: an optional reuse hint must not make an admissible source refuse.
+                for request in &mut batch.requests {
+                    request.discard_prefix();
+                }
+                encode(&batch, MAX_REQUEST_BYTES)?
+            }
+            result => result?,
+        };
         // Retain encoded input, not user String/Vec spare capacity or a second transcript.
         let keys = batch.requests.iter().map(|r| r.key().clone()).collect();
         Ok(Self {
@@ -345,6 +354,58 @@ mod tests {
             length((MAX_REPLY_BYTES as u32 + 1).to_be_bytes(), MAX_REPLY_BYTES),
             Err(Error::Capacity)
         ));
+    }
+
+    /// PRE-1/MD-4: encoded prefix data is optional; source that fits alone must still be admitted.
+    #[test]
+    fn preparation_wire_drops_optional_prefixes_before_refusing_source() {
+        let source = format!("# {}\n\n", "heading ".repeat(80));
+        let mut input = serde_json::to_value(request(source)).expect("source snapshot");
+        input["entry"]["Text"]["finalized"] = false.into();
+        let first: Request = serde_json::from_value(input.clone()).expect("streaming source");
+        let prepared = serde_json::to_value(first.prepare()).expect("prepared heading");
+        let checkpoint = &prepared["checkpoint"];
+        let rows = checkpoint["rows"].as_u64().expect("checkpoint rows") as usize;
+        let text_bytes = checkpoint["visible_text_bytes"]
+            .as_u64()
+            .expect("checkpoint text") as usize;
+        let mut layout = prepared["result"]["Ok"].clone();
+        for field in ["lines", "rows"] {
+            layout[field]
+                .as_array_mut()
+                .expect("prepared rows")
+                .truncate(rows);
+        }
+        layout["text"] = layout["text"].as_str().expect("copy text")[..text_bytes].into();
+        let hint = serde_json::json!({"checkpoint": checkpoint, "layout": layout});
+        let base = serde_json::to_vec(&serde_json::json!({
+            "ticket": 7, "requests": [&input]
+        }))
+        .expect("canonical batch");
+        let padding = "\0".repeat((MAX_REQUEST_BYTES - base.len() - 1) / 6);
+        let source = input["entry"]["Text"]["source"].as_str().expect("source");
+        input["entry"]["Text"]["source"] = format!("{source}{padding}").into();
+        let canonical = input.clone();
+        input["prefix"] = hint;
+        let with_hint: Request = serde_json::from_value(input).expect("request with hint");
+        let batch = Batch {
+            ticket: Ticket(7),
+            requests: vec![with_hint],
+        };
+        assert!(matches!(
+            encode(&batch, MAX_REQUEST_BYTES),
+            Err(Error::Capacity)
+        ));
+        let pending = Pending::new(batch.ticket, batch.requests).expect("source still fits");
+        assert!(pending.bytes.len() <= MAX_REQUEST_BYTES);
+        let decoded: Batch = serde_json::from_slice(&pending.bytes).expect("canonical wire data");
+        assert_eq!(decoded.ticket, Ticket(7));
+        assert_eq!(decoded.requests.len(), 1);
+        assert_eq!(pending.keys, vec![decoded.requests[0].key().clone()]);
+        assert_eq!(
+            serde_json::to_value(&decoded.requests[0]).expect("retained snapshot"),
+            canonical
+        );
     }
 
     /// PRE-1: a framed stream distinguishes clean EOF, truncated input and invalid length.
