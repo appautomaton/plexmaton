@@ -4,8 +4,10 @@
 #
 #     git config core.hooksPath .githooks
 #
-# This runs the fast checks only. The supply-chain lane (cargo-deny, cargo-machete) is slower and
-# depends on the resolved graph rather than the edit, so it runs in CI.
+# It answers "is this commit clean", never "is this code right". Every check here is read-only
+# and runs in parallel, so the hook costs about its slowest check, budgeted at five seconds.
+# Clippy and the test suite build the workspace; the author runs them before handoff and CI runs
+# them again, so they are not repeated here at two minutes a commit.
 #
 # Set PLEXMATON_SKIP_HOOKS=1 to bypass deliberately; do not remove a check to make a commit pass.
 set -euo pipefail
@@ -16,36 +18,61 @@ if [[ "${PLEXMATON_SKIP_HOOKS:-0}" == "1" ]]; then
 fi
 
 cd "$(git rev-parse --show-toplevel)"
+started=$(perl -MTime::HiRes=time -e 'print time')
 
 # Git exports repository-local variables to hooks. Gates spawn their own fixture repositories;
 # let each child resolve its working directory instead of inheriting this repository's authority.
-git_repository_variables=$(git rev-parse --local-env-vars)
-while IFS= read -r git_repository_variable; do
-    unset "$git_repository_variable"
-done <<< "$git_repository_variables"
+while IFS= read -r variable; do
+    [[ -z "$variable" ]] || unset "$variable"
+done <<< "$(git rev-parse --local-env-vars)"
 
-run() {
-    printf '\033[36m→ %s\033[0m\n' "$*"
-    "$@"
-}
-
-run cargo fmt --all --check
-run python3 -m unittest discover -s scripts/tests
-run ./scripts/check-file-length.sh
-run ./scripts/check-crate-graph.sh
-run ./scripts/check-citations.sh
-# Reports only. A document over budget is a signal that content sits at the wrong load-time, which
-# is a design question for the author rather than a reason to block a commit.
-run ./scripts/check-doc-budget.sh
-run cargo clippy --workspace --all-targets -- -D warnings
-run cargo test --workspace --quiet
-
-# Optional locally, enforced in CI. Missing tools must not silently weaken the commit, so the
-# skip is announced.
+gates=(
+    "cargo fmt --all --check"
+    "./scripts/check-file-length.sh"
+    "./scripts/check-crate-graph.sh"
+    "./scripts/check-citations.sh"
+    "./scripts/check-frames.sh"
+)
+# The script tests prove the gates themselves, so they run when a gate is what changed.
+if [[ -n "$(git diff --cached --name-only -- scripts)" ]]; then
+    gates+=("python3 -m unittest discover -s scripts/tests")
+fi
+# Optional locally, enforced in CI. A missing tool must not silently weaken the commit.
 if command -v typos >/dev/null 2>&1; then
-    run typos
+    gates+=("typos")
 else
     echo "pre-commit: typos not installed, skipping (CI still enforces it)" >&2
 fi
 
-echo "pre-commit: all local gates passed"
+logs=$(mktemp -d)
+trap 'rm -rf "$logs"' EXIT
+pids=()
+for i in "${!gates[@]}"; do
+    ${gates[$i]} >"$logs/$i" 2>&1 &
+    pids+=("$!")
+done
+
+failed=0
+for i in "${!gates[@]}"; do
+    if wait "${pids[$i]}"; then
+        printf '\033[32m✓\033[0m %s\n' "${gates[$i]}"
+    else
+        failed=1
+        printf '\033[31m✗ %s\033[0m\n' "${gates[$i]}"
+        sed 's/^/    /' "$logs/$i"
+    fi
+done
+
+# Reports only. A document over budget is a design question for the author, not a failed commit.
+./scripts/check-doc-budget.sh
+
+elapsed=$(perl -MTime::HiRes=time -e 'printf "%.1f", time - $ARGV[0]' "$started")
+if [[ "$failed" == 1 ]]; then
+    echo "pre-commit: a gate failed after ${elapsed}s" >&2
+    exit 1
+fi
+if (( ${elapsed%.*} >= 5 )); then
+    printf '\033[31mpre-commit: %d gates passed in %ss; the budget is 5s\033[0m\n' "${#gates[@]}" "$elapsed"
+else
+    echo "pre-commit: ${#gates[@]} gates passed in ${elapsed}s"
+fi

@@ -28,11 +28,12 @@ any single edit:
 | `python3 -m unittest discover -s scripts/tests` | Gate boundary regressions and offline smoke-fixture ownership |
 | `./scripts/check-crate-graph.sh` | A dependency arrow the design forbids: a runtime, a client or a terminal reachable from the loop or the vocabulary, and a producer reachable from the projection |
 | `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
+| `./scripts/check-frames.sh` | A frame no document cites: evidence nobody can find again |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
 | `python3 scripts/smoke-statusline.py` | Configured shell footer, three widths, last-row hints and cleanup in a real PTY; no model request |
-| `python3 scripts/smoke-permissions.py` | Project trust, real command execution, remembered prefix across restart, revoke/deny and three widths in a real PTY with eight bounded local fixture requests |
-| `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the checked-in frames under `crates/plexmaton-tui/frames/`; the diff is the review, and the ordinary test run compares against them |
+| `python3 scripts/smoke-permissions.py` | Project trust, real command execution, a remembered prefix across restart, revoke/deny and three widths in a real PTY; eight bounded local fixture requests |
+| `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the frames under `crates/plexmaton-tui/frames/`; the diff is the review |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 
 Policy is pinned in `rustfmt.toml`, `clippy.toml`, `deny.toml`, `_typos.toml`, and the root
@@ -45,12 +46,11 @@ Function-level `too_many_lines` and `cognitive_complexity` identify unseparated 
 `check-file-length.sh` adds a 550-line file-level sentinel. Test-only files following the
 workspace's `tests/`, `tests.rs`, `*_tests.rs`, or `test_support.rs` conventions are excluded; in a
 mixed module, measurement stops above the trailing inline `#[cfg(test)] mod tests { ... }`.
-External test-module declarations and test-gated helper functions never truncate the count;
-helpers count conservatively until placed inside the test module. Discovery failure fails the gate.
+Test-gated helpers outside that module still count. Discovery failure fails the gate.
 
-Rejected: a 400-line file sentinel and counting standalone tests, because both repeatedly forced
-mechanical splits without identifying a production responsibility boundary. When either active
-guard fires, split by responsibility and invariant rather than raising it again.
+Rejected: a 400-line sentinel and counting standalone tests, which forced mechanical splits
+without finding a responsibility boundary. When a guard fires, split by responsibility rather
+than raising it.
 
 ## Local setup
 
@@ -64,14 +64,16 @@ Linux compatibility is not established: the current Bash grammar has a known nat
 on Linux ([upstream report](https://github.com/tree-sitter/tree-sitter-bash/issues/337)).
 Passing macOS CI is not evidence of Linux support.
 
-Commits run the fast gates through a repository-managed hook. Enable it once per clone:
+Commits run the read-only gates in parallel through a repository-managed hook, which reports its
+time against a five-second budget. Enable it once per clone:
 
 ```console
 git config core.hooksPath .githooks
 ```
 
-The hook clears Git's repository-local environment before running gates. Git subprocesses in
-fixtures must discover their own repository; inherited `GIT_DIR` can redirect even `git init`.
+The hook clears Git's repository-local environment first: an inherited `GIT_DIR` redirects even a
+fixture's `git init`. Rejected: clippy and the workspace tests in the hook, which build the
+workspace at two minutes a commit to repeat what the handoff run and CI already answered.
 
 ## The terminal smoke
 
@@ -96,8 +98,8 @@ Terminal-boundary pitfalls:
   create no JSONL or saved-session handoff. Test commands never contact a configured provider; see
   [testing](./testing.md) §Tier 5.
 - Both smoke scripts use an owned loopback connection trap and a whitelisted child environment:
-  no real API credentials, proxy routing or live tmux clipboard. Blank launches assert zero JSONL;
-  the independent connection trap checks the absence of model work without relying on journal shape.
+  no real credentials, proxy or live tmux clipboard. Blank launches assert zero JSONL, and the
+  trap proves no model work without reading the journal.
 - An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
   defect; run the smoke outside it. Two `Ctrl-D` presses inside the one-second window are how it
   quits; the script first lets one window expire, so a change to that chord changes this script in

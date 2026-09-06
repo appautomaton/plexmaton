@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -111,6 +111,16 @@ Visual changes are reviewed against real frames before the contract adopts them.
 10. **Branding.** A rounded-square frame and circular gradient center form the user's visual
     reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
     responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
+11. **Composer menu and Drawer — in progress.** A Command is a slash command only, typed into the
+    conversation it addresses and run against a captured target; `/compact` is the first. The
+    `$` picker becomes the composer menu and serves `/` too. Configuration, Conversations with
+    New conversation first, and Permissions become pages of the Drawer, pulled from the top edge
+    by `Ctrl-P`; `/config`, `/resume`, `/new`, `/permissions` and the three-second palette hint
+    cease to exist. The user approved the vocabulary and a hand-composed three-width sketch on
+    2026-09-06; real frames replace it slice by slice under the
+    [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: one picker for
+    both entry points reached by `Ctrl-P`, which would put workspace pages in the composer and
+    make its title lie about the addressee.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
@@ -123,7 +133,7 @@ ready; this phase opening does not claim those capabilities have started.
 | Presentation does not own session semantics | Removing a script/logo leaves journal, provider requests, accounting and recovery unchanged |
 | Facts stay honest | Resume preserves durable snapshot fields; unknown values remain unknown; context occupancy and cumulative traffic differ explicitly |
 | External execution is bounded | Real-process tests prove timeout, replacement, output limits, descendant cleanup and shutdown |
-| UI remains usable at every supported size | Wide/medium/narrow frames reviewed, including approval, pending quit, missing script and clipping |
+| UI remains usable at every supported size | Wide/medium/narrow frames reviewed, including approval, pending quit, missing script, clipping, the Drawer and the composer menu |
 | Updates have an owner | No per-render subprocess or full-history accounting; ticks exist only for explicitly enabled visible work |
 
 Rejected: importing stale branch implementation over current main, and opening a generic plugin

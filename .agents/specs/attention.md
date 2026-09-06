@@ -21,7 +21,9 @@ inside its conversation; later arrivals cannot replace that card or its chosen d
 resolution advances to the oldest remaining approval, with Deny selected. Esc returns to the
 composer and leaves the card visible; Tab/click can return to it. The card is a non-blocking input,
 so reading history and composing remain possible. Pointer decisions require a matching, unchanged
-request and press/release; drag, focus loss, resize or replacement cancels activation.
+request and press/release; drag, focus loss, resize or replacement cancels activation. The card
+separates the operation, the policy reason and the choices; submitting disables duplicate
+decisions until producer confirmation, and refusals stay visible.
 
 The existing `AttentionRequested`/`AttentionResolved` wire events still correlate pending requests;
 their names do not require an Attention surface. The current single-agent runtime cannot populate

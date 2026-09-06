@@ -164,7 +164,7 @@ page and preserves its original return path, keeping navigation bounded.
 
 | Invariant | Proven by |
 | --- | --- |
-| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` |
+| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` with the `retry-*` frames |
 | INV-11 | `resume_aliases_share_one_command_and_retry_is_not_a_global_command` |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
@@ -177,5 +177,5 @@ page and preserves its original return path, keeping navigation bounded.
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
 | INV-11 | `an_alias_finds_its_command_without_adding_a_second_row`, `the_palette_discovers_commands_with_or_without_a_slash`, `the_command_hint_follows_the_addressed_input_and_any_next_key` |
-| INV-12 | `config_and_settings_commands_open_the_resolved_configuration`, `configuration_opens_above_the_workspace_and_escape_restores_the_draft`, `short_configuration_pages_scroll_to_the_remaining_values`, `the_configuration_frames_match_their_fixtures`; `scripts/smoke-tui.py` exercises the executable |
+| INV-12 | `config_and_settings_commands_open_the_resolved_configuration`, `configuration_opens_above_the_workspace_and_escape_restores_the_draft`, `short_configuration_pages_scroll_to_the_remaining_values`, `the_configuration_frames_match_their_fixtures` with the `configuration-*` frames; `scripts/smoke-tui.py` exercises the executable |
 | INV-13 | `the_palette_stays_compact_and_keeps_controls_visible_across_widths`, `workspace_overlays_reserve_three_cells_on_every_side`, `the_command_palette_frames_match_their_fixtures`, `the_configuration_frames_match_their_fixtures` |

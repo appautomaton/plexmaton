@@ -43,6 +43,6 @@ commands, because they are operations on an eligible failed message rather than 
 
 | Invariant | Proven by |
 | --- | --- |
-| SPK-1 | `resume_aliases_share_one_command_and_retry_is_not_a_global_command`, `new_command_keyboard_and_pointer_emit_the_same_intent`, `listing_is_bounded_read_only_and_rejects_symlinks`, `session_picker_keyboard_and_mouse_share_identity_and_cancel_drags`, `session_picker_frames_cover_empty_populated_and_failure_states`, `short_session_picker_keeps_selected_result_and_footer_visible`, `short_command_palette_and_wheel_use_the_visible_choice_window` |
+| SPK-1 | `resume_aliases_share_one_command_and_retry_is_not_a_global_command`, `new_command_keyboard_and_pointer_emit_the_same_intent`, `listing_is_bounded_read_only_and_rejects_symlinks`, `session_picker_keyboard_and_mouse_share_identity_and_cancel_drags`, `session_picker_frames_cover_empty_populated_and_failure_states` with the `session-picker-*` frames, `short_session_picker_keeps_selected_result_and_footer_visible`, `short_command_palette_and_wheel_use_the_visible_choice_window` |
 | SPK-2 | `session_switch_validates_before_replacing_and_never_dispatches`, `cancelled_picker_releases_candidate_and_preserves_current_draft`, `new_session_is_lazy_and_replacement_preserves_saved_history`, `new_session_refuses_unsent_input_and_active_work`, `continuation_handoff_names_only_the_selected_saved_session` |
 | SPK-3 | `cancelled_picker_releases_candidate_and_preserves_current_draft`, `new_session_is_lazy_and_replacement_preserves_saved_history` |
