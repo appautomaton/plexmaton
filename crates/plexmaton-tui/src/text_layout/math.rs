@@ -71,6 +71,7 @@ impl From<MathError> for SourceReason {
 pub(crate) enum FormulaContent {
     Native(NativeLayout),
     Source(SourceReason),
+    Pending,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -89,7 +90,7 @@ impl PlacedFormula {
         self.style.allocation_bytes()
             + match &self.content {
                 FormulaContent::Native(layout) => layout.allocation_bytes(),
-                FormulaContent::Source(_) => 0,
+                FormulaContent::Source(_) | FormulaContent::Pending => 0,
             }
     }
 }
@@ -110,7 +111,7 @@ impl Atom {
             + self.lines.iter().map(Line::allocation_bytes).sum::<usize>()
             + match &self.content {
                 FormulaContent::Native(native) => native.allocation_bytes(),
-                FormulaContent::Source(_) => 0,
+                FormulaContent::Source(_) | FormulaContent::Pending => 0,
             }
     }
 
@@ -119,6 +120,7 @@ impl Atom {
         span: usize,
         width: usize,
         math: MathPresentation,
+        completion: crate::markdown::Completion,
     ) -> Result<Self, PlainReason> {
         let prepared = match math {
             MathPresentation::Native => Formula::parse(source)
@@ -136,6 +138,20 @@ impl Atom {
                 content: FormulaContent::Native(native),
                 lines: Vec::new(),
             }),
+            Err(SourceReason::Incomplete)
+                if completion == crate::markdown::Completion::Streaming =>
+            {
+                let label = if width >= 5 { "Math…" } else { "…" };
+                let line = Line::styled(label, Role::Muted);
+                Ok(Self {
+                    span,
+                    width: line.width(),
+                    height: 1,
+                    axis: 0,
+                    content: FormulaContent::Pending,
+                    lines: vec![line],
+                })
+            }
             Err(reason) => {
                 let mut lines = Vec::new();
                 let source = crate::markdown::inert(source);

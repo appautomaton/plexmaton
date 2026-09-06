@@ -15,7 +15,8 @@ fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
     let base = Palette::ansi();
     let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
     for width in [12, 60, 88, 120] {
-        let prepared = render_layout(source, width, MathPresentation::Native).expect("prepared");
+        let prepared = render_layout(source, width, MathPresentation::Native, Completion::Final)
+            .expect("prepared");
         let before = prepared.painted_lines(&base);
         let after = prepared.painted_lines(&proposed);
         assert_eq!(text(&before), text(&after), "wrapping at {width}");

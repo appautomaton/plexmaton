@@ -68,14 +68,21 @@ pub(crate) fn render(
     palette: &Palette,
     width: usize,
 ) -> Result<Vec<ratatui::text::Line<'static>>, PlainReason> {
-    render_layout(source, width, MathPresentation::Native)
+    render_layout(source, width, MathPresentation::Native, Completion::Final)
         .map(|layout| layout.painted_entry(palette, crate::state::EntryAppearance::default()))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Completion {
+    Streaming,
+    Final,
 }
 
 pub(crate) fn render_layout(
     source: &str,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(PlainReason::Size);
@@ -94,15 +101,16 @@ pub(crate) fn render_layout(
     if events.len() > MAX_EVENTS {
         return Err(PlainReason::Complexity);
     }
-    render_events(events, width, math)
+    render_events(events, width, math, completion)
 }
 
 fn render_events(
     events: Vec<Event<'_>>,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
-    let mut out = Renderer::new(width, math);
+    let mut out = Renderer::new(width, math, completion);
     let mut events = events.into_iter();
     while let Some(event) = events.next() {
         match event {
@@ -120,7 +128,7 @@ fn render_events(
                     .checked_sub(prefix.width())
                     .filter(|w| *w > 0)
                     .ok_or(PlainReason::Complexity)?;
-                let layout = table::render(body, alignment, available, math)?;
+                let layout = table::render(body, alignment, available, math, completion)?;
                 out.layout.append(layout, &prefix, out.prefix_style());
                 out.check()?;
                 out.blank()?;
@@ -171,6 +179,7 @@ struct Renderer {
     current: Vec<Span>,
     atoms: Vec<Atom>,
     math: MathPresentation,
+    completion: Completion,
     math_bytes: usize,
     style: Style,
     styles: Vec<Style>,
@@ -183,13 +192,14 @@ struct Renderer {
 }
 
 impl Renderer {
-    fn new(width: usize, math: MathPresentation) -> Self {
+    fn new(width: usize, math: MathPresentation, completion: Completion) -> Self {
         Self {
             width,
             layout: Layout::default(),
             current: Vec::new(),
             atoms: Vec::new(),
             math,
+            completion,
             math_bytes: 0,
             style: Role::Body.into(),
             styles: Vec::new(),
@@ -336,7 +346,13 @@ impl Renderer {
             .checked_sub(self.prefix().width())
             .filter(|width| *width > 0)
             .ok_or(PlainReason::Complexity)?;
-        let atom = Atom::prepare(source, self.current.len(), width, self.math)?;
+        let atom = Atom::prepare(
+            source,
+            self.current.len(),
+            width,
+            self.math,
+            self.completion,
+        )?;
         self.math_bytes += atom.allocation_bytes();
         if self.math_bytes > crate::preparation::MAX_PREPARED_BYTES {
             return Err(PlainReason::Complexity);

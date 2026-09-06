@@ -17,7 +17,7 @@ that source; either drag direction expands every intersection, including a blank
 whole formula. Streaming completion or Markdown reinterpretation invalidates an obsolete atom.
 
 **MTH-2 — Native projection preserves mathematical meaning.** Positioned engine glyphs and rules
-become disjoint cell reservations with admitted font mappings, script sizes and opaque/inherited
+become disjoint cell reservations with admitted font mappings, single-glyph circumflex/macron accents, CJK text, script sizes and opaque/inherited
 paint; unsupported output, collisions and indivisible width overflow are typed refusals. No
 term-dropping, private-use glyph leakage, guessed negation or silent color substitution (MD-4).
 
@@ -43,8 +43,8 @@ capability from a terminal name.
 
 | Invariant | Proof |
 | --- | --- |
-| MTH-1 | `formula_hit_cells_are_atomic_and_preserve_original_delimiters`, `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `an_atomic_range_highlights_every_blank_and_edge_cell`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `real_preparation_worker_preserves_the_complete_native_math_reply` |
-| MTH-2 | `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `independent_native_overprint_is_refused` |
+| MTH-1 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `formula_hit_cells_are_atomic_and_preserve_original_delimiters`, `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `an_atomic_range_highlights_every_blank_and_edge_cell`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `real_preparation_worker_preserves_the_complete_native_math_reply` |
+| MTH-2 | `cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint`, `logits_accents_preserve_prediction_and_gradient_at_three_widths`, `logits_cjk_labels_preserve_all_text_and_box_at_three_widths`, `real_preparation_worker_preserves_the_logits_math_reply`, `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `independent_native_overprint_is_refused` |
 | MTH-3 | `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths`; real partial-multicell pixel fidelity remains unproven |
 | MTH-4 | `source_and_native_limits_refuse_without_truncation_or_macro_leakage`, `aggregate_cell_bound_is_checked_before_paint_allocation`, `native_reply_roundtrip_validates_the_complete_corpus_and_rejects_forged_runs`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`; PRE-2 owns process timeout/replacement/shutdown evidence |
 | MTH-5 | `streaming_preparation_preserves_native_runs_without_rewriting_them`, `cells_native_math_and_clipboard_share_one_ordered_output_owner`, `native_encoder_rejects_invalid_scale_controls_and_capacity_before_output`, `native_capability_requires_the_complete_measured_cursor_sequence`, `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`; direct-Kitty CLI evidence below |
@@ -57,15 +57,22 @@ first-party fraction-layout engine or source reconstruction remains. The
 [dependency audit](../standards/rust.md#audited-foundation) owns package admission.
 
 `Formula::parse` accepts one complete `$…$`, `$$…$$`, `\(…\)` or `\[…\]` span. It is not a Markdown
-recognizer: MD-1 owns syntax recognition outside code, HTML and link/image literals. Incomplete
-backslash spans and individual formula refusals retain their original source with a local label.
-Dollar spans follow CommonMark's math-extension grammar. Inline boxes share the prose axis;
+recognizer: MD-1 owns syntax recognition outside code, HTML and link/image literals. MD-3 keeps
+unfinished recognized formulas in one pending row during native streaming, with exact source in
+its atomic copy range. Finalization reveals incomplete source; completed formula refusals keep a
+local label and source. Dollar spans follow CommonMark's math-extension grammar. Inline boxes share the prose axis;
 display boxes occupy their own band. Table cells retain the same atomic ranges when a narrow
 grid becomes labelled values. Native runs carry full, 0.7, 0.5 or two-row operator sizing, font treatment and paint;
 palette inheritance does not require geometry changes. Admission normalizes absent frame paint
 before upstream layout, keeping explicit black distinct. Only the verified private-use negation
 overlay plus equals pair maps to `≠`; arbitrary paths, fonts, scales, background fills and other
 unadmitted effects refuse explicitly.
+
+Verified overlapping circumflex and macron glyphs combine with a single base character before
+cell reservation. CJK glyphs use the terminal font; the adapter asks the pinned engine for their
+text-glyph metrics at the admitted style instead of guessing widths from Latin math fonts.
+This admits its Chinese, kana, Hangul and fullwidth text path; arbitrary Unicode font fallback,
+wide accents and complex shaping remain unsupported.
 
 The public constants own limits: 8 KiB original source, 4,096 expanded nodes, 4,096 engine
 primitives, 512 per native dimension and 32,768 reserved cells. Upstream logical nesting is limited
@@ -111,6 +118,17 @@ Reviewed native-run projections at [120](../../crates/plexmaton-math/frames/nati
 [derivatives](../../crates/plexmaton-math/frames/native-derivatives-88.svg) show the current boundary:
 root joins and stretched delimiter pieces remain coarse. SVG is review evidence, never the
 application's formula transport, and is not a pixel capture of Kitty.
+
+The [logits fixture](../../crates/plexmaton-math/fixtures/logits.json) preserves the user's four
+formulas. Reviewed actual workspace output at
+[120](../../crates/plexmaton-tui/frames/math/logits-120.svg),
+[88](../../crates/plexmaton-tui/frames/math/logits-88.svg) and
+[60](../../crates/plexmaton-tui/frames/math/logits-60.svg), plus the pending formula at
+[120](../../crates/plexmaton-tui/frames/math/logits-pending-120.svg),
+[88](../../crates/plexmaton-tui/frames/math/logits-pending-88.svg) and
+[60](../../crates/plexmaton-tui/frames/math/logits-pending-60.svg).
+`math_preview -- target/latex-review --logits` reproduces these frames, exact boxed-formula copy
+and stopped-stream source. These projections do not establish live physical-terminal flicker.
 
 On 2026-09-05, direct Kitty 0.46.1 / Menlo 15 consumed eight full-reply pages at each width, with
 all 61 formula occurrences covered, explicit redraw and clean exit. The

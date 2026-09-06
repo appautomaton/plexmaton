@@ -389,3 +389,93 @@ fn radicals_span_the_radicand_and_text_keeps_word_gaps() {
         assert!(pair[1].x > pair[0].x + pair[0].columns);
     }
 }
+
+/// MTH-1/MTH-2: the user's derivative and probability vector keep the circumflex on p,
+/// all numeric terms and exact delimited source at every supported review width.
+#[test]
+fn logits_accents_preserve_prediction_and_gradient_at_three_widths() {
+    let fixture = support::logits_reply();
+    for (index, span) in fixture.math[..2].iter().enumerate() {
+        let source = &fixture.text[span.start..span.end];
+        let formula = Formula::parse(source).expect("logits formula");
+        for width in [120, 88, 60] {
+            let layout = formula.layout(width).expect("native logits layout");
+            let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
+            assert!(text.contains("p\u{0302}"), "circumflex lost: {text}");
+            let expected = if index == 0 {
+                &["∂", "L", "logits", "=", "−", "y"][..]
+            } else {
+                &["=", "[", "0.7", "0.2", "0.1", "]"][..]
+            };
+            for term in expected {
+                assert!(text.contains(term), "lost {term:?}: {text}");
+            }
+            assert_eq!(layout.source(), source);
+            assert_disjoint(&layout);
+        }
+    }
+}
+
+/// MTH-1/MTH-2: CJK labels, arrows and the surrounding box retain their meaning and two-cell
+/// glyph reservations; a terminal font supplies the glyphs without replacing their source.
+#[test]
+fn logits_cjk_labels_preserve_all_text_and_box_at_three_widths() {
+    let fixture = support::logits_reply();
+    for (index, span) in fixture.math[2..].iter().enumerate() {
+        let source = &fixture.text[span.start..span.end];
+        let formula = Formula::parse(source).expect("mixed-language formula");
+        for width in [120, 88, 60] {
+            let layout = formula.layout(width).expect("native mixed-language layout");
+            let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
+            let expected = if index == 0 {
+                &["logits", "softmax", "概率", "和真实标签做", "cross-entropy"][..]
+            } else {
+                &["真实标签", "y", "对比", "模型预测概率", "p\u{0302}"][..]
+            };
+            for term in expected {
+                assert!(text.contains(term), "lost {term:?}: {text}");
+            }
+            if index == 0 {
+                assert_eq!(text.matches('→').count(), 2);
+            } else {
+                for corner in ['┌', '┐', '└', '┘'] {
+                    assert!(text.contains(corner), "missing box corner {corner}: {text}");
+                }
+            }
+            assert_eq!(layout.source(), source);
+            assert_disjoint(&layout);
+        }
+    }
+}
+
+/// MTH-2: admitted CJK scripts and single-base hats keep scale, Unicode and paint; an accent
+/// with a different color cannot silently inherit its base's foreground.
+#[test]
+fn cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint() {
+    for (source, expected) in [
+        (
+            r"\[\text{概率 カナ 한글 ＡＢ}\]",
+            &["概率", "カナ", "한글", "ＡＢ"][..],
+        ),
+        (r"$\frac{\text{概率}}{\text{标签}}$", &["概率", "标签"][..]),
+        (r"\[\hat q + \hat\alpha\]", &["q\u{0302}", "α\u{0302}"][..]),
+    ] {
+        let layout = prepared(source);
+        let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
+        for term in expected {
+            assert!(text.contains(term), "lost {term}: {text}");
+        }
+        assert_disjoint(&layout);
+        if source.starts_with('$') {
+            assert!(
+                layout
+                    .runs()
+                    .iter()
+                    .filter(|run| run.text.contains('概') || run.text.contains('标'))
+                    .all(|run| run.scale == TextScale::Script && run.columns >= 3)
+            );
+        }
+    }
+    let formula = Formula::parse(r"\[\hat{\textcolor{blue}{p}}\]").expect("valid colored accent");
+    assert!(matches!(formula.layout(120), Err(MathError::Overlap)));
+}

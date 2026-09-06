@@ -257,10 +257,21 @@ fn other_entries(width: u16) -> Vec<Request> {
 /// PRE-1/MTH-1/MTH-4: all 61 formulas traverse the actual child and validated native reply codec.
 #[tokio::test]
 async fn real_preparation_worker_preserves_the_complete_native_math_reply() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../plexmaton-math/fixtures/attention-derivatives.json"
-    ))
-    .expect("source-linked reply");
+    assert_native_reply(
+        include_str!("../../plexmaton-math/fixtures/attention-derivatives.json"),
+        61,
+    )
+    .await;
+}
+
+/// PRE-1/MTH-1/MTH-2: hats, CJK labels, arrows and the box survive the real child and native codec.
+#[tokio::test]
+async fn real_preparation_worker_preserves_the_logits_math_reply() {
+    assert_native_reply(include_str!("../../plexmaton-math/fixtures/logits.json"), 4).await;
+}
+
+async fn assert_native_reply(fixture: &str, count: usize) {
+    let fixture: serde_json::Value = serde_json::from_str(fixture).expect("source-linked reply");
     let source = fixture["text"].as_str().expect("source");
     let ranges = fixture["math"].as_array().expect("original UTF-8 ranges");
     let mut owner = Preparation::new(PathBuf::from(env!("CARGO_BIN_EXE_plexmaton")));
@@ -282,7 +293,7 @@ async fn real_preparation_worker_preserves_the_complete_native_math_reply() {
         let formulas = value["result"]["Ok"]["formulas"]
             .as_array()
             .expect("formulas");
-        assert_eq!(formulas.len(), 61);
+        assert_eq!(formulas.len(), count);
         for (formula, original) in formulas.iter().zip(ranges) {
             assert!(
                 formula["content"]["Native"].is_object(),

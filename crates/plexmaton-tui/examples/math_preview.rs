@@ -103,6 +103,19 @@ impl Review {
         Err("review preparation did not settle".into())
     }
 
+    fn finalize(&mut self) -> Result<()> {
+        self.workspace.emit(vec![ConversationEventEnvelope {
+            sequence: EventSequence::new(4),
+            event: ConversationEvent::TranscriptItemFinalized {
+                agent_id: AgentId::new("primary")?,
+                item_id: TranscriptItemId::new("math-reply")?,
+                item_revision: 2,
+            },
+        }]);
+        self.draw()?;
+        Ok(())
+    }
+
     fn mouse(&mut self, kind: MouseEventKind, x: u16, y: u16) -> plexmaton_tui::Outcome {
         self.workspace.handle(&Event::Mouse(MouseEvent {
             kind,
@@ -235,6 +248,9 @@ fn main() -> Result<()> {
         .ok_or("provide an output directory")?;
     let directory = Path::new(&directory);
     std::fs::create_dir_all(directory)?;
+    if std::env::args().nth(2).as_deref() == Some("--logits") {
+        return logits_review(directory);
+    }
     let document: serde_json::Value = serde_json::from_str(include_str!(
         "../../plexmaton-math/fixtures/attention-derivatives.json"
     ))?;
@@ -273,6 +289,50 @@ fn main() -> Result<()> {
         .save(directory, "source")?;
         Review::new(width, height, table, MathPresentation::Native)?.save(directory, "table")?;
         clipped_review(width, height)?.save(directory, "clipped")?;
+    }
+    Ok(())
+}
+
+fn logits_review(directory: &Path) -> Result<()> {
+    let document: serde_json::Value =
+        serde_json::from_str(include_str!("../../plexmaton-math/fixtures/logits.json"))?;
+    let source = document["text"].as_str().ok_or("logits text")?;
+    let range = |index: usize, bound: &str| -> Result<usize> {
+        Ok(document["math"][index][bound]
+            .as_u64()
+            .ok_or("source offset")? as usize)
+    };
+    let boxed = &source[range(3, "start")?..range(3, "end")?];
+    for (width, height) in [(120, 40), (88, 42), (60, 46)] {
+        let mut review = Review::new(width, height, source, MathPresentation::Native)?;
+        review.save(directory, "logits")?;
+        let run = review
+            .native
+            .iter()
+            .find(|run| run.glyph.text.contains("模型预测概率"))
+            .ok_or("boxed Chinese prediction not visible")?;
+        let (x, y) = (run.glyph.x, run.glyph.y);
+        review.mouse(MouseEventKind::Down(MouseButton::Left), x, y);
+        let copied = review
+            .mouse(MouseEventKind::Up(MouseButton::Left), x, y)
+            .copied
+            .ok_or("boxed formula copy")?;
+        if copied.text != boxed {
+            return Err("boxed formula lost exact source".into());
+        }
+        review.draw()?;
+        review.save(directory, "logits-selection")?;
+        let prefix = &source[..range(2, "end")? - 2];
+        let mut pending = Review::new(width, height, prefix, MathPresentation::Native)?;
+        if !pending.contains("Math…") {
+            return Err("pending math placeholder missing".into());
+        }
+        pending.save(directory, "logits-pending")?;
+        pending.finalize()?;
+        if !pending.contains("Incomplete math") {
+            return Err("stopped formula must reveal its source".into());
+        }
+        pending.save(directory, "logits-stopped")?;
     }
     Ok(())
 }

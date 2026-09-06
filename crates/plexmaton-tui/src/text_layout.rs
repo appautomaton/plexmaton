@@ -132,7 +132,15 @@ impl Layout {
             self.lines.pop();
             self.rows.pop();
         }
-        let end = self.text.trim_end_matches('\n').len();
+        // An unfinished formula may end in source newlines. Only remove composition separators,
+        // never bytes owned by an atomic formula range (MTH-1).
+        let end = self.text.trim_end_matches('\n').len().max(
+            self.formulas
+                .iter()
+                .map(|formula| formula.text.end)
+                .max()
+                .unwrap_or(0),
+        );
         self.text.truncate(end);
     }
 

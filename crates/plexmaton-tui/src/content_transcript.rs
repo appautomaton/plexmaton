@@ -130,7 +130,12 @@ fn transcript_text(
     );
     let mut fallback = None;
     if markdown && crate::markdown::may_format(&item.source) {
-        match crate::markdown::render_layout(&item.source, reserved, math) {
+        let completion = if item.finalized {
+            crate::markdown::Completion::Final
+        } else {
+            crate::markdown::Completion::Streaming
+        };
+        match crate::markdown::render_layout(&item.source, reserved, math, completion) {
             Ok(mut layout) => {
                 for line in &mut layout.lines {
                     if !line.spans.is_empty() {
