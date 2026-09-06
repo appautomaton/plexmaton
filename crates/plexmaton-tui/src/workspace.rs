@@ -49,6 +49,9 @@ mod pointer;
 mod preparation;
 #[cfg(test)]
 mod preparation_tests;
+mod pressed;
+#[cfg(test)]
+mod pressed_tests;
 mod retry;
 #[cfg(test)]
 mod skill_menu_tests;
@@ -159,12 +162,10 @@ pub struct Workspace {
     frames: u64,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
-    pressed_approval: Option<approval_pointer::PressedApproval>,
+    /// The one row a button press landed on, on any surface with rows.
+    pressed: Option<pressed::Pressed>,
     /// Timer-owned motion for a captured conversation drag held at a viewport edge.
     drag_autoscroll: Option<DragAutoScroll>,
-    pressed_retry: Option<retry::PressedRetry>,
-    pressed_drawer: Option<(drawer::DrawerChoice, crate::Point)>,
-    pressed_menu: Option<(crate::state::MenuRow, crate::Point)>,
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
@@ -470,16 +471,7 @@ impl Workspace {
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
-                if let Some(outcome) = self.menu_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.drawer_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.retry_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.approval_pointer(pointer) {
+                if let Some(outcome) = self.button_pointer(pointer) {
                     return outcome;
                 }
                 return Outcome {
@@ -501,12 +493,9 @@ impl Workspace {
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
-                self.pressed_drawer = None;
-                self.pressed_menu = None;
+                self.pressed = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
-                self.pressed_retry = None;
-                self.pressed_approval = None;
                 self.painted = None;
             }
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus
@@ -519,13 +508,11 @@ impl Workspace {
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
             TuiIntent::Hover { surface, at } => {
-                self.pressed_drawer = None;
-                self.pressed_menu = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
+                self.pressed = None;
                 self.drag_autoscroll = None;
                 self.pressed_entry = None;
-                self.pressed_retry = None;
                 let target = surface.and_then(|surface| self.entry_target_at(surface, at));
                 let copy = target
                     .as_ref()

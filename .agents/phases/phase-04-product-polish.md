@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stages 12 streaming continuity and 13 chrome diet complete; stage 10 branding remains |
+| Status | Active; stages 1–9 and 11–13 complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -108,19 +108,22 @@ Visual changes are reviewed against real frames before the contract adopts them.
 10. **Branding.** A rounded-square frame and circular gradient center form the user's visual
     reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
     responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
-11. **Composer menu and Drawer — in progress.** A Command is a slash command only, typed into the
-    conversation it addresses and run from there with a captured target: `/new`, `/resume`,
-    `/compact` and `/permissions` for the Session. The `$` picker becomes the composer menu and
-    serves `/` too. The Drawer, pulled from the top edge by `Ctrl-P`, holds what outlives a
-    Session: Configuration, and Project and User permissions; `/config` and the three-second
-    palette hint cease to exist. The user set the vocabulary and the Drawer's geometry on
-    2026-09-06 and, the same day, decided that conversations and Session permissions are typed
-    where the user types, which moved Conversations out of the Drawer after it had landed there
-    with [DRW-1–DRW-4](../specs/drawer.md). Real frames replace the sketch slice by slice under
-    the [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: settings as
-    slash commands, which put workspace pages in the composer and made its title lie about the
-    addressee; and conversations as a Drawer page, which hid what users type by habit behind a
-    chord.
+11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
+    conversation it addresses and run from there with a captured target: `/new`, `/resume` over
+    saved conversations, `/compact` and `/permissions` for the Session, under
+    [CMD-1 to CMD-3](../specs/composer-menu.md); SPK-1 to SPK-3 moved with the rows. The Drawer,
+    pulled from the top edge by `Ctrl-P` under [DRW-1 to DRW-4](../specs/drawer.md), holds what
+    outlives a Session: Configuration, and Project grants and configuration trust; `/config` and
+    the three-second palette hint ceased to exist. One `PermissionPanel` serves both places and
+    one `Pressed` slot serves every surface with rows (INV-11). The user set the vocabulary and
+    the Drawer's geometry on 2026-09-06 and, the same day, decided that conversations and Session
+    permissions are typed where the user types, which moved Conversations out of the Drawer after
+    they had landed there. Rejected: settings as slash commands, which put workspace pages in the
+    composer and made its title lie about the addressee; and conversations as a Drawer page, which
+    hid what users type by habit behind a chord. Not done, each its own stage: `/model`, which
+    needs the runtime to change a conversation's model mid-flight; a visible sign of messages
+    queued for the next turn; the User rules snapshot, which the permission view does not
+    project; and a loopback run of `/compact` through the executable, unproven in CMD-1.
 
 12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
     prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.

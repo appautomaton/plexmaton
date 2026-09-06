@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     Command, CommandRun, CommandTarget, ConversationRequest, MenuIntent, PermissionRequest, Point,
-    PointerIntent, SurfaceId, state::MenuRow,
+    SurfaceId, state::MenuRow,
 };
 
 impl Workspace {
@@ -123,7 +123,7 @@ impl Workspace {
         Some(self.accept_menu(Some(MenuRow::Command(command))))
     }
 
-    fn menu_hit(&self, at: Point) -> Option<MenuRow> {
+    pub(super) fn menu_hit(&self, at: Point) -> Option<MenuRow> {
         let bounds = self.surfaces.get(SurfaceId::ComposerMenu)?.bounds;
         if at.x <= bounds.x
             || at.x >= bounds.right().saturating_sub(1)
@@ -150,42 +150,5 @@ impl Workspace {
             return None;
         }
         rows.get(window.start.saturating_add(row)).cloned()
-    }
-
-    pub(super) fn menu_pointer(&mut self, pointer: PointerIntent) -> Option<Outcome> {
-        match pointer {
-            PointerIntent::Press {
-                surface: SurfaceId::ComposerMenu,
-                at,
-            } => {
-                self.pressed_menu = self.menu_hit(at).map(|row| (row, at));
-                Some(Outcome::default())
-            }
-            PointerIntent::Release {
-                surface: SurfaceId::ComposerMenu,
-                at,
-            } => {
-                let accepted = self
-                    .pressed_menu
-                    .take()
-                    .filter(|(_, original)| *original == at)
-                    .and_then(|(row, _)| (self.menu_hit(at).as_ref() == Some(&row)).then_some(row));
-                Some(accepted.map_or_else(Outcome::default, |row| self.accept_menu(Some(row))))
-            }
-            PointerIntent::Drag {
-                surface: SurfaceId::ComposerMenu,
-                ..
-            }
-            | PointerIntent::Cancel {
-                surface: SurfaceId::ComposerMenu,
-            }
-            | PointerIntent::Suspend {
-                surface: SurfaceId::ComposerMenu,
-            } => {
-                self.pressed_menu = None;
-                Some(Outcome::default())
-            }
-            _ => None,
-        }
     }
 }

@@ -2,8 +2,8 @@
 //! is chosen. Listing, loading and permission work belong to the composition root.
 use super::*;
 use crate::{
-    ConversationChoice, ConversationPickerStatus, Page, PermissionRequest, Point, PointerIntent,
-    SurfaceId, SwitchRefusal,
+    ConversationChoice, ConversationPickerStatus, Page, PermissionRequest, Point, SurfaceId,
+    SwitchRefusal,
     state::{Drawer, permissions::PermissionPanel},
 };
 
@@ -39,7 +39,7 @@ impl Workspace {
         }
     }
 
-    fn choose_drawer_row(&mut self, choice: DrawerChoice) -> Outcome {
+    pub(super) fn choose_drawer_row(&mut self, choice: DrawerChoice) -> Outcome {
         match choice {
             DrawerChoice::Page(page) => Outcome {
                 page: Some(page),
@@ -157,7 +157,7 @@ impl Workspace {
         chosen.map_or_else(Outcome::default, |choice| self.choose_drawer_row(choice))
     }
 
-    fn drawer_hit(&self, at: Point) -> Option<DrawerChoice> {
+    pub(super) fn drawer_hit(&self, at: Point) -> Option<DrawerChoice> {
         let bounds = self.surfaces.get(SurfaceId::Drawer)?.bounds;
         let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
         if at.x < bounds.x + 1 + insets.sides
@@ -207,36 +207,5 @@ impl Workspace {
             return None;
         }
         drawer.pages().get(index).copied().map(DrawerChoice::Page)
-    }
-
-    pub(super) fn drawer_pointer(&mut self, pointer: PointerIntent) -> Option<Outcome> {
-        match pointer {
-            PointerIntent::Press {
-                surface: SurfaceId::Drawer,
-                at,
-            } => {
-                self.pressed_drawer = self.drawer_hit(at).map(|choice| (choice, at));
-                self.pressed_drawer.as_ref().map(|_| Outcome::default())
-            }
-            PointerIntent::Release {
-                surface: SurfaceId::Drawer,
-                at,
-            } => {
-                let (choice, original) = self.pressed_drawer.take()?;
-                Some(
-                    if at == original && self.drawer_hit(at) == Some(choice.clone()) {
-                        self.choose_drawer_row(choice)
-                    } else {
-                        Outcome::default()
-                    },
-                )
-            }
-            PointerIntent::Drag { .. }
-            | PointerIntent::Cancel { .. }
-            | PointerIntent::Suspend { .. } => {
-                self.pressed_drawer.take().map(|_| Outcome::default())
-            }
-            _ => None,
-        }
     }
 }
