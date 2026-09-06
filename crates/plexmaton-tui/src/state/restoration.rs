@@ -1,6 +1,63 @@
-//! Per-conversation restoration feedback, outside semantic events and diagnostic queues.
+//! Per-conversation notes: restoration and compaction feedback, outside semantic events and
+//! diagnostic queues, painted once after the last entry (JRN-5, CPL-9).
+
+use plexmaton_core::AgentId;
 
 use super::ViewState;
+
+/// Why `/compact` did not start, as the runtime refused it (CPL-9). The composition root maps
+/// the runtime's refusal here; the conversation shows one sentence for it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompactRefusal {
+    TurnActive,
+    ApprovalPending,
+    CompactionActive,
+    ShuttingDown,
+    BudgetUnavailable,
+    NothingToCompact,
+    HistoryTooLarge,
+    SourceUnavailable,
+}
+
+impl CompactRefusal {
+    pub(crate) const fn message(self) -> &'static str {
+        match self {
+            Self::TurnActive => "Could not compact: the turn is still running.",
+            Self::ApprovalPending => "Could not compact: a tool call is waiting for your decision.",
+            Self::CompactionActive => "Could not compact: a compaction is already running.",
+            Self::ShuttingDown => "Could not compact: Plexmaton is shutting down.",
+            Self::BudgetUnavailable => "Could not compact: the model's budget is unavailable.",
+            Self::NothingToCompact => "Nothing to compact yet.",
+            Self::HistoryTooLarge => {
+                "Could not compact: the history exceeds what the model can read at once."
+            }
+            Self::SourceUnavailable => "Could not compact: the conversation could not be read.",
+        }
+    }
+}
+
+/// What the composition root reports about a compaction the user asked for (CPL-9).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompactionNote {
+    /// The runtime owns the summarizer; the activity line says `Compacting…` until it ends.
+    Started,
+    Refused(CompactRefusal),
+    Published,
+    /// The attempt ended without a checkpoint; `reason` is the runtime's own sentence for it.
+    Failed {
+        reason: String,
+    },
+}
+
+/// One presentation-only line after the conversation's last entry, never a semantic entry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConversationNote {
+    Restored(ConversationRestoration),
+    Compacted,
+    CompactionRefused(CompactRefusal),
+    CompactionFailed { reason: String },
+    SwitchRefused(super::SwitchRefusal),
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FeedbackPlacement {
@@ -29,10 +86,40 @@ impl ViewState {
         let Some(id) = self.primary_agent().map(|agent| agent.id.clone()) else {
             return;
         };
+        self.report_note(&id, ConversationNote::Restored(summary));
+    }
+
+    /// Where a requested compaction stands, on the conversation it was asked for (CPL-9).
+    pub(crate) fn report_compaction(&mut self, agent: &AgentId, note: CompactionNote) {
+        match note {
+            CompactionNote::Started => {
+                self.compacting = Some(agent.clone());
+                self.touch();
+            }
+            CompactionNote::Refused(refusal) => {
+                self.report_note(agent, ConversationNote::CompactionRefused(refusal));
+            }
+            CompactionNote::Published => {
+                self.compacting = None;
+                self.report_note(agent, ConversationNote::Compacted);
+            }
+            CompactionNote::Failed { reason } => {
+                self.compacting = None;
+                self.report_note(agent, ConversationNote::CompactionFailed { reason });
+            }
+        }
+    }
+
+    /// Whether the primary conversation's requested compaction is still running.
+    pub(crate) fn compacting(&self, agent: &AgentId) -> bool {
+        self.compacting.as_ref() == Some(agent)
+    }
+
+    pub(super) fn report_note(&mut self, agent: &AgentId, note: ConversationNote) {
         if self
             .agents
-            .get_mut(&id)
-            .is_ok_and(|agent| agent.report_restoration(summary))
+            .get_mut(agent)
+            .is_ok_and(|view| view.report_note(note))
         {
             self.touch();
         }

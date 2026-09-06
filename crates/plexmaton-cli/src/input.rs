@@ -130,6 +130,22 @@ pub(super) fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report
     for message in report.skill_errors {
         workspace.report_skill_diagnostic(message);
     }
+    if let Some(outcome) = report.requested_compaction {
+        use plexmaton_runtime::RequestedCompactionOutcome;
+        workspace.report_compaction(
+            &to,
+            match outcome {
+                RequestedCompactionOutcome::Published { .. } => {
+                    plexmaton_tui::CompactionNote::Published
+                }
+                RequestedCompactionOutcome::Failed { kind, .. } => {
+                    plexmaton_tui::CompactionNote::Failed {
+                        reason: kind.to_string(),
+                    }
+                }
+            },
+        );
+    }
     for failure in report.cleanup_failures {
         let notice = match failure {
             CleanupFailure::Provider => CleanupNotice::Provider,

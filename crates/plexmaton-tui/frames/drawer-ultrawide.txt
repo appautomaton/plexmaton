@@ -3,12 +3,12 @@
 │  Type to filter                                                                                                                                              │
 │                                                                                                                                                              │
 │  > Configuration  Provider, model, and reasoning effort                                                                                                      │
-│    Conversations  Start a new conversation or resume a saved one                                                                                             │
 │    Permissions    Review and change Session or Project permissions                                                                                           │
 │                                                                                                                                                              │
 │  ↑↓ choose · Enter open · Esc close                                                                                                                          │
 │                                                                                                                                                              │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                          │                                                                                                                                    
 │                          │                                                                                                                                    
 │                          │                                                                                                                                    
 │                          │                                                                                                                                    

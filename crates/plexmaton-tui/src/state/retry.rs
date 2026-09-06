@@ -45,7 +45,16 @@ pub(super) struct RetryEdit {
 
 impl ViewState {
     pub(crate) fn has_unsent_input(&self) -> bool {
-        self.retry_edit.is_some() || self.inputs.values().any(|input| !input.text().is_empty())
+        // A draft that is `/resume` and its query is the request to switch, not something the
+        // switch would lose (SPK-2).
+        let primary = self.primary_agent().map(|agent| &agent.id);
+        let listing = self.menu_listing();
+        self.retry_edit.is_some()
+            || self.inputs.iter().any(|(agent, input)| {
+                !input.text().is_empty()
+                    && !(Some(agent) == primary
+                        && listing == Some(super::composer_menu::Listing::Conversations))
+            })
     }
     pub(crate) fn set_retry_actions(&mut self, actions: Option<RetryActions>) {
         let Some(id) = self.primary_agent().map(|agent| agent.id.clone()) else {
@@ -88,7 +97,7 @@ impl ViewState {
         let input = self.inputs.entry(id.clone()).or_default();
         super::apply_text(input, crate::intent::TextIntent::Paste(text));
         if let Some(skill) = retry_skill
-            && super::skill_picker::binding_matches(input.text(), &skill)
+            && super::composer_menu::binding_matches(input.text(), &skill)
         {
             self.skill_bindings.insert(id, skill);
         }
@@ -143,13 +152,13 @@ impl ViewState {
         let status = self.status.clone();
         let inputs = self.inputs.clone();
         let skill_bindings = self.skill_bindings.clone();
-        let skill_picker = self.skill_picker.clone();
+        let composer_menu = self.composer_menu.clone();
         let focus = self.focus;
         *self = Self {
             status,
             inputs,
             skill_bindings,
-            skill_picker,
+            composer_menu,
             focus,
             ..Self::default()
         };

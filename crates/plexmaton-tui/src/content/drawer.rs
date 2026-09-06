@@ -1,4 +1,4 @@
-//! The Drawer's rows: the page list, and the Conversations page with New conversation first.
+//! The Drawer's rows: the page list, and how to work it.
 use ratatui::text::{Line, Span};
 use unicode_width::UnicodeWidthStr;
 
@@ -42,55 +42,6 @@ pub(crate) fn drawer(
     let gap = drawer.choice_gap(height);
     let mut lines = vec![Line::from(filter)];
     lines.extend((0..gap).map(|_| Line::default()));
-    if let Some(picker) = drawer.conversations() {
-        let rows = picker.rows();
-        let window = drawer.choice_window(height);
-        for (index, row) in rows
-            .iter()
-            .enumerate()
-            .skip(window.start)
-            .take(window.len())
-        {
-            let chosen = index == drawer.chosen_index();
-            let marker = if chosen { "> " } else { "  " };
-            let label = command_summary(&format!("{marker}{}", row.label()), usize::from(width));
-            lines.push(if chosen {
-                chosen_row(vec![Span::raw(label)], palette, width)
-            } else {
-                Line::styled(label, palette.style(Role::Muted))
-            });
-        }
-        let note = if picker.status == crate::ConversationPickerStatus::Ready && !rows.is_empty() {
-            if picker.limited {
-                "Recent conversations only · older files remain on disk"
-            } else {
-                rows.get(drawer.chosen_index()).map_or("", |row| row.note())
-            }
-        } else {
-            picker.status.message()
-        };
-        if drawer.conversation_note_visible(height) {
-            let role = if matches!(
-                picker.status,
-                crate::ConversationPickerStatus::OpenFailed
-                    | crate::ConversationPickerStatus::ListFailed
-            ) {
-                Role::Failure
-            } else {
-                Role::Muted
-            };
-            lines.push(Line::styled(
-                command_summary(note, usize::from(width)),
-                palette.style(role),
-            ));
-        }
-        lines.extend((0..gap).map(|_| Line::default()));
-        lines.push(Line::styled(
-            "↑↓ choose · Enter open · Esc back",
-            palette.style(Role::Muted),
-        ));
-        return lines;
-    }
     let pages = drawer.pages();
     if pages.is_empty() {
         lines.push(Line::styled(

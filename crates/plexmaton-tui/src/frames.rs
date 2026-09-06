@@ -177,13 +177,7 @@ mod tests {
             let mut state = canonical_state();
             state.open_drawer(&SurfaceTree::default());
             let drawn = draw(&state, width, height);
-            for signature in [
-                "Workspace",
-                "> Configuration",
-                "Conversations",
-                "Permissions",
-                "Esc close",
-            ] {
+            for signature in ["Workspace", "> Configuration", "Permissions", "Esc close"] {
                 assert!(
                     drawn.contains(signature),
                     "{name}: {signature:?} is not on screen"
@@ -691,7 +685,7 @@ mod tests {
             }
             let picker = workspace
                 .surfaces()
-                .get(SurfaceId::SkillPicker)
+                .get(SurfaceId::ComposerMenu)
                 .expect("skill picker");
             let composer = workspace
                 .surfaces()

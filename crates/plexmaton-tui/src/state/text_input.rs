@@ -110,6 +110,13 @@ impl TextInput {
         self.insert('\n');
     }
 
+    /// Replaces the whole text and puts the caret at its end, dropping any selection.
+    pub fn replace_all(&mut self, text: &str) {
+        self.selection = None;
+        self.text = text.to_owned();
+        self.cursor = self.text.len();
+    }
+
     /// Insert a paste atomically at the caret, replacing a selection without submitting.
     pub(crate) fn paste(&mut self, text: &str) -> bool {
         if text.is_empty() {

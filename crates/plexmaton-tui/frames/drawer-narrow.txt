@@ -3,12 +3,12 @@
 │  Type to filter                                          │
 │                                                          │
 │  > Configuration  Provider, model, and reasoning effort  │
-│    Conversations  Start a new conversation or resume a…  │
 │    Permissions    Review and change Session or Project…  │
 │                                                          │
 │  ↑↓ choose · Enter open · Esc close                      │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
+                                                            
                                                             
                                                             
                                                             

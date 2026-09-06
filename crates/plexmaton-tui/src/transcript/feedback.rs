@@ -46,12 +46,12 @@ impl EntryFeedback {
         if item.saved_project_permission().is_some() {
             after.extend(crate::content_permissions::saved_permission_lines(palette));
         }
-        if let Some((place, summary)) = agent.restoration_for(item.id()) {
+        if let Some((place, note)) = agent.note_for(item.id()) {
             let destination = match place {
                 FeedbackPlacement::Before => &mut before,
                 FeedbackPlacement::After => &mut after,
             };
-            destination.extend(content::recovery_lines(summary, palette));
+            destination.extend(content::note_lines(note, palette));
         }
         Self { before, after }
     }

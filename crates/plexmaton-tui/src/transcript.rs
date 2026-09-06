@@ -60,7 +60,7 @@ struct Measured {
     id: TranscriptItemId,
     revision: u64,
     open: bool,
-    restoration: Option<(FeedbackPlacement, crate::ConversationRestoration)>,
+    note: Option<(FeedbackPlacement, crate::state::ConversationNote)>,
     permission_saved: bool,
     leading_rows: usize,
     retry: Option<crate::RetryTarget>,
@@ -155,7 +155,7 @@ impl TranscriptMetrics {
         let mut count = 0_usize;
         for item in agent.entries() {
             let open = disclosure.is_open(item.id());
-            let restoration = agent.restoration_for(item.id());
+            let note = agent.note_for(item.id());
             let permission_saved = item.saved_project_permission().is_some();
             let retry = agent
                 .retry
@@ -169,11 +169,7 @@ impl TranscriptMetrics {
                     && entry.open == open
                     && entry.retry.as_ref() == retry
                     && entry.permission_saved == permission_saved
-                    && entry
-                        .restoration
-                        .as_ref()
-                        .map(|(place, summary)| (*place, summary))
-                        == restoration
+                    && entry.note.as_ref().map(|(place, note)| (*place, note)) == note
             });
             let reusable = semantic_reusable
                 && entries.get(count).is_some_and(|entry| {
@@ -197,7 +193,7 @@ impl TranscriptMetrics {
                     retry: retry.cloned(),
                     open,
                     permission_saved,
-                    restoration: restoration.map(|(place, summary)| (place, summary.clone())),
+                    note: note.map(|(place, note)| (place, note.clone())),
                     leading_rows,
                     compact_rows,
                     body_rows,

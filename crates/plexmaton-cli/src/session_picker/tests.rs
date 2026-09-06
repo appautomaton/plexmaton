@@ -136,7 +136,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     let launcher = launcher(root.path());
     let (mut runtime, mut workspace) = current(&launcher).await;
     let mut picker = ConversationPicker::new(launcher.clone());
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let locked = JournalFile::open(&path).expect("lock");
     assert!(
         launcher
@@ -152,17 +152,18 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     );
     assert!(
         !picker
-            .apply(
-                Update::Failed(ConversationPickerStatus::OpenFailed),
-                &mut runtime,
-                &mut workspace
-            )
+            .apply(Update::OpenFailed, &mut runtime, &mut workspace)
             .await
             .expect("refused")
     );
     assert!(picker.current.is_none());
     assert!(!runtime.has_active_work());
+    assert!(
+        !workspace.conversation_picker_open(),
+        "a failed switch leaves nothing waiting; the next one asks again"
+    );
     drop(locked);
+    workspace.begin_conversation_switch();
     let opened = launcher
         .clone()
         .open_with_key(
@@ -220,7 +221,7 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
     let launcher = launcher(root.path());
     let (mut runtime, mut workspace) = current(&launcher).await;
     let mut picker = ConversationPicker::new(launcher.clone());
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     workspace.return_input(agent_id(), "draft stays here".into());
     picker.select(id("haiku"), &runtime, &mut workspace);
     assert!(picker.job.is_none());
@@ -255,11 +256,11 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
         "cancel releases writer ownership"
     );
     picker.open(&mut workspace);
-    let job = picker.job.as_ref().expect("owned listing").id();
+    let job = picker.job.as_ref().expect("owned listing").1.id();
     picker.open(&mut workspace);
     picker.select(id("haiku"), &runtime, &mut workspace);
     assert_eq!(
-        picker.job.as_ref().expect("same listing").id(),
+        picker.job.as_ref().expect("same listing").1.id(),
         job,
         "repeated activation never starts another owner"
     );
@@ -281,7 +282,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
         ConversationSelection::Resume(id("haiku")),
         ConversationSelection::Automatic,
     ] {
-        workspace.open_conversation_picker();
+        workspace.begin_conversation_switch();
         let opened = launcher
             .clone()
             .open_with_key(
@@ -331,7 +332,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
     assert_eq!(reopened.journal().conversation_id(), &id("haiku"));
     drop(reopened);
     // A blank replacement can itself be dismissed without ever creating storage.
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let mut candidate = launcher
         .clone()
         .open_with_key(
@@ -475,7 +476,7 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
 
     let mut picker = ConversationPicker::new(launcher.clone());
     picker.current = opened.persisted;
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let candidate = launcher
         .clone()
         .open_with_key(

@@ -101,7 +101,7 @@ pub struct WorkspaceInput {
     /// Whether the Drawer's open view is typed into or navigated, which decides its kind.
     pub drawer_focus: crate::KeyboardFocus,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
-    pub skill_picker_rows: u16,
+    pub composer_menu_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
     pub rail: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
@@ -120,7 +120,7 @@ impl Default for WorkspaceInput {
             decision_mode: DecisionMode::Inline,
             drawer_rows: 0,
             drawer_focus: crate::KeyboardFocus::TextInput,
-            skill_picker_rows: 0,
+            composer_menu_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
@@ -232,7 +232,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         attention,
         regions,
         input.decision_mode,
-        input.skill_picker_rows,
+        input.composer_menu_rows,
         input.drawer_focus,
     )
 }
@@ -496,7 +496,7 @@ mod tests {
             8,
             crate::KeyboardFocus::TextInput,
         );
-        assert!(tree.get(SurfaceId::SkillPicker).is_none());
+        assert!(tree.get(SurfaceId::ComposerMenu).is_none());
     }
 
     /// The same, with an inspector open in its default presentation.

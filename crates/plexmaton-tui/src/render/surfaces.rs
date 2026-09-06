@@ -152,7 +152,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         },
         drawer_rows: state.drawer_rows(area.width),
         drawer_focus: state.drawer_focus(),
-        skill_picker_rows: state.skill_picker_rows(),
+        composer_menu_rows: state.composer_menu_rows(),
         rail: state.sub_agents().next().is_some(),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),
         inspector,
@@ -160,16 +160,16 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
 }
 
 /// The menu is a titled rule and its rows above the composer's top rule, which closes it.
-pub(super) fn skill_picker_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+pub(super) fn composer_menu_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
         insets: crate::surface::ContentInsets::default(),
         chrome: Chrome::Rules,
         footer: None,
         body: Body::Whole {
-            lines: content::skill_picker(state, palette, inner_width(bounds.width), bounds.height),
+            lines: content::composer_menu(state, palette, inner_width(bounds.width), bounds.height),
             follows_tail: false,
         },
-        title: title(palette, "Skills".to_owned(), Role::SectionHeading, ""),
+        title: title(palette, state.menu_title(), Role::SectionHeading, ""),
         badge: None,
         edges: Edges::Upper,
     }

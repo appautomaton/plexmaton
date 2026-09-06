@@ -7,8 +7,10 @@ mod drawer;
 pub(crate) mod permissions;
 pub use conversation_picker::{
     ConversationChoice, ConversationPickerStatus, ConversationRequest, MAX_CONVERSATION_CHOICES,
+    SwitchRefusal,
 };
 mod composer;
+mod composer_menu;
 mod configuration;
 mod current_work;
 mod disclosure;
@@ -24,7 +26,6 @@ mod retry;
 mod roster;
 mod scroll;
 mod selection;
-mod skill_picker;
 mod status;
 mod text_input;
 
@@ -39,6 +40,8 @@ pub use approval::{
 pub use attention::AttentionView;
 pub(crate) use composer::apply_text;
 pub(crate) use composer::input_window;
+pub(crate) use composer_menu::MenuRow;
+pub use composer_menu::{Command, Listing, SkillChoice, SkillChoiceSource};
 pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
@@ -52,12 +55,14 @@ pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
 pub(crate) use restoration::FeedbackPlacement;
-pub use restoration::{ConversationRestoration, ConversationTailRepair};
+pub use restoration::{
+    CompactRefusal, CompactionNote, ConversationNote, ConversationRestoration,
+    ConversationTailRepair,
+};
 pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
 pub(crate) use selection::{CopyNote, TextPoint};
 pub use selection::{CopyRequest, Selection};
-pub use skill_picker::{SkillChoice, SkillChoiceSource};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
@@ -111,8 +116,8 @@ pub struct ViewState {
     /// "exactly one cursor" a claim that could fail — two inputs exist, and focus is what decides
     /// which of them has the cursor (COM-1).
     inputs: BTreeMap<AgentId, TextInput>,
-    skill_bindings: skill_picker::SkillBindings,
-    skill_picker: skill_picker::SkillPicker,
+    skill_bindings: composer_menu::SkillBindings,
+    composer_menu: composer_menu::ComposerMenu,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,
@@ -125,6 +130,8 @@ pub struct ViewState {
     retry_edit: Option<retry::RetryEdit>,
     /// The model this process resolved, named on the composer's rule; the composition root sets it.
     model: Option<ConfigurationSummary>,
+    /// The agent whose requested compaction the runtime owns right now (CPL-9).
+    compacting: Option<AgentId>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -261,12 +268,6 @@ impl ViewState {
         let Some(drawer) = self.drawer.as_mut() else {
             return false;
         };
-        if drawer
-            .conversations()
-            .is_some_and(conversation_picker::ConversationPicker::opening)
-        {
-            return false;
-        }
         let Some(filter) = drawer.filter_mut() else {
             return false;
         };

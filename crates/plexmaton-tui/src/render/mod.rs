@@ -9,8 +9,8 @@ mod surfaces;
 
 use panel::{Body, Chrome, Edges, Panel, draw_panel};
 use surfaces::{
-    Stacking, approval_panel, collapsed_composer_panel, composer_panel, draw_cursor, drawer_page,
-    drawer_panel, skill_picker_panel, workspace_input,
+    Stacking, approval_panel, collapsed_composer_panel, composer_menu_panel, composer_panel,
+    draw_cursor, drawer_page, drawer_panel, workspace_input,
 };
 
 use chrome::{
@@ -22,7 +22,7 @@ use crate::{
     layout::{self, LayoutClass},
     state::inner_width,
     surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
-    theme::{Palette, Role},
+    theme::Palette,
     transcript::TranscriptMetrics,
 };
 
@@ -171,7 +171,7 @@ pub fn render(
             }),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
-            SurfaceId::SkillPicker => Some(skill_picker_panel(state, palette, bounds)),
+            SurfaceId::ComposerMenu => Some(composer_menu_panel(state, palette, bounds)),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -255,9 +255,9 @@ fn conversation_body(
     let width = inner_width(area.width);
     if metrics.measure_with(agent, palette, width, state.disclosure()) == 0 {
         return Body::Whole {
-            lines: agent.restoration.as_ref().map_or_else(
+            lines: agent.note.as_ref().map_or_else(
                 || content::conversation_placeholder(palette, surface, true),
-                |feedback| content::recovery_lines(&feedback.summary, palette),
+                |anchored| content::note_lines(&anchored.note, palette),
             ),
             follows_tail: false,
         };
@@ -941,7 +941,7 @@ mod tests {
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::Drawer => "Workspace",
-                SurfaceId::SkillPicker => "Skills",
+                SurfaceId::ComposerMenu => "Skills",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(

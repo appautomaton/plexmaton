@@ -11,8 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, PointerIntent,
-        ScrollDirection, SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
+        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, MenuIntent,
+        PointerIntent, ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
@@ -158,18 +158,21 @@ impl Router {
 
         // The completion list keeps keyboard focus and the caret in the primary composer.
         if context.focused == Some(SurfaceId::Composer)
-            && context.surfaces.get(SurfaceId::SkillPicker).is_some()
+            && context.surfaces.get(SurfaceId::ComposerMenu).is_some()
         {
             return match key.code {
-                KeyCode::Esc => Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Close)),
-                KeyCode::Up if key.modifiers.is_empty() => Routed::Intent(TuiIntent::SkillPicker(
-                    SkillPickerIntent::Step(Direction::Backward),
-                )),
-                KeyCode::Down if key.modifiers.is_empty() => Routed::Intent(
-                    TuiIntent::SkillPicker(SkillPickerIntent::Step(Direction::Forward)),
-                ),
-                KeyCode::Tab | KeyCode::Enter if key.modifiers.is_empty() => {
-                    Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Accept))
+                KeyCode::Esc => Routed::Intent(TuiIntent::Menu(MenuIntent::Close)),
+                KeyCode::Up if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Backward)))
+                }
+                KeyCode::Down if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Forward)))
+                }
+                KeyCode::Tab if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Complete))
+                }
+                KeyCode::Enter if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Accept))
                 }
                 _ => text_key(key),
             };
@@ -286,13 +289,11 @@ impl Router {
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
 /// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
-    if context.surfaces.hit_test(at) == Some(SurfaceId::SkillPicker) {
-        return Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Step(
-            match direction {
-                ScrollDirection::Up => Direction::Backward,
-                ScrollDirection::Down => Direction::Forward,
-            },
-        )));
+    if context.surfaces.hit_test(at) == Some(SurfaceId::ComposerMenu) {
+        return Routed::Intent(TuiIntent::Menu(MenuIntent::Step(match direction {
+            ScrollDirection::Up => Direction::Backward,
+            ScrollDirection::Down => Direction::Forward,
+        })));
     }
     if context.surfaces.hit_test(at) == Some(SurfaceId::Drawer) {
         return Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(match direction {

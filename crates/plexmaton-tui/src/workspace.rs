@@ -28,10 +28,11 @@ use crate::{
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+mod composer_menu;
+#[cfg(test)]
+mod composer_menu_tests;
 #[cfg(test)]
 mod composer_tests;
-#[cfg(test)]
-mod conversation_picker_tests;
 mod copy;
 mod drawer;
 #[cfg(test)]
@@ -48,7 +49,8 @@ mod preparation;
 #[cfg(test)]
 mod preparation_tests;
 mod retry;
-mod skill_picker;
+#[cfg(test)]
+mod skill_menu_tests;
 mod text_selection;
 #[cfg(test)]
 mod text_selection_tests;
@@ -91,6 +93,23 @@ pub struct Outcome {
     pub conversation: Option<ConversationRequest>,
     /// A reviewed permission mutation; only the retained permission owner can apply it.
     pub permission: Option<plexmaton_core::PermissionIntent>,
+    /// A Command to run against the conversation it names; the runtime admits or refuses it
+    /// (CMD-1, CPL-9).
+    pub command: Option<CommandRun>,
+}
+
+/// A Command accepted in the composer, with the target captured at that moment (CMD-1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandRun {
+    pub command: crate::Command,
+    pub target: CommandTarget,
+}
+
+/// The conversation a Command runs against. The runtime's admission is its revalidation: a
+/// busy or stale target is refused there with a typed reason, never redirected.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandTarget {
+    pub agent: AgentId,
 }
 
 impl Outcome {
@@ -105,6 +124,7 @@ impl Outcome {
             retry: None,
             conversation: None,
             permission: None,
+            command: None,
         }
     }
 }
@@ -143,7 +163,7 @@ pub struct Workspace {
     drag_autoscroll: Option<DragAutoScroll>,
     pressed_retry: Option<retry::PressedRetry>,
     pressed_drawer: Option<(drawer::DrawerChoice, crate::Point)>,
-    pressed_skill: Option<(String, crate::Point)>,
+    pressed_menu: Option<(crate::state::MenuRow, crate::Point)>,
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
@@ -293,6 +313,11 @@ impl Workspace {
         self.state.report_conversation_recovery(recovery);
     }
 
+    /// Where a compaction the user asked for stands, from the composition root (CPL-9).
+    pub fn report_compaction(&mut self, agent: &AgentId, note: crate::CompactionNote) {
+        self.state.report_compaction(agent, note);
+    }
+
     /// Translates one terminal event and applies whatever it asked for.
     pub fn handle(&mut self, event: &Event) -> Outcome {
         self.handle_at(event, Instant::now())
@@ -381,7 +406,7 @@ impl Workspace {
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
         match intent {
-            TuiIntent::SkillPicker(intent) => self.apply_skill_picker(intent),
+            TuiIntent::Menu(intent) => return self.apply_menu(intent),
             TuiIntent::Retry(action) => {
                 return Outcome {
                     retry: self.perform_retry_action(action),
@@ -417,6 +442,13 @@ impl Workspace {
                         ..Outcome::default()
                     };
                 }
+                // A whole draft that is a Command runs, menu or no menu (CMD-2).
+                if matches!(edit, TextIntent::Submit)
+                    && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
+                    && let Some(outcome) = self.submit_command()
+                {
+                    return outcome;
+                }
                 let submitted = self.state.edit(&self.surfaces, edit);
                 return Outcome {
                     submitted,
@@ -442,7 +474,7 @@ impl Workspace {
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
-                if let Some(outcome) = self.skill_picker_pointer(pointer) {
+                if let Some(outcome) = self.menu_pointer(pointer) {
                     return outcome;
                 }
                 if let Some(outcome) = self.drawer_pointer(pointer) {
@@ -474,7 +506,7 @@ impl Workspace {
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
                 self.pressed_drawer = None;
-                self.pressed_skill = None;
+                self.pressed_menu = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
                 self.pressed_retry = None;
@@ -492,7 +524,7 @@ impl Workspace {
             }
             TuiIntent::Hover { surface, at } => {
                 self.pressed_drawer = None;
-                self.pressed_skill = None;
+                self.pressed_menu = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
                 self.drag_autoscroll = None;
@@ -3729,13 +3761,7 @@ mod tests {
             assert_eq!((area.x, area.y, area.width), (0, 0, width));
             assert_eq!(usize::from(area.height), Page::ALL.len() + 8);
             let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
-            for text in [
-                "Workspace",
-                "> Configuration",
-                "Conversations",
-                "Permissions",
-                "Esc close",
-            ] {
+            for text in ["Workspace", "> Configuration", "Permissions", "Esc close"] {
                 assert!(shown.contains(text), "{width}: {shown}");
             }
             let viewport = workspace
@@ -3748,6 +3774,31 @@ mod tests {
                 "each page stays one row at {width}"
             );
         }
+    }
+
+    /// DRW-2/DRW-3: a short Drawer keeps the marker and its keyboard affordances together, and
+    /// the wheel over it steps the choice.
+    #[test]
+    fn short_drawer_and_wheel_use_the_visible_choice_window() {
+        let (mut workspace, mut terminal) = drawn(60, 12);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        let area = bounds(&workspace, SurfaceId::Drawer);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::ScrollDown, area.x + 2, area.y + 2),
+        );
+        let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
+        assert!(
+            shown.contains("> Permissions") && shown.contains("Enter open"),
+            "{shown}"
+        );
+        assert_eq!(
+            workspace
+                .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+                .page,
+            Some(Page::Permissions)
+        );
     }
 
     /// DRW-4: the smallest Configuration page still exposes every value by keyboard, under a
@@ -3932,10 +3983,7 @@ mod tests {
 
         let drawer = workspace.state.drawer().expect("open");
         assert_eq!(drawer.filter().text(), "con");
-        assert_eq!(
-            drawer.pages(),
-            vec![Page::Configuration, Page::Conversations]
-        );
+        assert_eq!(drawer.pages(), vec![Page::Configuration]);
         assert_eq!(workspace.state.composer().text(), "");
     }
 

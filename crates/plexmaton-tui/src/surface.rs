@@ -180,7 +180,7 @@ pub enum SurfaceId {
     /// the collapsed composer says `⇥ to return`, and the ring is what makes that true.
     Composer,
     /// Skill completions anchored immediately above the primary composer.
-    SkillPicker,
+    ComposerMenu,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
     /// Requests background agents have made of the user. Registered only while one is queued.

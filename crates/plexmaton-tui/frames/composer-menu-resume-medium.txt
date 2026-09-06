@@ -1,0 +1,10 @@
+── Conversations ────────────────────────────────────────────────────
+ > Discuss project 00  conversation-00                               
+   Discuss project 01  conversation-01                               
+   Discuss project 02  conversation-02                               
+   Discuss project 03  conversation-03                               
+   Discuss project 04  conversation-04                               
+  ↑↓ choose · Enter open · Esc close                                 
+── Message Agent A · primary ────────────────────────────────────────
+ /resume 0                                                           
+─────────────────────────────────────────────────────────────────────

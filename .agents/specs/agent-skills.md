@@ -52,7 +52,7 @@ loaded body/resource at 256 KiB. Over-limit cases are diagnostics or typed refus
 that looks complete. Catalogs retain summaries, not bodies.
 
 The model calls `skill` with `name` and optional `resource`; omission loads `SKILL.md`, and a resource
-is relative to the selected bundle. The [composer picker](./skill-picker.md) owns `$name` invocation
+is relative to the selected bundle. The [composer menu](./composer-menu.md) owns `$name` invocation
 and selected-name metadata; only known user-invocable names are inferred from plain dollar text.
 Preserve that full user text; load instructions independently
 and retain source/name/canonical location/digest with the exact content. A model may read resources

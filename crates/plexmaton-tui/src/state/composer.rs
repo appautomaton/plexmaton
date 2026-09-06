@@ -46,7 +46,7 @@ impl ViewState {
             input.begin_selection();
         }
         if surface == SurfaceId::Composer {
-            self.sync_skill_picker();
+            self.sync_composer_menu();
         }
         self.touch();
         true
@@ -169,7 +169,7 @@ impl ViewState {
             .append_returned(&text);
         if was_empty
             && let Some(skill) = skill
-            && super::skill_picker::binding_matches(&text, &skill)
+            && super::composer_menu::binding_matches(&text, &skill)
         {
             self.skill_bindings.insert(to, skill);
         }
@@ -204,7 +204,7 @@ impl ViewState {
             let submitted = self.inputs.entry(to.clone()).or_default().take();
             if submitted.is_some() {
                 self.take_skill_binding(&to);
-                self.close_skill_picker();
+                self.close_composer_menu();
                 self.touch();
             }
             return submitted.map(|text| Submission {
@@ -230,7 +230,7 @@ impl ViewState {
         };
         if changed {
             if kind == SubmissionKind::Message {
-                self.sync_skill_picker();
+                self.sync_composer_menu();
             }
             self.touch();
         }

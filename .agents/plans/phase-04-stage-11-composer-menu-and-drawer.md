@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §input, §surface model (Drawer), §responsive layout classes |
-| Status | Slices 1–3 of 6 done; slice 2's Conversations page moves to the menu in slice 4 |
+| Status | Slices 1–4 of 6 done |
 
 ## Outcome
 
@@ -46,23 +46,17 @@ reading; the user's words placed them in the composer, so slice 4 moves them.
    `specs/compaction.md`. Closed by runtime
    tests for the idle path, each refusal, text during the run, and interrupt, shutdown, failure
    and timeout during a requested compaction, none dispatching a model step.
-4. **Composer menu: `/compact`, `/new`, `/resume`.** Rename `SkillPicker` to `ComposerMenu`; one
-   `MenuIntent` replaces `CommandPaletteIntent` and `SkillPickerIntent`, and the router keys its
-   menu grammar on `SurfaceKind`, not on the surface's id. `Command` returns as the
-   conversation-command enum carrying a `CommandTarget` of agent, conversation, head and revision
-   that the composition root revalidates before dispatch; a stale or busy target is a notice in
-   that conversation, never a redirect. `/new` accepts at once as `ConversationRequest::New`;
-   `/resume` shows the saved conversations as menu rows, the text after it as the query, with
-   loading and failure rows inside the menu, so the Drawer's Conversations page and `Page::Conversations`
-   go and the listing, validation and replacement in the CLI stay as they are. A menu accept
-   outranks retry submission; a bare `Enter` with no menu keeps today's retry precedence.
-   `specs/skill-picker.md` becomes `specs/composer-menu.md`, SKP numbers kept and a `CMD` prefix
-   for command rows; SPK-1's discovery clause moves with the rows. Closed by tests for `/`
-   listing the four commands, `/config` and `/compact please` staying literal, Tab versus Enter,
-   Escape keeping the draft, the stale-target refusal, `/resume` rows sharing SPK-1's identity
-   and cancellation by keyboard and pointer, Unicode and paste inside the token, three
-   `composer-menu-*` frames, and one runtime test driving `/compact` against a loopback fixture;
-   the PTY smoke does not.
+4. **Composer menu: `/compact`, `/new`, `/resume` — done.** `SkillPicker` became `ComposerMenu`
+   with one `MenuIntent`; `Command` is the conversation-command enum and `/compact` leaves as a
+   `CommandRun` whose `CommandTarget` is the composer's agent, admitted or refused by the runtime
+   (CPL-9) with the answer as a note in that conversation. `/new` accepts at once as
+   `ConversationRequest::New`; `/resume` lists the saved conversations as menu rows behind the
+   text after it, with loading, failure, opening and refusal as the listing's status row, so the
+   Drawer's Conversations page went and the CLI's listing, validation and replacement stayed,
+   now with one typed job. `specs/composer-menu.md` carries SKP and CMD; SPK-1 moved with the
+   rows. Closed by the tests CMD-1, CMD-2 and SPK-1 to SPK-3 cite, the three `composer-menu-*`
+   frames, and the skill tests carried over unchanged. Deferred: a runtime loopback test driving
+   `/compact` through the executable, marked unproven in CMD-1; `/permissions` is slice 5.
 5. **Permissions by lifetime.** `/permissions` lists the Session's grants and the native
    file-change preset as menu rows; a row reviews and confirms in the menu through PER-7's
    revisioned intents. The Drawer's Permissions page keeps what outlives the Session: Project

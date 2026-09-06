@@ -14,12 +14,15 @@ pub(crate) enum CurrentWork<'a> {
     Responding,
     RunningTool(&'a str),
     ApprovalRequired,
+    /// A compaction the user asked for owns the summarizer (CPL-9).
+    Compacting,
 }
 
 impl<'a> CurrentWork<'a> {
     pub(super) fn derive(
         agent: &'a AgentView,
         attention: impl Iterator<Item = &'a AttentionView>,
+        compacting: bool,
     ) -> Option<Self> {
         let mut action_required = false;
         let mut approval_requested = false;
@@ -62,6 +65,9 @@ impl<'a> CurrentWork<'a> {
         if action_required {
             return None;
         }
+        if compacting {
+            return Some(Self::Compacting);
+        }
 
         if let Some(tool) = running_tool {
             return Some(Self::RunningTool(tool));
@@ -82,7 +88,8 @@ impl ViewState {
     #[must_use]
     pub(crate) fn current_work(&self) -> Option<CurrentWork<'_>> {
         let primary = self.agents.primary()?;
-        CurrentWork::derive(primary, self.attention.iter())
+        let compacting = self.compacting(&primary.id);
+        CurrentWork::derive(primary, self.attention.iter(), compacting)
     }
 }
 
@@ -249,7 +256,7 @@ mod tests {
 
         for (name, agent, attention, expected) in cases {
             assert_eq!(
-                CurrentWork::derive(agent, attention.iter()),
+                CurrentWork::derive(agent, attention.iter(), false),
                 expected,
                 "{name}"
             );
@@ -263,7 +270,7 @@ mod tests {
         set_tool(&mut agent, "second", ToolCallStatus::Running);
 
         assert_eq!(
-            CurrentWork::derive(&agent, std::iter::empty()),
+            CurrentWork::derive(&agent, std::iter::empty(), false),
             Some(CurrentWork::RunningTool("first"))
         );
     }

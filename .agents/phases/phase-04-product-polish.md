@@ -93,7 +93,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
    CPL-3 owns required skill retention during compaction. Live model behavior and performance remain
    unverified. JRN-3 preserves readable `2026-09-04` history alongside new `2026-09-05` files.
 
-9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/skill-picker.md) put `$` discovery
+9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/composer-menu.md) put `$` discovery
    above the primary input, with keyboard/pointer completion and selected-name ownership through
    input return and edit/retry. Literal variables, currency and prose remain text. 853 Rust tests,
    17 script regressions, workspace compilation/Clippy, formatting, crate graph, file length,

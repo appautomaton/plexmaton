@@ -127,6 +127,7 @@ pub(super) fn activity_line(state: &ViewState, palette: &Palette, width: u16) ->
         Some(CurrentWork::ApprovalRequired) => {
             Some(("Approval required".to_owned(), Role::ActionRequired))
         }
+        Some(CurrentWork::Compacting) => Some(("Compacting…".to_owned(), Role::Ambient)),
     };
     let mut left = Vec::new();
     if let Some((text, role)) = work {
