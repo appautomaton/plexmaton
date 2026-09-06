@@ -5,7 +5,7 @@ use std::{io, time::Instant};
 use anyhow::Context as _;
 use futures_util::{Stream, StreamExt};
 use plexmaton_runtime::{LiveRuntime, RuntimeUpdate};
-use plexmaton_tui::{Command, Flow, Workspace};
+use plexmaton_tui::{ConversationRequest, Flow, Page, Workspace};
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
@@ -123,14 +123,16 @@ async fn apply_workspace_outcome(
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
 ) -> anyhow::Result<bool> {
-    if let Some(command) = outcome.command {
-        apply_command(command, runtime, workspace, picker, permissions);
+    if let Some(page) = outcome.page {
+        open_page(page, workspace, picker, permissions);
     }
     if let Some(intent) = outcome.permission {
         permissions.apply(intent);
     }
-    if let Some(id) = outcome.resume {
-        picker.select(id, runtime, workspace);
+    match outcome.conversation {
+        Some(ConversationRequest::New) => picker.new_conversation(workspace, runtime),
+        Some(ConversationRequest::Saved(id)) => picker.select(id, runtime, workspace),
+        None => {}
     }
     if let Some(retry) = outcome.retry {
         retry::execute(runtime, workspace, retry).await?;
@@ -149,18 +151,17 @@ async fn apply_workspace_outcome(
     Ok(outcome.flow == Flow::Quit)
 }
 
-pub(super) fn apply_command(
-    command: Command,
-    runtime: &LiveRuntime,
+/// Opens a Drawer page. What each one costs is owned here, never by the workspace (DRW-3).
+pub(super) fn open_page(
+    page: Page,
     workspace: &mut Workspace,
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
 ) {
-    match command {
-        Command::Config => workspace.show_configuration(picker.configuration()),
-        Command::Resume => picker.open(workspace),
-        Command::New => picker.new_conversation(workspace, runtime),
-        Command::Permissions => permissions.open(workspace),
+    match page {
+        Page::Configuration => workspace.show_configuration(picker.configuration()),
+        Page::Conversations => picker.open(workspace),
+        Page::Permissions => permissions.open(workspace),
     }
 }
 

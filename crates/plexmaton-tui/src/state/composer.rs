@@ -3,7 +3,7 @@
 //! The text itself is [`super::TextInput`]. This is the other half: which agent an input addresses,
 //! what submitting it means, and where undelivered text goes back to. Keeping them apart is what
 //! lets one editing model serve the primary composer, an entered worker's steering input and the
-//! command palette's filter without any of them growing a copy of the other's rules.
+//! Drawer's filter without any of them growing a copy of the other's rules.
 
 use plexmaton_core::AgentId;
 
@@ -31,12 +31,12 @@ impl ViewState {
         let width = super::inner_width(area.width);
         let column = at.x - area.x - 1;
         let row = at.y - area.y - 1;
-        if surface == SurfaceId::CommandPalette && row != 0 {
+        if surface == SurfaceId::Drawer && row != 0 {
             return false;
         }
-        if surface == SurfaceId::CommandPalette {
-            if let Some(palette) = self.command_palette.as_mut() {
-                palette.click_filter(width, column);
+        if surface == SurfaceId::Drawer {
+            if let Some(drawer) = self.drawer.as_mut() {
+                drawer.click_filter(width, column);
             }
         } else if let Some(input) = self.input_mut(surface) {
             input.click(width, row, column);
@@ -56,14 +56,12 @@ impl ViewState {
         surfaces: &SurfaceTree,
         surface: SurfaceId,
     ) -> Option<ratatui::layout::Rect> {
-        if surface == SurfaceId::CommandPalette
-            && self.command_palette.as_ref()?.permissions().is_some()
-        {
+        if surface == SurfaceId::Drawer && !self.drawer.as_ref()?.takes_text() {
             return None;
         }
         match surface {
             SurfaceId::Inspector => self.steer_input(surfaces).map(|(split, _)| split.input),
-            SurfaceId::Composer | SurfaceId::CommandPalette => surfaces.get(surface).map(|entry| {
+            SurfaceId::Composer | SurfaceId::Drawer => surfaces.get(surface).map(|entry| {
                 crate::surface::ContentInsets::for_surface(surface, entry.bounds.height)
                     .inset(entry.bounds)
             }),
@@ -72,11 +70,8 @@ impl ViewState {
     }
 
     fn input_mut(&mut self, surface: SurfaceId) -> Option<&mut TextInput> {
-        if surface == SurfaceId::CommandPalette {
-            self.command_palette
-                .as_mut()
-                .filter(|palette| palette.permissions().is_none())
-                .map(super::CommandPalette::filter_mut)
+        if surface == SurfaceId::Drawer {
+            self.drawer.as_mut().and_then(super::Drawer::filter_mut)
         } else {
             let target = match surface {
                 SurfaceId::Composer => self.agents.primary().map(|agent| agent.id.clone()),
@@ -116,9 +111,9 @@ impl ViewState {
         let row =
             at.y.saturating_sub(area.y + 1)
                 .min(area.height.saturating_sub(3));
-        if surface == SurfaceId::CommandPalette {
-            if let Some(palette) = self.command_palette.as_mut() {
-                palette.drag_filter(width, column);
+        if surface == SurfaceId::Drawer {
+            if let Some(drawer) = self.drawer.as_mut() {
+                drawer.drag_filter(width, column);
             }
         } else if let Some(input) = self.input_mut(surface) {
             input.drag_to(width, row, column);
@@ -133,8 +128,8 @@ impl ViewState {
     }
 
     pub(crate) fn copy_input(&self, surfaces: &SurfaceTree) -> Option<super::CopyRequest> {
-        let input = if self.focus.resolve(surfaces) == Some(SurfaceId::CommandPalette) {
-            self.command_palette.as_ref()?.filter()
+        let input = if self.focus.resolve(surfaces) == Some(SurfaceId::Drawer) {
+            self.drawer.as_ref()?.filter()
         } else {
             self.draft(&self.text_target(surfaces)?)
         };
@@ -188,10 +183,10 @@ impl ViewState {
     /// intent while a text input holds the cursor, and it reads that from this same state, so the
     /// two cannot disagree about which of the two inputs is being typed into (INV-2).
     pub fn edit(&mut self, surfaces: &SurfaceTree, intent: TextIntent) -> Option<Submission> {
-        // The command list is a text input too, but its text is a filter rather than a message:
-        // it never leaves as a `Submission`, so it resolves here and returns nothing.
-        if self.focus.resolve(surfaces)? == SurfaceId::CommandPalette {
-            self.edit_command_filter(intent);
+        // The Drawer is a text input too, but its text is a filter rather than a message: it never
+        // leaves as a `Submission`, so it resolves here and returns nothing.
+        if self.focus.resolve(surfaces)? == SurfaceId::Drawer {
+            self.edit_drawer_filter(intent);
             return None;
         }
         let kind = match self.focus.resolve(surfaces)? {

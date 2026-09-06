@@ -14,11 +14,11 @@ use ratatui::Terminal;
 use ratatui::crossterm::event::{Event, KeyEventKind};
 
 use crate::{
-    intent::{CommandPaletteIntent, Direction, SelectionIntent, TextIntent, TuiIntent},
+    intent::{Direction, DrawerIntent, SelectionIntent, TextIntent, TuiIntent},
     router::{Routed, Router, RouterContext},
     state::{
-        ApprovalSubmission, CleanupNotice, Command, ConversationRestoration, CopyRequest,
-        PersistenceNotice, QuitPress, Submission, ViewRevision, ViewState,
+        ApprovalSubmission, CleanupNotice, ConversationRequest, ConversationRestoration,
+        CopyRequest, Page, PersistenceNotice, QuitPress, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -28,7 +28,10 @@ use crate::{
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+#[cfg(test)]
+mod conversation_picker_tests;
 mod copy;
+mod drawer;
 #[cfg(test)]
 mod markdown_tests;
 #[cfg(test)]
@@ -43,9 +46,6 @@ mod preparation;
 #[cfg(test)]
 mod preparation_tests;
 mod retry;
-mod session_picker;
-#[cfg(test)]
-mod session_picker_tests;
 mod skill_picker;
 mod text_selection;
 #[cfg(test)]
@@ -80,13 +80,13 @@ pub struct Outcome {
     /// What the user asked to copy. Leaves as a value for the same reason: the clipboard is the
     /// host's, and nothing in this crate may reach for it (SEL-4).
     pub copied: Option<CopyRequest>,
-    /// The command the user ran from the list. What it *does* belongs to the composition root, so
-    /// it leaves as a value rather than being carried out here.
-    pub command: Option<Command>,
+    /// The page the user chose from the Drawer. What opening it costs belongs to the composition
+    /// root, so it leaves as a value rather than being carried out here (DRW-3).
+    pub page: Option<Page>,
     /// Explicit retry, separate from ordinary composer submission.
     pub retry: Option<crate::RetrySubmission>,
-    /// A session chosen by identity; only the composition root can load it.
-    pub resume: Option<plexmaton_core::ConversationId>,
+    /// A conversation to open, new or by identity; only the composition root can (SPK-2).
+    pub conversation: Option<ConversationRequest>,
     /// A reviewed permission mutation; only the retained permission owner can apply it.
     pub permission: Option<plexmaton_core::PermissionIntent>,
 }
@@ -99,9 +99,9 @@ impl Outcome {
             interrupted: None,
             approval: None,
             copied: None,
-            command: None,
+            page: None,
             retry: None,
-            resume: None,
+            conversation: None,
             permission: None,
         }
     }
@@ -140,7 +140,7 @@ pub struct Workspace {
     /// Timer-owned motion for a captured conversation drag held at a viewport edge.
     drag_autoscroll: Option<DragAutoScroll>,
     pressed_retry: Option<retry::PressedRetry>,
-    pressed_palette: Option<(session_picker::PaletteChoice, crate::Point)>,
+    pressed_drawer: Option<(drawer::DrawerChoice, crate::Point)>,
     pressed_skill: Option<(String, crate::Point)>,
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
@@ -331,16 +331,12 @@ impl Workspace {
             selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
         };
         let routed = router.translate(event, &context);
-        if matches!(event, Event::Paste(_)) {
-            state.settle_command_hint();
-        }
         if let Event::Key(key) = event
             && key.kind != KeyEventKind::Release
         {
             // Once the user switches to the keyboard, a pointer affordance no longer claims to be
             // the active target. Repeating `None` is free (FR-1).
             state.hover_entry(None);
-            state.settle_command_hint();
         }
         let outcome = match routed {
             Routed::Intent(intent) => self.apply(intent, now),
@@ -359,9 +355,14 @@ impl Workspace {
         self.state.set_working_directory(path);
     }
 
-    /// Displays the active configuration projected by the composition root (INV-12).
+    /// Opens the Configuration page with what the composition root projected (DRW-4).
     pub fn show_configuration(&mut self, summary: crate::ConfigurationSummary) {
         self.state.show_configuration(summary);
+    }
+
+    /// Names the resolved model for the composer's rule (ui-ux §input).
+    pub fn set_model(&mut self, summary: crate::ConfigurationSummary) {
+        self.state.set_model(summary);
     }
 
     /// Whether projection changes, resize or palette replacement need another frame (FR-1).
@@ -395,14 +396,14 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
-            TuiIntent::CommandPalette(CommandPaletteIntent::Open) => {
-                self.state.open_command_palette(&self.surfaces);
+            TuiIntent::Drawer(DrawerIntent::Open) => {
+                self.state.open_drawer(&self.surfaces);
             }
-            TuiIntent::CommandPalette(CommandPaletteIntent::Step(direction)) => {
-                self.step_palette(direction);
+            TuiIntent::Drawer(DrawerIntent::Step(direction)) => {
+                self.step_drawer(direction);
             }
-            TuiIntent::CommandPalette(CommandPaletteIntent::Run) => {
-                return self.activate_palette();
+            TuiIntent::Drawer(DrawerIntent::Choose) => {
+                return self.choose_in_drawer();
             }
             TuiIntent::Text(edit) => {
                 if matches!(edit, TextIntent::Submit)
@@ -414,27 +415,7 @@ impl Workspace {
                         ..Outcome::default()
                     };
                 }
-                if matches!(edit, TextIntent::Submit)
-                    && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
-                    && let Some(command) = Command::from_slash(self.state.composer().text())
-                {
-                    self.state.edit(&self.surfaces, edit);
-                    return Outcome {
-                        command: Some(command),
-                        ..Outcome::default()
-                    };
-                }
-                // A `/` that opens an empty draft is the one keystroke that says the user may be
-                // reaching for a command. Every other keystroke answers the offer and takes it down.
-                let offers = matches!(edit, TextIntent::Insert('/'))
-                    && self
-                        .state
-                        .text_target(&self.surfaces)
-                        .is_some_and(|target| self.state.draft(&target).text().is_empty());
                 let submitted = self.state.edit(&self.surfaces, edit);
-                if offers {
-                    self.state.hint_command_palette(now);
-                }
                 return Outcome {
                     submitted,
                     ..Outcome::default()
@@ -462,7 +443,7 @@ impl Workspace {
                 if let Some(outcome) = self.skill_picker_pointer(pointer) {
                     return outcome;
                 }
-                if let Some(outcome) = self.palette_pointer(pointer) {
+                if let Some(outcome) = self.drawer_pointer(pointer) {
                     return outcome;
                 }
                 if let Some(outcome) = self.retry_pointer(pointer) {
@@ -490,7 +471,7 @@ impl Workspace {
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
-                self.pressed_palette = None;
+                self.pressed_drawer = None;
                 self.pressed_skill = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
@@ -508,7 +489,7 @@ impl Workspace {
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
             TuiIntent::Hover { surface, at } => {
-                self.pressed_palette = None;
+                self.pressed_drawer = None;
                 self.pressed_skill = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
@@ -555,7 +536,7 @@ mod tests {
 
     use super::{Flow, Outcome, Workspace};
     use crate::{
-        SubmissionKind,
+        Page, SubmissionKind,
         state::StatusNote,
         surface::{Point, SurfaceId},
         test_support::{Conversation, canonical_runtime},
@@ -686,10 +667,10 @@ mod tests {
             .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
-        // The conversation is not focused at start, so its corner wears the plain border role.
-        let conversation = bounds(&workspace, SurfaceId::Transcript);
-        let corner = &terminal.backend().buffer()[(conversation.x, conversation.y)];
-        assert_eq!(corner.symbol(), "┌");
+        // The composer is not focused at start, so its top rule wears the plain border role.
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        let corner = &terminal.backend().buffer()[(composer.x, composer.y)];
+        assert_eq!(corner.symbol(), "─");
         assert_eq!(
             corner.style().fg,
             Some(Color::Magenta),
@@ -1385,9 +1366,20 @@ mod tests {
 
         let transcript = bounds(&workspace, SurfaceId::Transcript);
         let composer = bounds(&workspace, SurfaceId::Composer);
+        let activity = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
+            painted(terminal, workspace, SurfaceId::Transcript)
+                .lines()
+                .last()
+                .unwrap_or_default()
+                .to_owned()
+        };
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
-            "running work is named in the composer's existing boundary"
+            activity(&terminal, &workspace).contains("Thinking"),
+            "running work is named on the conversation's activity line"
+        );
+        assert!(
+            !painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
+            "and never on the composer's rules"
         );
 
         let primary = workspace
@@ -1405,8 +1397,8 @@ mod tests {
         assert_eq!(bounds(&workspace, SurfaceId::Transcript), transcript);
         assert_eq!(bounds(&workspace, SurfaceId::Composer), composer);
         assert!(
-            !painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
-            "idle adds no label or placeholder"
+            !activity(&terminal, &workspace).contains("Thinking"),
+            "idle draws nothing on the activity line"
         );
 
         conversation.emit(ConversationEvent::AgentStatusChanged {
@@ -2028,10 +2020,7 @@ mod tests {
         );
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Transcript)
-                .lines()
-                .next()
-                .is_some_and(|title| title.contains("Agent A")),
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("Message Agent A"),
             "the conversation's title stays readable above the window"
         );
         assert!(
@@ -3539,10 +3528,10 @@ mod tests {
         workspace.handle(&Event::Paste("replacement".to_owned()));
         assert_eq!(workspace.state.composer().text(), "replacement\nsecond");
         step(&mut workspace, &mut terminal, &ctrl('p'));
-        workspace.handle(&Event::Paste("/settings".to_owned()));
+        workspace.handle(&Event::Paste("Conf".to_owned()));
         assert_eq!(
-            workspace.state.command_palette().expect("palette").chosen(),
-            Some(crate::Command::Config)
+            workspace.state.drawer().expect("drawer").chosen_page(),
+            Some(Page::Configuration)
         );
         workspace.show_configuration(crate::test_support::configuration_summary());
         frame(&mut workspace, &mut terminal);
@@ -3553,11 +3542,7 @@ mod tests {
     /// COM-1, COM-2, COM-6: pointer events place, select, copy and replace in every editable input.
     #[test]
     fn pointer_clicks_place_the_caret_in_each_input() {
-        for surface in [
-            SurfaceId::Composer,
-            SurfaceId::Inspector,
-            SurfaceId::CommandPalette,
-        ] {
+        for surface in [SurfaceId::Composer, SurfaceId::Inspector, SurfaceId::Drawer] {
             let (mut workspace, mut terminal) = drawn(95, 40);
             match surface {
                 SurfaceId::Composer => tab_to(&mut workspace, &mut terminal, surface),
@@ -3601,7 +3586,7 @@ mod tests {
             workspace.handle(&press(KeyCode::Char('x'), KeyModifiers::NONE));
             let input = match target {
                 Some(agent) => workspace.state.draft(&agent),
-                None => workspace.state.command_palette().expect("palette").filter(),
+                None => workspace.state.drawer().expect("palette").filter(),
             };
             assert_eq!(input.text(), "中x文abc", "{surface:?}");
             frame(&mut workspace, &mut terminal);
@@ -3623,8 +3608,8 @@ mod tests {
                 .expect("input drag copies source");
             assert_eq!(copied.text, "中x文");
             workspace.handle(&press(KeyCode::Char('z'), KeyModifiers::NONE));
-            let input = if surface == SurfaceId::CommandPalette {
-                workspace.state.command_palette().expect("palette").filter()
+            let input = if surface == SurfaceId::Drawer {
+                workspace.state.drawer().expect("palette").filter()
             } else {
                 workspace.state.draft(
                     &workspace
@@ -3665,65 +3650,36 @@ mod tests {
         let caret = cursor(&terminal).expect("input caret");
         assert!(caret.x < area.right() - 1);
         assert!(caret.y < area.bottom() - 1);
+        // The column a box's side would have spent stays reserved and blank (ui-ux §input).
         for row in area.y + 1..area.bottom() - 1 {
             assert_eq!(
                 terminal.backend().buffer()[(area.right() - 1, row)].symbol(),
-                "│"
+                " "
             );
         }
     }
 
-    /// INV-11: every following key settles the offer, and a palette filter never offers itself.
+    /// DRW-3, SURF-4: a page blocks edits beneath it, and `Escape` returns one layer per press:
+    /// page, list with its query intact, then the origin with its draft intact.
     #[test]
-    fn the_command_hint_follows_the_addressed_input_and_any_next_key() {
-        for next in [
-            ctrl('p'),
-            press(KeyCode::Tab, KeyModifiers::NONE),
-            press(KeyCode::Esc, KeyModifiers::NONE),
-        ] {
-            let (mut workspace, mut terminal) = drawn(95, 40);
-            tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
-            workspace.handle(&press(KeyCode::Char('/'), KeyModifiers::NONE));
-            assert!(matches!(
-                workspace.state.status().note(),
-                StatusNote::CommandHint { .. }
-            ));
-            workspace.handle(&next);
-            assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
-        }
-        let (mut workspace, mut terminal) = drawn(95, 40);
-        step(&mut workspace, &mut terminal, &ctrl('p'));
-        workspace.handle(&press(KeyCode::Char('/'), KeyModifiers::NONE));
-        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Esc, KeyModifiers::NONE),
-        );
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
-        for character in " /".chars() {
-            workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
-        }
-        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
-    }
-
-    /// INV-12, SURF-4: configuration blocks edits, supports a palette above it and restores focus.
-    #[test]
-    fn configuration_opens_above_the_workspace_and_escape_restores_the_draft() {
+    fn the_escape_ladder_returns_page_then_list_then_origin() {
         for width in [120, 95, 60, 48] {
             let (mut workspace, mut terminal) = drawn(width, 40);
             tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
             workspace.handle(&press(KeyCode::Char('a'), KeyModifiers::NONE));
             step(&mut workspace, &mut terminal, &ctrl('p'));
+            for character in "conf".chars() {
+                workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
+            }
             let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
-            assert_eq!(outcome.command, Some(crate::Command::Config));
+            assert_eq!(outcome.page, Some(Page::Configuration));
             workspace.show_configuration(crate::test_support::configuration_summary());
             frame(&mut workspace, &mut terminal);
-            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+            assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
             assert_eq!(cursor(&terminal), None);
-            let shown = painted(&terminal, &workspace, SurfaceId::Configuration);
+            let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
             for text in [
-                "Configuration",
+                "Workspace · Configuration",
                 "Provider",
                 "local",
                 "gpt-5.6-sol",
@@ -3736,96 +3692,89 @@ mod tests {
             workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
             workspace.handle(&ctrl('f'));
             assert_eq!(workspace.state.composer().text(), "a");
-            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+            assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
+            // The chord is already answered: `Ctrl-P` over an open Drawer changes nothing.
             step(&mut workspace, &mut terminal, &ctrl('p'));
-            step(
-                &mut workspace,
-                &mut terminal,
-                &press(KeyCode::Esc, KeyModifiers::NONE),
-            );
-            assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
-            // Re-running the same page through another palette must not grow a return stack.
-            step(&mut workspace, &mut terminal, &ctrl('p'));
-            let repeated = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
-            assert_eq!(repeated.command, Some(crate::Command::Config));
-            workspace.show_configuration(crate::test_support::configuration_summary());
-            frame(&mut workspace, &mut terminal);
+            assert!(workspace.state.configuration().is_some());
             step(
                 &mut workspace,
                 &mut terminal,
                 &press(KeyCode::Esc, KeyModifiers::NONE),
             );
             assert!(workspace.state.configuration().is_none());
-            assert_eq!(focused(&workspace), Some(SurfaceId::CommandPalette));
+            let drawer = workspace.state.drawer().expect("the list, one layer down");
+            assert_eq!(drawer.filter().text(), "conf");
+            assert_eq!(drawer.chosen_page(), Some(Page::Configuration));
+            assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
             step(
                 &mut workspace,
                 &mut terminal,
                 &press(KeyCode::Esc, KeyModifiers::NONE),
             );
+            assert!(workspace.state.drawer().is_none());
             assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
             assert_eq!(workspace.state.composer().text(), "a");
         }
     }
 
-    /// INV-13: crossing a layout threshold never maximizes or shrinks the command list.
+    /// DRW-2: the Drawer spans every width from its top edge, one row per page, controls visible.
     #[test]
-    fn the_palette_stays_compact_and_keeps_controls_visible_across_widths() {
-        let mut previous_width = 0;
+    fn the_drawer_spans_every_width_with_one_row_per_page() {
         for width in [48, 60, 71, 72, 80, 95, 96, 120, 160] {
             let (mut workspace, mut terminal) = drawn(width, 40);
             step(&mut workspace, &mut terminal, &ctrl('p'));
-            let area = bounds(&workspace, SurfaceId::CommandPalette);
-            assert!(
-                area.width >= previous_width,
-                "growing to {width} shrank the palette"
-            );
-            assert!(area.width < width);
-            assert_eq!(usize::from(area.height), crate::Command::ALL.len() + 8);
-            previous_width = area.width;
-            let shown = painted(&terminal, &workspace, SurfaceId::CommandPalette);
-            assert!(shown.contains("> /config"), "{width}: {shown}");
-            assert!(shown.contains("Esc close"), "{width}: {shown}");
+            let area = bounds(&workspace, SurfaceId::Drawer);
+            assert_eq!((area.x, area.y, area.width), (0, 0, width));
+            assert_eq!(usize::from(area.height), Page::ALL.len() + 8);
+            let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
+            for text in [
+                "Workspace",
+                "> Configuration",
+                "Conversations",
+                "Permissions",
+                "Esc close",
+            ] {
+                assert!(shown.contains(text), "{width}: {shown}");
+            }
             let viewport = workspace
                 .surfaces
-                .viewport(SurfaceId::CommandPalette)
-                .expect("measured palette");
+                .viewport(SurfaceId::Drawer)
+                .expect("measured drawer");
             assert_eq!(
                 viewport.content_rows,
-                crate::Command::ALL.len() + 4,
-                "each item stays one row at {width}"
+                Page::ALL.len() + 4,
+                "each page stays one row at {width}"
             );
         }
     }
 
-    /// INV-12: the smallest configuration viewport still exposes every value by keyboard.
+    /// DRW-4: the smallest Configuration page still exposes every value by keyboard, under a
+    /// footer that never scrolls away.
     #[test]
     fn short_configuration_pages_scroll_to_the_remaining_values() {
         let (mut workspace, mut terminal) = drawn(48, 12);
         workspace.show_configuration(crate::test_support::configuration_summary());
         frame(&mut workspace, &mut terminal);
-        assert!(painted(&terminal, &workspace, SurfaceId::Configuration).contains("local"));
-        let area = bounds(&workspace, SurfaceId::Configuration);
-        let footer = |terminal: &Terminal<TestBackend>| {
-            (area.x + 1..area.right() - 1)
-                .map(|x| terminal.backend().buffer()[(x, area.bottom() - 2)].symbol())
-                .collect::<String>()
-        };
-        assert!(footer(&terminal).contains("Esc back · ↑↓ scroll"));
+        let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
+        assert!(
+            shown.contains("local") && shown.contains("Esc back · ↑↓ scroll"),
+            "{shown}"
+        );
         let mut found_effort = false;
         for _ in 0..4 {
             workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
             workspace.settled_draw(&mut terminal).expect("draw scroll");
-            assert!(footer(&terminal).contains("Esc back · ↑↓ scroll"));
-            found_effort |=
-                painted(&terminal, &workspace, SurfaceId::Configuration).contains("high");
+            let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
+            assert!(shown.contains("Esc back · ↑↓ scroll"), "{shown}");
+            found_effort |= shown.contains("high");
         }
         assert!(found_effort, "reasoning effort remains reachable");
-        assert_eq!(focused(&workspace), Some(SurfaceId::Configuration));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
     }
 
     /// COM-1, COM-2: the painted filter caret follows its own edits at every layout width.
     #[test]
-    fn the_command_filter_paints_its_own_caret_while_editing() {
+    fn the_drawer_filter_paints_its_own_caret_while_editing() {
         for width in [120, 95, 60] {
             let (mut workspace, mut terminal) = drawn(width, 40);
             tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
@@ -3833,7 +3782,7 @@ mod tests {
                 workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
             }
             step(&mut workspace, &mut terminal, &ctrl('p'));
-            let area = bounds(&workspace, SurfaceId::CommandPalette);
+            let area = bounds(&workspace, SurfaceId::Drawer);
             let origin = (area.x + 3, area.y + 2);
             assert_eq!(cursor(&terminal), Some(origin.into()));
             for (code, column, filter) in [
@@ -3871,7 +3820,7 @@ mod tests {
 
     /// COM-1: a long filter keeps both its text and caret on the filter row while moving home.
     #[test]
-    fn a_long_command_filter_keeps_the_caret_inside_its_row() {
+    fn a_long_drawer_filter_keeps_the_caret_inside_its_row() {
         for width in [120, 95, 60] {
             let (mut workspace, mut terminal) = drawn(width, 40);
             step(&mut workspace, &mut terminal, &ctrl('p'));
@@ -3879,15 +3828,12 @@ mod tests {
                 workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
             }
             frame(&mut workspace, &mut terminal);
-            let area = bounds(&workspace, SurfaceId::CommandPalette);
+            let area = bounds(&workspace, SurfaceId::Drawer);
             assert_eq!(
                 cursor(&terminal),
                 Some((area.right() - 4, area.y + 2).into())
             );
-            assert!(
-                painted(&terminal, &workspace, SurfaceId::CommandPalette)
-                    .contains("No command matches")
-            );
+            assert!(painted(&terminal, &workspace, SurfaceId::Drawer).contains("No page matches"));
             step(
                 &mut workspace,
                 &mut terminal,
@@ -3899,67 +3845,68 @@ mod tests {
                 &mut terminal,
                 &press(KeyCode::Char('z'), KeyModifiers::NONE),
             );
-            assert!(painted(&terminal, &workspace, SurfaceId::CommandPalette).contains("zaaaa"));
+            assert!(painted(&terminal, &workspace, SurfaceId::Drawer).contains("zaaaa"));
         }
     }
 
-    /// INV-11: either spelling discovers and dispatches the same single command.
+    /// DRW-3: the list finds a page by its name, and `Enter` hands the page to the root without
+    /// closing the Drawer: the page opens in place. A slash is a character, not a command.
     #[test]
-    fn the_palette_discovers_commands_with_or_without_a_slash() {
-        for query in [
-            "",
-            "/",
-            "conf",
-            "/conf",
-            "config",
-            "/config",
-            "settings",
-            "/settings",
-        ] {
+    fn the_list_finds_a_page_by_name_and_hands_it_to_the_root() {
+        for query in ["", "conf", "Configuration", "FIGUR"] {
             let (mut workspace, mut terminal) = drawn(95, 40);
             step(&mut workspace, &mut terminal, &ctrl('p'));
             for character in query.chars() {
                 workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
             }
             workspace.settled_draw(&mut terminal).expect("test render");
-            let palette = workspace.state.command_palette().expect("opened palette");
+            let drawer = workspace.state.drawer().expect("open drawer");
             assert_eq!(
-                palette.matches(),
-                if query.trim_matches('/').is_empty() {
-                    crate::Command::ALL.to_vec()
+                drawer.pages(),
+                if query.is_empty() {
+                    Page::ALL.to_vec()
                 } else {
-                    vec![crate::Command::Config]
+                    vec![Page::Configuration]
                 },
                 "{query:?}"
             );
-            assert!(
-                painted(&terminal, &workspace, SurfaceId::CommandPalette).contains("> /config")
-            );
+            assert!(painted(&terminal, &workspace, SurfaceId::Drawer).contains("> Configuration"));
             let outcome = workspace.handle(&press(KeyCode::Enter, KeyModifiers::NONE));
-            assert_eq!(outcome.command, Some(crate::state::Command::Config));
+            assert_eq!(outcome.page, Some(Page::Configuration));
             workspace.show_configuration(crate::test_support::configuration_summary());
-            assert!(workspace.state.command_palette().is_none());
+            let drawer = workspace.state.drawer().expect("still open");
+            assert_eq!(drawer.page(), Some(Page::Configuration));
         }
+        let (mut workspace, mut terminal) = drawn(95, 40);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        workspace.handle(&Event::Paste("/config".to_owned()));
+        assert!(workspace.state.drawer().expect("open").pages().is_empty());
+        assert!(
+            workspace
+                .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+                .page
+                .is_none()
+        );
     }
 
-    /// `⌃P` opens the list and gives it the keyboard in the same gesture (SURF-3, SURF-4).
+    /// `⌃P` pulls the Drawer open and gives it the keyboard in the same gesture (SURF-3, SURF-4).
     #[test]
-    fn the_chord_opens_the_list_and_takes_the_keyboard() {
+    fn the_chord_pulls_the_drawer_open_and_takes_the_keyboard() {
         let (mut workspace, mut terminal) = drawn(120, 30);
         workspace.handle(&ctrl('p'));
         workspace.settled_draw(&mut terminal);
 
-        assert!(workspace.state.command_palette().is_some());
+        assert!(workspace.state.drawer().is_some());
         assert_eq!(
             workspace.state.focused(&workspace.surfaces),
-            Some(SurfaceId::CommandPalette),
-            "the list holds the keyboard on the frame that first draws it"
+            Some(SurfaceId::Drawer),
+            "the Drawer holds the keyboard on the frame that first draws it"
         );
     }
 
     /// One `Escape` takes the topmost layer and returns the keyboard where it was (INV-6).
     #[test]
-    fn escape_closes_the_list_and_returns_the_keyboard() {
+    fn escape_closes_the_drawer_and_returns_the_keyboard() {
         let (mut workspace, mut terminal) = drawn(120, 30);
         let before = workspace.state.focused(&workspace.surfaces);
         workspace.handle(&ctrl('p'));
@@ -3967,11 +3914,11 @@ mod tests {
         workspace.handle(&press(KeyCode::Esc, KeyModifiers::NONE));
         workspace.settled_draw(&mut terminal);
 
-        assert!(workspace.state.command_palette().is_none());
+        assert!(workspace.state.drawer().is_none());
         assert_eq!(workspace.state.focused(&workspace.surfaces), before);
     }
 
-    /// Typing into the list filters it rather than reaching the composer (COM-4).
+    /// Typing into the Drawer filters its list rather than reaching the composer (COM-4).
     #[test]
     fn typing_filters_the_list_and_never_reaches_the_composer() {
         let (mut workspace, mut terminal) = drawn(120, 30);
@@ -3981,48 +3928,131 @@ mod tests {
             workspace.handle(&press(KeyCode::Char(character), KeyModifiers::NONE));
         }
 
-        let palette = workspace.state.command_palette().expect("open");
-        assert_eq!(palette.filter().text(), "con");
-        assert_eq!(palette.matches().len(), 2);
+        let drawer = workspace.state.drawer().expect("open");
+        assert_eq!(drawer.filter().text(), "con");
+        assert_eq!(
+            drawer.pages(),
+            vec![Page::Configuration, Page::Conversations]
+        );
         assert_eq!(workspace.state.composer().text(), "");
     }
 
-    /// A `/` opening an empty draft offers the chord; anything else answers the offer.
+    /// DRW-1, SURF-4: the Drawer pulls open over a waiting approval, sits above it, and leaves
+    /// the card exactly where it was for when the Drawer closes.
     #[test]
-    fn a_leading_slash_offers_the_chord_and_the_next_key_takes_it_down() {
-        let started = Instant::now();
-        let (mut workspace, mut terminal) = drawn(120, 30);
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
-        workspace.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
-        assert!(matches!(
-            workspace.state.status().note(),
-            StatusNote::CommandHint { .. }
-        ));
-
-        workspace.handle_at(
-            &press(KeyCode::Char('c'), KeyModifiers::NONE),
-            started + Duration::from_millis(10),
+    fn the_drawer_opens_over_a_waiting_approval_and_leaves_the_card_alone() {
+        let mut conversation = Conversation::canonical();
+        conversation.emit(ConversationEvent::AttentionRequested {
+            agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            attention_id: AttentionId::new("attention-b-approval")
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
+                approval_id: ApprovalId::new("approval-b-1")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                call_id: ToolCallId::new("tool-b-write")
+                    .unwrap_or_else(|error| panic!("fixture: {error}")),
+                tool: "edit".into(),
+                capabilities: vec![ToolCapability::FileWrite],
+                detail: "Change crates/plexmaton-core/src/lib.rs".into(),
+            },
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
         );
-        assert!(matches!(workspace.state.status().note(), StatusNote::Quiet));
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
+        let card = bounds(&workspace, SurfaceId::Approval);
+        let card_text = painted(&terminal, &workspace, SurfaceId::Approval);
+        assert!(card_text.contains("Approval required"), "{card_text}");
+
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
+        let drawer = workspace.surfaces.get(SurfaceId::Drawer).expect("drawer");
+        let approval = workspace
+            .surfaces
+            .get(SurfaceId::Approval)
+            .expect("approval kept");
+        assert!(drawer.z_index > approval.z_index);
+        assert_eq!(approval.bounds, card);
+        assert!(
+            workspace
+                .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+                .approval
+                .is_none(),
+            "a key inside the Drawer never reaches the card beneath it"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
+        assert_eq!(bounds(&workspace, SurfaceId::Approval), card);
+        assert_eq!(
+            painted(&terminal, &workspace, SurfaceId::Approval),
+            card_text,
+            "the card is exactly where it was"
+        );
     }
 
-    /// A `/` inside existing text is just a character, and an armed quit chord keeps the slot.
+    /// DRW-3: the chosen row carries `Chosen` across its whole width, a bar with weight and a
+    /// hue, and the rest `Muted`, so the marker is never the only thing telling them apart.
     #[test]
-    fn the_offer_needs_an_empty_draft_and_never_hides_a_quit_question() {
-        let started = Instant::now();
-        let (mut workspace, mut terminal) = drawn(120, 30);
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
-        workspace.handle_at(&press(KeyCode::Char('a'), KeyModifiers::NONE), started);
-        workspace.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
-        assert!(matches!(workspace.state.status().note(), StatusNote::Quiet));
-
-        let (mut armed, mut armed_terminal) = drawn(120, 30);
-        tab_to(&mut armed, &mut armed_terminal, SurfaceId::Composer);
-        armed.handle_at(&ctrl('d'), started);
-        armed.handle_at(&press(KeyCode::Char('/'), KeyModifiers::NONE), started);
+    fn the_chosen_drawer_row_carries_the_chosen_role_across_its_width() {
+        let (mut workspace, mut terminal) = drawn(95, 40);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        let area = bounds(&workspace, SurfaceId::Drawer);
+        let palette = Palette::default();
+        let chosen = palette.style(Role::Chosen);
+        // Border, one blank inset row, the filter, one gap: the first row is four down.
+        let first = area.y + 4;
+        let cell = |terminal: &Terminal<TestBackend>, x: u16, row: u16| {
+            terminal.backend().buffer()[(x, row)].style()
+        };
+        let name = area.x + 5;
+        let far_right = area.right() - 4;
+        assert_eq!(cell(&terminal, name, first).fg, chosen.fg);
+        assert_eq!(cell(&terminal, name, first).bg, chosen.bg);
         assert!(
-            matches!(armed.state.status().note(), StatusNote::QuitArmed { .. }),
-            "a deadline the user is inside keeps the one slot"
+            cell(&terminal, name, first)
+                .add_modifier
+                .contains(ratatui::style::Modifier::BOLD)
         );
+        assert_eq!(
+            cell(&terminal, far_right, first).bg,
+            chosen.bg,
+            "the bar runs the width"
+        );
+        assert_eq!(
+            cell(&terminal, name, first + 1).fg,
+            palette.style(Role::Muted).fg
+        );
+        assert_ne!(cell(&terminal, name, first + 1).bg, chosen.bg);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            cell(&terminal, name, first).fg,
+            palette.style(Role::Muted).fg
+        );
+        assert_eq!(cell(&terminal, name, first + 1).fg, chosen.fg);
+        assert_eq!(cell(&terminal, far_right, first + 1).bg, chosen.bg);
     }
 }

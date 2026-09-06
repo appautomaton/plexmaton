@@ -86,6 +86,266 @@ fn ctrl(letter: char) -> Event {
     Event::Key(KeyEvent::new(KeyCode::Char(letter), KeyModifiers::CONTROL))
 }
 
+/// ENT-2/MD-4: a tool transition is a replaced fact, not an append-only text prefix. Pending
+/// preparation cannot continue to advertise the obsolete lifecycle state or its text hit map.
+#[test]
+fn tool_transitions_do_not_reuse_stale_prepared_status() {
+    use plexmaton_core::{ToolCallId, ToolCallStatus, ToolPresentation};
+    for width in [120, 88, 60] {
+        for (active_status, terminal_status) in [
+            (ToolCallStatus::Running, ToolCallStatus::Succeeded),
+            (ToolCallStatus::Running, ToolCallStatus::Failed),
+            (ToolCallStatus::Running, ToolCallStatus::Cancelled),
+            (ToolCallStatus::AwaitingApproval, ToolCallStatus::Denied),
+        ] {
+            let (mut workspace, mut terminal, sequence) = fixture(width, 0);
+            let agent = AgentId::new("primary").expect("agent");
+            let item = TranscriptItemId::new("tool").expect("item");
+            let event = |revision, status| ConversationEventEnvelope {
+                sequence: EventSequence::new(sequence + revision + 1),
+                event: ConversationEvent::ToolCallChanged {
+                    agent_id: agent.clone(),
+                    item_id: item.clone(),
+                    item_revision: revision,
+                    call_id: ToolCallId::new("call").expect("call"),
+                    label: "read_file".into(),
+                    status,
+                    presentation: ToolPresentation::default(),
+                },
+            };
+            workspace.emit(vec![
+                event(0, ToolCallStatus::Queued),
+                event(1, active_status),
+            ]);
+            workspace.settled_draw(&mut terminal).expect("running tool");
+            let old = point(&terminal, "read_file");
+            assert!(
+                workspace
+                    .text_point_at(SurfaceId::Transcript, old, false)
+                    .is_some()
+            );
+            workspace.emit(vec![event(2, terminal_status)]);
+            workspace
+                .draw(&mut terminal)
+                .expect("pending terminal status");
+            point(&terminal, "Preparing text");
+            assert!(
+                workspace
+                    .text_point_at(SurfaceId::Transcript, old, false)
+                    .is_none()
+            );
+            let work = workspace.take_preparation().expect("current tool request");
+            assert_eq!(work.requests[0].key().revision, 2);
+            assert!(workspace.complete_preparation(
+                work.token,
+                work.requests.iter().map(Request::prepare).collect()
+            ));
+            workspace
+                .draw(&mut terminal)
+                .expect("current terminal status");
+            point(&terminal, "read_file");
+        }
+    }
+}
+
+/// MD-4/PRE-3/FR-3: preparing a streamed revision retains the actual rows and their measured origin.
+#[test]
+fn streaming_preparation_keeps_the_last_painted_rows_and_geometry() {
+    for width in [120, 88, 60] {
+        for source in ["Readable text 中文", "**Readable text** 中文"] {
+            let (mut workspace, mut terminal, sequence) = fixture(width, 0);
+            let agent = AgentId::new("primary").expect("agent");
+            let item = TranscriptItemId::new("stream").expect("item");
+            workspace.emit(vec![
+                ConversationEventEnvelope {
+                    sequence: EventSequence::new(sequence + 1),
+                    event: ConversationEvent::TranscriptItemStarted {
+                        agent_id: agent.clone(),
+                        item_id: item.clone(),
+                        role: TranscriptRole::Assistant,
+                    },
+                },
+                ConversationEventEnvelope {
+                    sequence: EventSequence::new(sequence + 2),
+                    event: ConversationEvent::TranscriptDelta {
+                        agent_id: agent.clone(),
+                        item_id: item.clone(),
+                        item_revision: 1,
+                        text: source.into(),
+                    },
+                },
+            ]);
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("first content");
+            let before = terminal.backend().buffer().clone();
+            let viewport = workspace.surfaces.viewport(SurfaceId::Transcript);
+            workspace.emit(vec![ConversationEventEnvelope {
+                sequence: EventSequence::new(sequence + 3),
+                event: ConversationEvent::TranscriptDelta {
+                    agent_id: agent,
+                    item_id: item,
+                    item_revision: 2,
+                    text: " continuing with more text".repeat(12),
+                },
+            }]);
+            workspace.draw(&mut terminal).expect("pending update");
+            assert_eq!(
+                crate::test_support::snapshot_text(terminal.backend().buffer(), before.area),
+                crate::test_support::snapshot_text(&before, before.area),
+                "{source:?} at {width}: pending preparation erased visible text"
+            );
+            assert_eq!(workspace.surfaces.viewport(SurfaceId::Transcript), viewport);
+            let viewport = viewport.expect("painted viewport");
+            let (_, key, _, _) = workspace
+                .metrics
+                .painted_entry(
+                    SurfaceId::Transcript,
+                    &AgentId::new("primary").expect("agent"),
+                    viewport.content_width,
+                    0,
+                )
+                .expect("painted source identity");
+            assert_eq!(
+                key.revision, 1,
+                "old rows cannot claim the current revision"
+            );
+            let at = point(&terminal, "Readable text");
+            let (_, selected, _) = workspace
+                .text_point_at(SurfaceId::Transcript, at, false)
+                .expect("retained painted text");
+            assert_eq!(selected.offset(), 0);
+            let work = workspace
+                .take_preparation()
+                .expect("new revision is still requested");
+            assert_eq!(work.requests[0].key().revision, 2);
+            assert!(workspace.complete_preparation(
+                work.token,
+                work.requests.iter().map(Request::prepare).collect()
+            ));
+            workspace.draw(&mut terminal).expect("new content");
+            point(&terminal, "continuing with more text");
+        }
+    }
+}
+
+/// FR-3/SEL-2/PRE-4: release copies the retained painted fragment immediately, even while the
+/// current semantic revision is still waiting on preparation. Copy does not replace that work.
+#[test]
+fn pending_stream_copy_captures_painted_fragments_without_waiting_for_new_source() {
+    for width in [120, 88, 60] {
+        let (mut workspace, mut terminal, sequence) = fixture(width, 1);
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("first painted source");
+        workspace.emit(vec![ConversationEventEnvelope {
+            sequence: EventSequence::new(sequence + 1),
+            event: ConversationEvent::TranscriptDelta {
+                agent_id: AgentId::new("primary").expect("agent"),
+                item_id: TranscriptItemId::new("item-0").expect("item"),
+                item_revision: 2,
+                text: " a longer continuation".repeat(20),
+            },
+        }]);
+        workspace
+            .draw(&mut terminal)
+            .expect("retained source frame");
+        let work = workspace.take_preparation().expect("pending new source");
+        let start = point(&terminal, "message 000");
+        let end = Point {
+            x: start.x + "message 000 中文".width() as u16,
+            ..start
+        };
+        workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), start));
+        workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
+        let copied = workspace
+            .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))
+            .copied
+            .expect("painted text needs no new preparation");
+        assert_eq!(copied.text, "message 000 中文");
+        assert!(workspace.owns_preparation(&work.token));
+        assert_eq!(workspace.copy_preparation_keys().count(), 0);
+        assert!(workspace.complete_preparation(
+            work.token,
+            work.requests.iter().map(Request::prepare).collect()
+        ));
+        assert_eq!(
+            workspace.copy_selection().expect("selection retained").text,
+            copied.text
+        );
+    }
+}
+
+/// PRE-4/SEL-2: an empty painted member is a captured absence, not a request to substitute newer
+/// unpainted text. A new explicit Copy after painting includes the newly visible member.
+#[test]
+fn empty_painted_fragments_do_not_copy_unseen_text_or_wait_for_it() {
+    let (mut workspace, mut terminal, mut sequence) = fixture(88, 0);
+    let agent = AgentId::new("primary").expect("agent");
+    for (index, text) in ["Alpha", "", "Omega"].into_iter().enumerate() {
+        let item = TranscriptItemId::new(format!("part-{index}")).expect("item");
+        for event in [
+            ConversationEvent::TranscriptItemStarted {
+                agent_id: agent.clone(),
+                item_id: item.clone(),
+                role: TranscriptRole::Assistant,
+            },
+            ConversationEvent::TranscriptDelta {
+                agent_id: agent.clone(),
+                item_id: item,
+                item_revision: 1,
+                text: text.into(),
+            },
+        ] {
+            sequence += 1;
+            workspace.emit(vec![ConversationEventEnvelope {
+                sequence: EventSequence::new(sequence),
+                event,
+            }]);
+        }
+    }
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("painted empty member");
+    workspace.emit(vec![ConversationEventEnvelope {
+        sequence: EventSequence::new(sequence + 1),
+        event: ConversationEvent::TranscriptDelta {
+            agent_id: agent,
+            item_id: TranscriptItemId::new("part-1").expect("middle"),
+            item_revision: 2,
+            text: "new middle".into(),
+        },
+    }]);
+    let first = point(&terminal, "Alpha");
+    let last = point(&terminal, "Omega");
+    let end = Point {
+        x: last.x + 5,
+        ..last
+    };
+    workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), first));
+    workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
+    assert_eq!(
+        workspace
+            .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))
+            .copied
+            .expect("painted selection is complete")
+            .text,
+        "Alpha\n\nOmega"
+    );
+    assert_eq!(workspace.copy_preparation_keys().count(), 0);
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("paint new middle");
+    assert_eq!(
+        workspace
+            .handle(&ctrl('y'))
+            .copied
+            .expect("new explicit copy")
+            .text,
+        "Alpha\n\nnew middle\n\nOmega"
+    );
+}
+
 /// PRE-1/PRE-3/MD-4: a cold frame declares reached work without preparing or cloning rich history.
 #[test]
 fn cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued() {
@@ -120,7 +380,7 @@ fn cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued() {
         workspace
             .draw(&mut terminal)
             .expect("overlay while preparing");
-        assert!(workspace.surfaces.get(SurfaceId::CommandPalette).is_some());
+        assert!(workspace.surfaces.get(SurfaceId::Drawer).is_some());
         assert_eq!(workspace.metrics.text_layouts(), 0);
         assert_eq!(workspace.handle(&ctrl('d')).flow, Flow::Continue);
         assert_eq!(workspace.handle(&ctrl('d')).flow, Flow::Quit);
@@ -288,7 +548,7 @@ fn superseded_preparation_is_ignored_and_failure_is_local_without_an_idle_retry(
     );
 }
 
-fn select_unprepared_history(width: u16) -> (Workspace, Terminal<TestBackend>, u64) {
+pub(super) fn select_unprepared_history(width: u16) -> (Workspace, Terminal<TestBackend>, u64) {
     let (mut workspace, mut terminal, sequence) = fixture(width, 200);
     workspace.settled_draw(&mut terminal).expect("tail");
     workspace.state.scroll_conversation_by(
@@ -347,7 +607,7 @@ fn selected_text_waits_for_missing_preparation_and_emits_one_complete_copy() {
         workspace
             .draw(&mut terminal)
             .expect("overlay during copy preparation");
-        assert!(workspace.surfaces.get(SurfaceId::CommandPalette).is_some());
+        assert!(workspace.surfaces.get(SurfaceId::Drawer).is_some());
         assert!(workspace.take_copy().is_none());
         workspace
             .settled_draw(&mut terminal)

@@ -82,6 +82,43 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
     (workspace, terminal, point)
 }
 
+/// TR-1: feedback height follows the same wrapped rows as paint. The 48-column workspace is
+/// real; the narrower admitted content width additionally exercises wrapping of the control line.
+#[test]
+fn retry_feedback_measurement_counts_wrapped_controls() {
+    use ratatui::widgets::{Paragraph, Wrap};
+    let (workspace, _, _) = fixture(48);
+    let agent = workspace.state.primary_agent().expect("primary");
+    for (width, footer_rows) in [(28, 3), (46, 2), (58, 2), (86, 2), (118, 2)] {
+        let mut metrics = TranscriptMetrics::default();
+        for entry in agent.entries() {
+            metrics.accept_prepared(
+                crate::preparation::Request::new(agent.id.clone(), entry.clone(), width, false)
+                    .prepare(),
+            );
+        }
+        let mut without_controls = agent.clone();
+        without_controls.retry = None;
+        metrics.measure(&without_controls, &workspace.palette, width);
+        let body_rows = metrics.total_rows(&agent.id, width);
+        metrics.measure(agent, &workspace.palette, width);
+        let window = metrics.window(&agent.id, width, 0, u16::MAX);
+        let (lines, skip) = metrics.build(
+            agent,
+            &workspace.palette,
+            &window,
+            &workspace.state,
+            SurfaceId::Transcript,
+        );
+        assert_eq!(skip, 0);
+        let drawn = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .line_count(width);
+        assert_eq!(drawn - body_rows, footer_rows, "content width {width}");
+        assert_eq!(metrics.total_rows(&agent.id, width), drawn);
+    }
+}
+
 /// SKP-3/COM-7: a historical numeric binding survives unchanged Edit & retry.
 #[test]
 fn unchanged_numeric_skill_retry_uses_the_historical_semantic_binding() {

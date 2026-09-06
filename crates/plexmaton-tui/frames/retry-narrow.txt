@@ -1,24 +1,24 @@
-┌ Plexmaton · idle ────────────────────────────────────────┐
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│▌Original question                                        │
-│                                                          │
-│error                                                     │
-│Request was rate limited.                                 │
-│                                                          │
-│[ Retry ]   [ Edit & retry ] · r / e                      │
-│                                                          │
-├ Message Plexmaton ───────────────────────────────────────┤
-│Type a message · ⇥ to focus                               │
-└──────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+ ▌Original question
+
+ error
+ Request was rate limited.
+
+ [ Retry ]   [ Edit & retry ] · r / e
+
+
+── Message Plexmaton ───────────────────────────────────────
+ Type a message · ⇥ to focus
+────────────────────────────────────────────────────────────
 

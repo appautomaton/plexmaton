@@ -6,7 +6,7 @@ use ratatui::{
 use std::fmt::Write as _;
 use unicode_width::UnicodeWidthStr as _;
 
-pub(super) const BACKGROUND: &str = "#11131c";
+pub const BACKGROUND: &str = "#11131c";
 pub(super) const FOREGROUND: &str = "#dce1ea";
 
 pub(super) fn color(value: Color, fallback: &str) -> String {

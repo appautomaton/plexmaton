@@ -17,7 +17,7 @@ pub use configuration::ProjectPermissionConfigurationSource;
 
 /// One explicit shared owner for a coding Session's bounded, memory-only permission state.
 ///
-/// The CLI retains this handle across `/new` and `/resume`. Dropping a Conversation runtime does
+/// The CLI retains this handle across new and resumed conversations. Dropping a Conversation runtime does
 /// not revoke its Session; dropping the last handle ends the authority. No process global exists.
 #[derive(Clone)]
 pub struct CodingSessionPermissions {

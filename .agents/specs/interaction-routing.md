@@ -54,34 +54,14 @@ other component observes raw terminal events.
 in the rail, moves the queue's cursor only in the queue, and everywhere else scrolls the surface the
 user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
 
-**INV-11 — Command discovery ignores an optional leading slash.** Inside the command palette,
-`config`, `/config`, and aliases select the same single command; an empty filter or `/` shows all
-commands. `Enter` returns the chosen command to the composition root;
-`config` and its `settings` alias open the same configuration page.
-`resume`, with `continue`, `sessions` and `session` aliases, opens session discovery (SPK-1).
-`new` starts an empty conversation under SPK-2's switching and lazy-storage rules.
-Submitting those exact slash commands from the primary composer also dispatches them. Retry and
-Edit & retry are message-local actions (JRN-8), invoked by their inline buttons or `r` / `e` while
-the primary transcript has navigation focus; they are absent from command discovery. A button
+**INV-11 — Retry is message-local.** Retry and Edit & retry are actions on an eligible failed
+message (JRN-8), invoked by their inline buttons or `r` / `e` while the primary transcript has
+navigation focus; they are absent from the Drawer, and nothing global names them. A button
 activates only on a matching press/release without a drag; stale or unavailable targets do nothing.
 
-A first `/` in an empty conversation input offers the palette chord for three seconds; every
-following key settles the offer. Whitespace is existing input, the filter never offers itself,
-and the offer cannot replace an armed quit question.
+The Drawer's chord, geometry and pages are [drawer](./drawer.md) DRW-1 to DRW-4.
 
-**INV-12 — Configuration shows the model this process resolved.** The composition root projects
-provider, wire model ID and reasoning effort from the model handed to the runtime, without keys or
-file access in the TUI. The read-only page takes focus and blocks edits underneath; `Esc` restores
-the originating palette's filter, caret and choice, then a second `Esc` restores the conversation
-and draft (SURF-4, SURF-5). A fixed `Esc back · ↑↓ scroll` footer remains visible while values scroll.
-
-**INV-13 — Workspace commands stay compact.** Palette and configuration width grows continuously
-with the terminal up to 76 columns, with content-sized height at every layout class
-(`ui-ux.md` §responsive layout classes). Excluding the bottom status line, every side retains at
-least three terminal cells of margin; the top edge stays fixed as content changes. Each command
-takes one row, truncating its summary with an ellipsis before it can wrap over the controls.
-
-PER-8 owns `/permissions` rule review: Up/Down and the wheel scroll complete scopes with fixed
+PER-8 owns the Permissions page's rule review: Up/Down and the wheel scroll complete scopes with fixed
 controls; Enter continues to a separate confirmation, and Esc returns one page.
 
 ## Model
@@ -107,7 +87,7 @@ ordinary bindings below apply.
 | `Ctrl-D` | Quit chord: arm one second, then leave on a timely second press | The same |
 | `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
-| `Ctrl-P` | Open and focus the command palette | The same |
+| `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | Unbound |
@@ -132,15 +112,12 @@ press/release decides the exact displayed request. Primary approval uses `Esc` t
 without answering or hiding the card; a background modal closes. Allow and remember… enters a
 scope/lifetime review; `Esc` there returns to the decision step. PER-5 owns producer confirmation.
 
-The command palette owns typing and editing while open: `↑` / `↓` chooses, `Enter` runs, and
-`Esc` closes it and restores the previous focus. Its filter uses the caret contract in COM-1.
-`/permissions` opens revisioned grant controls (PER-7). Arrows or drawn-row clicks select a setting
-or grant, `Enter` reviews it, and a second confirmation applies it. Back starts selected; `Esc`
-returns from review or closes the controls. Loading/submission accepts no duplicate mutation.
-The configuration page accepts `↑` / `↓` (or `k` / `j`) to scroll longer values on short terminals,
-`Ctrl-P` to open the palette above it, and `Esc` to return to its originating palette; typing and
-editing keys stay blocked. Re-running configuration from a palette above it refreshes the same
-page and preserves its original return path, keeping navigation bounded.
+The Drawer owns typing and editing while open (DRW-3): `↑` / `↓` chooses, `Enter` opens the row,
+and `Esc` returns one layer. Its filter uses the caret contract in COM-1. The Permissions page
+holds revisioned grant controls (PER-7): arrows or drawn-row clicks select a setting or grant,
+`Enter` reviews it, and a second confirmation applies it. Back starts selected; `Esc` returns from
+review, then to the list. Loading/submission accepts no duplicate mutation. The Configuration page
+is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DRW-4).
 
 | Fact | Value |
 | --- | --- |
@@ -164,8 +141,7 @@ page and preserves its original return path, keeping navigation bounded.
 
 | Invariant | Proven by |
 | --- | --- |
-| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` |
-| INV-11 | `resume_aliases_share_one_command_and_retry_is_not_a_global_command` |
+| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` with the `retry-*` frames |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
 | INV-3 | `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
@@ -176,6 +152,3 @@ page and preserves its original return path, keeping navigation bounded.
 | INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
-| INV-11 | `an_alias_finds_its_command_without_adding_a_second_row`, `the_palette_discovers_commands_with_or_without_a_slash`, `the_command_hint_follows_the_addressed_input_and_any_next_key` |
-| INV-12 | `config_and_settings_commands_open_the_resolved_configuration`, `configuration_opens_above_the_workspace_and_escape_restores_the_draft`, `short_configuration_pages_scroll_to_the_remaining_values`, `the_configuration_frames_match_their_fixtures`; `scripts/smoke-tui.py` exercises the executable |
-| INV-13 | `the_palette_stays_compact_and_keeps_controls_visible_across_widths`, `workspace_overlays_reserve_three_cells_on_every_side`, `the_command_palette_frames_match_their_fixtures`, `the_configuration_frames_match_their_fixtures` |

@@ -26,7 +26,8 @@ class SmokeBoundaryTests(unittest.TestCase):
 
     def test_palette_caption_cannot_stand_in_for_the_complete_filter(self):
         for query, expected in (("con", False), ("config", True)):
-            raw = f"\x1b[1;1HCommands\x1b[2;1H{query}\x1b[3;1H> /config\x1b[4;40H┘\x1b[0m".encode()
+            # The composer's bottom rule, a whole row of "─", is the frame-complete signal.
+            raw = f"\x1b[1;1HCommands\x1b[2;1H{query}\x1b[3;1H> /config\x1b[4;1H{'─' * 40}\x1b[0m".encode()
             with patch.object(terminal, "read_until") as read:
                 terminal.await_screen(-1, bytearray(raw), (4, 40), ("Commands", "/config"), exact_lines=("config",))
                 self.assertEqual(read.call_args.args[2](), expected)

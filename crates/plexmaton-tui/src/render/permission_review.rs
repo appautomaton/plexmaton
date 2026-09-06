@@ -18,7 +18,7 @@ use crate::{
 
 /// Shared with pointer hit testing; the footer is never part of the scrolling rule body.
 pub(crate) fn choice_row(area: Rect) -> u16 {
-    let insets = ContentInsets::for_surface(SurfaceId::CommandPalette, area.height);
+    let insets = ContentInsets::for_surface(SurfaceId::Drawer, area.height);
     area.bottom().saturating_sub(4 + insets.vertical)
 }
 
@@ -30,11 +30,11 @@ pub(super) fn render(
     focused: bool,
 ) -> Option<Viewport> {
     let panel = state
-        .command_palette()?
+        .drawer()?
         .permissions()
         .filter(|panel| panel.is_reading())?;
-    let parked = state.scroll_position(SurfaceId::CommandPalette);
-    let insets = ContentInsets::for_surface(SurfaceId::CommandPalette, area.height);
+    let parked = state.scroll_position(SurfaceId::Drawer);
+    let insets = ContentInsets::for_surface(SurfaceId::Drawer, area.height);
     let border = block(
         palette,
         title(
@@ -98,7 +98,11 @@ pub(super) fn render(
         .first()
         .map_or(String::new(), |(_, label)| format!("> {label}"));
     frame.render_widget(
-        Paragraph::new(Line::styled(choice, palette.style(Role::Accent))),
+        Paragraph::new(crate::content::chosen_row(
+            vec![ratatui::text::Span::raw(choice)],
+            palette,
+            inside.width,
+        )),
         Rect::new(inside.x, choice_row(area), inside.width, 1),
     );
     frame.render_widget(

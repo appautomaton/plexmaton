@@ -21,9 +21,10 @@ name alongside original text; changing the token invalidates its binding (COM-3/
 navigation, acceptance, pointer selection and scrolling; ordinary typing retains the composer's
 caret. Escape closes the picker without deleting the draft; worker inputs do not offer this menu.
 
-**SKP-4 — The picker fits the conversation.** The menu is anchored above the primary composer,
-bounded within its conversation column and available terminal space. It clips summaries and scrolls
-choices without obscuring the input or taking another conversation's space.
+**SKP-4 — The picker fits the conversation.** The menu is a titled rule and its rows above the
+primary composer's top rule, bounded within its conversation column and available terminal
+space. It clips summaries and scrolls choices without obscuring the input or taking another
+conversation's space.
 
 ## Grammar
 

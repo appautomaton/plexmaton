@@ -104,12 +104,7 @@ impl Workspace {
                     return None;
                 }
                 self.state.focus_surface(&self.surfaces, surface);
-                if input
-                    || matches!(
-                        surface,
-                        SurfaceId::CommandPalette | SurfaceId::Configuration
-                    )
-                {
+                if input || surface == SurfaceId::Drawer {
                     if input {
                         self.state.clear_selection();
                     }

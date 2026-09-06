@@ -16,7 +16,7 @@ use crate::{
 /// Approval and clarification are drawn apart because `ui-ux.md` §attention management refuses one
 /// generic notification treatment: one is an agent that cannot proceed, the other is an agent that
 /// can. Seen requests stay listed and stop shouting — acknowledging is not resolving (ATT-3).
-pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
+pub(crate) fn attention(state: &ViewState, palette: &Palette, width: u16) -> Vec<Line<'static>> {
     // Named rather than counted: the band lists a subset now, so an index into it is an index into
     // a different list than the one the cursor moves through.
     let cursor = state.listed_attention_cursor();
@@ -28,17 +28,18 @@ pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'stati
                 (false, AttentionKind::Approval) => ("block ", Role::ActionRequired),
                 (false, AttentionKind::Clarification) => ("ask   ", Role::NewInformation),
             };
-            let (caret, caret_role) = if cursor == Some(&item.id) {
-                ("> ", Role::Accent)
-            } else {
-                ("  ", Role::Muted)
-            };
-            Line::from(vec![
-                Span::styled(caret, palette.style(caret_role)),
+            let chosen = cursor == Some(&item.id);
+            let spans = vec![
+                Span::styled(if chosen { "> " } else { "  " }, palette.style(Role::Muted)),
                 Span::styled(marker, palette.style(role)),
                 Span::styled(format!("{} · ", item.agent_id), palette.style(Role::Muted)),
                 Span::styled(item.summary().to_owned(), palette.style(Role::Body)),
-            ])
+            ];
+            if chosen {
+                crate::content::chosen_row(spans, palette, width)
+            } else {
+                Line::from(spans)
+            }
         })
         .collect()
 }
@@ -122,7 +123,7 @@ fn approval_content(
         ApprovalStage::Submitting => "Esc input · your draft stays usable",
     };
     let description = match view.selected {
-        ApprovalChoice::ThisSession => "Until Plexmaton exits; kept across /new and resume.",
+        ApprovalChoice::ThisSession => "Until Plexmaton exits; kept across conversations.",
         ApprovalChoice::ThisProject => "Saved for this checkout across restarts.",
         ApprovalChoice::Back => "Return without granting permission.",
         _ if state.approval_in_primary() => "Esc input · Tab returns to this card",
@@ -159,29 +160,33 @@ fn approval_content(
             choice_positions.push((lines.len(), *choice));
         }
         let selected = *choice == view.selected;
-        lines.push(clip(
+        let label = if enabled {
+            choice.label().to_owned()
+        } else {
+            format!("{} (resize)", choice.label())
+        };
+        let row = if selected {
+            crate::content::chosen_row(
+                vec![
+                    Span::raw("> "),
+                    Span::styled(
+                        label,
+                        palette.style(if enabled { Role::Chosen } else { Role::Muted }),
+                    ),
+                ],
+                palette,
+                width,
+            )
+        } else {
             Line::from(vec![
+                Span::styled("  ", palette.style(Role::Muted)),
                 Span::styled(
-                    if selected { "> " } else { "  " },
-                    palette.style(if selected { Role::Accent } else { Role::Muted }),
+                    label,
+                    palette.style(if enabled { Role::Body } else { Role::Muted }),
                 ),
-                Span::styled(
-                    if enabled {
-                        choice.label().to_owned()
-                    } else {
-                        format!("{} (resize)", choice.label())
-                    },
-                    palette.style(if !enabled {
-                        Role::Muted
-                    } else if selected {
-                        Role::ActionRequired
-                    } else {
-                        Role::Body
-                    }),
-                ),
-            ]),
-            width,
-        ));
+            ])
+        };
+        lines.push(clip(row, width));
     }
     if extras > 0 {
         if extras == 4 {

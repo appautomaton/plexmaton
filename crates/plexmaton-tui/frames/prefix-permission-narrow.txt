@@ -1,12 +1,12 @@
-├ Remember permission · exec_command ──────────────────────┤
-│                                                          │
-│  Command "git fetch 'team origin'" · cwd "/home/dev/pl…  │
-│  Scope: git fetch …; same cwd/environment                │
-│                                                          │
-│  > This Session                                          │
-│    This Project                                          │
-│    Back                                                  │
-│                                                          │
-│  ↑↓ choose · Enter confirm · Esc back                    │
-│  Until Plexmaton exits; kept across /new and resume.     │
-│                                                          │
+── Remember permission · exec_command ──────────────────────
+                                                            
+   Command "git fetch 'team origin'" · cwd "/home/dev/pl…   
+   Scope: git fetch …; same cwd/environment                 
+                                                            
+   > This Session                                           
+     This Project                                           
+     Back                                                   
+                                                            
+   ↑↓ choose · Enter confirm · Esc back                     
+   Until Plexmaton exits; kept across conversations.        
+                                                            

@@ -36,6 +36,7 @@ jobs:
       - run: ./scripts/check-file-length.sh
       - run: ./scripts/check-crate-graph.sh
       - run: ./scripts/check-citations.sh
+      - run: ./scripts/check-frames.sh
       - run: ./scripts/check-doc-budget.sh
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

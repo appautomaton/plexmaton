@@ -1,48 +1,48 @@
-┌ Plexmaton · idle ────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│▌Show **Markdown** and a Rust example.                                                                                │
-│                                                                                                                      │
-│Build summary                                                                                                         │
-│                                                                                                                      │
-│Ready for review — 中文也要清楚。 Use cargo test before merging.                                                      │
-│                                                                                                                      │
-│• Preserve exact source when copying                                                                                  │
-│• Keep streaming readable                                                                                             │
-│  • No hidden model requests                                                                                          │
-│                                                                                                                      │
-││ Small changes, clear ownership.                                                                                     │
-│                                                                                                                      │
-│┌ rust                                                                                                                │
-││ fn main() {                                                                                                         │
-││     println!("hello, 世界");                                                                                        │
-││ }                                                                                                                   │
-│└                                                                                                                     │
-│                                                                                                                      │
-│Item     │ State    │     Time │    Input │    Cache │ Note                                                           │
-│─────────┼──────────┼──────────┼──────────┼──────────┼─────────                                                       │
-│tests    │ passed   │       2s │     1800 │      84% │ offline                                                        │
-│                                                                                                                      │
-│See the docs (https://example.com/docs).                                                                              │
-│                                                                                                                      │
-├ Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────┤
-│Type a message · ⇥ to focus                                                                                           │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ▌Show **Markdown** and a Rust example.
+
+ Build summary
+
+ Ready for review — 中文也要清楚。 Use cargo test before merging.
+
+ • Preserve exact source when copying
+ • Keep streaming readable
+   • No hidden model requests
+
+ │ Small changes, clear ownership.
+
+ ┌ rust
+ │ fn main() {
+ │     println!("hello, 世界");
+ │ }
+ └
+
+ Item     │ State    │     Time │    Input │    Cache │ Note
+ ─────────┼──────────┼──────────┼──────────┼──────────┼─────────
+ tests    │ passed   │       2s │     1800 │      84% │ offline
+
+ See the docs (https://example.com/docs).
+
+
+── Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────
+ Type a message · ⇥ to focus
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 

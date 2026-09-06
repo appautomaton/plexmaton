@@ -11,16 +11,17 @@ use std::{collections::VecDeque, sync::Arc};
 const MAX_ENTRIES: usize = 128;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 
-struct Entry {
-    key: Key,
-    layout: Result<Arc<Layout>, Refusal>,
+#[derive(Debug)]
+pub(crate) struct PreparedEntry {
+    pub(crate) key: Key,
+    pub(crate) layout: Result<Arc<Layout>, Refusal>,
     bytes: usize,
 }
 
 #[derive(Default)]
 pub(crate) struct Cache {
     pub(crate) math: crate::math::MathPresentation,
-    entries: VecDeque<Entry>,
+    entries: VecDeque<PreparedEntry>,
     bytes: usize,
     layouts: usize,
     needed: Vec<Key>,
@@ -73,16 +74,41 @@ impl Cache {
         item: &TranscriptEntryView,
         width: u16,
         open: bool,
-    ) -> Option<Result<Arc<Layout>, Refusal>> {
+    ) -> Result<Option<&PreparedEntry>, Refusal> {
         if !Key::fits(agent, item) {
-            return Some(Err(Refusal::Capacity));
+            return Err(Refusal::Capacity);
         }
+        Ok(self
+            .presentation_index(agent, item, width, open)
+            .map(|index| &self.entries[index]))
+    }
+
+    /// Only append-only text can reuse an older prefix. Other entry kinds contain current facts,
+    /// and every cached refusal applies only to its exact requested revision (MD-4/ENT-2).
+    fn presentation_index(
+        &self,
+        agent: &AgentId,
+        item: &TranscriptEntryView,
+        width: u16,
+        open: bool,
+    ) -> Option<usize> {
+        let append_only = matches!(item, TranscriptEntryView::Text(_));
         self.entries
             .iter()
-            .find(|entry| {
-                entry.key.math == self.math && entry.key.matches(agent, item, width, open)
+            .enumerate()
+            .filter(|(_, entry)| {
+                &entry.key.agent == agent
+                    && &entry.key.item == item.id()
+                    && entry.key.width == width
+                    && entry.key.open == open
+                    && entry.key.math == self.math
+                    && (entry.key.revision == item.revision()
+                        || (append_only
+                            && entry.layout.is_ok()
+                            && entry.key.revision < item.revision()))
             })
-            .map(|entry| entry.layout.clone())
+            .max_by_key(|(_, entry)| entry.key.revision)
+            .map(|(index, _)| index)
     }
 
     pub(crate) fn for_source(&self, key: &Key) -> Option<Result<Arc<Layout>, Refusal>> {
@@ -93,37 +119,48 @@ impl Cache {
                     && entry.key.item == key.item
                     && entry.key.revision == key.revision
                     && entry.key.open == key.open
+                    && entry.key.math == key.math
             })
             .map(|entry| entry.layout.clone())
     }
 
-    /// A reached miss is a declarative need, never permission to run a parser in a frame.
+    /// A reached miss declares work. Lookup admission can refuse before allocating a key;
+    /// retained results preserve identity for both successful rows and worker refusals.
     pub(crate) fn mapped(
         &mut self,
         agent: &AgentId,
         item: &TranscriptEntryView,
         width: u16,
         appearance: EntryAppearance,
-    ) -> Option<Result<Arc<Layout>, Refusal>> {
+    ) -> Result<Option<&PreparedEntry>, Refusal> {
         if !Key::fits(agent, item) {
-            return Some(Err(Refusal::Capacity));
+            return Err(Refusal::Capacity);
         }
         let key = Key::new(agent, item, width, appearance.open).with_math(self.math);
-        if let Some(index) = self.entries.iter().position(|entry| entry.key == key) {
-            let entry = self.entries.remove(index)?;
-            let result = entry.layout.clone();
-            self.entries.push_front(entry);
-            return Some(result);
-        }
-        if self.needed.len() < MAX_ENTRIES && !self.needed.contains(&key) {
+        let index = self.presentation_index(agent, item, width, appearance.open);
+        if index.is_none_or(|index| self.entries[index].key != key)
+            && self.needed.len() < MAX_ENTRIES
+            && !self.needed.contains(&key)
+        {
             self.needed.push(key);
         }
-        None
+        let Some(index) = index else {
+            return Ok(None);
+        };
+        let entry = self
+            .entries
+            .remove(index)
+            .expect("lookup returned a retained index");
+        self.entries.push_front(entry);
+        Ok(self.entries.front())
     }
 
     pub(crate) fn insert(&mut self, prepared: PreparedText) {
+        // FR-4 counts admitted results delivered here, including refusals and defensive drops;
+        // cache occupancy and whether this particular result survives retention are separate.
+        self.layouts = self.layouts.saturating_add(1);
         let (key, layout) = prepared.into_parts();
-        let bytes = size_of::<Entry>()
+        let bytes = size_of::<PreparedEntry>()
             + key.allocation_bytes()
             + layout.as_ref().map_or(0, |layout| {
                 layout.allocation_bytes() + size_of::<Layout>() + 2 * size_of::<usize>()
@@ -131,12 +168,25 @@ impl Cache {
         if bytes > MAX_BYTES {
             return;
         }
-        // A source revision replaces every older revision, but independent live widths coexist.
+        // Retain the newest two versions of each geometry under the same global LRU bound.
+        // A completion at another width must not erase the only usable rows at this width.
+        let versions = || {
+            self.entries
+                .iter()
+                .filter(|entry| entry.key.same_geometry(&key))
+                .map(|entry| entry.key.revision)
+                .chain(std::iter::once(key.revision))
+        };
+        let newest = versions().max().expect("the incoming version is present");
+        let oldest = versions()
+            .filter(|version| *version < newest)
+            .max()
+            .unwrap_or(newest);
+        if key.revision < oldest {
+            return;
+        }
         self.entries.retain(|entry| {
-            entry.key != key
-                && (entry.key.agent != key.agent
-                    || entry.key.item != key.item
-                    || entry.key.revision == key.revision)
+            entry.key != key && (!entry.key.same_geometry(&key) || entry.key.revision >= oldest)
         });
         self.bytes = self.entries.iter().map(|entry| entry.bytes).sum();
         while self.entries.len() >= MAX_ENTRIES || self.bytes + bytes > MAX_BYTES {
@@ -145,13 +195,12 @@ impl Cache {
             };
             self.bytes -= oldest.bytes;
         }
-        self.entries.push_front(Entry {
+        self.entries.push_front(PreparedEntry {
             key,
             layout: layout.map(Arc::new),
             bytes,
         });
         self.bytes += bytes;
-        self.layouts = self.layouts.saturating_add(1);
     }
 }
 
@@ -177,7 +226,7 @@ mod tests {
         let mut cache = Cache::default();
         assert!(matches!(
             cache.mapped(&agent, &item, 80, EntryAppearance::default()),
-            Some(Err(Refusal::Capacity))
+            Err(Refusal::Capacity)
         ));
         assert!(cache.entries.is_empty() && cache.needed.is_empty());
         assert_eq!(cache.bytes, 0);
@@ -194,14 +243,21 @@ mod tests {
         width: u16,
     ) -> Result<Arc<Layout>, Refusal> {
         if cache
-            .mapped(agent, item, width, EntryAppearance::default())
+            .get(&Key::new(agent, item, width, false).with_math(cache.math))
             .is_none()
         {
-            cache.insert(Request::new(agent.clone(), item.clone(), width, false).prepare());
+            cache.insert(
+                Request::new(agent.clone(), item.clone(), width, false)
+                    .with_math(cache.math)
+                    .prepare(),
+            );
         }
         cache
             .mapped(agent, item, width, EntryAppearance::default())
+            .expect("admitted fixture identity")
             .expect("prepared fixture")
+            .layout
+            .clone()
     }
 
     /// MD-4/MD-5: theme changes resolve new colors from the same retained geometry and style intent.
@@ -325,10 +381,173 @@ mod tests {
                 .iter()
                 .filter(|entry| entry.key.item.as_str() == "stream")
                 .count(),
-            1
+            2
         );
         cache.retain_widths(&agent, &[80]);
         assert!(cache.entries.is_empty());
         assert_eq!(cache.bytes, 0);
+    }
+
+    fn streamed(revision: u64) -> TranscriptEntryView {
+        TranscriptEntryView::Text(TranscriptItemView {
+            id: TranscriptItemId::new("stream").expect("item"),
+            source: format!("**version {revision}**"),
+            role: TranscriptRole::Assistant,
+            kind: TranscriptTextKind::Message,
+            revision,
+            finalized: false,
+        })
+    }
+
+    /// MD-4/FR-3: source freshness and LRU recency differ; another live width cannot evict the
+    /// only compatible presentation, and painting an old version still requests the current one.
+    #[test]
+    fn pending_preparation_reuses_only_the_latest_compatible_revision() {
+        let agent = AgentId::new("primary").expect("agent");
+        let mut cache = Cache::default();
+        for (revision, width) in [(1, 60), (1, 80), (2, 80), (3, 60)] {
+            cache.insert(Request::new(agent.clone(), streamed(revision), width, false).prepare());
+        }
+        let item = streamed(2);
+        let mapped = cache
+            .mapped(&agent, &item, 60, EntryAppearance::default())
+            .expect("compatible rows")
+            .expect("successful old preparation");
+        assert_eq!(
+            mapped.key.revision, 1,
+            "a future revision is not a fallback"
+        );
+        let mapped_key = mapped.key.clone();
+        let mapped_layout = mapped.layout.as_ref().expect("prepared rows").clone();
+        assert_eq!(mapped_layout.text, "version 1");
+        assert_eq!(cache.needed(), &[Key::new(&agent, &item, 60, false)]);
+        let measured = cache
+            .for_entry(&agent, &item, 60, false)
+            .expect("measured fallback")
+            .expect("measured rows");
+        assert_eq!(measured.key, mapped_key);
+        assert!(Arc::ptr_eq(
+            measured.layout.as_ref().expect("measured rows"),
+            &mapped_layout
+        ));
+
+        cache.begin_frame();
+        let mapped = cache
+            .mapped(&agent, &streamed(4), 60, EntryAppearance::default())
+            .expect("latest rows")
+            .expect("successful preparation");
+        assert_eq!(
+            mapped.key.revision, 3,
+            "touching revision 1 did not make it newest"
+        );
+        assert_eq!(cache.needed()[0].revision, 4);
+        for revision in 4..20 {
+            cache.insert(Request::new(agent.clone(), streamed(revision), 60, false).prepare());
+            assert_eq!(
+                cache
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.key.width == 60)
+                    .count(),
+                2
+            );
+            assert_eq!(
+                cache
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.key.width == 80)
+                    .count(),
+                2
+            );
+            assert!(cache.bytes <= MAX_BYTES);
+        }
+    }
+
+    /// MD-4/PRE-3: fallback never crosses an owner, geometry or capability, and an exact refusal
+    /// is visible rather than silently replaced with old success or resubmitted on every paint.
+    #[test]
+    fn pending_preparation_preserves_geometry_boundaries_and_current_refusals() {
+        let agent = AgentId::new("primary").expect("agent");
+        for axis in 0..5 {
+            let mut cache = Cache::default();
+            let mut request = Request::new(agent.clone(), streamed(1), 60, false);
+            match axis {
+                0 => {
+                    request = Request::new(
+                        AgentId::new("other").expect("agent"),
+                        streamed(1),
+                        60,
+                        false,
+                    )
+                }
+                1 => {
+                    let mut item = streamed(1);
+                    if let TranscriptEntryView::Text(text) = &mut item {
+                        text.id = TranscriptItemId::new("other").expect("item");
+                    }
+                    request = Request::new(agent.clone(), item, 60, false);
+                }
+                2 => request = Request::new(agent.clone(), streamed(1), 80, false),
+                3 => request = Request::new(agent.clone(), streamed(1), 60, true),
+                4 => request = request.with_math(crate::math::MathPresentation::Native),
+                _ => unreachable!(),
+            }
+            cache.insert(request.prepare());
+            assert!(
+                matches!(
+                    cache.mapped(&agent, &streamed(2), 60, EntryAppearance::default()),
+                    Ok(None)
+                ),
+                "axis {axis}"
+            );
+        }
+        let mut cache = Cache::default();
+        cache.insert(Request::new(agent.clone(), streamed(1), 60, false).prepare());
+        let key = Key::new(&agent, &streamed(2), 60, false);
+        cache.insert(PreparedText::unavailable(key, Refusal::Unavailable));
+        assert!(matches!(
+            cache.mapped(&agent, &streamed(2), 60, EntryAppearance::default()),
+            Ok(Some(PreparedEntry {
+                layout: Err(Refusal::Unavailable),
+                ..
+            }))
+        ));
+        assert!(cache.needed().is_empty());
+        assert_eq!(
+            cache
+                .mapped(&agent, &streamed(3), 60, EntryAppearance::default())
+                .expect("old successful rows")
+                .expect("success")
+                .key
+                .revision,
+            1
+        );
+    }
+
+    /// FR-4/MD-4: received preparation results are counted independently of whether retention
+    /// keeps them; ignoring an older result cannot erase that completed work from the metric.
+    #[test]
+    fn preparation_result_count_includes_results_dropped_by_retention() {
+        let agent = AgentId::new("primary").expect("agent");
+        let mut cache = Cache::default();
+        for revision in [3, 4, 1] {
+            cache.insert(Request::new(agent.clone(), streamed(revision), 60, false).prepare());
+        }
+        assert_eq!(cache.layouts(), 3);
+        assert_eq!(cache.entries.len(), 2);
+        assert!(
+            cache
+                .get(&Key::new(&agent, &streamed(1), 60, false))
+                .is_none()
+        );
+        let key = Key::new(&agent, &streamed(5), 60, false);
+        cache.insert(PreparedText::unavailable(key.clone(), Refusal::Unavailable));
+        let retained = cache
+            .for_entry(&agent, &streamed(5), 60, false)
+            .expect("admitted identity")
+            .expect("retained refusal");
+        assert_eq!(retained.key, key);
+        assert!(matches!(retained.layout, Err(Refusal::Unavailable)));
+        assert_eq!(cache.layouts(), 4);
     }
 }

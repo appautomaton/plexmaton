@@ -18,10 +18,13 @@ pub(in crate::runtime) enum CompactionTrigger {
 }
 
 pub(in crate::runtime) enum Continuation {
+    /// Automatic: refresh and dispatch the held step once the checkpoint lands.
     ModelCall {
         original: ModelCall,
         trigger: CompactionTrigger,
     },
+    /// The user asked: report the outcome and dispatch nothing (CPL-9).
+    Requested,
     Cancelled,
 }
 
@@ -29,6 +32,8 @@ pub(in crate::runtime) struct CompactionOperation {
     pub(in crate::runtime) prepared: PreparedCompaction,
     pub(in crate::runtime) continuation: Continuation,
     pub(in crate::runtime) phase: CompactionPhase,
+    /// Who asked, retained past cancellation so the outcome still reaches the report.
+    pub(in crate::runtime) requested: bool,
 }
 
 impl CompactionOperation {

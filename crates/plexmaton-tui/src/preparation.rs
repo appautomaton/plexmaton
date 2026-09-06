@@ -114,6 +114,14 @@ impl Key {
             && self.open == open
     }
 
+    pub(crate) fn same_geometry(&self, other: &Self) -> bool {
+        self.agent == other.agent
+            && self.item == other.item
+            && self.width == other.width
+            && self.open == other.open
+            && self.math == other.math
+    }
+
     pub(crate) fn allocation_bytes(&self) -> usize {
         size_of::<Self>() + self.agent.as_str().len() + self.item.as_str().len()
     }

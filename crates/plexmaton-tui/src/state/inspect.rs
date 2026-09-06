@@ -79,12 +79,10 @@ impl ViewState {
         if self.clear_input_selection(surfaces) {
             return true;
         }
-        // The topmost rung: the command list opened last and sits above every other layer, so one
-        // `Escape` takes it and leaves whatever it was covering exactly where it was.
-        if self.permission_back() || self.close_command_palette() {
-            return true;
-        }
-        if self.close_configuration() {
+        // The topmost rung: the Drawer opened last and sits above every other layer, so one
+        // `Escape` takes one layer of it, page then list, and leaves whatever it was covering
+        // exactly where it was (DRW-3).
+        if self.permission_back() || self.drawer_back() {
             return true;
         }
         if self.focus.resolve(surfaces) == Some(SurfaceId::Approval) && self.approval.back() {

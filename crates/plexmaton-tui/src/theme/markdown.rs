@@ -47,23 +47,19 @@ impl Palette {
                 rule: self.style(Role::Border),
             },
             MarkdownTheme::Pastel => {
-                let colors = Self::pastel();
+                use super::tokens::{GOLD, LINE, MINT, SKY, STEEL, TEAL};
                 MarkdownStyles {
-                    headings: [Role::Ambient, Role::NewInformation, Role::Accent]
-                        .map(|role| colors.style(role).add_modifier(Modifier::BOLD)),
-                    inline_code: Style {
-                        fg: colors.style(Role::ActionRequired).fg,
-                        ..Style::default()
-                    },
+                    // Sky, mint, teal lead the hierarchy; gold marks what you would type.
+                    headings: [SKY, MINT, TEAL]
+                        .map(|colour| Style::new().fg(colour).add_modifier(Modifier::BOLD)),
+                    inline_code: Style::new().fg(GOLD),
                     code: self.style(Role::Body),
-                    link: colors
-                        .style(Role::BorderFocused)
-                        .add_modifier(Modifier::UNDERLINED),
-                    quote: colors.style(Role::Muted).add_modifier(Modifier::ITALIC),
-                    marker: colors.style(Role::Ambient),
-                    task_marker: colors.style(Role::Ambient),
-                    guide: colors.style(Role::Muted),
-                    rule: colors.style(Role::Border),
+                    link: Style::new().fg(SKY).add_modifier(Modifier::UNDERLINED),
+                    quote: Style::new().fg(STEEL).add_modifier(Modifier::ITALIC),
+                    marker: Style::new().fg(STEEL),
+                    task_marker: Style::new().fg(TEAL),
+                    guide: Style::new().fg(STEEL),
+                    rule: Style::new().fg(LINE),
                 }
             }
         }
@@ -87,11 +83,17 @@ mod tests {
             "the palette identity must include Markdown colors to request a repaint"
         );
         let styles = colored.markdown_styles();
-        let pastel = Palette::pastel();
-        assert_eq!(styles.headings[0].fg, pastel.style(Role::Ambient).fg);
-        assert_eq!(styles.headings[1].fg, pastel.style(Role::NewInformation).fg);
-        assert_eq!(styles.headings[2].fg, pastel.style(Role::Accent).fg);
-        assert_eq!(styles.link.fg, pastel.style(Role::BorderFocused).fg);
-        assert_eq!(styles.inline_code.fg, pastel.style(Role::ActionRequired).fg);
+        assert_eq!(styles.headings[0].fg, Some(super::super::tokens::SKY));
+        assert_eq!(styles.headings[1].fg, Some(super::super::tokens::MINT));
+        assert_eq!(styles.headings[2].fg, Some(super::super::tokens::TEAL));
+        assert_eq!(styles.link.fg, Some(super::super::tokens::SKY));
+        assert_eq!(styles.inline_code.fg, Some(super::super::tokens::GOLD));
+        let designed = Palette::pastel().markdown_styles();
+        assert_eq!(
+            designed.headings.map(|style| style.fg),
+            styles.headings.map(|style| style.fg),
+            "the designed palette and the Markdown theme are one set of tokens"
+        );
+        assert_eq!(designed.inline_code.fg, styles.inline_code.fg);
     }
 }

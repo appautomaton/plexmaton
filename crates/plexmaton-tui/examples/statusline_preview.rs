@@ -38,7 +38,6 @@ const MUTED: Color = Color::Rgb(142, 162, 196);
 enum Mode {
     Ready,
     Quit,
-    CommandHint,
     Approval,
 }
 
@@ -52,7 +51,6 @@ fn main() -> Result<()> {
         for (state, mode) in [
             ("ready", Mode::Ready),
             ("quit", Mode::Quit),
-            ("command-hint", Mode::CommandHint),
             ("approval", Mode::Approval),
         ] {
             let buffer = preview(width, 26, mode)?;
@@ -233,7 +231,6 @@ fn footer(width: u16, mode: Mode) -> Vec<Line<'static>> {
     ]));
     let message = match mode {
         Mode::Quit => Some(piece("  press Ctrl-D again to quit", GOLD)),
-        Mode::CommandHint => Some(piece("  press Ctrl-P for the command palette", SKY)),
         Mode::Ready | Mode::Approval => None,
     };
     if let (Some(message), Some(last_row)) = (message, rows.last_mut()) {
@@ -351,10 +348,7 @@ mod tests {
         // UI/UX §input: a global question stays on the terminal's last row.
         for width in [120, 95, 60] {
             let ready = preview(width, 26, Mode::Ready)?;
-            for (mode, label) in [
-                (Mode::Quit, "press Ctrl-D again to quit"),
-                (Mode::CommandHint, "press Ctrl-P for the command palette"),
-            ] {
+            for (mode, label) in [(Mode::Quit, "press Ctrl-D again to quit")] {
                 let hinted = preview(width, 26, mode)?;
                 for y in 0..25 {
                     for x in 0..width {

@@ -23,18 +23,18 @@
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
 │-> agent-a · Routing stays centralized and z-ordered.     │
-├ Approval required · edit ────────────────────────────────┤
-│                                                          │
-│  Change crates/plexmaton-core/src/lib.rs and preserve …  │
-│  Approval is required for this operation.                │
-│                                                          │
-│    Allow once                                            │
-│  > Deny                                                  │
-│                                                          │
-│  ↑↓ choose · Enter decide · Ctrl-O details               │
-│  Esc returns to the conversation                         │
-│                                                          │
-├ Message Agent A · primary · Thinking ────────────────────┤
-│Type a message · ⇥ to focus                               │
-└──────────────────────────────────────────────────────────┘
+── Approval required · edit ────────────────────────────────
+                                                            
+   Change crates/plexmaton-core/src/lib.rs and preserve …   
+   Approval is required for this operation.                 
+                                                            
+     Allow once                                             
+   > Deny                                                   
+                                                            
+   ↑↓ choose · Enter decide · Ctrl-O details                
+   Esc returns to the conversation                          
+                                                            
+── Message Agent A · primary ───────────────────────────────
+ Type a message · ⇥ to focus                                
+────────────────────────────────────────────────────────────
  ~/plexmaton                                                

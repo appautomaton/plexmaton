@@ -936,7 +936,7 @@ mod tests {
     }
 
     proptest! {
-        // A property here costs a full render, so the case count is chosen for a pre-commit hook.
+        // A property here costs a full render, so the case count keeps the per-change suite fast.
         #![proptest_config(ProptestConfig::with_cases(48))]
 
         /// SEL-2: copying returns the source of exactly the entries between the two endpoints.

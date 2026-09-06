@@ -5,36 +5,36 @@
 ┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
 │> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents ────────────────┐┌ Agent A · primary · running · 1 tool ───────────────────── ( !1 ) ┐
-│○ Agent B · UI study    ││                                                                   │
-│done · 1 tool @1 1 mail ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││                                                                   │
-│                        ││I will inspect the workspace and delegate the focused UI           │
-│                        ││study. Agent B is running independently; this transcript           │
-│                        ││remains interactive.                                               │
-│                        ││                                                                   │
-│                        ││[!] skill · failed                                                 │
-│                        │├ Message Agent A · primary · Thinking ─────────────────────────────┤
-│                        ││$review check this change                                          │
-└────────────────────────┘└───────────────────────────────────────────────────────────────────┘
+┌ Agents ────────────────┐                                                                     
+│○ Agent B · UI study    │                                                                     
+│done · 1 tool @1 1 mail │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │ I will inspect the workspace and delegate the focused UI            
+│                        │ study. Agent B is running independently; this transcript            
+│                        │ remains interactive.                                                
+│                        │                                                                     
+│                        │ [!] skill · failed                                                  
+│                        │ · Thinking…                                                 ( !1 )  
+│                        │── Message Agent A · primary ────────────────────────────────────────
+│                        │ $review check this change                                           
+└────────────────────────┘─────────────────────────────────────────────────────────────────────
                                                                                                

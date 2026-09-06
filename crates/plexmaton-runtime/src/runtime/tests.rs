@@ -319,6 +319,7 @@ mod compaction;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod requested_compaction;
 mod retry;
 mod skill_control;
 mod timing;

@@ -1,10 +1,10 @@
-//! Configuration's scrollable values and always-visible navigation footer.
+//! The Configuration page: scrollable values under the Drawer's title, with a fixed footer.
 
 use ratatui::{
     Frame,
     layout::Rect,
     text::Line,
-    widgets::{Clear, Paragraph, Wrap},
+    widgets::{Clear, Padding, Paragraph, Wrap},
 };
 
 use super::{
@@ -14,7 +14,7 @@ use super::{
 use crate::{
     ViewState, content,
     state::ScrollPosition,
-    surface::Viewport,
+    surface::{ContentInsets, SurfaceId, Viewport},
     theme::{Palette, Role},
 };
 
@@ -26,20 +26,29 @@ pub(super) fn render_configuration(
     focused: bool,
     parked: Option<ScrollPosition>,
 ) -> Viewport {
+    let insets = ContentInsets::for_surface(SurfaceId::Drawer, area.height);
     let border = block(
         palette,
         title(
             palette,
-            "Configuration",
+            "Workspace · Configuration",
             Role::SectionHeading,
             " · read only",
         ),
         focused,
         Edges::All,
-    );
+    )
+    .padding(Padding::new(
+        insets.sides,
+        insets.sides,
+        insets.vertical,
+        insets.vertical,
+    ));
     let inside = border.inner(area);
+    // The footer keeps its row, and a blank row above it, while the values scroll.
+    let gap = u16::from(inside.height >= 6);
     let body = Rect {
-        height: inside.height.saturating_sub(1),
+        height: inside.height.saturating_sub(1 + gap),
         ..inside
     };
     let footer = Rect::new(inside.x, inside.bottom().saturating_sub(1), inside.width, 1);

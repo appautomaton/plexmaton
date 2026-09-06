@@ -86,11 +86,13 @@ class Terminal:
         self.resize(120, *markers)
 
     def permissions(self):
-        self.send(b"\x10permissions", "Commands", "> /permissions")
+        self.send(b"\x10perm", "Workspace", "> Permissions", "Esc close")
         return self.send(ENTER, "Permissions", "Enable native file changes")
 
     def close_permissions(self):
-        self.send(ESC, "Message Plexmaton", absent=("Commands", "Permissions"))
+        # One layer per Escape (DRW-3): the page returns to the list, the list to the origin.
+        self.send(ESC, "> Permissions", "Esc close")
+        self.send(ESC, "Message Plexmaton", absent=("Type to filter",))
 
     def prompt(self, message, *markers, absent=()):
         at = (5, self.size[0] - 3)

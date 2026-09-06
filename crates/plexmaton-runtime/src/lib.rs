@@ -11,7 +11,8 @@ mod runtime;
 
 pub use http::HttpSetupError;
 pub use interface::{
-    CleanupFailure, ConversationRecovery, DispatchReport, JournalTailRecovery, PersistenceFailure,
+    CleanupFailure, CompactionRequest, CompactionRequestRefusal, ConversationRecovery,
+    DispatchReport, JournalTailRecovery, PersistenceFailure, RequestedCompactionOutcome,
     RuntimeError, RuntimeUpdate, SkillSummary,
 };
 pub use native::{

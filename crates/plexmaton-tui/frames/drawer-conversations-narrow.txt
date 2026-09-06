@@ -1,0 +1,38 @@
+┌ Workspace · Conversations ───────────────────────────────┐
+│                                                          │
+│  Type to filter                                          │
+│                                                          │
+│  > New conversation                                      │
+│  Loading saved conversations…                            │
+│                                                          │
+│  ↑↓ choose · Enter open · Esc back                       │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+┌ Workspace · Conversations ───────────────────────────────┐
+│                                                          │
+│  Type to filter                                          │
+│                                                          │
+│  > New conversation                                      │
+│  Starts empty and is saved on its first message          │
+│                                                          │
+│  ↑↓ choose · Enter open · Esc back                       │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+
+┌ Workspace · Conversations ───────────────────────────────┐
+│                                                          │
+│  Type to filter                                          │
+│                                                          │
+│  > New conversation                                      │
+│    Discuss project 00                                    │
+│    Discuss project 01                                    │
+│    Discuss project 02                                    │
+│    Discuss project 03                                    │
+│    Discuss project 04                                    │
+│  Cannot open: check configuration or conversation file.  │
+│                                                          │
+│  ↑↓ choose · Enter open · Esc back                       │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+

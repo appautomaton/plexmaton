@@ -96,14 +96,12 @@ pub struct WorkspaceInput {
     pub decision_rows: u16,
     /// Primary approvals are inline inputs; a user-opened background request can be modal.
     pub decision_mode: DecisionMode,
-    /// Rows the command list asks for, borders included. Zero registers no region at all.
-    pub command_palette_rows: u16,
-    /// The current overlay page either edits a filter or navigates permission controls.
-    pub command_palette_focus: crate::KeyboardFocus,
+    /// Rows the Drawer asks for, borders included. Zero registers no region at all.
+    pub drawer_rows: u16,
+    /// Whether the Drawer's open view is typed into or navigated, which decides its kind.
+    pub drawer_focus: crate::KeyboardFocus,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
     pub skill_picker_rows: u16,
-    /// Rows requested by the read-only configuration page. Zero while closed.
-    pub configuration_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
     pub rail: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
@@ -120,10 +118,9 @@ impl Default for WorkspaceInput {
             attention: 0,
             decision_rows: 0,
             decision_mode: DecisionMode::Inline,
-            command_palette_rows: 0,
-            command_palette_focus: crate::KeyboardFocus::TextInput,
+            drawer_rows: 0,
+            drawer_focus: crate::KeyboardFocus::TextInput,
             skill_picker_rows: 0,
-            configuration_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
@@ -223,13 +220,11 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         decision_height,
         input.rail,
     );
-    // Over the body rather than carved from it: the command list belongs to the workspace, blocks
+    // Over the body rather than carved from it: the Drawer belongs to the workspace, blocks
     // everything below it (SURF-4), and is gone again on `Escape`, so nothing beneath it should
     // have moved while it was open.
-    let overlay_area = Rect::new(area.x, area.y, area.width, status.y.saturating_sub(area.y));
-    regions.command_palette = workspace_overlay_region(overlay_area, input.command_palette_rows);
-
-    regions.configuration = workspace_overlay_region(overlay_area, input.configuration_rows);
+    let above_status = Rect::new(area.x, area.y, area.width, status.y.saturating_sub(area.y));
+    regions.drawer = drawer_region(above_status, input.drawer_rows);
 
     registration::surface_tree(
         status,
@@ -238,7 +233,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         regions,
         input.decision_mode,
         input.skill_picker_rows,
-        input.command_palette_focus,
+        input.drawer_focus,
     )
 }
 
@@ -300,38 +295,20 @@ pub(super) struct BodyRegions {
     pub(super) composer: Rect,
     /// The decision region, directly above the composer, while a tool call is waiting on an answer.
     pub(super) decision: Option<Rect>,
-    /// The command list, floating over the whole body while it is open.
-    pub(super) command_palette: Option<Rect>,
-    pub(super) configuration: Option<Rect>,
+    /// The Drawer, docked to the top edge over the body while it is open.
+    pub(super) drawer: Option<Rect>,
 }
 
-/// A readable command or configuration row, capped before it becomes a full-width strip.
-const MAX_WORKSPACE_OVERLAY_WIDTH: u16 = 76;
-/// Rows and columns left visible on every side, excluding the status line (INV-13).
-const WORKSPACE_OVERLAY_MARGIN: u16 = 3;
-
-/// The shared width used for both overlay measurement and placement (INV-13).
-pub(crate) fn workspace_overlay_width(width: u16) -> u16 {
-    width
-        .saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2)
-        .min(MAX_WORKSPACE_OVERLAY_WIDTH)
-}
-
-/// Shared placement for the command list and its configuration page.
-///
-/// Compact at every width, with no layout-class switch. The top edge stays fixed while the
-/// content height changes; even the smallest supported workspace retains all four margins.
-fn workspace_overlay_region(body: Rect, rows: u16) -> Option<Rect> {
+/// The Drawer's one geometry (DRW-2): the top edge, the full width, and the rows its content asks
+/// for, clamped to what lies above the status line. No layout-class switch, no margin, and a top
+/// edge that stays put while the content height changes.
+fn drawer_region(above_status: Rect, rows: u16) -> Option<Rect> {
     if rows == 0 {
         return None;
     }
-    let width = workspace_overlay_width(body.width);
-    let height = rows.min(body.height.saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2));
     Some(Rect {
-        x: body.x + body.width.saturating_sub(width) / 2,
-        y: body.y + WORKSPACE_OVERLAY_MARGIN,
-        width,
-        height,
+        height: rows.min(above_status.height),
+        ..above_status
     })
 }
 
@@ -359,8 +336,7 @@ fn body_regions(
             inspector_floats: false,
             composer: Rect::default(),
             decision: None,
-            command_palette: None,
-            configuration: None,
+            drawer: None,
         }
     } else {
         match class {
@@ -375,8 +351,7 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
-                    command_palette: None,
-                    configuration: None,
+                    drawer: None,
                 }
             }
             // `TooSmall` returned before layout began, so it cannot reach here.
@@ -394,8 +369,7 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
-                    command_palette: None,
-                    configuration: None,
+                    drawer: None,
                 }
             }
         }
@@ -503,8 +477,7 @@ mod tests {
             inspector_floats: false,
             composer: Rect::new(0, 5, 60, 3),
             decision: Some(Rect::new(0, 3, 60, 2)),
-            command_palette: None,
-            configuration: None,
+            drawer: None,
         };
         let tree = super::registration::surface_tree(
             Rect::new(0, 8, 60, 1),
@@ -544,27 +517,33 @@ mod tests {
         })
     }
 
-    /// INV-13: margins are measured against the workspace excluding its status line.
+    /// DRW-2: the Drawer spans the width at every class, keeps its top edge, and never reaches the
+    /// status line.
     #[test]
-    fn workspace_overlays_reserve_three_cells_on_every_side() {
-        for (width, height) in [(48, 12), (60, 40), (71, 40), (72, 40), (95, 40), (120, 40)] {
-            let tree = workspace(
-                Rect::new(7, 11, width, height),
-                WorkspaceInput {
-                    command_palette_rows: 5,
-                    configuration_rows: 12,
-                    attention: 1,
-                    ..WorkspaceInput::default()
-                },
-            );
-            let status = tree.get(SurfaceId::Status).expect("status").bounds;
-            for id in [SurfaceId::CommandPalette, SurfaceId::Configuration] {
-                let bounds = tree.get(id).expect("open overlay").bounds;
-                assert!(bounds.x >= 7 + 3);
-                assert!(bounds.right() <= 7 + width - 3);
-                assert_eq!(bounds.y, 11 + 3);
-                assert!(bounds.bottom() <= status.y - 3);
-                assert!(bounds.height >= 5);
+    fn the_drawer_spans_the_width_and_keeps_its_top_edge() {
+        for (width, height) in [
+            (48, 12),
+            (60, 40),
+            (71, 40),
+            (72, 40),
+            (95, 40),
+            (120, 40),
+            (160, 40),
+        ] {
+            for rows in [5, 11, 16, 60] {
+                let tree = workspace(
+                    Rect::new(7, 11, width, height),
+                    WorkspaceInput {
+                        drawer_rows: rows,
+                        attention: 1,
+                        ..WorkspaceInput::default()
+                    },
+                );
+                let status = tree.get(SurfaceId::Status).expect("status").bounds;
+                let bounds = tree.get(SurfaceId::Drawer).expect("open drawer").bounds;
+                assert_eq!((bounds.x, bounds.y, bounds.width), (7, 11, width));
+                assert!(bounds.bottom() <= status.y);
+                assert_eq!(bounds.height, rows.min(status.y - 11));
             }
         }
     }

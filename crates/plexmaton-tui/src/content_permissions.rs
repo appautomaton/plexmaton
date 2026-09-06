@@ -19,8 +19,7 @@ pub(crate) fn content(
     width: u16,
     height: u16,
 ) -> PermissionContent {
-    let insets =
-        crate::surface::ContentInsets::for_surface(crate::SurfaceId::CommandPalette, height);
+    let insets = crate::surface::ContentInsets::for_surface(crate::SurfaceId::Drawer, height);
     let budget = usize::from(height.saturating_sub(2 + 2 * insets.vertical));
     let choices = panel.choices();
     let count = choices.len().min(6).min(budget.saturating_sub(1));
@@ -54,14 +53,15 @@ pub(crate) fn content(
     for (index, (choice, label)) in choices.into_iter().enumerate().skip(start).take(count) {
         positions.push((lines.len(), choice));
         let selected = index == panel.selected();
-        let role = if selected { Role::Accent } else { Role::Body };
-        lines.push(Line::from(vec![
-            Span::styled(if selected { "> " } else { "  " }, palette.style(role)),
-            Span::styled(
-                crate::content::command_summary(&label, usize::from(width.saturating_sub(2))),
-                palette.style(role),
-            ),
-        ]));
+        let label = crate::content::command_summary(&label, usize::from(width.saturating_sub(2)));
+        lines.push(if selected {
+            crate::content::chosen_row(vec![Span::raw("> "), Span::raw(label)], palette, width)
+        } else {
+            Line::from(vec![
+                Span::styled("  ", palette.style(Role::Body)),
+                Span::styled(label, palette.style(Role::Body)),
+            ])
+        });
     }
     if extras > 0 {
         lines.push(Line::default());
@@ -80,7 +80,10 @@ pub(crate) fn saved_permission_lines(palette: &Palette) -> Vec<Line<'static>> {
             "Warning · Project permission saved; tool did not run.",
             palette.style(Role::ActionRequired),
         ),
-        Line::styled("Review /permissions.", palette.style(Role::Muted)),
+        Line::styled(
+            "Review it under Ctrl-P · Permissions.",
+            palette.style(Role::Muted),
+        ),
         Line::default(),
     ]
 }

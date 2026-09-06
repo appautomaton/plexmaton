@@ -237,13 +237,14 @@ impl LiveRuntime {
 
     /// Waits cancellation-safely for the next event, non-event report, or final completion.
     pub async fn next_update(&mut self) -> Result<RuntimeUpdate, RuntimeError> {
-        if let Err(error) = self.finish_pending_inputs().await {
-            if self.journal_failed {
-                self.finish_failed_owners().await;
-            }
-            return Err(error);
-        }
         loop {
+            // Input held behind a requested compaction is released here once it ends (CPL-9).
+            if let Err(error) = self.finish_pending_inputs().await {
+                if self.journal_failed {
+                    self.finish_failed_owners().await;
+                }
+                return Err(error);
+            }
             if self.journal_failed {
                 self.finish_failed_owners().await;
             }
@@ -290,6 +291,9 @@ impl LiveRuntime {
             self.shutdown_state = ShutdownState::Requested;
         }
         self.cancel_skill_inputs(UndeliveredReason::Shutdown).await;
+        if self.requested_compaction_active() {
+            self.return_pending_text(UndeliveredReason::Shutdown);
+        }
         self.cancel_compaction_continuation();
         self.cancel_pending_model_before_dispatch();
         if let Err(error) = self.finish_pending_inputs().await {
@@ -404,6 +408,18 @@ impl LiveRuntime {
     /// Takes non-event delivery results accumulated while provider traffic was processed.
     pub fn take_report(&mut self) -> DispatchReport {
         std::mem::take(&mut self.report)
+    }
+
+    /// Returns waiting text with its exact content and a reason; control inputs stay queued.
+    fn return_pending_text(&mut self, reason: UndeliveredReason) {
+        let mut retained = VecDeque::new();
+        while let Some(pending) = self.pending_inputs.pop_front() {
+            match rejected_user_input(&pending.input, pending.selected_skill.as_deref(), reason) {
+                Some(input) => self.report.undelivered.push(input),
+                None => retained.push_back(pending),
+            }
+        }
+        self.pending_inputs = retained;
     }
 
     async fn wait_for_work(&mut self) -> WaitOutcome {

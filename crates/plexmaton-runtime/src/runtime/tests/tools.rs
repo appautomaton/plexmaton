@@ -66,7 +66,12 @@ fn runtime(driver: Arc<dyn ModelDriver>, workspace: &TestWorkspace) -> LiveRunti
     .unwrap_or_else(|error| panic!("construct runtime: {error}"))
 }
 
-fn called(position: u16, id: &str, name: &str, arguments: serde_json::Value) -> ModelEvent {
+pub(super) fn called(
+    position: u16,
+    id: &str,
+    name: &str,
+    arguments: serde_json::Value,
+) -> ModelEvent {
     ModelEvent::Called {
         position: ModelOutputPosition::new(position, 0),
         call: ToolCall {
@@ -91,7 +96,7 @@ async fn submit(runtime: &mut LiveRuntime, text: &str) {
         .unwrap_or_else(|error| panic!("submit fixture turn: {error}"));
 }
 
-async fn next_approval(runtime: &mut LiveRuntime) -> ApprovalId {
+pub(super) async fn next_approval(runtime: &mut LiveRuntime) -> ApprovalId {
     loop {
         let event = match runtime.try_next_event() {
             Some(event) => event,

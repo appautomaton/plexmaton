@@ -21,7 +21,9 @@ inside its conversation; later arrivals cannot replace that card or its chosen d
 resolution advances to the oldest remaining approval, with Deny selected. Esc returns to the
 composer and leaves the card visible; Tab/click can return to it. The card is a non-blocking input,
 so reading history and composing remain possible. Pointer decisions require a matching, unchanged
-request and press/release; drag, focus loss, resize or replacement cancels activation.
+request and press/release; drag, focus loss, resize or replacement cancels activation. The card
+separates the operation, the policy reason and the choices; submitting disables duplicate
+decisions until producer confirmation, and refusals stay visible.
 
 The existing `AttentionRequested`/`AttentionResolved` wire events still correlate pending requests;
 their names do not require an Attention surface. The current single-agent runtime cannot populate
@@ -51,7 +53,7 @@ ConversationEvent::AttentionResolved ─────────────┴�
 | Coalescing | By `AttentionId`: a repeat replaces its entry in place and keeps its position, so an agent asking twice is one item |
 | Place | A `Panel` under the notice strip, registered while the queue is non-empty: a focus stop, a pointer target, scrollable |
 | Height | Three requests, then it scrolls rather than grows. On a short terminal it yields its rows before the notice strip does, because a blocked agent also reads as `Waiting` in the rail |
-| Counts | The conversation's top border wears a pill, `( !n )`, in the action-required role while `n` *listed* requests are unanswered, and nothing otherwise. It is chrome on a border that already exists, so it costs no row and is no focus stop. The band's title carries the same two numbers over the same set. The rail carries neither |
+| Counts | The conversation's activity line ends with a pill, `( !n )`, in the action-required role while `n` *listed* requests are unanswered, and nothing otherwise. It is chrome on a row that already exists, so it costs no row and is no focus stop. The band's title carries the same two numbers over the same set. The rail carries neither |
 
 ## Failure modes
 
@@ -63,7 +65,7 @@ ConversationEvent::AttentionResolved ─────────────┴�
 | A resolution names another agent's request | Rejected as an ownership mismatch and shown in the notice log |
 | More requests than the band lists | The band keeps its height and the rest arrive by scrolling it |
 | A click on a row | Focuses the band; the cursor moves by keyboard |
-| A terminal too short for the band and a comfortable conversation | The band is not registered; the pill remains, because a border row is never the thing that runs out |
+| A terminal too short for the band and a comfortable conversation | The band is not registered; the pill remains, because the activity line is never the thing that runs out |
 | Every queued request is the one being answered in its own region | The band lists nothing, takes no rows, and the pill counts nothing: the screen already says it |
 
 ## Evidence

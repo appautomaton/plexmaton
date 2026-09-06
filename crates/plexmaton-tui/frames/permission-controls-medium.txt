@@ -1,26 +1,26 @@
-┌ Permissions ─────────────────────────────────────────────────────────────┐
-│                                                                          │
-│  Session grants last until Plexmaton exits.                              │
-│  They stay active across /new and resume.                                │
-│                                                                          │
-│  > Enable native file changes for this Session…                          │
-│    Refresh permissions                                                   │
-│                                                                          │
-│  ↑↓ choose · Enter select · Esc close                                    │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+┌ Workspace · Permissions ────────────────────────────────────────────────────────────────────┐
+│                                                                                             │
+│  Session grants last until Plexmaton exits.                                                 │
+│  They stay active across /new and resume.                                                   │
+│                                                                                             │
+│  > Enable native file changes for this Session…                                             │
+│    Refresh permissions                                                                      │
+│                                                                                             │
+│  ↑↓ choose · Enter select · Esc close                                                       │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
-┌ Permissions ─────────────────────────────────────────────────────────────┐
-│                                                                          │
-│  Allow native create/edit in this workspace?                             │
-│  Excludes agent controls, configuration paths and Git metadata.          │
-│  Commands need their own permission.                                     │
-│  Until Plexmaton exits; kept across /new and resume.                     │
-│                                                                          │
-│    Enable for this Session                                               │
-│  > Back                                                                  │
-│                                                                          │
-│  ↑↓ choose · Enter confirm · Esc back                                    │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+┌ Workspace · Permissions ────────────────────────────────────────────────────────────────────┐
+│                                                                                             │
+│  Allow native create/edit in this workspace?                                                │
+│  Excludes agent controls, configuration paths and Git metadata. Commands need their own     │
+│  permission.                                                                                │
+│  Until Plexmaton exits; kept across conversations.                                          │
+│                                                                                             │
+│    Enable for this Session                                                                  │
+│  > Back                                                                                     │
+│                                                                                             │
+│  ↑↓ choose · Enter confirm · Esc back                                                       │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘

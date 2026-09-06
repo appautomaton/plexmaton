@@ -119,7 +119,7 @@ Other reviewed Ratatui frames retain their owning component evidence:
 | Native approval | [frame](../../crates/plexmaton-tui/frames/native-approval-wide.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-medium.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-narrow.txt) |
 | Exact fallback | [frame](../../crates/plexmaton-tui/frames/remember-permission-wide.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-medium.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-narrow.txt) |
 | Permission controls | [frame](../../crates/plexmaton-tui/frames/permission-controls-wide.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-medium.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-narrow.txt) |
-| Command palette | [frame](../../crates/plexmaton-tui/frames/command-palette-wide.txt) | [frame](../../crates/plexmaton-tui/frames/command-palette-medium.txt) | [frame](../../crates/plexmaton-tui/frames/command-palette-narrow.txt) |
+| Drawer | [frame](../../crates/plexmaton-tui/frames/drawer-wide.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-medium.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-narrow.txt) |
 | Trust confirmation | [frame](../../crates/plexmaton-tui/frames/project-trust-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-narrow.txt) |
 | Saved grant after audit failure | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-narrow.txt) |
 

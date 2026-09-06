@@ -16,23 +16,10 @@ pub enum StatusNote {
     Quiet,
     /// `Ctrl-D` was pressed once; another press before `deadline` leaves.
     QuitArmed { deadline: Instant },
-    /// A `/` opened an empty draft; the command list is one chord away until `deadline`.
-    ///
-    /// Offered, not demanded, which is why it carries `NewInformation` where the quit chord carries
-    /// `ActionRequired`: the attention hierarchy keeps those two distinguishable in every palette.
-    CommandHint { deadline: Instant },
 }
 
 /// How long a first `Ctrl-D` remains eligible for confirmation (INV-7).
 pub const QUIT_CHORD_WINDOW: Duration = Duration::from_secs(1);
-
-/// How long the command-list hint stays up.
-///
-/// Longer than the quit chord's second, because the two windows measure different things: that one
-/// bounds a chord the user is already completing, while this one has to be read by someone who was
-/// not looking at the last row. Any further typing takes it down anyway, so the extra seconds cost
-/// one wake-up, not attention.
-pub const COMMAND_HINT_WINDOW: Duration = Duration::from_secs(3);
 
 /// The status line's state.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -81,9 +68,7 @@ impl Status {
     pub const fn deadline(&self) -> Option<Instant> {
         match self.note {
             StatusNote::Quiet => None,
-            StatusNote::QuitArmed { deadline } | StatusNote::CommandHint { deadline } => {
-                Some(deadline)
-            }
+            StatusNote::QuitArmed { deadline } => Some(deadline),
         }
     }
 
@@ -192,41 +177,11 @@ impl ViewState {
         target
     }
 
-    /// Offers the command list after a `/` opened an empty draft.
-    ///
-    /// Refused while the line already carries a question: one slot, one message, and an armed quit
-    /// chord is a deadline the user is inside — replacing its text would hide a window still running.
-    pub fn hint_command_palette(&mut self, now: Instant) -> bool {
-        if !matches!(self.status.note(), StatusNote::Quiet) {
-            return false;
-        }
-        let armed = self.status.set_note(StatusNote::CommandHint {
-            deadline: now.checked_add(COMMAND_HINT_WINDOW).unwrap_or(now),
-        });
-        if armed {
-            self.touch();
-        }
-        armed
-    }
-
-    /// Takes down a hint the next keystroke has answered, leaving a quit question alone.
-    pub fn settle_command_hint(&mut self) -> bool {
-        if !matches!(self.status.note(), StatusNote::CommandHint { .. }) {
-            return false;
-        }
-        let cleared = self.status.set_note(StatusNote::Quiet);
-        if cleared {
-            self.touch();
-        }
-        cleared
-    }
-
     /// Expires whatever the line is saying at its monotonic deadline, reporting a screen change.
     pub fn expire_note(&mut self, now: Instant) -> bool {
         if matches!(
             self.status.note(),
-            StatusNote::QuitArmed { deadline } | StatusNote::CommandHint { deadline }
-                if now >= deadline
+            StatusNote::QuitArmed { deadline } if now >= deadline
         ) && self.status.set_note(StatusNote::Quiet)
         {
             self.touch();
