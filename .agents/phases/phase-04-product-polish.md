@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stage 12 streaming continuity complete; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -133,6 +133,15 @@ Visual changes are reviewed against real frames before the contract adopts them.
     physical-terminal streaming remain unmeasured. A separate literal-TeX wireframe awaits the
     user's choice; unfinished-math grammar and the UI/UX contract are unchanged.
 
+13. **Chrome diet — in progress.** The conversation column loses its box: the transcript runs
+    into the composer's top rule, the composer sits between two rules that carry only the
+    addressee and the reasoning effort, the conversation's last row is its activity line, and
+    menus are a titled section above the top rule. Decided by the user on 2026-09-06 from
+    hand-composed frames at 95 columns; real frames replace them slice by slice under the
+    [plan](../plans/phase-04-stage-13-chrome-diet.md), and stage 11's composer menu lands on this
+    chrome. Rejected: the box, chrome that said nothing; and current work on the composer's
+    rule, which mixed the agent's doing with the user's typing.
+
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
 ready; this phase opening does not claim those capabilities have started.
@@ -144,7 +153,7 @@ ready; this phase opening does not claim those capabilities have started.
 | Presentation does not own session semantics | Removing a script/logo leaves journal, provider requests, accounting and recovery unchanged |
 | Facts stay honest | Resume preserves durable snapshot fields; unknown values remain unknown; context occupancy and cumulative traffic differ explicitly |
 | External execution is bounded | Real-process tests prove timeout, replacement, output limits, descendant cleanup and shutdown |
-| UI remains usable at every supported size | Wide/medium/narrow frames reviewed, including approval, pending quit, missing script, clipping, the Drawer and the composer menu |
+| UI remains usable at every supported size | Wide/medium/narrow frames reviewed, including approval, pending quit, missing script, clipping, the Drawer, the composer menu and the column without boxes |
 | Updates have an owner | No per-render subprocess or full-history accounting; ticks exist only for explicitly enabled visible work |
 
 Rejected: importing stale branch implementation over current main, and opening a generic plugin

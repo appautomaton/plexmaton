@@ -132,18 +132,22 @@ other rule about input follows from this one.
   usable at once. This does not conflict with "background agents never steal focus": that rule
   constrains what agents do on their own, not what the user asks for. `Escape` closes the window and
   returns focus to the primary conversation. Rejected: focusing on look, which stops the arrows.
-- **Every input lives inside the box of the conversation it addresses.** The primary composer is the
-  bottom section of the primary's box, under a divider; a sub-agent's input is the bottom of its
-  window. There is no input anywhere else, and `Tab` from a sub-agent's input lands on the primary
-  composer, which is what the collapsed row's `⇥ to return` promises.
+- **Every input sits directly under the conversation it addresses**, between two rules; the
+  conversation runs into the top rule with no edge of its own. The top rule names the target and
+  the reasoning effort the message will get, and nothing else is written on either rule. A
+  sub-agent's input is the bottom of its window. There is no input anywhere else, and `Tab` from
+  a sub-agent's input lands on the primary composer, which is what the collapsed row's
+  `⇥ to return` promises. Rejected: a box around conversation and input, chrome that said
+  nothing; and current work on the composer's rule, mixing the agent's doing with the user's
+  typing.
 - While a sub-agent's input is active, the primary composer **collapses to a single row** reading
   `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
-  acceptable and zero costs too much screen on a small terminal. The collapsed row omits current
-  work; rejected: squeezing status beside its target and return affordance on a narrow terminal.
-- The primary composer's divider carries at most one current-work label: `Thinking`, `Responding`,
-  `Running <tool>`, or `Approval required`. It is derived from semantic state, action required
-  outranks ambient work, and idle adds no label. It adds no row and owns no animation clock.
+  acceptable and zero costs too much screen on a small terminal.
+- **The conversation's last row is its activity line**: `Thinking`, `Responding`,
+  `Running <tool>`, or `Approval required`, directly above the composer's top rule. It is derived
+  from semantic state, action required outranks ambient work, idle draws nothing, and it owns no
+  animation clock.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
@@ -157,7 +161,6 @@ other rule about input follows from this one.
   configured user script may supply several styled rows, bounded to preserve typing and readable
   conversation space. The quit question temporarily replaces the terminal's last row and leaves
   the rows above it unchanged (STL-4).
-  The Drawer shows its navigation keys in a muted footer that stays visible while a page scrolls.
   Rejected: a key-hint strip, a row of chords nobody read; overriding the first script row rather
   than the terminal's last; and the composer's bottom border, which belongs to one conversation,
   so a question from another agent's window was answered in the wrong box.
@@ -169,10 +172,9 @@ other rule about input follows from this one.
   chord, which lets unrelated later intent become an exit; and cancelling on an unrelated key,
   pointer event, or resize, which makes the time window depend on incidental input.
 
-Making the input physically live inside the surface it addresses turns "where does this keystroke
-go" into a fact on screen rather than something to remember. Steering by explicit address, `@agent-b …`, from the primary
-composer is the same typed steering intent with its target recorded in the message: no hidden
-state either.
+Placing the input directly under the conversation it addresses turns "where does this keystroke
+go" into a fact on screen. Steering by explicit address, `@agent-b …`, is the same typed intent
+with its target recorded in the message: no hidden state either.
 
 ### Nested scrolling: no propagation from an exhausted child
 

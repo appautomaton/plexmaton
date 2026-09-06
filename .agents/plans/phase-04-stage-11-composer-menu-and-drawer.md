@@ -79,7 +79,8 @@ reading; the user's words placed them in the composer, so slice 4 moves them.
 ## Order and why
 
 1 first because every later slice is written in its vocabulary. 3 before 4 so the Commands menu
-lands with one real operation and one real refusal, never an empty menu. 4 before 5 because
+lands with one real operation and one real refusal, never an empty menu. 4 waits for stage 13's
+menu slice, so the menu is drawn once, on the chrome it will live on. 4 before 5 because
 `/permissions` is a menu row and needs the menu. 6 last because it refactors the surfaces that 2,
 4 and 5 shape.
 
