@@ -44,7 +44,7 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Checkpoint | A durable compaction result that supplies the context base for its descendant heads |
 | Transcript | The user-facing interaction history: messages, tool activity and diagnostics |
 | Transcript entry | One identified content item in that history; a user or assistant message is a message entry |
-| Conversation surface | The interactive region displaying an agent's transcript; its title and border are conversation chrome |
+| Conversation surface | The interactive region displaying an agent's transcript; its activity line is conversation chrome |
 | Turn | One admitted unit of work in a Conversation: what the user asked, everything the model and its tools did about it, and the answer that ended it |
 | Step | One request to the model and the tool calls it comes back with. A turn is one or more steps, and a turn's budget is counted in them |
 | Tool call | One invocation the model asked for, with a declared effect, a lifecycle, and bounded output |
@@ -344,7 +344,7 @@ command palette, a centred overlay with three-cell margins, a dialog about nothi
 ### Shelf: overlay without occlusion
 
 Below ultrawide, the second window is a **shelf** docked to the top edge of the conversation. It
-floats: the conversation beneath keeps its whole rectangle, its title, and its reading position, and
+floats: the conversation beneath keeps its whole rectangle and its reading position, and
 a conversation shorter than its panel sits at the bottom, so the shelf covers only empty rows or
 rows already read. Transcripts follow their tail, so covering the top hides what has been read and
 covering the middle or bottom hides what the user is reading now. Rejected: a centred floating

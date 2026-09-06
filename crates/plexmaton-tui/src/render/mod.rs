@@ -8,11 +8,11 @@ pub(crate) mod permission_review;
 
 use configuration::render_configuration;
 
-use panel::{Body, Edges, Panel, draw_panel, place_cursor, render_steer};
+use panel::{Body, Chrome, Edges, Panel, draw_panel, place_cursor, render_steer};
 
 use chrome::{
     agents_title, attention_title, composer_title, inspector_title, notices_title, render_status,
-    render_too_small, title, transcript_title,
+    render_too_small, title,
 };
 
 use crate::{
@@ -67,23 +67,11 @@ pub fn render(
         let has_focus = focused == Some(id);
         // Two Drawer pages paint their own scrolling body under a fixed footer; the rest is a
         // panel like any other.
-        if id == SurfaceId::Drawer {
-            let viewport = if state.configuration().is_some() {
-                Some(render_configuration(
-                    frame,
-                    palette,
-                    state,
-                    bounds,
-                    has_focus,
-                    state.scroll_position(id),
-                ))
-            } else {
-                permission_review::render(frame, palette, state, bounds, has_focus)
-            };
-            if let Some(viewport) = viewport {
-                surfaces.set_viewport(id, viewport);
-                continue;
-            }
+        if id == SurfaceId::Drawer
+            && let Some(viewport) = drawer_page(frame, palette, state, bounds, has_focus)
+        {
+            surfaces.set_viewport(id, viewport);
+            continue;
         }
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (INS-5). What is left is what its
@@ -100,6 +88,8 @@ pub fn render(
         let panel = match id {
             SurfaceId::Agents => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
+                chrome: Chrome::Box,
+                footer: None,
                 body: Body::Whole {
                     lines: content::agents(state, palette),
                     follows_tail: false,
@@ -108,8 +98,17 @@ pub fn render(
                 badge: None,
                 edges: Edges::All,
             }),
+            // The primary conversation has no box: its text runs into the composer's top rule,
+            // and its last row is the activity line, which also carries the selection note and
+            // the attention pill now that there is no border for them (ui-ux §input).
             SurfaceId::Transcript => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
+                chrome: Chrome::Bare,
+                footer: Some(chrome::activity_line(
+                    state,
+                    palette,
+                    inner_width(bounds.width),
+                )),
                 body: conversation_body(
                     state,
                     palette,
@@ -117,17 +116,18 @@ pub fn render(
                     bounds,
                     id,
                     stacking.over_composer(SurfaceId::Transcript),
+                    1,
                 ),
-                title: transcript_title(state, palette),
-                // The pill rides the conversation the user is reading, at the far end of the
-                // border that is already there (ATT-1: nothing the user is reading moves).
-                badge: chrome::attention_pill(state, palette),
+                title: Line::default(),
+                badge: None,
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
             // The inspected agent's conversation uses the same unified entry grammar as the
             // primary: the workspace shows one conversation, and the journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
+                chrome: Chrome::Box,
+                footer: None,
                 body: conversation_body(
                     state,
                     palette,
@@ -135,6 +135,7 @@ pub fn render(
                     bounds,
                     id,
                     stacking.over_composer(SurfaceId::Inspector),
+                    0,
                 ),
                 title: inspector_title(state, palette),
                 badge: None,
@@ -142,6 +143,8 @@ pub fn render(
             }),
             SurfaceId::Notices => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
+                chrome: Chrome::Box,
+                footer: None,
                 body: Body::Whole {
                     lines: content::notices(state, palette),
                     follows_tail: true,
@@ -152,6 +155,8 @@ pub fn render(
             }),
             SurfaceId::Attention => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
+                chrome: Chrome::Box,
+                footer: None,
                 body: Body::Whole {
                     lines: content::attention(state, palette, inner_width(bounds.width)),
                     // Oldest first, and the oldest unanswered request is the one that has been
@@ -221,6 +226,28 @@ pub fn render(
     surfaces
 }
 
+/// The Configuration and Permissions pages, which paint themselves; `None` for the page list.
+fn drawer_page(
+    frame: &mut Frame<'_>,
+    palette: &Palette,
+    state: &ViewState,
+    bounds: Rect,
+    has_focus: bool,
+) -> Option<Viewport> {
+    if state.configuration().is_some() {
+        Some(render_configuration(
+            frame,
+            palette,
+            state,
+            bounds,
+            has_focus,
+            state.scroll_position(SurfaceId::Drawer),
+        ))
+    } else {
+        permission_review::render(frame, palette, state, bounds, has_focus)
+    }
+}
+
 /// The Drawer: a box of its own, not a section of anyone's.
 ///
 /// The workspace owns it rather than a conversation, which is what separates it from an approval —
@@ -230,6 +257,8 @@ fn drawer_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
     Panel {
         insets,
+        chrome: Chrome::Box,
+        footer: None,
         body: Body::Whole {
             lines: content::drawer(state, palette, insets.width(bounds.width), bounds.height),
             follows_tail: false,
@@ -265,6 +294,8 @@ fn input_caret(state: &ViewState, id: SurfaceId, width: u16) -> Caret {
 fn collapsed_composer_panel(state: &ViewState, palette: &Palette, stacking: &Stacking) -> Panel {
     Panel {
         insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Rules,
+        footer: None,
         body: Body::Whole {
             lines: content::composer_collapsed(state, palette),
             follows_tail: false,
@@ -302,16 +333,19 @@ fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
     }
 }
 
+/// The menu is a titled rule and its rows above the composer's top rule, which closes it.
 fn skill_picker_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
         insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Rules,
+        footer: None,
         body: Body::Whole {
             lines: content::skill_picker(state, palette, inner_width(bounds.width), bounds.height),
             follows_tail: false,
         },
         title: title(palette, "Skills".to_owned(), Role::SectionHeading, ""),
         badge: None,
-        edges: Edges::All,
+        edges: Edges::Upper,
     }
 }
 
@@ -327,6 +361,8 @@ fn approval_panel(
         .map_or_else(String::new, |approval| approval.tool.to_owned());
     Panel {
         insets: crate::surface::ContentInsets::for_surface(SurfaceId::Approval, bounds.height),
+        chrome: Chrome::Rules,
+        footer: None,
         body: Body::Whole {
             lines: content::approval(
                 state,
@@ -403,7 +439,7 @@ impl Stacking {
     }
 }
 
-/// The primary composer: the bottom section of its conversation's box.
+/// The primary composer: the input between two rules under its conversation (ui-ux §input).
 fn composer_panel(
     state: &ViewState,
     palette: &Palette,
@@ -413,6 +449,8 @@ fn composer_panel(
 ) -> Panel {
     Panel {
         insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Rules,
+        footer: None,
         body: Body::Whole {
             lines: content::composer(state, palette, has_focus, inner_width(bounds.width)),
             follows_tail: true,
@@ -444,6 +482,7 @@ fn conversation_body(
     area: Rect,
     surface: SurfaceId,
     edges: Edges,
+    footer_rows: u16,
 ) -> Body {
     let Some(agent) = state
         .agent_shown_by(surface)
@@ -454,7 +493,10 @@ fn conversation_body(
             follows_tail: false,
         };
     };
-    let visible_rows = area.height.saturating_sub(edges.rows());
+    let visible_rows = area
+        .height
+        .saturating_sub(edges.rows())
+        .saturating_sub(footer_rows);
     // Every height below belongs to this width, and the viewport carries it out of the frame so the
     // scroll path resolves against the same one rather than against whatever was measured last.
     let width = inner_width(area.width);
@@ -503,14 +545,13 @@ mod tests {
         layout::Rect,
         style::{Color, Modifier, Style},
         text::Line,
-        widgets::{Paragraph, Wrap},
+        widgets::{Padding, Paragraph, Wrap},
     };
 
     use super::{
-        chrome::{self, Badged as _, block},
+        chrome::{activity_line, block_with},
         composer_title,
-        panel::{Body, Edges, Panel, draw_panel},
-        transcript_title,
+        panel::{Body, Chrome, Edges, Panel, draw_panel},
     };
 
     use crate::{
@@ -550,6 +591,8 @@ mod tests {
         let palette = Palette::default();
         let panel = Panel {
             insets: crate::surface::ContentInsets::default(),
+            chrome: Chrome::Box,
+            footer: None,
             body: Body::Whole {
                 lines: vec![Line::raw("abcdefg")],
                 follows_tail: false,
@@ -595,38 +638,39 @@ mod tests {
         ink(palette.style(role))
     }
 
-    /// COM-5: the accepted current-work vocabulary is exact and idle contributes no suffix.
+    /// COM-5: the activity line names each current-work state in its role, idle draws nothing,
+    /// and the composer's rule never carries any of it (ui-ux §input).
     #[test]
-    fn the_composer_boundary_names_each_current_work_state() {
+    fn the_activity_line_names_each_current_work_state_and_the_rule_carries_none() {
         let palette = Palette::default();
         let canonical = canonical_state();
         let primary = canonical
             .primary_agent()
             .map(|agent| agent.id.clone())
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
-        let assert_title = |state: &ViewState, expected: &str, role: Role| {
-            let title = composer_title(state, &palette);
-            assert_eq!(title.to_string(), expected);
+        let assert_activity = |state: &ViewState, expected: &str, role: Role| {
+            let line = activity_line(state, &palette, 80);
+            assert!(
+                line.to_string().starts_with(expected),
+                "{expected:?} leads the activity line: {line}"
+            );
             assert_eq!(
-                title.spans[2].style,
+                line.spans[1].style,
                 palette.style(role),
-                "the current-work suffix must carry {role:?}"
+                "the current-work label must carry {role:?}"
+            );
+            assert_eq!(
+                composer_title(state, &palette).to_string(),
+                " Message Agent A · primary ",
+                "the rule names the addressee and nothing the agent is doing"
             );
         };
 
-        assert_title(
-            &canonical,
-            " Message Agent A · primary · Thinking ",
-            Role::Ambient,
-        );
-        assert_title(
-            &current_responding_state(),
-            " Message Agent A · primary · Responding ",
-            Role::Ambient,
-        );
-        assert_title(
+        assert_activity(&canonical, "· Thinking…", Role::Ambient);
+        assert_activity(&current_responding_state(), "· Responding…", Role::Ambient);
+        assert_activity(
             &current_running_tool_state(),
-            " Message Agent A · primary · Running read_file ",
+            "· Running read_file…",
             Role::Ambient,
         );
 
@@ -647,10 +691,12 @@ mod tests {
                 detail: "Change one file".to_owned(),
             },
         });
-        assert_title(
-            &approval.state,
-            " Message Agent A · primary · Approval required ",
-            Role::ActionRequired,
+        let line = activity_line(&approval.state, &palette, 80);
+        assert!(line.to_string().starts_with("· Approval required"));
+        assert_eq!(line.spans[1].style, palette.style(Role::ActionRequired));
+        assert!(
+            line.to_string().trim_end().ends_with("( !2 )"),
+            "the pill counts both unanswered requests at the activity line's right end: {line}"
         );
 
         let mut idle = Conversation::canonical();
@@ -658,16 +704,23 @@ mod tests {
             agent_id: primary,
             status: AgentStatus::Idle,
         });
-        let idle_title = composer_title(&idle.state, &palette);
-        assert_eq!(
-            idle_title.to_string(),
-            " Message Agent A · primary ",
-            "idle adds no label, separator or placeholder"
-        );
+        // Idle draws no label; the pill on the right is the canonical scenario's own request.
+        let idle_line = activity_line(&idle.state, &palette, 80);
         assert!(
-            idle_title.spans[2].content.is_empty(),
-            "idle paints no empty status padding"
+            idle_line.to_string().trim().starts_with('('),
+            "idle draws nothing but what waits on the right: {idle_line}"
         );
+        let mut named = idle.state.clone();
+        named.set_model(crate::test_support::configuration_summary());
+        let title = composer_title(&named, &palette);
+        assert_eq!(
+            title.to_string(),
+            format!(
+                " Message Agent A · primary · {} ",
+                crate::test_support::configuration_summary().reasoning_effort
+            )
+        );
+        assert_eq!(title.spans[2].style, palette.style(Role::Accent));
     }
 
     /// TR-2: virtualizing changed what a frame builds, not what reaches the screen.
@@ -690,8 +743,14 @@ mod tests {
                     viewport.is_scrollable(),
                     "the fixture has to overflow at {width}x{height} or this proves nothing"
                 );
+                // The conversation's last row is its activity line, not content (ui-ux §input);
+                // the reference paints only the rows the conversation itself occupies.
+                let painted = session.region(SurfaceId::Transcript);
+                let (conversation, _activity) = painted
+                    .rsplit_once('\n')
+                    .unwrap_or_else(|| panic!("the region has an activity row under it"));
                 assert_eq!(
-                    session.region(SurfaceId::Transcript),
+                    conversation,
                     whole_conversation(
                         &session.conversation.state,
                         &Palette::default(),
@@ -727,13 +786,17 @@ mod tests {
                 )
             })
             .collect();
+        // The conversation is bare and open at the bottom, so the reference reserves the same
+        // blank top row and side columns a box would have spent, and leaves the activity row out.
+        let bounds = Rect {
+            height: bounds.height.saturating_sub(1),
+            ..bounds
+        };
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            // The composer sits under the conversation in its box, so the reference shares the
-            // same open bottom edge.
             .block(
-                block(palette, transcript_title(state, palette), false, Edges::Upper)
-                    .badge(chrome::attention_pill(state, palette)),
+                block_with(palette, Line::default(), false, Edges::Upper, Chrome::Bare)
+                    .padding(Padding::new(1, 1, 1, 0)),
             )
             .scroll((
                 u16::try_from(viewport.offset)
@@ -1067,22 +1130,34 @@ mod tests {
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
                 role_ink(&palette, Role::BorderFocused)
             );
+            // The composer's rules are its border; the conversation, bare, shows focus only by
+            // what it takes away from the composer (ui-ux §input).
             assert_eq!(
-                border_ink(&buffer, &surfaces, SurfaceId::Transcript),
+                border_ink(&buffer, &surfaces, SurfaceId::Composer),
                 role_ink(&palette, Role::Border)
             );
 
             // One step: the conversation follows the one agent-column surface.
             state.cycle_focus(&surfaces, Direction::Forward);
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
+            assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
-                role_ink(&palette, Role::Border)
+                role_ink(&palette, Role::Border),
+                "the focused border moved with the ring rather than being painted twice"
             );
             assert_eq!(
-                border_ink(&buffer, &surfaces, SurfaceId::Transcript),
-                role_ink(&palette, Role::BorderFocused),
-                "the focused border moved with the ring rather than being painted twice"
+                border_ink(&buffer, &surfaces, SurfaceId::Composer),
+                role_ink(&palette, Role::Border)
+            );
+
+            // Another: the composer, whose rules light up.
+            state.cycle_focus(&surfaces, Direction::Forward);
+            let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
+            assert_eq!(state.focused(&surfaces), Some(SurfaceId::Composer));
+            assert_eq!(
+                border_ink(&buffer, &surfaces, SurfaceId::Composer),
+                role_ink(&palette, Role::BorderFocused)
             );
         }
     }
@@ -1105,7 +1180,8 @@ mod tests {
             // proves it was drawn.
             let signature = match surface.id {
                 SurfaceId::Agents => "Agents",
-                SurfaceId::Transcript => "Agent A · primary",
+                // The conversation has no title; its activity line is what it always paints.
+                SurfaceId::Transcript => "Thinking…",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
@@ -1359,15 +1435,17 @@ mod tests {
                 .get(SurfaceId::Transcript)
                 .expect("the conversation is registered at wide")
                 .bounds;
+            // The pill rides the activity line, the conversation's last row (ui-ux §input).
             let border = Rect {
+                y: conversation.bottom().saturating_sub(1),
                 height: 1,
                 ..conversation
             };
             let top = region_text(&buffer, border);
             assert!(top.contains("( !1 )"), "{top:?}");
             assert!(
-                top.trim_end().ends_with("( !1 ) \u{2510}"),
-                "the pill sits at the far end of the row, not beside the title: {top:?}"
+                top.trim_end().ends_with("( !1 )"),
+                "the pill sits at the far end of the row, not beside the label: {top:?}"
             );
 
             let rail = region_text(

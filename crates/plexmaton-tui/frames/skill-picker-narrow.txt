@@ -1,32 +1,32 @@
-┌ Plexmaton · idle ────────────────────────────────────────┐
-│Agent is active; no transcript item has started yet.      │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-┌ Skills ──────────────────────────────────────────────────┐
-│> project · $review  Review this change for correctness a…│
-│  shared · $research  Gather focused source evidence      │
-│  user · $release  Prepare release notes                  │
-│ ↑↓ choose · Tab/Enter insert · Esc close                 │
-└──────────────────────────────────────────────────────────┘
-├ Message Plexmaton ───────────────────────────────────────┤
-│$r                                                        │
-└──────────────────────────────────────────────────────────┘
+
+ Agent is active; no transcript item has started yet.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+── Skills ──────────────────────────────────────────────────
+ > project · $review  Review this change for correctness a…
+   shared · $research  Gather focused source evidence
+   user · $release  Prepare release notes
+  ↑↓ choose · Tab/Enter insert · Esc close
+
+── Message Plexmaton ───────────────────────────────────────
+ $r
+────────────────────────────────────────────────────────────
 

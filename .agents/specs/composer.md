@@ -37,10 +37,12 @@ which puts two writers on one numbered stream.
 the next turn; an entered worker window names that worker and submits steering for its next step.
 Selection alone changes neither route (ui-ux §input).
 
-**COM-5 — Current work is derived and static.** The primary divider shows at most one label:
-`Approval required` outranks `Running <tool>`, then `Responding`, then `Thinking`; idle shows none.
-The label is derived from the semantic projection, adds no row or timer, and is absent from the
-accepted collapsed composer (ui-ux §input).
+**COM-5 — Current work is derived and static.** The conversation's activity line, its last row
+above the composer's top rule, shows at most one label: `Approval required` outranks
+`Running <tool>`, then `Responding`, then `Thinking`; idle shows none. The label is derived from
+the semantic projection and owns no timer; the composer's rules never carry it. The same row's
+right end holds the selection note (SEL-5) and the attention pill (ATT-1), which no longer have a
+border to ride (ui-ux §input).
 
 **COM-6 — Input selection names editable source.** A click places the caret; dragging retains a
 grapheme-boundary anchor, paints the source range, and release copies it through SEL-4. Typing or
@@ -74,11 +76,11 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 
 | Fact | Value |
 | --- | --- |
-| Place | The bottom section of the primary conversation's box (ui-ux §input): a divider carrying the title, the lines, and the box's bottom edge |
+| Place | Directly under the primary conversation, between two rules (ui-ux §input): the top rule carries the title and the resolved model's reasoning effort, then the lines, then the bottom rule. The columns a box's sides would spend stay blank, so the caret and the pointer keep a box's geometry |
 | Height | Up to three lines, wrapped at the width of the conversation column it actually occupies; a longer draft shows the window containing the caret, which is its newest lines until the caret leaves them |
 | Current work | One semantic suffix in the existing divider; action required uses its role and other work is ambient |
 | On a short terminal | Served before the notice strip and the agent list: a workspace that cannot be typed into is not a supported shape |
-| While a sub-agent's input holds the cursor | One row closing the box, `Message Agent A · ⇥ to return`: no divider, no title, still a focus stop and a pointer target. `Tab` from that input lands on it, because the composer follows the second window in the focus ring |
+| While a sub-agent's input holds the cursor | One row over the bottom rule, `Message Agent A · ⇥ to return`: no top rule, no title, still a focus stop and a pointer target. `Tab` from that input lands on it, because the composer follows the second window in the focus ring |
 
 ## Failure modes
 
@@ -101,5 +103,5 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing`, `editing_happens_at_the_caret_rather_than_at_the_end`, `motion_steps_over_whole_clusters_and_stops_at_the_ends`, `word_deletion_takes_the_trailing_space_and_the_word`, `killing_binds_to_the_logical_line_the_caret_is_on`, `the_visible_window_follows_the_caret_above_the_tail` |
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `returned_text_lands_after_the_existing_draft`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text`, `persistence_failure_restores_the_draft_and_opens_one_notice` |
 | COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
-| COM-5 | `current_work_priority_is_derived_from_semantic_facts`, `parallel_running_tools_use_stable_first_appearance_order`, `the_composer_boundary_names_each_current_work_state`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_current_work_frames_match_their_fixtures` with the `current-work-*` frames |
+| COM-5 | `current_work_priority_is_derived_from_semantic_facts`, `parallel_running_tools_use_stable_first_appearance_order`, `the_activity_line_names_each_current_work_state_and_the_rule_carries_none`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_current_work_frames_match_their_fixtures` with the `current-work-*` frames |
 | COM-6 | `pointer_clicks_place_the_caret_in_each_input`, `edits_that_join_clusters_restore_the_grapheme_boundary`, `a_full_input_row_never_places_the_caret_on_the_border`, `terminal_paste_edits_the_focused_input_without_submitting`; `scripts/smoke-tui.py` drives Chinese paste, pointer insertion, selection replacement and source copying |

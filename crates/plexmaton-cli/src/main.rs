@@ -222,6 +222,7 @@ async fn run(
         },
         output.math,
     );
+    workspace.set_model(picker.configuration());
     skills::sync_choices(&runtime, &mut workspace);
     for diagnostic in runtime.skill_diagnostics() {
         workspace.report_skill_diagnostic(diagnostic);

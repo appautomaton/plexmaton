@@ -1,12 +1,12 @@
-├ Remember permission · exec_command ──────────────────────┤
-│                                                          │
-│  Command "cargo test" · cwd "/home/dev/plexmaton" · ti…  │
-│  Scope: exact command; same cwd/environment              │
-│  no prefix suggestion for this command                   │
-│                                                          │
-│  > This Session                                          │
-│    Back                                                  │
-│                                                          │
-│  ↑↓ choose · Enter confirm · Esc back                    │
-│  Until Plexmaton exits; kept across conversations.       │
-│                                                          │
+── Remember permission · exec_command ──────────────────────
+                                                            
+   Command "cargo test" · cwd "/home/dev/plexmaton" · ti…   
+   Scope: exact command; same cwd/environment               
+   no prefix suggestion for this command                    
+                                                            
+   > This Session                                           
+     Back                                                   
+                                                            
+   ↑↓ choose · Enter confirm · Esc back                     
+   Until Plexmaton exits; kept across conversations.        
+                                                            

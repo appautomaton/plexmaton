@@ -122,6 +122,8 @@ pub struct ViewState {
     /// The Drawer, present only while it is open (SURF-4).
     drawer: Option<Drawer>,
     retry_edit: Option<retry::RetryEdit>,
+    /// The model this process resolved, named on the composer's rule; the composition root sets it.
+    model: Option<ConfigurationSummary>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -163,6 +165,20 @@ pub const fn inner_width(width: u16) -> u16 {
 }
 
 impl ViewState {
+    /// Names the resolved model, so the composer's rule can say how hard it will think.
+    pub fn set_model(&mut self, summary: ConfigurationSummary) {
+        self.model = Some(summary);
+        self.touch();
+    }
+
+    /// The reasoning effort of the resolved model, once the composition root has named it.
+    #[must_use]
+    pub(crate) fn reasoning_effort(&self) -> Option<&str> {
+        self.model
+            .as_ref()
+            .map(|summary| summary.reasoning_effort.as_str())
+    }
+
     /// The Drawer while it is open.
     #[must_use]
     pub const fn drawer(&self) -> Option<&Drawer> {

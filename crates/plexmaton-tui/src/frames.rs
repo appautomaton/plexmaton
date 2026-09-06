@@ -112,15 +112,29 @@ mod tests {
         ("drawer-narrow", 60, 40),
     ];
 
-    fn composer_frame(state: &ViewState, width: u16, height: u16) -> String {
+    /// The conversation's activity line and the composer's rules beneath it (ui-ux §input).
+    fn activity_frame(state: &ViewState, width: u16, height: u16) -> String {
         let (surfaces, buffer) = draw_frame(state, &Palette::default(), width, height);
         let composer = surfaces
             .get(SurfaceId::Composer)
             .unwrap_or_else(|| panic!("the composer is registered at {width}x{height}"));
-        region_text(&buffer, composer.bounds)
+        let conversation = surfaces
+            .get(SurfaceId::Transcript)
+            .unwrap_or_else(|| panic!("the conversation is registered at {width}x{height}"));
+        let top = conversation.bounds.bottom().saturating_sub(1);
+        region_text(
+            &buffer,
+            Rect::new(
+                composer.bounds.x,
+                top,
+                composer.bounds.width,
+                composer.bounds.bottom().saturating_sub(top),
+            ),
+        )
     }
 
-    /// COM-5: every accepted ambient label is frozen at all three widths.
+    /// COM-5: every accepted ambient label is frozen at all three widths, on the activity line
+    /// and never on the composer's rules.
     #[test]
     fn the_current_work_frames_match_their_fixtures() {
         let states = [
@@ -134,15 +148,21 @@ mod tests {
         for (state_name, state, label) in states {
             for (width_name, width, height) in CURRENT_WORK_FRAMES {
                 let name = format!("current-work-{state_name}-{width_name}");
-                let drawn = composer_frame(&state, width, height);
+                let drawn = activity_frame(&state, width, height);
+                let mut rows = drawn.lines();
+                let activity = rows.next().unwrap_or_default();
                 assert!(
-                    drawn.contains(&format!(" · {label}")),
-                    "{name}: the accepted label is visible"
+                    activity.contains(&format!("· {label}")),
+                    "{name}: the accepted label is on the activity line: {activity:?}"
+                );
+                assert!(
+                    rows.clone().all(|row| !row.contains(label)),
+                    "{name}: the composer's rules carry nothing the agent is doing"
                 );
                 assert_eq!(
-                    drawn.lines().count(),
+                    rows.count(),
                     3,
-                    "{name}: the fixture is only the composer boundary and body"
+                    "{name}: the fixture is the activity line, then the composer's rules and body"
                 );
 
                 crate::test_support::assert_frame(&name, &drawn);
@@ -1169,9 +1189,11 @@ mod tests {
                 let conversation = surfaces
                     .get(SurfaceId::Transcript)
                     .unwrap_or_else(|| panic!("{width}x{height}: the conversation is registered"));
+                // The pill rides the activity line, the conversation's last row.
                 let border = region_text(
                     &buffer,
                     Rect {
+                        y: conversation.bounds.bottom().saturating_sub(1),
                         height: 1,
                         ..conversation.bounds
                     },

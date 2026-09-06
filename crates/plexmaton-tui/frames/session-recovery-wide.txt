@@ -1,40 +1,40 @@
-┌ Plexmaton · idle ────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│warning                                                                                                               │
-│The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.                   │
-│                                                                                                                      │
-│isolated 37-byte incomplete tail                                                                                      │
-│✓ Conversation restored.                                                                                              │
-│                                                                                                                      │
-├ Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────┤
-│Type a message · ⇥ to focus                                                                                           │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+ warning                                                                                                                
+ The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.                    
+                                                                                                                        
+ isolated 37-byte incomplete tail                                                                                       
+ ✓ Conversation restored.                                                                                               
+                                                                                                                        
+                                                                                                                        
+── Message Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────
+ Type a message · ⇥ to focus                                                                                            
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                                         

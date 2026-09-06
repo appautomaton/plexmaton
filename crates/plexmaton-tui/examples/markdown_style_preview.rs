@@ -46,6 +46,11 @@ fn main() -> Result<()> {
 
 fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) -> Result<Buffer> {
     let mut workspace = Workspace::with_palette(Palette::ansi());
+    workspace.set_model(plexmaton_tui::ConfigurationSummary {
+        provider: "local".into(),
+        model: "plexmaton-dev".into(),
+        reasoning_effort: "high".into(),
+    });
     let agent = AgentId::new("primary")?;
     let mut events = vec![ConversationEvent::AgentCreated {
         agent_id: agent.clone(),

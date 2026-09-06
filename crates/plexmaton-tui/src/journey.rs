@@ -213,7 +213,11 @@ mod tests {
         let inspected = journey.painted(SurfaceId::Inspector);
         let conversation = journey.beneath();
         assert!(inspected.contains("Agent B"));
-        assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
+        assert!(
+            journey
+                .painted(SurfaceId::Composer)
+                .contains("Message Agent A")
+        );
         assert!(
             inspected.contains("surface-routing boundary"),
             "the second window holds B's conversation, not a regrouped detail list"
@@ -289,7 +293,11 @@ mod tests {
             journey.painted(SurfaceId::Inspector).contains("Agent B"),
             "B stays on screen while the user types to A (INS-1)"
         );
-        assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
+        assert!(
+            journey
+                .painted(SurfaceId::Composer)
+                .contains("Message Agent A")
+        );
 
         // 8. B asks for a decision. It queues, and it takes nothing.
         let before = journey.focused();
@@ -368,7 +376,11 @@ mod tests {
             "none",
             "the second Escape closes B's window"
         );
-        assert!(journey.painted(SurfaceId::Transcript).contains("Agent A"));
+        assert!(
+            journey
+                .painted(SurfaceId::Composer)
+                .contains("Message Agent A")
+        );
     }
 
     /// Journey step 11: the same journey means the same thing at every supported width.

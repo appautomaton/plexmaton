@@ -28,7 +28,6 @@ pub(crate) mod tokens {
     pub(crate) const GOLD: Color = Color::Rgb(245, 208, 114);
     pub(crate) const ORANGE: Color = Color::Rgb(255, 196, 102);
     pub(crate) const CORAL: Color = Color::Rgb(255, 120, 120);
-    pub(crate) const VIOLET: Color = Color::Rgb(180, 150, 235);
 }
 pub use markdown::MarkdownTheme;
 
@@ -227,7 +226,7 @@ impl Palette {
     /// default, which let the terminal theme decide what our semantics look like.
     #[must_use]
     pub fn pastel() -> Self {
-        use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL, VIOLET};
+        use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL};
         Self {
             markdown: MarkdownTheme::Pastel,
             body: Style::new().fg(BODY),
@@ -235,7 +234,7 @@ impl Palette {
             border: Style::new().fg(LINE),
             border_focused: Style::new().fg(SKY),
             section_heading: Style::new().fg(BODY).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(VIOLET),
+            accent: Style::new().fg(GOLD),
             key_hint: Style::new().add_modifier(Modifier::REVERSED),
             ambient: Style::new().fg(TEAL).add_modifier(Modifier::ITALIC),
             new_information: Style::new().fg(MINT),

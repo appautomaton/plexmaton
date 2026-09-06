@@ -13,7 +13,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use super::panel::Edges;
+use super::panel::{Chrome, Edges};
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
@@ -113,19 +113,42 @@ pub(super) fn attention_role(state: &ViewState) -> Role {
     }
 }
 
-pub(super) fn transcript_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    state.primary_agent().map_or_else(
-        || title(palette, "Transcript", Role::SectionHeading, ""),
-        |agent| {
-            let rest = format!(
-                " · {}{}{}",
-                content::agent_status_label(agent.status),
-                content::entry_counts(agent),
-                selected_suffix(state, SurfaceId::Transcript)
-            );
-            title(palette, agent.label.clone(), Role::SectionHeading, rest)
-        },
-    )
+/// The conversation's last row: what the agent is doing on the left; what the reader has
+/// selected and what is still waiting on them on the right (ui-ux §input, COM-5, SEL-5, ATT-1).
+///
+/// Derived from the same facts the composer's divider used to carry, and drawn where the
+/// conversation ends rather than where the user types, so the two never read as one thing.
+pub(super) fn activity_line(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
+    let work = match state.current_work() {
+        None => None,
+        Some(CurrentWork::Thinking) => Some(("Thinking…".to_owned(), Role::Ambient)),
+        Some(CurrentWork::Responding) => Some(("Responding…".to_owned(), Role::Ambient)),
+        Some(CurrentWork::RunningTool(tool)) => Some((format!("Running {tool}…"), Role::Ambient)),
+        Some(CurrentWork::ApprovalRequired) => {
+            Some(("Approval required".to_owned(), Role::ActionRequired))
+        }
+    };
+    let mut left = Vec::new();
+    if let Some((text, role)) = work {
+        left.push(Span::styled("· ", palette.style(Role::Muted)));
+        left.push(Span::styled(text, palette.style(role)));
+    }
+    let mut right = Vec::new();
+    let selected = selected_suffix(state, SurfaceId::Transcript);
+    if let Some(note) = selected.strip_prefix(" · ") {
+        right.push(Span::styled(note.to_owned(), palette.style(Role::Muted)));
+    }
+    if let Some(pill) = attention_pill(state, palette) {
+        right.extend(pill.spans);
+    }
+    let used = Line::from(left.clone()).width() + Line::from(right.clone()).width();
+    let gap = usize::from(width).saturating_sub(used);
+    let mut spans = left;
+    if !right.is_empty() {
+        spans.push(Span::raw(" ".repeat(gap)));
+        spans.extend(right);
+    }
+    Line::from(spans)
 }
 
 /// What a surface says about the selection it is holding.
@@ -208,16 +231,12 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
         || "Message".to_owned(),
         |agent| format!("Message {}", agent.label),
     );
-    let (rest, role) = match state.current_work() {
-        None => (String::new(), Role::Muted),
-        Some(CurrentWork::Thinking) => (" · Thinking".to_owned(), Role::Ambient),
-        Some(CurrentWork::Responding) => (" · Responding".to_owned(), Role::Ambient),
-        Some(CurrentWork::RunningTool(tool)) => (format!(" · Running {tool}"), Role::Ambient),
-        Some(CurrentWork::ApprovalRequired) => {
-            (" · Approval required".to_owned(), Role::ActionRequired)
-        }
-    };
-    title_with(palette, name, Role::SectionHeading, rest, role)
+    // Only what concerns the input is written on its rule: whom it goes to, and how hard the
+    // model will think about it. What the agent is doing is the conversation's activity line.
+    let rest = state
+        .reasoning_effort()
+        .map_or_else(String::new, |effort| format!(" · {effort}"));
+    title_with(palette, name, Role::SectionHeading, rest, Role::Accent)
 }
 
 /// Decoded script rows or the cwd baseline, with system hints on the final terminal row (STL-4).
@@ -337,35 +356,59 @@ pub(super) fn block(
     focused: bool,
     edges: Edges,
 ) -> Block<'static> {
+    block_with(palette, title, focused, edges, Chrome::Box)
+}
+
+/// A region with its edges inked as `chrome` says; the geometry is the edges' either way.
+pub(super) fn block_with(
+    palette: &Palette,
+    title: Line<'static>,
+    focused: bool,
+    edges: Edges,
+    chrome: Chrome,
+) -> Block<'static> {
     let border = if focused {
         Role::BorderFocused
     } else {
         Role::Border
     };
-    let (borders, set) = match edges {
-        Edges::All => (Borders::ALL, border::PLAIN),
-        Edges::Upper => (Borders::TOP | Borders::LEFT | Borders::RIGHT, border::PLAIN),
-        Edges::Closing => (
-            Borders::LEFT | Borders::RIGHT | Borders::BOTTOM,
-            border::PLAIN,
-        ),
-        // The divider joins the sides it sits between, so the sections read as one box.
-        Edges::Lower => (
-            Borders::ALL,
-            border::Set {
-                top_left: "├",
-                top_right: "┤",
-                ..border::PLAIN
-            },
-        ),
-        Edges::Middle => (
-            Borders::TOP | Borders::LEFT | Borders::RIGHT,
-            border::Set {
-                top_left: "├",
-                top_right: "┤",
-                ..border::PLAIN
-            },
-        ),
+    let (borders, set) = match chrome {
+        Chrome::Box => match edges {
+            Edges::All => (Borders::ALL, border::PLAIN),
+            Edges::Upper => (Borders::TOP | Borders::LEFT | Borders::RIGHT, border::PLAIN),
+            Edges::Closing => (
+                Borders::LEFT | Borders::RIGHT | Borders::BOTTOM,
+                border::PLAIN,
+            ),
+            // The divider joins the sides it sits between, so the sections read as one box.
+            Edges::Lower => (
+                Borders::ALL,
+                border::Set {
+                    top_left: "├",
+                    top_right: "┤",
+                    ..border::PLAIN
+                },
+            ),
+            Edges::Middle => (
+                Borders::TOP | Borders::LEFT | Borders::RIGHT,
+                border::Set {
+                    top_left: "├",
+                    top_right: "┤",
+                    ..border::PLAIN
+                },
+            ),
+        },
+        Chrome::Rules => {
+            let mut borders = Borders::NONE;
+            if edges.has_top() {
+                borders |= Borders::TOP;
+            }
+            if edges.has_bottom() {
+                borders |= Borders::BOTTOM;
+            }
+            (borders, border::PLAIN)
+        }
+        Chrome::Bare => (Borders::NONE, border::PLAIN),
     };
     let block = Block::default()
         .borders(borders)
@@ -373,9 +416,16 @@ pub(super) fn block(
         .border_style(palette.style(border));
     // An empty title is no title. Ratatui still reserves the top row for one when the block has
     // no top edge, which would leave a one-row region with nowhere to paint its row.
-    if title.spans.iter().all(|span| span.content.is_empty()) {
-        block
-    } else {
-        block.title(title)
+    let empty = title.spans.iter().all(|span| span.content.is_empty());
+    match chrome {
+        _ if empty => block,
+        Chrome::Bare => block,
+        // The rule runs into its title: `── Message Plexmaton · high ───`.
+        Chrome::Rules if edges.has_top() => {
+            let mut spans = vec![Span::styled("──", palette.style(border))];
+            spans.extend(title.spans);
+            block.title(Line::from(spans))
+        }
+        Chrome::Rules | Chrome::Box => block.title(title),
     }
 }

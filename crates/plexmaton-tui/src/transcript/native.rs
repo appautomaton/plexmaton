@@ -159,22 +159,48 @@ fn visible_cell(clip: Rect, surfaces: &SurfaceTree, owner: SurfaceId, point: (u1
 }
 
 fn notice(frame: &mut Frame<'_>, bounds: Rect, label: &str, style: Style) {
-    // Use only an existing empty border stretch: no title, attention badge or overlay is replaced.
+    // Use only existing empty chrome: no title, attention badge or overlay is replaced. A boxed
+    // conversation lends a stretch of its top border; a bare one lends the blank stretch of its
+    // activity line, its last row (ui-ux §input).
     let bounds = bounds.intersection(frame.area());
+    if bounds.is_empty() {
+        return;
+    }
+    if !place_on_row(frame, bounds, bounds.y, "─", label, style) {
+        place_on_row(
+            frame,
+            bounds,
+            bounds.bottom().saturating_sub(1),
+            " ",
+            label,
+            style,
+        );
+    }
+}
+
+fn place_on_row(
+    frame: &mut Frame<'_>,
+    bounds: Rect,
+    y: u16,
+    blank: &str,
+    label: &str,
+    style: Style,
+) -> bool {
     let mut start = bounds.x;
     let mut length = 0;
     for x in bounds.x..bounds.right() {
-        if frame.buffer_mut()[(x, bounds.y)].symbol() == "─" {
+        if frame.buffer_mut()[(x, y)].symbol() == blank {
             if length == 0 {
                 start = x;
             }
             length += 1;
             if length >= label.width() {
-                frame.buffer_mut().set_string(start, bounds.y, label, style);
-                return;
+                frame.buffer_mut().set_string(start, y, label, style);
+                return true;
             }
         } else {
             length = 0;
         }
     }
+    false
 }

@@ -360,6 +360,11 @@ impl Workspace {
         self.state.show_configuration(summary);
     }
 
+    /// Names the resolved model for the composer's rule (ui-ux §input).
+    pub fn set_model(&mut self, summary: crate::ConfigurationSummary) {
+        self.state.set_model(summary);
+    }
+
     /// Whether projection changes, resize or palette replacement need another frame (FR-1).
     ///
     /// A presentation batch can use this gate without owning another copy of the painted revision.
@@ -662,10 +667,10 @@ mod tests {
             .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
-        // The conversation is not focused at start, so its corner wears the plain border role.
-        let conversation = bounds(&workspace, SurfaceId::Transcript);
-        let corner = &terminal.backend().buffer()[(conversation.x, conversation.y)];
-        assert_eq!(corner.symbol(), "┌");
+        // The composer is not focused at start, so its top rule wears the plain border role.
+        let composer = bounds(&workspace, SurfaceId::Composer);
+        let corner = &terminal.backend().buffer()[(composer.x, composer.y)];
+        assert_eq!(corner.symbol(), "─");
         assert_eq!(
             corner.style().fg,
             Some(Color::Magenta),
@@ -1361,9 +1366,20 @@ mod tests {
 
         let transcript = bounds(&workspace, SurfaceId::Transcript);
         let composer = bounds(&workspace, SurfaceId::Composer);
+        let activity = |terminal: &Terminal<TestBackend>, workspace: &Workspace| {
+            painted(terminal, workspace, SurfaceId::Transcript)
+                .lines()
+                .last()
+                .unwrap_or_default()
+                .to_owned()
+        };
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
-            "running work is named in the composer's existing boundary"
+            activity(&terminal, &workspace).contains("Thinking"),
+            "running work is named on the conversation's activity line"
+        );
+        assert!(
+            !painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
+            "and never on the composer's rules"
         );
 
         let primary = workspace
@@ -1381,8 +1397,8 @@ mod tests {
         assert_eq!(bounds(&workspace, SurfaceId::Transcript), transcript);
         assert_eq!(bounds(&workspace, SurfaceId::Composer), composer);
         assert!(
-            !painted(&terminal, &workspace, SurfaceId::Composer).contains("Thinking"),
-            "idle adds no label or placeholder"
+            !activity(&terminal, &workspace).contains("Thinking"),
+            "idle draws nothing on the activity line"
         );
 
         conversation.emit(ConversationEvent::AgentStatusChanged {
@@ -2004,10 +2020,7 @@ mod tests {
         );
         assert!(painted(&terminal, &workspace, SurfaceId::Inspector).contains("Agent B"));
         assert!(
-            painted(&terminal, &workspace, SurfaceId::Transcript)
-                .lines()
-                .next()
-                .is_some_and(|title| title.contains("Agent A")),
+            painted(&terminal, &workspace, SurfaceId::Composer).contains("Message Agent A"),
             "the conversation's title stays readable above the window"
         );
         assert!(
@@ -3637,10 +3650,11 @@ mod tests {
         let caret = cursor(&terminal).expect("input caret");
         assert!(caret.x < area.right() - 1);
         assert!(caret.y < area.bottom() - 1);
+        // The column a box's side would have spent stays reserved and blank (ui-ux §input).
         for row in area.y + 1..area.bottom() - 1 {
             assert_eq!(
                 terminal.backend().buffer()[(area.right() - 1, row)].symbol(),
-                "│"
+                " "
             );
         }
     }

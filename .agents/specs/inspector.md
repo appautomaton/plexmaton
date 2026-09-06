@@ -68,7 +68,7 @@ state::inspector                         ├─ Column     the secondary column,
 | --- | --- |
 | Shelf height | `min(⌊0.55 × region⌋, region − 10)` rows from the conversation's top, or the dragged height, clamped the same way |
 | Fallback | Below eighteen rows of conversation the presentation is maximized: a shelf of two borders and six lines is not worth being one |
-| Layering | The one surface above the base layer, drawn inside the conversation's border so the conversation keeps its rectangle, title and reading position. The cells beneath are cleared first |
+| Layering | The one surface above the base layer, drawn inside the conversation's rectangle so the conversation keeps that rectangle and its reading position. The cells beneath are cleared first |
 | The column | At ultrawide, out of the conversation's width, never the agent column's (ui-ux §layout classes) |
 | Maximize and dragged height | In `state::inspector`: they belong to the window, not the agent it shows; maximize preserves the shelf height and both reset on close |
 | The draft | In `ViewState`, keyed by agent, so looking away and returning finds it |

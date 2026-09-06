@@ -1,40 +1,40 @@
-┌ Plexmaton · running · 1 tool ────────────────────────────┐
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│[+] exec_command · succeeded                              │
-│  invocation                                              │
-│  │ Command "cargo test -p plexmaton-tui"                 │
-│  │ cwd: "~/plexmaton"                                    │
-│  │ timeout_ms: 120000                                    │
-│  outcome                                                 │
-│  │ status: exited                                        │
-│  │ exit_code: 0                                          │
-│  │ stdout:                                               │
-│  │ 197 tests passed                                      │
-│  │ stderr:                                               │
-│  │ [empty]                                               │
-├ Message Plexmaton · Thinking ────────────────────────────┤
-│Type a message · ⇥ to focus                               │
-└──────────────────────────────────────────────────────────┘
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+                                                            
+ [+] exec_command · succeeded                               
+   invocation                                               
+   │ Command "cargo test -p plexmaton-tui"                  
+   │ cwd: "~/plexmaton"                                     
+   │ timeout_ms: 120000                                     
+   outcome                                                  
+   │ status: exited                                         
+   │ exit_code: 0                                           
+   │ stdout:                                                
+   │ 197 tests passed                                       
+   │ stderr:                                                
+   │ [empty]                                                
+ · Thinking…                                                
+── Message Plexmaton ───────────────────────────────────────
+ Type a message · ⇥ to focus                                
+────────────────────────────────────────────────────────────
  ~/plexmaton                                                

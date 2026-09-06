@@ -44,7 +44,7 @@ INITIAL_SIZE = (40, 120)
 RESIZED = (30, 100)
 REPAINT_PROBE_SIZE = (31, 101)
 EXPECTED_ON_FULL_FRAME = (
-    "Plexmaton · idle",
+    # The composer's top rule names the addressee; the conversation above it has no title.
     "Message Plexmaton",
     # Not the agent rail: a fresh session has delegated nothing, and a roster of nobody is a
     # bordered box saying so in the column the conversation wanted.
@@ -217,7 +217,8 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     report(0, 3, True)
     os.write(master, b"X")
     painted, _ = repaint(master, captured, ("中X文abc",))
-    assert painted.splitlines()[row][-1] == "│", "composer right border after Chinese input"
+    bottom_rule = painted.splitlines()[row + 1]
+    assert set(bottom_rule.strip()) == {"─"}, "composer bottom rule intact after Chinese input"
     start = len(captured)
     report(0, 1)
     report(32, 6)
