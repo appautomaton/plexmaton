@@ -460,7 +460,10 @@ fn cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint() {
         (r"$\frac{\text{概率}}{\text{标签}}$", &["概率", "标签"][..]),
         (r"\[\hat q + \hat\alpha\]", &["q\u{0302}", "α\u{0302}"][..]),
     ] {
-        let layout = prepared(source);
+        let layout = Formula::parse(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"))
+            .layout(120)
+            .expect("native layout");
         let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
         for term in expected {
             assert!(text.contains(term), "lost {term}: {text}");
@@ -478,4 +481,41 @@ fn cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint() {
     }
     let formula = Formula::parse(r"\[\hat{\textcolor{blue}{p}}\]").expect("valid colored accent");
     assert!(matches!(formula.layout(120), Err(MathError::Overlap)));
+}
+
+/// MTH-2: an accent belongs to exactly one admitted base glyph, and an explicit CJK font cannot
+/// be silently replaced by the engine's regular CJK fallback.
+#[test]
+fn unsupported_group_accents_and_explicit_cjk_fonts_refuse_before_projection() {
+    for source in [r"\[\hat{ab}\]", r"\[\widehat{p}\]"] {
+        assert!(Formula::parse(source).is_err(), "{source}");
+    }
+    assert!(Formula::parse(r"\[\hat p+\hat\alpha+\bar a\]").is_ok());
+    assert!(Formula::parse(r"\[\text{p}\kern-0.5em\text{^}\]").is_err());
+    assert!(matches!(
+        Formula::parse(r"\[\text{p}\kern-0.5em\text{\textasciicircum}\]"),
+        Err(MathError::Unsupported(Unsupported::Construct))
+    ));
+    for (source, style) in [
+        (r"\[\mathbf{x}\]", FontStyle::Bold),
+        (r"\[\mathit{x}\]", FontStyle::Italic),
+    ] {
+        let layout = Formula::parse(source)
+            .expect("supported Latin font")
+            .layout(120)
+            .expect("native layout");
+        assert!(
+            layout.runs().iter().any(|run| run.style == style),
+            "{source}"
+        );
+    }
+    for source in [r"\[\mathbf{中}\]", r"\[\mathit{中}\]"] {
+        assert!(
+            matches!(
+                Formula::parse(source),
+                Err(MathError::Unsupported(Unsupported::Font))
+            ),
+            "{source}"
+        );
+    }
 }

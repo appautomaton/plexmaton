@@ -170,11 +170,7 @@ fn glyph_metrics(
         return Ok(metrics);
     }
     let ch = native_character(font, code)?;
-    if font != FontId::CjkRegular
-        || !matches!(code,
-            0x3040..=0x30ff | 0x31f0..=0x31ff | 0x3400..=0x4dbf | 0x4e00..=0x9fff
-            | 0xf900..=0xfaff | 0xac00..=0xd7af | 0xff01..=0xff60 | 0xffe0..=0xffee)
-    {
+    if font != FontId::CjkRegular || !super::is_supported_cjk(ch) {
         return Err(MathError::Unsupported(Unsupported::Glyph));
     }
     // The display list omits the metrics of system-font glyphs. Ask the pinned engine for
