@@ -51,7 +51,7 @@ async fn blocked_preparation_never_holds_the_production_input_and_frame_loop() {
         let root = FixtureWorkspace::new();
         let marker = root.path().join("preparing");
         let executable = root.path().join("preparation-worker");
-        // PRE-2: readiness precedes an idle block in the same PID. No interpreter startup or
+        // PRE-2: readiness precedes an idle block in the same PID. No Python startup or
         // descendant process belongs in this input-loop witness.
         fs::write(
             &executable,
