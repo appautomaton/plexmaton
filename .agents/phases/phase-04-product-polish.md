@@ -146,20 +146,21 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Chinese text and boxed mixed-language formulas. MTH-1–MTH-4 cover engine admission, real
     preparation and three-width projection of the four exact formulas. MD-3 keeps unfinished
     native math compact; its four token-stream collapses, up to seven rows, become zero in the
-    exact fixture. After rebasing onto the Drawer/palette changes, 1,093 Rust tests passed with
-    serial scheduling, alongside workspace Clippy and three offline terminal smokes. Six inspected
-    MTH frames remained byte-identical. Pixel-level streaming flicker remains unverified.
+    exact fixture. After rebasing onto `58c3f66`, 1,117 Rust tests passed with serial scheduling,
+    alongside workspace compilation/Clippy, 22 Python checks and three offline terminal smokes.
+    Six MTH frames were regenerated and inspected with the current conversation/composer layout.
+    Pixel-level streaming flicker remains unverified.
 
 15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the
     owned worker while retaining a full parser pass. The formula-work witness prepares one formula
     instead of two; 72 suffix/width cases retain canonical rows and copy maps. Malformed hints and
-    capacity pressure fall back without losing admissible source. Validation passed 1,105 workspace
+    capacity pressure fall back without losing admissible source. Validation passed 1,117 workspace
     tests, compilation, Clippy and corpus gates. Seven paced Kitty deltas,
     250 ms apart, preserve formula copy, resize, Drawer interaction and clean exit at three widths.
     Reviewed math frames at [120](../../crates/plexmaton-tui/frames/math/logits-120.svg),
     [88](../../crates/plexmaton-tui/frames/math/logits-88.svg) and
     [60](../../crates/plexmaton-tui/frames/math/logits-60.svg), with pending frames alongside,
-    remain byte-identical after regeneration. TR-4 still moves bottom-aligned content as rows grow;
+    were regenerated and inspected against `58c3f66`. TR-4 still moves bottom-aligned content as rows grow;
     this preparation optimization does not establish pixel-level flicker elimination.
 
 The status-line adapter does not bundle the approval repair or logo animation.
