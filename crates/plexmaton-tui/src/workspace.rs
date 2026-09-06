@@ -18,7 +18,8 @@ use crate::{
     router::{Routed, Router, RouterContext},
     state::{
         ApprovalSubmission, CleanupNotice, ConversationRequest, ConversationRestoration,
-        CopyRequest, Page, PersistenceNotice, QuitPress, Submission, ViewRevision, ViewState,
+        CopyRequest, Page, PermissionRequest, PersistenceNotice, QuitPress, Submission,
+        ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -91,8 +92,8 @@ pub struct Outcome {
     pub retry: Option<crate::RetrySubmission>,
     /// A conversation to open, new or by identity; only the composition root can (SPK-2).
     pub conversation: Option<ConversationRequest>,
-    /// A reviewed permission mutation; only the retained permission owner can apply it.
-    pub permission: Option<plexmaton_core::PermissionIntent>,
+    /// What a permissions place asked of the retained owner, which only the root holds (PER-7).
+    pub permission: Option<PermissionRequest>,
     /// A Command to run against the conversation it names; the runtime admits or refuses it
     /// (CMD-1, CPL-9).
     pub command: Option<CommandRun>,
@@ -277,11 +278,6 @@ impl Workspace {
     pub fn return_skill_input(&mut self, to: AgentId, text: String, skill: Option<String>) {
         self.state.return_skill_input(to, text, skill);
         self.state.hover_entry(None);
-    }
-
-    /// Replaces the bounded skill completion catalog without loading any skill content.
-    pub fn set_skills(&mut self, choices: Vec<crate::SkillChoice>) {
-        self.state.set_skills(choices);
     }
 
     /// Shows a session-writer failure that cannot itself enter the failed durable stream.

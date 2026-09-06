@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented; evidence below |
 | Owns | The workspace's own surface: how it opens, its one geometry, its pages, and what leaves the workspace when a row is chosen |
-| Depends on | [`ui-ux.md`](../ui-ux.md) §product vocabulary and §surface model; SURF-3, SURF-4, SURF-5; COM-1 for its filter; PER-7 and PER-8 for the Permissions page |
+| Depends on | [`ui-ux.md`](../ui-ux.md) §product vocabulary and §surface model; SURF-3, SURF-4, SURF-5; COM-1 for its filter; PER-7 and PER-8 for the Permissions page, which is the Project's |
 | Proven by | `plexmaton-tui::{layout, workspace, frames}` tests and the executable's tests |
 
 ## Invariants

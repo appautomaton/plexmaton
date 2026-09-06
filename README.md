@@ -56,7 +56,7 @@ The interface, tools and journals run locally. Model requests go to your configu
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
 | `$` | Find and complete a skill |
-| `/` | List Commands: `/new`, `/resume`, `/compact` |
+| `/` | List Commands: `/new`, `/resume`, `/compact`, `/permissions` |
 
 The Drawer shows configuration and permissions. Rate limits offer Retry and Edit & retry.
 

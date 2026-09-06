@@ -2,19 +2,27 @@
 
 use super::*;
 use crate::{
-    Command, CommandRun, CommandTarget, ConversationRequest, MenuIntent, Point, PointerIntent,
-    SurfaceId, state::MenuRow,
+    Command, CommandRun, CommandTarget, ConversationRequest, MenuIntent, PermissionRequest, Point,
+    PointerIntent, SurfaceId, state::MenuRow,
 };
 
 impl Workspace {
+    /// Replaces the bounded skill completion catalog without loading any skill content.
+    pub fn set_skills(&mut self, choices: Vec<crate::SkillChoice>) {
+        self.state.set_skills(choices);
+    }
+
     pub(super) fn apply_menu(&mut self, intent: MenuIntent) -> Outcome {
         match intent {
             MenuIntent::Step(direction) => {
                 self.state.step_composer_menu(direction);
                 Outcome::default()
             }
+            // A permission review returns one layer before the menu closes (PER-7, DRW-3).
             MenuIntent::Close => {
-                self.state.close_composer_menu();
+                if !self.state.menu_permission_back() {
+                    self.state.close_composer_menu();
+                }
                 Outcome::default()
             }
             MenuIntent::Complete => match self.state.menu_chosen() {
@@ -30,7 +38,20 @@ impl Workspace {
         self.state.complete_command(command);
         match command {
             Command::Resume => self.list_conversations(),
+            Command::Permissions => self.list_session_permissions(),
             Command::New | Command::Compact => Outcome::default(),
+        }
+    }
+
+    /// Asks the retained owner for the Session's view once, for `/permissions`' rows.
+    fn list_session_permissions(&mut self) -> Outcome {
+        if self.state.composer_menu().permissions.is_some() {
+            return Outcome::default();
+        }
+        self.state.open_session_permissions();
+        Outcome {
+            permission: Some(PermissionRequest::Refresh),
+            ..Outcome::default()
         }
     }
 
@@ -51,7 +72,9 @@ impl Workspace {
                     ..Outcome::default()
                 }
             }
-            MenuRow::Command(Command::Resume) => self.complete_command(Command::Resume),
+            MenuRow::Command(command @ (Command::Resume | Command::Permissions)) => {
+                self.complete_command(command)
+            }
             MenuRow::Command(Command::Compact) => {
                 let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
                     return Outcome::default();
@@ -69,6 +92,16 @@ impl Workspace {
                 conversation: self.state.conversation_request(&id),
                 ..Outcome::default()
             },
+            MenuRow::Permission(choice) => {
+                let intent = self.state.activate_menu_permission(&choice);
+                Outcome {
+                    permission: intent.map(PermissionRequest::Change).or_else(|| {
+                        matches!(choice, crate::state::permissions::PermissionChoice::Reload)
+                            .then_some(PermissionRequest::Refresh)
+                    }),
+                    ..Outcome::default()
+                }
+            }
         }
     }
 
@@ -99,10 +132,15 @@ impl Workspace {
         {
             return None;
         }
-        let row = usize::from(at.y.saturating_sub(bounds.y + 1));
+        let heading = self
+            .state
+            .menu_heading(bounds.width.saturating_sub(2))
+            .len();
+        let row = usize::from(at.y.saturating_sub(bounds.y + 1)).checked_sub(heading)?;
         let input = self.state.composer();
         let visible = usize::from(bounds.height.saturating_sub(2))
-            .saturating_sub(usize::from(self.state.menu_status().is_some()));
+            .saturating_sub(usize::from(self.state.menu_status().is_some()))
+            .saturating_sub(heading);
         let rows = self.state.menu_rows();
         let window = self
             .state

@@ -45,15 +45,13 @@ pub(super) struct RetryEdit {
 
 impl ViewState {
     pub(crate) fn has_unsent_input(&self) -> bool {
-        // A draft that is `/resume` and its query is the request to switch, not something the
-        // switch would lose (SPK-2).
+        // A draft that is a whole Command, `/resume` and its query included, is a request, not
+        // something a switch would lose (SPK-2, CMD-2).
         let primary = self.primary_agent().map(|agent| &agent.id);
-        let listing = self.menu_listing();
+        let command = self.exact_command().is_some();
         self.retry_edit.is_some()
             || self.inputs.iter().any(|(agent, input)| {
-                !input.text().is_empty()
-                    && !(Some(agent) == primary
-                        && listing == Some(super::composer_menu::Listing::Conversations))
+                !input.text().is_empty() && !(Some(agent) == primary && command)
             })
     }
     pub(crate) fn set_retry_actions(&mut self, actions: Option<RetryActions>) {

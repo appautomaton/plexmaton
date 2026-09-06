@@ -152,7 +152,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         },
         drawer_rows: state.drawer_rows(area.width),
         drawer_focus: state.drawer_focus(),
-        composer_menu_rows: state.composer_menu_rows(),
+        composer_menu_rows: state.composer_menu_rows(inner_width(composer_width)),
         rail: state.sub_agents().next().is_some(),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),
         inspector,

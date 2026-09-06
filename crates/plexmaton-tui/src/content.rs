@@ -230,8 +230,9 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
 /// The composer menu's rows, by the token the draft starts with, and its key line (SKP-4, CMD-1).
 ///
 /// Skills carry their source and name; Commands their name and what `Enter` does; conversations
-/// their title and, muted, their identity. The chosen row is the bar (`Chosen`). The
-/// Conversations listing adds one status row while it has no rows or an open in flight.
+/// their title and, muted, their identity; permissions their label. The chosen row is the bar
+/// (`Chosen`). The Conversations listing adds one status row while it has no rows or an open in
+/// flight; the Session permissions listing opens with its panel's description as a heading.
 pub(crate) fn composer_menu(
     state: &ViewState,
     palette: &Palette,
@@ -239,18 +240,34 @@ pub(crate) fn composer_menu(
     height: u16,
 ) -> Vec<Line<'static>> {
     use crate::state::MenuRow;
-    let Some(listing) = state.menu_listing() else {
+    if state.menu_listing().is_none() {
         return Vec::new();
-    };
+    }
     let menu = state.composer_menu();
     let input = state.composer();
     let status = state.menu_status();
-    // The titled rule and the key line; the composer's top rule closes the menu (SKP-4).
-    let visible =
-        usize::from(height.saturating_sub(2)).saturating_sub(usize::from(status.is_some()));
     let rows = state.menu_rows();
+    // The titled rule and the key line; the composer's top rule closes the menu (SKP-4). The
+    // rows keep their room in a short terminal; the heading takes what is left and ends in `…`.
+    let budget =
+        usize::from(height.saturating_sub(2)).saturating_sub(usize::from(status.is_some()));
+    let mut heading = state.menu_heading(width);
+    let heading_budget = budget.saturating_sub(rows.len().min(crate::state::VISIBLE_ROWS));
+    if heading.len() > heading_budget {
+        heading.truncate(heading_budget);
+        if let Some(last) = heading.last_mut() {
+            last.push('…');
+        }
+    }
+    let visible = budget.saturating_sub(heading.len());
     let window = menu.window(input.text(), input.cursor(), visible);
-    let mut lines = Vec::with_capacity(window.len().saturating_add(2));
+    let mut lines = Vec::with_capacity(window.len().saturating_add(2 + heading.len()));
+    lines.extend(heading.into_iter().map(|line| {
+        Line::styled(
+            command_summary(&format!("  {line}"), usize::from(width)),
+            palette.style(Role::Muted),
+        )
+    }));
     for row in rows.iter().skip(window.start).take(window.len()) {
         let chosen = menu.chosen() == Some(row);
         let marker = if chosen { ">" } else { " " };
@@ -275,8 +292,16 @@ pub(crate) fn composer_menu(
                     .map_or_else(|| id.as_str().to_owned(), |choice| choice.title.clone()),
                 id.as_str().to_owned(),
             ),
+            MenuRow::Permission(choice) => (
+                menu.permission_label(choice).unwrap_or_default(),
+                String::new(),
+            ),
         };
-        let text = command_summary(&format!("{marker} {name}  {detail}"), usize::from(width));
+        let text = if detail.is_empty() {
+            command_summary(&format!("{marker} {name}"), usize::from(width))
+        } else {
+            command_summary(&format!("{marker} {name}  {detail}"), usize::from(width))
+        };
         lines.push(if chosen {
             chosen_row(vec![Span::raw(text)], palette, width)
         } else {
@@ -298,7 +323,7 @@ pub(crate) fn composer_menu(
             palette.style(role),
         ));
     }
-    lines.push(Line::styled(listing.keys(), palette.style(Role::Muted)));
+    lines.push(Line::styled(state.menu_keys(), palette.style(Role::Muted)));
     lines
 }
 

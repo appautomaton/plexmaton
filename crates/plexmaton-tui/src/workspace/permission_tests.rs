@@ -1,13 +1,20 @@
+//! Permission controls in their two places (PER-7): the Session's behind `/permissions` in the
+//! composer menu, the Project's on the Drawer's page. One owner, one revision, one reviewed
+//! intent from either place.
 use super::*;
-use crate::SurfaceId;
+use crate::{
+    PermissionRequest, SurfaceId,
+    test_support::{canonical_runtime, region_text, snapshot_text},
+};
 use plexmaton_core::{
-    CodingSessionId, NativeFilePreset, PermissionAction, PermissionChangeError, PermissionRevision,
-    PermissionStateView,
+    CodingSessionId, NativeFilePreset, PermissionAction, PermissionChangeError, PermissionGrantId,
+    PermissionGrantView, PermissionRevision, PermissionScope, PermissionStateView,
 };
 use ratatui::{
     Terminal,
     backend::TestBackend,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
+    layout::Rect,
 };
 
 fn key(code: KeyCode) -> Event {
@@ -23,26 +30,110 @@ fn view() -> PermissionStateView {
         grants: Vec::new(),
     }
 }
-fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
-    let bounds = workspace
-        .surfaces()
-        .get(SurfaceId::Drawer)
-        .expect("permissions")
-        .bounds;
-    crate::test_support::snapshot_text(terminal.backend().buffer(), bounds)
+fn grant(name: &str, scope: PermissionScope, label: &str) -> PermissionGrantView {
+    PermissionGrantView {
+        id: PermissionGrantId::new(name).expect("grant"),
+        scope,
+        label: label.to_owned(),
+    }
 }
-fn click(workspace: &mut Workspace, terminal: &Terminal<TestBackend>, text: &str) -> Outcome {
-    let bounds = workspace
+/// One Session preset, one other Session grant, one Project grant.
+fn split_view() -> PermissionStateView {
+    let mut view = view();
+    view.project = plexmaton_core::ProjectPermissionSource::Available;
+    view.native_files = NativeFilePreset::Enabled(PermissionGrantId::new("preset").expect("id"));
+    view.grants = vec![
+        grant("preset", PermissionScope::Session, "Native create/edit"),
+        grant("ls", PermissionScope::Session, "Command prefix: ls"),
+        grant(
+            "fetch",
+            PermissionScope::Project,
+            "Exact command: git fetch",
+        ),
+    ];
+    view
+}
+
+/// One primary conversation and nothing else on screen: no rail, no strip.
+fn primary_only() -> Vec<ConversationEventEnvelope> {
+    use plexmaton_core::{AgentStatus, ConversationEvent, EventSequence};
+    vec![ConversationEventEnvelope {
+        sequence: EventSequence::new(1),
+        event: ConversationEvent::AgentCreated {
+            agent_id: AgentId::new("primary").expect("agent"),
+            label: "Plexmaton".into(),
+            status: AgentStatus::Idle,
+        },
+    }]
+}
+
+/// A drawn workspace with the caret in the composer and the Session's rows listed behind
+/// `/permissions`, once the owner's view has landed.
+fn menu_fixture(
+    width: u16,
+    height: u16,
+    view: PermissionStateView,
+) -> (Workspace, Terminal<TestBackend>) {
+    menu_fixture_over(canonical_runtime().ready(u64::MAX), width, height, view)
+}
+
+fn menu_fixture_over(
+    events: Vec<ConversationEventEnvelope>,
+    width: u16,
+    height: u16,
+    view: PermissionStateView,
+) -> (Workspace, Terminal<TestBackend>) {
+    let mut workspace = Workspace::default();
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
+    workspace.emit(events);
+    workspace.settled_draw(&mut terminal).expect("draw");
+    for _ in 0..=workspace.surfaces.len() {
+        if workspace.state.focused(&workspace.surfaces) == Some(SurfaceId::Composer) {
+            break;
+        }
+        workspace.handle(&key(KeyCode::Tab));
+        workspace.settled_draw(&mut terminal).expect("draw");
+    }
+    for character in "/permissions".chars() {
+        workspace.handle(&key(KeyCode::Char(character)));
+    }
+    assert_eq!(
+        workspace.handle(&key(KeyCode::Enter)).permission,
+        Some(PermissionRequest::Refresh),
+        "the rows are asked for once"
+    );
+    workspace.update_permissions(Ok(view), None);
+    workspace.settled_draw(&mut terminal).expect("listed");
+    (workspace, terminal)
+}
+/// The menu and the composer beneath it, as one cropped frame.
+fn menu(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
+    let menu = workspace
         .surfaces()
-        .get(SurfaceId::Drawer)
-        .expect("permissions")
+        .get(SurfaceId::ComposerMenu)
+        .expect("the menu is registered")
         .bounds;
-    let drawn = panel(workspace, terminal);
+    let composer = workspace
+        .surfaces()
+        .get(SurfaceId::Composer)
+        .expect("composer")
+        .bounds;
+    region_text(
+        terminal.backend().buffer(),
+        Rect::new(
+            menu.x,
+            menu.y,
+            menu.width,
+            composer.bottom().saturating_sub(menu.y),
+        ),
+    )
+}
+fn press_release(workspace: &mut Workspace, bounds: Rect, drawn: &str, text: &str) -> Outcome {
     let (row, line) = drawn
         .lines()
         .enumerate()
         .find(|(_, line)| line.contains(text))
-        .expect("visible choice");
+        .unwrap_or_else(|| panic!("{text:?} is a visible row:\n{drawn}"));
     let column = line.chars().position(|c| c == '>').unwrap_or(3);
     let event = |kind| {
         Event::Mouse(MouseEvent {
@@ -55,101 +146,120 @@ fn click(workspace: &mut Workspace, terminal: &Terminal<TestBackend>, text: &str
     workspace.handle(&event(MouseEventKind::Down(MouseButton::Left)));
     workspace.handle(&event(MouseEventKind::Up(MouseButton::Left)))
 }
+fn click_menu(workspace: &mut Workspace, terminal: &Terminal<TestBackend>, text: &str) -> Outcome {
+    let bounds = workspace
+        .surfaces()
+        .get(SurfaceId::ComposerMenu)
+        .expect("menu")
+        .bounds;
+    let drawn = region_text(terminal.backend().buffer(), bounds);
+    press_release(workspace, bounds, &drawn, text)
+}
+fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
+    let bounds = workspace
+        .surfaces()
+        .get(SurfaceId::Drawer)
+        .expect("permissions")
+        .bounds;
+    snapshot_text(terminal.backend().buffer(), bounds)
+}
+fn click(workspace: &mut Workspace, terminal: &Terminal<TestBackend>, text: &str) -> Outcome {
+    let bounds = workspace
+        .surfaces()
+        .get(SurfaceId::Drawer)
+        .expect("permissions")
+        .bounds;
+    let drawn = panel(workspace, terminal);
+    press_release(workspace, bounds, &drawn, text)
+}
+fn change(outcome: Outcome) -> plexmaton_core::PermissionIntent {
+    match outcome.permission {
+        Some(PermissionRequest::Change(intent)) => intent,
+        other => panic!("a confirmed row leaves as a change, not {other:?}"),
+    }
+}
 
-/// PER-7/SURF-3: keyboard and drawn-row clicks emit one reviewed revision; the producer owns completion.
+/// PER-7/SURF-3: keyboard and drawn-row clicks in the menu emit one reviewed revision; the
+/// producer owns completion, `Escape` returns one layer, and closing withdraws the place.
 #[test]
 fn per_7_permission_controls_review_cancel_submit_and_refresh_by_identity() {
     for width in [120, 95, 60, 48] {
         for pointer in [false, true] {
-            let mut workspace = Workspace::default();
-            let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
-            workspace.open_permissions();
-            workspace.update_permissions(Ok(view()), None);
-            workspace.draw(&mut terminal).expect("browse");
-            assert_eq!(
-                workspace.state().keyboard_focus(workspace.surfaces()),
-                crate::KeyboardFocus::Navigation
-            );
-            workspace.handle(&Event::Paste("not a filter".into()));
-            assert!(
-                workspace
-                    .state()
-                    .drawer()
-                    .expect("page")
-                    .filter()
-                    .text()
-                    .is_empty()
-            );
+            let (mut workspace, mut terminal) = menu_fixture(width, 24, view());
             let review = if pointer {
-                click(&mut workspace, &terminal, "Enable native")
+                click_menu(&mut workspace, &terminal, "Enable native")
             } else {
                 workspace.handle(&key(KeyCode::Enter))
             };
             assert!(review.permission.is_none(), "opening review grants nothing");
-            workspace.draw(&mut terminal).expect("confirmation");
-            assert!(panel(&workspace, &terminal).contains("> Back"));
+            workspace.settled_draw(&mut terminal).expect("confirmation");
+            assert!(menu(&workspace, &terminal).contains("> Back"));
             workspace.handle(&key(KeyCode::Esc));
-            workspace.draw(&mut terminal).expect("back");
-            assert!(panel(&workspace, &terminal).contains("Enable native"));
+            workspace.settled_draw(&mut terminal).expect("back");
+            assert!(menu(&workspace, &terminal).contains("Enable native"));
             workspace.handle(&key(KeyCode::Enter));
             workspace.handle(&key(KeyCode::Up));
-            workspace.draw(&mut terminal).expect("chosen confirmation");
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("chosen confirmation");
             let confirmed = if pointer {
-                click(&mut workspace, &terminal, "> Enable for")
+                click_menu(&mut workspace, &terminal, "> Enable for")
             } else {
                 workspace.handle(&key(KeyCode::Enter))
             };
-            let intent = confirmed.permission.expect("explicit confirmation");
+            let intent = change(confirmed);
             assert_eq!(intent.expected, view().revision);
             assert_eq!(intent.action, PermissionAction::EnableNativeFiles);
             assert!(workspace.handle(&key(KeyCode::Enter)).permission.is_none());
-            workspace.draw(&mut terminal).expect("submitting");
-            assert!(panel(&workspace, &terminal).contains("Applying change"));
+            workspace.settled_draw(&mut terminal).expect("submitting");
+            assert!(menu(&workspace, &terminal).contains("Applying change"));
             let mut fresh = view();
             fresh.revision = fresh.revision.next().expect("new revision");
             workspace.update_permissions(
                 Ok(fresh.clone()),
                 Some(Err(PermissionChangeError::StaleRevision)),
             );
-            workspace.draw(&mut terminal).expect("refused");
-            assert!(panel(&workspace, &terminal).contains("permissions changed"));
+            workspace.settled_draw(&mut terminal).expect("refused");
+            assert!(menu(&workspace, &terminal).contains("permissions changed"));
             workspace.handle(&key(KeyCode::Enter));
             workspace.handle(&key(KeyCode::Up));
             assert_eq!(
-                workspace
-                    .handle(&key(KeyCode::Enter))
-                    .permission
-                    .expect("new confirmation")
-                    .expected,
+                change(workspace.handle(&key(KeyCode::Enter))).expected,
                 fresh.revision
             );
             workspace.handle(&key(KeyCode::Esc));
+            assert!(
+                !workspace.permissions_open(),
+                "closing the menu withdraws the place"
+            );
             workspace.update_permissions(Ok(view()), Some(Ok(())));
             assert!(
                 !workspace.permissions_open(),
-                "late completion cannot reopen a dismissed page"
+                "late completion cannot reopen a dismissed place"
+            );
+            assert_eq!(
+                workspace.state.composer().text(),
+                "/permissions ",
+                "Escape keeps the draft"
             );
         }
     }
 }
 
-/// PER-7/DRW-2: reviewable three-width frames and a smallest-terminal confirmation keep the actions visible.
+/// PER-7/SKP-4: reviewable three-width frames and a smallest-terminal confirmation keep the
+/// Session's actions visible in the menu.
 #[test]
 fn per_7_permission_controls_frames_keep_scope_and_confirmation_visible() {
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
-        let mut workspace = Workspace::default();
-        let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
-        workspace.open_permissions();
-        workspace.update_permissions(Ok(view()), None);
-        workspace.draw(&mut terminal).expect("browse");
-        let mut drawn = panel(&workspace, &terminal);
+        let (mut workspace, mut terminal) = menu_fixture(width, 30, view());
+        let mut drawn = menu(&workspace, &terminal);
         assert!(
-            drawn.contains("Enter select") && drawn.contains("Esc close"),
+            drawn.contains("Enter review") && drawn.contains("Esc close"),
             "{drawn}"
         );
         workspace.handle(&key(KeyCode::Enter));
-        workspace.draw(&mut terminal).expect("review");
-        let confirmation = panel(&workspace, &terminal);
+        workspace.settled_draw(&mut terminal).expect("review");
+        let confirmation = menu(&workspace, &terminal);
         for text in [
             "create/edit",
             "configuration",
@@ -167,17 +277,76 @@ fn per_7_permission_controls_frames_keep_scope_and_confirmation_visible() {
         drawn.push_str(&confirmation);
         crate::test_support::assert_frame(&format!("permission-controls-{name}"), &drawn);
     }
-    let mut workspace = Workspace::default();
-    let mut terminal = Terminal::new(TestBackend::new(48, 12)).expect("terminal");
-    workspace.open_permissions();
-    workspace.update_permissions(Ok(view()), None);
-    workspace.draw(&mut terminal).expect("small browse");
+    // The smallest terminal, with one conversation: the heading gives way to the rows and ends
+    // in `…`, and the question, both rows and the keys stay visible.
+    let (mut workspace, mut terminal) = menu_fixture_over(primary_only(), 48, 12, view());
     workspace.handle(&key(KeyCode::Enter));
-    workspace.draw(&mut terminal).expect("small confirm");
-    let shown = panel(&workspace, &terminal);
-    for text in ["create/edit", "Enable for this Session", "> Back"] {
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("small confirm");
+    let shown = menu(&workspace, &terminal);
+    for text in [
+        "create/edit",
+        "…",
+        "Enable for this Session",
+        "> Back",
+        "Esc back",
+    ] {
         assert!(shown.contains(text), "{shown}");
     }
+}
+
+/// PER-7/PER-8: a Session grant is offered only in the menu and a Project grant only in the
+/// Drawer, and revoking from either place leaves the same reviewed intent for the one owner.
+#[test]
+fn session_rows_live_in_the_menu_and_project_rows_in_the_drawer() {
+    let (mut workspace, mut terminal) = menu_fixture(95, 30, split_view());
+    let listed = menu(&workspace, &terminal);
+    assert!(
+        listed.contains("Turn off Session file changes…")
+            && listed.contains("Revoke Session: Command prefix: ls"),
+        "{listed}"
+    );
+    assert!(!listed.contains("Project"), "{listed}");
+    workspace.handle(&key(KeyCode::Down));
+    workspace.handle(&key(KeyCode::Enter));
+    workspace.settled_draw(&mut terminal).expect("review");
+    assert!(menu(&workspace, &terminal).contains("Command prefix: ls"));
+    workspace.handle(&key(KeyCode::Up));
+    let revoked = change(workspace.handle(&key(KeyCode::Enter)));
+    assert_eq!(revoked.expected, split_view().revision);
+    assert_eq!(
+        revoked.action,
+        PermissionAction::Revoke(PermissionGrantId::new("ls").expect("id"))
+    );
+    workspace.handle(&key(KeyCode::Esc));
+
+    workspace.open_permissions();
+    workspace.update_permissions(Ok(split_view()), None);
+    workspace.settled_draw(&mut terminal).expect("page");
+    let page = panel(&workspace, &terminal);
+    assert!(
+        page.contains("Revoke Project: Exact command: git fetch")
+            && page.contains("Refresh permissions"),
+        "{page}"
+    );
+    assert!(
+        !page.contains("Revoke Session") && !page.contains("Session file changes"),
+        "{page}"
+    );
+    assert!(
+        click(&mut workspace, &terminal, "Revoke Project")
+            .permission
+            .is_none()
+    );
+    workspace.settled_draw(&mut terminal).expect("review");
+    workspace.handle(&key(KeyCode::Up));
+    let revoked = change(workspace.handle(&key(KeyCode::Enter)));
+    assert_eq!(revoked.expected, split_view().revision);
+    assert_eq!(
+        revoked.action,
+        PermissionAction::Revoke(PermissionGrantId::new("fetch").expect("id"))
+    );
 }
 
 fn project_view() -> PermissionStateView {
@@ -277,10 +446,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
         workspace.draw(&mut terminal).expect("confirmation");
         assert!(panel(&workspace, &terminal).contains("> Back"));
         workspace.handle(&key(KeyCode::Up));
-        let intent = workspace
-            .handle(&key(KeyCode::Enter))
-            .permission
-            .expect("explicit trust intent");
+        let intent = change(workspace.handle(&key(KeyCode::Enter)));
         assert_eq!(intent.expected, view.revision);
         assert_eq!(
             intent.action,
@@ -400,7 +566,7 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
             .get(SurfaceId::Transcript)
             .expect("transcript")
             .bounds;
-        let text = crate::test_support::snapshot_text(terminal.backend().buffer(), bounds);
+        let text = snapshot_text(terminal.backend().buffer(), bounds);
         for required in [
             "exec_command",
             "Project permission saved",

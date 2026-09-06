@@ -418,6 +418,7 @@ async fn new_session_refuses_unsent_input_and_active_work() {
 async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_without_jsonl() {
     use crate::permission_controls::PermissionControls;
     use plexmaton_core::NativeFilePreset;
+    use plexmaton_tui::{PermissionRequest, SurfaceId};
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -446,20 +447,52 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
     let mut terminal = Terminal::new(TestBackend::new(95, 24)).expect("terminal");
     let mut controls = PermissionControls::new(opened.runtime.coding_session());
     let keypress = |code| Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
-    controls.open(&mut workspace);
+    // `/permissions` lists the Session's rows in the composer menu (PER-7).
+    let session_rows = |workspace: &mut Workspace,
+                        terminal: &mut Terminal<TestBackend>,
+                        controls: &mut PermissionControls| {
+        workspace.draw(terminal).expect("frame");
+        for _ in 0..8 {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Composer) {
+                break;
+            }
+            workspace.handle(&keypress(KeyCode::Tab));
+            workspace.draw(terminal).expect("focus");
+        }
+        // `Escape` kept the last `/permissions` draft (SKP-3); `Ctrl-C` clears it.
+        if !workspace.state().composer().text().is_empty() {
+            workspace.handle(&Event::Key(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            )));
+        }
+        assert!(workspace.state().composer().text().is_empty());
+        for character in "/permissions".chars() {
+            workspace.handle(&keypress(KeyCode::Char(character)));
+        }
+        assert_eq!(
+            workspace.handle(&keypress(KeyCode::Enter)).permission,
+            Some(PermissionRequest::Refresh)
+        );
+        controls.refresh();
+    };
+    let confirm = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
+        workspace.draw(terminal).expect("rows");
+        assert!(
+            workspace
+                .handle(&keypress(KeyCode::Enter))
+                .permission
+                .is_none()
+        );
+        workspace.handle(&keypress(KeyCode::Up));
+        match workspace.handle(&keypress(KeyCode::Enter)).permission {
+            Some(PermissionRequest::Change(intent)) => intent,
+            other => panic!("a confirmed row is a change, not {other:?}"),
+        }
+    };
+    session_rows(&mut workspace, &mut terminal, &mut controls);
     PermissionControls::publish(controls.next().await, &mut workspace);
-    workspace.draw(&mut terminal).expect("settings");
-    assert!(
-        workspace
-            .handle(&keypress(KeyCode::Enter))
-            .permission
-            .is_none()
-    );
-    workspace.handle(&keypress(KeyCode::Up));
-    let enable = workspace
-        .handle(&keypress(KeyCode::Enter))
-        .permission
-        .expect("reviewed enable");
+    let enable = confirm(&mut workspace, &mut terminal);
     controls.apply(enable);
     PermissionControls::publish(controls.next().await, &mut workspace);
     let granted = launcher.permissions.snapshot().expect("enabled");
@@ -513,20 +546,9 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
     );
     assert!(!new_path.exists() && !old_path.exists());
 
-    controls.open(&mut workspace);
+    session_rows(&mut workspace, &mut terminal, &mut controls);
     PermissionControls::publish(controls.next().await, &mut workspace);
-    workspace.draw(&mut terminal).expect("reopened settings");
-    assert!(
-        workspace
-            .handle(&keypress(KeyCode::Enter))
-            .permission
-            .is_none()
-    );
-    workspace.handle(&keypress(KeyCode::Up));
-    let revoke = workspace
-        .handle(&keypress(KeyCode::Enter))
-        .permission
-        .expect("reviewed revoke");
+    let revoke = confirm(&mut workspace, &mut terminal);
     controls.apply(revoke);
     PermissionControls::publish(controls.next().await, &mut workspace);
     assert!(

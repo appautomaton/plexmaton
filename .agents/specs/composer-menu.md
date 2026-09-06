@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Status | Implemented; verified offline and at three rendered widths |
-| Owns | What the primary composer's draft completes to: Skills for `$`, Commands for `/`, and `/resume`'s saved conversations; what leaves the workspace when a row is accepted |
-| Depends on | SKL-2/SKL-4/SKL-5, COM-1/COM-3/COM-6, INV-1/INV-6, SURF-3; [conversation-picker](./conversation-picker.md) for `/resume`'s rows; CPL-9 for `/compact` |
+| Owns | What the primary composer's draft completes to: Skills for `$`, Commands for `/`, `/resume`'s saved conversations and `/permissions`' Session grants; what leaves the workspace when a row is accepted |
+| Depends on | SKL-2/SKL-4/SKL-5, COM-1/COM-3/COM-6, INV-1/INV-6, SURF-3; [conversation-picker](./conversation-picker.md) for `/resume`'s rows; CPL-9 for `/compact`; PER-7 for `/permissions` |
 | Proven by | TUI, runtime and agent proofs below; real terminal completion smoke |
 
 ## Invariants
@@ -36,15 +36,26 @@ loop step and the runtime's admission already names a busy conversation.
 
 **CMD-2 — Only a whole Command runs.** `Tab` completes the chosen Command into the draft as
 `/name ` and runs nothing; `Enter` runs a draft that is exactly a Command, with the menu open or
-dismissed. `/resume` keeps the text after it as its query. Any other draft with text after the
-token, `/compact please` included, is text and submits as text. `/` followed by a character no
-Command starts with lists nothing.
+dismissed. A listing Command, `/resume` or `/permissions`, keeps the text after it as its query.
+Any other draft with text after the token, `/compact please` included, is text and submits as
+text. `/` followed by a character no Command starts with lists nothing. A whole Command is a
+request, never unsent input a switch would lose (SPK-2).
+
+**CMD-3 — Session permissions are typed where the Session is.** `/permissions` lists the
+Session's grants and the native file-change preset as rows under the panel's description, asks
+the retained owner for its view once as `PermissionRequest::Refresh`, and offers a row only while
+the view is in. `Enter` on a row reviews it in the same menu with `Back` under the marker; `Enter`
+on the confirmation leaves as `PermissionRequest::Change` carrying the reviewed revision, and the
+menu waits on the owner's answer (PER-7). `Escape` returns one layer, review to rows, then closes
+and withdraws the place. A draft that stops asking for the rows withdraws them unless a change is
+with the owner. Project grants never appear here. In a short terminal the rows keep their room and
+the description gives way, ending in `…`.
 
 ## Grammar
 
-At the start of a primary draft, `$` opens available skills and `/` the Commands; subsequent
-characters filter. Up/Down select, Tab or Enter completes a skill, Tab completes a Command and
-Enter accepts it, and Escape dismisses. A completed `$name request` submits normally on the next
+At the start of a primary draft, `$` opens available skills and `/` the Commands, `/new`,
+`/resume`, `/compact` and `/permissions`; subsequent characters filter. Up/Down select, Tab or
+Enter completes a skill, Tab completes a Command and Enter accepts it, and Escape dismisses. A completed `$name request` submits normally on the next
 Enter. Exact unselected nonnumeric skill names activate only when present in the user-invocable
 catalog. Unknown variables, `$HOME`, currency, command substitutions and dollar expressions inside
 prose/code remain literal text. Numeric skill names can be deliberately selected from the menu;
@@ -68,6 +79,8 @@ Skills: the real workspace buffer was inspected at
 `cargo run -p plexmaton-tui --example skill_picker_preview -- target/skill-picker-preview`.
 Commands and `/resume`: the `composer-menu-commands-medium`, `composer-menu-resume-loading-medium`
 and `composer-menu-resume-medium` frames, cut from the real buffer above the composer.
+`/permissions`, rows and confirmation, at three widths: the `permission-controls-wide`,
+`permission-controls-medium` and `permission-controls-narrow` frames.
 
 ## Evidence
 
@@ -79,3 +92,4 @@ and `composer-menu-resume-medium` frames, cut from the real buffer above the com
 | SKP-4 | `short_picker_window_keeps_the_selected_tail_choice_and_controls_visible`, `the_skill_picker_frames_match_their_fixtures`; rendered review above |
 | CMD-1 | `the_slash_lists_the_commands_and_only_a_whole_command_runs`, `a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note`; the runtime's CPL-9 proofs. A loopback run of `/compact` through the executable is unproven |
 | CMD-2 | `the_slash_lists_the_commands_and_only_a_whole_command_runs`, `tab_completes_a_command_and_escape_keeps_the_draft`, `paste_and_unicode_inside_the_token_follow_the_same_rule`, `a_whole_draft_is_a_command_only_when_nothing_else_is_in_it` |
+| CMD-3 | `per_7_permission_controls_review_cancel_submit_and_refresh_by_identity`, `per_7_permission_controls_frames_keep_scope_and_confirmation_visible` with the `permission-controls-*` frames, `session_rows_live_in_the_menu_and_project_rows_in_the_drawer`, `per_7_session_setting_before_first_turn_survives_new_and_revokes_without_jsonl` |

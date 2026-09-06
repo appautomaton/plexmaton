@@ -2,8 +2,8 @@
 //! is chosen. Listing, loading and permission work belong to the composition root.
 use super::*;
 use crate::{
-    ConversationChoice, ConversationPickerStatus, Page, Point, PointerIntent, SurfaceId,
-    SwitchRefusal,
+    ConversationChoice, ConversationPickerStatus, Page, PermissionRequest, Point, PointerIntent,
+    SurfaceId, SwitchRefusal,
     state::{Drawer, permissions::PermissionPanel},
 };
 
@@ -58,9 +58,10 @@ impl Workspace {
                 }
                 let permission = self.state.activate_permission(&choice);
                 Outcome {
-                    permission,
-                    page: matches!(choice, crate::state::permissions::PermissionChoice::Reload)
-                        .then_some(Page::Permissions),
+                    permission: permission.map(PermissionRequest::Change).or_else(|| {
+                        matches!(choice, crate::state::permissions::PermissionChoice::Reload)
+                            .then_some(PermissionRequest::Refresh)
+                    }),
                     ..Outcome::default()
                 }
             }
@@ -69,17 +70,20 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// Opens the Permissions page; loading and mutation work belongs to the application owner.
+    /// Opens the Drawer's Permissions page, the Project's; loading and mutation work belongs to
+    /// the application owner.
     pub fn open_permissions(&mut self) {
         self.state.open_permissions();
     }
 
-    /// Whether a pending permission-control result still has a visible destination.
+    /// Whether a pending permission-control result still has a place to land: the Drawer's page
+    /// or the menu's Session rows (PER-7).
     pub fn permissions_open(&self) -> bool {
-        self.state.drawer().and_then(Drawer::permissions).is_some()
+        self.state.permissions_open()
     }
 
-    /// Publishes an acknowledged permission view; late results cannot reopen a dismissed page.
+    /// Publishes an acknowledged permission view to every open place; late results cannot reopen
+    /// a dismissed one.
     pub fn update_permissions(
         &mut self,
         view: Result<plexmaton_core::PermissionStateView, plexmaton_core::PermissionChangeError>,

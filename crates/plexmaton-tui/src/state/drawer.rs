@@ -44,7 +44,7 @@ impl Page {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::Configuration => "Provider, model, and reasoning effort",
-            Self::Permissions => "Review and change Session or Project permissions",
+            Self::Permissions => "Grants and trust for this Project",
         }
     }
 

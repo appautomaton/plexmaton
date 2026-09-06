@@ -6,7 +6,8 @@ use anyhow::Context as _;
 use futures_util::{Stream, StreamExt};
 use plexmaton_runtime::{LiveRuntime, RuntimeUpdate};
 use plexmaton_tui::{
-    Command, CommandRun, CompactRefusal, CompactionNote, ConversationRequest, Flow, Page, Workspace,
+    Command, CommandRun, CompactRefusal, CompactionNote, ConversationRequest, Flow, Page,
+    PermissionRequest, Workspace,
 };
 use ratatui::{Terminal, backend::Backend};
 
@@ -128,8 +129,10 @@ async fn apply_workspace_outcome(
     if let Some(page) = outcome.page {
         open_page(page, workspace, picker, permissions);
     }
-    if let Some(intent) = outcome.permission {
-        permissions.apply(intent);
+    match outcome.permission {
+        Some(PermissionRequest::Refresh) => permissions.refresh(),
+        Some(PermissionRequest::Change(intent)) => permissions.apply(intent),
+        None => {}
     }
     match outcome.conversation {
         Some(ConversationRequest::List) => picker.open(workspace),
@@ -138,7 +141,7 @@ async fn apply_workspace_outcome(
         None => {}
     }
     if let Some(run) = outcome.command {
-        run_command(run, runtime, workspace, picker).await?;
+        run_command(run, runtime, workspace, picker, permissions).await?;
     }
     if let Some(retry) = outcome.retry {
         retry::execute(runtime, workspace, retry).await?;
@@ -163,11 +166,13 @@ async fn run_command(
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
     picker: &mut session_picker::ConversationPicker,
+    permissions: &mut permission_controls::PermissionControls,
 ) -> anyhow::Result<()> {
     use plexmaton_runtime::{CompactionRequest, CompactionRequestRefusal as Refusal};
     match run.command {
         Command::New => picker.new_conversation(workspace, runtime),
         Command::Resume => picker.open(workspace),
+        Command::Permissions => permissions.refresh(),
         Command::Compact => {
             let note = match runtime
                 .request_compaction(run.target.agent.clone())

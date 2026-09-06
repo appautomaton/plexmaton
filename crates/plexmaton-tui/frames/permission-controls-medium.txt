@@ -1,26 +1,20 @@
-┌ Workspace · Permissions ────────────────────────────────────────────────────────────────────┐
-│                                                                                             │
-│  Session grants last until Plexmaton exits.                                                 │
-│  They stay active across /new and resume.                                                   │
-│                                                                                             │
-│  > Enable native file changes for this Session…                                             │
-│    Refresh permissions                                                                      │
-│                                                                                             │
-│  ↑↓ choose · Enter select · Esc close                                                       │
-│                                                                                             │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
+── Session permissions ──────────────────────────────────────────────
+   Session grants last until Plexmaton exits; they stay active       
+   across /new and /resume.                                          
+ > Enable native file changes for this Session…                      
+  ↑↓ choose · Enter review · Esc close                               
+── Message Agent A · primary ────────────────────────────────────────
+ /permissions                                                        
+─────────────────────────────────────────────────────────────────────
 
-
-┌ Workspace · Permissions ────────────────────────────────────────────────────────────────────┐
-│                                                                                             │
-│  Allow native create/edit in this workspace?                                                │
-│  Excludes agent controls, configuration paths and Git metadata. Commands need their own     │
-│  permission.                                                                                │
-│  Until Plexmaton exits; kept across conversations.                                          │
-│                                                                                             │
-│    Enable for this Session                                                                  │
-│  > Back                                                                                     │
-│                                                                                             │
-│  ↑↓ choose · Enter confirm · Esc back                                                       │
-│                                                                                             │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
+── Session permissions ──────────────────────────────────────────────
+   Allow native create/edit in this workspace?                       
+   Excludes agent controls, configuration paths and Git metadata.    
+   Commands need their own permission.                               
+   Until Plexmaton exits; kept across conversations.                 
+   Enable for this Session                                           
+ > Back                                                              
+  ↑↓ choose · Enter confirm · Esc back                               
+── Message Agent A · primary ────────────────────────────────────────
+ /permissions                                                        
+─────────────────────────────────────────────────────────────────────

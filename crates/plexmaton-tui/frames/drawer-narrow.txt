@@ -3,7 +3,7 @@
 │  Type to filter                                          │
 │                                                          │
 │  > Configuration  Provider, model, and reasoning effort  │
-│    Permissions    Review and change Session or Project…  │
+│    Permissions    Grants and trust for this Project      │
 │                                                          │
 │  ↑↓ choose · Enter open · Esc close                      │
 │                                                          │

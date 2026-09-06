@@ -1,18 +1,24 @@
 //! The composer menu: what the composer's draft completes to, by the token it starts with.
 //!
-//! `$` lists Skills, `/` lists Commands, and `/resume ` lists saved conversations. The draft is
-//! the query and nothing here writes it. A Skill binds into the message (SKP-2); a Command leaves
-//! the workspace as a value for the composition root (CMD-1); a conversation leaves as a request
-//! (SPK-2). The menu owns no filter of its own, so there is exactly one caret (COM-1).
+//! `$` lists Skills, `/` lists Commands, `/resume ` lists saved conversations and `/permissions `
+//! the Session's grants. The draft is the query and nothing here writes it. A Skill binds into the
+//! message (SKP-2); a Command leaves the workspace as a value for the composition root (CMD-1); a
+//! conversation leaves as a request (SPK-2) and a permission change as a reviewed intent (PER-7).
+//! The menu owns no filter of its own, so there is exactly one caret (COM-1).
 
 use std::collections::BTreeMap;
 
 use plexmaton_core::{AgentId, ConversationId};
 
-use super::{ViewState, conversation_picker::ConversationPicker};
+use super::{
+    ViewState,
+    conversation_picker::ConversationPicker,
+    permissions::{PermissionChoice, PermissionPanel},
+};
 use crate::{Direction, surface::SurfaceId};
 
 mod grammar;
+mod session_permissions;
 
 pub use grammar::Command;
 pub(super) use grammar::binding_matches;
@@ -20,6 +26,8 @@ use grammar::{Completion, completion, exact_command, initial_token};
 
 /// Rows the menu shows before it scrolls.
 pub(crate) const VISIBLE_ROWS: usize = 5;
+/// Lines of a listing's heading before the rows, at most.
+const HEADING_LINES: usize = 8;
 const MAX_SKILL_CHOICES: usize = 256;
 const MAX_SKILL_CATALOG_BYTES: usize = 64 * 1024;
 
@@ -56,6 +64,7 @@ pub enum Listing {
     Skills,
     Commands,
     Conversations,
+    Permissions,
 }
 
 impl Listing {
@@ -66,7 +75,13 @@ impl Listing {
             Self::Skills => "Skills",
             Self::Commands => "Commands",
             Self::Conversations => "Conversations",
+            Self::Permissions => "Session permissions",
         }
+    }
+
+    /// Whether the listing stands for something while it has no rows, so it stays open.
+    const fn stands_without_rows(self) -> bool {
+        matches!(self, Self::Conversations | Self::Permissions)
     }
 
     /// The keys, on the menu's last row.
@@ -76,6 +91,7 @@ impl Listing {
             Self::Skills => " ↑↓ choose · Tab/Enter insert · Esc close",
             Self::Commands => " ↑↓ choose · Tab complete · Enter accept · Esc close",
             Self::Conversations => " ↑↓ choose · Enter open · Esc close",
+            Self::Permissions => " ↑↓ choose · Enter review · Esc close",
         }
     }
 }
@@ -86,6 +102,7 @@ pub(crate) enum MenuRow {
     Skill(String),
     Command(Command),
     Conversation(ConversationId),
+    Permission(PermissionChoice),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -93,6 +110,8 @@ pub(crate) struct ComposerMenu {
     skills: Vec<SkillChoice>,
     /// Saved conversations for `/resume`, once the composition root has listed them (SPK-1).
     pub(crate) conversations: Option<ConversationPicker>,
+    /// The Session's grants for `/permissions`, once the owner has projected them (PER-7).
+    pub(crate) permissions: Option<PermissionPanel>,
     state: MenuState,
 }
 
@@ -175,7 +194,7 @@ impl ComposerMenu {
         let rows = self.rows_for(&completion);
         if matches!(&self.state, MenuState::Dismissed { token } if token == completion.token) {
             // Dismissal survives caret and query edits until the initial token itself changes.
-        } else if rows.is_empty() && completion.listing != Listing::Conversations {
+        } else if rows.is_empty() && !completion.listing.stands_without_rows() {
             self.state = MenuState::Closed;
         } else {
             let chosen = match &self.state {
@@ -214,6 +233,35 @@ impl ComposerMenu {
                     .map(|choice| MenuRow::Conversation(choice.id.clone()))
                     .collect()
             }),
+            Listing::Permissions => self.permissions.as_ref().map_or_else(Vec::new, |panel| {
+                let query = completion.query.to_lowercase();
+                panel
+                    .choices()
+                    .into_iter()
+                    .filter(|(_, label)| {
+                        !panel.is_browsing() || label.to_lowercase().contains(&query)
+                    })
+                    .map(|(choice, _)| MenuRow::Permission(choice))
+                    .collect()
+            }),
+        }
+    }
+
+    /// The label a permission row shows, from the panel that owns it.
+    pub(crate) fn permission_label(&self, choice: &PermissionChoice) -> Option<String> {
+        self.permissions.as_ref().and_then(|panel| {
+            panel
+                .choices()
+                .into_iter()
+                .find(|(current, _)| current == choice)
+                .map(|(_, label)| label)
+        })
+    }
+
+    /// Puts the marker on `row` if the draft lists it.
+    fn choose(&mut self, text: &str, cursor: usize, row: MenuRow) {
+        if self.rows(text, cursor).contains(&row) {
+            self.state = MenuState::Open { chosen: Some(row) };
         }
     }
 
@@ -308,10 +356,10 @@ impl ViewState {
             .rows(self.composer().text(), self.composer().cursor())
     }
 
-    /// Rows the menu asks layout for: its titled rule, the rows, a status row when the listing
-    /// has something to say instead of rows, and the key line. The composer's top rule closes
-    /// it (SKP-4).
-    pub(crate) fn composer_menu_rows(&self) -> u16 {
+    /// Rows the menu asks layout for: its titled rule, a heading when the listing explains
+    /// itself, the rows, a status row when the listing has something to say instead of rows,
+    /// and the key line. The composer's top rule closes it (SKP-4).
+    pub(crate) fn composer_menu_rows(&self, width: u16) -> u16 {
         if !self.composer_menu.is_open()
             || !self.focus.prefers(SurfaceId::Composer)
             || self.drawer.is_some()
@@ -319,11 +367,15 @@ impl ViewState {
             return 0;
         }
         let listed = self.menu_rows().len().min(VISIBLE_ROWS);
-        let status = u16::from(self.menu_status().is_some());
-        u16::try_from(listed)
-            .unwrap_or(0)
-            .saturating_add(2)
-            .saturating_add(status)
+        let status = usize::from(self.menu_status().is_some());
+        let heading = self.menu_heading(width).len();
+        u16::try_from(
+            listed
+                .saturating_add(2)
+                .saturating_add(status)
+                .saturating_add(heading),
+        )
+        .unwrap_or(u16::MAX)
     }
 
     /// The Conversations listing's one status row, when it has no rows or an open in flight.
@@ -347,7 +399,8 @@ impl ViewState {
         let cursor = self.composer().cursor();
         let changed = self.composer_menu.sync(&text, cursor);
         self.retain_primary_skill_binding();
-        if self.drop_unlisted_conversations() || changed {
+        let dropped = self.drop_unlisted_conversations() | self.drop_unlisted_permissions();
+        if dropped || changed {
             self.touch();
         }
     }
@@ -382,7 +435,9 @@ impl ViewState {
             self.touch();
         }
         // A dismissed listing has no destination for what the composition root is loading.
-        if self.composer_menu.conversations.take().is_some() {
+        if self.composer_menu.conversations.take().is_some()
+            | self.composer_menu.permissions.take().is_some()
+        {
             self.touch();
         }
     }
@@ -564,6 +619,7 @@ mod tests {
                 MenuRow::Command(Command::New),
                 MenuRow::Command(Command::Resume),
                 MenuRow::Command(Command::Compact),
+                MenuRow::Command(Command::Permissions),
             ]
         );
         assert!(menu.rows("/zzz", 4).is_empty());

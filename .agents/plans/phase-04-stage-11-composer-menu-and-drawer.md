@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §input, §surface model (Drawer), §responsive layout classes |
-| Status | Slices 1–4 of 6 done |
+| Status | Slices 1–5 of 6 done |
 
 ## Outcome
 
@@ -57,13 +57,15 @@ reading; the user's words placed them in the composer, so slice 4 moves them.
    rows. Closed by the tests CMD-1, CMD-2 and SPK-1 to SPK-3 cite, the three `composer-menu-*`
    frames, and the skill tests carried over unchanged. Deferred: a runtime loopback test driving
    `/compact` through the executable, marked unproven in CMD-1; `/permissions` is slice 5.
-5. **Permissions by lifetime.** `/permissions` lists the Session's grants and the native
-   file-change preset as menu rows; a row reviews and confirms in the menu through PER-7's
-   revisioned intents. The Drawer's Permissions page keeps what outlives the Session: Project
-   grants, project configuration trust under PER-8, and the User rules snapshot, read only.
-   Closed by tests that a Session grant is not offered in the Drawer and a Project grant is not
-   offered in the menu, revocation from each place reaching the one owner, and PER-7's frames
-   re-cut per place.
+5. **Permissions by lifetime — done.** `/permissions` lists the Session's grants and the native
+   file-change preset as menu rows under the panel's description; a row reviews and confirms in
+   the menu through PER-7's revisioned intents, leaving as `PermissionRequest`. One
+   `PermissionPanel` serves both places by `PermissionPlace`; the Drawer's Permissions page keeps
+   Project grants and configuration trust under PER-8. CMD-3 in `specs/composer-menu.md`. Closed
+   by `session_rows_live_in_the_menu_and_project_rows_in_the_drawer`, the PER-7 tests re-cut to
+   the menu with the `permission-controls-*` frames, and the CLI's Session-setting test driving
+   `/permissions`. Not done: the User rules snapshot, because the permission view does not
+   project user rules and this stage does not add a projection for one reader.
 6. **Pressed-pointer consolidation.** One `Pressed { surface, target, at }` replaces the five
    `pressed_*` slots; one exhaustive `hit` per surface and one `activate` replace the chained
    pointer handlers, and the wildcard arms over `SurfaceId` go. Closed by the existing button tests
