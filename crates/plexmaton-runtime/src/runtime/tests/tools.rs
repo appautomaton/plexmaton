@@ -135,7 +135,9 @@ fn tool_results(request: &plexmaton_agent::ModelCall) -> Vec<(&str, &ToolOutcome
         .iter()
         .flat_map(|atom| match atom.value() {
             ContextAtomValue::ToolBatch(batch) => batch.results(),
-            ContextAtomValue::User { .. } | ContextAtomValue::Assistant(_) => &[],
+            ContextAtomValue::User { .. }
+            | ContextAtomValue::CompactionSummary { .. }
+            | ContextAtomValue::Assistant(_) => &[],
         })
         .map(|result| (result.call_id().as_str(), result.outcome()))
         .collect()

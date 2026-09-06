@@ -4,7 +4,7 @@ use plexmaton_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{AssistantOutput, ModelStepId, ToolOutcome};
+use crate::{AssistantOutput, CompactionCheckpoint, ModelStepId, ToolOutcome};
 
 pub(crate) const PROCESS_RECOVERY_MESSAGE: &str = "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.";
 
@@ -53,6 +53,11 @@ pub enum JournalEntryPayload {
         agent_id: AgentId,
         step_id: ModelStepId,
         output: AssistantOutput,
+    },
+    /// Branch-local replacement context whose full output remains in its attempt record.
+    CompactionCheckpoint {
+        agent_id: AgentId,
+        checkpoint: Box<CompactionCheckpoint>,
     },
     /// First visible lifecycle state for a call already declared by `AssistantOutput`.
     ToolCallRequested {

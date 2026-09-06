@@ -40,6 +40,8 @@ resolved configuration, ordered tool schemas and output cap produce the same wir
 to the request attempt; only retained upstream IDs enter the wire call/result pair. A response-level
 ID is diagnostic metadata only: the selected proxy reports `store: false`, and an unavailable `previous_response_id`
 must not strand the session or create an adapter-private transcript.
+Checkpoint summaries encode as harness-supplied user context; CPL-3/CPL-5 own their projection,
+and CPL-6 keeps the summarizer's reasoning/replay in its audit rather than the replacement.
 
 **PRV-5 — Stops and failures stay typed.** Each protocol maps its declared completion, output-limit,
 refusal, rate-limit, context-limit, provider failure, transport and malformed states without matching presentation text.
@@ -52,7 +54,7 @@ an unknown content-bearing event fails rather than silently losing output.
 provider routes from their named models and selects one exact provider/model pair. A route owns its
 base URL, credential environment and default API; a model owns its wire/display identity, optional
 API override, optional reasoning controls, stable instructions, cache intent, context/output/reserve
-limits, estimator and optional price
+limits, compaction retention target, estimator and optional price
 snapshot. Resolution yields one immutable credential-blind value: omitted estimators become an
 explicit versioned default, while omitted pricing remains unavailable. Selection never uses fuzzy
 names or URL inference. `PLEXMATON_HOME` redirects the whole root for isolated development; keys
@@ -157,6 +159,10 @@ identity as `prompt_cache_key`; Messages gets top-level `cache_control: {type: e
 implicit caching. `disabled` suppresses harness-added hints, not provider-internal caching. The key
 is stable across turns, attempts and resume. Cache affinity follows each API's grammar and still
 depends on the provider and exact prefix.
+
+`compaction_keep_recent_tokens` defaults to `20000` and must be positive. CPL-3 owns its effective
+retained-tail budget. This planning metadata changes no wire field or request-environment
+fingerprint. CPL-5 keeps existing checkpoint context fixed; a later compaction may select a new cut.
 
 Messages [automatic caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#automatic-caching)
 targets the last cacheable block, including tools and history, without requiring `system`.

@@ -14,6 +14,16 @@ use crate::{
     EncodeError, FunctionTool, ModelApi, ResolvedModel, encode_request, request_environment,
 };
 
+/// One authoritative request projection paired with its codec-derived occupancy ledger.
+///
+/// Callers that need both the atoms and their estimates must obtain them together so a
+/// compaction planner cannot accidentally reimplement BUD-3 arithmetic.
+#[derive(Debug)]
+pub struct BudgetedContext {
+    pub request: ModelRequest,
+    pub ledger: BudgetLedger,
+}
+
 /// Pure, on-demand occupancy snapshot of a journal head under this exact model and tool set.
 /// Automatic compaction/dispatch policy consumes the result; this function performs no effect.
 pub fn budget_ledger(
@@ -22,6 +32,16 @@ pub fn budget_ledger(
     model: &ResolvedModel,
     tools: &[FunctionTool],
 ) -> Result<BudgetLedger, ContextBudgetError> {
+    Ok(budgeted_context(journal, head, model, tools)?.ledger)
+}
+
+/// Builds the journal projection and its one matching codec-derived ledger together.
+pub fn budgeted_context(
+    journal: &SessionJournal,
+    head: &HeadName,
+    model: &ResolvedModel,
+    tools: &[FunctionTool],
+) -> Result<BudgetedContext, ContextBudgetError> {
     let environment = request_environment(model, tools, Some(model.max_output_tokens()));
     let basis = journal
         .budget_basis(head, &environment)
@@ -36,19 +56,7 @@ pub fn budget_ledger(
         u64::from(model.output_reserve_tokens()),
         (capacity * 4 / 5).max(1),
     )?;
-    let empty = encode_request(
-        model,
-        &ModelRequest {
-            session_id: journal.session_id().clone(),
-            atoms: Vec::new(),
-        },
-        tools,
-        Some(model.max_output_tokens()),
-    )?;
-    let environment_estimate = TokenEstimate {
-        tokens: estimate(model.token_estimator(), &empty)?,
-        opaque_replay_bytes: 0,
-    };
+    let environment_estimate = estimate_environment(model, journal.session_id(), tools)?;
     let atoms = basis
         .request
         .atoms
@@ -60,14 +68,57 @@ pub fn budget_ledger(
             })
         })
         .collect::<Result<Vec<_>, ContextBudgetError>>()?;
-    Ok(BudgetLedger::from_estimates(
+    let ledger = BudgetLedger::from_estimates(
         environment,
         model.token_estimator(),
         limits,
         environment_estimate,
         atoms,
         basis.anchor,
-    )?)
+    )?;
+    Ok(BudgetedContext {
+        request: basis.request,
+        ledger,
+    })
+}
+
+/// Estimates one complete encoded request using the same BUD-3 byte heuristic as the ledger.
+///
+/// This is intentionally separate from provider acceptance: it validates replay and reports the
+/// deterministic local occupancy used to reject an unfittable replacement before dispatch.
+pub fn estimate_request(
+    model: &ResolvedModel,
+    request: &ModelRequest,
+    tools: &[FunctionTool],
+) -> Result<TokenEstimate, ContextBudgetError> {
+    // Validate the exact whole wire request first (notably replay compatibility), then apply the
+    // same independently rounded environment-plus-atom units as `BudgetLedger`.
+    let _ = encode_request(model, request, tools, Some(model.max_output_tokens()))?;
+    let mut total = estimate_environment(model, &request.session_id, tools)?;
+    for atom in &request.atoms {
+        total = total.checked_add(estimate_atom(model, atom)?)?;
+    }
+    Ok(total)
+}
+
+fn estimate_environment(
+    model: &ResolvedModel,
+    session_id: &plexmaton_core::SessionId,
+    tools: &[FunctionTool],
+) -> Result<TokenEstimate, ContextBudgetError> {
+    let empty = encode_request(
+        model,
+        &ModelRequest {
+            session_id: session_id.clone(),
+            atoms: Vec::new(),
+        },
+        tools,
+        Some(model.max_output_tokens()),
+    )?;
+    Ok(TokenEstimate {
+        tokens: estimate(model.token_estimator(), &empty)?,
+        opaque_replay_bytes: 0,
+    })
 }
 
 fn estimate_atom(
@@ -81,7 +132,7 @@ fn estimate_atom(
         ModelApi::GoogleGenerateContent => crate::gemini::encode_atom(model, atom)?,
     };
     let output = match atom.value() {
-        ContextAtomValue::User { .. } => None,
+        ContextAtomValue::User { .. } | ContextAtomValue::CompactionSummary { .. } => None,
         ContextAtomValue::Assistant(output) => Some(output),
         ContextAtomValue::ToolBatch(batch) => Some(batch.assistant()),
     };

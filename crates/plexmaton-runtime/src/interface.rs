@@ -125,6 +125,21 @@ pub enum RuntimeError {
     /// The agent refused an attempt audit transition that should match the owned model step.
     #[error("the agent refused a model request-attempt transition: {0:?}")]
     RequestAttemptRefused(plexmaton_agent::RequestAttemptRefusal),
+    /// The semantic journal refused a compaction transition.
+    #[error("the agent refused a compaction transition: {0:?}")]
+    CompactionRefused(plexmaton_agent::CompactionRefusal),
+    /// A second automatic compaction was started beside the retained owner.
+    #[error("a compaction operation is already active")]
+    CompactionAlreadyActive,
+    /// A compaction commit transition lost its retained continuation.
+    #[error("a compaction transition has no retained continuation")]
+    CompactionContinuationMissing,
+    /// The owned summarizer future terminated without a collected terminal result.
+    #[error("the compaction provider future terminated unexpectedly")]
+    CompactionFutureFailed,
+    /// Codec-aware context budgeting failed before a request could be admitted.
+    #[error(transparent)]
+    ContextBudget(#[from] plexmaton_provider::ContextBudgetError),
     /// An authorization commit completed without its retained request payload.
     #[error("a model authorization completed without a retained model start")]
     MissingAuthorizedModelStart,

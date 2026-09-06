@@ -6,6 +6,7 @@
 mod budget;
 mod chat;
 mod codec;
+mod compaction;
 mod config;
 mod cost;
 mod environment;
@@ -15,10 +16,16 @@ mod responses;
 mod sse;
 mod wire;
 
-pub use budget::{ContextBudgetError, budget_ledger};
+pub use budget::{
+    BudgetedContext, ContextBudgetError, budget_ledger, budgeted_context, estimate_request,
+};
 pub use codec::{
     DecodeError, DecodeLimits, EncodeError, FunctionTool, FunctionToolError, ProviderCodec,
     classify_http_error, encode_request,
+};
+pub use compaction::{
+    CompactionInput, CompactionPreparationError, PreparedCompaction, ReplacementFit,
+    plan_compaction, validate_compaction_output, validate_replacement,
 };
 pub use config::{
     ApiKey, ConfigError, ModelApi, ModelCost, ModelRegistry, ModelSelection, PromptCache,

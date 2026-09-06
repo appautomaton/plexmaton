@@ -3,7 +3,7 @@
 use plexmaton_core::SessionEntryId;
 use serde::{Deserialize, Serialize};
 
-use crate::{RequestAttemptId, RequestEnvironment};
+use crate::{ContextEpoch, RequestAttemptId, RequestEnvironment};
 
 #[cfg(test)]
 mod tests;
@@ -29,6 +29,7 @@ impl TokenEstimator {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct InputUsageAnchor {
     pub(crate) attempt_id: RequestAttemptId,
+    pub(crate) context_epoch: ContextEpoch,
     pub(crate) atom_count: usize,
     pub(crate) input_tokens: u64,
 }
@@ -37,6 +38,10 @@ impl InputUsageAnchor {
     #[must_use]
     pub const fn attempt_id(&self) -> &RequestAttemptId {
         &self.attempt_id
+    }
+    #[must_use]
+    pub const fn context_epoch(&self) -> &ContextEpoch {
+        &self.context_epoch
     }
     #[must_use]
     pub const fn atom_count(&self) -> usize {

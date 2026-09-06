@@ -1,4 +1,8 @@
 use super::*;
+use crate::runtime::tests::{
+    compaction::{CompactionDriver, SummaryScript, large_answer},
+    finish_active, text_delta,
+};
 
 struct IncrementingClock(AtomicUsize);
 
@@ -290,6 +294,464 @@ async fn cancelled_model_end_during_attempt_terminal_append_keeps_the_active_own
         1,
         "resuming the cancelled poll commits the terminal exactly once"
     );
+}
+
+/// CPL-7/JRN-7: cancelling the event waiter while a collected compaction terminal is being
+/// appended retains both the write and summarizer continuation until a later poll acknowledges it.
+#[tokio::test]
+async fn cancelled_compaction_terminal_append_keeps_the_operation_owned() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [
+            Script::Events(vec![
+                text_delta(&large_answer()),
+                ModelEvent::Stopped(StopReason::EndOfTurn),
+            ]),
+            Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+        ],
+        [SummaryScript::Complete("retained checkpoint".repeat(8))],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .expect("pressured submit");
+    control.block_on_payload(BlockPayload::CompactionFinished);
+
+    drive_until_store_blocks(&mut runtime, &control).await;
+    assert!(runtime.compaction.is_some());
+    assert!(runtime.pending_commit.is_some());
+    assert_eq!(driver.agent_calls().await.len(), 1);
+    control.gate.release();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            runtime
+                .next_update()
+                .await
+                .expect("resume compaction terminal");
+        }
+    })
+    .await
+    .expect("retained compaction terminal did not resume");
+    assert_eq!(driver.agent_calls().await.len(), 2);
+    assert!(
+        runtime
+            .agent
+            .journal()
+            .records()
+            .iter()
+            .any(|record| matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            ))
+    );
+}
+
+/// CPL-7/LIVE-3: an interrupt accepted while compaction authorization is waiting for storage marks
+/// that owner before the acknowledgement can start its provider effect.
+#[tokio::test]
+async fn interrupt_during_compaction_authorization_never_dispatches_the_summarizer() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    control.block_on_payload(BlockPayload::CompactionAuthorized);
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        );
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("authorization completed before barrier: {result:?}"),
+            () = entered => {}
+        }
+    }
+
+    {
+        let interrupt = runtime.submit(agent_id(), Input::Interrupted);
+        tokio::pin!(interrupt);
+        tokio::select! {
+            result = &mut interrupt => panic!("interrupt completed while authorization was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    assert_eq!(driver.summary_call_count(), 0);
+    control.gate.release();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            runtime
+                .next_update()
+                .await
+                .expect("resume cancelled authorization");
+        }
+    })
+    .await
+    .expect("cancelled authorization did not settle");
+    assert_eq!(driver.summary_call_count(), 0);
+    assert!(
+        runtime
+            .agent
+            .journal()
+            .records()
+            .iter()
+            .any(|record| matches!(
+                record,
+                JournalRecord::CompactionAttemptFinished { fact, .. }
+                    if matches!(
+                        fact.terminal().terminal(),
+                        plexmaton_agent::RequestAttemptTerminalState::NotDispatched {
+                            outcome: plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
+                        }
+                    )
+            ))
+    );
+}
+
+/// CPL-7/LIVE-3: shutdown requested behind the same authorization barrier also prevents a new
+/// summary dispatch and can be resumed after its waiter is cancelled.
+#[tokio::test]
+async fn shutdown_during_compaction_authorization_never_dispatches_the_summarizer() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    control.block_on_payload(BlockPayload::CompactionAuthorized);
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        );
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("authorization completed before barrier: {result:?}"),
+            () = entered => {}
+        }
+    }
+    {
+        let shutdown = runtime.shutdown();
+        tokio::pin!(shutdown);
+        tokio::select! {
+            result = &mut shutdown => panic!("shutdown completed while authorization was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    assert_eq!(driver.summary_call_count(), 0);
+    control.gate.release();
+
+    runtime.shutdown().await.expect("resume shutdown");
+
+    assert_eq!(driver.summary_call_count(), 0);
+    assert!(!runtime.has_active_work());
+    assert!(
+        runtime
+            .agent
+            .journal()
+            .records()
+            .iter()
+            .any(|record| matches!(
+                record,
+                JournalRecord::CompactionAttemptFinished { fact, .. }
+                    if matches!(
+                        fact.terminal().terminal(),
+                        plexmaton_agent::RequestAttemptTerminalState::NotDispatched {
+                            outcome: plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
+                        }
+                    )
+            ))
+    );
+}
+
+/// CPL-7: interrupt queued behind the collected-terminal write cancels the continuation before
+/// that acknowledgement can publish a checkpoint or authorize the held agent step.
+#[tokio::test]
+async fn interrupt_during_compaction_terminal_ack_starts_no_continuation() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [SummaryScript::Complete("cancel at terminal".repeat(8))],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .expect("pressured submit");
+    control.block_on_payload(BlockPayload::CompactionFinished);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    {
+        let interrupt = runtime.submit(agent_id(), Input::Interrupted);
+        tokio::pin!(interrupt);
+        tokio::select! {
+            result = &mut interrupt => panic!("interrupt completed while terminal was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    control.gate.release();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            runtime
+                .next_update()
+                .await
+                .expect("resume terminal cancellation");
+        }
+    })
+    .await
+    .expect("terminal cancellation did not settle");
+    assert_eq!(driver.agent_calls().await.len(), 1);
+    assert!(
+        runtime
+            .agent
+            .journal()
+            .records()
+            .iter()
+            .all(|record| !matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            ))
+    );
+}
+
+/// CPL-4/CPL-7: a checkpoint write already accepted when shutdown arrives may finish, but its
+/// cancelled continuation cannot authorize a fresh agent request afterward.
+#[tokio::test]
+async fn shutdown_during_checkpoint_ack_starts_no_agent_continuation() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [SummaryScript::Complete("cancel at checkpoint".repeat(8))],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .expect("pressured submit");
+    control.block_on_payload(BlockPayload::CompactionCheckpoint);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    {
+        let shutdown = runtime.shutdown();
+        tokio::pin!(shutdown);
+        tokio::select! {
+            result = &mut shutdown => panic!("shutdown completed while checkpoint was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    control.gate.release();
+
+    runtime
+        .shutdown()
+        .await
+        .expect("resume checkpoint shutdown");
+    assert_eq!(driver.agent_calls().await.len(), 1);
+    assert!(!runtime.has_active_work());
+    assert!(
+        runtime
+            .agent
+            .journal()
+            .records()
+            .iter()
+            .any(|record| matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            ))
+    );
+}
+
+/// CPL-4/CPL-7/TIM-2: after checkpoint acknowledgement, a held agent request still has its own
+/// authorization barrier; interrupt there records a no-dispatch terminal instead of starting it.
+#[tokio::test]
+async fn interrupt_during_refreshed_agent_authorization_starts_no_provider() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [SummaryScript::Complete("cancel after checkpoint".repeat(8))],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        )
+        .await
+        .expect("pressured submit");
+    control.block_on_payload(BlockPayload::CompactionCheckpoint);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    control.gate.release();
+    while control
+        .records
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .all(|record| {
+            !matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            )
+        })
+    {
+        tokio::task::yield_now().await;
+    }
+    control.block_on_payload(BlockPayload::AgentAuthorized);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    {
+        let interrupt = runtime.submit(agent_id(), Input::Interrupted);
+        tokio::pin!(interrupt);
+        tokio::select! {
+            result = &mut interrupt => panic!("interrupt completed while agent auth was blocked: {result:?}"),
+            () = tokio::task::yield_now() => {}
+        }
+    }
+    control.gate.release();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            runtime
+                .next_update()
+                .await
+                .expect("resume agent auth cancellation");
+        }
+    })
+    .await
+    .expect("agent auth cancellation did not settle");
+    assert_eq!(driver.agent_calls().await.len(), 1);
+    let attempts: Vec<_> = runtime.agent.journal().request_attempts().collect();
+    assert!(attempts.iter().any(|attempt| matches!(
+        attempt.authorization().owner(),
+        plexmaton_agent::RequestAttemptOwner::AgentStep { step_id }
+            if step_id.index() == 1
+                && matches!(
+                    attempt.terminal().map(|terminal| terminal.terminal()),
+                    Some(plexmaton_agent::RequestAttemptTerminalState::NotDispatched {
+                        outcome: plexmaton_agent::RequestNotDispatchedOutcome::Cancelled,
+                    })
+                )
+    )));
 }
 
 /// JRN-7: a failing barrier assertion must not deadlock the owned writer's cleanup.

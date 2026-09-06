@@ -17,6 +17,7 @@ use crate::journal::{
 };
 use crate::model::{ContextAtom, ModelOutputPosition, ModelRequest};
 use crate::{
+    CompactionAttemptFinished, CompactionCheckpoint, CompactionPlan, CompactionSource,
     RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal,
     RequestEnvironment, SessionMetadata, UnixMillis,
 };
@@ -252,6 +253,47 @@ impl Record {
         .unwrap_or_else(|error| unreachable!("a bounded formatted identity is valid: {error}"))
     }
 
+    pub(crate) fn compaction_source(&self) -> Result<CompactionSource, crate::JournalError> {
+        self.journal.compaction_source(&self.head)
+    }
+
+    pub(crate) fn authorize_compaction_attempt(
+        &mut self,
+        attempt_id: RequestAttemptId,
+        plan: &CompactionPlan,
+        authorized_at: UnixMillis,
+        reaction: &mut Reaction,
+    ) -> Result<(), crate::JournalError> {
+        if &self.compaction_source()? != plan.source() {
+            return Err(crate::JournalError::CompactionSourceChanged);
+        }
+        let sequence = self.journal.next_sequence();
+        let record_id = JournalRecordId::new(format!(
+            "{}-record-{}",
+            self.journal.session_id(),
+            sequence.get()
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let record = JournalRecord::RequestAttemptAuthorized {
+            sequence,
+            record_id,
+            head: self.head.clone(),
+            expected_head_revision: plan.source().head_revision(),
+            fact: RequestAttemptAuthorized::new(
+                attempt_id,
+                RequestAttemptOwner::Compaction {
+                    compaction_id: plan.id().clone(),
+                },
+                plan.source().boundary().clone(),
+                plan.environment().clone(),
+                authorized_at,
+            ),
+        };
+        self.journal.apply(record.clone())?;
+        reaction.records.push(record);
+        Ok(())
+    }
+
     pub(crate) fn authorize_request_attempt(
         &mut self,
         attempt_id: RequestAttemptId,
@@ -322,6 +364,60 @@ impl Record {
         if let Some(event) = usage_event {
             self.emit(reaction, event);
         }
+        Ok(())
+    }
+
+    pub(crate) fn finish_compaction_attempt(
+        &mut self,
+        fact: CompactionAttemptFinished,
+        reaction: &mut Reaction,
+    ) -> Result<(), crate::JournalError> {
+        let sequence = self.journal.next_sequence();
+        let record_id = JournalRecordId::new(format!(
+            "{}-record-{}",
+            self.journal.session_id(),
+            sequence.get()
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let record = JournalRecord::CompactionAttemptFinished {
+            sequence,
+            record_id,
+            fact,
+        };
+        self.journal.apply(record.clone())?;
+        reaction.records.push(record);
+        Ok(())
+    }
+
+    pub(crate) fn commit_compaction_checkpoint(
+        &mut self,
+        plan: CompactionPlan,
+        successful_attempt_id: RequestAttemptId,
+        reaction: &mut Reaction,
+    ) -> Result<(), crate::JournalError> {
+        let sequence = self.journal.next_sequence();
+        let ordinal = sequence.get();
+        let session_id = self.journal.session_id();
+        let record_id = JournalRecordId::new(format!("{session_id}-record-{ordinal}"))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let entry_id = SessionEntryId::new(format!("{session_id}-entry-{ordinal}"))
+            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let record = JournalRecord::AppendEntry {
+            sequence,
+            record_id,
+            head: self.head.clone(),
+            expected_head_revision: plan.source().head_revision(),
+            entry: Box::new(SessionEntry {
+                id: entry_id,
+                parent_id: Some(plan.source().boundary().clone()),
+                payload: JournalEntryPayload::CompactionCheckpoint {
+                    agent_id: self.agent_id.clone(),
+                    checkpoint: Box::new(CompactionCheckpoint::new(plan, successful_attempt_id)),
+                },
+            }),
+        };
+        self.journal.apply(record.clone())?;
+        reaction.records.push(record);
         Ok(())
     }
 

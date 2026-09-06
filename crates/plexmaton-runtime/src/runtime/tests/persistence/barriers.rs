@@ -1,4 +1,8 @@
 use super::*;
+use crate::runtime::tests::{
+    compaction::{CompactionDriver, SummaryScript, large_answer},
+    finish_active, text_delta,
+};
 
 /// JRN-7: no provider effect starts before every record in its transition is acknowledged.
 #[tokio::test]
@@ -80,6 +84,104 @@ async fn model_dispatch_waits_for_its_request_authorization_ack() {
                     if fact.environment() == &driver.environment
             ))
     );
+}
+
+/// CPL-6–CPL-8/JRN-7: authorization, collected terminal, and checkpoint each cross their own
+/// acknowledgement barrier before the next effect or refreshed agent request can begin.
+#[tokio::test]
+async fn compaction_attempt_and_checkpoint_each_wait_for_ack_before_continuation() {
+    let (control, store) = StoreControl::pair();
+    let driver = CompactionDriver::new(
+        [
+            Script::Events(vec![
+                text_delta(&large_answer()),
+                ModelEvent::Stopped(StopReason::EndOfTurn),
+            ]),
+            Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+        ],
+        [SummaryScript::Complete(
+            "bounded checkpoint facts".repeat(8),
+        )],
+    );
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    while runtime.try_next_event().is_some() {}
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .expect("seed submit");
+    finish_active(&mut runtime).await;
+    driver.enable();
+    control.block_on_payload(BlockPayload::CompactionAuthorized);
+
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(
+            agent_id(),
+            Input::Submitted {
+                text: "continue".to_owned(),
+            },
+        );
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("submit completed before compaction authorization ack: {result:?}"),
+            () = entered => {}
+        }
+        assert_eq!(driver.summary_call_count(), 0);
+        control.gate.release();
+        submit.await.expect("release compaction authorization");
+    }
+    assert_eq!(driver.summary_call_count(), 1);
+
+    control.block_on_payload(BlockPayload::CompactionFinished);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    assert!(
+        control
+            .records
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .all(|record| !matches!(
+                record,
+                JournalRecord::AppendEntry { entry, .. }
+                    if matches!(entry.payload, JournalEntryPayload::CompactionCheckpoint { .. })
+            ))
+    );
+    control.gate.release();
+    while control
+        .records
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .all(|record| !matches!(record, JournalRecord::CompactionAttemptFinished { .. }))
+    {
+        tokio::task::yield_now().await;
+    }
+
+    control.block_on_payload(BlockPayload::CompactionCheckpoint);
+    drive_until_store_blocks(&mut runtime, &control).await;
+    assert_eq!(
+        driver.agent_calls().await.len(),
+        1,
+        "agent remains undispatched"
+    );
+    control.gate.release();
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while runtime.has_active_work() {
+            runtime
+                .next_update()
+                .await
+                .expect("finish checkpoint barrier");
+        }
+    })
+    .await
+    .expect("checkpoint barrier continuation timed out");
+    assert_eq!(driver.agent_calls().await.len(), 2);
 }
 
 /// TIM-2/TIM-3/JRN-7: terminal accounting commits before stop can publish canonical output.

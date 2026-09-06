@@ -72,7 +72,7 @@ pub(crate) fn encode_atom(
 ) -> Result<Vec<Value>, EncodeError> {
     let mut input = Vec::new();
     match atom.value() {
-        ContextAtomValue::User { text } => {
+        ContextAtomValue::User { text } | ContextAtomValue::CompactionSummary { text } => {
             input.push(json!({ "role": "user", "content": text }));
         }
         ContextAtomValue::Assistant(output) => {

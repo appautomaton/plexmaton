@@ -24,6 +24,7 @@ reasoning_effort = "xhigh"
 context_window_tokens = 272000
 max_output_tokens = 128000
 output_reserve_tokens = 16384
+compaction_keep_recent_tokens = 20000
 ```
 
 Estimation has a default; missing pricing is unavailable.
@@ -47,6 +48,8 @@ Default sessions create JSONL on the first message; blank launches save nothing.
 Exit prints a resume command for the selected saved session. `--ephemeral` disables persistence.
 `create` reserves a name; `resume` restores history. Files are owner-only:
 `PLEXMATON_HOME/sessions/<session-id>.jsonl` (ASCII letters, digits, `-`, `_`).
+
+Automatic [compaction](.agents/specs/compaction.md) preserves original history.
 
 `Ctrl-D` twice within one second quits. `Ctrl-C` clears a draft or interrupts its conversation;
 `Esc` backs out one layer. `Ctrl-P` opens the palette: `/config` (alias `/settings`) shows the

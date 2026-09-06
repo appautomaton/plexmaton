@@ -135,6 +135,10 @@ fn tim_4_non_request_model_metadata_preserves_the_fingerprint() {
             "output_reserve_tokens = 8192",
         ),
         BASE.replace(
+            "output_reserve_tokens = 16384",
+            "output_reserve_tokens = 16384\ncompaction_keep_recent_tokens = 24000",
+        ),
+        BASE.replace(
             "cost = { input = 0.2, output = 1.2, cache_read = 0.02, cache_write = 0.25 }",
             "cost = { input = 9.0, output = 9.0, cache_read = 9.0, cache_write = 9.0 }",
         ),

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; compaction execution and checkpoints remain later work |
+| Status | Implemented; compaction execution follows CPL-6/CPL-7 |
 | Owns | Durable turn chronology, model-request attempt timing and immutable provider usage |
 | Depends on | JRN-1/JRN-5/JRN-7, LOOP-1/LOOP-4/LOOP-6, PRV-1/PRV-5 and LIVE-1/LIVE-3/LIVE-4/LIVE-5 |
 | Proven by | Agent/journal accounting tests, JSONL reopen tests and hermetic runtime/HTTP tests below |
@@ -69,8 +69,7 @@ An attempt owner is `AgentStep { step_id }` or `Compaction { compaction_id }`; t
 identities already carry their turn or operation, while authorization names the source boundary.
 Compaction attempts have their own usage total and
 enter whole-session incurred cost, but never inflate a turn or serve as an agent-request usage
-anchor. The compaction owner is represented and accounted for; its execution belongs to the later
-compaction orchestrator.
+anchor. CPL-6 owns its collected output and CPL-7 owns execution.
 
 `Authorized.authorized_at` is observed before its record is appended; it is not a claim about when
 the append was acknowledged. The fact also records the semantic-prefix boundary and
@@ -82,7 +81,7 @@ to the agent is a typed refusal; the runtime retains provider usage in the termi
 The request environment fingerprint is SHA-256 over a versioned, length-delimited structural
 encoding of replay owner, codec identity/revision, model family, reasoning effort, the exact
 optional output limit, explicit instruction text, cache intent and ordered tool name, description and
-canonical JSON Schema. Codec revision owns fixed wire flags. Display name, token budget/reserve,
+canonical JSON Schema. Codec revision owns fixed wire flags. Display name, token budget/reserve, compaction retention,
 estimator and pricing do not change request bytes and are excluded. Provider credentials are not
 available at this boundary. Rejected: process-random hashing and serialized map insertion order,
 which cannot identify equal request environments across resume.
@@ -147,5 +146,5 @@ completed boundary own distinct later turns and attempts without a speculative `
 | TIM-1 | `tim_1_turn_boundaries_are_durable_and_terminal_time_does_not_advance_the_head`, `tim_1_queued_turn_and_steering_keep_their_original_accepted_time`, `tim_1_every_live_turn_terminal_path_has_a_typed_outcome`, `cancelled_submit_behind_an_older_commit_keeps_its_arrival_time_and_text`, `tim_1_turn_chronology_reopens_from_jsonl_without_entering_model_context`, `tim_1_jsonl_rejects_untimed_turns_and_unscoped_lifecycle_records` |
 | TIM-2 | `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`, `model_dispatch_waits_for_its_request_authorization_ack`, `model_terminal_audit_commits_before_semantic_completion`, `pre_dispatch_outcomes_have_no_request_measurements_or_signals`, `dispatched_response_returns_one_correlated_terminal_report`, `dispatched_http_failures_preserve_their_terminal_measurements`, `first_output_distinguishes_semantic_content_from_usage_and_stop`, `tim_2_invalid_milestone_order_is_refused_by_constructor_and_wire`, `tim_2_invalid_attempt_records_change_nothing` |
 | TIM-3 | `completed_messages_without_thinking_breakdown_keep_final_cost`, `native_stream_cancellation_preserves_observed_usage`, `malformed_stream_after_usage_preserves_reported_consumption`, `reported_step_usage_is_aggregated_for_the_owning_turn`, `tim_3_streamed_usage_is_refused_without_mutating_agent_state`, `tim_3_terminal_cost_is_immutable_validated_and_non_floating_point`, `tim_3_complete_usage_calculates_one_stable_fixed_point_cost`, `tim_3_cost_does_not_require_the_optional_reasoning_breakdown`, `tim_3_priced_request_with_missing_reasoning_breakdown_round_trips`, `tim_3_request_affecting_route_model_and_tool_inputs_break_the_fingerprint`, `tim_3_session_accounting_counts_shared_attempts_once`, `tim_3_session_accounting_includes_abandoned_branches_and_compaction`, `tim_3_accounting_keeps_partial_missing_and_unpriced_attempts_honest`, `tim_3_accounting_rejects_usage_and_cost_overflow`, `request_attempts_reopen_with_identical_accounting_and_context`, `model_output_requires_both_the_active_attempt_and_step` |
-| TIM-4 | `tim_2_attempt_records_are_lossless_and_non_advancing`, `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`, `tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals`, `tim_3_equal_environment_inputs_have_one_canonical_fingerprint`, `tim_4_non_request_model_metadata_preserves_the_fingerprint`, `request_attempts_reopen_with_identical_accounting_and_context`; checkpoint/cache-epoch execution unproven until its slice |
+| TIM-4 | `tim_2_attempt_records_are_lossless_and_non_advancing`, `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`, `tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals`, `tim_3_equal_environment_inputs_have_one_canonical_fingerprint`, `tim_4_non_request_model_metadata_preserves_the_fingerprint`, `request_attempts_reopen_with_identical_accounting_and_context`, `checkpoint_preserves_history_and_refreshes_the_active_step`, `cpl_5_repeated_checkpoints_and_historical_forks_reopen_with_identical_wire_bytes` |
 | TIM-5 | `gemini_declared_failures_preserve_diagnostics_without_dispatching_calls`, `stream_provider_errors_keep_their_category_and_observed_usage`, `provider_failure_reopens_as_the_same_non_retryable_outcome`, `tim_5_terminal_after_interrupt_is_retained_and_invalid_terminals_mutate_nothing`, `tim_5_not_dispatched_terminal_restores_known_turn_coverage_after_interrupt`, `tim_5_late_terminal_keeps_other_unresolved_step_usage_partial`, `dropped_runtime_reopens_authorization_without_a_fabricated_terminal`, `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner`, `cancellation_after_dispatch_keeps_only_observed_milestones`, `cancellation_after_output_preserves_only_observed_usage`, `malformed_stream_after_usage_preserves_reported_consumption`, `failed_request_authorization_starts_no_model_and_freezes_the_runtime`, `failed_request_terminal_publishes_no_semantic_completion` |

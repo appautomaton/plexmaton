@@ -1,13 +1,19 @@
 use std::time::Instant;
 
 use plexmaton_agent::{
-    DispatchedRequestTiming, ElapsedMillis, ModelError, ModelStepId, RequestAttemptId,
-    RequestAttemptTerminal, RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
+    DispatchedRequestTiming, ElapsedMillis, ModelError, RequestAttemptId, RequestAttemptTerminal,
+    RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
     RequestNotDispatchedOutcome, StopReason, UnixMillis,
 };
 use plexmaton_core::TokenUsage;
 
-use crate::runtime::{ModelCompletion, ModelOutput, ModelTerminalReport};
+use crate::runtime::{ModelCompletion, ModelOutput};
+
+/// One provider attempt before the caller attaches agent-step or compaction ownership.
+pub(super) struct AttemptReport {
+    pub(super) terminal: RequestAttemptTerminal,
+    pub(super) completion: ModelCompletion,
+}
 
 pub(super) struct RequestTimer {
     dispatched_at: UnixMillis,
@@ -39,14 +45,12 @@ impl RequestTimer {
     pub(super) fn completed(
         self,
         attempt_id: RequestAttemptId,
-        step_id: ModelStepId,
         reason: StopReason,
         usage: TokenUsage,
         cost: RequestCost,
-    ) -> ModelTerminalReport {
+    ) -> AttemptReport {
         self.finish(
             attempt_id,
-            step_id,
             RequestDispatchedOutcome::Completed {
                 stop_reason: reason,
             },
@@ -59,10 +63,9 @@ impl RequestTimer {
     pub(super) fn failed(
         self,
         attempt_id: RequestAttemptId,
-        step_id: ModelStepId,
         error: ModelError,
         usage: TokenUsage,
-    ) -> ModelTerminalReport {
+    ) -> AttemptReport {
         let outcome = match &error {
             ModelError::Transport { .. } => RequestDispatchedOutcome::TransportFailed,
             ModelError::ProviderFailed { .. } => RequestDispatchedOutcome::ProviderFailed,
@@ -72,7 +75,6 @@ impl RequestTimer {
         };
         self.finish(
             attempt_id,
-            step_id,
             outcome,
             usage,
             RequestCost::Unavailable,
@@ -83,12 +85,10 @@ impl RequestTimer {
     pub(super) fn cancelled(
         self,
         attempt_id: RequestAttemptId,
-        step_id: ModelStepId,
         usage: TokenUsage,
-    ) -> ModelTerminalReport {
+    ) -> AttemptReport {
         self.finish(
             attempt_id,
-            step_id,
             RequestDispatchedOutcome::Cancelled,
             usage,
             RequestCost::Unavailable,
@@ -99,12 +99,11 @@ impl RequestTimer {
     fn finish(
         self,
         attempt_id: RequestAttemptId,
-        step_id: ModelStepId,
         outcome: RequestDispatchedOutcome,
         usage: TokenUsage,
         cost: RequestCost,
         completion: ModelCompletion,
-    ) -> ModelTerminalReport {
+    ) -> AttemptReport {
         let timing = DispatchedRequestTiming::new(
             self.dispatched_at,
             self.headers_after_ms,
@@ -122,7 +121,10 @@ impl RequestTimer {
             },
         )
         .unwrap_or_else(|error| unreachable!("provider codec validated request usage: {error}"));
-        ModelTerminalReport::new(step_id, terminal, completion)
+        AttemptReport {
+            terminal,
+            completion,
+        }
     }
 
     fn elapsed(&self) -> ElapsedMillis {
@@ -133,14 +135,16 @@ impl RequestTimer {
 
 pub(super) fn not_dispatched_report(
     attempt_id: RequestAttemptId,
-    step_id: ModelStepId,
     outcome: RequestNotDispatchedOutcome,
     completion: ModelCompletion,
-) -> ModelTerminalReport {
+) -> AttemptReport {
     let terminal = RequestAttemptTerminal::new(
         attempt_id,
         RequestAttemptTerminalState::NotDispatched { outcome },
     )
     .unwrap_or_else(|error| unreachable!("not-dispatched state has no measurements: {error}"));
-    ModelTerminalReport::new(step_id, terminal, completion)
+    AttemptReport {
+        terminal,
+        completion,
+    }
 }

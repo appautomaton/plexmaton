@@ -4,36 +4,32 @@
 | --- | --- |
 | Phase | [Phase 02 — Durable sessions and context](../phases/phase-02-durable-sessions.md) §scope 1–3 |
 | Contract | TIM-1–TIM-5, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3–PRV-6, LIVE-1/LIVE-3–LIVE-5 and LOOP-2 |
-| Status | Active; slices 1–6 complete, slice 7 of 10 pending |
-| Blocked | None for slices 1–9; slice 10 interaction copy requires the user's rendered-frame agreement |
+| Status | Active; slices 1–9 complete; slice 10 pending |
+| Blocked | None for compaction; slice 10 interaction copy requires the user's rendered-frame agreement |
 
 ## Outcome
 
 One journal head projects bounded, tool-safe model context. Usage anchors its known prefix; estimates
-cover the rest. Compaction preserves source history and starts a cache epoch. Named heads make
-rewind and branches durable without copying entries or replaying effects.
+cover the rest. Compaction preserves source history and starts a branch-local cache epoch.
+Named heads preserve independent context bases without copying entries or replaying effects.
 
 ## Constraints established before implementation
 
 - The journal remains authority; atoms, ledgers and encoded requests are projections, while a
   compacted replacement is a journaled checkpoint.
-- Only the `2026-09-04` grammar is supported. Its header carries canonical creation time; numeric
-  versions, migration readers and dual payload paths are deleted.
+- Keep JRN-3's format and `2026-09-04` epoch; existing journals remain readable.
 - One complete parallel tool call/result batch is an indivisible atom. No budget, suffix, rewind or
   compaction cut splits it; incomplete batches follow JRN-5.
-- Retain every reasoning artifact the model exposes and replay it when its adapter says compatible.
-  Opaque replay is block-anchored and requires adapter-owned non-secret scope, codec revision and
-  model family; typed incompatibility never translates, merges, drops or truncates ciphertext.
+- PRV-3 owns exact block-anchored replay and typed compatibility; compaction never mutates opaque
+  payloads or removes them from source history.
 - Reported input anchors require the exact atom prefix and environment fingerprint: resolved model,
   instructions and tool definitions. Runtime prompt inputs are budgeted but not copied into JSONL.
-- Equal path, checkpoint and environment encode byte-identically. Verbatim compaction appends one
-  stable instruction after the prior input; fitted/lossy paths name their cache break. A checkpoint
-  starts a cache epoch; rewind selects existing ancestry.
+- Equal path, checkpoint and environment encode byte-identically. Compaction appends one
+  stable instruction after the complete prior input; overflow never rewrites that input. Selection and
+  rewind follow [context epochs and branch selection](../ui-ux.md#context-epochs-and-branch-selection).
 - The ledger combines the longest matching provider input measurement with estimates for later atoms and a
   separate output reserve. Soft policy and the provider hard limit remain distinct.
-- User TOML nests models under provider routes. Exact selection yields an immutable,
-  credential-blind model with typed API, identity, reasoning, token limits, estimator and optional
-  cost. Missing cost stays unavailable; a missing estimator resolves to one versioned default.
+- PRV-6 owns the immutable resolved model; BUD-3 owns estimator provenance.
 - A checkpoint records source revision, covered identities, replacement context, compatibility and
   cache epoch; originals remain. Malformed structure fails closed, while runtime incompatibility
   blocks only context projection.
@@ -67,26 +63,22 @@ rewind and branches durable without copying entries or replaying effects.
    typed `Fits`, `CompactionNeeded` or `ImpossibleItem`, keeping reserve and hard limit separate.
    *Closes when* suffixes, changed environment, encrypted replay, maximal tool output and provider
    totals have boundary tests; missing usage is never zero; optional breakdowns do not erase measured input. Evidence: [context-budget](../specs/context-budget.md).
-7. **Pure compaction plan.** Select a covered prefix and byte-exact retained suffix in atom units;
-   build a summarization request as an append-only extension of the old request. Use a bounded
-   verbatim → fitted → lossy input ladder and retain source identities plus current user/workspace
-   context. *Closes when* planning is deterministic, batches cannot straddle cuts, degradation is
-   typed, verbatim input retains the exact provider prefix, and fitted/lossy paths name cache breaks.
-8. **Durable checkpoint.** Add one versioned checkpoint payload and projection rule. Commit its
-   summary, provenance, source revision, compatibility and cache epoch before selecting the
-   replacement view; resume derives checkpoint plus suffix from the same journal. *Closes when*
-   deleting projections and reopening yields byte-identical requests, history remains reachable,
-   stale commits fail, malformed provenance is typed, and incompatibility blocks only context.
-9. **Bounded automatic orchestration.** Invoke compaction before a turn at the soft threshold,
-   after a tool result that would cross the hard bound, and once in response to a typed provider
-   context error. Own and cancel the summarizer like any model task; cap attempts per turn and keep
-   the old head usable on failure. *Closes when* each trigger has one deterministic journey, no
-   effect/retry starts before journal acknowledgement, failures are visible, and the next request
-   retains the checkpoint epoch's exact input prefix.
+7. **Pure compaction plan (complete).** CPL-1–CPL-3 define deterministic whole-atom cuts,
+   exact retained context and an unchanged request prefix. The configurable recent-tail target
+   defaults to 20k and affects only checkpoint projection. Codec and planner regressions prove
+   byte-preserving input extension, measurement reuse and typed overflow refusal.
+8. **Durable checkpoint (complete).** CPL-4–CPL-6 define acknowledged checkpoint provenance,
+   ancestry projection and full summarizer audit. Existing `2026-09-04` fixtures reopen unchanged;
+   repeated checkpoints and historical forks reconstruct identical bytes through all four codecs.
+   Equal-atom-count reductions, stale commits and mismatched epochs have regressions.
+9. **Bounded automatic orchestration (complete).** CPL-7/CPL-8 define
+   soft/hard triggers, one typed context-error recovery, at most three separate operations per turn,
+   owned cancellation/deadlines and visible failures. Tests cover each writer barrier, including
+   cancellation before a refreshed agent request; uncertain persistence freezes continuation.
 10. **Manageable heads and rewind journey.** Expose create, select, rename, abandon and rewind over
    the existing revision-checked head mutations, with current head and cache-break reason visible.
-   Rewind to a stable atom boundary without copying or re-executing work. A user-item rewind selects
-   its prior stable boundary and returns its text as draft. *Closes when* branches preserve exact requests,
+   Each rewind creates and selects a fresh head at a stable target, preserving the original branch.
+   A user-item rewind forks before its turn and returns its text as draft. *Closes when* forks and selection preserve exact requests,
    exit before resubmission creates no recovery, and three widths are reviewed.
 
 ## Order, and why

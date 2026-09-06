@@ -9,8 +9,8 @@ use plexmaton_core::{
 use super::{JournalEntryPayload, SessionEntry, SessionJournal};
 use crate::timing::UsageAccumulator;
 use crate::{
-    AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId, RequestAttempt,
-    RequestAttemptAuthorized, RequestAttemptId,
+    AssistantBlock, AssistantOutput, CompactionAttemptFinished, ContextAtom, ContextEpoch,
+    ModelRequest, ModelStepId, RequestAttempt, RequestAttemptAuthorized, RequestAttemptId,
 };
 
 mod assistant;
@@ -27,7 +27,6 @@ mod usage;
 #[cfg(test)]
 mod validation_tests;
 
-use events::visible_event;
 use tools::{PendingBatch, ToolChange, ToolProjection};
 pub use types::{JournalProjection, JournalProjectionError, RecoveryProjection};
 use usage::{cumulative_usage_event, unknown_usage_event};
@@ -46,6 +45,8 @@ struct Projector {
     steps: BTreeSet<ModelStepId>,
     turn_usage: BTreeMap<TurnId, UsageAccumulator>,
     unresolved_attempts: BTreeMap<TurnId, BTreeSet<RequestAttemptId>>,
+    context_epoch: ContextEpoch,
+    base_atom_count: usize,
 }
 
 impl Projector {
@@ -64,6 +65,8 @@ impl Projector {
             steps: BTreeSet::new(),
             turn_usage: BTreeMap::new(),
             unresolved_attempts: BTreeMap::new(),
+            context_epoch: ContextEpoch::Original,
+            base_atom_count: 0,
         }
     }
 
@@ -252,105 +255,6 @@ impl Projector {
         }
         Ok(())
     }
-
-    fn require_agent(&self, agent_id: &AgentId) -> Result<(), JournalProjectionError> {
-        if self.agents.contains(agent_id) {
-            Ok(())
-        } else {
-            Err(JournalProjectionError::MissingAgent(agent_id.clone()))
-        }
-    }
-
-    fn claim_entry(
-        &mut self,
-        item_id: &TranscriptItemId,
-        agent_id: &AgentId,
-    ) -> Result<(), JournalProjectionError> {
-        if self.entries.contains_key(item_id) {
-            return Err(JournalProjectionError::DuplicateTranscriptItem(
-                item_id.clone(),
-            ));
-        }
-        self.entries.insert(item_id.clone(), agent_id.clone());
-        Ok(())
-    }
-
-    fn visible(&mut self, payload: JournalEntryPayload) -> Result<(), JournalProjectionError> {
-        match &payload {
-            JournalEntryPayload::AgentCreated { agent_id, .. } => {
-                if !self.agents.insert(agent_id.clone()) {
-                    return Err(JournalProjectionError::DuplicateAgent(agent_id.clone()));
-                }
-            }
-            JournalEntryPayload::AttentionRequested {
-                agent_id,
-                attention_id,
-                ..
-            } => {
-                self.require_agent(agent_id)?;
-                self.validate_attention_owner(attention_id, agent_id)?;
-                self.attention
-                    .insert(attention_id.clone(), agent_id.clone());
-            }
-            JournalEntryPayload::AttentionResolved {
-                agent_id,
-                attention_id,
-            } => {
-                self.require_agent(agent_id)?;
-                self.validate_attention_owner(attention_id, agent_id)?;
-                self.attention.remove(attention_id);
-            }
-            JournalEntryPayload::MailDelivered {
-                item_id, from, to, ..
-            } => {
-                self.require_agent(from)?;
-                self.require_agent(to)?;
-                self.claim_entry(item_id, from)?;
-            }
-            JournalEntryPayload::ArtifactAnnounced {
-                agent_id, item_id, ..
-            }
-            | JournalEntryPayload::RuntimeWarning {
-                agent_id, item_id, ..
-            }
-            | JournalEntryPayload::RuntimeError {
-                agent_id, item_id, ..
-            }
-            | JournalEntryPayload::TurnInterruptedByRecovery {
-                agent_id, item_id, ..
-            } => {
-                self.require_agent(agent_id)?;
-                self.claim_entry(item_id, agent_id)?;
-            }
-            JournalEntryPayload::TurnStatusChanged { .. }
-            | JournalEntryPayload::TurnStarted { .. }
-            | JournalEntryPayload::TurnRetried { .. }
-            | JournalEntryPayload::SteeringAccepted { .. }
-            | JournalEntryPayload::AssistantOutput { .. }
-            | JournalEntryPayload::ToolCallRequested { .. }
-            | JournalEntryPayload::ToolCallChanged { .. } => {
-                unreachable!("model-bearing payloads are projected separately")
-            }
-        }
-        self.emit(visible_event(payload))
-    }
-
-    fn validate_attention_owner(
-        &self,
-        attention_id: &AttentionId,
-        agent_id: &AgentId,
-    ) -> Result<(), JournalProjectionError> {
-        if let Some(expected) = self.attention.get(attention_id)
-            && expected != agent_id
-        {
-            return Err(JournalProjectionError::AttentionOwnerMismatch {
-                attention_id: attention_id.clone(),
-                expected: expected.clone(),
-                actual: agent_id.clone(),
-            });
-        }
-        Ok(())
-    }
 }
 
 impl SessionJournal {
@@ -394,12 +298,39 @@ impl SessionJournal {
                     ordered.push((*sequence, SelectedFact::RequestAttemptFinished(attempt)));
                 }
             }
+            if let super::JournalRecord::CompactionAttemptFinished { fact, sequence, .. } = record {
+                let attempt = self
+                    .request_attempt(fact.attempt_id())
+                    .unwrap_or_else(|| unreachable!("accepted terminal retains its authorization"));
+                if Self::boundary_is_selected(&selected, attempt.authorization()) {
+                    ordered.push((
+                        *sequence,
+                        SelectedFact::CompactionAttemptFinished {
+                            fact,
+                            agent_id: self.compaction_agent_id(attempt.authorization()),
+                        },
+                    ));
+                }
+            }
         }
         ordered.sort_by_key(|(sequence, _)| *sequence);
         let mut finished_turns = BTreeSet::new();
         for (_, fact) in ordered {
             match fact {
-                SelectedFact::Entry(entry) => project_entry(&mut projector, entry)?,
+                SelectedFact::Entry(entry) => {
+                    if let JournalEntryPayload::CompactionCheckpoint { checkpoint, .. } =
+                        &entry.payload
+                    {
+                        projector.finish_batch(false)?;
+                        projector.atoms = self
+                            .checkpoint_replacement(&projector.atoms, checkpoint, entry.id.clone())
+                            .map_err(JournalProjectionError::Journal)?;
+                        projector.context_epoch = ContextEpoch::Checkpoint(entry.id.clone());
+                        projector.base_atom_count = projector.atoms.len();
+                    } else {
+                        project_entry(&mut projector, entry)?;
+                    }
+                }
                 SelectedFact::TurnFinished(fact) => {
                     projector.turn_finished(fact)?;
                     finished_turns.insert(fact.turn_id.clone());
@@ -409,6 +340,9 @@ impl SessionJournal {
                 }
                 SelectedFact::RequestAttemptFinished(attempt) => {
                     projector.request_attempt_finished(attempt)?;
+                }
+                SelectedFact::CompactionAttemptFinished { fact, agent_id } => {
+                    projector.compaction_attempt_finished(fact, agent_id)?;
                 }
             }
         }
@@ -441,6 +375,8 @@ impl SessionJournal {
             events: projector.events,
             recovery: projector.recovery,
             request_attempts,
+            context_epoch: projector.context_epoch,
+            base_atom_count: projector.base_atom_count,
         })
     }
 }
@@ -450,6 +386,10 @@ enum SelectedFact<'a> {
     TurnFinished(&'a crate::TurnFinished),
     RequestAttemptAuthorized(&'a RequestAttemptAuthorized),
     RequestAttemptFinished(&'a RequestAttempt),
+    CompactionAttemptFinished {
+        fact: &'a CompactionAttemptFinished,
+        agent_id: &'a AgentId,
+    },
 }
 
 fn project_entry(

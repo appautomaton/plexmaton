@@ -1,7 +1,7 @@
 use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, TurnId};
 
 use super::{HeadRevision, JournalSequence};
-use crate::{ModelStepId, RequestAttemptId, RequestTimingError};
+use crate::{CompactionPlanError, ModelStepId, RequestAttemptId, RequestTimingError};
 
 /// Why a record was refused without changing journal state (JRN-2).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +69,33 @@ pub enum JournalError {
         attempt_id: RequestAttemptId,
         boundary: SessionEntryId,
     },
+    /// A collected compaction result failed its bounded semantic validation.
+    InvalidCompactionAttempt {
+        attempt_id: RequestAttemptId,
+        error: CompactionPlanError,
+    },
+    /// A compaction result named an attempt owned by an ordinary agent step.
+    RequestAttemptIsNotCompaction(RequestAttemptId),
+    /// A checkpoint named no collected compaction result.
+    MissingCompactionAttempt(RequestAttemptId),
+    /// The source head, revision, boundary or epoch changed after planning.
+    CompactionSourceChanged,
+    /// A checkpoint's attempt owner does not match its plan identity.
+    CompactionOwnerMismatch(RequestAttemptId),
+    /// A checkpoint's attempt environment does not match its plan.
+    CompactionEnvironmentMismatch(RequestAttemptId),
+    /// A checkpoint named a failed rather than publishable result.
+    CompactionAttemptFailed(RequestAttemptId),
+    /// A compaction cut did not resolve to one exact projected atom prefix and suffix.
+    InvalidCompactionCut,
+    /// A completed summary exceeded the plan's stricter byte allowance.
+    CompactionSummaryExceedsPlan,
+    /// A checkpoint covered no semantic atom beyond the exact user it pins.
+    CompactionMakesNoProgress,
+    /// A checkpoint attributed its context mutation to an agent absent from that ancestry.
+    MissingCompactionAgent(AgentId),
+    /// Compaction requires at least one semantic atom on the selected head.
+    EmptyCompactionSource(HeadName),
     /// Agent creation tried to bypass the idle initial lifecycle boundary.
     InvalidInitialAgentStatus(AgentId),
     /// A terminal fact named no semantic turn start.

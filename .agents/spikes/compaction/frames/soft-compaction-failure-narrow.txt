@@ -1,0 +1,24 @@
+┌ Plexmaton · idle ────────────────────────────────────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│▌Inspect the session journal.                             │
+│                                                          │
+│The journal preserves original entries and records        │
+│acknowledged transitions.                                 │
+│                                                          │
+│▌Continue with checkpoint recovery.                       │
+│                                                          │
+│error                                                     │
+│compaction produced no summary text                       │
+│                                                          │
+│I can continue using the existing context. The            │
+│original journal remains available.                       │
+│                                                          │
+├ Message Plexmaton ───────────────────────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+

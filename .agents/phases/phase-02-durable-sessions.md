@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 1 and stage 2 slices 1–6 complete; stage 3 provider dialects complete; compaction remains |
+| Status | Active; stage 2 compaction complete; branch interaction remains pending |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -41,8 +41,9 @@ discovery, SQLite and redb are not introduced.
    JSON value missing its newline is repaired, an incomplete tail is isolated, and corruption before
    the tail is a typed failure. No database or derived on-disk index exists before measured need.
 2. **Heads, rewind and resume.** Named heads are durable mutations over the immutable entry graph.
-   Every append and head move checks the expected revision even within one process. Rewind selects a
-   prior entry; replay rehydrates recorded outcomes and never executes a tool, asks for approval or
+   Every append and head move checks the expected revision even within one process. Selection and
+   rewind follow [context epochs and branch selection](../ui-ux.md#context-epochs-and-branch-selection).
+   Replay rehydrates recorded outcomes and never executes a tool, asks for approval or
    contacts a provider. An unfinished final turn is visible as interrupted, and the user is told
    what recovery retained.
 3. **Context projection and compaction.** A pure projector walks one selected head, keeps tool
@@ -59,8 +60,9 @@ discovery, SQLite and redb are not introduced.
 
 Each stage receives a sliced plan when it starts. Stage 1 delivered the journal foundation and the
 head mechanics in scope items 1–2. [Stage 2](../plans/phase-02-stage-02-context-projection.md)
-finishes their production journey and owns scope item 3. Stage 3 delivered the provider transports
-in scope item 4. Compaction, durable policy and MCP remain separate work.
+finishes their production journey and owns scope item 3, constrained by the
+[compaction spike](../spikes/compaction/README.md). Stage 3 delivered the provider transports
+in scope item 4. Branch interaction, durable policy and MCP remain separate work.
 
 ### Provider dialects — complete
 
@@ -84,6 +86,27 @@ match. Three-width frames were inspected for
 No live provider/proxy inference, PTY smoke or performance measurement was run for this stage;
 realized cache hits and provider billing remain unverified.
 
+### Compaction — complete
+
+[CPL-1–CPL-8](../specs/compaction.md) own the planner, checkpoint recovery and bounded runtime.
+On 2026-09-06, the worktree based on `2bb0a70` passed 881 workspace tests, all-target check/Clippy,
+formatting, corpus gates, typos, machete and 17 script tests. The offline supply-chain audit used
+a local copy of the cached advisory database and retained existing duplicate-crate warnings;
+no dependency changed. Both terminal and three-width status-line PTY smokes passed without a
+model request.
+
+The real agent/TUI renderer produced inspected failure frames at three widths:
+[soft failure](../spikes/compaction/frames/soft-compaction-failure-wide.txt)
+([medium](../spikes/compaction/frames/soft-compaction-failure-medium.txt),
+[narrow](../spikes/compaction/frames/soft-compaction-failure-narrow.txt)) and
+[hard failure](../spikes/compaction/frames/hard-compaction-failure-wide.txt)
+([medium](../spikes/compaction/frames/hard-compaction-failure-medium.txt),
+[narrow](../spikes/compaction/frames/hard-compaction-failure-narrow.txt)).
+[Source](../spikes/compaction/render-review.rs) stages the same semantic outcomes without HTTP;
+runtime tests separately prove their automatic triggers and commit barriers.
+Validation is offline by policy; paid provider calls are not an exit gate. No claim is made about
+realized cache hits or generated summary quality. Slice 10's branch management and rewind interaction is still pending.
+
 ## Not in this phase
 
 A second live agent, delegation, cross-session mail delivery, pause/abort and the composed
@@ -97,6 +120,7 @@ database/index layer, themes, animation and layout configuration: later measured
 | Exit and process death preserve every completed session fact | A real CLI session reopens from its JSONL file with both projections equal to the pre-exit state, after a clean exit and after the process is killed mid-session |
 | Recovery is simple and visible | Complete missing-newline tails repair; incomplete final records are isolated; an unfinished turn is interrupted; the user sees one notice |
 | Branches are durable and manageable | Create, move, rename and abandon named heads; reload preserves each selected path without copying entries |
+| Rewind preserves both continuations | Each rewind forks a new head; before/between checkpoints it selects the target ancestry's base and leaves the original branch unchanged |
 | Replay has no effects | Rebuilding every head performs no network, tool, approval or filesystem effect |
 | Context is deterministic and tool-safe | Every head produces byte-stable provider input; no projection or compaction splits a call/result batch |
 | Compaction preserves history and cache intent | Original entries remain reachable; repeated compaction is stable; the summarization request extends the prior prefix and later requests extend one new epoch |

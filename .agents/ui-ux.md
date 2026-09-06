@@ -35,8 +35,11 @@ These terms are used identically in product copy, architecture, code, and tests.
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
 | Session | One agent's conversation and work history, durable by default |
+| Branch | A named continuation of a session that shares earlier history with other branches |
 | Journal | The authoritative session record; JSONL is its on-disk encoding, not the visible transcript |
 | Context | Semantic input prepared for a model request; journal history combines with the applicable instructions and tools, excluding UI diagnostics |
+| Context epoch | A branch's fixed context base and the later turns following it |
+| Checkpoint | A durable compaction result that supplies the context base for its descendant heads |
 | Transcript | The user-facing interaction history: messages, tool activity and diagnostics |
 | Transcript entry | One identified content item in that history; a user or assistant message is a message entry |
 | Conversation surface | The interactive region displaying an agent's transcript; its title and border are conversation chrome |
@@ -68,6 +71,27 @@ session, and no handoff for a blank launch. Explicit `create` reserves its file 
 Only explicit `--ephemeral` declines session
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
 without the user choosing that behavior.
+
+### Context epochs and branch selection
+
+Branches share earlier history and compact independently. New model requests use the selected
+branch's compacted base and subsequent turns, with the applicable instructions and tool definitions.
+The checkpoint's persisted summary and retained context are reused without regenerating a summary.
+
+Every rewind creates and selects a new branch at an eligible stable historical boundary. The
+original branch, its head and its checkpoints remain unchanged. The new head uses the most recent
+checkpoint on its own ancestry, followed by entries through the target; a path without a checkpoint
+starts from its original context. Rewinding before a later checkpoint is therefore permitted:
+that checkpoint does not belong to the new head's ancestry.
+
+Selecting an existing branch restores its head and applies the same ancestry-based context rule.
+Both operations share original entries without copying history or repeating tool effects. The
+context epoch belongs to the target path; the source branch's latest checkpoint is not a rewind ban.
+
+Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
+historical forks, because the original continuation and the target ancestry must remain independent.
+CPL-5 proves checkpoint ancestry. Branch and rewind interaction remains unproven;
+[Phase 02 stage 2](./plans/phase-02-stage-02-context-projection.md) owns that journey and review.
 
 ### Screen ownership: full alternate screen
 

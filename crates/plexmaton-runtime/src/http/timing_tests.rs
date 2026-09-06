@@ -23,6 +23,8 @@ use crate::runtime::{FixedWallClock, ModelCompletion, ModelDriver, ModelTerminal
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+mod summary;
+
 const FINAL_ANSWER: &str =
     include_str!("../../../plexmaton-provider/tests/fixtures/responses_final_answer.sse");
 

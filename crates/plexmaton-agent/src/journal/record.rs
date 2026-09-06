@@ -2,7 +2,9 @@ use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
 use serde::{Deserialize, Serialize};
 
 use super::payload::JournalEntryPayload;
-use crate::{RequestAttemptAuthorized, RequestAttemptTerminal, TurnFinished};
+use crate::{
+    CompactionAttemptFinished, RequestAttemptAuthorized, RequestAttemptTerminal, TurnFinished,
+};
 
 /// Monotonic position of one record in a session journal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -153,6 +155,12 @@ pub enum JournalRecord {
         /// Immutable terminal outcome and honest available measurements.
         fact: RequestAttemptTerminal,
     },
+    /// Finishes one compaction attempt with its full collected semantic audit (CPL-6).
+    CompactionAttemptFinished {
+        sequence: JournalSequence,
+        record_id: JournalRecordId,
+        fact: CompactionAttemptFinished,
+    },
 }
 
 impl JournalRecord {
@@ -167,7 +175,8 @@ impl JournalRecord {
             | Self::AbandonHead { sequence, .. }
             | Self::TurnFinished { sequence, .. }
             | Self::RequestAttemptAuthorized { sequence, .. }
-            | Self::RequestAttemptFinished { sequence, .. } => *sequence,
+            | Self::RequestAttemptFinished { sequence, .. }
+            | Self::CompactionAttemptFinished { sequence, .. } => *sequence,
         }
     }
 
@@ -180,7 +189,8 @@ impl JournalRecord {
             | Self::AbandonHead { record_id, .. }
             | Self::TurnFinished { record_id, .. }
             | Self::RequestAttemptAuthorized { record_id, .. }
-            | Self::RequestAttemptFinished { record_id, .. } => record_id,
+            | Self::RequestAttemptFinished { record_id, .. }
+            | Self::CompactionAttemptFinished { record_id, .. } => record_id,
         }
     }
 }
