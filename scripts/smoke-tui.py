@@ -180,7 +180,10 @@ def await_screen(master, captured, size, markers=(), absent=(), start=0, complet
                 and all(collapsed(marker.encode()) in flat for marker in markers)
                 and all(collapsed(marker.encode()) not in flat for marker in absent)
                 and all(any(row.strip(" │") == value for row in screen.splitlines()) for value in exact_lines)
-                and (not complete or any(row.endswith("┘") for row in screen.splitlines())))
+                # A frame is complete once the composer's bottom rule, a whole row of "─", is
+                # painted: the column has no box corner to wait for (ui-ux §input).
+                and (not complete or any(row.strip() and set(row.strip()) == {"─"}
+                                         for row in screen.splitlines())))
     read_until(master, captured, ready, timeout=5,
                description=f"screen {size} with {markers!r} without {absent!r}")
     return rendered_screen(bytes(captured[start:]), size)
