@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Implemented |
-| Owns | Compaction planning, immutable checkpoint provenance, collected summarizer outcomes and bounded orchestration |
+| Owns | Compaction planning, immutable checkpoint provenance, collected summarizer outcomes, bounded orchestration and the user's request for one |
 | Depends on | BUD-1–BUD-4, JRN-1/JRN-3/JRN-5/JRN-7, PRV-1/PRV-3/PRV-4, TIM-2–TIM-5; [context epochs](../ui-ux.md#context-epochs-and-branch-selection) |
 | Proven by | Agent, provider, JSONL and runtime tests below; the [spike](../spikes/compaction/README.md) retains source comparison |
 
@@ -58,13 +58,26 @@ does not publish a checkpoint or alter the source head; a soft failure may conti
 only while it remains within the hard budget. Hard failure is visible, and uncertain persistence
 keeps JRN-7's freeze/reopen rule; neither retry nor model/tool dispatch crosses an unacknowledged fact.
 
+**CPL-9 — A request is one idle attempt with nothing to continue.** `/compact` asks the runtime
+for one compaction of the selected head. It is admitted only while idle: no turn, no pending
+approval, no owned compaction, shutdown not begun. Every other state, a missing budget, and a plan
+that finds nothing to replace or nothing that fits, is a typed refusal that writes no record. An
+admitted request follows CPL-1–CPL-6 and CPL-8 unchanged: one authorization, one attempt, one
+checkpoint, no fabricated step and no model call afterwards. Text submitted while it runs returns
+to the composer as `Compacting`; interrupt and shutdown cancel and join it as they do automatic
+work. The outcome, published or failed with its kind, reaches the composition root as a report
+beside the attempt's visible failure. Rejected: holding submitted text in the runtime until the
+checkpoint lands, a second waiting place with nothing on screen saying so; and retrying a failed
+request, because the user can ask again.
+
 ## Model
 
 The agent crate owns semantic types, checkpoint validation/projection and the staging entrypoints.
 The provider crate owns codec-based estimates and prepares one append-only request.
 The runtime owns scheduling, transport, collection and commit ordering. The ordinary
 agent loop still receives only its own steps; it resumes the same pending step with freshly
-projected context after a checkpoint.
+projected context after a checkpoint. A requested compaction takes the same path from a pure plan
+to an acknowledged checkpoint and then reports instead of refreshing a step.
 
 ```text
 acknowledged context -> pure plan -> Compaction attempt authorization -> ack
@@ -137,3 +150,4 @@ offline; cache hits and model-generated summary quality are not live-test requir
 | CPL-6 | `cpl_6_summary_http_preserves_environment_output_and_accounting_across_dialects`, `cpl_6_summary_http_rejects_tools_and_keeps_their_output_for_audit`, `cpl_6_summary_http_failures_keep_raw_terminal_and_partial_output`, `cpl_6_collector_keeps_cancelled_partial_output_and_bounds_block_growth`, `collected_attempt_validation_distinguishes_success_from_partial_failure` |
 | CPL-7 | `skill_preparation_completes_while_compaction_is_waiting`, `soft_pre_turn_compaction_uses_a_distinct_owner_and_refreshes_after_checkpoint`, `post_tool_hard_pressure_preserves_history_and_dispatches_nothing`, `typed_context_error_recovers_the_same_step_once`, `context_error_after_output_does_not_start_compaction`, `summary_context_pressure_does_not_retry_with_changed_input`, `compaction_timeout_cancels_and_joins_before_continuation`, `interrupt_cancels_and_joins_the_owned_compaction`, `shutdown_cancels_and_joins_the_owned_compaction`, `interrupt_during_compaction_authorization_never_dispatches_the_summarizer`, `shutdown_during_compaction_authorization_never_dispatches_the_summarizer`, `interrupt_during_compaction_terminal_ack_starts_no_continuation`, `shutdown_during_checkpoint_ack_starts_no_agent_continuation`, `interrupt_during_refreshed_agent_authorization_starts_no_provider`, `cpl_7_turn_compaction_limits_are_bounded_independent_and_reset` |
 | CPL-8 | `failed_attempt_keeps_the_frozen_source_usable`, `failed_compaction_diagnostic_reopens_without_exposing_partial_output`, `post_tool_hard_pressure_preserves_history_and_dispatches_nothing`, `uncertain_checkpoint_append_freezes_before_agent_continuation`, `cancelled_compaction_terminal_append_keeps_the_operation_owned` |
+| CPL-9 | `cpl_9_requested_compaction_publishes_a_checkpoint_and_dispatches_no_step`, `cpl_9_a_running_step_refuses_the_request`, `cpl_9_an_owned_compaction_and_shutdown_refuse_the_request`, `cpl_9_a_waiting_approval_refuses_the_request`, `cpl_9_planning_refusals_are_typed_and_write_nothing`, `cpl_9_interrupt_cancels_a_requested_compaction_and_reports_it`, `cpl_9_shutdown_cancels_a_requested_compaction_and_dispatches_nothing`, `cpl_9_text_during_a_requested_compaction_returns_to_the_composer`, `cpl_9_failed_and_timed_out_requests_report_their_kind_and_keep_the_head` |

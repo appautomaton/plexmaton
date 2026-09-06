@@ -1,4 +1,4 @@
-//! Bounded ownership and commit ordering for automatic context compaction.
+//! Bounded ownership and commit ordering for automatic and requested context compaction.
 
 use plexmaton_agent::{
     BudgetDecision, BudgetPressure, CompactionAttemptFinished, CompactionFailure, CompactionId,
@@ -11,8 +11,9 @@ use plexmaton_provider::{
 use tokio_util::sync::CancellationToken;
 
 use super::{LiveRuntime, RetainedFuture, transition::AfterCommit};
-use crate::RuntimeError;
+use crate::{RequestedCompactionOutcome, RuntimeError};
 
+mod requested;
 mod state;
 pub(in crate::runtime) use state::{CompactionOperation, TurnCompactionBudget};
 use state::{CompactionPhase, Continuation};
@@ -20,6 +21,14 @@ use state::{CompactionPhase, Continuation};
 pub(in crate::runtime) use state::{CompactionTrigger, DEFAULT_COMPACTION_TIMEOUT};
 
 impl LiveRuntime {
+    fn next_compaction_id(&self) -> CompactionId {
+        CompactionId::new(format!(
+            "compaction-j{}",
+            self.agent.journal().next_sequence().get()
+        ))
+        .unwrap_or_else(|error| unreachable!("bounded compaction identity is valid: {error}"))
+    }
+
     pub(super) fn cancel_compaction_continuation(&mut self) {
         let Some(operation) = self.compaction.as_mut() else {
             return;
@@ -96,11 +105,7 @@ impl LiveRuntime {
         let Some((model, tools)) = self.driver.budget_inputs() else {
             return self.finish_compaction_failure(call, trigger);
         };
-        let id = CompactionId::new(format!(
-            "compaction-j{}",
-            self.agent.journal().next_sequence().get()
-        ))
-        .unwrap_or_else(|error| unreachable!("bounded compaction identity is valid: {error}"));
+        let id = self.next_compaction_id();
         let prepared = match plan_compaction(
             self.agent.journal(),
             self.agent.selected_head(),
@@ -128,16 +133,21 @@ impl LiveRuntime {
         input: CompactionInput,
         continuation: Continuation,
     ) -> Result<(), RuntimeError> {
-        let step_id = match &continuation {
-            Continuation::ModelCall { original, .. } => &original.step_id,
+        // Automatic work spends the turn's summary budget; a request is one attempt, no loop.
+        let continuation = match continuation {
+            Continuation::ModelCall { original, trigger } => {
+                if !self
+                    .compaction_budget
+                    .take_summary_attempt(&original.step_id)
+                {
+                    return self.finish_compaction_failure(original, trigger);
+                }
+                Continuation::ModelCall { original, trigger }
+            }
+            Continuation::Requested => Continuation::Requested,
             Continuation::Cancelled => return Err(RuntimeError::CompactionContinuationMissing),
         };
-        if !self.compaction_budget.take_summary_attempt(step_id) {
-            let Continuation::ModelCall { original, trigger } = continuation else {
-                unreachable!("cancelled work does not start another attempt")
-            };
-            return self.finish_compaction_failure(original, trigger);
-        }
+        let requested = matches!(continuation, Continuation::Requested);
         let (attempt_id, reaction) = self
             .agent
             .authorize_compaction_attempt(prepared.plan(), self.clock.now())
@@ -146,6 +156,7 @@ impl LiveRuntime {
             prepared,
             continuation,
             phase: CompactionPhase::Authorizing { attempt_id, input },
+            requested,
         });
         if let Err(error) =
             self.begin_transition(reaction, Vec::new(), AfterCommit::StartCompaction)
@@ -291,6 +302,15 @@ impl LiveRuntime {
             return Err(RuntimeError::CompactionContinuationMissing);
         };
         if matches!(&operation.continuation, Continuation::Cancelled) {
+            if operation.requested {
+                self.report.requested_compaction = Some(RequestedCompactionOutcome::Failed {
+                    id: operation.prepared.plan().id().clone(),
+                    kind: finished
+                        .outcome()
+                        .failure()
+                        .unwrap_or(CompactionFailure::Cancelled),
+                });
+            }
             return Ok(());
         }
         if matches!(finished.outcome(), CompactionOutcome::Complete { .. }) {
@@ -328,6 +348,12 @@ impl LiveRuntime {
                     .map_err(RuntimeError::CompactionRefused)?;
                 self.authorize_model(call)
             }
+            Continuation::Requested => {
+                self.report.requested_compaction = Some(RequestedCompactionOutcome::Published {
+                    id: operation.prepared.plan().id().clone(),
+                });
+                Ok(())
+            }
             Continuation::Cancelled => Ok(()),
         }
     }
@@ -352,6 +378,18 @@ impl LiveRuntime {
                 operation.phase = CompactionPhase::Failing;
                 self.compaction = Some(operation);
                 self.begin_transition(reaction, Vec::new(), AfterCommit::CompleteCompactionFailure)
+            }
+            Continuation::Requested => {
+                let kind = match &operation.phase {
+                    CompactionPhase::Finishing { finished } => finished.outcome().failure(),
+                    _ => None,
+                }
+                .unwrap_or(CompactionFailure::Unavailable);
+                self.report.requested_compaction = Some(RequestedCompactionOutcome::Failed {
+                    id: operation.prepared.plan().id().clone(),
+                    kind,
+                });
+                Ok(())
             }
             Continuation::Cancelled => Ok(()),
         }

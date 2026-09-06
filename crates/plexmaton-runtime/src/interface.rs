@@ -1,7 +1,8 @@
 //! Results and failures crossing the live runtime's public boundary.
 
 use plexmaton_agent::{
-    ModelStepId, UndeliveredInput, UndeliveredModelInput, UnresolvedApprovalDecision,
+    CompactionFailure, CompactionId, ModelStepId, UndeliveredInput, UndeliveredModelInput,
+    UnresolvedApprovalDecision,
 };
 use plexmaton_core::{AgentId, ConversationEventEnvelope, ToolCallId};
 use thiserror::Error;
@@ -43,6 +44,56 @@ impl ConversationRecovery {
     }
 }
 
+/// The answer to one `/compact`: the operation started, or why it did not (CPL-9).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CompactionRequest {
+    /// The summarizer is owned; the outcome arrives later as a [`RequestedCompactionOutcome`].
+    Started {
+        /// Identity the later outcome echoes.
+        id: CompactionId,
+    },
+    /// Nothing started and nothing changed.
+    Refused(CompactionRequestRefusal),
+}
+
+/// Why a requested compaction did not start; each names the state the user can see (CPL-9).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompactionRequestRefusal {
+    /// A turn is in progress: a model step, tool work or input still becoming durable.
+    TurnActive,
+    /// A tool call is waiting for the user's decision.
+    ApprovalPending,
+    /// An automatic or requested compaction already owns the summarizer.
+    CompactionActive,
+    /// Shutdown has begun.
+    ShuttingDown,
+    /// The driver cannot budget requests, so no plan can be made.
+    BudgetUnavailable,
+    /// Planning found no whole atoms that a summary would usefully replace.
+    NothingToCompact,
+    /// The history, its required tail or the environment exceeds what the model can take.
+    HistoryTooLarge,
+    /// The selected head could not be projected or budgeted.
+    SourceUnavailable,
+}
+
+/// How a requested compaction ended; the source head changed only if it published (CPL-9).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequestedCompactionOutcome {
+    /// The checkpoint is an acknowledged journal fact; the next request starts from it.
+    Published {
+        /// Identity echoed from [`CompactionRequest::Started`].
+        id: CompactionId,
+    },
+    /// The attempt ended without a checkpoint; its audit is durable and the head is unchanged.
+    Failed {
+        /// Identity echoed from [`CompactionRequest::Started`].
+        id: CompactionId,
+        /// Typed reason, also visible in the conversation as a runtime error.
+        kind: CompactionFailure,
+    },
+}
+
 /// Non-event results retained when an input could not enter the loop boundary it named.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
@@ -65,6 +116,8 @@ pub struct DispatchReport {
     pub skill_errors: Vec<String>,
     /// An edited retry has transferred from the composer to owned asynchronous preparation.
     pub accepted_retry_edit: Option<plexmaton_agent::RetryTarget>,
+    /// The end of a compaction the user asked for.
+    pub requested_compaction: Option<RequestedCompactionOutcome>,
 }
 
 impl DispatchReport {
@@ -78,6 +131,7 @@ impl DispatchReport {
             && self.cleanup_failures.is_empty()
             && self.skill_errors.is_empty()
             && self.accepted_retry_edit.is_none()
+            && self.requested_compaction.is_none()
     }
 }
 

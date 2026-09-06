@@ -157,6 +157,17 @@ impl LiveRuntime {
             }
             return Err(RuntimeError::ShuttingDown);
         }
+        // A requested compaction freezes the head it is summarizing; text waits in the composer.
+        if self.requested_compaction_active()
+            && let Some(input) = rejected_user_input(
+                &input,
+                selected_skill.as_deref(),
+                UndeliveredReason::Compacting,
+            )
+        {
+            self.report.undelivered.push(input);
+            return Ok(self.take_report());
+        }
         if matches!(&input, Input::Interrupted) {
             self.interrupt_prepared_inputs();
         }

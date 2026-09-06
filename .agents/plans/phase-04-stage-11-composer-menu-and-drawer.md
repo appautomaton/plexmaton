@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §input, §surface model (Drawer), §responsive layout classes |
-| Status | Slices 1 and 2 of 6 done; slice 2's Conversations page moves to the menu in slice 4 |
+| Status | Slices 1–3 of 6 done; slice 2's Conversations page moves to the menu in slice 4 |
 
 ## Outcome
 
@@ -38,11 +38,13 @@ reading; the user's words placed them in the composer, so slice 4 moves them.
    layout class for the page list with pages as cropped region fixtures, and the README's key
    table. `smoke-tui.py` loses its palette and skill walkthroughs, which component tests own, and
    keeps one `Ctrl-P` open-and-close probe beside its terminal-lifecycle checks.
-3. **Manual compaction.** A `CompactionTrigger::Requested` path in the runtime that plans and
-   publishes a checkpoint with no model-call continuation, admitted only while idle: no turn, no
-   pending approval, no active compaction. Refusal is a typed value naming its reason. CPL-9 in
-   `specs/compaction.md`. Closed by runtime tests for the idle path, each refusal, and
-   interrupt and shutdown during a requested compaction, none dispatching a model step.
+3. **Manual compaction — done.** `LiveRuntime::request_compaction` plans and publishes a
+   checkpoint through `Continuation::Requested`, with no model-call continuation, admitted only
+   while idle: no turn, no pending approval, no owned compaction. `CompactionRequestRefusal`
+   names why not; `RequestedCompactionOutcome` reaches the dispatch report; text typed meanwhile
+   returns as `UndeliveredReason::Compacting`. CPL-9 in `specs/compaction.md`. Closed by runtime
+   tests for the idle path, each refusal, text during the run, and interrupt, shutdown, failure
+   and timeout during a requested compaction, none dispatching a model step.
 4. **Composer menu: `/compact`, `/new`, `/resume`.** Rename `SkillPicker` to `ComposerMenu`; one
    `MenuIntent` replaces `CommandPaletteIntent` and `SkillPickerIntent`, and the router keys its
    menu grammar on `SurfaceKind`, not on the surface's id. `Command` returns as the
