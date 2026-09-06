@@ -124,7 +124,7 @@ output_reserve_tokens = 5000
             with subprocess.Popen(command, env=env, cwd=directory, stdin=subprocess.DEVNULL,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as child:
                 try:
-                    text = wait_for(lambda: (text if "Plexmaton · idle" in (text := screen()) and "Type a message" in text else None), "idle agent and composer")
+                    text = wait_for(lambda: (text if "Message Plexmaton" in (text := screen()) and "Type a message" in text else None), "ready agent and composer")
                     row = next(row for row, line in enumerate(text.splitlines()) if "Type a message" in line)
                     send(f"\\x1b[<0;5;{row + 1}M\\x1b[<0;5;{row + 1}m")
                     send("fixture")
@@ -143,6 +143,17 @@ output_reserve_tokens = 5000
                             return window.get("columns") == columns
 
                         wait_for(resized, f"{columns}-column terminal resize")
+                        # Kitty's new dimensions can precede the application's resized frame and
+                        # its owned preparation. Scroll only after current-width content is drawn;
+                        # a wheel over an unresolved viewport can otherwise leave tail-follow on.
+                        def prepared_frame():
+                            text = screen()
+                            complete = any(line == "─" * columns for line in text.splitlines())
+                            return complete and "Preparing text…" not in text and (
+                                "Attention" in text or "Softmax alone" in text
+                            )
+
+                        wait_for(prepared_frame, f"prepared {columns}-column application frame")
                         # Scroll the actual conversation to its first complete formula.
                         send(r"\x1b[<64;5;6M" * 180)
                         text = wait_for(lambda: (text if "Attention" in (text := screen()) and "softmax" in text else None),
@@ -165,9 +176,9 @@ output_reserve_tokens = 5000
                             raise AssertionError("native formula click did not retain the complete original delimiters")
                         snapshots.append({"columns": columns, "text": text, "copied": value})
                         send(r"\x10")
-                        wait_for(lambda: "Commands" in screen(), "command palette over native math")
+                        wait_for(lambda: "Type to filter" in screen(), "Drawer over native math")
                         send(r"\x1b")
-                        wait_for(lambda: "Commands" not in screen(), "command palette dismissal")
+                        wait_for(lambda: "Type to filter" not in screen(), "Drawer dismissal")
                     send(r"\x04\x04")
                     child.wait(timeout=8)
                     if child.returncode != 0:

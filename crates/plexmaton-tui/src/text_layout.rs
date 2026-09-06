@@ -15,7 +15,7 @@ mod tests;
 pub(crate) use cache::{Cache, PreparedEntry};
 pub(crate) mod wrap;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Fragment {
     pub column: usize,
     pub text: Range<usize>,
@@ -28,7 +28,7 @@ pub(crate) enum FragmentKind {
     Atomic { columns: usize },
 }
 
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Layout {
     pub lines: Vec<Line>,
     pub text: String,
@@ -54,6 +54,25 @@ impl Layout {
                 .sum::<usize>()
             + self.lines.capacity() * size_of::<Line>()
             + self.lines.iter().map(Line::allocation_bytes).sum::<usize>()
+    }
+
+    /// Validate borrowed text fragments against a measured row width without parsing or reflowing.
+    pub(crate) fn text_fragments_within_width(&self, width: usize) -> bool {
+        self.rows.iter().all(|row| {
+            row.iter().all(|fragment| {
+                let Some(text) = self.text.get(fragment.text.clone()) else {
+                    return false;
+                };
+                match fragment.kind {
+                    FragmentKind::Text => fragment
+                        .column
+                        .checked_add(text.width())
+                        .is_some_and(|end| end <= width),
+                    // Formula geometry and its atomic map are validated independently.
+                    FragmentKind::Atomic { .. } => true,
+                }
+            })
+        })
     }
 
     pub fn decoration(&mut self, line: Line) {
@@ -120,6 +139,67 @@ impl Layout {
         self.formulas.extend(other.formulas);
     }
 
+    /// Validate a row-aligned prefix without allocating or cloning its presentation.
+    pub(crate) fn prefix_valid(&self, rows: usize, text_bytes: usize) -> bool {
+        if rows == 0
+            || rows > self.rows.len()
+            || rows > self.lines.len()
+            || text_bytes > self.text.len()
+            || !self.text.is_char_boundary(text_bytes)
+            || self.rows[..rows].iter().any(|row| {
+                row.iter().any(|fragment| {
+                    fragment.text.end > text_bytes
+                        || fragment.text.start > fragment.text.end
+                        || self.text.get(fragment.text.clone()).is_none()
+                })
+            })
+        {
+            return false;
+        }
+        if self.formulas.iter().any(|formula| {
+            let Some(end) = formula.row.checked_add(formula.height) else {
+                return true;
+            };
+            (formula.row < rows && (end > rows || formula.text.end > text_bytes))
+                || (formula.row >= rows && formula.text.start < text_bytes)
+                || (formula.text.start < text_bytes && formula.text.end > text_bytes)
+                || self.text.get(formula.text.clone()).is_none()
+        }) {
+            return false;
+        }
+        true
+    }
+
+    /// Clone a validated prefix while preserving every visible-text and atomic range.
+    ///
+    /// Checkpoints are created only at complete top-level blocks, so a formula cannot straddle
+    /// this boundary. Returning `None` for a forged or stale coordinate keeps the cache from
+    /// manufacturing a source map while assembling a suffix request.
+    pub(crate) fn prefix(&self, rows: usize, text_bytes: usize) -> Option<Self> {
+        if !self.prefix_valid(rows, text_bytes) {
+            return None;
+        }
+        let formulas = self
+            .formulas
+            .iter()
+            .filter(|formula| {
+                formula
+                    .row
+                    .checked_add(formula.height)
+                    .is_some_and(|end| end <= rows)
+                    && formula.text.end <= text_bytes
+                    && formula.text.start <= formula.text.end
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        Some(Self {
+            lines: self.lines[..rows].to_vec(),
+            text: self.text[..text_bytes].to_owned(),
+            rows: self.rows[..rows].to_vec(),
+            formulas,
+        })
+    }
+
     pub fn blank(&mut self) {
         if self.lines.last().is_some_and(|line| !line.spans.is_empty()) {
             self.decoration(Line::default());
@@ -132,7 +212,15 @@ impl Layout {
             self.lines.pop();
             self.rows.pop();
         }
-        let end = self.text.trim_end_matches('\n').len();
+        // An unfinished formula may end in source newlines. Only remove composition separators,
+        // never bytes owned by an atomic formula range (MTH-1).
+        let end = self.text.trim_end_matches('\n').len().max(
+            self.formulas
+                .iter()
+                .map(|formula| formula.text.end)
+                .max()
+                .unwrap_or(0),
+        );
         self.text.truncate(end);
     }
 

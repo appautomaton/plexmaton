@@ -8,13 +8,14 @@ fn parse_cells(
     events: Vec<Event<'_>>,
     columns: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Vec<Vec<Line>>, PlainReason> {
     split_cells(events, columns)?
         .into_iter()
         .map(|row| {
             row.into_iter()
                 .map(|cell| {
-                    let lines = render_events(cell, 512, math)?;
+                    let lines = render_events(cell, 512, math, completion)?;
                     let mut spans = Vec::new();
                     for (index, line) in lines.lines.into_iter().enumerate() {
                         if index > 0 {
@@ -62,6 +63,7 @@ pub(super) fn render(
     alignment: Vec<Alignment>,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
     if events
         .iter()
@@ -72,10 +74,11 @@ pub(super) fn render(
             alignment,
             width,
             math,
+            completion,
         );
     }
-    let rows = parse_cells(events, alignment.len(), math)?;
-    let mut out = Renderer::new(width, math);
+    let rows = parse_cells(events, alignment.len(), math, completion)?;
+    let mut out = Renderer::new(width, math, completion);
     let (text, offsets) = canonical_text(&rows, |cell| cell.to_string().into());
     out.layout.text = text;
     if width < alignment.len() * 8 + (alignment.len() - 1) * 3 {

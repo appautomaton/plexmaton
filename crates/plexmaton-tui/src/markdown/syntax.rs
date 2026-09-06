@@ -126,7 +126,23 @@ impl<'a> Source<'a> {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn events(&self) -> impl Iterator<Item = Result<Event<'_>, super::PlainReason>> {
+        self.events_with_ranges().map(|event| match event {
+            Ok((event, _)) => Ok(event),
+            Err(reason) => Err(reason),
+        })
+    }
+
+    /// Events with source ranges retained for conservative append-only checkpoints.
+    ///
+    /// The ordinary renderer only needs event values. Checkpoint validation additionally needs
+    /// to prove that a complete top-level block is unchanged after the parser has seen the whole
+    /// source; ranges make that dependency explicit instead of treating raw prefix bytes as a
+    /// semantic identity.
+    pub(super) fn events_with_ranges(
+        &self,
+    ) -> impl Iterator<Item = Result<(Event<'_>, Range<usize>), super::PlainReason>> {
         Parser::new_ext(&self.rewritten, OPTIONS)
             .into_offset_iter()
             .filter_map(|(event, range)| {
@@ -140,11 +156,14 @@ impl<'a> Source<'a> {
                                 .get(replacement.source.clone())
                                 .ok_or(super::PlainReason::Complexity);
                             return Some(source.map(|source| {
-                                if replacement.display {
-                                    Event::DisplayMath(source.into())
-                                } else {
-                                    Event::InlineMath(source.into())
-                                }
+                                (
+                                    if replacement.display {
+                                        Event::DisplayMath(source.into())
+                                    } else {
+                                        Event::InlineMath(source.into())
+                                    },
+                                    replacement.source.clone(),
+                                )
                             }));
                         }
                         Event::Text(_) | Event::End(TagEnd::Link) => return None,
@@ -153,17 +172,44 @@ impl<'a> Source<'a> {
                 }
                 Some(
                     match event {
-                        Event::InlineMath(_) => self
-                            .original_math(range)
-                            .map(|source| Event::InlineMath(source.into())),
-                        Event::DisplayMath(_) => self
-                            .original_math(range)
-                            .map(|source| Event::DisplayMath(source.into())),
-                        event => Some(event),
+                        Event::InlineMath(_) => self.original_math(range.clone()).map(|source| {
+                            (Event::InlineMath(source.into()), self.original_range(range))
+                        }),
+                        Event::DisplayMath(_) => self.original_math(range.clone()).map(|source| {
+                            (
+                                Event::DisplayMath(source.into()),
+                                self.original_range(range),
+                            )
+                        }),
+                        event => Some((event, self.original_range(range))),
                     }
                     .ok_or(super::PlainReason::Complexity),
                 )
             })
+    }
+
+    fn original_range(&self, range: Range<usize>) -> Range<usize> {
+        let start = self.original_offset(range.start);
+        let end = self.original_offset(range.end);
+        start..end
+    }
+
+    fn original_offset(&self, offset: usize) -> usize {
+        let mut delta = 0isize;
+        for replacement in &self.replacements {
+            if offset < replacement.rewritten.start {
+                break;
+            }
+            if offset <= replacement.rewritten.end {
+                return if offset == replacement.rewritten.end {
+                    replacement.source.end
+                } else {
+                    replacement.source.start
+                };
+            }
+            delta += replacement.source.len() as isize - replacement.rewritten.len() as isize;
+        }
+        (offset as isize + delta).max(0) as usize
     }
 
     fn original_math(&self, range: Range<usize>) -> Option<&str> {

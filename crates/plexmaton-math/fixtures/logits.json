@@ -1,0 +1,25 @@
+{
+  "text": "Logits gradient\n\n\\[\n\\frac{\\partial L}{\\partial \\text{logits}}\n=\n\\hat p-y\n\\]\n\nPredicted probabilities\n\n\\[\n\\hat p=[0.7,0.2,0.1]\n\\]\n\nSoftmax and cross-entropy\n\n\\[\n\\text{logits}\n\\rightarrow\n\\text{softmax 概率}\n\\rightarrow\n\\text{和真实标签做 cross-entropy}\n\\]\n\nLabel and prediction\n\n\\[\n\\boxed{\n\\text{真实标签 }y\n\\quad\\text{对比}\\quad\n\\text{模型预测概率 }\\hat p\n}\n\\]\n\n",
+  "math": [
+    {
+      "start": 17,
+      "end": 75,
+      "display": true
+    },
+    {
+      "start": 102,
+      "end": 128,
+      "display": true
+    },
+    {
+      "start": 157,
+      "end": 262,
+      "display": true
+    },
+    {
+      "start": 286,
+      "end": 380,
+      "display": true
+    }
+  ]
+}

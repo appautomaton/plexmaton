@@ -15,9 +15,13 @@ fn semantic_paint_keeps_custom_role_patch_order_and_nested_markdown() {
         _ => Style::new(),
     });
     let source = "# *[go `now`](https://example.invalid)*";
-    let prepared =
-        crate::markdown::render_layout(source, 88, crate::math::MathPresentation::Native)
-            .expect("nested Markdown");
+    let prepared = crate::markdown::render_layout(
+        source,
+        88,
+        crate::math::MathPresentation::Native,
+        crate::markdown::Completion::Final,
+    )
+    .expect("nested Markdown");
     for palette in [
         custom,
         Palette::ansi(),
@@ -73,6 +77,7 @@ fn retained_style_accounting_includes_composed_patch_capacity() {
         "**[go](https://example.invalid)**",
         60,
         crate::math::MathPresentation::Native,
+        crate::markdown::Completion::Final,
     )
     .expect("composed style");
     let before = prepared.allocation_bytes();

@@ -73,7 +73,7 @@ pub(super) fn scene(list: &DisplayList, axis_height: f64) -> Result<Scene, MathE
         return Err(MathError::Empty);
     }
     align_radical_roofs(&mut items);
-    combine_macrons(&mut items);
+    combine_accents(&mut items);
     let items = group_text(items);
     Ok(Scene {
         width: list.width,
@@ -121,6 +121,7 @@ fn font_style(font: FontId) -> Result<FontStyle, MathError> {
         FontId::MainRegular
         | FontId::AmsRegular
         | FontId::TypewriterRegular
+        | FontId::CjkRegular
         | FontId::Size1Regular
         | FontId::Size2Regular
         | FontId::Size3Regular
@@ -160,7 +161,48 @@ fn native_character(font: FontId, code: u32) -> Result<char, MathError> {
     char::from_u32(mapped).ok_or(MathError::Unsupported(Unsupported::Glyph))
 }
 
-fn combine_macrons(items: &mut Vec<Item>) {
+fn glyph_metrics(
+    font: FontId,
+    code: u32,
+    scale: f64,
+) -> Result<ratex_font::CharMetrics, MathError> {
+    if let Some(metrics) = get_char_metrics(font, code) {
+        return Ok(metrics);
+    }
+    let ch = native_character(font, code)?;
+    if font != FontId::CjkRegular || !super::is_supported_cjk(ch) {
+        return Err(MathError::Unsupported(Unsupported::Glyph));
+    }
+    // The display list omits the metrics of system-font glyphs. Ask the pinned engine for
+    // the same text glyph box instead of copying its fallback-width/height rules (MTH-2).
+    let style = match native_scale(scale)? {
+        TextScale::Full => ratex_types::MathStyle::Text,
+        TextScale::Script => ratex_types::MathStyle::Script,
+        TextScale::ScriptScript => ratex_types::MathStyle::ScriptScript,
+        TextScale::Large => return Err(MathError::Unsupported(Unsupported::Scale)),
+    };
+    let node = ratex_parser::ParseNode::TextOrd {
+        mode: ratex_parser::Mode::Text,
+        text: ch.to_string(),
+        loc: None,
+    };
+    let glyph = ratex_layout::layout(
+        &[node],
+        &ratex_layout::LayoutOptions {
+            style,
+            ..ratex_layout::LayoutOptions::default()
+        },
+    );
+    Ok(ratex_font::CharMetrics {
+        width: geometry(glyph.width)?,
+        height: geometry(glyph.height)?,
+        depth: geometry(glyph.depth)?,
+        italic: 0.0,
+        skew: 0.0,
+    })
+}
+
+fn combine_accents(items: &mut Vec<Item>) {
     let mut index = 0;
     while index < items.len() {
         let accent = &items[index];
@@ -174,10 +216,14 @@ fn combine_macrons(items: &mut Vec<Item>) {
             index += 1;
             continue;
         };
-        if text != "ˉ" {
-            index += 1;
-            continue;
-        }
+        let combining = match text.as_str() {
+            "ˉ" => '\u{0304}',
+            "^" => '\u{0302}',
+            _ => {
+                index += 1;
+                continue;
+            }
+        };
         let center = accent.x + accent.width / 2.0;
         let target = items[..index]
             .iter()
@@ -195,8 +241,9 @@ fn combine_macrons(items: &mut Vec<Item>) {
                 if scale != other_scale
                     || accent.paint != item.paint
                     || text.chars().count() != 1
-                    || other_baseline <= baseline
+                    || other_baseline + EPSILON < *baseline
                     || other_baseline - baseline > 1.5
+                    || accent.top >= item.top
                     || center < item.x - 0.1
                     || center > item.x + item.width + 0.1
                 {
@@ -209,7 +256,7 @@ fn combine_macrons(items: &mut Vec<Item>) {
         if let Some(target) = target {
             let top = accent.top;
             if let Kind::Glyph { text, .. } = &mut items[target].kind {
-                text.push('\u{0304}');
+                text.push(combining);
             }
             items[target].top = items[target].top.min(top);
             items.remove(index);
@@ -286,8 +333,7 @@ fn glyph(
     let mut merged = false;
     let id = FontId::parse(font).ok_or(MathError::Unsupported(Unsupported::Font))?;
     let mut value = *char_code;
-    let mut glyph_metrics =
-        get_char_metrics(id, value).ok_or(MathError::Unsupported(Unsupported::Glyph))?;
+    let mut glyph_metrics = glyph_metrics(id, value, *scale)?;
     // KaTeX's private-use negation overlay and equals sign share one exact origin.
     // Replace only this verified pair; never emit private-use font codes as Unicode.
     if value == 0xe020 {

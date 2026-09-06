@@ -205,7 +205,7 @@ impl Workspace {
 
     fn preparation_snapshots(&mut self, keys: Vec<Key>) -> Vec<Request> {
         let mut requests = Vec::new();
-        let mut bytes = 0;
+        let mut bytes: usize = 0;
         for key in keys {
             let Some(entry) = self
                 .state
@@ -214,19 +214,33 @@ impl Workspace {
             else {
                 continue;
             };
-            let needed = snapshot_bytes(entry) + key.allocation_bytes();
-            if needed > 192 * 1024 {
+            let base_needed = snapshot_bytes(entry).saturating_add(key.allocation_bytes());
+            if base_needed > 192 * 1024 {
                 self.metrics
                     .accept_prepared(PreparedText::unavailable(key, Refusal::Capacity));
                 self.painted = None;
-            } else if bytes + needed > 192 * 1024 {
+            } else if bytes.saturating_add(base_needed) > 192 * 1024 {
                 break;
             } else {
-                requests.push(
-                    Request::new(key.agent.clone(), entry.clone(), key.width, key.open)
-                        .with_math(key.math),
+                let prefix = self.metrics.prefix_hint_with_budget(
+                    &key.agent,
+                    entry,
+                    key.width,
+                    key.open,
+                    192 * 1024 - bytes - base_needed,
                 );
-                bytes += needed;
+                let request = Request::new(key.agent.clone(), entry.clone(), key.width, key.open)
+                    .with_math(key.math);
+                let (request, retained) = match prefix {
+                    Some(prefix) => {
+                        let retained = base_needed
+                            .saturating_add(crate::markdown::PrefixHint::allocation_bytes(&prefix));
+                        (request.with_prefix(prefix), retained)
+                    }
+                    None => (request, base_needed),
+                };
+                requests.push(request);
+                bytes = bytes.saturating_add(retained);
             }
         }
         requests

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 14 math LaTeX support complete; stage 15 frozen Markdown prefix complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -128,10 +128,10 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Validation after rebasing onto `2febe5b` passed 1,089 Rust tests, 22 Python tests and all three
     terminal smokes, with workspace check/Clippy and the repository hook. Actual streaming and tool-transition frames
     at 120/88/60 columns were inspected in system-temporary storage. The consumed plan is removed.
-    An earlier partial-pipe fixture timeout remains unexplained; isolated, full-fixture and later
-    workspace runs passed without relaxing its deadline. Current release timings and saturated
-    physical-terminal streaming remain unmeasured. A separate literal-TeX wireframe awaits the
-    user's choice; unfinished-math grammar and the UI/UX contract are unchanged.
+    Partial-pipe fixture readiness is sensitive to concurrent process startup: the production
+    deadline can expire before the marker under load; serial fixture runs pass without changing
+    that deadline. Current release timings and saturated physical-terminal streaming remain unmeasured. Stage 14 owns remaining formula-closure reflow
+    reported during live use; retained preparation alone does not settle that behavior.
 
 13. **Chrome diet — in progress.** The conversation column loses its box: the transcript runs
     into the composer's top rule, the composer sits between two rules that carry only the
@@ -141,6 +141,27 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [plan](../plans/phase-04-stage-13-chrome-diet.md), and stage 11's composer menu lands on this
     chrome. Rejected: the box, chrome that said nothing; and current work on the composer's
     rule, which mixed the agent's doing with the user's typing.
+
+14. **Math LaTeX support — complete.** The user’s logits/softmax examples exercise accents,
+    Chinese text and boxed mixed-language formulas. MTH-1–MTH-4 cover engine admission, real
+    preparation and three-width projection of the four exact formulas. MD-3 keeps unfinished
+    native math compact; its four token-stream collapses, up to seven rows, become zero in the
+    exact fixture. After rebasing onto `58c3f66`, 1,117 Rust tests passed with serial scheduling,
+    alongside workspace compilation/Clippy, 22 Python checks and three offline terminal smokes.
+    Six MTH frames were regenerated and inspected with the current conversation/composer layout.
+    Pixel-level streaming flicker remains unverified.
+
+15. **Frozen Markdown prefix — complete.** MD-4 and PRE-1 reuse completed blocks through the
+    owned worker while retaining a full parser pass. The formula-work witness prepares one formula
+    instead of two; 72 suffix/width cases retain canonical rows and copy maps. Malformed hints and
+    capacity pressure fall back without losing admissible source. Validation passed 1,117 workspace
+    tests, compilation, Clippy and corpus gates. Seven paced Kitty deltas,
+    250 ms apart, preserve formula copy, resize, Drawer interaction and clean exit at three widths.
+    Reviewed math frames at [120](../../crates/plexmaton-tui/frames/math/logits-120.svg),
+    [88](../../crates/plexmaton-tui/frames/math/logits-88.svg) and
+    [60](../../crates/plexmaton-tui/frames/math/logits-60.svg), with pending frames alongside,
+    were regenerated and inspected against `58c3f66`. TR-4 still moves bottom-aligned content as rows grow;
+    this preparation optimization does not establish pixel-level flicker elimination.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

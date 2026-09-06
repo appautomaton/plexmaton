@@ -257,10 +257,21 @@ fn other_entries(width: u16) -> Vec<Request> {
 /// PRE-1/MTH-1/MTH-4: all 61 formulas traverse the actual child and validated native reply codec.
 #[tokio::test]
 async fn real_preparation_worker_preserves_the_complete_native_math_reply() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../plexmaton-math/fixtures/attention-derivatives.json"
-    ))
-    .expect("source-linked reply");
+    assert_native_reply(
+        include_str!("../../plexmaton-math/fixtures/attention-derivatives.json"),
+        61,
+    )
+    .await;
+}
+
+/// PRE-1/MTH-1/MTH-2: hats, CJK labels, arrows and the box survive the real child and native codec.
+#[tokio::test]
+async fn real_preparation_worker_preserves_the_logits_math_reply() {
+    assert_native_reply(include_str!("../../plexmaton-math/fixtures/logits.json"), 4).await;
+}
+
+async fn assert_native_reply(fixture: &str, count: usize) {
+    let fixture: serde_json::Value = serde_json::from_str(fixture).expect("source-linked reply");
     let source = fixture["text"].as_str().expect("source");
     let ranges = fixture["math"].as_array().expect("original UTF-8 ranges");
     let mut owner = Preparation::new(PathBuf::from(env!("CARGO_BIN_EXE_plexmaton")));
@@ -282,7 +293,7 @@ async fn real_preparation_worker_preserves_the_complete_native_math_reply() {
         let formulas = value["result"]["Ok"]["formulas"]
             .as_array()
             .expect("formulas");
-        assert_eq!(formulas.len(), 61);
+        assert_eq!(formulas.len(), count);
         for (formula, original) in formulas.iter().zip(ranges) {
             assert!(
                 formula["content"]["Native"].is_object(),
@@ -529,6 +540,13 @@ async fn preparation_timeout_kills_and_reaps_computation() {
 }
 
 fn projected(source: &str) -> plexmaton_tui::Workspace {
+    projected_math(source, plexmaton_tui::math::MathPresentation::default())
+}
+
+fn projected_math(
+    source: &str,
+    math: plexmaton_tui::math::MathPresentation,
+) -> plexmaton_tui::Workspace {
     use plexmaton_core::{
         AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
     };
@@ -552,7 +570,8 @@ fn projected(source: &str) -> plexmaton_tui::Workspace {
             text: source.into(),
         },
     ];
-    let mut workspace = plexmaton_tui::Workspace::default();
+    let mut workspace =
+        plexmaton_tui::Workspace::with_presentation(plexmaton_tui::Palette::default(), math);
     workspace.emit(
         events
             .into_iter()
@@ -564,6 +583,83 @@ fn projected(source: &str) -> plexmaton_tui::Workspace {
             .collect(),
     );
     workspace
+}
+
+/// MD-4/PRE-1/PRE-3: workspace-owned prefix hints cross the real worker boundary, preserve
+/// canonical rows and native copy maps, advance with the stream, and retire at finalization.
+#[tokio::test]
+async fn real_preparation_worker_reuses_streamed_markdown_prefixes() {
+    use plexmaton_core::{ConversationEvent, ConversationEventEnvelope, EventSequence};
+    use plexmaton_tui::math::MathPresentation;
+
+    let mut owner = Preparation::new(PathBuf::from(env!("CARGO_BIN_EXE_plexmaton")));
+    for width in [120, 88, 60] {
+        let mut workspace =
+            projected_math("# Heading\n\n\\[x^2\\]\n\nTail", MathPresentation::Native);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 24))
+            .expect("terminal");
+        for (step, append) in [Some(""), Some(" grows"), Some("\n\nNext"), None]
+            .into_iter()
+            .enumerate()
+        {
+            if step > 0 {
+                let agent_id = AgentId::new("primary").expect("agent");
+                let item_id = TranscriptItemId::new("source").expect("item");
+                let item_revision = step as u64 + 1;
+                let event = match append {
+                    Some(text) => ConversationEvent::TranscriptDelta {
+                        agent_id,
+                        item_id,
+                        item_revision,
+                        text: text.into(),
+                    },
+                    None => ConversationEvent::TranscriptItemFinalized {
+                        agent_id,
+                        item_id,
+                        item_revision,
+                    },
+                };
+                workspace.emit(vec![ConversationEventEnvelope {
+                    sequence: EventSequence::new(step as u64 + 3),
+                    event,
+                }]);
+            }
+            workspace.draw(&mut terminal).expect("pending frame");
+            let work = workspace
+                .take_preparation()
+                .expect("reached source revision");
+            assert_eq!(work.requests.len(), 1);
+            let mut full_request = serde_json::to_value(&work.requests[0]).expect("snapshot");
+            full_request["prefix"] = serde_json::Value::Null;
+            let full: Request = serde_json::from_value(full_request).expect("canonical request");
+            let expected = serde_json::to_value(full.prepare()).expect("canonical presentation");
+            let ticket = owner
+                .submit(work.requests)
+                .expect("bounded request with hint");
+            let completion = owner.next().await;
+            let Completion::Ready(received, Ok(prepared)) = completion else {
+                panic!("real prefix completion: {completion:?}");
+            };
+            assert_eq!(received, ticket);
+            assert_eq!(prepared.len(), 1);
+            let actual = serde_json::to_value(&prepared[0]).expect("worker presentation");
+            assert_eq!(
+                actual["result"], expected["result"],
+                "width {width}, step {step}"
+            );
+            assert_eq!(
+                prepared[0].reused_prefix(),
+                step > 0 && append.is_some(),
+                "width {width}, step {step}"
+            );
+            assert!(workspace.complete_preparation(work.token, prepared));
+            workspace.draw(&mut terminal).expect("adopted frame");
+        }
+    }
+    owner
+        .shutdown()
+        .await
+        .expect("reap prefix preparation worker");
 }
 
 async fn settle(

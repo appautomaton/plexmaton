@@ -118,8 +118,9 @@ git worktree remove .worktrees/surfaces                 # never rm -rf; this tak
 
 Never put a worktree in `.agents/`, which is the tracked corpus.
 
-**Never share `CARGO_TARGET_DIR` between worktrees.** It looks free — the checkouts differ by four
-crates out of seventy-six — and it silently runs the wrong code. Two checkouts of this workspace
+After a move, rebuild packages whose fixtures embed old absolute paths (`cargo clean -p <package>`).
+
+**Never share `CARGO_TARGET_DIR` between worktrees.** Sharing it can silently run the wrong code. Two checkouts of this workspace
 produce the same fingerprint for a member crate, so the second build overwrites the first's
 artifact, and the first checkout's older source files then pass the freshness check against it.
 Reproduce in under a minute:
