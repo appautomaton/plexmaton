@@ -109,16 +109,18 @@ Visual changes are reviewed against real frames before the contract adopts them.
     reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
     responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
 11. **Composer menu and Drawer — in progress.** A Command is a slash command only, typed into the
-    conversation it addresses and run against a captured target; `/compact` is the first. The
-    `$` picker becomes the composer menu and serves `/` too. Configuration, Conversations with
-    New conversation first, and Permissions become pages of the Drawer, pulled from the top edge
-    by `Ctrl-P`; `/config`, `/resume`, `/new`, `/permissions` and the three-second palette hint
-    cease to exist. The user approved the vocabulary and a hand-composed three-width sketch on
-    2026-09-06; real frames replace it slice by slice under the
-    [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md); the Drawer landed with
-    [DRW-1–DRW-4](../specs/drawer.md). Rejected: one picker for
-    both entry points reached by `Ctrl-P`, which would put workspace pages in the composer and
-    make its title lie about the addressee.
+    conversation it addresses and run from there with a captured target: `/new`, `/resume`,
+    `/compact` and `/permissions` for the Session. The `$` picker becomes the composer menu and
+    serves `/` too. The Drawer, pulled from the top edge by `Ctrl-P`, holds what outlives a
+    Session: Configuration, and Project and User permissions; `/config` and the three-second
+    palette hint cease to exist. The user set the vocabulary and the Drawer's geometry on
+    2026-09-06 and, the same day, decided that conversations and Session permissions are typed
+    where the user types, which moved Conversations out of the Drawer after it had landed there
+    with [DRW-1–DRW-4](../specs/drawer.md). Real frames replace the sketch slice by slice under
+    the [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: settings as
+    slash commands, which put workspace pages in the composer and made its title lie about the
+    addressee; and conversations as a Drawer page, which hid what users type by habit behind a
+    chord.
 
 12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
     prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.

@@ -4,16 +4,20 @@
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §input, §surface model (Drawer), §responsive layout classes |
-| Status | Slices 1 and 2 of 5 done |
+| Status | Slices 1 and 2 of 6 done; slice 2's Conversations page moves to the menu in slice 4 |
 
 ## Outcome
 
-Commands live where their addressee is. A `/` in the composer offers only what the conversation
-it names can do to itself, and runs it against a target captured at that moment. Everything wider
-than a conversation, the resolved configuration, saved conversations and permissions, is a page of
-the Drawer, the workspace's own surface, pulled from the top edge by `Ctrl-P` from any focus state
-without touching a draft. The detached command palette, its slash aliases and the palette hint are
-gone, and the surface count does not grow: pages and menu rows are content.
+Commands are what the user does from inside a conversation, typed where they type. A `/` in the
+composer offers `/new`, `/resume`, `/compact` and `/permissions` for the Session, and runs the
+chosen one from the conversation the composer names against a target captured at that moment.
+What outlives a Session, the resolved configuration and the Project and User permissions, is a
+page of the Drawer, the workspace's own surface, pulled from the top edge by `Ctrl-P` from any
+focus state without touching a draft. The detached command palette, `/config` and the palette
+hint are gone, and the surface count does not grow: pages and menu rows are content.
+
+Decided by the user on 2026-09-06. Slice 2 had put Conversations in the Drawer on an agent's
+reading; the user's words placed them in the composer, so slice 4 moves them.
 
 ## Slices
 
@@ -39,20 +43,31 @@ gone, and the surface count does not grow: pages and menu rows are content.
    pending approval, no active compaction. Refusal is a typed value naming its reason. CPL-9 in
    `specs/compaction.md`. Closed by runtime tests for the idle path, each refusal, and
    interrupt and shutdown during a requested compaction, none dispatching a model step.
-4. **Composer menu and `/compact`.** Rename `SkillPicker` to `ComposerMenu`; one `MenuIntent`
-   replaces `CommandPaletteIntent` and `SkillPickerIntent`, and the router keys its menu grammar
-   on `SurfaceKind`, not on the surface's id. `Command` returns as the conversation-command enum,
-   `Compact` first, carrying a `CommandTarget` of agent, conversation, head and revision that the
-   composition root revalidates before dispatch; a stale or busy target is a notice in that
-   conversation, never a redirect. A menu accept outranks retry
-   submission; a bare `Enter` with no menu keeps today's retry precedence. `specs/skill-picker.md`
-   becomes `specs/composer-menu.md`, SKP numbers kept and a `CMD` prefix for command rows. Closed
-   by tests for `/` listing only conversation commands, `/config` and `/compact please` staying
-   literal, Tab versus
-   Enter, Escape keeping the draft, the stale-target refusal, Unicode and paste inside the token,
-   three `composer-menu-*` frames, and one runtime test driving `/compact` against a loopback
-   fixture; the PTY smoke does not.
-5. **Pressed-pointer consolidation.** One `Pressed { surface, target, at }` replaces the five
+4. **Composer menu: `/compact`, `/new`, `/resume`.** Rename `SkillPicker` to `ComposerMenu`; one
+   `MenuIntent` replaces `CommandPaletteIntent` and `SkillPickerIntent`, and the router keys its
+   menu grammar on `SurfaceKind`, not on the surface's id. `Command` returns as the
+   conversation-command enum carrying a `CommandTarget` of agent, conversation, head and revision
+   that the composition root revalidates before dispatch; a stale or busy target is a notice in
+   that conversation, never a redirect. `/new` accepts at once as `ConversationRequest::New`;
+   `/resume` shows the saved conversations as menu rows, the text after it as the query, with
+   loading and failure rows inside the menu, so the Drawer's Conversations page and `Page::Conversations`
+   go and the listing, validation and replacement in the CLI stay as they are. A menu accept
+   outranks retry submission; a bare `Enter` with no menu keeps today's retry precedence.
+   `specs/skill-picker.md` becomes `specs/composer-menu.md`, SKP numbers kept and a `CMD` prefix
+   for command rows; SPK-1's discovery clause moves with the rows. Closed by tests for `/`
+   listing the four commands, `/config` and `/compact please` staying literal, Tab versus Enter,
+   Escape keeping the draft, the stale-target refusal, `/resume` rows sharing SPK-1's identity
+   and cancellation by keyboard and pointer, Unicode and paste inside the token, three
+   `composer-menu-*` frames, and one runtime test driving `/compact` against a loopback fixture;
+   the PTY smoke does not.
+5. **Permissions by lifetime.** `/permissions` lists the Session's grants and the native
+   file-change preset as menu rows; a row reviews and confirms in the menu through PER-7's
+   revisioned intents. The Drawer's Permissions page keeps what outlives the Session: Project
+   grants, project configuration trust under PER-8, and the User rules snapshot, read only.
+   Closed by tests that a Session grant is not offered in the Drawer and a Project grant is not
+   offered in the menu, revocation from each place reaching the one owner, and PER-7's frames
+   re-cut per place.
+6. **Pressed-pointer consolidation.** One `Pressed { surface, target, at }` replaces the five
    `pressed_*` slots; one exhaustive `hit` per surface and one `activate` replace the chained
    pointer handlers, and the wildcard arms over `SurfaceId` go. Closed by the existing button tests
    plus one proving a press on one surface cannot activate a release on another, and one proving
@@ -60,14 +75,15 @@ gone, and the surface count does not grow: pages and menu rows are content.
 
 ## Order and why
 
-1 first because every later slice is written in its vocabulary. 2 before 4 because the pages must
-be reachable from the Drawer before the composer stops dispatching them. 3 before 4 so the Commands
-menu lands with one real row and one real refusal, never an empty menu. 5 last because it
-refactors the two surfaces that 2 and 4 shape.
+1 first because every later slice is written in its vocabulary. 3 before 4 so the Commands menu
+lands with one real operation and one real refusal, never an empty menu. 4 before 5 because
+`/permissions` is a menu row and needs the menu. 6 last because it refactors the surfaces that 2,
+4 and 5 shape.
 
 ## Deliberately not in this plan
 
 Worker inputs offering `/` or `$`; targets other than the primary agent; `/branch` and `/rewind`,
-which are Phase 02 stage 2's; editing configuration in the Drawer; Drawer motion, which is stage
-10's clock if it is ever wanted; scope labels on menu rows, because placement is the scope; and any
-hand-off from a typed `/config` to the Drawer, which would blur the line this stage draws.
+which are Phase 02 stage 2's; `/model`, which needs the runtime to change a conversation's model
+mid-flight and is its own stage; editing configuration in the Drawer; Drawer motion, which is
+stage 10's clock if it is ever wanted; scope labels on menu rows, because placement is the scope;
+and any hand-off from a typed `/config` to the Drawer, which would blur the line this stage draws.

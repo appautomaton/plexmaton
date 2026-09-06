@@ -35,7 +35,7 @@ These terms are used identically in product copy, architecture, code, and tests.
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
 | Session | The ongoing coding period until Plexmaton exits; temporary permissions survive starting or resuming a Conversation |
-| Conversation | One agent's saved history; the Drawer's Conversations page starts or resumes one |
+| Conversation | One agent's saved history; `/new` starts one and `/resume` reopens one |
 | Project | A physical checkout whose personal permissions survive Sessions and application restarts |
 | Journal | The authoritative Conversation record; JSONL is its on-disk encoding, not the visible transcript |
 | Branch | A named continuation of a Conversation that shares earlier history with other branches |
@@ -54,11 +54,11 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Viewport | The independently scrollable visible window over content owned by a surface |
 | Inspector | The second window: one agent's conversation, shown over or beside the primary's while the user looks at that agent. `Inspector` is the code's name; user-facing copy names the agent |
 | Peek | Looking at a sub-agent in the list, which opens the second window; `Escape` closes it. The primary is not in the list, because its conversation is the screen |
-| Command | A `/name` typed into a conversation's input and run against that conversation, with its target captured. It means nothing else |
+| Command | A `/name` typed into a conversation's input and run from there, with its target captured. It means nothing else |
 | Skill | A `$name` token bound into the message the input addresses |
 | Composer menu | The popup above the composer: Skills for `$`, Commands for `/`. The draft is its query |
 | Drawer | The workspace's own surface, pulled from the top edge by `Ctrl-P`. Its title, `Workspace`, is the addressee; it holds pages, never Commands |
-| Page | One view inside the Drawer: Configuration, Conversations, Permissions. Opens in place; `Escape` returns to the list |
+| Page | One view inside the Drawer: Configuration, Permissions. Opens in place; `Escape` returns to the list |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
 presentation, not a Conversation. A widget is a Rust rendering component, not a synonym for an entry
@@ -147,11 +147,12 @@ other rule about input follows from this one.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
-  the composer menu, above the input, without taking the caret; the draft is the query. `Enter`
-  accepts with the effect the row states, a Skill inserted and bound or a Command run against the
-  conversation the composer names; `Tab` completes without running; `Escape` keeps the draft. A
-  token no row matches is text. Rejected: workspace pages reachable as slash commands, which made
-  the composer's title lie about where the keystroke went.
+  the composer menu, above the input, without taking the caret; the draft is the query. Commands
+  are what the user does from inside a conversation: `/new`, `/resume` with saved conversations
+  as its rows, `/compact`, and `/permissions` for the Session. `Enter` accepts with the effect the
+  row states; `Tab` completes without running; `Escape` keeps the draft. A token no row matches is
+  text. Rejected: settings as slash commands, which made the composer's title lie about the
+  addressee; and conversations as a Drawer page, which hid what users type by habit behind a chord.
 - **The status line sits below every pane.** By default it shows the working directory; an explicitly
   configured user script may supply several styled rows, bounded to preserve typing and readable
   conversation space. The quit question temporarily replaces the terminal's last row and leaves
@@ -229,19 +230,18 @@ It is never an entry point for main-agent approvals.
 - Streaming updates do not re-layout content outside the affected visible blocks.
 - A background agent may update an ambient status indicator without forcing a full-screen redraw.
 - Loading and failure states appear in the affected surface and freeze nothing else.
-- A resumed conversation is confirmed in place, after its final entry, as UI only: no transcript
-  item, copy payload, journal record, Notices entry or status-line override. A genuinely unfinished
-  prior turn also gets a warning that nothing was rerun; a failed or cancelled turn is finished and
-  gets none. JRN-5 owns the copy.
+- A resumed conversation is confirmed in place, after its final entry, as UI only, with no
+  transcript item or record. A genuinely unfinished prior turn also gets a warning that nothing
+  was rerun; a failed or cancelled turn is finished and gets none. JRN-5 owns the copy.
 - **Notices** is reserved for future multi-agent workflows, not routine operation feedback.
 - An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error, by
   click or `r` / `e` with the primary transcript focused. They are message-local actions, never
   Commands. Retry continues the same path; Edit & retry fills the composer and preserves the old
   path, and `Esc` restores the displaced draft. Neither repeats tools; JRN-8 owns eligibility.
-- The Drawer's Conversations page lists New conversation first, then saved history behind a
-  filter; loading and errors stay inside the page. Switching waits for idle work and an empty
-  draft, never silently interrupting or discarding input; a new conversation creates storage
-  on its first message unless ephemeral. SPK-1–SPK-3 own discovery and replacement.
+- `/resume` lists saved history behind the text after it; loading and errors stay inside the
+  menu. Switching waits for idle work and an empty draft, never silently interrupting or
+  discarding input; a new conversation creates storage on its first message unless ephemeral.
+  SPK-1–SPK-3 own discovery and replacement.
 
 ### Readability
 
@@ -302,7 +302,7 @@ The product areas, arranged without assuming they are all permanently visible:
 - Tool output and diff inspection
 - Mail
 - Session, context, and provider diagnostics
-- The Drawer: configuration, conversations, permissions
+- The Drawer: configuration, Project and User permissions
 - Permission, approval, and confirmation surfaces
 
 The inspector is the inspected agent's **conversation**. Tool activity, mail and artifacts are

@@ -38,9 +38,7 @@ open before cleanup; it does not detach a worker or promise to interrupt a files
 
 Rejected: reading JSONL from widgets; replacing the current runtime before knowing the target is
 usable; silently dropping a draft or interrupting active work to change sessions; global Retry
-commands, because they are operations on an eligible failed message rather than session discovery;
-`/new` and `/resume` as slash commands, because a conversation is the workspace's to open, not
-something a conversation does to itself (ui-ux §product vocabulary).
+commands, because they are operations on an eligible failed message rather than session discovery.
 
 ## Evidence
 
