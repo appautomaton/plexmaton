@@ -3,65 +3,42 @@ use std::{
     fs,
     io::{self, Write as _},
     path::{Path, PathBuf},
-    time::Instant,
 };
 
 use anyhow::{Context, bail};
-use crossterm::{
-    event::{
-        DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
-        EnableFocusChange, EnableMouseCapture, EventStream,
-    },
-    execute,
-};
-use futures_util::StreamExt;
+use crossterm::event::EventStream;
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::{resolve_api_key, resolve_home};
 use plexmaton_runtime::{
     CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
-    RuntimeUpdate, SessionRecovery,
+    SessionRecovery,
 };
 use plexmaton_tui::{
-    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, Flow, MarkdownTheme, Palette,
+    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, MarkdownTheme, Palette,
     PersistenceNotice, Submission, SubmissionKind, Workspace,
 };
-use ratatui::DefaultTerminal;
 
 mod clipboard;
+mod interaction;
+mod output;
 mod retry;
 mod session;
 mod session_picker;
 mod statusline;
 mod stream_frames;
+#[cfg(test)]
+mod test_support;
 
-use clipboard::{ClipboardSink, TerminalClipboard};
+use interaction::drive_session;
+use output::{RestoreTerminal, TerminalOutput};
+use plexmaton_cli::preparation;
 use session::{
     OpenedSession, PersistedSession, SessionSelection, StartupAction, USAGE, open_selected_session,
     parse_startup_action, report_persisted_session, restoration_feedback,
 };
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
-
-/// Returns the terminal to the user on every exit path, including error and panic.
-///
-/// Input reporting modes are not part of `ratatui::restore`, and a leaked one outlives the screen.
-/// Releasing them here rather than at the end of `run` covers every error and panic path.
-struct RestoreTerminal;
-
-impl Drop for RestoreTerminal {
-    fn drop(&mut self) {
-        // Best effort, and deliberately unreported: the process is leaving, and writing a
-        // diagnostic to a screen mid-restoration is how a corrupted terminal gets handed back.
-        let _ = execute!(
-            io::stdout(),
-            DisableBracketedPaste,
-            DisableFocusChange,
-            DisableMouseCapture
-        );
-        ratatui::restore();
-    }
-}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -70,6 +47,12 @@ async fn main() -> anyhow::Result<()> {
         return plexmaton_file_tools::run_search_driver(arguments.into_iter().skip(1))
             .context("run internal descriptor-rooted ripgrep driver");
     }
+    if arguments.len() == 1
+        && arguments.first().map(OsString::as_os_str)
+            == Some(OsStr::new(preparation::DRIVER_ARGUMENT))
+    {
+        return preparation::run_driver().context("run internal presentation preparation");
+    }
     let selection = match parse_startup_action(&arguments)? {
         StartupAction::Run(selection) => selection,
         StartupAction::Help => {
@@ -77,6 +60,9 @@ async fn main() -> anyhow::Result<()> {
             return Ok(());
         }
     };
+    let render_preparation = preparation::LivePreparation::new(
+        std::env::current_exe().context("locate preparation executable")?,
+    );
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
     let (opened, workspace_root, mut picker, status_line) =
         live_runtime_from_process(selection).await?;
@@ -87,25 +73,22 @@ async fn main() -> anyhow::Result<()> {
     } = opened;
     picker.current = persisted;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
-    let restore_terminal = RestoreTerminal;
-    let terminal = ratatui::init();
-    execute!(
-        io::stdout(),
-        EnableFocusChange,
-        EnableMouseCapture,
-        EnableBracketedPaste
-    )
-    .context("enable terminal input reporting")?;
-    // The terminal on the other end of stdout owns the user's clipboard. The adapter resolves the
-    // local macOS, direct terminal, or tmux route once, before the first copy.
+    let restore_terminal = RestoreTerminal::new();
+    let output = match TerminalOutput::acquire() {
+        Ok(output) => output,
+        Err(error) => {
+            return failed_terminal_setup(error, runtime, picker, status_line, render_preparation)
+                .await;
+        }
+    };
     let run_result = run(
-        terminal,
+        output,
         runtime,
-        &mut TerminalClipboard::from_environment(io::stdout()),
         working_directory(&workspace_root),
         recovery,
         picker,
         status_line,
+        render_preparation,
     )
     .await;
     drop(restore_terminal);
@@ -117,6 +100,37 @@ async fn main() -> anyhow::Result<()> {
             .transpose()
             .map(|_| ()),
     }
+}
+
+async fn failed_terminal_setup(
+    error: io::Error,
+    mut runtime: LiveRuntime,
+    mut picker: session_picker::SessionPicker,
+    mut status: Option<statusline::StatusLine>,
+    mut preparation: preparation::LivePreparation,
+) -> anyhow::Result<()> {
+    let preparation_shutdown = preparation
+        .shutdown()
+        .await
+        .context("shut down render preparation");
+    let picker_shutdown = picker.shutdown().await;
+    let status_shutdown = match &mut status {
+        Some(status) => status.shutdown().await,
+        None => Ok(()),
+    };
+    let runtime_shutdown = runtime
+        .shutdown()
+        .await
+        .context("shut down live runtime")
+        .and_then(surface_shutdown_report);
+    session_result(
+        Err(error).context("acquire terminal output"),
+        runtime_shutdown,
+        status_shutdown,
+        Ok(()),
+        preparation_shutdown,
+        picker_shutdown,
+    )
 }
 
 async fn live_runtime_from_process(
@@ -220,21 +234,27 @@ fn resolve_path_executable(name: &str, path: Option<&OsStr>) -> anyhow::Result<P
 
 /// The event loop: producer events, terminal events, and the frames they justify.
 ///
-/// Everything the loop decides lives in `Workspace`, so what this function owns is the two things
-/// only a real process can: the terminal, and the async wait on two sources at once.
+/// Workspace owns projection and interaction state; this composition root owns external effects
+/// and settles every acquired owner before the terminal is released.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the composition root settles each acquired owner before terminal restoration"
+)]
 async fn run(
-    mut terminal: DefaultTerminal,
+    mut output: TerminalOutput,
     mut runtime: LiveRuntime,
-    clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
     recovery: Option<SessionRecovery>,
     mut picker: session_picker::SessionPicker,
     mut status_line: Option<statusline::StatusLine>,
+    mut render_preparation: preparation::LivePreparation,
 ) -> anyhow::Result<Option<PersistedSession>> {
     // MD-5: terminal-owned chrome surrounds the user-approved pastel Markdown accents.
     // The script footer retains its independent colors; neither choice rethemes the other.
-    let mut workspace =
-        Workspace::with_palette(Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel));
+    let mut workspace = Workspace::with_presentation(
+        Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel),
+        output.math,
+    );
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
@@ -247,14 +267,26 @@ async fn run(
     }
     retry::sync_actions(&runtime, &mut workspace);
     let loop_result = drive_session(
-        &mut terminal,
+        &mut output.terminal,
         &mut runtime,
-        clipboard,
+        &mut output.clipboard,
         &mut workspace,
         &mut picker,
         &mut status_line,
+        &mut EventStream::new(),
+        &mut render_preparation,
+        output::write_native,
     )
     .await;
+    let clipboard_shutdown = output
+        .clipboard
+        .shutdown()
+        .await
+        .context("shut down clipboard delivery");
+    let preparation_shutdown = render_preparation
+        .shutdown()
+        .await
+        .context("shut down render preparation");
     let picker_shutdown = picker.shutdown().await;
     let status_shutdown = match &mut status_line {
         Some(status) => status.shutdown().await,
@@ -262,9 +294,12 @@ async fn run(
     };
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     session_result(
-        loop_result.and(picker_shutdown),
+        loop_result,
         shutdown.and_then(surface_shutdown_report),
         status_shutdown,
+        clipboard_shutdown,
+        preparation_shutdown,
+        picker_shutdown,
     )?;
     Ok(picker.current)
 }
@@ -274,12 +309,22 @@ fn session_result(
     loop_result: anyhow::Result<()>,
     runtime_shutdown: anyhow::Result<()>,
     status_shutdown: anyhow::Result<()>,
+    clipboard_shutdown: anyhow::Result<()>,
+    preparation_shutdown: anyhow::Result<()>,
+    picker_shutdown: anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let failures: Vec<_> = [runtime_shutdown, loop_result, status_shutdown]
-        .into_iter()
-        .filter_map(Result::err)
-        .map(|error| format!("{error:#}"))
-        .collect();
+    let failures: Vec<_> = [
+        runtime_shutdown,
+        loop_result,
+        status_shutdown,
+        clipboard_shutdown,
+        preparation_shutdown,
+        picker_shutdown,
+    ]
+    .into_iter()
+    .filter_map(Result::err)
+    .map(|error| format!("{error:#}"))
+    .collect();
     if failures.is_empty() {
         Ok(())
     } else {
@@ -309,143 +354,6 @@ fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
         report.unresolved_approvals.len(),
         report.undelivered_model.len(),
     )
-}
-
-/// Runs the interactive select separately so every error returns to the owner that joins runtime.
-async fn drive_session(
-    terminal: &mut DefaultTerminal,
-    runtime: &mut LiveRuntime,
-    clipboard: &mut impl ClipboardSink,
-    workspace: &mut Workspace,
-    picker: &mut session_picker::SessionPicker,
-    status_line: &mut Option<statusline::StatusLine>,
-) -> anyhow::Result<()> {
-    let mut terminal_events = EventStream::new();
-    let mut frames = stream_frames::StreamFrames::new(Instant::now());
-    loop {
-        frames
-            .draw(workspace, terminal, Instant::now())
-            .context("draw TUI frame")?;
-        let note_deadline = workspace.note_deadline();
-        let drag_deadline = workspace.drag_autoscroll_deadline();
-        let frame_deadline = frames.deadline();
-
-        tokio::select! {
-            update = picker.next() => {
-                frames.flush(workspace);
-                if picker.apply(update, runtime, workspace).await? && let Some(status) = status_line {
-                    status.mark_dirty();
-                }
-            }
-            update = next_status_update(status_line) => {
-                if let Some(status) = status_line {
-                    match update {
-                        statusline::Update::Capture => {
-                            let size = terminal.size().context("read terminal dimensions")?;
-                            status.capture(runtime, statusline::Dimensions { columns: size.width, rows: size.height }, workspace);
-                        }
-                        statusline::Update::Output(output) => status.apply(output, workspace),
-                    }
-                }
-            }
-            () = wait_for_deadline(note_deadline) => {
-                workspace.expire_note(Instant::now());
-            }
-            () = wait_for_deadline(drag_deadline) => {
-                workspace.advance_drag_autoscroll(Instant::now());
-            }
-            () = wait_for_deadline(frame_deadline) => {}
-            runtime_update = runtime.next_update() => {
-                match runtime_update.context("receive live runtime update")? {
-                    RuntimeUpdate::Event(event) => {
-                        if matches!(event.event, plexmaton_core::SessionEvent::AgentCreated { .. }
-                            | plexmaton_core::SessionEvent::AgentStatusChanged { .. }
-                            | plexmaton_core::SessionEvent::TurnUsageUpdated { .. })
-                            && let Some(status) = status_line { status.mark_dirty(); }
-                        frames.receive(workspace, event);
-                        retry::sync_actions(runtime, workspace);
-                    }
-                    RuntimeUpdate::Report(report) => {
-                        frames.flush(workspace);
-                        if let Some(status) = status_line { status.mark_dirty(); }
-                        restore_undelivered(workspace, runtime.agent_id().clone(), report);
-                        retry::sync_actions(runtime, workspace);
-                    }
-                    RuntimeUpdate::Finished => {
-                        frames.flush(workspace);
-                        frames.draw(workspace, terminal, Instant::now()).context("draw final TUI frame")?;
-                        break;
-                    }
-                }
-            }
-            terminal_event = terminal_events.next() => {
-                match terminal_event {
-                    Some(Ok(event)) => {
-                        if matches!(event, crossterm::event::Event::Resize(..))
-                            && let Some(status) = status_line { status.mark_dirty(); }
-                        let outcome = frames.handle(workspace, &event);
-                        picker.observe_closed(workspace);
-                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker).await? {
-                            break;
-                        }
-                    }
-                    Some(Err(error)) => return Err(error).context("read terminal event"),
-                    None => break,
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-async fn apply_workspace_outcome(
-    outcome: plexmaton_tui::Outcome,
-    runtime: &mut LiveRuntime,
-    workspace: &mut Workspace,
-    clipboard: &mut impl ClipboardSink,
-    picker: &mut session_picker::SessionPicker,
-) -> anyhow::Result<bool> {
-    if let Some(command) = outcome.command {
-        picker.execute_command(workspace, runtime, command);
-    }
-    if let Some(id) = outcome.resume {
-        picker.select(id, runtime, workspace);
-    }
-    if let Some(retry) = outcome.retry {
-        retry::execute(runtime, workspace, retry).await?;
-    }
-    if let Some(submission) = outcome.submitted {
-        dispatch_live(runtime, workspace, route_submission(submission)).await?;
-        retry::sync_actions(runtime, workspace);
-    }
-    if let Some(agent_id) = outcome.interrupted {
-        dispatch_live(runtime, workspace, route_interrupt(agent_id)).await?;
-    }
-    if let Some(approval) = outcome.approval {
-        dispatch_live(runtime, workspace, route_approval(approval)).await?;
-    }
-    if let Some(request) = outcome.copied {
-        clipboard
-            .copy(&request.text)
-            .await
-            .context("copy to the clipboard")?;
-    }
-    Ok(outcome.flow == Flow::Quit)
-}
-
-async fn next_status_update(status: &mut Option<statusline::StatusLine>) -> statusline::Update {
-    match status {
-        Some(status) => status.next().await,
-        None => std::future::pending().await,
-    }
-}
-
-/// Waits for an owned deadline; an absent deadline adds no ambient clock or background task.
-async fn wait_for_deadline(deadline: Option<Instant>) {
-    match deadline {
-        Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
-        None => std::future::pending().await,
-    }
 }
 
 /// One user input after the TUI has settled both its addressee and delivery boundary.

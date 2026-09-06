@@ -75,12 +75,12 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Current modular generation and umbrella crate; splitting its subcrates requires a measured compile-time or boundary benefit |
 | `reqwest` | Pooled streaming HTTP client | Defaults off; `json`, `stream`, Rustls. Redirects are disabled around bearer authority. Rustls selects vendored `aws-lc-rs`, not platform OpenSSL |
 | `rustix` | File access and process groups for tools/status commands | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
-| `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
+| `crossterm` | Terminal lifecycle and input events | `event-stream`; one reader. Only CLI clipboard enables `osc52`, adding `base64` |
 | `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
 | `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
-| `serde` / `serde_json` | Deterministic scenario, snapshot and durable-journal data | `derive` enabled; identity and opaque-replay decoding still pass through validating constructors |
+| `serde` / `serde_json` | Scenario, snapshot, journal and preparation data | `derive`; validated identity/replay/preparation. TUI reuses locked versions/features |
 | `sha2` | Request fingerprint | Defaults off; SHA-256; credentials excluded |
 | `toml` | Typed user configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |
@@ -92,7 +92,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |
 | `uuid` | Session identity | Defaults off; `std` and UUIDv7; chronology is separate |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
-| RaTeX core | Native math | Defaults off; exact pins and [audit](../specs/math-layout.md#dependency-admission) |
+| RaTeX core | Native math | Defaults off; [pins/audit](../specs/math-layout.md#dependency-admission). TUI → pure math adapter; no new external version |
 
 ### Considered and not adopted
 

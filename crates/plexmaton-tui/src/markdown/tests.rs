@@ -1,6 +1,6 @@
 use super::*;
 
-fn text(lines: &[Line<'_>]) -> String {
+fn text(lines: &[ratatui::text::Line<'_>]) -> String {
     lines
         .iter()
         .map(ToString::to_string)
@@ -15,25 +15,10 @@ fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
     let base = Palette::ansi();
     let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
     for width in [12, 60, 88, 120] {
-        let before = render_layout(source, &base, width).expect("inherited");
-        let after = render_layout(source, &proposed, width).expect("pastel");
-        assert_eq!(before.text, after.text, "copy source at {width}");
-        assert_eq!(before.rows.len(), after.rows.len());
-        for (before, after) in before.rows.iter().zip(&after.rows) {
-            assert_eq!(before.len(), after.len());
-            for (before, after) in before.iter().zip(after) {
-                assert_eq!(
-                    (before.column, &before.text),
-                    (after.column, &after.text),
-                    "copy fragments at {width}"
-                );
-            }
-        }
-        assert_eq!(
-            text(&before.lines),
-            text(&after.lines),
-            "wrapping at {width}"
-        );
+        let prepared = render_layout(source, width, MathPresentation::Native).expect("prepared");
+        let before = prepared.painted_lines(&base);
+        let after = prepared.painted_lines(&proposed);
+        assert_eq!(text(&before), text(&after), "wrapping at {width}");
     }
     let lines = render(source, &proposed, 120).expect("styled");
     let style = |content| {

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–6 complete; stage 7 rendering/math foundations delivered, live integration pending |
+| Status | Active; stages 1–7 complete; branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -67,11 +67,22 @@ Visual changes are reviewed against real frames before the contract adopts them.
    new dependency was added; a rich-Markdown performance budget remains unmeasured.
    Single-agent samples do not prescribe an A2A layout. Notification and agent interaction changes
    are explicitly deferred by the user.
-7. **Responsive native math — in progress.** [Stage 7](../plans/phase-04-stage-07-math-typesetting.md)
-   delivers bounded streaming frames, shared geometry/height reuse and the standalone math
-   engine/native projection. [MTH-1–MTH-4](../specs/math-layout.md) own the complete source-linked reply
-   and three-width Kitty evidence. Owned preparation/transport, conversation integration and atomic
-   formula selection/highlighting remain; complete typography acceptance is not yet claimed.
+7. **Responsive native math — approved and complete.** FR-5, MD-4/MD-5 and
+   [PRE-1–PRE-4](../specs/render-preparation.md) deliver coalesced frames, reusable geometry and
+   owned preparation. [MTH-1–MTH-5](../specs/math-layout.md) own terminal output,
+   native conversation math, atomic delimited-source copy, capability fallback and clipping.
+   All 61 reply formulas traverse the real child at three widths. The direct-Kitty CLI check
+   covers real mouse copy, resize, overlays and clean exit; the user approved its live appearance
+   on 2026-09-06. Fifteen actual workspace frames cover native reply, selection, source, tables
+   and clipping at [120](../../crates/plexmaton-tui/frames/math/reply-120.svg),
+   [88](../../crates/plexmaton-tui/frames/math/reply-88.svg) and
+   [60](../../crates/plexmaton-tui/frames/math/reply-60.svg), with matching cases alongside.
+   The user also approved ENT-4's disclosure-only tool click on 2026-09-06; drag/keyboard
+   selection remain explicit. Its three-width evidence lives in
+   [transcript entry](../specs/transcript-entry.md#evidence). Workspace tests/check/Clippy,
+   dependency/document gates, both PTY smokes and the real Kitty fixture passed.
+   Source reveal, tmux sizing, broader font/terminal fidelity and physical-terminal latency remain
+   explicit follow-ups, not a claim of complete KaTeX parity. The consumed stage plan is removed.
 8. **Branding.** A rounded-square frame and circular gradient center form the user's visual
    reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
    responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.

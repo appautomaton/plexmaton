@@ -67,7 +67,7 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
         error_item: error,
     }));
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
-    workspace.draw(&mut terminal).expect("draw");
+    workspace.settled_draw(&mut terminal).expect("draw");
     let buffer = terminal.backend().buffer();
     let point = (0..24)
         .find_map(|y| {
@@ -124,7 +124,9 @@ fn retry_click_keyboard_and_drag_cancellation_share_one_action() {
             keyboard.handle(&key(KeyCode::Char('r'))).retry,
             Some(clicked)
         );
-        workspace.draw(&mut terminal).expect("remove actions");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("remove actions");
     }
 }
 
@@ -141,7 +143,9 @@ fn edit_retry_keeps_exact_text_until_ack_and_escape_restores_displaced_draft() {
         };
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), edit));
         workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), edit));
-        workspace.draw(&mut terminal).expect("editing frame");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("editing frame");
         assert_eq!(workspace.state.composer().text(), "Original question");
         let submission = workspace.handle(&key(KeyCode::Enter));
         assert!(submission.submitted.is_none());
@@ -184,7 +188,9 @@ fn plain_retry_leaves_edit_mode_and_restores_the_displaced_draft() {
 fn escape_clears_retry_input_selection_before_cancelling_the_edit() {
     let (mut workspace, mut terminal, _) = fixture(95);
     workspace.perform_retry_action(RetryAction::EditRetry);
-    workspace.draw(&mut terminal).expect("editing frame");
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("editing frame");
     let bounds = workspace
         .surfaces()
         .get(SurfaceId::Composer)
@@ -226,7 +232,9 @@ fn acknowledged_edit_retry_restores_the_draft_without_losing_keyboard_focus() {
             status: AgentStatus::Idle,
         },
     }]);
-    workspace.draw(&mut terminal).expect("replacement frame");
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("replacement frame");
     assert_eq!(
         workspace.state.focused(workspace.surfaces()),
         Some(SurfaceId::Composer)
@@ -252,7 +260,7 @@ fn message_copy_hover_frames_are_local_and_clicking_body_never_copies() {
         let focus = workspace.state.focused(workspace.surfaces());
         let wrapped = workspace.metrics().wrapped();
         workspace.handle(&mouse(MouseEventKind::Moved, body));
-        workspace.draw(&mut terminal).expect("hover");
+        workspace.settled_draw(&mut terminal).expect("hover");
         assert_eq!(workspace.state.focused(workspace.surfaces()), focus);
         assert!(workspace.state.selection().is_none());
         assert_eq!(workspace.metrics().wrapped(), wrapped);
@@ -262,7 +270,7 @@ fn message_copy_hover_frames_are_local_and_clicking_body_never_copies() {
         let icon = Point { x: icon, y: row };
         let base = terminal.backend().buffer()[(icon.x, icon.y)].style();
         workspace.handle(&mouse(MouseEventKind::Moved, icon));
-        workspace.draw(&mut terminal).expect("icon hover");
+        workspace.settled_draw(&mut terminal).expect("icon hover");
         let name = match width {
             120 => "wide",
             95 => "medium",
@@ -294,7 +302,7 @@ fn message_copy_hover_frames_are_local_and_clicking_body_never_copies() {
         );
         assert!(workspace.state.selection().is_none());
         workspace.handle(&mouse(MouseEventKind::Moved, icon));
-        workspace.draw(&mut terminal).expect("icon visible");
+        workspace.settled_draw(&mut terminal).expect("icon visible");
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), icon));
         workspace.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), body));
         assert!(
@@ -313,7 +321,7 @@ fn retry_hover_does_not_reverse_the_button_row_or_interfere_with_selection() {
     let (mut workspace, mut terminal, button) = fixture(95);
     let before = workspace.metrics().wrapped();
     workspace.handle(&mouse(MouseEventKind::Moved, button));
-    workspace.draw(&mut terminal).expect("hover retry");
+    workspace.settled_draw(&mut terminal).expect("hover retry");
     let cell = terminal.backend().buffer()[(button.x, button.y)].style();
     assert!(!cell.add_modifier.contains(Modifier::REVERSED));
     assert_eq!(workspace.metrics().wrapped(), before);
@@ -347,7 +355,7 @@ fn copying_or_cancelling_copy_preserves_an_existing_selection() {
             .expect("question");
         let body = Point { x: 8, y: body_y };
         workspace.handle(&mouse(MouseEventKind::Moved, body));
-        workspace.draw(&mut terminal).expect("hover");
+        workspace.settled_draw(&mut terminal).expect("hover");
         let x = (0..95)
             .find(|&x| terminal.backend().buffer()[(x, body_y)].symbol() == "󰆏")
             .expect("icon");
@@ -401,7 +409,7 @@ fn copy_icons_share_one_right_edge_across_roles_and_wrapped_text() {
                         },
                     },
                 ]);
-                workspace.draw(&mut terminal).expect("source frame");
+                workspace.settled_draw(&mut terminal).expect("source frame");
                 let row = (0..24)
                     .find(|&y| {
                         (0..width)
@@ -411,7 +419,7 @@ fn copy_icons_share_one_right_edge_across_roles_and_wrapped_text() {
                     })
                     .expect("visible message");
                 workspace.handle(&mouse(MouseEventKind::Moved, Point { x: 8, y: row }));
-                workspace.draw(&mut terminal).expect("hover frame");
+                workspace.settled_draw(&mut terminal).expect("hover frame");
                 let icon = (0..24)
                     .find_map(|y| {
                         (0..width).find(|&x| terminal.backend().buffer()[(x, y)].symbol() == "󰆏")

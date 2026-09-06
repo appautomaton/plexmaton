@@ -19,7 +19,7 @@ pub use markdown::MarkdownTheme;
 /// call site. The attention roles are deliberately separate from [`Role::Accent`]: the UI/UX
 /// contract requires ambient activity, new information, action required, and failure to be
 /// distinguishable from each other and from ordinary identity emphasis.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Role {
     /// Transcript and body text.
     Body,

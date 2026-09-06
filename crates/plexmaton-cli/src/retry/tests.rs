@@ -1,6 +1,7 @@
 use super::*;
 use crate::tests::{FixtureWorkspace, fixture_http_responses};
 use plexmaton_core::SessionId;
+use plexmaton_runtime::RuntimeUpdate;
 
 const CONFIG: &str = r#"
 active_model = { provider = "fixture", model = "test" }

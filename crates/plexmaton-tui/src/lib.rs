@@ -14,6 +14,7 @@ mod intent;
 mod journey;
 mod layout;
 mod markdown;
+pub mod preparation;
 mod render;
 mod router;
 mod state;
@@ -47,3 +48,4 @@ pub use surface::{
 pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
 pub use transcript::TranscriptMetrics;
 pub use workspace::{Flow, FrameWork, Outcome, Workspace};
+pub mod math;

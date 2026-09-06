@@ -6,10 +6,10 @@ use ratatui::{
 use std::fmt::Write as _;
 use unicode_width::UnicodeWidthStr as _;
 
-const BACKGROUND: &str = "#11131c";
-const FOREGROUND: &str = "#dce1ea";
+pub(super) const BACKGROUND: &str = "#11131c";
+pub(super) const FOREGROUND: &str = "#dce1ea";
 
-fn color(value: Color, fallback: &str) -> String {
+pub(super) fn color(value: Color, fallback: &str) -> String {
     match value {
         Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
         Color::Black => "#171922".into(),
@@ -33,7 +33,7 @@ fn color(value: Color, fallback: &str) -> String {
     }
 }
 
-fn escape(text: &str) -> String {
+pub(super) fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

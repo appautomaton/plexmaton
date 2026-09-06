@@ -21,6 +21,8 @@ use ratatui::{
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+#[path = "support/prepared_frame.rs"]
+mod prepared_frame;
 
 const SKY: Color = Color::Rgb(130, 180, 240);
 const MINT: Color = Color::Rgb(140, 218, 165);
@@ -69,20 +71,20 @@ fn preview(width: u16, height: u16, mode: Mode) -> Result<Buffer> {
     let base_height = height - footer_rows + 1;
     let mut terminal = Terminal::new(TestBackend::new(width, base_height))?;
     let mut workspace = fixture(mode)?;
-    workspace.draw(&mut terminal)?;
+    prepared_frame::draw(&mut workspace, &mut terminal)?;
     if mode == Mode::Approval {
         for _ in 0..8 {
             if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Attention) {
                 break;
             }
             workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-            workspace.draw(&mut terminal)?;
+            prepared_frame::draw(&mut workspace, &mut terminal)?;
         }
         workspace.handle(&Event::Key(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         )));
-        workspace.draw(&mut terminal)?;
+        prepared_frame::draw(&mut workspace, &mut terminal)?;
     }
     let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
     for y in 0..base_height - 1 {

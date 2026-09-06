@@ -83,6 +83,12 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
                 scale,
                 baseline,
             } => {
+                if text.len() > crate::MAX_RUN_BYTES {
+                    return Err(MathError::Limited(Limit::NativeTextBytes));
+                }
+                if *scale != TextScale::Full && at.columns > 7 * at.rows {
+                    return Err(MathError::Unsupported(crate::Unsupported::Scale));
+                }
                 let row = y
                     .at(item.y)?
                     .checked_sub(at.rows / 2)

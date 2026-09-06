@@ -47,7 +47,7 @@ pub(crate) use restoration::FeedbackPlacement;
 pub use restoration::{SessionRestoration, SessionTailRepair};
 pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
-pub(crate) use selection::TextPoint;
+pub(crate) use selection::{CopyNote, TextPoint};
 pub use selection::{CopyRequest, Selection};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
@@ -107,6 +107,7 @@ pub struct ViewState {
     disclosure: DisclosureState,
     /// What the user has selected for copying, expressed in entries rather than in cells.
     selection: Option<Selection>,
+    copy_note: Option<(Selection, CopyNote)>,
     status: Status,
     /// The command list, present only while it is open (SURF-4).
     command_palette: Option<CommandPalette>,

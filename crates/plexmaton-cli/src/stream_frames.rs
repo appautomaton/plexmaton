@@ -74,16 +74,30 @@ impl StreamFrames {
     }
 
     /// The production and measurement path. A failed draw never advances the frame deadline.
+    #[allow(
+        dead_code,
+        reason = "the cell-only wrapper is used by the separate CPU measurement binary and fixtures"
+    )]
     pub(crate) fn draw<B: Backend>(
         &mut self,
         workspace: &mut Workspace,
         terminal: &mut Terminal<B>,
         now: Instant,
     ) -> Result<Option<FrameWork>, B::Error> {
+        self.draw_with_native(workspace, terminal, now, |_, _| Ok(()))
+    }
+
+    pub(crate) fn draw_with_native<B: Backend>(
+        &mut self,
+        workspace: &mut Workspace,
+        terminal: &mut Terminal<B>,
+        now: Instant,
+        output: impl FnMut(&mut B, plexmaton_tui::math::NativeStage<'_>) -> Result<(), B::Error>,
+    ) -> Result<Option<FrameWork>, B::Error> {
         if workspace.needs_draw() || now >= self.not_before {
             self.flush(workspace);
         }
-        let work = workspace.draw(terminal)?;
+        let work = workspace.draw_with_native(terminal, output)?;
         if work.is_some() {
             self.not_before = now + FRAME_INTERVAL;
         }

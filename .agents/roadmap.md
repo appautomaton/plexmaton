@@ -34,7 +34,7 @@ table in `AGENTS.md` allows.
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active; compaction complete; branch interaction, durable policy and MCP remain |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–6 complete; stage 7 rendering/math foundations delivered, live integration pending |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–7 complete; branding remains |
 
 ## Locked
 
@@ -61,7 +61,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 
 | Track | Purpose | Status |
 | --- | --- | --- |
-| [Math rendering](./research/math-rendering.md) | Evaluate semantic math layout and terminal presentation | RaTeX selected; source-linked native reply verified; production integration unproven |
+| [Math rendering](./research/math-rendering.md) | Evaluate semantic math layout and terminal presentation | Native RaTeX conversation path approved; portability and source-reveal gates open |
 | [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source spike and finite model complete; production integration unproven |
 | [Provider adapter parity spike](./spikes/provider-adapter-parity/README.md) | Compare harness wire/replay and token accounting | Six-source comparison; four dialects verified hermetically, live compatibility unverified |
 | [Compaction spike](./spikes/compaction/README.md) | Constrain compaction, branch-local context and recovery | Source/probe evidence retained; CPL-1–CPL-8 own implementation and regression evidence |

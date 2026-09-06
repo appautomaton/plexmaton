@@ -279,15 +279,17 @@ alternate entry point for main-agent approvals.
   that began off-screen; the chrome and the row outside it accelerate the motion. Moving inward,
   releasing, cancelling, or reaching the content boundary stops it. Losing terminal focus pauses
   motion without dropping the selection; the next drag resumes from the same anchor.
-- A foldable tool row uses the accent role while the pointer is over it. A completed single click
-  selects that entry and toggles its retained detail; `Ctrl-O` toggles the moving end of the current
-  selection. Hover changes no focus, selection, scroll, or semantic state, and keyboard and pointer
-  disclosure address the same stable entry. Open detail grows inside the conversation and uses its
-  existing viewport. Rejected: a nested tool-output surface, whose second scroll owner makes the
-  same wheel gesture depend on an invisible boundary.
+- A foldable tool row uses accent on hover. Clicking toggles retained detail without selecting
+  or copying it; drag/keyboard gestures select source. `Ctrl-O` toggles the selection's moving end.
+  Hover changes no focus, selection, scroll or semantic state. Both disclosure paths address the
+  same entry; detail uses the conversation's viewport. Rejected: automatic selection on disclosure,
+  which obscures detail; and a nested viewport, which creates an invisible second scroll owner.
 - `Ctrl-Y` copies the current selection: plain text for pointer ranges, original source for
   keyboard entry ranges. The Copy icon always copies the whole message's original source,
   including Markdown. SEL-1/SEL-2 own mapping, table separators and streaming validation.
+- Formula hits select, highlight and copy whole original delimited TeX—even blank-edge drags in
+  either direction after clipping/reflow (MTH-1). Rejected: partial/bare-body copy or clipboard-only
+  expansion.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
 - Editable inputs support pointer placement and dragging over text. Selected source is highlighted

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 mod engine;
 mod native;
+mod prepared;
 mod source;
+pub use prepared::NativeLayout;
 
 #[cfg(test)]
 mod tests;
@@ -21,6 +23,8 @@ pub const MAX_ITEMS: usize = 4096;
 pub const MAX_DIMENSION: usize = 512;
 /// Maximum reserved cells in one prepared formula.
 pub const MAX_CELLS: usize = 32_768;
+/// Maximum UTF-8 bytes in one native terminal operation.
+pub const MAX_RUN_BYTES: usize = 4096;
 
 /// A bound enforced at the first-party admission or presentation boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -37,6 +41,8 @@ pub enum Limit {
     Geometry,
     /// Reserved terminal cells.
     Cells,
+    /// Native terminal text payload.
+    NativeTextBytes,
 }
 
 /// A presentation feature that this native adapter cannot preserve reliably.
@@ -95,7 +101,7 @@ pub enum MathMode {
 }
 
 /// Terminal font treatment, separate from TeX source and a concrete terminal font.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FontStyle {
     /// Upright ordinary text.
@@ -109,7 +115,7 @@ pub enum FontStyle {
 }
 
 /// Native paint can inherit a later palette without changing mathematical geometry.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Paint {
     /// The caller's mathematical foreground.
@@ -119,7 +125,7 @@ pub enum Paint {
 }
 
 /// The bounded sizes emitted by the current native adapter.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TextScale {
     /// Normal terminal font size.
@@ -133,7 +139,7 @@ pub enum TextScale {
 }
 
 /// Fractional text alignment inside its owned cell rectangle.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VerticalAlign {
     /// Align fractional text to the top.
@@ -145,7 +151,7 @@ pub enum VerticalAlign {
 }
 
 /// One immutable native text operation. Coordinates are relative to the complete formula.
-#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GlyphRun {
     /// First reserved column.
     pub x: u16,
@@ -219,6 +225,13 @@ pub struct FormulaLayout {
 }
 
 impl FormulaLayout {
+    /// Move only native geometry across the worker boundary; the engine scene stays behind.
+    /// The caller retains the exact source in its semantic text map (MTH-1).
+    #[must_use]
+    pub fn into_native(self) -> NativeLayout {
+        NativeLayout::from_layout(self)
+    }
+
     /// Complete reserved width.
     #[must_use]
     pub const fn width(&self) -> u16 {

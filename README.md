@@ -5,8 +5,7 @@ Anthropic Messages, Gemini GenerateContent, and native file/search/edit/command 
 
 ## Development
 
-Configuration lives in `~/.plexmaton/`, never a repository's `.plexmaton/`.
-Credentials are read from the named environment variable:
+Configuration lives in `~/.plexmaton/`, never a repository's `.plexmaton/`; credentials use env vars:
 
 ```toml
 # ~/.plexmaton/config.toml
@@ -27,15 +26,14 @@ output_reserve_tokens = 16384
 compaction_keep_recent_tokens = 20000
 ```
 
-Estimation has a default; missing pricing is unavailable.
 Set `PLEXMATON_HOME` for isolation.
 
 [Provider examples](examples/providers.toml) and [request options](.agents/specs/provider-adapter.md#request-configuration)
 cover native endpoints, instructions, optional reasoning and cache hints.
 
-The start directory is the native-tool root; file tools refuse absolute, parent-traversing, and
-symlinked paths. Read and search run directly; create, edit, and command require **Allow Once** or
-**Deny**. Commands are not OS-sandboxed and receive a credential-scrubbed environment.
+File tools stay under the start directory and refuse symlinks. Read/search run directly;
+create/edit/command require **Allow Once** or **Deny**. Commands use a credential-scrubbed
+environment, not an OS sandbox.
 
 ```console
 PLEXMATON_HOME=.local/plexmaton cargo run -p plexmaton-cli --bin plexmaton
@@ -62,7 +60,7 @@ Unanswered rate limits offer **Retry** / **Edit & retry** beside the failed mess
 palette. Click a button, or press `r` / `e` while the primary transcript has navigation focus.
 Retry reuses the question; editing preserves the old branch. `Esc` cancels editing.
 
-For the pastel footer, add:
+Pastel footer:
 
 ```toml
 [status_line]
@@ -71,18 +69,21 @@ max_rows = 6
 refresh_ms = 30000
 ```
 
-The example needs Bash, jq and a Nerd Font; JSON arrives on stdin. No rebuild needed for script
-edits. Context requires API-reported usage; unknown statistics stay hidden.
-Quit/Ctrl-P hints occupy the last terminal row.
+The example needs Bash, jq and a Nerd Font; script edits need no rebuild.
+Context requires API-reported usage; unknown statistics stay hidden.
 [Protocol, limits and configuration](.agents/specs/status-line.md).
 
-Pastel assistant Markdown supports code blocks and tables; chrome stays terminal-owned.
-Streams coalesce; input bypasses their timer.
+Assistant Markdown supports code and tables.
+Native LaTeX needs verified text sizing (tested in direct Kitty).
+tmux and unverified terminals show labelled source. Click a formula to copy its exact delimited
+TeX; drags select whole formulas. [Limits](.agents/specs/math-layout.md).
 Drag across entries to copy plain text on release; the Copy icon keeps raw Markdown.
+Click tool rows to expand/collapse without selecting; drag or use the keyboard to select.
 In-conversation approvals: Esc focuses input; Tab/click focuses the card.
 See [keys](.agents/specs/interaction-routing.md#key-grammar) and
 [copy](.agents/specs/selection-and-copy.md). Local macOS uses `pbcopy`; remote sessions use OSC 52.
+Clipboard helpers do not hold input; the latest copy wins. Allocation cap: 8 MiB, no truncation.
+Exit cancels pending delivery.
 
-Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md).
-`python3 scripts/smoke-tui.py` checks terminal/input lifecycle; `python3 scripts/smoke-statusline.py`
-checks the footer without model calls. Hooks: `git config core.hooksPath .githooks`.
+See [quality gates](.agents/standards/quality-gates.md),
+[background preparation](.agents/specs/render-preparation.md) and `plexmaton-measure`.

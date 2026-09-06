@@ -26,7 +26,7 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
         let mut workspace = Workspace::with_palette(base);
         workspace.emit(conversation.drain());
         let mut terminal = Terminal::new(TestBackend::new(width, 44)).expect("terminal");
-        workspace.draw(&mut terminal).expect("warm");
+        workspace.settled_draw(&mut terminal).expect("warm");
         let bounds = workspace
             .surfaces
             .get(crate::SurfaceId::Transcript)
@@ -69,21 +69,29 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
                 .text,
             "bold"
         );
-        workspace.draw(&mut terminal).expect("selected frame");
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("selected frame");
         let before = terminal.backend().buffer().clone();
         let viewport = workspace
             .surfaces
             .viewport(crate::SurfaceId::Transcript)
             .expect("viewport");
         let retained = workspace.metrics.retained();
+        let layouts = workspace.metrics.text_layouts();
         for palette in [Palette::monochrome(), Palette::pastel(), base] {
             let state = workspace.state.clone();
             workspace.set_palette(palette);
             let work = workspace
-                .draw(&mut terminal)
+                .settled_draw(&mut terminal)
                 .expect("paint")
                 .expect("changed palette");
             assert_eq!(work.entries_wrapped, 0, "color invalidated height geometry");
+            assert_eq!(
+                workspace.metrics.text_layouts(),
+                layouts,
+                "color rebuilt a prepared text map"
+            );
             assert_eq!(workspace.metrics.retained(), retained);
             assert_eq!(workspace.state, state);
             assert_eq!(
@@ -98,7 +106,12 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
                 assert_eq!(old.symbol(), new.symbol(), "palette moved visible content");
             }
             workspace.set_palette(palette);
-            assert!(workspace.draw(&mut terminal).expect("no change").is_none());
+            assert!(
+                workspace
+                    .settled_draw(&mut terminal)
+                    .expect("no change")
+                    .is_none()
+            );
             assert_eq!(
                 workspace
                     .handle(&Event::Key(KeyEvent::new(
@@ -110,7 +123,9 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
                     .text,
                 "bold"
             );
-            workspace.draw(&mut terminal).expect("copy feedback");
+            workspace
+                .settled_draw(&mut terminal)
+                .expect("copy feedback");
         }
         assert_eq!(
             terminal.backend().buffer(),

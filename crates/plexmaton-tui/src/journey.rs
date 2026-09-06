@@ -62,7 +62,7 @@ mod tests {
         fn draw(&mut self) -> &mut Self {
             let _frame = self
                 .workspace
-                .draw(&mut self.terminal)
+                .settled_draw(&mut self.terminal)
                 .unwrap_or_else(|error| panic!("test render: {error}"));
             self
         }

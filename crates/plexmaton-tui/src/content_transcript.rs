@@ -4,9 +4,8 @@
 //! placeholder from state the workspace owns, while these draw what a *producer* said. The rules
 //! they answer to are `ui-ux.md` §transcript grammar, not the surface's.
 
+use crate::text_layout::paint::{Line, Span, Treatment};
 use plexmaton_core::TranscriptRole;
-use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
 
 use crate::{
     TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
@@ -29,58 +28,47 @@ pub(crate) fn transcript_entry(
     palette: &Palette,
     appearance: EntryAppearance,
     width: u16,
-) -> Vec<Line<'static>> {
-    let mut layout = transcript_layout(entry, palette, appearance, width);
-    if appearance.selected {
-        for line in &mut layout.lines {
-            if !line.spans.is_empty() {
-                *line = Line::styled(line.to_string(), palette.style(Role::Selection));
-            }
-        }
-    }
-    layout.lines
+) -> Vec<ratatui::text::Line<'static>> {
+    transcript_layout(
+        entry,
+        appearance,
+        width,
+        crate::math::MathPresentation::default(),
+    )
+    .painted_entry(palette, appearance)
 }
 
 pub(crate) fn transcript_layout(
     entry: &TranscriptEntryView,
-    palette: &Palette,
     appearance: EntryAppearance,
     width: u16,
+    math: crate::math::MathPresentation,
 ) -> Layout {
     let lines = match entry {
         TranscriptEntryView::Text(item) => {
-            return transcript_text(item, palette, appearance.selected, width);
+            return transcript_text(item, width, math);
         }
-        TranscriptEntryView::Tool(tool) => tool::entry(tool, palette, appearance),
+        TranscriptEntryView::Tool(tool) => tool::prepared_entry(tool, appearance),
         TranscriptEntryView::Artifact(artifact) => {
             let line = Line::from(vec![
-                Span::styled("@ ", palette.style(Role::NewInformation)),
-                Span::styled(artifact.label.clone(), palette.style(Role::Body)),
-                Span::styled(
-                    format!(" · {}", artifact.pointer),
-                    palette.style(Role::Muted),
-                ),
+                Span::styled("@ ", Role::NewInformation),
+                Span::styled(artifact.label.clone(), Role::Body),
+                Span::styled(format!(" · {}", artifact.pointer), Role::Muted),
             ]);
-            vec![select_line(line, palette, appearance.selected)]
+            vec![line]
         }
         TranscriptEntryView::Mail(mail) => {
             let line = Line::from(vec![
-                Span::styled("-> ", palette.style(Role::NewInformation)),
-                Span::styled(mail.to.to_string(), palette.style(Role::Body)),
-                Span::styled(format!(" · {}", mail.summary), palette.style(Role::Muted)),
+                Span::styled("-> ", Role::NewInformation),
+                Span::styled(mail.to.to_string(), Role::Body),
+                Span::styled(format!(" · {}", mail.summary), Role::Muted),
             ]);
-            vec![select_line(line, palette, appearance.selected)]
+            vec![line]
         }
     };
     let mut layout = Layout::default();
     for line in lines {
-        layout.logical(
-            line,
-            usize::from(width),
-            false,
-            "",
-            palette.style(Role::Body),
-        );
+        layout.logical(line, usize::from(width), false, "", Role::Body);
     }
     layout
         .text
@@ -126,16 +114,10 @@ pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option
 
 fn transcript_text(
     item: &TranscriptItemView,
-    palette: &Palette,
-    selected: bool,
     width: u16,
+    math: crate::math::MathPresentation,
 ) -> Layout {
-    let (heading, default_body) = text_treatment(item);
-    let body = if selected {
-        Role::Selection
-    } else {
-        default_body
-    };
+    let (heading, body) = text_treatment(item);
     let gutter = matches!(
         (item.kind, item.role),
         (TranscriptTextKind::Message, TranscriptRole::User)
@@ -148,14 +130,11 @@ fn transcript_text(
     );
     let mut fallback = None;
     if markdown && crate::markdown::may_format(&item.source) {
-        match crate::markdown::render_layout(&item.source, palette, reserved) {
+        match crate::markdown::render_layout(&item.source, reserved, math) {
             Ok(mut layout) => {
-                if selected {
-                    for line in &mut layout.lines {
-                        *line = Line::styled(
-                            pad(line.to_string(), reserved),
-                            palette.style(Role::Selection),
-                        );
+                for line in &mut layout.lines {
+                    if !line.spans.is_empty() {
+                        line.treatment = Treatment::SelectionWidth(reserved);
                     }
                 }
                 layout.decoration(Line::default());
@@ -172,14 +151,11 @@ fn transcript_text(
     let mut layout = Layout::default();
     if let Some(reason) = fallback {
         for row in wrap_line(reason.label(), reserved) {
-            layout.decoration(Line::styled(row, palette.style(Role::Muted)));
+            layout.decoration(Line::styled(row, Role::Muted));
         }
     }
     if let Some((word, role)) = heading {
-        layout.decoration(Line::styled(
-            word,
-            palette.style(if selected { Role::Selection } else { role }),
-        ));
+        layout.decoration(Line::styled(word, role));
     }
     let literal;
     let source = if fallback.is_some() {
@@ -190,33 +166,20 @@ fn transcript_text(
     };
     for line in source.split('\n') {
         layout.logical(
-            Line::styled(line.to_owned(), palette.style(body)),
+            Line::styled(line.to_owned(), body),
             reserved,
             false,
             if gutter { GUTTER } else { "" },
-            palette.style(Role::Accent),
+            Role::Accent,
         );
     }
     // split preserves explicit trailing line breaks; discard only the builder's final separator.
     layout.text.pop();
-    if selected {
-        for line in &mut layout.lines {
-            *line = Line::styled(
-                pad(line.to_string(), reserved + usize::from(gutter)),
-                palette.style(Role::Selection),
-            );
-        }
+    for line in &mut layout.lines {
+        line.treatment = Treatment::SelectionWidth(reserved + usize::from(gutter));
     }
     layout.decoration(Line::default());
     layout
-}
-
-/// Pads a row out to `width` display columns so a selection is a rectangle, not a ragged edge.
-fn pad(row: String, width: usize) -> String {
-    let used = UnicodeWidthStr::width(row.as_str());
-    let mut padded = row;
-    padded.push_str(&" ".repeat(width.saturating_sub(used)));
-    padded
 }
 
 /// The word above a message, when it needs one, and the role its body is drawn in.
@@ -232,14 +195,6 @@ const fn text_treatment(item: &TranscriptItemView) -> (Option<(&'static str, Rol
     }
 }
 
-pub(super) fn select_line(line: Line<'static>, palette: &Palette, selected: bool) -> Line<'static> {
-    if selected {
-        Line::styled(line.to_string(), palette.style(Role::Selection))
-    } else {
-        line
-    }
-}
-
 /// What a conversation says when it has no items to show.
 ///
 /// An empty panel, a panel waiting for its first event, and a panel whose agent has gone all look
@@ -248,13 +203,16 @@ pub(crate) fn conversation_placeholder(
     palette: &Palette,
     surface: SurfaceId,
     has_agent: bool,
-) -> Vec<Line<'static>> {
+) -> Vec<ratatui::text::Line<'static>> {
     let message = match (surface, has_agent) {
         (_, true) => "Agent is active; no transcript item has started yet.",
         (SurfaceId::Inspector, false) => "That agent is no longer in the roster.",
         (_, false) => "Waiting for the first semantic event…",
     };
-    vec![Line::styled(message, palette.style(Role::Muted))]
+    vec![ratatui::text::Line::styled(
+        message,
+        palette.style(Role::Muted),
+    )]
 }
 
 #[cfg(test)]
@@ -301,7 +259,9 @@ mod tests {
                 }
                 for palette in [Palette::ansi(), Palette::pastel(), Palette::monochrome()] {
                     for width in [0, 1, 4, 5, 6, 12, 58, 86, 118] {
-                        let lines = transcript_text(&item, &palette, false, width).lines;
+                        let lines =
+                            transcript_text(&item, width, crate::math::MathPresentation::default())
+                                .painted_lines(&palette);
                         let expected = Paragraph::new(lines)
                             .wrap(Wrap { trim: false })
                             .line_count(width);
@@ -360,14 +320,15 @@ mod tests {
                 revision: 0,
                 finalized: true,
             };
-            let lines = transcript_text(&item, &palette, false, 40);
-            assert_eq!(lines.lines[0].to_string(), label);
-            assert_eq!(lines.lines[0].style, palette.style(heading));
-            assert_eq!(lines.lines[1].spans[0].style, palette.style(body));
+            let prepared = transcript_text(&item, 40, crate::math::MathPresentation::default());
+            let lines = prepared.painted_lines(&palette);
+            assert_eq!(lines[0].to_string(), label);
+            assert_eq!(lines[0].style, palette.style(heading));
+            assert_eq!(lines[1].spans[0].style, palette.style(body));
 
-            let monochrome = transcript_text(&item, &Palette::monochrome(), false, 40);
-            assert_eq!(monochrome.lines[0].to_string(), label);
-            assert_eq!(monochrome.lines[1].to_string(), format!("{label} source"));
+            let monochrome = prepared.painted_lines(&Palette::monochrome());
+            assert_eq!(monochrome[0].to_string(), label);
+            assert_eq!(monochrome[1].to_string(), format!("{label} source"));
         }
     }
 }

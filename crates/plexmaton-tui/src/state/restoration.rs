@@ -107,7 +107,10 @@ mod tests {
             assert_eq!(metrics.compact_entry_at_row(&agent_id, inner, 0), None);
             assert_eq!(metrics.compact_entry_at_row(&agent_id, inner, 2), Some(0));
             state.begin_selection(SurfaceId::Transcript, agent_id, 0);
-            assert_eq!(state.copy().expect("semantic copy").text, "a new question");
+            assert_eq!(
+                state.copy_entries().expect("semantic copy").text,
+                "a new question"
+            );
         }
     }
 }

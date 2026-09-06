@@ -1,13 +1,15 @@
 //! CommonMark is presentation only. No rendered text replaces the retained semantic source.
-use crate::text_layout::{Layout, wrap};
-use crate::{Palette, Role};
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
-use ratatui::{
-    style::{Modifier, Style},
-    text::{Line, Span},
-};
+#[cfg(test)]
+use crate::Palette;
+use crate::Role;
+use crate::text_layout::paint::{Line, MarkdownRole, Paint as Style, Span};
+use crate::text_layout::{Layout, paint as wrap};
+use crate::{math::MathPresentation, text_layout::math::Atom};
+use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
+use ratatui::style::Modifier;
 use unicode_width::UnicodeWidthStr;
 
+mod syntax;
 mod table;
 #[cfg(test)]
 mod tests;
@@ -28,7 +30,7 @@ pub(crate) fn may_format(source: &str) -> bool {
             c.is_control()
                 || matches!(
                     c,
-                    '*' | '_' | '`' | '[' | ']' | '<' | '>' | '\\' | '&' | '#' | '|' | '~'
+                    '*' | '_' | '`' | '[' | ']' | '<' | '>' | '\\' | '&' | '#' | '|' | '~' | '$'
                 )
         })
 }
@@ -65,14 +67,15 @@ pub(crate) fn render(
     source: &str,
     palette: &Palette,
     width: usize,
-) -> Result<Vec<Line<'static>>, PlainReason> {
-    render_layout(source, palette, width).map(|layout| layout.lines)
+) -> Result<Vec<ratatui::text::Line<'static>>, PlainReason> {
+    render_layout(source, width, MathPresentation::Native)
+        .map(|layout| layout.painted_entry(palette, crate::state::EntryAppearance::default()))
 }
 
 pub(crate) fn render_layout(
     source: &str,
-    palette: &Palette,
     width: usize,
+    math: MathPresentation,
 ) -> Result<Layout, PlainReason> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(PlainReason::Size);
@@ -83,23 +86,23 @@ pub(crate) fn render_layout(
     if width > 512 {
         return Err(PlainReason::Complexity);
     }
-    let options =
-        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
-    let events: Vec<_> = Parser::new_ext(source, options)
+    let source = syntax::Source::new(source)?;
+    let events: Vec<_> = source
+        .events()
         .take(MAX_EVENTS + 1)
-        .collect();
+        .collect::<Result<_, _>>()?;
     if events.len() > MAX_EVENTS {
         return Err(PlainReason::Complexity);
     }
-    render_events(events, palette, width)
+    render_events(events, width, math)
 }
 
 fn render_events(
     events: Vec<Event<'_>>,
-    palette: &Palette,
     width: usize,
+    math: MathPresentation,
 ) -> Result<Layout, PlainReason> {
-    let mut out = Renderer::new(palette, width);
+    let mut out = Renderer::new(width, math);
     let mut events = events.into_iter();
     while let Some(event) = events.next() {
         match event {
@@ -117,7 +120,7 @@ fn render_events(
                     .checked_sub(prefix.width())
                     .filter(|w| *w > 0)
                     .ok_or(PlainReason::Complexity)?;
-                let layout = table::render(body, alignment, palette, available)?;
+                let layout = table::render(body, alignment, available, math)?;
                 out.layout.append(layout, &prefix, out.prefix_style());
                 out.check()?;
                 out.blank()?;
@@ -125,23 +128,28 @@ fn render_events(
             Event::Start(tag) => out.start(tag)?,
             Event::End(tag) => out.end(tag)?,
             Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
-                out.text(&text, out.style)?
+                out.text(&text, out.style.clone())?
             }
-            Event::Code(text) => out.text(&text, out.style.patch(out.appearance.inline_code))?,
+            Event::Code(text) => out.text(
+                &text,
+                out.style.clone().patch(MarkdownRole::InlineCode.into()),
+            )?,
             Event::SoftBreak | Event::HardBreak => out.flush(true)?,
             Event::Rule => {
                 out.flush(false)?;
                 out.adornment(
                     &"─".repeat(width.saturating_sub(out.prefix().width()).min(48)),
-                    out.appearance.rule,
+                    MarkdownRole::Rule.into(),
                 )?;
                 out.blank()?;
             }
             Event::TaskListMarker(checked) => out.text(
                 if checked { "[x] " } else { "[ ] " },
-                out.appearance.task_marker,
+                MarkdownRole::TaskMarker.into(),
             )?,
-            Event::FootnoteReference(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
+            Event::InlineMath(source) => out.math(&source, false)?,
+            Event::DisplayMath(source) => out.math(&source, true)?,
+            Event::FootnoteReference(_) => {
                 return Err(PlainReason::Complexity);
             }
         }
@@ -157,12 +165,13 @@ enum Prefix {
     Indent(usize),
     Code,
 }
-struct Renderer<'a> {
-    palette: &'a Palette,
-    appearance: crate::theme::MarkdownStyles,
+struct Renderer {
     width: usize,
     layout: Layout,
-    current: Vec<Span<'static>>,
+    current: Vec<Span>,
+    atoms: Vec<Atom>,
+    math: MathPresentation,
+    math_bytes: usize,
     style: Style,
     styles: Vec<Style>,
     prefixes: Vec<Prefix>,
@@ -173,15 +182,16 @@ struct Renderer<'a> {
     bytes: usize,
 }
 
-impl<'a> Renderer<'a> {
-    fn new(palette: &'a Palette, width: usize) -> Self {
+impl Renderer {
+    fn new(width: usize, math: MathPresentation) -> Self {
         Self {
-            palette,
-            appearance: palette.markdown_styles(),
             width,
             layout: Layout::default(),
             current: Vec::new(),
-            style: palette.style(Role::Body),
+            atoms: Vec::new(),
+            math,
+            math_bytes: 0,
+            style: Role::Body.into(),
             styles: Vec::new(),
             prefixes: Vec::new(),
             lists: Vec::new(),
@@ -208,12 +218,12 @@ impl<'a> Renderer<'a> {
             .iter()
             .any(|prefix| matches!(prefix, Prefix::Item(_) | Prefix::Indent(_)))
         {
-            self.appearance.marker
+            MarkdownRole::Marker.into()
         } else {
-            self.appearance.guide
+            MarkdownRole::Guide.into()
         }
     }
-    fn row(&mut self, line: Line<'static>) -> Result<(), PlainReason> {
+    fn row(&mut self, line: Line) -> Result<(), PlainReason> {
         self.layout.decoration(line);
         self.check()
     }
@@ -227,6 +237,7 @@ impl<'a> Renderer<'a> {
         if self.bytes > MAX_RENDERED_BYTES
             || self.layout.lines.len() > MAX_LINES
             || self.layout.text.len() > MAX_RENDERED_BYTES
+            || self.layout.formulas.len() > crate::text_layout::math::MAX_FORMULAS
         {
             return Err(PlainReason::Complexity);
         }
@@ -265,13 +276,23 @@ impl<'a> Renderer<'a> {
             .ok_or(PlainReason::Complexity)?;
         let line = Line::from(std::mem::take(&mut self.current));
         let start = self.layout.lines.len();
-        self.layout.logical(
-            line,
-            width,
-            self.code_depth > 0,
-            &prefix,
-            self.prefix_style(),
-        );
+        if self.atoms.is_empty() {
+            self.layout.logical(
+                line,
+                width,
+                self.code_depth > 0,
+                &prefix,
+                self.prefix_style(),
+            );
+        } else {
+            self.layout.math_logical(
+                line,
+                std::mem::take(&mut self.atoms),
+                width,
+                &prefix,
+                self.prefix_style(),
+            )?;
+        }
         // A list marker belongs only to its first visual row. Continuations keep its width.
         let mut continuation = false;
         for p in &mut self.prefixes {
@@ -294,7 +315,7 @@ impl<'a> Renderer<'a> {
         for part in text.split_inclusive('\n') {
             let text = inert(part.trim_end_matches('\n'));
             if !text.is_empty() {
-                self.current.push(Span::styled(text, style));
+                self.current.push(Span::styled(text, style.clone()));
             }
             if part.ends_with('\n') {
                 self.flush(true)?;
@@ -302,25 +323,57 @@ impl<'a> Renderer<'a> {
         }
         Ok(())
     }
+
+    fn math(&mut self, source: &str, display: bool) -> Result<(), PlainReason> {
+        if self.layout.formulas.len() + self.atoms.len() >= crate::text_layout::math::MAX_FORMULAS {
+            return Err(PlainReason::Complexity);
+        }
+        if display {
+            self.flush(false)?;
+        }
+        let width = self
+            .width
+            .checked_sub(self.prefix().width())
+            .filter(|width| *width > 0)
+            .ok_or(PlainReason::Complexity)?;
+        let atom = Atom::prepare(source, self.current.len(), width, self.math)?;
+        self.math_bytes += atom.allocation_bytes();
+        if self.math_bytes > crate::preparation::MAX_PREPARED_BYTES {
+            return Err(PlainReason::Complexity);
+        }
+        self.atoms.push(atom);
+        self.current
+            .push(Span::styled(source.to_owned(), self.style.clone()));
+        if display {
+            self.flush(false)?;
+        }
+        Ok(())
+    }
     fn start(&mut self, tag: Tag<'_>) -> Result<(), PlainReason> {
         if self.styles.len() >= MAX_DEPTH {
             return Err(PlainReason::Complexity);
         }
-        self.styles.push(self.style);
+        self.styles.push(self.style.clone());
         match tag {
             Tag::Paragraph | Tag::HtmlBlock => self.flush(false)?,
             Tag::Heading { level, .. } => {
                 self.flush(false)?;
-                let index = (level as usize - 1).min(self.appearance.headings.len() - 1);
-                self.style = self.appearance.headings[index];
+                self.style = match level {
+                    pulldown_cmark::HeadingLevel::H1 => MarkdownRole::Heading1,
+                    pulldown_cmark::HeadingLevel::H2 => MarkdownRole::Heading2,
+                    _ => MarkdownRole::Heading3,
+                }
+                .into();
             }
-            Tag::Emphasis => self.style = self.style.add_modifier(Modifier::ITALIC),
-            Tag::Strong => self.style = self.style.add_modifier(Modifier::BOLD),
-            Tag::Strikethrough => self.style = self.style.add_modifier(Modifier::CROSSED_OUT),
+            Tag::Emphasis => self.style = self.style.clone().add_modifier(Modifier::ITALIC),
+            Tag::Strong => self.style = self.style.clone().add_modifier(Modifier::BOLD),
+            Tag::Strikethrough => {
+                self.style = self.style.clone().add_modifier(Modifier::CROSSED_OUT)
+            }
             Tag::BlockQuote(_) => {
                 self.flush(false)?;
                 self.prefixes.push(Prefix::Quote);
-                self.style = self.appearance.quote;
+                self.style = MarkdownRole::Quote.into();
             }
             Tag::List(start) => {
                 self.flush(false)?;
@@ -350,14 +403,14 @@ impl<'a> Renderer<'a> {
                         .collect::<String>(),
                     CodeBlockKind::Indented => String::new(),
                 };
-                self.adornment(&format!("┌ {language}"), self.appearance.guide)?;
+                self.adornment(&format!("┌ {language}"), MarkdownRole::Guide.into())?;
                 self.prefixes.push(Prefix::Code);
                 self.code_depth += 1;
-                self.style = self.appearance.code;
+                self.style = MarkdownRole::Code.into();
             }
             Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
                 self.links.push(dest_url.into_string());
-                self.style = self.style.patch(self.appearance.link);
+                self.style = self.style.clone().patch(MarkdownRole::Link.into());
             }
             _ => return Err(PlainReason::Complexity),
         }
@@ -391,18 +444,18 @@ impl<'a> Renderer<'a> {
                 self.flush(false)?;
                 self.prefixes.pop();
                 self.code_depth = self.code_depth.saturating_sub(1);
-                self.adornment("└", self.appearance.guide)?;
+                self.adornment("└", MarkdownRole::Guide.into())?;
                 self.blank()?;
             }
             TagEnd::Link | TagEnd::Image => {
                 if let Some(url) = self.links.pop() {
-                    self.text(&format!(" ({url})"), self.appearance.guide)?;
+                    self.text(&format!(" ({url})"), MarkdownRole::Guide.into())?;
                 }
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {}
             _ => return Err(PlainReason::Complexity),
         }
-        self.style = self.styles.pop().unwrap_or(self.palette.style(Role::Body));
+        self.style = self.styles.pop().unwrap_or_else(|| Role::Body.into());
         Ok(())
     }
 }

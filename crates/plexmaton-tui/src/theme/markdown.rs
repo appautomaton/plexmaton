@@ -84,7 +84,7 @@ mod tests {
         }
         assert_ne!(
             base, colored,
-            "the retained layout key must include Markdown colors"
+            "the palette identity must include Markdown colors to request a repaint"
         );
         let styles = colored.markdown_styles();
         let pastel = Palette::pastel();

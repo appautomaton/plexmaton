@@ -1,5 +1,6 @@
 use super::*;
 use proptest::prelude::*;
+use ratatui::style::Style;
 use unicode_width::UnicodeWidthStr as _;
 
 /// MD-2/SEL-2/TR-1: measured breaks preserve the previous width, style and source-range semantics.

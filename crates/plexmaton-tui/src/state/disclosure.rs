@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use plexmaton_core::{AgentId, TranscriptItemId};
 
-use super::{Selection, TranscriptEntryView, ViewState};
+use super::{TranscriptEntryView, ViewState};
 use crate::{
     surface::{SurfaceId, SurfaceTree},
     transcript::TranscriptMetrics,
@@ -208,35 +208,27 @@ impl ViewState {
             .as_ref()
             .and_then(|selection| self.entry_target(selection.surface, selection.focus_index()));
         if let Some(target) = target {
-            self.toggle_entry(surfaces, metrics, target, false);
+            self.toggle_entry(surfaces, metrics, target);
         }
     }
 
-    /// Makes a pointer-targeted tool the one-entry selection and toggles its disclosure.
-    pub(crate) fn toggle_pointer_entry(
+    /// Disclosure is a reading action, not a copy selection. Both pointer and keyboard targets
+    /// resolve by stable entry identity, while only explicit selection gestures select source.
+    pub(crate) fn toggle_entry(
         &mut self,
         surfaces: &SurfaceTree,
         metrics: &TranscriptMetrics,
         target: EntryTarget,
-    ) {
-        self.toggle_entry(surfaces, metrics, target, true);
-    }
-
-    fn toggle_entry(
-        &mut self,
-        surfaces: &SurfaceTree,
-        metrics: &TranscriptMetrics,
-        target: EntryTarget,
-        select: bool,
     ) {
         if self.agent_shown_by(target.surface).as_ref() != Some(&target.agent) {
             return;
         }
-        let Some(index) = self.agents.get(&target.agent).and_then(|agent| {
+        let retained_tool = self.agents.get(&target.agent).is_some_and(|agent| {
             agent
                 .entries()
-                .position(|entry| entry.id() == &target.item && matches!(entry, TranscriptEntryView::Tool(tool) if tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()))
-        }) else {
+                .any(|entry| entry.id() == &target.item && matches!(entry, TranscriptEntryView::Tool(tool) if tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()))
+        });
+        if !retained_tool {
             return;
         };
 
@@ -248,10 +240,8 @@ impl ViewState {
         {
             self.scroll.park_conversation(target.agent.clone(), anchor);
         }
-        if select {
-            self.selection = Some(Selection::at(target.surface, target.agent.clone(), index));
-            let _changed = self.disclosure.hover(None, false, None);
-        }
+        // Changed geometry invalidates the old under-pointer target; it is not keyboard focus.
+        let _changed = self.disclosure.hover(None, false, None);
         self.disclosure.toggle(target.item);
         self.touch();
     }

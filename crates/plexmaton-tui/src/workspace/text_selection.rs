@@ -13,13 +13,18 @@ impl Workspace {
         if bounds.width < 3 || bounds.height < 3 {
             return None;
         }
+        let viewport = self.surfaces.viewport(surface)?;
+        if viewport.visible_rows == 0 {
+            return None;
+        }
         if captured {
             at.x = at.x.clamp(bounds.x + 1, bounds.right() - 2);
-            at.y = at.y.clamp(bounds.y + 1, bounds.bottom() - 2);
+            // FR-3: a conversation may share its bottom rule with the composer. Its painted
+            // viewport, not an assumed fourth border, names the final selectable content row.
+            at.y = at.y.clamp(bounds.y + 1, bounds.y + viewport.visible_rows);
         } else if at.x <= bounds.x || at.x >= bounds.right() - 1 {
             return None;
         }
-        let viewport = self.surfaces.viewport(surface)?;
         let local = usize::from(at.y.checked_sub(bounds.y + 1)?);
         if local >= usize::from(viewport.visible_rows) {
             return None;
@@ -28,14 +33,8 @@ impl Workspace {
         let row = viewport.offset + local.checked_sub(slack)?;
         let width = viewport.content_width;
         let agent = self.state.agent_shown_by(surface)?;
-        let (index, inside) = self.metrics.text_entry_at_row(&agent, width, row)?;
-        let item = self.state.agent(&agent)?.entries().nth(index)?;
-        let appearance = self
-            .state
-            .entry_appearance(surface, &agent, item.id(), false);
-        let layout = self
-            .metrics
-            .mapped_entry(&agent, item, &self.palette, width, appearance);
+        let (index, key, inside, layout) =
+            self.metrics.painted_entry(surface, &agent, width, row)?;
         let column = usize::from(at.x - bounds.x - 1);
         let offset = layout.offset_at(inside, column).or_else(|| {
             // Header/separator rows carry no copy text. The nearest text edge is a caret boundary.
@@ -53,11 +52,12 @@ impl Workspace {
                     }
                 })
         })?;
-        Some((
-            agent,
-            TextPoint::new(index, item.id().clone(), offset, &layout.text)?,
-            width,
-        ))
+        let point = if let Some(range) = layout.atom_at(inside, column) {
+            TextPoint::atomic(index, key.item.clone(), range, &layout.text)?
+        } else {
+            TextPoint::new(index, key.item.clone(), offset, &layout.text)?
+        };
+        Some((agent, point, width))
     }
 
     pub(super) fn extend_pointer_text(&mut self, surface: SurfaceId, at: Point) -> bool {
@@ -80,15 +80,20 @@ impl Workspace {
             else {
                 return false;
             };
-            let layout = self.metrics.mapped_entry(
+            let key = crate::preparation::Key::new(
                 agent,
                 entry,
-                &self.palette,
                 width,
                 self.state
-                    .entry_appearance(surface, agent, entry.id(), false),
-            );
-            point.matches(entry, &layout)
+                    .entry_appearance(surface, agent, entry.id(), false)
+                    .open,
+            )
+            .with_math(self.metrics.math());
+            match self.metrics.prepared_source(&key) {
+                Some(Ok(layout)) => point.matches(entry, &layout),
+                Some(Err(_)) => false,
+                None => &point.item == entry.id(),
+            }
         });
         if !valid {
             self.state.clear_selection();
