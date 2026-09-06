@@ -24,11 +24,16 @@ discards a result without terminating the synchronous parser.
 in the current workspace generation and its exact source/geometry identity; a successful frame
 alone replaces the immutable pinned text hit map (FR-3). Missing or failed preparation is local
 presentation, never permission for draw, input or selection validation to invoke a parser.
+MD-4's retained presentation carries its own source identity through height measurement, paint,
+native reservations and pointer mapping, even when a completion is overtaken by another delta.
 MTH-5 requires both cell and native output success before that publication.
 
-**PRE-4 — Selected-text copy waits for data, not on the input loop.** Release retains a bounded
-assembly of the exact selection and every member's revision/disclosure, preparing missing entries
-through the same owner and emitting one complete copy (SEL-1/SEL-2/SEL-4). Changed members, a new
+**PRE-4 — Selected-text copy waits for data, not on the input loop.** Release captures painted
+fragments and retains a bounded assembly with every member's observed revision/disclosure for
+cancellation and missing-entry preparation. The same owner fills unpainted gaps and emits one
+complete copy (SEL-1/SEL-2/SEL-4). Captures iterate only the bounded painted set and account for
+container capacity plus optional fragment allocation; an empty member is a captured absence.
+A new explicit Copy captures the current painted representation. Changed members, a new
 selection or another copy cancel obsolete delivery; failure and capacity limits are explicit.
 
 ## Evidence
@@ -37,8 +42,8 @@ selection or another copy cancel obsolete delivery; failure and capacity limits 
 | --- | --- |
 | PRE-1 | `real_preparation_worker_preserves_the_complete_native_math_reply`, `preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps`, `oversized_preparation_identity_never_enters_the_cache_or_request_queue`, `oversized_literal_pending_frame_is_bounded_before_worker_admission`, `real_preparation_driver_round_trips_semantic_rows_at_three_widths`, `preparation_driver_eof_exits_without_configuration_or_terminal_output`, `preparation_wire_rejects_mismatched_identity_and_invalid_copy_ranges`, `preparation_wire_bounds_requests_before_retaining_them`, `preparation_driver_rejects_truncated_frames_and_unadmitted_modifiers`, `malformed_preparation_replies_cannot_attach_or_escape_the_output_bound`; checking only width fails the cross-agent identity witness |
 | PRE-2 | `preparation_replacement_reaps_before_starting_only_the_latest_batch`, `preparation_retains_partial_pipe_io_across_select_interruptions`, `preparation_shutdown_cancels_active_and_pending_without_an_idle_wake`, `preparation_timeout_kills_and_reaps_computation`, `blocked_preparation_never_holds_the_production_input_and_frame_loop`, `cleanup_failure_on_an_old_ticket_settles_the_latest_workspace_request`; omitting reap and awaiting preparation inline each fail their witness. Actual OS cleanup-timeout injection remains unproven |
-| PRE-3 | `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`, `cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued`, `preparation_cannot_cross_workspace_generations_or_admit_mismatched_keys`, `prepared_text_is_not_selectable_until_the_result_has_been_painted`, `superseded_preparation_is_ignored_and_failure_is_local_without_an_idle_retry`, `real_preparation_process_drives_painted_rows_and_exact_pointer_copy`, `late_real_reply_cannot_attach_to_a_replaced_workspace`, `live_preparation_splits_capacity_batches_without_losing_valid_entries`; comparing only sequence fails the workspace-generation witness |
-| PRE-4 | `selected_text_capacity_refuses_a_complete_request_without_emitting_a_prefix`, `selected_text_waits_for_missing_preparation_and_emits_one_complete_copy`, `pending_copy_cannot_outlive_selected_source_changes_or_cancellation`, `prepared_text_is_not_selectable_until_the_result_has_been_painted` |
+| PRE-3 | `a_prepared_revision_overtaken_by_queued_deltas_is_still_painted_and_copyable`, `streaming_preparation_keeps_the_last_painted_rows_and_geometry`, `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`, `cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued`, `preparation_cannot_cross_workspace_generations_or_admit_mismatched_keys`, `prepared_text_is_not_selectable_until_the_result_has_been_painted`, `superseded_preparation_is_ignored_and_failure_is_local_without_an_idle_retry`, `real_preparation_process_drives_painted_rows_and_exact_pointer_copy`, `late_real_reply_cannot_attach_to_a_replaced_workspace`, `live_preparation_splits_capacity_batches_without_losing_valid_entries`; comparing only sequence fails the workspace-generation witness |
+| PRE-4 | `large_selection_capture_is_bounded_by_the_painted_set`, `empty_painted_fragments_do_not_copy_unseen_text_or_wait_for_it`, `pending_stream_copy_captures_painted_fragments_without_waiting_for_new_source`, `ready_preparation_keeps_pointer_copy_on_the_painted_source_until_the_next_frame`, `selected_text_capacity_refuses_a_complete_request_without_emitting_a_prefix`, `selected_text_waits_for_missing_preparation_and_emits_one_complete_copy`, `pending_copy_cannot_outlive_selected_source_changes_or_cancellation`, `prepared_text_is_not_selectable_until_the_result_has_been_painted` |
 
 Reviewed pending frames at [120](../../crates/plexmaton-tui/frames/preparation/pending-120.svg),
 [88](../../crates/plexmaton-tui/frames/preparation/pending-88.svg) and
@@ -69,7 +74,9 @@ an individual refusal becomes visible; a successful batch restores the sixteen-e
 | Process | Absolute executable, empty environment, piped stdin/stdout, discarded stderr |
 | Lifetime | 2 s covering request/reply I/O and computation; another 500 ms for kill/reap; uncertain cleanup retains the child in quarantine |
 
-Pending rows preserve known heights; unavailable entries show a compact refusal without guessed text ranges. Source
+Pending revisions preserve compatible prepared content and its height; cold or evicted entries
+use a placeholder with a known or estimated height. Unavailable entries show a compact refusal
+without guessed text ranges. Source
 copy remains available, including when an individual entry exceeds preparation limits. Plain
 hidden text counts borrowed row breaks; unknown rich heights remain explicit estimates until
 reached. Ordinary CLI gates use the real process. CPU-only fixtures and reference measurements

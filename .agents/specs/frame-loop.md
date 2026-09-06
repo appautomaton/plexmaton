@@ -50,11 +50,20 @@ screen coordinates; PRE-3 removes that implicit parser path.
 
 ```text
 producer events ─▶ Workspace::emit ─┐
-                                    ├─▶ ViewState ──▶ draw ──▶ Option<FrameWork>
-terminal events ─▶ Workspace::handle┘        │                    │
-                          │                  │                    └─▶ SurfaceTree + heights
-                          └── Outcome ───────┴──── the next handle reads them (FR-3)
+                                    ├─▶ ViewState
+terminal events ─▶ Workspace::handle┘        │
+                          │                  ▼
+                          │          Workspace::draw
+                          │            ├─ selection/copy preflight
+                          │            ├─ render(&ViewState): candidate frame
+                          │            └─ cell/native success: publish frame maps
+                          └── Outcome          └─ next input resolves against them (FR-3)
 ```
+
+The workspace's preflight can invalidate obsolete UI selection/copy state before rendering;
+`render` remains a projection borrowed through `&ViewState`. Only successful cell/native output
+publishes the new surface registry, native scene and source pins. Output failure keeps those
+published maps and does not roll back a preflight invalidation.
 
 The workspace is one object: the projection, the router with its capture, the registry the last
 frame drew, the wrapped heights, and the revision the screen shows. The executable adds a real
@@ -83,13 +92,17 @@ persistent-process batches include pipes and decoding; live preparation samples 
 process-to-workspace adoption and every cell-buffer frame until reached data settles. None includes
 terminal transport or waiting for the outer input loop. Work counts are asserted, timings are not.
 
-A CPU sample may now include a pending frame and a prepared frame. Its wrapped/line counts are
+A CPU sample may include a retained-content frame and a prepared frame; a cold or evicted entry
+can instead show a pending placeholder. Frame/preparation counts alone do not measure blanking.
+Its wrapped/line counts are
 totals for the sample, not one physical frame, and cannot be compared directly with old synchronous
 single-frame timings. Palette, hover and retained selection still repaint without preparation.
 Visible conversations retain full entry walks for height validation, title counts and anchor
 resolution; request admission also locates its bounded set of source identities in that order.
 
-Observed on arm64 macOS, release, 2026-09-06, 120 × 40, with a 5,000-message base history and 625
+The timing tables below are the baseline at `448b013`, before retained streaming presentation;
+current release timings remain unmeasured. Observed on arm64 macOS, release, 2026-09-06,
+120 × 40, with a 5,000-message base history and 625
 interleaved tools where the workload uses messages; repeated workloads use 200 samples, cold uses
 ten. New event workloads grow their history during the run:
 
@@ -171,6 +184,6 @@ reaping on exit. Saturated real-terminal streaming and native-math output remain
 | --- | --- |
 | FR-1 | `palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths`, `a_frame_is_drawn_only_when_something_changed`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen` |
 | FR-2 | `frame_work_is_bounded_by_the_viewport_and_not_by_the_history`, `scrolling_a_measured_conversation_wraps_nothing`, `the_wheel_workload_costs_no_measurement`, `opening_and_closing_the_inspector_records_every_sample`, `compact_tool_entries_cost_one_wrap_at_any_history_length`, `opening_a_tool_entry_costs_one_wrap_and_not_its_history`, `the_resize_workload_re_measures_every_entry_exactly_once`, `a_background_agent_streaming_does_not_re_measure_the_foreground`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts` |
-| FR-3 | `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `prepared_text_is_not_selectable_until_the_result_has_been_painted`, `blocked_preparation_never_holds_the_production_input_and_frame_loop`, `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
-| FR-4 | `palette_workload_repaints_without_height_work_at_both_history_scales`, `rich_history_measurement_separates_cold_resize_and_paint_work`; The FR-2 rows assert work counts; `extending_selection_records_every_declared_sample` pins sample accounting; `plexmaton-measure` prints time and asserts none of it |
-| FR-5 | `stream_deadline_is_fixed_and_idle_owns_no_wake`, `stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail`, `stream_byte_pressure_counts_capacity_and_does_not_drop_oversized_events`, `input_and_interrupt_flush_streams_without_waiting_for_the_frame_interval`, `stream_copy_uses_the_painted_markdown_before_applying_queued_delimiters`, `resize_flushes_pending_text_and_replaces_geometry_only_after_drawing`, `explicit_flush_retains_the_final_partial_stream_without_another_arrival`, `failed_stream_frame_does_not_acknowledge_paint_or_replay_its_deltas`, `rich_stream_measurement_asserts_frame_work_and_exact_source_at_both_scales`; applying deltas before mouse release was mutation-tested and failed the copy witness |
+| FR-3 | `pending_stream_copy_captures_painted_fragments_without_waiting_for_new_source`, `ready_preparation_keeps_pointer_copy_on_the_painted_source_until_the_next_frame`, `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `prepared_text_is_not_selectable_until_the_result_has_been_painted`, `blocked_preparation_never_holds_the_production_input_and_frame_loop`, `the_wheel_moves_a_drawn_viewport_and_nothing_before_one_exists`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`, `typing_reaches_the_composer_and_submitting_hands_the_text_back` |
+| FR-4 | `preparation_result_count_includes_results_dropped_by_retention`, `palette_workload_repaints_without_height_work_at_both_history_scales`, `rich_history_measurement_separates_cold_resize_and_paint_work`; The FR-2 rows assert work counts; `extending_selection_records_every_declared_sample` pins sample accounting; `plexmaton-measure` prints time and asserts none of it |
+| FR-5 | `a_prepared_revision_overtaken_by_queued_deltas_is_still_painted_and_copyable`, `stream_deadline_is_fixed_and_idle_owns_no_wake`, `stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail`, `stream_byte_pressure_counts_capacity_and_does_not_drop_oversized_events`, `input_and_interrupt_flush_streams_without_waiting_for_the_frame_interval`, `stream_copy_uses_the_painted_markdown_before_applying_queued_delimiters`, `resize_flushes_pending_text_and_replaces_geometry_only_after_drawing`, `explicit_flush_retains_the_final_partial_stream_without_another_arrival`, `failed_stream_frame_does_not_acknowledge_paint_or_replay_its_deltas`, `rich_stream_measurement_asserts_frame_work_and_exact_source_at_both_scales`; applying deltas before mouse release was mutation-tested and failed the copy witness |

@@ -19,7 +19,7 @@ Plexmaton is an AI coding assistant for the terminal, built in Rust by App Autom
 - **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
 - **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it with `/permissions`.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
-- **Read comfortably.** Pastel Markdown, code, tables and native math make detailed answers easier to follow. Selection preserves the source you need to copy.
+- **Read comfortably.** Pastel Markdown, code, tables and native math stay visible during updates. Selection copies the representation you chose.
 
 <p align="center">
 <img src="crates/plexmaton-tui/frames/math/reply-88.svg" width="640" alt="Plexmaton terminal workspace displaying a formatted assistant response and native mathematical notation">

@@ -7,17 +7,28 @@ use crate::{
     state::CopyNote,
     text_layout::Layout,
 };
+use std::collections::VecDeque;
 
 const MAX_COPY_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(super) struct Assembly {
     selection: Selection,
+    /// Semantic identities observed at release cancel changed-source work. Already painted
+    /// fragments are captured separately because they may belong to an older source revision.
     keys: Vec<Key>,
     next: usize,
     text: String,
     entries: usize,
     key_bytes: usize,
+    captured: VecDeque<Captured>,
+    captured_bytes: usize,
+}
+
+#[derive(Debug)]
+struct Captured {
+    index: usize,
+    text: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -35,10 +46,7 @@ pub(super) enum Delivery {
 }
 
 impl Assembly {
-    fn new(
-        state: &ViewState,
-        math: crate::math::MathPresentation,
-    ) -> Result<Option<Self>, CopyNote> {
+    fn new(state: &ViewState, metrics: &TranscriptMetrics) -> Result<Option<Self>, CopyNote> {
         let Some(selection) = state.selection().filter(|selection| selection.is_text()) else {
             return Ok(None);
         };
@@ -70,7 +78,7 @@ impl Assembly {
                 width,
                 state.disclosure().is_open(item.id()),
             )
-            .with_math(math);
+            .with_math(metrics.math());
             key_bytes += key.allocation_bytes() - size_of::<Key>();
             if key_bytes > MAX_COPY_BYTES {
                 return Err(CopyNote::Capacity);
@@ -80,14 +88,74 @@ impl Assembly {
         if keys.len() != count {
             return Err(CopyNote::Changed);
         }
-        Ok(Some(Self {
+        let mut assembly = Self {
             selection: selection.clone(),
             keys,
             next: 0,
             text: String::new(),
             entries: 0,
             key_bytes,
-        }))
+            captured: VecDeque::new(),
+            captured_bytes: 0,
+        };
+        assembly.capture_painted(state, metrics)?;
+        Ok(Some(assembly))
+    }
+
+    /// Freeze visible fragments before preparing any off-screen gaps. A later frame may retire
+    /// these layouts; the release must still copy the representation the user selected (FR-3).
+    fn capture_painted(
+        &mut self,
+        state: &ViewState,
+        metrics: &TranscriptMetrics,
+    ) -> Result<(), CopyNote> {
+        let (first, last) = self.selection.bounds();
+        let painted =
+            metrics.painted_sources(self.selection.surface, &self.selection.agent, first..=last);
+        self.captured = VecDeque::with_capacity(painted.clone().count());
+        self.key_bytes += self.captured.capacity() * size_of::<Captured>();
+        if self.key_bytes > MAX_COPY_BYTES {
+            return Err(CopyNote::Capacity);
+        }
+        for (index, key, layout) in painted {
+            let offset = index - first;
+            let Some(observed) = self.keys.get(offset) else {
+                continue;
+            };
+            // Width belongs to the painted surface; plain selection text excludes soft wrapping.
+            if key.item != observed.item
+                || key.open != observed.open
+                || key.math != observed.math
+                || key.revision > observed.revision
+            {
+                continue;
+            }
+            let text = match self.selected_part(state, index, layout)? {
+                None => None,
+                Some(part) => {
+                    if self.key_bytes + self.captured_bytes + part.len() > MAX_COPY_BYTES {
+                        return Err(CopyNote::Capacity);
+                    }
+                    let mut text = String::new();
+                    text.try_reserve_exact(part.len())
+                        .map_err(|_| CopyNote::Capacity)?;
+                    if self.key_bytes + self.captured_bytes + text.capacity() > MAX_COPY_BYTES {
+                        return Err(CopyNote::Capacity);
+                    }
+                    text.push_str(part);
+                    self.captured_bytes += text.capacity();
+                    Some(text)
+                }
+            };
+            self.captured.push_back(Captured {
+                index: offset,
+                text,
+            });
+        }
+        self.captured
+            .make_contiguous()
+            .sort_by_key(|part| part.index);
+        Ok(())
     }
 
     fn valid(&self, state: &ViewState) -> bool {
@@ -111,8 +179,12 @@ impl Assembly {
         })
     }
 
-    fn append(&mut self, state: &ViewState, layout: &Layout) -> Result<(), CopyNote> {
-        let index = self.selection.bounds().0 + self.next;
+    fn selected_part<'a>(
+        &self,
+        state: &ViewState,
+        index: usize,
+        layout: &'a Layout,
+    ) -> Result<Option<&'a str>, CopyNote> {
         let (_, _, points, _) = state.text_selection_points().ok_or(CopyNote::Changed)?;
         let entry = state
             .agent(&self.selection.agent)
@@ -124,26 +196,37 @@ impl Assembly {
         {
             return Err(CopyNote::Changed);
         }
-        if let Some(range) = state.selected_text_range(
-            self.selection.surface,
-            &self.selection.agent,
-            index,
-            layout.text.len(),
-        ) {
-            let part = layout.text.get(range).ok_or(CopyNote::Changed)?;
+        state
+            .selected_text_range(
+                self.selection.surface,
+                &self.selection.agent,
+                index,
+                layout.text.len(),
+            )
+            .map(|range| layout.text.get(range).ok_or(CopyNote::Changed))
+            .transpose()
+    }
+
+    fn append(&mut self, part: Option<&str>) -> Result<(), CopyNote> {
+        if let Some(part) = part {
             let separator = if self.entries == 0 { "" } else { "\n\n" };
             let length = self
                 .text
                 .len()
                 .saturating_add(separator.len())
                 .saturating_add(part.len());
-            if self.key_bytes.saturating_add(length) > MAX_COPY_BYTES {
+            if self
+                .key_bytes
+                .saturating_add(self.captured_bytes)
+                .saturating_add(length)
+                > MAX_COPY_BYTES
+            {
                 return Err(CopyNote::Capacity);
             }
             self.text
                 .try_reserve_exact(length - self.text.len())
                 .map_err(|_| CopyNote::Capacity)?;
-            if self.key_bytes + self.text.capacity() > MAX_COPY_BYTES {
+            if self.key_bytes + self.captured_bytes + self.text.capacity() > MAX_COPY_BYTES {
                 return Err(CopyNote::Capacity);
             }
             self.text.push_str(separator);
@@ -156,8 +239,17 @@ impl Assembly {
 
     fn advance(&mut self, state: &ViewState, metrics: &TranscriptMetrics) -> Result<(), CopyNote> {
         while let Some(key) = self.keys.get(self.next) {
+            if let Some(captured) = self.captured.pop_front_if(|part| part.index == self.next) {
+                self.captured_bytes -= captured.text.as_ref().map_or(0, String::capacity);
+                self.append(captured.text.as_deref())?;
+                continue;
+            }
             match metrics.prepared_source(key) {
-                Some(Ok(layout)) => self.append(state, &layout)?,
+                Some(Ok(layout)) => {
+                    let part =
+                        self.selected_part(state, self.selection.bounds().0 + self.next, &layout)?;
+                    self.append(part)?;
+                }
                 Some(Err(reason)) => return Err(note(reason)),
                 None => break,
             }
@@ -192,7 +284,7 @@ impl Workspace {
         {
             return assembly.request();
         }
-        let mut assembly = Assembly::new(&self.state, self.metrics.math()).ok()??;
+        let mut assembly = Assembly::new(&self.state, &self.metrics).ok()??;
         assembly.advance(&self.state, &self.metrics).ok()?;
         assembly.request()
     }
@@ -201,7 +293,7 @@ impl Workspace {
         if !self.state.selection().is_some_and(Selection::is_text) {
             return self.state.copy_entries();
         }
-        self.copy = match Assembly::new(&self.state, self.metrics.math()) {
+        self.copy = match Assembly::new(&self.state, &self.metrics) {
             Ok(Some(assembly)) => CopyPreparation::Pending(assembly),
             Ok(None) => {
                 self.state.clear_selection();
@@ -227,11 +319,27 @@ impl Workspace {
         assembly.request()
     }
 
-    pub(super) fn copy_preparation_keys(&self) -> &[Key] {
-        let CopyPreparation::Pending(assembly) = &self.copy else {
-            return &[];
+    pub(super) fn copy_preparation_keys(&self) -> impl Iterator<Item = &Key> {
+        let pending = match &self.copy {
+            CopyPreparation::Pending(assembly) => Some(assembly),
+            _ => None,
         };
-        &assembly.keys[assembly.next..]
+        pending.into_iter().flat_map(|assembly| {
+            let mut captured = assembly.captured.iter().peekable();
+            assembly
+                .keys
+                .iter()
+                .enumerate()
+                .skip(assembly.next)
+                .filter_map(move |(index, key)| {
+                    if captured.peek().is_some_and(|part| part.index == index) {
+                        captured.next();
+                        None
+                    } else {
+                        Some(key)
+                    }
+                })
+        })
     }
 
     pub(super) fn advance_copy(&mut self) {
@@ -296,6 +404,51 @@ mod tests {
         AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
         TranscriptItemId, TranscriptRole,
     };
+
+    /// PRE-4: a selection larger than the LRU captures only the successful frame's bounded set;
+    /// every retained fragment allocation and its container capacity stay in the copy budget.
+    #[test]
+    fn large_selection_capture_is_bounded_by_the_painted_set() {
+        let (mut workspace, mut terminal, _) = preparation_tests::select_unprepared_history(60);
+        let CopyPreparation::Pending(assembly) = &workspace.copy else {
+            panic!("off-screen gaps need preparation");
+        };
+        let (first, last) = assembly.selection.bounds();
+        let painted = workspace
+            .metrics
+            .painted_sources(
+                assembly.selection.surface,
+                &assembly.selection.agent,
+                first..=last,
+            )
+            .count();
+        assert!(assembly.keys.len() > 128);
+        assert!(painted > 0 && painted <= 128);
+        assert!(!assembly.captured.is_empty() && assembly.captured.len() <= painted);
+        let bytes: usize = assembly
+            .captured
+            .iter()
+            .map(|part| part.text.as_ref().map_or(0, String::capacity))
+            .sum();
+        assert_eq!(assembly.captured_bytes, bytes);
+        assert!(
+            assembly.key_bytes
+                >= assembly.keys.capacity() * size_of::<Key>()
+                    + assembly.captured.capacity() * size_of::<Captured>()
+        );
+        assert!(assembly.key_bytes + assembly.text.capacity() + bytes <= MAX_COPY_BYTES);
+        assert!(
+            workspace.copy_preparation_keys().count() < assembly.keys.len() - assembly.next,
+            "captured tail fragments are not requested again"
+        );
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("prepare missing gaps");
+        assert_eq!(
+            workspace.take_copy().expect("complete selection").entries,
+            200
+        );
+    }
 
     /// PRE-4/SEL-2: complete individually admitted entries may exceed the selection budget;
     /// refusal produces no partial CopyRequest and accounts for the endpoint/member metadata.
@@ -377,12 +530,15 @@ mod tests {
             .prepare()
             .result
             .expect("one prepared entry fits");
-        let mut assembly = Assembly::new(&state, crate::math::MathPresentation::default())
+        let mut assembly = Assembly::new(&state, &TranscriptMetrics::default())
             .expect("metadata fits")
             .expect("selection");
         let mut refused = false;
         while assembly.next < assembly.keys.len() {
-            if let Err(reason) = assembly.append(&state, &layout) {
+            let part = assembly
+                .selected_part(&state, assembly.next, &layout)
+                .expect("selected source");
+            if let Err(reason) = assembly.append(part) {
                 assert_eq!(reason, CopyNote::Capacity);
                 refused = true;
                 break;

@@ -28,6 +28,11 @@ impl Workspace {
         if !self.needs_draw() {
             return Ok(None);
         }
+        // Input can select the old painted source after new preparation is admitted. Validate
+        // again before painting its replacement, so reinterpreted Markdown cannot keep an old
+        // highlight or a ready copy attached to different visible text (FR-3/SEL-1).
+        self.validate_text_selection();
+        self.reconcile_copy();
         let wrapped = self.metrics.wrapped();
         let built = self.metrics.lines_built();
         self.metrics.begin_frame();

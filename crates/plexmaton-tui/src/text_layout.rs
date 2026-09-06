@@ -12,7 +12,7 @@ use paint::{Colors, Line, Paint, Span};
 mod paint_tests;
 #[cfg(test)]
 mod tests;
-pub(crate) use cache::Cache;
+pub(crate) use cache::{Cache, PreparedEntry};
 pub(crate) mod wrap;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

@@ -9,6 +9,7 @@
 //! [`specs/transcript-layout.md`](../../../.agents/specs/transcript-layout.md).
 
 use std::{collections::BTreeMap, ops::Range};
+mod feedback;
 mod native;
 mod preparation;
 mod window;
@@ -176,7 +177,8 @@ impl TranscriptMetrics {
             });
             let reusable = semantic_reusable
                 && entries.get(count).is_some_and(|entry| {
-                    entry.origin == preparation::HeightOrigin::Prepared || prepared.is_none()
+                    preparation::HeightOrigin::for_preparation(prepared)
+                        .is_none_or(|origin| entry.origin == origin)
                 });
             if !reusable {
                 let (compact_rows, body_rows, origin) = preparation::measure_entry(
@@ -184,21 +186,11 @@ impl TranscriptMetrics {
                     palette,
                     width,
                     open,
-                    prepared.as_ref(),
+                    prepared,
                     entries.get(count),
                 );
-                let feedback_rows = restoration.map_or(0, |(_, summary)| {
-                    Paragraph::new(content::recovery_lines(summary, palette))
-                        .wrap(Wrap { trim: false })
-                        .line_count(width)
-                });
-                let permission_rows = if permission_saved {
-                    Paragraph::new(crate::content_permissions::saved_permission_lines(palette))
-                        .wrap(Wrap { trim: false })
-                        .line_count(width)
-                } else {
-                    0
-                };
+                let feedback = feedback::EntryFeedback::new(agent, item, palette, None);
+                let (leading_rows, feedback_rows) = feedback.rows(width);
                 let measured = Measured {
                     id: item.id().clone(),
                     revision: item.revision(),
@@ -206,20 +198,11 @@ impl TranscriptMetrics {
                     open,
                     permission_saved,
                     restoration: restoration.map(|(place, summary)| (place, summary.clone())),
-                    leading_rows: if restoration
-                        .is_some_and(|(place, _)| place == FeedbackPlacement::Before)
-                    {
-                        feedback_rows
-                    } else {
-                        0
-                    },
+                    leading_rows,
                     compact_rows,
                     body_rows,
                     origin,
-                    rows: body_rows
-                        .saturating_add(feedback_rows)
-                        .saturating_add(permission_rows)
-                        .saturating_add(if retry.is_some() { 2 } else { 0 }),
+                    rows: body_rows.saturating_add(feedback_rows),
                 };
                 if origin != preparation::HeightOrigin::Estimated
                     && (!semantic_reusable
@@ -396,34 +379,34 @@ impl TranscriptMetrics {
         state: &ViewState,
         surface: SurfaceId,
     ) -> (Vec<Line<'static>>, u16) {
-        let mut lines: Vec<_> = agent
+        let window_start = self.items(&agent.id, window.width)[..window.items.start]
+            .iter()
+            .map(|item| item.rows)
+            .sum::<usize>();
+        let mut start = window_start;
+        let mut lines = Vec::new();
+        for (index, item) in agent
             .entries()
             .enumerate()
             .skip(window.items.start)
             .take(window.items.len())
-            // The index is the entry's position in the whole conversation, not in this window: a
-            // selection names entries, and a window is only which of them this frame paints.
-            .flat_map(|(index, item)| {
-                let mut lines = self.paint_entry(item, palette, window, state, surface, index);
-                if agent.retry.as_ref().is_some_and(|actions| &actions.error_item == item.id()) {
-                    let hovered = state.retry_hovered(item.id());
-                    let style = |command| palette.style(if hovered == Some(command) { crate::theme::Role::Accent } else { crate::theme::Role::Muted });
-                    lines.push(Line::from(vec![ratatui::text::Span::styled("[ Retry ]", style(crate::RetryAction::Retry)), ratatui::text::Span::raw("   "), ratatui::text::Span::styled("[ Edit & retry ]", style(crate::RetryAction::EditRetry)), ratatui::text::Span::styled(" · r / e", palette.style(crate::Role::Muted))]));
-                    lines.push(Line::default());
-                }
-                if item.saved_project_permission().is_some() {
-                    lines.extend(crate::content_permissions::saved_permission_lines(palette));
-                }
-                if let Some((place, summary)) = agent.restoration_for(item.id()) {
-                    let feedback = content::recovery_lines(summary, palette);
-                    match place {
-                        FeedbackPlacement::Before => { lines.splice(0..0, feedback); }
-                        FeedbackPlacement::After => lines.extend(feedback),
-                    }
-                }
-                lines
-            })
-            .collect();
+        {
+            let measured = &self.items(&agent.id, window.width)[index];
+            let body_start = start.saturating_add(measured.leading_rows);
+            let position = preparation::EntryPosition {
+                index,
+                start: body_start,
+                visible_from: window_start
+                    .saturating_add(window.skip_rows)
+                    .saturating_sub(body_start),
+            };
+            start = start.saturating_add(measured.rows);
+            let feedback =
+                feedback::EntryFeedback::new(agent, item, palette, state.retry_hovered(item.id()));
+            lines.extend(feedback.before);
+            lines.extend(self.paint_entry(item, palette, window, state, surface, position));
+            lines.extend(feedback.after);
+        }
         self.built = self.built.saturating_add(lines.len());
         let skip_rows = trim_scroll_prefix(&mut lines, window.skip_rows, window.width);
         (lines, skip_rows)

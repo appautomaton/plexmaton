@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stage 10 branding remains |
+| Status | Active; stages 1–9 complete; stage 11 composer menu and Drawer in progress; stage 12 streaming continuity complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -121,6 +121,17 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: one picker for
     both entry points reached by `Ctrl-P`, which would put workspace pages in the composer and
     make its title lie about the addressee.
+
+12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
+    prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.
+    ENT-2 tool transitions require current preparation; TR-1 shares feedback measurement and paint.
+    Validation after rebasing onto `2febe5b` passed 1,089 Rust tests, 22 Python tests and all three
+    terminal smokes, with workspace check/Clippy and the repository hook. Actual streaming and tool-transition frames
+    at 120/88/60 columns were inspected in system-temporary storage. The consumed plan is removed.
+    An earlier partial-pipe fixture timeout remains unexplained; isolated, full-fixture and later
+    workspace runs passed without relaxing its deadline. Current release timings and saturated
+    physical-terminal streaming remain unmeasured. A separate literal-TeX wireframe awaits the
+    user's choice; unfinished-math grammar and the UI/UX contract are unchanged.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

@@ -158,6 +158,136 @@ fn point(terminal: &Terminal<TestBackend>, needle: &str) -> (u16, u16) {
     panic!("{needle:?} is not visible");
 }
 
+/// FR-3/FR-5/PRE-3/MD-4: a completion followed by another queued delta still paints the completed
+/// source, retains exact pointer copy, and asks the owner for the newest revision.
+#[test]
+fn a_prepared_revision_overtaken_by_queued_deltas_is_still_painted_and_copyable() {
+    for width in [120, 88, 60] {
+        let mut fixture = Fixture::new(width, "Visible **first**");
+        let before = fixture.terminal.backend().buffer().clone();
+        fixture.delta(" prepared second".into());
+        fixture
+            .frames
+            .draw(
+                &mut fixture.workspace,
+                &mut fixture.terminal,
+                fixture.now + FRAME_INTERVAL,
+            )
+            .expect("pending preparation frame")
+            .expect("changed frame");
+        // Compare symbols: native/cell diff hints and paint metadata are not visible content.
+        assert!(
+            fixture
+                .terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .zip(&before.content)
+                .all(|(after, before)| after.symbol() == before.symbol())
+        );
+        let work = fixture
+            .workspace
+            .take_preparation()
+            .expect("second revision");
+        fixture.delta(" queued third".into());
+        assert_eq!(fixture.source(), "Visible **first** prepared second");
+        assert!(
+            fixture.workspace.complete_preparation(
+                work.token,
+                work.requests
+                    .iter()
+                    .map(plexmaton_tui::preparation::Request::prepare)
+                    .collect()
+            )
+        );
+
+        fixture
+            .frames
+            .draw(
+                &mut fixture.workspace,
+                &mut fixture.terminal,
+                fixture.now + Duration::from_millis(17),
+            )
+            .expect("completion and queued delta frame")
+            .expect("changed frame");
+        assert_eq!(
+            fixture.source(),
+            "Visible **first** prepared second queued third"
+        );
+        let start = point(&fixture.terminal, "prepared second");
+        let end = (start.0 + "prepared second".len() as u16, start.1);
+        fixture.handle(&mouse(MouseEventKind::Down(MouseButton::Left), start));
+        fixture.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
+        assert_eq!(
+            fixture
+                .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))
+                .copied
+                .expect("painted revision copies without waiting for the queued one")
+                .text,
+            "prepared second"
+        );
+        assert!(
+            fixture.workspace.take_preparation().is_some(),
+            "the newest source is still requested"
+        );
+    }
+}
+
+/// FR-3/SEL-1/SEL-2: ready but unpainted Markdown cannot change a newly selected slice. Once the
+/// new interpretation is about to be painted, the obsolete selection must be invalidated.
+#[test]
+fn ready_preparation_keeps_pointer_copy_on_the_painted_source_until_the_next_frame() {
+    let mut fixture = Fixture::new(88, "Before **bold");
+    fixture.delta("** after".into());
+    fixture
+        .frames
+        .draw(
+            &mut fixture.workspace,
+            &mut fixture.terminal,
+            fixture.now + FRAME_INTERVAL,
+        )
+        .expect("pending frame");
+    let work = fixture
+        .workspace
+        .take_preparation()
+        .expect("closing Markdown");
+    assert!(
+        fixture.workspace.complete_preparation(
+            work.token,
+            work.requests
+                .iter()
+                .map(plexmaton_tui::preparation::Request::prepare)
+                .collect()
+        )
+    );
+    let start = point(&fixture.terminal, "**bold");
+    let end = (start.0 + 6, start.1);
+    fixture.handle(&mouse(MouseEventKind::Down(MouseButton::Left), start));
+    fixture.handle(&mouse(MouseEventKind::Drag(MouseButton::Left), end));
+    assert_eq!(
+        fixture
+            .handle(&mouse(MouseEventKind::Up(MouseButton::Left), end))
+            .copied
+            .expect("the selected on-screen prefix")
+            .text,
+        "**bold"
+    );
+    assert!(fixture.workspace.state().selection().is_some());
+    fixture
+        .frames
+        .draw(
+            &mut fixture.workspace,
+            &mut fixture.terminal,
+            fixture.now + Duration::from_millis(17),
+        )
+        .expect("new interpretation");
+    point(&fixture.terminal, "bold after");
+    assert!(fixture.workspace.state().selection().is_none());
+    assert!(fixture.workspace.copy_selection().is_none());
+    assert!(fixture.workspace.take_copy().is_none());
+}
+
 /// FR-1/FR-5: repeated arrivals do not restart the deadline, parse unseen text or leave an idle tick.
 #[test]
 fn stream_deadline_is_fixed_and_idle_owns_no_wake() {

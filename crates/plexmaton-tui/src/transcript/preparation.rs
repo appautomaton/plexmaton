@@ -5,14 +5,35 @@ use std::sync::Arc;
 use super::*;
 use crate::{
     preparation::{Key, PreparedText, Refusal},
-    text_layout::Layout,
+    text_layout::{Layout, PreparedEntry},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum HeightOrigin {
     Literal,
     Estimated,
-    Prepared,
+    Unadmitted,
+    Prepared { revision: u64 },
+}
+
+impl HeightOrigin {
+    pub(super) fn for_preparation(
+        prepared: Result<Option<&PreparedEntry>, Refusal>,
+    ) -> Option<Self> {
+        match prepared {
+            Ok(Some(prepared)) => Some(Self::Prepared {
+                revision: prepared.key.revision,
+            }),
+            Ok(None) => None,
+            Err(_) => Some(Self::Unadmitted),
+        }
+    }
+}
+
+pub(super) struct EntryPosition {
+    pub(super) index: usize,
+    pub(super) start: usize,
+    pub(super) visible_from: usize,
 }
 
 #[derive(Debug)]
@@ -36,44 +57,59 @@ pub(super) fn measure_entry(
     palette: &Palette,
     width: u16,
     open: bool,
-    prepared: Option<&Result<Arc<Layout>, Refusal>>,
+    prepared: Result<Option<&PreparedEntry>, Refusal>,
     previous: Option<&Measured>,
 ) -> (usize, usize, HeightOrigin) {
-    if matches!(item, TranscriptEntryView::Text(text) if text.source.len() > 192 * 1024)
-        && prepared.is_none()
-    {
-        return (2, 2, HeightOrigin::Estimated);
-    }
     let rich = matches!(item, TranscriptEntryView::Text(text)
         if text.role == plexmaton_core::TranscriptRole::Assistant
             && text.kind == crate::TranscriptTextKind::Message
             && crate::markdown::may_format(&text.source));
+    match prepared {
+        Ok(Some(prepared)) => {
+            let origin = HeightOrigin::Prepared {
+                revision: prepared.key.revision,
+            };
+            return match &prepared.layout {
+                Ok(layout) => {
+                    let rows = layout.lines.len();
+                    let compact = if !open {
+                        rows
+                    } else if rich {
+                        2
+                    } else {
+                        wrap_rows(item, palette, width, false)
+                    };
+                    (compact, rows, origin)
+                }
+                Err(_) => (2, 2, origin),
+            };
+        }
+        Err(_) => return (2, 2, HeightOrigin::Unadmitted),
+        Ok(None) => {}
+    }
+    if matches!(item, TranscriptEntryView::Text(text) if text.source.len() > 192 * 1024) {
+        return (2, 2, HeightOrigin::Estimated);
+    }
     let compact = if rich {
         2
     } else {
         wrap_rows(item, palette, width, false)
     };
-    match prepared {
-        Some(Ok(layout)) => (
-            if open { compact } else { layout.lines.len() },
-            layout.lines.len(),
-            HeightOrigin::Prepared,
-        ),
-        Some(Err(_)) => (2, 2, HeightOrigin::Prepared),
-        None if open || rich => {
-            // A provisional height is never mistaken for prepared geometry. Retaining the old
-            // height across a stream delta avoids collapsing a still-visible entry to two rows.
-            let rows = previous
-                .filter(|old| &old.id == item.id())
-                .map_or(2, |old| old.body_rows);
-            (
-                if open { compact } else { rows },
-                rows,
-                HeightOrigin::Estimated,
-            )
-        }
-        None if compact > crate::markdown::MAX_LINES + 1 => (2, 2, HeightOrigin::Estimated),
-        None => (compact, compact, HeightOrigin::Literal),
+    if open || rich {
+        // A provisional height is never mistaken for prepared geometry. Retaining the old
+        // height across an evicted stream revision avoids collapsing its visible placeholder.
+        let rows = previous
+            .filter(|old| &old.id == item.id())
+            .map_or(2, |old| old.body_rows);
+        (
+            if open { compact } else { rows },
+            rows,
+            HeightOrigin::Estimated,
+        )
+    } else if compact > crate::markdown::MAX_LINES + 1 {
+        (2, 2, HeightOrigin::Estimated)
+    } else {
+        (compact, compact, HeightOrigin::Literal)
     }
 }
 
@@ -110,6 +146,25 @@ impl TranscriptMetrics {
         self.layouts.for_source(key)
     }
 
+    /// Copy iterates the bounded pinned set, not every selected history member. The returned
+    /// source identities belong to the last successful frame, including retained text prefixes.
+    pub(crate) fn painted_sources<'a>(
+        &'a self,
+        surface: SurfaceId,
+        agent: &'a AgentId,
+        items: std::ops::RangeInclusive<usize>,
+    ) -> impl Iterator<Item = (usize, &'a Key, &'a Layout)> + Clone {
+        self.painted_text
+            .entries
+            .iter()
+            .filter(move |entry| {
+                entry.surface == surface
+                    && &entry.key.agent == agent
+                    && items.contains(&entry.index)
+            })
+            .map(|entry| (entry.index, &entry.key, entry.layout.as_ref()))
+    }
+
     pub(crate) fn accept_prepared(&mut self, prepared: PreparedText) {
         self.layouts.insert(prepared);
     }
@@ -139,7 +194,7 @@ impl TranscriptMetrics {
         window: &Window,
         state: &ViewState,
         surface: SurfaceId,
-        index: usize,
+        position: EntryPosition,
     ) -> Vec<Line<'static>> {
         let Some(agent) = state.agent_shown_by(surface) else {
             return Vec::new();
@@ -148,28 +203,28 @@ impl TranscriptMetrics {
             surface,
             &agent,
             item.id(),
-            state.selected_in(surface, &agent).contains(index),
+            state.selected_in(surface, &agent).contains(position.index),
         );
-        let prepared = self.layouts.mapped(&agent, item, window.width, appearance);
-        let measured = &self.items(&agent, window.width)[index];
+        let measured = &self.items(&agent, window.width)[position.index];
         let rows = measured.body_rows;
-        let start = self.items(&agent, window.width)[..index]
-            .iter()
-            .map(|item| item.rows)
-            .sum::<usize>()
-            + measured.leading_rows;
+        let prepared = self.layouts.mapped(&agent, item, window.width, appearance);
         let failure = match prepared {
-            Some(Ok(layout)) => {
-                let key =
-                    Key::new(&agent, item, window.width, appearance.open).with_math(self.math());
+            Ok(Some(PreparedEntry {
+                key,
+                layout: Ok(layout),
+                ..
+            })) => {
                 let bytes =
                     size_of::<PaintedEntry>() + key.allocation_bytes() + layout.allocation_bytes();
                 if self.drawing_text.entries.len() < 128
                     && self.drawing_text.bytes + bytes <= 4 * 1024 * 1024
                 {
-                    let lines = if let Some(range) =
-                        state.selected_text_range(surface, &agent, index, layout.text.len())
-                    {
+                    let lines = if let Some(range) = state.selected_text_range(
+                        surface,
+                        &agent,
+                        position.index,
+                        layout.text.len(),
+                    ) {
                         layout.highlighted_lines(
                             range,
                             palette,
@@ -179,19 +234,23 @@ impl TranscriptMetrics {
                         layout.painted_entry(palette, appearance)
                     };
                     self.drawing_text.entries.push(PaintedEntry {
-                        key,
+                        key: key.clone(),
                         surface,
-                        index,
-                        start,
-                        layout,
+                        index: position.index,
+                        start: position.start,
+                        layout: layout.clone(),
                     });
                     self.drawing_text.bytes += bytes;
                     return lines;
                 }
                 Some(Refusal::Capacity)
             }
-            Some(Err(reason)) => Some(reason),
-            None => None,
+            Ok(Some(PreparedEntry {
+                layout: Err(reason),
+                ..
+            })) => Some(*reason),
+            Err(reason) => Some(reason),
+            Ok(None) => None,
         };
         let label = match failure {
             None => "Preparing text…",
@@ -202,17 +261,7 @@ impl TranscriptMetrics {
         };
         let mut lines = vec![Line::default(); rows];
         // Keep a known-height evicted entry's status visible even when its first row is clipped.
-        let visible = window
-            .skip_rows
-            .saturating_sub(
-                start.saturating_sub(
-                    self.items(&agent, window.width)[..window.items.start]
-                        .iter()
-                        .map(|item| item.rows)
-                        .sum::<usize>(),
-                ),
-            )
-            .min(rows.saturating_sub(1));
+        let visible = position.visible_from.min(rows.saturating_sub(1));
         if let Some(line) = lines.get_mut(visible) {
             *line = Line::styled(
                 label

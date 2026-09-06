@@ -175,7 +175,7 @@ impl Workspace {
     }
 
     fn wanted_preparation_key(&self, key: &Key) -> bool {
-        self.copy_preparation_keys().contains(key)
+        self.copy_preparation_keys().any(|wanted| wanted == key)
             || self.selection_preparation_key().as_ref() == Some(key)
             || self.metrics.preparation_needed().contains(key)
     }
@@ -187,7 +187,6 @@ impl Workspace {
         // batch on entries that the completed tail's own height will push off screen.
         for key in self
             .copy_preparation_keys()
-            .iter()
             .chain(validation.as_ref())
             .chain(self.metrics.preparation_needed().iter().rev())
         {
