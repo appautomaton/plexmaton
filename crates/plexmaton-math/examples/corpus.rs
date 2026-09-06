@@ -12,14 +12,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return measure::run();
     }
     let mut output = io::BufWriter::new(io::stdout().lock());
-    let fixture = support::reply();
-    for (index, span) in fixture.math.iter().enumerate() {
-        report(
-            &mut output,
-            &format!("reply {index}"),
-            &fixture.text[span.start..span.end],
-            span.display,
-        )?;
+    for (name, fixture) in [
+        ("attention", support::reply()),
+        ("logits", support::logits_reply()),
+    ] {
+        for (index, span) in fixture.math.iter().enumerate() {
+            report(
+                &mut output,
+                &format!("{name} {index}"),
+                &fixture.text[span.start..span.end],
+                span.display,
+            )?;
+        }
     }
     for (name, body) in support::CORPUS {
         report(&mut output, name, &format!("\\[{body}\\]"), true)?;

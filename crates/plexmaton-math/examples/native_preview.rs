@@ -17,7 +17,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = Path::new(&directory);
     let mut output = io::BufWriter::new(io::stdout().lock());
     std::fs::create_dir_all(directory)?;
-    let fixture = corpus::reply();
+    let fixture = if std::env::args().nth(2).as_deref() == Some("--logits") {
+        corpus::logits_reply()
+    } else {
+        corpus::reply()
+    };
     let formulas = fixture
         .math
         .iter()

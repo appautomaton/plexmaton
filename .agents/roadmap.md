@@ -34,7 +34,7 @@ table in `AGENTS.md` allows.
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, the remaining provider transports, context projection, and MCP | Active; journal, providers, compaction and permissions complete; branch interaction and MCP remain |
 | 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
-| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9 and 11–13 complete; stage 10 branding remains |
+| 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9 and 11–15 complete; stage 10 branding remains |
 
 ## Locked
 

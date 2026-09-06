@@ -7,12 +7,15 @@ use crate::text_layout::{Layout, paint as wrap};
 use crate::{math::MathPresentation, text_layout::math::Atom};
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
 use ratatui::style::Modifier;
+use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
 
+mod streaming;
 mod syntax;
 mod table;
 #[cfg(test)]
 mod tests;
+pub(crate) use streaming::{MAX_FROZEN_PREFIX_BYTES, PrefixCheckpoint, PrefixHint, RenderedLayout};
 
 pub(crate) const MAX_SOURCE_BYTES: usize = 128 * 1024;
 pub(crate) const MAX_LINES: usize = 8192;
@@ -68,14 +71,22 @@ pub(crate) fn render(
     palette: &Palette,
     width: usize,
 ) -> Result<Vec<ratatui::text::Line<'static>>, PlainReason> {
-    render_layout(source, width, MathPresentation::Native)
+    render_layout(source, width, MathPresentation::Native, Completion::Final)
         .map(|layout| layout.painted_entry(palette, crate::state::EntryAppearance::default()))
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Completion {
+    Streaming,
+    Final,
+}
+
+#[cfg(test)]
 pub(crate) fn render_layout(
     source: &str,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(PlainReason::Size);
@@ -94,39 +105,89 @@ pub(crate) fn render_layout(
     if events.len() > MAX_EVENTS {
         return Err(PlainReason::Complexity);
     }
-    render_events(events, width, math)
+    render_events(events, width, math, completion)
+}
+
+pub(crate) fn render_layout_with_prefix(
+    source: &str,
+    width: usize,
+    math: MathPresentation,
+    completion: Completion,
+    hint: Option<&PrefixHint>,
+) -> Result<RenderedLayout, PlainReason> {
+    streaming::render_layout_with_prefix(source, width, math, completion, hint)
 }
 
 fn render_events(
     events: Vec<Event<'_>>,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
-    let mut out = Renderer::new(width, math);
+    let events = events.into_iter().map(|event| (event, 0..0)).collect();
+    render_events_with_boundaries(events, width, math, completion).map(|(layout, _)| layout)
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Boundary {
+    pub(super) event_end: usize,
+    pub(super) visible_text_bytes: usize,
+    pub(super) rows: usize,
+}
+
+pub(super) fn render_events_with_boundaries(
+    events: Vec<(Event<'_>, Range<usize>)>,
+    width: usize,
+    math: MathPresentation,
+    completion: Completion,
+) -> Result<(Layout, Vec<Boundary>), PlainReason> {
+    render_events_with_boundaries_stats(events, width, math, completion)
+        .map(|(layout, boundaries, _)| (layout, boundaries))
+}
+
+pub(super) fn render_events_with_boundaries_stats(
+    events: Vec<(Event<'_>, Range<usize>)>,
+    width: usize,
+    math: MathPresentation,
+    completion: Completion,
+) -> Result<(Layout, Vec<Boundary>, usize), PlainReason> {
+    let mut out = Renderer::new(width, math, completion);
     let mut events = events.into_iter();
+    let mut boundaries = Vec::new();
     while let Some(event) = events.next() {
+        let (event, range) = event;
         match event {
             Event::Start(Tag::Table(alignment)) => {
                 out.flush(false)?;
                 let mut body = Vec::new();
                 for event in events.by_ref() {
-                    if event == Event::End(TagEnd::Table) {
+                    if event.0 == Event::End(TagEnd::Table) {
                         break;
                     }
-                    body.push(event);
+                    body.push(event.0);
                 }
                 let prefix = out.prefix();
                 let available = width
                     .checked_sub(prefix.width())
                     .filter(|w| *w > 0)
                     .ok_or(PlainReason::Complexity)?;
-                let layout = table::render(body, alignment, available, math)?;
+                let layout = table::render(body, alignment, available, math, completion)?;
                 out.layout.append(layout, &prefix, out.prefix_style());
                 out.check()?;
                 out.blank()?;
             }
             Event::Start(tag) => out.start(tag)?,
-            Event::End(tag) => out.end(tag)?,
+            Event::End(tag) => {
+                out.end(tag)?;
+                if matches!(tag, TagEnd::Paragraph | TagEnd::Heading(_)) {
+                    let (rows, visible_text_bytes) = finished_coordinates(&out.layout);
+                    boundaries.push(Boundary {
+                        event_end: range.end,
+                        visible_text_bytes,
+                        rows,
+                    });
+                }
+            }
             Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
                 out.text(&text, out.style.clone())?
             }
@@ -156,7 +217,24 @@ fn render_events(
     }
     out.flush(false)?;
     out.layout.finish();
-    Ok(out.layout)
+    Ok((out.layout, boundaries, out.formula_preparations))
+}
+
+fn finished_coordinates(layout: &Layout) -> (usize, usize) {
+    let rows = layout
+        .lines
+        .iter()
+        .rposition(|line| !line.spans.is_empty())
+        .map_or(0, |row| row + 1);
+    let text = layout.text.trim_end_matches('\n').len().max(
+        layout
+            .formulas
+            .iter()
+            .map(|formula| formula.text.end)
+            .max()
+            .unwrap_or(0),
+    );
+    (rows, text)
 }
 
 enum Prefix {
@@ -171,6 +249,7 @@ struct Renderer {
     current: Vec<Span>,
     atoms: Vec<Atom>,
     math: MathPresentation,
+    completion: Completion,
     math_bytes: usize,
     style: Style,
     styles: Vec<Style>,
@@ -180,16 +259,18 @@ struct Renderer {
     code_depth: usize,
     checked_rows: usize,
     bytes: usize,
+    formula_preparations: usize,
 }
 
 impl Renderer {
-    fn new(width: usize, math: MathPresentation) -> Self {
+    fn new(width: usize, math: MathPresentation, completion: Completion) -> Self {
         Self {
             width,
             layout: Layout::default(),
             current: Vec::new(),
             atoms: Vec::new(),
             math,
+            completion,
             math_bytes: 0,
             style: Role::Body.into(),
             styles: Vec::new(),
@@ -199,6 +280,7 @@ impl Renderer {
             code_depth: 0,
             bytes: 0,
             checked_rows: 0,
+            formula_preparations: 0,
         }
     }
     fn prefix(&self) -> String {
@@ -336,7 +418,14 @@ impl Renderer {
             .checked_sub(self.prefix().width())
             .filter(|width| *width > 0)
             .ok_or(PlainReason::Complexity)?;
-        let atom = Atom::prepare(source, self.current.len(), width, self.math)?;
+        self.formula_preparations = self.formula_preparations.saturating_add(1);
+        let atom = Atom::prepare(
+            source,
+            self.current.len(),
+            width,
+            self.math,
+            self.completion,
+        )?;
         self.math_bytes += atom.allocation_bytes();
         if self.math_bytes > crate::preparation::MAX_PREPARED_BYTES {
             return Err(PlainReason::Complexity);

@@ -24,7 +24,8 @@ not a renderer. Delete those scenes when Rust's public API reproduces them.
 parser/layout engine. Prose retains Markdown markers; this is not the production conversation.
 
 [check_live.py](./check_live.py) runs the actual CLI/worker with one loopback reply, real mouse
-copy, resize and overlays at 120/88/60. It whitelists the environment, disables host clipboard
+copy, resize and overlays at 120/88/60. It waits for a prepared application frame at the new width
+before scrolling. It whitelists the environment, disables host clipboard
 writes, uses ephemeral state and owns the terminal, control socket and HTTP server through exit.
 
 ## ML corpus
@@ -109,7 +110,7 @@ For the production path (build the worktree binary first):
 python3 .agents/spikes/kitty-text-sizing/check_live.py --binary target/debug/plexmaton --output target/live-math-review.json
 ```
 
-The 2026-09-06 run passed all three widths and exact OSC 52 copies, observed 548,922 terminal
+The 2026-09-06 run passed all three widths and exact OSC 52 copies, observed 684,677 terminal
 bytes and clean exit, and made exactly one scripted request with no saved session. This is
 character-state/transport evidence; the user separately approved the live review build's appearance.
 

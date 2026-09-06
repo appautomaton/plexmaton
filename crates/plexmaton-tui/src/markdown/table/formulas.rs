@@ -7,6 +7,7 @@ pub(super) fn render(
     alignment: Vec<Alignment>,
     width: usize,
     math: MathPresentation,
+    completion: Completion,
 ) -> Result<Layout, PlainReason> {
     let mut cells = Vec::new();
     let mut bytes = 0;
@@ -14,7 +15,7 @@ pub(super) fn render(
     for row in events {
         let mut prepared = Vec::new();
         for cell in row {
-            let layout = render_events(cell, width, math)?;
+            let layout = render_events(cell, width, math, completion)?;
             bytes += layout.allocation_bytes();
             formula_count += layout.formulas.len();
             if bytes > crate::preparation::MAX_PREPARED_BYTES
@@ -37,7 +38,7 @@ pub(super) fn render(
                 .max(8)
         })
         .collect();
-    let mut out = Renderer::new(width, math);
+    let mut out = Renderer::new(width, math, completion);
     let (text, offsets) = canonical_text(&cells, |cell| std::borrow::Cow::Borrowed(&cell.text));
     out.layout.text = text;
     if widths.iter().sum::<usize>() + widths.len().saturating_sub(1) * 3 <= width {

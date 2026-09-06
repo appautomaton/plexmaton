@@ -146,6 +146,18 @@ impl TranscriptMetrics {
         self.layouts.for_source(key)
     }
 
+    pub(crate) fn prefix_hint_with_budget(
+        &self,
+        agent: &AgentId,
+        item: &TranscriptEntryView,
+        width: u16,
+        open: bool,
+        budget: usize,
+    ) -> Option<crate::markdown::PrefixHint> {
+        self.layouts
+            .prefix_hint_with_budget(agent, item, width, open, budget)
+    }
+
     /// Copy iterates the bounded pinned set, not every selected history member. The returned
     /// source identities belong to the last successful frame, including retained text prefixes.
     pub(crate) fn painted_sources<'a>(

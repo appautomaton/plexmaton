@@ -15,6 +15,7 @@ const MAX_BYTES: usize = 4 * 1024 * 1024;
 pub(crate) struct PreparedEntry {
     pub(crate) key: Key,
     pub(crate) layout: Result<Arc<Layout>, Refusal>,
+    checkpoint: Option<crate::markdown::PrefixCheckpoint>,
     bytes: usize,
 }
 
@@ -124,6 +125,65 @@ impl Cache {
             .map(|entry| entry.layout.clone())
     }
 
+    /// Build a bounded worker hint from the newest successful older Markdown revision. The full
+    /// layout remains the cache's one retained presentation; only the row-aligned prefix clone is
+    /// sent with the next request, so failed or evicted hints simply take the canonical path.
+    /// Preflight a hint while its source/layout are still borrowed. A conservative full-layout
+    /// bound avoids cloning retained presentation data when the workspace batch has no room.
+    pub(crate) fn prefix_hint_with_budget(
+        &self,
+        agent: &AgentId,
+        item: &TranscriptEntryView,
+        width: u16,
+        open: bool,
+        budget: usize,
+    ) -> Option<crate::markdown::PrefixHint> {
+        let TranscriptEntryView::Text(text) = item else {
+            return None;
+        };
+        if !matches!(
+            (text.kind, text.role),
+            (
+                crate::TranscriptTextKind::Message,
+                plexmaton_core::TranscriptRole::Assistant
+            )
+        ) || !crate::markdown::may_format(&text.source)
+            || text.finalized
+        {
+            return None;
+        }
+        let entry = self
+            .entries
+            .iter()
+            .filter(|entry| {
+                &entry.key.agent == agent
+                    && &entry.key.item == item.id()
+                    && entry.key.width == width
+                    && entry.key.open == open
+                    && entry.key.math == self.math
+                    && entry.key.revision < item.revision()
+                    && entry.layout.is_ok()
+                    && entry.checkpoint.is_some()
+            })
+            .max_by_key(|entry| entry.key.revision)?;
+        let checkpoint = entry.checkpoint.as_ref()?;
+        if !text.source.starts_with(checkpoint.source_prefix()) {
+            return None;
+        }
+        let retained = entry.layout.as_ref().ok()?;
+        let upper_bound = checkpoint
+            .allocation_bytes()
+            .saturating_add(retained.allocation_bytes())
+            .saturating_add(size_of::<crate::markdown::PrefixHint>());
+        if upper_bound > budget {
+            return None;
+        }
+        let checkpoint = checkpoint.clone();
+        let layout = retained.prefix(checkpoint.rows(), checkpoint.visible_text_bytes())?;
+        crate::markdown::PrefixHint::new(checkpoint, layout)
+            .filter(|hint| hint.allocation_bytes() <= budget)
+    }
+
     /// A reached miss declares work. Lookup admission can refuse before allocating a key;
     /// retained results preserve identity for both successful rows and worker refusals.
     pub(crate) fn mapped(
@@ -159,9 +219,12 @@ impl Cache {
         // FR-4 counts admitted results delivered here, including refusals and defensive drops;
         // cache occupancy and whether this particular result survives retention are separate.
         self.layouts = self.layouts.saturating_add(1);
-        let (key, layout) = prepared.into_parts();
+        let (key, layout, checkpoint) = prepared.into_parts();
         let bytes = size_of::<PreparedEntry>()
             + key.allocation_bytes()
+            + checkpoint
+                .as_ref()
+                .map_or(0, crate::markdown::PrefixCheckpoint::allocation_bytes)
             + layout.as_ref().map_or(0, |layout| {
                 layout.allocation_bytes() + size_of::<Layout>() + 2 * size_of::<usize>()
             });
@@ -198,6 +261,7 @@ impl Cache {
         self.entries.push_front(PreparedEntry {
             key,
             layout: layout.map(Arc::new),
+            checkpoint,
             bytes,
         });
         self.bytes += bytes;
@@ -258,6 +322,100 @@ mod tests {
             .expect("prepared fixture")
             .layout
             .clone()
+    }
+
+    /// MD-4/PRE-1: an older Markdown presentation supplies real prefix work to the next worker
+    /// request, while the merged result retains the canonical visible and atomic geometry.
+    #[test]
+    fn markdown_cache_supplies_a_bounded_frozen_prefix_to_preparation() {
+        let agent = AgentId::new("primary").expect("agent");
+        let item = |revision, source: &str| {
+            TranscriptEntryView::Text(TranscriptItemView {
+                id: TranscriptItemId::new("stream-prefix").expect("item"),
+                source: source.into(),
+                role: TranscriptRole::Assistant,
+                kind: TranscriptTextKind::Message,
+                revision,
+                finalized: false,
+            })
+        };
+        let first = item(1, "# Heading\n\n");
+        let mut cache = Cache::default();
+        cache.insert(Request::new(agent.clone(), first.clone(), 80, false).prepare());
+        let next = item(2, "# Heading\n\nTail with $x$");
+        assert!(
+            cache
+                .prefix_hint_with_budget(&agent, &next, 80, false, 0)
+                .is_none(),
+            "an optional hint is omitted when the batch has no remaining budget"
+        );
+        let hint = cache
+            .prefix_hint_with_budget(&agent, &next, 80, false, usize::MAX)
+            .expect("bounded prefix hint");
+        let prepared = Request::new(agent.clone(), next.clone(), 80, false)
+            .with_prefix(hint.clone())
+            .prepare();
+        assert!(prepared.reused_prefix());
+        let canonical = Request::new(agent, next, 80, false).prepare();
+        assert_eq!(prepared.result, canonical.result);
+
+        let mut finalized = first.clone();
+        if let TranscriptEntryView::Text(text) = &mut finalized {
+            text.revision = 2;
+            text.source.push_str("Tail with $x$");
+            text.finalized = true;
+        }
+        let final_prepared = Request::new(
+            AgentId::new("primary").expect("agent"),
+            finalized,
+            80,
+            false,
+        )
+        .with_prefix(hint)
+        .prepare();
+        assert!(
+            !final_prepared.reused_prefix(),
+            "finalization uses canonical rendering"
+        );
+        assert!(
+            final_prepared.checkpoint().is_none(),
+            "finalized entries retain no streaming checkpoint"
+        );
+    }
+
+    #[test]
+    fn markdown_cache_advances_the_frozen_frontier_after_a_completed_tail_block() {
+        let agent = AgentId::new("primary").expect("agent");
+        let item = |revision, source: &str| {
+            TranscriptEntryView::Text(TranscriptItemView {
+                id: TranscriptItemId::new("advancing-prefix").expect("item"),
+                source: source.into(),
+                role: TranscriptRole::Assistant,
+                kind: TranscriptTextKind::Message,
+                revision,
+                finalized: false,
+            })
+        };
+        let mut cache = Cache::default();
+        let first = item(1, "# Heading\n\nTail");
+        cache.insert(Request::new(agent.clone(), first, 80, false).prepare());
+        let second = item(2, "# Heading\n\nTail\n\nNext");
+        let second_hint = cache
+            .prefix_hint_with_budget(&agent, &second, 80, false, usize::MAX)
+            .expect("heading prefix");
+        let prepared = Request::new(agent.clone(), second.clone(), 80, false)
+            .with_prefix(second_hint)
+            .prepare();
+        assert!(prepared.reused_prefix());
+        assert_eq!(
+            prepared
+                .checkpoint()
+                .expect("advanced checkpoint")
+                .source_prefix(),
+            "# Heading\n\nTail\n\n"
+        );
+        let canonical = Request::new(agent, second, 80, false).prepare();
+        assert_eq!(prepared.result, canonical.result);
     }
 
     /// MD-4/MD-5: theme changes resolve new colors from the same retained geometry and style intent.

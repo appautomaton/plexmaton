@@ -1,4 +1,4 @@
-//! The same fixed eight inputs as the source-comparison spike, shared by tests and visual preview.
+//! Fixed source-comparison and user-reported formulas, shared by tests and visual preview.
 #[derive(serde::Deserialize)]
 pub struct Reply {
     pub text: String,
@@ -15,6 +15,10 @@ pub struct Span {
 pub fn reply() -> Reply {
     serde_json::from_str(include_str!("../fixtures/attention-derivatives.json"))
         .expect("fixed corpus")
+}
+
+pub fn logits_reply() -> Reply {
+    serde_json::from_str(include_str!("../fixtures/logits.json")).expect("user logits corpus")
 }
 
 pub const CORPUS: &[(&str, &str)] = &[

@@ -110,27 +110,34 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
     }
     let mut pending: Vec<_> = nodes
         .iter_mut()
-        .map(|node| (node, 0_usize, INHERIT))
+        .map(|node| (node, 0_usize, INHERIT, false))
         .collect();
     let mut count = 0_usize;
-    while let Some((node, depth, inherited)) = pending.pop() {
+    while let Some((node, depth, inherited, explicit_font)) = pending.pop() {
         count += 1;
         // The upstream parser separately limits logical input nesting to 32.
         if depth > 64 {
             return Err(MathError::Limited(Limit::Depth));
         }
-        let mut push = |node, color| {
+        let mut push = |node, color, explicit_font| {
             if count + pending.len() == MAX_NODES {
                 return Err(MathError::Limited(Limit::Nodes));
             }
-            pending.push((node, depth + 1, color));
+            pending.push((node, depth + 1, color, explicit_font));
             Ok(())
         };
         match node {
-            ParseNode::Atom { .. }
-            | ParseNode::MathOrd { .. }
-            | ParseNode::TextOrd { .. }
-            | ParseNode::OpToken { .. }
+            ParseNode::Atom { text, mode, .. }
+            | ParseNode::MathOrd { text, mode, .. }
+            | ParseNode::TextOrd { text, mode, .. } => {
+                if resolved_symbol_is_accent_marker(text, *mode) {
+                    return Err(MathError::Unsupported(Unsupported::Construct));
+                }
+                if explicit_font && text.chars().any(is_supported_cjk) {
+                    return Err(MathError::Unsupported(Unsupported::Font));
+                }
+            }
+            ParseNode::OpToken { .. }
             | ParseNode::AccentToken { .. }
             | ParseNode::SpacingNode { .. }
             | ParseNode::Kern { .. }
@@ -139,12 +146,11 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
             | ParseNode::Internal { .. } => {}
             ParseNode::OrdGroup { body, .. }
             | ParseNode::OperatorName { body, .. }
-            | ParseNode::Text { body, .. }
             | ParseNode::Styling { body, .. }
             | ParseNode::MClass { body, .. }
             | ParseNode::HBox { body, .. } => {
                 for node in body {
-                    push(node, inherited)?;
+                    push(node, inherited, explicit_font)?;
                 }
             }
             ParseNode::SupSub { base, sup, sub, .. } => {
@@ -152,37 +158,53 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
                     .into_iter()
                     .filter_map(|node| node.as_deref_mut())
                 {
-                    push(node, inherited)?;
+                    push(node, inherited, explicit_font)?;
                 }
             }
             ParseNode::GenFrac { numer, denom, .. } => {
-                push(numer.as_mut(), inherited)?;
-                push(denom.as_mut(), inherited)?;
+                push(numer.as_mut(), inherited, explicit_font)?;
+                push(denom.as_mut(), inherited, explicit_font)?;
             }
             ParseNode::Sqrt { body, index, .. } => {
-                push(body.as_mut(), inherited)?;
+                push(body.as_mut(), inherited, explicit_font)?;
                 if let Some(index) = index {
-                    push(index.as_mut(), inherited)?;
+                    push(index.as_mut(), inherited, explicit_font)?;
                 }
             }
-            ParseNode::Accent { base, .. }
-            | ParseNode::Font { body: base, .. }
-            | ParseNode::Overline { body: base, .. }
+            ParseNode::Accent { label, base, .. } => {
+                if !matches!(label.as_str(), "\\hat" | "\\bar") || !single_accent_base(base) {
+                    return Err(MathError::Unsupported(Unsupported::Construct));
+                }
+                push(base.as_mut(), inherited, explicit_font)?;
+            }
+            ParseNode::Font { body: base, .. } => {
+                push(base.as_mut(), inherited, true)?;
+            }
+            ParseNode::Overline { body: base, .. }
             | ParseNode::Underline { body: base, .. }
             | ParseNode::Lap { body: base, .. } => {
-                push(base.as_mut(), inherited)?;
+                push(base.as_mut(), inherited, explicit_font)?;
             }
             ParseNode::Op { body, .. } => {
                 if let Some(body) = body {
                     for node in body {
-                        push(node, inherited)?;
+                        push(node, inherited, explicit_font)?;
                     }
+                }
+            }
+            ParseNode::Text { body, font, .. } => {
+                for node in body {
+                    push(
+                        node,
+                        inherited,
+                        explicit_font || text_font_changes_cjk(font.as_deref()),
+                    )?;
                 }
             }
             ParseNode::Color { color, body, .. } => {
                 let color = source_color(color)?;
                 for node in body {
-                    push(node, color)?;
+                    push(node, color, explicit_font)?;
                 }
             }
             ParseNode::LeftRight {
@@ -192,7 +214,7 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
                     source_color(color)?;
                 }
                 for node in body {
-                    push(node, inherited)?;
+                    push(node, inherited, explicit_font)?;
                 }
             }
             ParseNode::Enclose {
@@ -213,22 +235,74 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
                         }
                     });
                 }
-                push(body.as_mut(), inherited)?;
+                push(body.as_mut(), inherited, explicit_font)?;
             }
             ParseNode::Array {
                 body, tags: None, ..
             } => {
                 for node in body.iter_mut().flatten() {
-                    push(node, inherited)?;
+                    push(node, inherited, explicit_font)?;
                 }
             }
             ParseNode::HtmlMathMl { html, mathml, .. } => {
                 for node in html.iter_mut().chain(mathml) {
-                    push(node, inherited)?;
+                    push(node, inherited, explicit_font)?;
                 }
             }
             _ => return Err(MathError::Unsupported(Unsupported::Construct)),
         }
     }
     Ok(())
+}
+
+fn single_accent_base(node: &ParseNode) -> bool {
+    match node {
+        ParseNode::Atom { .. } | ParseNode::MathOrd { .. } | ParseNode::TextOrd { .. } => true,
+        ParseNode::OrdGroup { body, .. }
+        | ParseNode::Text { body, .. }
+        | ParseNode::Styling { body, .. }
+        | ParseNode::MClass { body, .. }
+        | ParseNode::HBox { body, .. }
+        | ParseNode::Color { body, .. } => {
+            matches!(body.as_slice(), [base] if single_accent_base(base))
+        }
+        ParseNode::Font { body, .. } => single_accent_base(body),
+        _ => false,
+    }
+}
+
+fn is_supported_cjk(ch: char) -> bool {
+    matches!(
+        u32::from(ch),
+        0x3040..=0x30ff
+            | 0x31f0..=0x31ff
+            | 0x3400..=0x4dbf
+            | 0x4e00..=0x9fff
+            | 0xf900..=0xfaff
+            | 0xac00..=0xd7af
+            | 0xff01..=0xff60
+            | 0xffe0..=0xffee
+    )
+}
+
+fn text_font_changes_cjk(font: Option<&str>) -> bool {
+    !matches!(
+        font,
+        None | Some("\\text" | "\\textrm" | "\\textnormal" | "\\textup" | "\\textmd")
+    )
+}
+
+fn resolved_symbol_is_accent_marker(text: &str, mode: ratex_parser::Mode) -> bool {
+    let mode = match mode {
+        ratex_parser::Mode::Math => ratex_font::Mode::Math,
+        ratex_parser::Mode::Text => ratex_font::Mode::Text,
+    };
+    ratex_font::get_symbol(text, mode)
+        .and_then(|symbol| symbol.codepoint)
+        .or_else(|| text.chars().next())
+        .is_some_and(is_accent_marker)
+}
+
+fn is_accent_marker(ch: char) -> bool {
+    matches!(ch, '^' | '\u{02c9}')
 }
