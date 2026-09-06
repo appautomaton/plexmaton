@@ -87,7 +87,7 @@ class Terminal:
 
     def permissions(self):
         self.send(b"\x10perm", "Workspace", "> Permissions", "Esc close")
-        return self.send(ENTER, "Permissions", "Enable native file changes")
+        return self.send(ENTER, "Permissions", "Project grants")
 
     def close_permissions(self):
         # One layer per Escape (DRW-3): the page returns to the list, the list to the origin.
@@ -149,7 +149,7 @@ output_reserve_tokens = 4096
         with Terminal(project, environment, "first") as terminal:
             terminal.wait("Message Plexmaton")
             terminal.permissions()
-            terminal.send(DOWN, "> Review project configuration rules")
+            terminal.wait("> Review project configuration rules")
             terminal.send(ENTER, "Project configuration rules", "Continue to activation")
             terminal.widths("trust", "Project configuration rules", "Exact command", "Continue to activation")
             terminal.send(ENTER, "Activate the reviewed project Allow rules?", "> Back")
@@ -181,7 +181,7 @@ output_reserve_tokens = 4096
             tool_messages = [message for message in requests[-1]["messages"] if message["role"] == "tool"]
             assert len(tool_messages) == 1 and "second" in tool_messages[0]["content"], tool_messages
             terminal.permissions()
-            terminal.send(DOWN, "> Revoke Project: Command prefix: ls")
+            terminal.wait("> Revoke Project: Command prefix: ls")
             terminal.send(ENTER, "Revoke this permission?", "> Back")
             terminal.send(UP, "> Revoke permission")
             terminal.send(ENTER, "Permission updated", absent=("Revoke Project:",))

@@ -18,7 +18,8 @@ use crate::{
     router::{Routed, Router, RouterContext},
     state::{
         ApprovalSubmission, CleanupNotice, ConversationRequest, ConversationRestoration,
-        CopyRequest, Page, PersistenceNotice, QuitPress, Submission, ViewRevision, ViewState,
+        CopyRequest, Page, PermissionRequest, PersistenceNotice, QuitPress, Submission,
+        ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -28,8 +29,11 @@ use crate::{
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+mod composer_menu;
 #[cfg(test)]
-mod conversation_picker_tests;
+mod composer_menu_tests;
+#[cfg(test)]
+mod composer_tests;
 mod copy;
 mod drawer;
 #[cfg(test)]
@@ -45,8 +49,12 @@ mod pointer;
 mod preparation;
 #[cfg(test)]
 mod preparation_tests;
+mod pressed;
+#[cfg(test)]
+mod pressed_tests;
 mod retry;
-mod skill_picker;
+#[cfg(test)]
+mod skill_menu_tests;
 mod text_selection;
 #[cfg(test)]
 mod text_selection_tests;
@@ -87,8 +95,25 @@ pub struct Outcome {
     pub retry: Option<crate::RetrySubmission>,
     /// A conversation to open, new or by identity; only the composition root can (SPK-2).
     pub conversation: Option<ConversationRequest>,
-    /// A reviewed permission mutation; only the retained permission owner can apply it.
-    pub permission: Option<plexmaton_core::PermissionIntent>,
+    /// What a permissions place asked of the retained owner, which only the root holds (PER-7).
+    pub permission: Option<PermissionRequest>,
+    /// A Command to run against the conversation it names; the runtime admits or refuses it
+    /// (CMD-1, CPL-9).
+    pub command: Option<CommandRun>,
+}
+
+/// A Command accepted in the composer, with the target captured at that moment (CMD-1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandRun {
+    pub command: crate::Command,
+    pub target: CommandTarget,
+}
+
+/// The conversation a Command runs against. The runtime's admission is its revalidation: a
+/// busy or stale target is refused there with a typed reason, never redirected.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommandTarget {
+    pub agent: AgentId,
 }
 
 impl Outcome {
@@ -103,6 +128,7 @@ impl Outcome {
             retry: None,
             conversation: None,
             permission: None,
+            command: None,
         }
     }
 }
@@ -136,12 +162,10 @@ pub struct Workspace {
     frames: u64,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
-    pressed_approval: Option<approval_pointer::PressedApproval>,
+    /// The one row a button press landed on, on any surface with rows.
+    pressed: Option<pressed::Pressed>,
     /// Timer-owned motion for a captured conversation drag held at a viewport edge.
     drag_autoscroll: Option<DragAutoScroll>,
-    pressed_retry: Option<retry::PressedRetry>,
-    pressed_drawer: Option<(drawer::DrawerChoice, crate::Point)>,
-    pressed_skill: Option<(String, crate::Point)>,
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
@@ -257,11 +281,6 @@ impl Workspace {
         self.state.hover_entry(None);
     }
 
-    /// Replaces the bounded skill completion catalog without loading any skill content.
-    pub fn set_skills(&mut self, choices: Vec<crate::SkillChoice>) {
-        self.state.set_skills(choices);
-    }
-
     /// Shows a session-writer failure that cannot itself enter the failed durable stream.
     pub fn report_persistence_failure(&mut self, failure: PersistenceNotice) {
         self.state.report_persistence_failure(failure);
@@ -289,6 +308,11 @@ impl Workspace {
     /// Confirms successful restoration, including any file-tail repair, outside the journal.
     pub fn report_conversation_recovery(&mut self, recovery: ConversationRestoration) {
         self.state.report_conversation_recovery(recovery);
+    }
+
+    /// Where a compaction the user asked for stands, from the composition root (CPL-9).
+    pub fn report_compaction(&mut self, agent: &AgentId, note: crate::CompactionNote) {
+        self.state.report_compaction(agent, note);
     }
 
     /// Translates one terminal event and applies whatever it asked for.
@@ -379,7 +403,7 @@ impl Workspace {
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
         match intent {
-            TuiIntent::SkillPicker(intent) => self.apply_skill_picker(intent),
+            TuiIntent::Menu(intent) => return self.apply_menu(intent),
             TuiIntent::Retry(action) => {
                 return Outcome {
                     retry: self.perform_retry_action(action),
@@ -415,6 +439,13 @@ impl Workspace {
                         ..Outcome::default()
                     };
                 }
+                // A whole draft that is a Command runs, menu or no menu (CMD-2).
+                if matches!(edit, TextIntent::Submit)
+                    && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
+                    && let Some(outcome) = self.submit_command()
+                {
+                    return outcome;
+                }
                 let submitted = self.state.edit(&self.surfaces, edit);
                 return Outcome {
                     submitted,
@@ -440,16 +471,7 @@ impl Workspace {
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
-                if let Some(outcome) = self.skill_picker_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.drawer_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.retry_pointer(pointer) {
-                    return outcome;
-                }
-                if let Some(outcome) = self.approval_pointer(pointer) {
+                if let Some(outcome) = self.button_pointer(pointer) {
                     return outcome;
                 }
                 return Outcome {
@@ -471,12 +493,9 @@ impl Workspace {
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
-                self.pressed_drawer = None;
-                self.pressed_skill = None;
+                self.pressed = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
-                self.pressed_retry = None;
-                self.pressed_approval = None;
                 self.painted = None;
             }
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus
@@ -489,13 +508,11 @@ impl Workspace {
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
             TuiIntent::Hover { surface, at } => {
-                self.pressed_drawer = None;
-                self.pressed_skill = None;
                 // A bare move means the primary button is no longer reported as held. It also
                 // prevents a lost release from leaving the timer active indefinitely.
+                self.pressed = None;
                 self.drag_autoscroll = None;
                 self.pressed_entry = None;
-                self.pressed_retry = None;
                 let target = surface.and_then(|surface| self.entry_target_at(surface, at));
                 let copy = target
                     .as_ref()
@@ -3727,13 +3744,7 @@ mod tests {
             assert_eq!((area.x, area.y, area.width), (0, 0, width));
             assert_eq!(usize::from(area.height), Page::ALL.len() + 8);
             let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
-            for text in [
-                "Workspace",
-                "> Configuration",
-                "Conversations",
-                "Permissions",
-                "Esc close",
-            ] {
+            for text in ["Workspace", "> Configuration", "Permissions", "Esc close"] {
                 assert!(shown.contains(text), "{width}: {shown}");
             }
             let viewport = workspace
@@ -3746,6 +3757,31 @@ mod tests {
                 "each page stays one row at {width}"
             );
         }
+    }
+
+    /// DRW-2/DRW-3: a short Drawer keeps the marker and its keyboard affordances together, and
+    /// the wheel over it steps the choice.
+    #[test]
+    fn short_drawer_and_wheel_use_the_visible_choice_window() {
+        let (mut workspace, mut terminal) = drawn(60, 12);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        let area = bounds(&workspace, SurfaceId::Drawer);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::ScrollDown, area.x + 2, area.y + 2),
+        );
+        let shown = painted(&terminal, &workspace, SurfaceId::Drawer);
+        assert!(
+            shown.contains("> Permissions") && shown.contains("Enter open"),
+            "{shown}"
+        );
+        assert_eq!(
+            workspace
+                .handle(&press(KeyCode::Enter, KeyModifiers::NONE))
+                .page,
+            Some(Page::Permissions)
+        );
     }
 
     /// DRW-4: the smallest Configuration page still exposes every value by keyboard, under a
@@ -3930,10 +3966,7 @@ mod tests {
 
         let drawer = workspace.state.drawer().expect("open");
         assert_eq!(drawer.filter().text(), "con");
-        assert_eq!(
-            drawer.pages(),
-            vec![Page::Configuration, Page::Conversations]
-        );
+        assert_eq!(drawer.pages(), vec![Page::Configuration]);
         assert_eq!(workspace.state.composer().text(), "");
     }
 

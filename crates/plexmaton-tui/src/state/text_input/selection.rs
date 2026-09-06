@@ -20,8 +20,8 @@ impl TextInput {
         matches!(self.selection, Some(Selection::Dragging { .. }))
     }
 
-    pub(crate) fn drag_to(&mut self, width: u16, row: u16, column: u16) {
-        self.drag_to_offset(self.offset_at(width, row, column));
+    pub(crate) fn drag_to(&mut self, width: u16, window: u16, row: u16, column: u16) {
+        self.drag_to_offset(self.offset_at(width, window, row, column));
     }
 
     pub(crate) fn drag_to_offset(&mut self, offset: usize) {
@@ -65,12 +65,12 @@ impl TextInput {
         true
     }
 
-    pub(crate) fn visible_ranges(&self, width: u16) -> Vec<Range<usize>> {
+    pub(crate) fn visible_ranges(&self, width: u16, window: u16) -> Vec<Range<usize>> {
         let rows = self.rows(width);
-        let start = Self::window_start(&rows, self.caret_row(&rows));
+        let start = Self::window_start(&rows, self.caret_row(&rows), window);
         rows.into_iter()
             .skip(start)
-            .take(usize::from(super::MAX_VISIBLE_LINES))
+            .take(usize::from(window.max(1)))
             .map(|row| row.start..row.start + row.text.len())
             .collect()
     }

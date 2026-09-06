@@ -56,8 +56,10 @@ user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
 
 **INV-11 — Retry is message-local.** Retry and Edit & retry are actions on an eligible failed
 message (JRN-8), invoked by their inline buttons or `r` / `e` while the primary transcript has
-navigation focus; they are absent from the Drawer, and nothing global names them. A button
-activates only on a matching press/release without a drag; stale or unavailable targets do nothing.
+navigation focus; they are absent from the Drawer, and nothing global names them. A button, on
+any surface with rows, activates only on a matching press/release without a drag; stale or
+unavailable targets do nothing. One press slot serves every such surface, so a press on one
+surface cannot activate a release on another.
 
 The Drawer's chord, geometry and pages are [drawer](./drawer.md) DRW-1 to DRW-4.
 
@@ -78,7 +80,7 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 
 ### Key grammar
 
-The primary composer's visible [skill picker](./skill-picker.md) owns Up/Down, Tab/Enter and Esc
+The primary composer's visible [composer menu](./composer-menu.md) owns Up/Down, Tab/Enter and Esc
 under SKP-3; completing a name edits the draft without submitting it. Outside that surface the
 ordinary bindings below apply.
 
@@ -90,7 +92,8 @@ ordinary bindings below apply.
 | `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
-| `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | Unbound |
+| `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | `↑` / `↓` move the caret one painted row and the window follows (COM-2); `k` / `j` insert |
+| Wheel over the composer | Nothing scrollable | Walk the draft one row per notch (COM-2) |
 | `Enter` | Enter the second window | Submit |
 | `Ctrl-F` | Maximize the second window | Maximize the second window |
 | `Ctrl-Shift-↑` / `Ctrl-Shift-↓` | Shrink, grow the second window | Shrink, grow the second window |
@@ -141,7 +144,7 @@ is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DR
 
 | Invariant | Proven by |
 | --- | --- |
-| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` with the `retry-*` frames |
+| INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` with the `retry-*` frames, `a_press_on_one_surface_cannot_activate_a_release_on_another`, `a_press_a_drag_inside_the_same_row_and_a_release_activate_nothing` |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
 | INV-3 | `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |

@@ -29,6 +29,7 @@ impl ViewState {
             return false;
         }
         let width = super::inner_width(area.width);
+        let window = input_window(area);
         let column = at.x - area.x - 1;
         let row = at.y - area.y - 1;
         if surface == SurfaceId::Drawer && row != 0 {
@@ -39,13 +40,13 @@ impl ViewState {
                 drawer.click_filter(width, column);
             }
         } else if let Some(input) = self.input_mut(surface) {
-            input.click(width, row, column);
+            input.click(width, window, row, column);
         }
         if let Some(input) = self.input_mut(surface) {
             input.begin_selection();
         }
         if surface == SurfaceId::Composer {
-            self.sync_skill_picker();
+            self.sync_composer_menu();
         }
         self.touch();
         true
@@ -107,6 +108,7 @@ impl ViewState {
         };
         let area = self.input_area(surfaces, surface)?;
         let width = super::inner_width(area.width);
+        let window = input_window(area);
         let column = at.x.saturating_sub(area.x + 1).min(width);
         let row =
             at.y.saturating_sub(area.y + 1)
@@ -116,7 +118,7 @@ impl ViewState {
                 drawer.drag_filter(width, column);
             }
         } else if let Some(input) = self.input_mut(surface) {
-            input.drag_to(width, row, column);
+            input.drag_to(width, window, row, column);
         }
         let copied = if release {
             self.input_mut(surface)?.finish_selection()
@@ -167,7 +169,7 @@ impl ViewState {
             .append_returned(&text);
         if was_empty
             && let Some(skill) = skill
-            && super::skill_picker::binding_matches(&text, &skill)
+            && super::composer_menu::binding_matches(&text, &skill)
         {
             self.skill_bindings.insert(to, skill);
         }
@@ -202,7 +204,7 @@ impl ViewState {
             let submitted = self.inputs.entry(to.clone()).or_default().take();
             if submitted.is_some() {
                 self.take_skill_binding(&to);
-                self.close_skill_picker();
+                self.close_composer_menu();
                 self.touch();
             }
             return submitted.map(|text| Submission {
@@ -212,15 +214,39 @@ impl ViewState {
                 skill,
             });
         }
+        // A row is a painted fact, so the motion is resolved at the width the input is drawn at.
+        let row_width = match intent {
+            TextIntent::MoveRow(_) => self
+                .input_area(surfaces, kind_surface(kind))
+                .map(|area| super::inner_width(area.width)),
+            _ => None,
+        };
         let input = self.inputs.entry(to).or_default();
-        let changed = apply_text(input, intent);
+        let changed = match intent {
+            TextIntent::MoveRow(direction) => {
+                row_width.is_some_and(|width| input.move_row(width, direction))
+            }
+            intent => apply_text(input, intent),
+        };
         if changed {
             if kind == SubmissionKind::Message {
-                self.sync_skill_picker();
+                self.sync_composer_menu();
             }
             self.touch();
         }
         None
+    }
+}
+
+/// Rows an input's window holds inside the rectangle it is painted in: two edge rows out.
+pub(crate) fn input_window(area: ratatui::layout::Rect) -> u16 {
+    area.height.saturating_sub(2).max(1)
+}
+
+const fn kind_surface(kind: SubmissionKind) -> SurfaceId {
+    match kind {
+        SubmissionKind::Message => SurfaceId::Composer,
+        SubmissionKind::Steering => SurfaceId::Inspector,
     }
 }
 
@@ -246,6 +272,7 @@ pub(crate) fn apply_text(input: &mut TextInput, intent: TextIntent) -> bool {
         TextIntent::KillToLineStart => input.kill_to_line_start(),
         TextIntent::KillToLineEnd => input.kill_to_line_end(),
         TextIntent::Move(motion) => input.move_caret(motion),
-        TextIntent::Submit => false,
+        // Resolved by the caller that knows the painted width; alone, a row has no meaning.
+        TextIntent::MoveRow(_) | TextIntent::Submit => false,
     }
 }

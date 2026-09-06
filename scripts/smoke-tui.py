@@ -200,7 +200,7 @@ def repaint(master, captured, markers=(), absent=(), exact_lines=()):
 def check_drawer(master: int, captured: bytearray) -> None:
     """DRW-1/DRW-3: the chord pulls the Drawer open in a real terminal, and Escape returns it."""
     os.write(master, b"\x10")
-    repaint(master, captured, ("Workspace", "> Configuration", "Conversations", "Esc close"))
+    repaint(master, captured, ("Workspace", "> Configuration", "Permissions", "Esc close"))
     os.write(master, b"\x1b")
     repaint(master, captured, ("Message Plexmaton",), ("Type to filter", "Esc close"))
 

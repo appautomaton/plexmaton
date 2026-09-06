@@ -1,0 +1,6 @@
+── Conversations ────────────────────────────────────────────────────
+   Loading saved conversations…                                      
+  ↑↓ choose · Enter open · Esc close                                 
+── Message Agent A · primary ────────────────────────────────────────
+ /resume                                                             
+─────────────────────────────────────────────────────────────────────

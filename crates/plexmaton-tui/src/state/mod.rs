@@ -7,8 +7,10 @@ mod drawer;
 pub(crate) mod permissions;
 pub use conversation_picker::{
     ConversationChoice, ConversationPickerStatus, ConversationRequest, MAX_CONVERSATION_CHOICES,
+    SwitchRefusal,
 };
 mod composer;
+mod composer_menu;
 mod configuration;
 mod current_work;
 mod disclosure;
@@ -24,7 +26,6 @@ mod retry;
 mod roster;
 mod scroll;
 mod selection;
-mod skill_picker;
 mod status;
 mod text_input;
 
@@ -38,6 +39,9 @@ pub use approval::{
 };
 pub use attention::AttentionView;
 pub(crate) use composer::apply_text;
+pub(crate) use composer::input_window;
+pub use composer_menu::{Command, Listing, SkillChoice, SkillChoiceSource};
+pub(crate) use composer_menu::{MenuRow, VISIBLE_ROWS};
 pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
@@ -50,17 +54,20 @@ pub use entry::{
 pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
+pub use permissions::PermissionRequest;
 pub(crate) use restoration::FeedbackPlacement;
-pub use restoration::{ConversationRestoration, ConversationTailRepair};
+pub use restoration::{
+    CompactRefusal, CompactionNote, ConversationNote, ConversationRestoration,
+    ConversationTailRepair,
+};
 pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
 pub(crate) use selection::{CopyNote, TextPoint};
 pub use selection::{CopyRequest, Selection};
-pub use skill_picker::{SkillChoice, SkillChoiceSource};
 pub(crate) use status::Footer;
 pub use status::{QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
-pub use text_input::{Caret, Motion, TextInput};
+pub use text_input::{Caret, MAX_VISIBLE_LINES, Motion, TextInput};
 
 use crate::{
     intent::{Direction, ScrollDirection, TextIntent},
@@ -110,8 +117,8 @@ pub struct ViewState {
     /// "exactly one cursor" a claim that could fail — two inputs exist, and focus is what decides
     /// which of them has the cursor (COM-1).
     inputs: BTreeMap<AgentId, TextInput>,
-    skill_bindings: skill_picker::SkillBindings,
-    skill_picker: skill_picker::SkillPicker,
+    skill_bindings: composer_menu::SkillBindings,
+    composer_menu: composer_menu::ComposerMenu,
     inspector: Inspector,
     /// Which semantic entries the user opened, plus the one under the pointer.
     disclosure: DisclosureState,
@@ -124,6 +131,8 @@ pub struct ViewState {
     retry_edit: Option<retry::RetryEdit>,
     /// The model this process resolved, named on the composer's rule; the composition root sets it.
     model: Option<ConfigurationSummary>,
+    /// The agent whose requested compaction the runtime owns right now (CPL-9).
+    compacting: Option<AgentId>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.
@@ -260,12 +269,6 @@ impl ViewState {
         let Some(drawer) = self.drawer.as_mut() else {
             return false;
         };
-        if drawer
-            .conversations()
-            .is_some_and(conversation_picker::ConversationPicker::opening)
-        {
-            return false;
-        }
         let Some(filter) = drawer.filter_mut() else {
             return false;
         };
@@ -357,15 +360,16 @@ impl ViewState {
     /// workspace is what needs the answer and there is no tree yet when it asks.
     ///
     /// `width` is the composer rectangle layout will register; the draft wraps inside its borders.
-    /// A height asked for without that width is a height for a draft nobody paints.
+    /// A height asked for without that width is a height for a draft nobody paints. `cap` is the
+    /// most lines the column lets a draft take before its window scrolls (ui-ux §input).
     #[must_use]
-    pub fn composer_rows(&self, width: u16) -> u16 {
+    pub fn composer_rows(&self, width: u16, cap: u16) -> u16 {
         if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {
             // One row, not none. A composer that vanishes costs the affordance and jumps the tail
             // of the transcript by three rows; one row of jump is what INS-5 accepts.
             1
         } else {
-            self.composer().requested_rows(inner_width(width))
+            self.composer().requested_rows(inner_width(width), cap)
         }
     }
 

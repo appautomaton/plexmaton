@@ -11,8 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, PointerIntent,
-        ScrollDirection, SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
+        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, MenuIntent,
+        PointerIntent, ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
@@ -158,18 +158,21 @@ impl Router {
 
         // The completion list keeps keyboard focus and the caret in the primary composer.
         if context.focused == Some(SurfaceId::Composer)
-            && context.surfaces.get(SurfaceId::SkillPicker).is_some()
+            && context.surfaces.get(SurfaceId::ComposerMenu).is_some()
         {
             return match key.code {
-                KeyCode::Esc => Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Close)),
-                KeyCode::Up if key.modifiers.is_empty() => Routed::Intent(TuiIntent::SkillPicker(
-                    SkillPickerIntent::Step(Direction::Backward),
-                )),
-                KeyCode::Down if key.modifiers.is_empty() => Routed::Intent(
-                    TuiIntent::SkillPicker(SkillPickerIntent::Step(Direction::Forward)),
-                ),
-                KeyCode::Tab | KeyCode::Enter if key.modifiers.is_empty() => {
-                    Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Accept))
+                KeyCode::Esc => Routed::Intent(TuiIntent::Menu(MenuIntent::Close)),
+                KeyCode::Up if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Backward)))
+                }
+                KeyCode::Down if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Forward)))
+                }
+                KeyCode::Tab if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Complete))
+                }
+                KeyCode::Enter if key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Accept))
                 }
                 _ => text_key(key),
             };
@@ -286,16 +289,22 @@ impl Router {
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
 /// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
-    if context.surfaces.hit_test(at) == Some(SurfaceId::SkillPicker) {
-        return Routed::Intent(TuiIntent::SkillPicker(SkillPickerIntent::Step(
-            match direction {
-                ScrollDirection::Up => Direction::Backward,
-                ScrollDirection::Down => Direction::Forward,
-            },
-        )));
+    if context.surfaces.hit_test(at) == Some(SurfaceId::ComposerMenu) {
+        return Routed::Intent(TuiIntent::Menu(MenuIntent::Step(match direction {
+            ScrollDirection::Up => Direction::Backward,
+            ScrollDirection::Down => Direction::Forward,
+        })));
     }
     if context.surfaces.hit_test(at) == Some(SurfaceId::Drawer) {
         return Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(match direction {
+            ScrollDirection::Up => Direction::Backward,
+            ScrollDirection::Down => Direction::Forward,
+        })));
+    }
+    // The composer's window follows its caret rather than a scroll offset (COM-2), so the wheel
+    // over it walks the draft one row per notch; the reducer ignores it when nothing is typing.
+    if context.surfaces.hit_test(at) == Some(SurfaceId::Composer) {
+        return Routed::Intent(TuiIntent::Text(TextIntent::MoveRow(match direction {
             ScrollDirection::Up => Direction::Backward,
             ScrollDirection::Down => Direction::Forward,
         })));
@@ -356,6 +365,8 @@ fn editing_chord(code: KeyCode, control: bool, alt: bool) -> Option<TextIntent> 
         KeyCode::Char('e') if control => Motion::LineEnd,
         KeyCode::Char('b') if alt => Motion::WordLeft,
         KeyCode::Char('f') if alt => Motion::WordRight,
+        KeyCode::Up if !control && !alt => return Some(TextIntent::MoveRow(Direction::Backward)),
+        KeyCode::Down if !control && !alt => return Some(TextIntent::MoveRow(Direction::Forward)),
         KeyCode::Delete => return Some(TextIntent::DeleteForward),
         KeyCode::Char('w') if control => return Some(TextIntent::DeleteWordBackward),
         KeyCode::Char('u') if control => return Some(TextIntent::KillToLineStart),

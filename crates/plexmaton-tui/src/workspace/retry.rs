@@ -1,15 +1,8 @@
 use super::*;
 use crate::{
     RetryAction, RetryActions, RetrySubmission, RetryTarget,
-    intent::PointerIntent,
     surface::{Point, SurfaceId},
 };
-
-#[derive(Debug)]
-pub(super) enum PressedRetry {
-    Active(RetryTarget, RetryAction, Point),
-    Cancelled,
-}
 
 impl Workspace {
     /// Installs the runtime's current eligibility projection, or removes stale actions.
@@ -49,9 +42,7 @@ impl Workspace {
         self.router = Router::default();
         self.surfaces = SurfaceTree::default();
         self.pressed_entry = None;
-        self.pressed_retry = None;
-        self.pressed_approval = None;
-        self.pressed_drawer = None;
+        self.pressed = None;
         self.drag_autoscroll = None;
         self.painted = None;
     }
@@ -87,36 +78,6 @@ impl Workspace {
             _ => return None,
         };
         Some((actions.target.clone(), command))
-    }
-    pub(super) fn retry_pointer(&mut self, pointer: PointerIntent) -> Option<Outcome> {
-        match pointer {
-            PointerIntent::Press { surface, at } => {
-                self.pressed_retry = None;
-                let (target, command) = self.retry_hit(surface, at)?;
-                self.pressed_retry = Some(PressedRetry::Active(target, command, at));
-                Some(Outcome::default())
-            }
-            PointerIntent::Release { surface, at } => {
-                let pressed = self.pressed_retry.take()?;
-                let mut outcome = Outcome::default();
-                if let PressedRetry::Active(target, command, original) = pressed
-                    && original == at
-                    && self.retry_hit(surface, at) == Some((target, command))
-                {
-                    outcome.retry = self.perform_retry_action(command);
-                }
-                Some(outcome)
-            }
-            PointerIntent::Drag { .. } | PointerIntent::Suspend { .. } => {
-                self.pressed_retry.as_ref()?;
-                self.pressed_retry = Some(PressedRetry::Cancelled);
-                Some(Outcome::default())
-            }
-            PointerIntent::Cancel { .. } => {
-                self.pressed_retry.take()?;
-                Some(Outcome::default())
-            }
-        }
     }
 }
 

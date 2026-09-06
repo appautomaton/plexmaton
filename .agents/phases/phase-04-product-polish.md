@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 complete; stages 11 composer menu and Drawer and 13 chrome diet in progress; stage 12 streaming continuity complete; stage 14 math LaTeX support complete; stage 15 frozen Markdown prefix complete; stage 10 branding remains |
+| Status | Active; stages 1–9 and 11–15 complete; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -93,7 +93,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
    CPL-3 owns required skill retention during compaction. Live model behavior and performance remain
    unverified. JRN-3 preserves readable `2026-09-04` history alongside new `2026-09-05` files.
 
-9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/skill-picker.md) put `$` discovery
+9. **Composer skill picker — complete.** [SKP-1–SKP-4](../specs/composer-menu.md) put `$` discovery
    above the primary input, with keyboard/pointer completion and selected-name ownership through
    input return and edit/retry. Literal variables, currency and prose remain text. 853 Rust tests,
    17 script regressions, workspace compilation/Clippy, formatting, crate graph, file length,
@@ -108,19 +108,22 @@ Visual changes are reviewed against real frames before the contract adopts them.
 10. **Branding.** A rounded-square frame and circular gradient center form the user's visual
     reference. Palette, pure Ratatui drawing and a visible-only animation clock are separate
     responsibilities. Static geometry/color previews precede motion; no script reruns per logo frame.
-11. **Composer menu and Drawer — in progress.** A Command is a slash command only, typed into the
-    conversation it addresses and run from there with a captured target: `/new`, `/resume`,
-    `/compact` and `/permissions` for the Session. The `$` picker becomes the composer menu and
-    serves `/` too. The Drawer, pulled from the top edge by `Ctrl-P`, holds what outlives a
-    Session: Configuration, and Project and User permissions; `/config` and the three-second
-    palette hint cease to exist. The user set the vocabulary and the Drawer's geometry on
-    2026-09-06 and, the same day, decided that conversations and Session permissions are typed
-    where the user types, which moved Conversations out of the Drawer after it had landed there
-    with [DRW-1–DRW-4](../specs/drawer.md). Real frames replace the sketch slice by slice under
-    the [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: settings as
-    slash commands, which put workspace pages in the composer and made its title lie about the
-    addressee; and conversations as a Drawer page, which hid what users type by habit behind a
-    chord.
+11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
+    conversation it addresses and run from there with a captured target: `/new`, `/resume` over
+    saved conversations, `/compact` and `/permissions` for the Session, under
+    [CMD-1 to CMD-3](../specs/composer-menu.md); SPK-1 to SPK-3 moved with the rows. The Drawer,
+    pulled from the top edge by `Ctrl-P` under [DRW-1 to DRW-4](../specs/drawer.md), holds what
+    outlives a Session: Configuration, and Project grants and configuration trust; `/config` and
+    the three-second palette hint ceased to exist. One `PermissionPanel` serves both places and
+    one `Pressed` slot serves every surface with rows (INV-11). The user set the vocabulary and
+    the Drawer's geometry on 2026-09-06 and, the same day, decided that conversations and Session
+    permissions are typed where the user types, which moved Conversations out of the Drawer after
+    they had landed there. Rejected: settings as slash commands, which put workspace pages in the
+    composer and made its title lie about the addressee; and conversations as a Drawer page, which
+    hid what users type by habit behind a chord. Not done, each its own stage: `/model`, which
+    needs the runtime to change a conversation's model mid-flight; a visible sign of messages
+    queued for the next turn; the User rules snapshot, which the permission view does not
+    project; and a loopback run of `/compact` through the executable, unproven in CMD-1.
 
 12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
     prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.
@@ -133,14 +136,16 @@ Visual changes are reviewed against real frames before the contract adopts them.
     that deadline. Current release timings and saturated physical-terminal streaming remain unmeasured. Stage 14 owns remaining formula-closure reflow
     reported during live use; retained preparation alone does not settle that behavior.
 
-13. **Chrome diet — in progress.** The conversation column loses its box: the transcript runs
-    into the composer's top rule, the composer sits between two rules that carry only the
-    addressee and the reasoning effort, the conversation's last row is its activity line, and
-    menus are a titled section above the top rule. Decided by the user on 2026-09-06 from
-    hand-composed frames at 95 columns; real frames replace them slice by slice under the
-    [plan](../plans/phase-04-stage-13-chrome-diet.md), and stage 11's composer menu lands on this
-    chrome. Rejected: the box, chrome that said nothing; and current work on the composer's
-    rule, which mixed the agent's doing with the user's typing.
+13. **Chrome diet — complete.** The conversation column has no box: the transcript runs into
+    the composer's top rule and ends with its activity line, which also carries the selection
+    note and the attention pill; the composer sits between two rules that carry only the
+    addressee and the reasoning effort, grows to a third of the terminal and walks a taller
+    draft with `↑`/`↓` and the wheel; menus are a titled rule and rows the composer's top rule
+    closes. Decided by the user on 2026-09-06 from hand-composed frames; the real frames are the
+    regenerated composition fixtures, the `composer-grown-*` and `composer-windowed-*` crops and
+    the Markdown SVGs. The Drawer, the rail and the strips keep their boxes. Rejected: the box,
+    chrome that said nothing; and current work on the composer's rule, which mixed the agent's
+    doing with the user's typing.
 
 14. **Math LaTeX support — complete.** The user’s logits/softmax examples exercise accents,
     Chinese text and boxed mixed-language formulas. MTH-1–MTH-4 cover engine admission, real

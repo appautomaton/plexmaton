@@ -101,7 +101,7 @@ pub struct WorkspaceInput {
     /// Whether the Drawer's open view is typed into or navigated, which decides its kind.
     pub drawer_focus: crate::KeyboardFocus,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
-    pub skill_picker_rows: u16,
+    pub composer_menu_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
     pub rail: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
@@ -120,7 +120,7 @@ impl Default for WorkspaceInput {
             decision_mode: DecisionMode::Inline,
             drawer_rows: 0,
             drawer_focus: crate::KeyboardFocus::TextInput,
-            skill_picker_rows: 0,
+            composer_menu_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
@@ -232,9 +232,17 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         attention,
         regions,
         input.decision_mode,
-        input.skill_picker_rows,
+        input.composer_menu_rows,
         input.drawer_focus,
     )
+}
+
+/// The most lines the primary composer may take at this terminal height: a third of it, never
+/// fewer than a sub-agent's input keeps. Past the cap the draft's window follows its caret
+/// (ui-ux §input).
+#[must_use]
+pub fn composer_cap(height: u16) -> u16 {
+    (height / 3).max(crate::state::MAX_VISIBLE_LINES)
 }
 
 /// Width the primary composer will occupy for this frame.
@@ -467,16 +475,16 @@ mod tests {
         }
     }
 
-    /// SKP-4: a clipped box never hides both the selected choice and its controls.
+    /// SKP-4: a clipped menu never hides both the selected choice and its keys.
     #[test]
     fn skill_picker_is_absent_when_fewer_than_choice_footer_and_borders_fit() {
         let regions = BodyRegions {
             agents: None,
-            transcript: Some(Rect::new(0, 0, 60, 3)),
+            transcript: Some(Rect::new(0, 0, 60, 2)),
             inspector: None,
             inspector_floats: false,
-            composer: Rect::new(0, 5, 60, 3),
-            decision: Some(Rect::new(0, 3, 60, 2)),
+            composer: Rect::new(0, 4, 60, 3),
+            decision: Some(Rect::new(0, 2, 60, 2)),
             drawer: None,
         };
         let tree = super::registration::surface_tree(
@@ -488,7 +496,7 @@ mod tests {
             8,
             crate::KeyboardFocus::TextInput,
         );
-        assert!(tree.get(SurfaceId::SkillPicker).is_none());
+        assert!(tree.get(SurfaceId::ComposerMenu).is_none());
     }
 
     /// The same, with an inspector open in its default presentation.

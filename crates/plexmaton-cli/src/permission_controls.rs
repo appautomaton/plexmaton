@@ -34,6 +34,11 @@ impl PermissionControls {
         self.start(Some(intent));
     }
 
+    /// The current view, for a place that opened or asked again (PER-7).
+    pub fn refresh(&mut self) {
+        self.start(None);
+    }
+
     fn start(&mut self, intent: Option<PermissionIntent>) {
         if self.job.is_some() {
             return;

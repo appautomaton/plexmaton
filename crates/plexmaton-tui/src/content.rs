@@ -14,8 +14,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    CleanupNotice, ConversationRestoration, ConversationTailRepair, NoticeView, PersistenceNotice,
-    TranscriptEntryView, ViewState,
+    CleanupNotice, ConversationTailRepair, NoticeView, PersistenceNotice, TranscriptEntryView,
+    ViewState,
     theme::{Palette, Role, agent_role},
 };
 
@@ -227,39 +227,103 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
 }
 
 /// Bounded composer completions; every choice occupies exactly one pointer-addressable row.
-pub(crate) fn skill_picker(
+/// The composer menu's rows, by the token the draft starts with, and its key line (SKP-4, CMD-1).
+///
+/// Skills carry their source and name; Commands their name and what `Enter` does; conversations
+/// their title and, muted, their identity; permissions their label. The chosen row is the bar
+/// (`Chosen`). The Conversations listing adds one status row while it has no rows or an open in
+/// flight; the Session permissions listing opens with its panel's description as a heading.
+pub(crate) fn composer_menu(
     state: &ViewState,
     palette: &Palette,
     width: u16,
     height: u16,
 ) -> Vec<Line<'static>> {
-    let picker = state.skill_picker();
+    use crate::state::MenuRow;
+    if state.menu_listing().is_none() {
+        return Vec::new();
+    }
+    let menu = state.composer_menu();
     let input = state.composer();
-    let visible = usize::from(height.saturating_sub(3));
-    let matches = picker.current_matches(input.text(), input.cursor());
-    let window = picker.window(input.text(), input.cursor(), visible);
-    let mut lines = Vec::with_capacity(window.len().saturating_add(1));
-    for choice in matches.into_iter().skip(window.start).take(window.len()) {
-        let chosen = picker.chosen() == Some(choice.name.as_str());
+    let status = state.menu_status();
+    let rows = state.menu_rows();
+    // The titled rule and the key line; the composer's top rule closes the menu (SKP-4). The
+    // rows keep their room in a short terminal; the heading takes what is left and ends in `…`.
+    let budget =
+        usize::from(height.saturating_sub(2)).saturating_sub(usize::from(status.is_some()));
+    let mut heading = state.menu_heading(width);
+    let heading_budget = budget.saturating_sub(rows.len().min(crate::state::VISIBLE_ROWS));
+    if heading.len() > heading_budget {
+        heading.truncate(heading_budget);
+        if let Some(last) = heading.last_mut() {
+            last.push('…');
+        }
+    }
+    let visible = budget.saturating_sub(heading.len());
+    let window = menu.window(input.text(), input.cursor(), visible);
+    let mut lines = Vec::with_capacity(window.len().saturating_add(2 + heading.len()));
+    lines.extend(heading.into_iter().map(|line| {
+        Line::styled(
+            command_summary(&format!("  {line}"), usize::from(width)),
+            palette.style(Role::Muted),
+        )
+    }));
+    for row in rows.iter().skip(window.start).take(window.len()) {
+        let chosen = menu.chosen() == Some(row);
         let marker = if chosen { ">" } else { " " };
-        let description = inert_inline(&choice.description);
-        let row = format!(
-            "{marker} {} · ${}  {}",
-            choice.source.label(),
-            choice.name,
-            description
-        );
-        let row = command_summary(&row, usize::from(width));
-        lines.push(if chosen {
-            chosen_row(vec![Span::raw(row)], palette, width)
+        let (name, detail) = match row {
+            MenuRow::Skill(name) => {
+                let choice = menu.skill(name);
+                (
+                    format!(
+                        "{} · ${name}",
+                        choice.map_or("", |choice| choice.source.label())
+                    ),
+                    choice.map_or_else(String::new, |choice| inert_inline(&choice.description)),
+                )
+            }
+            MenuRow::Command(command) => {
+                (format!("/{}", command.name()), command.summary().to_owned())
+            }
+            MenuRow::Conversation(id) => (
+                menu.conversations
+                    .as_ref()
+                    .and_then(|picker| picker.choice(id))
+                    .map_or_else(|| id.as_str().to_owned(), |choice| choice.title.clone()),
+                id.as_str().to_owned(),
+            ),
+            MenuRow::Permission(choice) => (
+                menu.permission_label(choice).unwrap_or_default(),
+                String::new(),
+            ),
+        };
+        let text = if detail.is_empty() {
+            command_summary(&format!("{marker} {name}"), usize::from(width))
         } else {
-            Line::styled(row, palette.style(Role::Body))
+            command_summary(&format!("{marker} {name}  {detail}"), usize::from(width))
+        };
+        lines.push(if chosen {
+            chosen_row(vec![Span::raw(text)], palette, width)
+        } else {
+            let split = text.len().min(marker.len() + 1 + name.len());
+            Line::from(vec![
+                Span::styled(text[..split].to_owned(), palette.style(Role::Body)),
+                Span::styled(text[split..].to_owned(), palette.style(Role::Muted)),
+            ])
         });
     }
-    lines.push(Line::styled(
-        " ↑↓ choose · Tab/Enter insert · Esc close",
-        palette.style(Role::Muted),
-    ));
+    if let Some(status) = status {
+        let role = if status.is_failure() {
+            Role::Failure
+        } else {
+            Role::Muted
+        };
+        lines.push(Line::styled(
+            command_summary(&format!("  {}", status.message()), usize::from(width)),
+            palette.style(role),
+        ));
+    }
+    lines.push(Line::styled(state.menu_keys(), palette.style(Role::Muted)));
     lines
 }
 
@@ -267,26 +331,51 @@ fn inert_inline(source: &str) -> String {
     crate::markdown::inert(source).replace('\n', " ")
 }
 
-pub(crate) fn recovery_lines(
-    recovery: &ConversationRestoration,
+/// One note after the last entry: restoration (JRN-5) or a requested compaction's end (CPL-9).
+pub(crate) fn note_lines(
+    note: &crate::state::ConversationNote,
     palette: &Palette,
 ) -> Vec<Line<'static>> {
+    use crate::state::ConversationNote;
     let mut lines = Vec::new();
-    if let Some(tail) = recovery.tail {
-        let text = match tail {
-            ConversationTailRepair::AddedFinalNewline => {
-                "completed final record repaired".to_owned()
+    match note {
+        ConversationNote::Restored(recovery) => {
+            if let Some(tail) = recovery.tail {
+                let text = match tail {
+                    ConversationTailRepair::AddedFinalNewline => {
+                        "completed final record repaired".to_owned()
+                    }
+                    ConversationTailRepair::IsolatedFinalTail { bytes } => {
+                        format!("isolated {bytes}-byte incomplete tail")
+                    }
+                };
+                lines.push(Line::styled(text, palette.style(Role::ActionRequired)));
             }
-            ConversationTailRepair::IsolatedFinalTail { bytes } => {
-                format!("isolated {bytes}-byte incomplete tail")
-            }
-        };
-        lines.push(Line::styled(text, palette.style(Role::ActionRequired)));
+            lines.push(Line::styled(
+                "✓ Conversation restored.",
+                palette.style(Role::NewInformation),
+            ));
+        }
+        ConversationNote::Compacted => lines.push(Line::styled(
+            "✓ Context compacted.",
+            palette.style(Role::NewInformation),
+        )),
+        ConversationNote::CompactionRefused(refusal) => {
+            lines.push(Line::styled(refusal.message(), palette.style(Role::Muted)))
+        }
+        ConversationNote::CompactionFailed { reason } => lines.push(Line::styled(
+            format!("Could not compact: {reason}."),
+            palette.style(Role::Failure),
+        )),
+        ConversationNote::SwitchRefused(refusal) => {
+            let role = if refusal.is_failure() {
+                Role::Failure
+            } else {
+                Role::Muted
+            };
+            lines.push(Line::styled(refusal.message(), palette.style(role)));
+        }
     }
-    lines.push(Line::styled(
-        "✓ Conversation restored.",
-        palette.style(Role::NewInformation),
-    ));
     lines.push(Line::default());
     lines
 }
@@ -300,6 +389,7 @@ pub(crate) fn composer(
     palette: &Palette,
     focused: bool,
     width: u16,
+    window: u16,
 ) -> Vec<Line<'static>> {
     let composer = state.composer();
     if composer.text().is_empty() && !focused {
@@ -308,16 +398,17 @@ pub(crate) fn composer(
             palette.style(Role::Muted),
         )];
     }
-    input_lines(composer, palette, width)
+    input_lines(composer, palette, width, window)
 }
 
 pub(crate) fn input_lines(
     input: &crate::state::TextInput,
     palette: &Palette,
     width: u16,
+    window: u16,
 ) -> Vec<Line<'static>> {
     input
-        .visible_ranges(width)
+        .visible_ranges(width, window)
         .into_iter()
         .map(|range| Line::from(input_spans(input, palette, range)))
         .collect()
@@ -456,7 +547,10 @@ mod tests {
             None,
             Some(crate::ConversationTailRepair::IsolatedFinalTail { bytes: 37 }),
         ] {
-            let lines = super::recovery_lines(&crate::ConversationRestoration { tail }, &palette);
+            let lines = super::note_lines(
+                &crate::state::ConversationNote::Restored(crate::ConversationRestoration { tail }),
+                &palette,
+            );
             let confirmation = &lines[lines.len() - 2];
             assert_eq!(confirmation.to_string(), "✓ Conversation restored.");
             assert_eq!(confirmation.style.fg, Some(ratatui::style::Color::Green));

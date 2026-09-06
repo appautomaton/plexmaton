@@ -5,7 +5,10 @@ use std::{io, time::Instant};
 use anyhow::Context as _;
 use futures_util::{Stream, StreamExt};
 use plexmaton_runtime::{LiveRuntime, RuntimeUpdate};
-use plexmaton_tui::{ConversationRequest, Flow, Page, Workspace};
+use plexmaton_tui::{
+    Command, CommandRun, CompactRefusal, CompactionNote, ConversationRequest, Flow, Page,
+    PermissionRequest, Workspace,
+};
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
@@ -126,13 +129,19 @@ async fn apply_workspace_outcome(
     if let Some(page) = outcome.page {
         open_page(page, workspace, picker, permissions);
     }
-    if let Some(intent) = outcome.permission {
-        permissions.apply(intent);
+    match outcome.permission {
+        Some(PermissionRequest::Refresh) => permissions.refresh(),
+        Some(PermissionRequest::Change(intent)) => permissions.apply(intent),
+        None => {}
     }
     match outcome.conversation {
+        Some(ConversationRequest::List) => picker.open(workspace),
         Some(ConversationRequest::New) => picker.new_conversation(workspace, runtime),
         Some(ConversationRequest::Saved(id)) => picker.select(id, runtime, workspace),
         None => {}
+    }
+    if let Some(run) = outcome.command {
+        run_command(run, runtime, workspace, picker, permissions).await?;
     }
     if let Some(retry) = outcome.retry {
         retry::execute(runtime, workspace, retry).await?;
@@ -151,6 +160,43 @@ async fn apply_workspace_outcome(
     Ok(outcome.flow == Flow::Quit)
 }
 
+/// Runs a Command against the conversation it names; the runtime admits or refuses it (CMD-1).
+async fn run_command(
+    run: CommandRun,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    picker: &mut session_picker::ConversationPicker,
+    permissions: &mut permission_controls::PermissionControls,
+) -> anyhow::Result<()> {
+    use plexmaton_runtime::{CompactionRequest, CompactionRequestRefusal as Refusal};
+    match run.command {
+        Command::New => picker.new_conversation(workspace, runtime),
+        Command::Resume => picker.open(workspace),
+        Command::Permissions => permissions.refresh(),
+        Command::Compact => {
+            let note = match runtime
+                .request_compaction(run.target.agent.clone())
+                .await
+                .context("request compaction")?
+            {
+                CompactionRequest::Started { .. } => CompactionNote::Started,
+                CompactionRequest::Refused(refusal) => CompactionNote::Refused(match refusal {
+                    Refusal::TurnActive => CompactRefusal::TurnActive,
+                    Refusal::ApprovalPending => CompactRefusal::ApprovalPending,
+                    Refusal::CompactionActive => CompactRefusal::CompactionActive,
+                    Refusal::ShuttingDown => CompactRefusal::ShuttingDown,
+                    Refusal::BudgetUnavailable => CompactRefusal::BudgetUnavailable,
+                    Refusal::NothingToCompact => CompactRefusal::NothingToCompact,
+                    Refusal::HistoryTooLarge => CompactRefusal::HistoryTooLarge,
+                    Refusal::SourceUnavailable => CompactRefusal::SourceUnavailable,
+                }),
+            };
+            workspace.report_compaction(&run.target.agent, note);
+        }
+    }
+    Ok(())
+}
+
 /// Opens a Drawer page. What each one costs is owned here, never by the workspace (DRW-3).
 pub(super) fn open_page(
     page: Page,
@@ -160,7 +206,6 @@ pub(super) fn open_page(
 ) {
     match page {
         Page::Configuration => workspace.show_configuration(picker.configuration()),
-        Page::Conversations => picker.open(workspace),
         Page::Permissions => permissions.open(workspace),
     }
 }

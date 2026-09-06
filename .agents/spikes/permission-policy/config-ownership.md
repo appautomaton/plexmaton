@@ -75,7 +75,7 @@ no project Allow authority. Configuration write-back remains unimplemented.
 
 ## Implementation references
 
-The [skills contract](../../specs/agent-skills.md) and [picker contract](../../specs/skill-picker.md)
+The [skills contract](../../specs/agent-skills.md) and [menu contract](../../specs/composer-menu.md)
 own behavior and its evidence. Concrete readers are
 [project settings](../../../crates/plexmaton-cli/src/project_config.rs),
 [startup](../../../crates/plexmaton-cli/src/startup.rs),

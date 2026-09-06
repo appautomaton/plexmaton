@@ -29,18 +29,19 @@ mod transcript;
 mod workspace;
 
 pub use intent::{
-    ApprovalIntent, AttentionIntent, Direction, InspectorIntent, PointerIntent, ScrollDirection,
-    SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
+    ApprovalIntent, AttentionIntent, Direction, InspectorIntent, MenuIntent, PointerIntent,
+    ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    CleanupNotice, ConfigurationSummary, ConversationChoice, ConversationPickerStatus,
-    ConversationRequest, ConversationRestoration, ConversationTailRepair, CopyRequest, Drawer,
-    InspectorView, MAX_CONVERSATION_CHOICES, MailView, NoticeView, Page, PersistenceNotice,
-    ReduceError, RetryAction, RetryActions, RetrySubmission, RetryTarget, ScrollPosition,
-    Selection, SkillChoice, SkillChoiceSource, Submission, SubmissionKind, ToolCallView,
+    CleanupNotice, Command, CompactRefusal, CompactionNote, ConfigurationSummary,
+    ConversationChoice, ConversationPickerStatus, ConversationRequest, ConversationRestoration,
+    ConversationTailRepair, CopyRequest, Drawer, InspectorView, Listing, MAX_CONVERSATION_CHOICES,
+    MailView, NoticeView, Page, PermissionRequest, PersistenceNotice, ReduceError, RetryAction,
+    RetryActions, RetrySubmission, RetryTarget, ScrollPosition, Selection, SkillChoice,
+    SkillChoiceSource, Submission, SubmissionKind, SwitchRefusal, ToolCallView,
     TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
@@ -50,5 +51,5 @@ pub use surface::{
 };
 pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
 pub use transcript::TranscriptMetrics;
-pub use workspace::{Flow, FrameWork, Outcome, Workspace};
+pub use workspace::{CommandRun, CommandTarget, Flow, FrameWork, Outcome, Workspace};
 pub mod math;

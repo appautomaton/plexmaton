@@ -51,13 +51,14 @@ The interface, tools and journals run locally. Model requests go to your configu
 
 | Input | Action |
 | --- | --- |
-| `Ctrl-P` | Open the Drawer: configuration, conversations, permissions |
+| `Ctrl-P` | Open the Drawer: configuration and permissions |
 | `Ctrl-C` | Clear a draft or interrupt its conversation |
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
 | `$` | Find and complete a skill |
+| `/` | List Commands: `/new`, `/resume`, `/compact`, `/permissions` |
 
-The Drawer starts or resumes conversations and shows configuration and permissions. Rate limits offer Retry and Edit & retry.
+The Drawer shows configuration and permissions. Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 

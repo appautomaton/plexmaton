@@ -1,13 +1,6 @@
 //! Pointer decisions use the same choice rows and insets as the visible approval card.
 use super::*;
-use crate::{ApprovalChoice, ApprovalIntent, Point, PointerIntent, SurfaceId};
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct PressedApproval {
-    approval: plexmaton_core::ApprovalId,
-    choice: ApprovalChoice,
-    at: Point,
-}
+use crate::{ApprovalChoice, ApprovalIntent, Point, SurfaceId};
 
 impl Workspace {
     pub(super) fn decide_visible_approval(
@@ -35,10 +28,12 @@ impl Workspace {
         self.state.decide_approval(intent)
     }
 
-    fn approval_hit(&self, surface: SurfaceId, at: Point) -> Option<PressedApproval> {
-        if surface != SurfaceId::Approval {
-            return None;
-        }
+    /// The choice row under `at` on the card, with the approval it belongs to (APV-4).
+    pub(super) fn approval_hit(
+        &self,
+        at: Point,
+    ) -> Option<(plexmaton_core::ApprovalId, ApprovalChoice)> {
+        let surface = SurfaceId::Approval;
         let bounds = self.surfaces.get(surface)?.bounds;
         let viewport = self.surfaces.viewport(surface)?;
         let insets = crate::surface::ContentInsets::for_surface(surface, bounds.height);
@@ -58,36 +53,6 @@ impl Workspace {
         if usize::from(x) >= unicode_width::UnicodeWidthStr::width(choice.label()) + 2 {
             return None;
         }
-        Some(PressedApproval {
-            approval: self.state.approval()?.approval_id.clone(),
-            choice,
-            at,
-        })
-    }
-
-    pub(super) fn approval_pointer(&mut self, pointer: PointerIntent) -> Option<Outcome> {
-        match pointer {
-            PointerIntent::Press { surface, at } => {
-                self.pressed_approval = None;
-                let target = self.approval_hit(surface, at)?;
-                self.state.focus_surface(&self.surfaces, surface);
-                self.pressed_approval = Some(target);
-                Some(Outcome::default())
-            }
-            PointerIntent::Release { surface, at } => {
-                let pressed = self.pressed_approval.take()?;
-                let mut outcome = Outcome::default();
-                if self.approval_hit(surface, at).as_ref() == Some(&pressed) {
-                    self.state.choose_approval(pressed.choice);
-                    outcome.approval = self.decide_visible_approval(ApprovalIntent::Decide);
-                }
-                Some(outcome)
-            }
-            PointerIntent::Drag { .. }
-            | PointerIntent::Suspend { .. }
-            | PointerIntent::Cancel { .. } => {
-                self.pressed_approval.take().map(|_| Outcome::default())
-            }
-        }
+        Some((self.state.approval()?.approval_id.clone(), choice))
     }
 }

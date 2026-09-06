@@ -33,9 +33,12 @@ pub enum ScrollDirection {
 
 /// One operation on the primary composer's inline skill completion list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SkillPickerIntent {
+pub enum MenuIntent {
     Step(Direction),
+    /// `Enter`: the effect the row states, a Skill bound, a Command run, a conversation opened.
     Accept,
+    /// `Tab`: write the row into the draft without running it.
+    Complete,
     Close,
 }
 
@@ -61,6 +64,8 @@ pub enum TextIntent {
     KillToLineEnd,
     /// Move the cursor without changing the text.
     Move(Motion),
+    /// Move the cursor one painted row up or down; the window follows it (ui-ux §input).
+    MoveRow(Direction),
     /// Break the line without submitting.
     Newline,
     /// Submit the input's current contents.
@@ -165,7 +170,7 @@ pub enum SelectionIntent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
     /// Navigate, accept, or close the primary composer's skill completions.
-    SkillPicker(SkillPickerIntent),
+    Menu(MenuIntent),
     /// Contextual action on the primary conversation's eligible failed message.
     Retry(crate::RetryAction),
     /// Pull the Drawer open, move through it, or choose the row under the marker.

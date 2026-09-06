@@ -22,7 +22,7 @@ pub(super) fn surface_tree(
     attention: Option<Rect>,
     regions: BodyRegions,
     decision_mode: DecisionMode,
-    skill_picker_rows: u16,
+    composer_menu_rows: u16,
     drawer_focus: crate::KeyboardFocus,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
@@ -62,8 +62,9 @@ pub(super) fn surface_tree(
     let picker_bottom = regions
         .decision
         .map_or(regions.composer.y, |decision| decision.y);
-    let picker_height = skill_picker_rows.min(picker_bottom.saturating_sub(picker_top));
-    let picker = (picker_height >= 4).then_some(Rect::new(
+    let picker_height = composer_menu_rows.min(picker_bottom.saturating_sub(picker_top));
+    // A titled rule, one choice and the key line: less than that hides the choice or the keys.
+    let picker = (picker_height >= 3).then_some(Rect::new(
         regions.composer.x,
         picker_bottom.saturating_sub(picker_height),
         regions.composer.width,
@@ -71,7 +72,7 @@ pub(super) fn surface_tree(
     ));
     register_at(
         &mut tree,
-        SurfaceId::SkillPicker,
+        SurfaceId::ComposerMenu,
         picker,
         SurfaceKind::Popup,
         POPUP_Z_INDEX,

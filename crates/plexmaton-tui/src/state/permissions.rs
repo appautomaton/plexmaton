@@ -1,8 +1,30 @@
 //! Presentation-only permission controls. All mutations echo a producer revision and await its reply.
+//!
+//! One panel serves two places (PER-7): the composer menu behind `/permissions` shows the
+//! Session's grants and the native file-change preset, which die with the process; the Drawer's
+//! Permissions page shows what outlives it, Project grants and configuration trust.
 use plexmaton_core::{
     NativeFilePreset, PermissionAction, PermissionChangeError, PermissionIntent, PermissionScope,
     PermissionStateView,
 };
+
+/// Which lifetime a panel shows, and so where it is shown (ui-ux §product vocabulary).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PermissionPlace {
+    /// The composer menu: grants that last until the process exits.
+    Session,
+    /// The Drawer's page: grants and trust that survive Sessions.
+    Project,
+}
+
+/// What the user asked of the retained permission owner; only the composition root can do it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PermissionRequest {
+    /// The current view, for a place that just opened or asked again.
+    Refresh,
+    /// A reviewed mutation echoing the revision it was reviewed against.
+    Change(PermissionIntent),
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PermissionChoice {
@@ -35,6 +57,7 @@ enum PermissionPage {
 pub(crate) struct PermissionPanel {
     page: PermissionPage,
     selected: usize,
+    place: PermissionPlace,
 }
 
 impl PermissionPanel {
@@ -54,11 +77,22 @@ impl PermissionPanel {
             .unwrap_or(u16::MAX)
             .max(10)
     }
-    pub(crate) const fn loading() -> Self {
+    pub(crate) const fn loading(place: PermissionPlace) -> Self {
         Self {
             page: PermissionPage::Loading,
             selected: 0,
+            place,
         }
+    }
+
+    /// Whether the rows are the place's grants, which a query may narrow.
+    pub(crate) const fn is_browsing(&self) -> bool {
+        matches!(self.page, PermissionPage::Browse { .. })
+    }
+
+    /// Whether a change is with the owner; the panel waits for its answer.
+    pub(crate) const fn is_submitting(&self) -> bool {
+        matches!(self.page, PermissionPage::Submitting)
     }
 
     pub(crate) fn loaded(
@@ -95,52 +129,10 @@ impl PermissionPanel {
                 }
                 _ => vec![(PermissionChoice::Back, "Back".to_owned())],
             },
-            PermissionPage::Browse { view, .. } => {
-                let mut choices = Vec::new();
-                match &view.native_files {
-                    NativeFilePreset::Disabled => choices.push((
-                        PermissionChoice::Review(PermissionAction::EnableNativeFiles),
-                        "Enable native file changes for this Session…".to_owned(),
-                    )),
-                    NativeFilePreset::Enabled(id) => choices.push((
-                        PermissionChoice::Review(PermissionAction::Revoke(id.clone())),
-                        "Turn off Session file changes…".to_owned(),
-                    )),
-                    NativeFilePreset::Unavailable => {}
-                }
-                for grant in &view.grants {
-                    if matches!(&view.native_files, NativeFilePreset::Enabled(id) if id == &grant.id)
-                    {
-                        continue;
-                    }
-                    let scope = match grant.scope {
-                        PermissionScope::Session => "Session",
-                        PermissionScope::Project => "Project",
-                    };
-                    choices.push((
-                        PermissionChoice::Review(PermissionAction::Revoke(grant.id.clone())),
-                        format!("Revoke {scope}: {}", grant.label),
-                    ));
-                }
-                if view
-                    .configuration
-                    .as_ref()
-                    .is_some_and(|config| !config.rules.is_empty())
-                {
-                    choices.push((
-                        PermissionChoice::Configuration,
-                        "Review project configuration rules…".to_owned(),
-                    ));
-                }
-                if view.trusted_config.is_some() {
-                    choices.push((
-                        PermissionChoice::Review(PermissionAction::RevokeProjectTrust),
-                        "Withdraw project configuration trust…".to_owned(),
-                    ));
-                }
-                choices.push((PermissionChoice::Reload, "Refresh permissions".to_owned()));
-                choices
-            }
+            PermissionPage::Browse { view, .. } => match self.place {
+                PermissionPlace::Session => session_choices(view),
+                PermissionPlace::Project => project_choices(view),
+            },
             PermissionPage::Confirm { intent, .. } => vec![
                 (
                     PermissionChoice::Confirm(intent.clone()),
@@ -168,6 +160,16 @@ impl PermissionPanel {
     }
 
     pub(crate) fn hint(&self) -> &'static str {
+        if self.place == PermissionPlace::Session {
+            return match self.page {
+                PermissionPage::Browse { .. } => "↑↓ choose · Enter review · Esc close",
+                PermissionPage::Confirm { .. } => "↑↓ choose · Enter confirm · Esc back",
+                PermissionPage::Unavailable(_) => "Enter reload · Esc close",
+                PermissionPage::Configuration { .. }
+                | PermissionPage::Loading
+                | PermissionPage::Submitting => "Esc close",
+            };
+        }
         if self.is_reading() {
             if self
                 .choices()
@@ -267,15 +269,22 @@ impl PermissionPanel {
             PermissionPage::Submitting => vec!["Applying change… Waiting for confirmation.".to_owned()],
             PermissionPage::Unavailable(reason) => vec![reason.to_string()],
             PermissionPage::Browse { view, changed } => {
-                let mut text = vec!["Session grants last until Plexmaton exits.".to_owned(), "They stay active across /new and resume.".to_owned()];
-                match view.project {
-                    plexmaton_core::ProjectPermissionSource::Available => text.push("Project grants survive Sessions and restarts.".to_owned()),
-                    plexmaton_core::ProjectPermissionSource::Unavailable => text.push("Project permissions unavailable; tools cannot run.".to_owned()),
-                    plexmaton_core::ProjectPermissionSource::Disabled => {},
-                }
-                if let Some(config) = &view.configuration {
-                    text.push(if config.trusted { "Project configuration Allow rules are active." } else { "Project Allow rules need explicit trust. Ask and Deny are active." }.to_owned());
-                }
+                let mut text = match self.place {
+                    PermissionPlace::Session => vec![
+                        "Session grants last until Plexmaton exits; they stay active across /new and /resume.".to_owned(),
+                    ],
+                    PermissionPlace::Project => {
+                        let mut text = vec!["Project grants survive Sessions and restarts.".to_owned()];
+                        match view.project {
+                            plexmaton_core::ProjectPermissionSource::Unavailable => text.push("Project permissions unavailable; tools cannot run.".to_owned()),
+                            plexmaton_core::ProjectPermissionSource::Available | plexmaton_core::ProjectPermissionSource::Disabled => {}
+                        }
+                        if let Some(config) = &view.configuration {
+                            text.push(if config.trusted { "Project configuration Allow rules are active." } else { "Project Allow rules need explicit trust. Ask and Deny are active." }.to_owned());
+                        }
+                        text
+                    }
+                };
                 if let Some(changed) = changed {
                     text.push(match changed {
                         Ok(()) => "Permission updated. Other rules may still allow matching operations.".to_owned(),
@@ -309,6 +318,66 @@ impl PermissionPanel {
     }
 }
 
+/// The Session's rows: the native file-change preset, then its other grants (PER-7).
+fn session_choices(view: &PermissionStateView) -> Vec<(PermissionChoice, String)> {
+    let mut choices = Vec::new();
+    match &view.native_files {
+        NativeFilePreset::Disabled => choices.push((
+            PermissionChoice::Review(PermissionAction::EnableNativeFiles),
+            "Enable native file changes for this Session…".to_owned(),
+        )),
+        NativeFilePreset::Enabled(id) => choices.push((
+            PermissionChoice::Review(PermissionAction::Revoke(id.clone())),
+            "Turn off Session file changes…".to_owned(),
+        )),
+        NativeFilePreset::Unavailable => {}
+    }
+    for grant in &view.grants {
+        if grant.scope != PermissionScope::Session
+            || matches!(&view.native_files, NativeFilePreset::Enabled(id) if id == &grant.id)
+        {
+            continue;
+        }
+        choices.push((
+            PermissionChoice::Review(PermissionAction::Revoke(grant.id.clone())),
+            format!("Revoke Session: {}", grant.label),
+        ));
+    }
+    choices
+}
+
+/// The Project's rows: its grants, its configuration's rules and trust, and a refresh (PER-8).
+fn project_choices(view: &PermissionStateView) -> Vec<(PermissionChoice, String)> {
+    let mut choices = Vec::new();
+    for grant in &view.grants {
+        if grant.scope != PermissionScope::Project {
+            continue;
+        }
+        choices.push((
+            PermissionChoice::Review(PermissionAction::Revoke(grant.id.clone())),
+            format!("Revoke Project: {}", grant.label),
+        ));
+    }
+    if view
+        .configuration
+        .as_ref()
+        .is_some_and(|config| !config.rules.is_empty())
+    {
+        choices.push((
+            PermissionChoice::Configuration,
+            "Review project configuration rules…".to_owned(),
+        ));
+    }
+    if view.trusted_config.is_some() {
+        choices.push((
+            PermissionChoice::Review(PermissionAction::RevokeProjectTrust),
+            "Withdraw project configuration trust…".to_owned(),
+        ));
+    }
+    choices.push((PermissionChoice::Reload, "Refresh permissions".to_owned()));
+    choices
+}
+
 impl super::ViewState {
     pub(crate) fn activate_permission(
         &mut self,
@@ -322,15 +391,31 @@ impl super::ViewState {
     }
     pub(crate) fn open_permissions(&mut self) {
         self.show_page(super::Shown::Permissions(Box::new(
-            PermissionPanel::loading(),
+            PermissionPanel::loading(PermissionPlace::Project),
         )));
     }
 
+    /// Whether a permission result still has a place to land: the Drawer's page or the menu.
+    pub(crate) fn permissions_open(&self) -> bool {
+        self.drawer
+            .as_ref()
+            .and_then(super::Drawer::permissions)
+            .is_some()
+            || self.composer_menu.permissions.is_some()
+    }
+
+    /// One acknowledged view lands in every place that is showing permissions; a place that was
+    /// dismissed is not reopened by it.
     pub(crate) fn update_permissions(
         &mut self,
         view: Result<PermissionStateView, PermissionChangeError>,
         changed: Option<Result<(), PermissionChangeError>>,
     ) {
+        if let Some(panel) = self.composer_menu.permissions.as_mut() {
+            panel.loaded(view.clone(), changed);
+            self.sync_composer_menu();
+            self.touch();
+        }
         if let Some(panel) = self
             .drawer
             .as_mut()

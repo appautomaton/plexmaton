@@ -10,36 +10,31 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use super::{
-    Caret, TextInput, configuration::ConfigurationSummary, conversation_picker::ConversationPicker,
-    permissions::PermissionPanel,
-};
+use super::{Caret, TextInput, configuration::ConfigurationSummary, permissions::PermissionPanel};
 use crate::surface::SurfaceId;
 
 /// One view inside the Drawer (ui-ux §product vocabulary).
 ///
-/// The list shows these three rows; choosing one hands the page to the composition root, which
-/// owns what opening it costs: a listing job, a permission store read, or the resolved model.
+/// The list shows these rows; choosing one hands the page to the composition root, which owns
+/// what opening it costs: a permission store read, or the resolved model. Conversations are
+/// not here: starting or resuming one is a Command typed where the user types.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Page {
     /// The provider, model and reasoning effort this process resolved.
     Configuration,
-    /// A new conversation, or a saved one to resume.
-    Conversations,
     /// Session and Project grants: review, enable, revoke.
     Permissions,
 }
 
 impl Page {
     /// Every page, in the order the list shows them.
-    pub const ALL: [Self; 3] = [Self::Configuration, Self::Conversations, Self::Permissions];
+    pub const ALL: [Self; 2] = [Self::Configuration, Self::Permissions];
 
     /// The name the list shows and the title carries.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Configuration => "Configuration",
-            Self::Conversations => "Conversations",
             Self::Permissions => "Permissions",
         }
     }
@@ -49,8 +44,7 @@ impl Page {
     pub const fn summary(self) -> &'static str {
         match self {
             Self::Configuration => "Provider, model, and reasoning effort",
-            Self::Conversations => "Start a new conversation or resume a saved one",
-            Self::Permissions => "Review and change Session or Project permissions",
+            Self::Permissions => "Grants and trust for this Project",
         }
     }
 
@@ -70,7 +64,6 @@ impl Page {
 pub(crate) enum Shown {
     Pages,
     Configuration(ConfigurationSummary),
-    Conversations(ConversationPicker),
     Permissions(Box<PermissionPanel>),
 }
 
@@ -81,7 +74,7 @@ pub(crate) enum Shown {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Drawer {
     pub(crate) shown: Shown,
-    /// The page list's own query; the Conversations page carries a separate one.
+    /// The page list's query.
     filter: TextInput,
     /// Index into the *matching* pages, clamped every time the filter changes.
     chosen: usize,
@@ -114,32 +107,27 @@ impl Drawer {
         match self.shown {
             Shown::Pages => None,
             Shown::Configuration(_) => Some(Page::Configuration),
-            Shown::Conversations(_) => Some(Page::Conversations),
             Shown::Permissions(_) => Some(Page::Permissions),
         }
     }
 
-    /// The query the user is typing into: the list's, or the open page's own.
+    /// The query the user is typing into: the list's.
     #[must_use]
     pub const fn filter(&self) -> &TextInput {
-        match &self.shown {
-            Shown::Conversations(picker) => &picker.query,
-            _ => &self.filter,
-        }
+        &self.filter
     }
 
-    /// Whether what is shown is typed into; the other pages are navigated (SURF-3).
+    /// Whether what is shown is typed into; the pages are navigated (SURF-3).
     #[must_use]
     pub const fn takes_text(&self) -> bool {
-        matches!(self.shown, Shown::Pages | Shown::Conversations(_))
+        matches!(self.shown, Shown::Pages)
     }
 
-    /// The query, for editing. Pages without one hand back nothing, so no keystroke can edit a
-    /// filter the screen does not show.
+    /// The query, for editing. Pages hand back nothing, so no keystroke can edit a filter the
+    /// screen does not show.
     pub const fn filter_mut(&mut self) -> Option<&mut TextInput> {
         match &mut self.shown {
             Shown::Pages => Some(&mut self.filter),
-            Shown::Conversations(picker) => Some(&mut picker.query),
             Shown::Configuration(_) | Shown::Permissions(_) => None,
         }
     }
@@ -224,18 +212,6 @@ impl Drawer {
             _ => None,
         }
     }
-    pub(crate) const fn conversations(&self) -> Option<&ConversationPicker> {
-        match &self.shown {
-            Shown::Conversations(page) => Some(page),
-            _ => None,
-        }
-    }
-    pub(crate) const fn conversations_mut(&mut self) -> Option<&mut ConversationPicker> {
-        match &mut self.shown {
-            Shown::Conversations(page) => Some(page),
-            _ => None,
-        }
-    }
     pub(crate) fn permissions(&self) -> Option<&PermissionPanel> {
         match &self.shown {
             Shown::Permissions(page) => Some(page),
@@ -271,10 +247,7 @@ impl Drawer {
     /// Index of the chosen row among what is listed, for rendering the marker.
     #[must_use]
     pub const fn chosen_index(&self) -> usize {
-        match &self.shown {
-            Shown::Conversations(picker) => picker.chosen,
-            _ => self.chosen,
-        }
+        self.chosen
     }
 
     /// Moves the choice by one, stopping at the ends rather than wrapping.
@@ -284,12 +257,6 @@ impl Drawer {
     pub fn step(&mut self, forward: bool) -> bool {
         if let Some(panel) = self.permissions_mut() {
             return panel.step(forward);
-        }
-        if self
-            .conversations()
-            .is_some_and(ConversationPicker::opening)
-        {
-            return false;
         }
         let last = self.match_count().saturating_sub(1);
         let current = self.chosen_index();
@@ -312,15 +279,32 @@ impl Drawer {
     }
 
     const fn set_chosen(&mut self, index: usize) {
-        match &mut self.shown {
-            Shown::Conversations(picker) => picker.chosen = index,
-            _ => self.chosen = index,
-        }
+        self.chosen = index;
     }
 
     pub(crate) fn match_count(&self) -> usize {
-        self.conversations()
-            .map_or_else(|| self.pages().len(), |picker| picker.rows().len())
+        self.pages().len()
+    }
+
+    /// The rows of the list on screen, sliding so the chosen one stays inside (DRW-2).
+    pub(crate) fn choice_window(&self, height: u16) -> std::ops::Range<usize> {
+        let reserved = 4
+            + 2 * self.choice_gap(height)
+            + 2 * crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, height).vertical;
+        let count = usize::from(height.saturating_sub(reserved)).clamp(1, Page::ALL.len());
+        let start = self.chosen_index().saturating_sub(count - 1);
+        start..start + count
+    }
+
+    /// DRW-2: optional spacing yields before the selected row or the footer.
+    pub(crate) fn choice_gap(&self, height: u16) -> u16 {
+        u16::from(self.content_height(height) >= 5)
+    }
+
+    fn content_height(&self, height: u16) -> u16 {
+        height.saturating_sub(
+            2 + 2 * crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, height).vertical,
+        )
     }
 
     /// Rows the Drawer asks layout for, borders included.
@@ -332,14 +316,6 @@ impl Drawer {
         match &self.shown {
             Shown::Permissions(panel) => panel.preferred_rows(width),
             Shown::Configuration(summary) => summary.preferred_rows(),
-            Shown::Conversations(_) => {
-                u16::try_from(
-                    self.match_count()
-                        .clamp(1, super::conversation_picker::VISIBLE_CONVERSATIONS),
-                )
-                .unwrap_or(1)
-                    + 9
-            }
             Shown::Pages => u16::try_from(self.pages().len())
                 .unwrap_or(u16::MAX)
                 .max(1)

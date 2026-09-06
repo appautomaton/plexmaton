@@ -3,7 +3,7 @@ use super::*;
 use plexmaton_core::ConversationId;
 use plexmaton_provider::ResolvedModel;
 use plexmaton_session_store::ConversationDirectory;
-use plexmaton_tui::{ConversationChoice, ConversationPickerStatus};
+use plexmaton_tui::{ConversationChoice, ConversationPickerStatus, SwitchRefusal};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -44,14 +44,23 @@ impl JobCancellation {
 
 pub(super) enum Update {
     Listed(Vec<ConversationChoice>, bool),
+    ListFailed,
     Opened(Box<OpenedConversation>),
-    Failed(ConversationPickerStatus),
+    OpenFailed,
+}
+
+/// What the one job is doing, so a join failure names the right outcome and a second request
+/// knows what it is waiting behind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum JobKind {
+    Listing,
+    Opening,
 }
 
 pub(super) struct ConversationPicker {
     pub current: Option<PersistedConversation>,
     launcher: Launcher,
-    job: Option<JoinHandle<Update>>,
+    job: Option<(JobKind, JoinHandle<Update>)>,
     cancel: JobCancellation,
 }
 
@@ -70,7 +79,6 @@ impl ConversationPicker {
     }
 
     pub fn new_conversation(&mut self, workspace: &mut Workspace, runtime: &LiveRuntime) {
-        workspace.open_conversation_picker();
         let selection = if self.current.is_some() {
             ConversationSelection::Automatic
         } else {
@@ -79,21 +87,26 @@ impl ConversationPicker {
         self.start(selection, runtime, workspace);
     }
 
+    /// Lists for `/resume`. A listing already running delivers to the rows; a withdrawn one is
+    /// listed again when it lands (see `apply`).
     pub fn open(&mut self, workspace: &mut Workspace) {
         workspace.open_conversation_picker();
-        if self.job.is_some() {
-            workspace.set_conversation_picker_status(ConversationPickerStatus::Busy);
-            return;
+        match self.job {
+            Some((JobKind::Listing, _)) => return,
+            Some((JobKind::Opening, _)) => {
+                workspace.set_conversation_picker_status(ConversationPickerStatus::Opening);
+                return;
+            }
+            None => {}
         }
         self.cancel = JobCancellation::new();
         let cancel = self.cancel.task.clone();
         let root = self.launcher.root.clone();
-        self.job = Some(tokio::task::spawn_blocking(move || {
-            match listing::list(&root, &cancel) {
-                Ok((entries, limited)) => Update::Listed(entries, limited),
-                Err(_) => Update::Failed(ConversationPickerStatus::ListFailed),
-            }
-        }));
+        let job = tokio::task::spawn_blocking(move || match listing::list(&root, &cancel) {
+            Ok((entries, limited)) => Update::Listed(entries, limited),
+            Err(_) => Update::ListFailed,
+        });
+        self.job = Some((JobKind::Listing, job));
     }
 
     pub fn select(&mut self, id: ConversationId, runtime: &LiveRuntime, workspace: &mut Workspace) {
@@ -106,16 +119,17 @@ impl ConversationPicker {
         runtime: &LiveRuntime,
         workspace: &mut Workspace,
     ) {
-        if self.job.is_some() {
-            workspace.set_conversation_picker_status(ConversationPickerStatus::Opening);
-            return;
-        }
-        if runtime.has_active_work() {
-            workspace.set_conversation_picker_status(ConversationPickerStatus::Busy);
-            return;
-        }
-        if workspace.has_unsent_input() {
-            workspace.set_conversation_picker_status(ConversationPickerStatus::DraftPresent);
+        let refusal = if self.job.is_some() {
+            Some(SwitchRefusal::RequestInFlight)
+        } else if runtime.has_active_work() {
+            Some(SwitchRefusal::Busy)
+        } else if workspace.has_unsent_input() {
+            Some(SwitchRefusal::DraftPresent)
+        } else {
+            None
+        };
+        if let Some(refusal) = refusal {
+            workspace.report_switch_refusal(refusal);
             return;
         }
         if let ConversationSelection::Resume(id) = &selection
@@ -127,17 +141,18 @@ impl ConversationPicker {
             workspace.close_conversation_picker();
             return;
         }
-        workspace.set_conversation_picker_status(ConversationPickerStatus::Opening);
+        workspace.begin_conversation_switch();
         self.cancel = JobCancellation::new();
         let launcher = self.launcher.clone();
         let agent = runtime.agent_id().clone();
         let cancel = self.cancel.clone();
-        self.job = Some(tokio::spawn(async move {
+        let job = tokio::spawn(async move {
             match launcher.open(selection, agent, cancel).await {
                 Ok(opened) => Update::Opened(Box::new(opened)),
-                Err(_) => Update::Failed(ConversationPickerStatus::OpenFailed),
+                Err(_) => Update::OpenFailed,
             }
-        }));
+        });
+        self.job = Some((JobKind::Opening, job));
     }
 
     pub fn observe_closed(&self, workspace: &Workspace) {
@@ -147,12 +162,13 @@ impl ConversationPicker {
     }
 
     pub async fn next(&mut self) -> Update {
-        let Some(job) = &mut self.job else {
+        let Some((kind, job)) = &mut self.job else {
             return std::future::pending().await;
         };
-        let update = job
-            .await
-            .unwrap_or(Update::Failed(ConversationPickerStatus::OpenFailed));
+        let update = job.await.unwrap_or(match kind {
+            JobKind::Listing => Update::ListFailed,
+            JobKind::Opening => Update::OpenFailed,
+        });
         self.job = None;
         update
     }
@@ -165,7 +181,13 @@ impl ConversationPicker {
     ) -> anyhow::Result<bool> {
         let accepted = !self.cancel.is_cancelled() && workspace.conversation_picker_open();
         match update {
-            Update::Listed(mut entries, limited) if accepted => {
+            // A listing withdrawn and asked for again before it landed is listed afresh.
+            Update::Listed(..) | Update::ListFailed if !accepted => {
+                if workspace.conversation_picker_open() {
+                    self.open(workspace);
+                }
+            }
+            Update::Listed(mut entries, limited) => {
                 for entry in &mut entries {
                     if self
                         .current
@@ -175,12 +197,27 @@ impl ConversationPicker {
                         entry.title = format!("[current] {}", entry.title);
                     }
                 }
-                workspace.set_conversation_choices(entries, limited)
+                workspace.set_conversation_choices(entries, limited);
             }
-            Update::Failed(status) if accepted => workspace.set_conversation_picker_status(status),
+            Update::ListFailed => {
+                workspace.set_conversation_picker_status(ConversationPickerStatus::ListFailed);
+            }
+            Update::OpenFailed if accepted => {
+                workspace.report_switch_refusal(SwitchRefusal::OpenFailed);
+            }
             Update::Opened(mut opened) => {
-                if !accepted || runtime.has_active_work() || workspace.has_unsent_input() {
+                let refusal = if runtime.has_active_work() {
+                    Some(SwitchRefusal::Busy)
+                } else if workspace.has_unsent_input() {
+                    Some(SwitchRefusal::DraftPresent)
+                } else {
+                    None
+                };
+                if !accepted || refusal.is_some() {
                     surface_shutdown_report(opened.runtime.shutdown().await?)?;
+                    if let Some(refusal) = refusal.filter(|_| accepted) {
+                        workspace.report_switch_refusal(refusal);
+                    }
                     return Ok(false);
                 }
                 if let Err(error) = runtime
@@ -224,7 +261,7 @@ impl ConversationPicker {
 
     pub async fn shutdown(&mut self) -> anyhow::Result<()> {
         self.cancel.cancel();
-        if let Some(job) = self.job.take()
+        if let Some((_, job)) = self.job.take()
             && let Update::Opened(mut opened) = job.await.context("join session loader")?
         {
             surface_shutdown_report(opened.runtime.shutdown().await?)?;

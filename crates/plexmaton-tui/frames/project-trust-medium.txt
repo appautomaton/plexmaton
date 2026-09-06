@@ -1,12 +1,9 @@
 ┌ Workspace · Permissions ────────────────────────────────────────────────────────────────────┐
 │                                                                                             │
-│  Session grants last until Plexmaton exits.                                                 │
-│  They stay active across /new and resume.                                                   │
 │  Project grants survive Sessions and restarts.                                              │
 │  Project Allow rules need explicit trust. Ask and Deny are active.                          │
 │                                                                                             │
-│  > Enable native file changes for this Session…                                             │
-│    Review project configuration rules…                                                      │
+│  > Review project configuration rules…                                                      │
 │    Refresh permissions                                                                      │
 │                                                                                             │
 │  ↑↓ choose · Enter select · Esc close                                                       │

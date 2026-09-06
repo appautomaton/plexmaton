@@ -1,0 +1,9 @@
+── Commands ─────────────────────────────────────────────────────────
+ > /new  Start a new conversation                                    
+   /resume  Resume a saved conversation                              
+   /compact  Compact this conversation's context now                 
+   /permissions  Review this Session's permissions                   
+  ↑↓ choose · Tab complete · Enter accept · Esc close                
+── Message Agent A · primary ────────────────────────────────────────
+ /                                                                   
+─────────────────────────────────────────────────────────────────────

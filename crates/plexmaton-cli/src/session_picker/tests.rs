@@ -136,7 +136,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     let launcher = launcher(root.path());
     let (mut runtime, mut workspace) = current(&launcher).await;
     let mut picker = ConversationPicker::new(launcher.clone());
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let locked = JournalFile::open(&path).expect("lock");
     assert!(
         launcher
@@ -152,17 +152,18 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     );
     assert!(
         !picker
-            .apply(
-                Update::Failed(ConversationPickerStatus::OpenFailed),
-                &mut runtime,
-                &mut workspace
-            )
+            .apply(Update::OpenFailed, &mut runtime, &mut workspace)
             .await
             .expect("refused")
     );
     assert!(picker.current.is_none());
     assert!(!runtime.has_active_work());
+    assert!(
+        !workspace.conversation_picker_open(),
+        "a failed switch leaves nothing waiting; the next one asks again"
+    );
     drop(locked);
+    workspace.begin_conversation_switch();
     let opened = launcher
         .clone()
         .open_with_key(
@@ -220,7 +221,7 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
     let launcher = launcher(root.path());
     let (mut runtime, mut workspace) = current(&launcher).await;
     let mut picker = ConversationPicker::new(launcher.clone());
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     workspace.return_input(agent_id(), "draft stays here".into());
     picker.select(id("haiku"), &runtime, &mut workspace);
     assert!(picker.job.is_none());
@@ -255,11 +256,11 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
         "cancel releases writer ownership"
     );
     picker.open(&mut workspace);
-    let job = picker.job.as_ref().expect("owned listing").id();
+    let job = picker.job.as_ref().expect("owned listing").1.id();
     picker.open(&mut workspace);
     picker.select(id("haiku"), &runtime, &mut workspace);
     assert_eq!(
-        picker.job.as_ref().expect("same listing").id(),
+        picker.job.as_ref().expect("same listing").1.id(),
         job,
         "repeated activation never starts another owner"
     );
@@ -281,7 +282,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
         ConversationSelection::Resume(id("haiku")),
         ConversationSelection::Automatic,
     ] {
-        workspace.open_conversation_picker();
+        workspace.begin_conversation_switch();
         let opened = launcher
             .clone()
             .open_with_key(
@@ -331,7 +332,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
     assert_eq!(reopened.journal().conversation_id(), &id("haiku"));
     drop(reopened);
     // A blank replacement can itself be dismissed without ever creating storage.
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let mut candidate = launcher
         .clone()
         .open_with_key(
@@ -417,6 +418,7 @@ async fn new_session_refuses_unsent_input_and_active_work() {
 async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_without_jsonl() {
     use crate::permission_controls::PermissionControls;
     use plexmaton_core::NativeFilePreset;
+    use plexmaton_tui::{PermissionRequest, SurfaceId};
     use ratatui::{
         Terminal,
         backend::TestBackend,
@@ -445,20 +447,52 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
     let mut terminal = Terminal::new(TestBackend::new(95, 24)).expect("terminal");
     let mut controls = PermissionControls::new(opened.runtime.coding_session());
     let keypress = |code| Event::Key(KeyEvent::new(code, KeyModifiers::NONE));
-    controls.open(&mut workspace);
+    // `/permissions` lists the Session's rows in the composer menu (PER-7).
+    let session_rows = |workspace: &mut Workspace,
+                        terminal: &mut Terminal<TestBackend>,
+                        controls: &mut PermissionControls| {
+        workspace.draw(terminal).expect("frame");
+        for _ in 0..8 {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Composer) {
+                break;
+            }
+            workspace.handle(&keypress(KeyCode::Tab));
+            workspace.draw(terminal).expect("focus");
+        }
+        // `Escape` kept the last `/permissions` draft (SKP-3); `Ctrl-C` clears it.
+        if !workspace.state().composer().text().is_empty() {
+            workspace.handle(&Event::Key(KeyEvent::new(
+                KeyCode::Char('c'),
+                KeyModifiers::CONTROL,
+            )));
+        }
+        assert!(workspace.state().composer().text().is_empty());
+        for character in "/permissions".chars() {
+            workspace.handle(&keypress(KeyCode::Char(character)));
+        }
+        assert_eq!(
+            workspace.handle(&keypress(KeyCode::Enter)).permission,
+            Some(PermissionRequest::Refresh)
+        );
+        controls.refresh();
+    };
+    let confirm = |workspace: &mut Workspace, terminal: &mut Terminal<TestBackend>| {
+        workspace.draw(terminal).expect("rows");
+        assert!(
+            workspace
+                .handle(&keypress(KeyCode::Enter))
+                .permission
+                .is_none()
+        );
+        workspace.handle(&keypress(KeyCode::Up));
+        match workspace.handle(&keypress(KeyCode::Enter)).permission {
+            Some(PermissionRequest::Change(intent)) => intent,
+            other => panic!("a confirmed row is a change, not {other:?}"),
+        }
+    };
+    session_rows(&mut workspace, &mut terminal, &mut controls);
     PermissionControls::publish(controls.next().await, &mut workspace);
-    workspace.draw(&mut terminal).expect("settings");
-    assert!(
-        workspace
-            .handle(&keypress(KeyCode::Enter))
-            .permission
-            .is_none()
-    );
-    workspace.handle(&keypress(KeyCode::Up));
-    let enable = workspace
-        .handle(&keypress(KeyCode::Enter))
-        .permission
-        .expect("reviewed enable");
+    let enable = confirm(&mut workspace, &mut terminal);
     controls.apply(enable);
     PermissionControls::publish(controls.next().await, &mut workspace);
     let granted = launcher.permissions.snapshot().expect("enabled");
@@ -475,7 +509,7 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
 
     let mut picker = ConversationPicker::new(launcher.clone());
     picker.current = opened.persisted;
-    workspace.open_conversation_picker();
+    workspace.begin_conversation_switch();
     let candidate = launcher
         .clone()
         .open_with_key(
@@ -512,20 +546,9 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
     );
     assert!(!new_path.exists() && !old_path.exists());
 
-    controls.open(&mut workspace);
+    session_rows(&mut workspace, &mut terminal, &mut controls);
     PermissionControls::publish(controls.next().await, &mut workspace);
-    workspace.draw(&mut terminal).expect("reopened settings");
-    assert!(
-        workspace
-            .handle(&keypress(KeyCode::Enter))
-            .permission
-            .is_none()
-    );
-    workspace.handle(&keypress(KeyCode::Up));
-    let revoke = workspace
-        .handle(&keypress(KeyCode::Enter))
-        .permission
-        .expect("reviewed revoke");
+    let revoke = confirm(&mut workspace, &mut terminal);
     controls.apply(revoke);
     PermissionControls::publish(controls.next().await, &mut workspace);
     assert!(

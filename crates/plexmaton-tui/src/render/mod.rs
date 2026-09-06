@@ -5,22 +5,24 @@ mod configuration;
 mod message_actions;
 mod panel;
 pub(crate) mod permission_review;
+mod surfaces;
 
-use configuration::render_configuration;
-
-use panel::{Body, Chrome, Edges, Panel, draw_panel, place_cursor, render_steer};
+use panel::{Body, Chrome, Edges, Panel, draw_panel};
+use surfaces::{
+    Stacking, approval_panel, collapsed_composer_panel, composer_menu_panel, composer_panel,
+    draw_cursor, drawer_page, drawer_panel, workspace_input,
+};
 
 use chrome::{
-    agents_title, attention_title, composer_title, inspector_title, notices_title, render_status,
-    render_too_small, title,
+    agents_title, attention_title, inspector_title, notices_title, render_status, render_too_small,
 };
 
 use crate::{
     ViewState, content,
-    layout::{self, LayoutClass, WorkspaceInput},
-    state::{Caret, inner_width},
+    layout::{self, LayoutClass},
+    state::inner_width,
     surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
-    theme::{Palette, Role},
+    theme::Palette,
     transcript::TranscriptMetrics,
 };
 
@@ -169,7 +171,7 @@ pub fn render(
             }),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
-            SurfaceId::SkillPicker => Some(skill_picker_panel(state, palette, bounds)),
+            SurfaceId::ComposerMenu => Some(composer_menu_panel(state, palette, bounds)),
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -209,260 +211,11 @@ pub fn render(
         // here. An inspector's input is the strip below its conversation, so the cursor follows the
         // rectangle the text was drawn into rather than the surface's.
         if cursor_owner == Some(id) {
-            match &steer {
-                Some((split, agent_id)) if id == SurfaceId::Inspector => {
-                    render_steer(frame, palette, state, agent_id, split.input);
-                }
-                _ => place_cursor(
-                    frame,
-                    panel.insets.inset(bounds),
-                    input_caret(state, id, panel.insets.width(bounds.width)),
-                    panel.edges,
-                ),
-            }
+            draw_cursor(frame, palette, state, id, bounds, &panel, steer.as_ref());
         }
     }
 
     surfaces
-}
-
-/// The Configuration and Permissions pages, which paint themselves; `None` for the page list.
-fn drawer_page(
-    frame: &mut Frame<'_>,
-    palette: &Palette,
-    state: &ViewState,
-    bounds: Rect,
-    has_focus: bool,
-) -> Option<Viewport> {
-    if state.configuration().is_some() {
-        Some(render_configuration(
-            frame,
-            palette,
-            state,
-            bounds,
-            has_focus,
-            state.scroll_position(SurfaceId::Drawer),
-        ))
-    } else {
-        permission_review::render(frame, palette, state, bounds, has_focus)
-    }
-}
-
-/// The Drawer: a box of its own, not a section of anyone's.
-///
-/// The workspace owns it rather than a conversation, which is what separates it from an approval —
-/// an approval is a question one agent is waiting on, so it renders inside that agent's box. Its
-/// title names the addressee, then the open page.
-fn drawer_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
-    let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
-    Panel {
-        insets,
-        chrome: Chrome::Box,
-        footer: None,
-        body: Body::Whole {
-            lines: content::drawer(state, palette, insets.width(bounds.width), bounds.height),
-            follows_tail: false,
-        },
-        title: title(palette, drawer_title(state), Role::SectionHeading, ""),
-        badge: None,
-        edges: Edges::All,
-    }
-}
-
-/// `Workspace`, the addressee, then the page that is open (ui-ux §product vocabulary).
-pub(crate) fn drawer_title(state: &ViewState) -> String {
-    state
-        .drawer()
-        .and_then(crate::state::Drawer::page)
-        .map_or_else(
-            || "Workspace".to_owned(),
-            |page| format!("Workspace · {}", page.name()),
-        )
-}
-
-/// Resolve the input painted in this surface, using the same width and inset as its text.
-fn input_caret(state: &ViewState, id: SurfaceId, width: u16) -> Caret {
-    if id == SurfaceId::Drawer {
-        return state
-            .drawer()
-            .map_or(Caret::default(), |drawer| drawer.filter_view(width).1);
-    }
-    state.composer().caret(width)
-}
-
-/// The primary input's return target while an entered worker holds the cursor (INS-5).
-fn collapsed_composer_panel(state: &ViewState, palette: &Palette, stacking: &Stacking) -> Panel {
-    Panel {
-        insets: crate::surface::ContentInsets::default(),
-        chrome: Chrome::Rules,
-        footer: None,
-        body: Body::Whole {
-            lines: content::composer_collapsed(state, palette),
-            follows_tail: false,
-        },
-        title: Line::default(),
-        badge: None,
-        edges: if stacking.composer_under.is_some() {
-            Edges::Closing
-        } else {
-            Edges::All
-        },
-    }
-}
-
-/// Derives layout inputs once from the current projection and terminal geometry.
-fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
-    let inspector = state.inspector_request();
-    let composer_width = layout::composer_width(area, inspector);
-    WorkspaceInput {
-        status_rows: state.status().rows(),
-        has_notices: state.notices().next().is_some(),
-        attention: state.attention_listed_count(),
-        decision_rows: state.decision_rows(composer_width),
-        decision_mode: if state.approval_in_primary() {
-            layout::DecisionMode::Inline
-        } else {
-            layout::DecisionMode::Modal
-        },
-        drawer_rows: state.drawer_rows(area.width),
-        drawer_focus: state.drawer_focus(),
-        skill_picker_rows: state.skill_picker_rows(),
-        rail: state.sub_agents().next().is_some(),
-        composer_rows: state.composer_rows(composer_width),
-        inspector,
-    }
-}
-
-/// The menu is a titled rule and its rows above the composer's top rule, which closes it.
-fn skill_picker_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
-    Panel {
-        insets: crate::surface::ContentInsets::default(),
-        chrome: Chrome::Rules,
-        footer: None,
-        body: Body::Whole {
-            lines: content::skill_picker(state, palette, inner_width(bounds.width), bounds.height),
-            follows_tail: false,
-        },
-        title: title(palette, "Skills".to_owned(), Role::SectionHeading, ""),
-        badge: None,
-        edges: Edges::Upper,
-    }
-}
-
-/// The decision region is a section of its conversation, above rather than covering the composer.
-fn approval_panel(
-    state: &ViewState,
-    palette: &Palette,
-    bounds: Rect,
-    stacking: &Stacking,
-) -> Panel {
-    let tool = state
-        .approval()
-        .map_or_else(String::new, |approval| approval.tool.to_owned());
-    Panel {
-        insets: crate::surface::ContentInsets::for_surface(SurfaceId::Approval, bounds.height),
-        chrome: Chrome::Rules,
-        footer: None,
-        body: Body::Whole {
-            lines: content::approval(
-                state,
-                palette,
-                crate::surface::ContentInsets::for_surface(SurfaceId::Approval, bounds.height)
-                    .width(bounds.width),
-                bounds.height.saturating_sub(
-                    1 + 2 * crate::surface::ContentInsets::for_surface(
-                        SurfaceId::Approval,
-                        bounds.height,
-                    )
-                    .vertical,
-                ),
-            ),
-            follows_tail: false,
-        },
-        title: title(
-            palette,
-            match state.approval().map(|view| view.stage) {
-                Some(crate::ApprovalStage::Remember) => "Remember permission",
-                Some(crate::ApprovalStage::Submitting) => "Applying decision",
-                _ => "Approval required",
-            },
-            Role::ActionRequired,
-            format!(" · {tool}"),
-        ),
-        badge: None,
-        edges: if stacking.composer_under.is_some() {
-            Edges::Middle
-        } else {
-            Edges::Upper
-        },
-    }
-}
-
-/// Which surfaces share one outline this frame.
-///
-/// A conversation and the composer it addresses share one outline (`ui-ux.md` §input —
-/// the input lives inside the surface it addresses). Read from geometry rather than from layout
-/// class, so the painter and the layout cannot disagree about what is stacked.
-struct Stacking {
-    composer_under: Option<SurfaceId>,
-}
-
-impl Stacking {
-    fn of(surfaces: &SurfaceTree) -> Self {
-        let stacked =
-            |upper: SurfaceId, lower: SurfaceId| match (surfaces.get(upper), surfaces.get(lower)) {
-                (Some(upper), Some(lower)) => {
-                    lower.bounds.x == upper.bounds.x && lower.bounds.y == upper.bounds.bottom()
-                }
-                _ => false,
-            };
-        // The decision region, when open, is between them: the conversation is still the section
-        // with something beneath it, and the composer is still the one that closes the box.
-        let below = |id| stacked(id, SurfaceId::Approval) || stacked(id, SurfaceId::Composer);
-        let composer_under = if below(SurfaceId::Transcript) {
-            Some(SurfaceId::Transcript)
-        } else if below(SurfaceId::Inspector) {
-            Some(SurfaceId::Inspector)
-        } else {
-            None
-        };
-        Self { composer_under }
-    }
-
-    /// The edges of a conversation that may have an input section beneath it.
-    fn over_composer(&self, id: SurfaceId) -> Edges {
-        if self.composer_under == Some(id) {
-            Edges::Upper
-        } else {
-            Edges::All
-        }
-    }
-}
-
-/// The primary composer: the input between two rules under its conversation (ui-ux §input).
-fn composer_panel(
-    state: &ViewState,
-    palette: &Palette,
-    has_focus: bool,
-    bounds: Rect,
-    stacking: &Stacking,
-) -> Panel {
-    Panel {
-        insets: crate::surface::ContentInsets::default(),
-        chrome: Chrome::Rules,
-        footer: None,
-        body: Body::Whole {
-            lines: content::composer(state, palette, has_focus, inner_width(bounds.width)),
-            follows_tail: true,
-        },
-        title: composer_title(state, palette),
-        badge: None,
-        edges: if stacking.composer_under.is_some() {
-            Edges::Lower
-        } else {
-            Edges::All
-        },
-    }
 }
 
 /// Builds the part of one surface's conversation this frame will draw.
@@ -502,9 +255,9 @@ fn conversation_body(
     let width = inner_width(area.width);
     if metrics.measure_with(agent, palette, width, state.disclosure()) == 0 {
         return Body::Whole {
-            lines: agent.restoration.as_ref().map_or_else(
+            lines: agent.note.as_ref().map_or_else(
                 || content::conversation_placeholder(palette, surface, true),
-                |feedback| content::recovery_lines(&feedback.summary, palette),
+                |anchored| content::note_lines(&anchored.note, palette),
             ),
             follows_tail: false,
         };
@@ -549,8 +302,7 @@ mod tests {
     };
 
     use super::{
-        chrome::{activity_line, block_with},
-        composer_title,
+        chrome::{activity_line, block_with, composer_title},
         panel::{Body, Chrome, Edges, Panel, draw_panel},
     };
 
@@ -1189,7 +941,7 @@ mod tests {
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::Drawer => "Workspace",
-                SurfaceId::SkillPicker => "Skills",
+                SurfaceId::ComposerMenu => "Skills",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(

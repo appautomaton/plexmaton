@@ -2,15 +2,14 @@
 //! is chosen. Listing, loading and permission work belong to the composition root.
 use super::*;
 use crate::{
-    ConversationChoice, ConversationPickerStatus, ConversationRequest, Page, Point, PointerIntent,
-    SurfaceId,
+    ConversationChoice, ConversationPickerStatus, Page, PermissionRequest, Point, SurfaceId,
+    SwitchRefusal,
     state::{Drawer, permissions::PermissionPanel},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum DrawerChoice {
     Page(Page),
-    Conversation(ConversationRequest),
     Permission(crate::state::permissions::PermissionChoice),
 }
 
@@ -40,14 +39,10 @@ impl Workspace {
         }
     }
 
-    fn choose_drawer_row(&mut self, choice: DrawerChoice) -> Outcome {
+    pub(super) fn choose_drawer_row(&mut self, choice: DrawerChoice) -> Outcome {
         match choice {
             DrawerChoice::Page(page) => Outcome {
                 page: Some(page),
-                ..Outcome::default()
-            },
-            DrawerChoice::Conversation(request) => Outcome {
-                conversation: Some(request),
                 ..Outcome::default()
             },
             DrawerChoice::Permission(choice) => {
@@ -63,9 +58,10 @@ impl Workspace {
                 }
                 let permission = self.state.activate_permission(&choice);
                 Outcome {
-                    permission,
-                    page: matches!(choice, crate::state::permissions::PermissionChoice::Reload)
-                        .then_some(Page::Permissions),
+                    permission: permission.map(PermissionRequest::Change).or_else(|| {
+                        matches!(choice, crate::state::permissions::PermissionChoice::Reload)
+                            .then_some(PermissionRequest::Refresh)
+                    }),
                     ..Outcome::default()
                 }
             }
@@ -74,17 +70,20 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// Opens the Permissions page; loading and mutation work belongs to the application owner.
+    /// Opens the Drawer's Permissions page, the Project's; loading and mutation work belongs to
+    /// the application owner.
     pub fn open_permissions(&mut self) {
         self.state.open_permissions();
     }
 
-    /// Whether a pending permission-control result still has a visible destination.
+    /// Whether a pending permission-control result still has a place to land: the Drawer's page
+    /// or the menu's Session rows (PER-7).
     pub fn permissions_open(&self) -> bool {
-        self.state.drawer().and_then(Drawer::permissions).is_some()
+        self.state.permissions_open()
     }
 
-    /// Publishes an acknowledged permission view; late results cannot reopen a dismissed page.
+    /// Publishes an acknowledged permission view to every open place; late results cannot reopen
+    /// a dismissed one.
     pub fn update_permissions(
         &mut self,
         view: Result<plexmaton_core::PermissionStateView, plexmaton_core::PermissionChangeError>,
@@ -96,7 +95,7 @@ impl Workspace {
     pub fn has_unsent_input(&self) -> bool {
         self.state.has_unsent_input()
     }
-    /// Opens the Conversations page before its owned loader supplies results.
+    /// Makes room for `/resume`'s rows before their owned loader supplies them (SPK-1).
     pub fn open_conversation_picker(&mut self) {
         self.state.open_conversation_picker();
     }
@@ -106,21 +105,29 @@ impl Workspace {
         self.state.set_conversation_choices(entries, limited);
     }
 
-    /// Updates only the affected page, never the conversation or multi-agent Notices.
+    /// Updates only the listing's status, never the conversation or multi-agent Notices.
     pub fn set_conversation_picker_status(&mut self, status: ConversationPickerStatus) {
         self.state.conversation_picker_status(status);
     }
 
-    /// Whether the user's permission to show picker work still exists.
+    /// Whether the composition root's permission to list or switch still stands (SPK-3).
     pub fn conversation_picker_open(&self) -> bool {
-        self.state
-            .drawer()
-            .is_some_and(Drawer::is_conversation_picker)
+        self.state.conversation_picker_open()
     }
 
-    /// Closes the Drawer once a conversation is open, without changing the selected durable session.
+    /// A switch is in flight: `/new`'s result has a place to land, and `/resume`'s rows wait.
+    pub fn begin_conversation_switch(&mut self) {
+        self.state.begin_conversation_switch();
+    }
+
+    /// The switch did not happen; the conversation that asked is told why (SPK-2).
+    pub fn report_switch_refusal(&mut self, refusal: SwitchRefusal) {
+        self.state.report_switch_refusal(refusal);
+    }
+
+    /// The conversation is open: the `/resume` draft is consumed and the menu closes.
     pub fn close_conversation_picker(&mut self) {
-        self.state.close_drawer();
+        self.state.close_conversation_picker();
     }
 
     pub(super) fn choose_in_drawer(&mut self) -> Outcome {
@@ -145,15 +152,12 @@ impl Workspace {
                 .any(|(_, visible)| visible == &choice)
                 .then_some(DrawerChoice::Permission(choice));
             }
-            if drawer.is_conversation_picker() {
-                return drawer.chosen_request().map(DrawerChoice::Conversation);
-            }
             drawer.chosen_page().map(DrawerChoice::Page)
         });
         chosen.map_or_else(Outcome::default, |choice| self.choose_drawer_row(choice))
     }
 
-    fn drawer_hit(&self, at: Point) -> Option<DrawerChoice> {
+    pub(super) fn drawer_hit(&self, at: Point) -> Option<DrawerChoice> {
         let bounds = self.surfaces.get(SurfaceId::Drawer)?.bounds;
         let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
         if at.x < bounds.x + 1 + insets.sides
@@ -202,43 +206,6 @@ impl Workspace {
         if index >= drawer.match_count() {
             return None;
         }
-        if drawer.is_conversation_picker() {
-            drawer
-                .conversation_request_at(index)
-                .map(DrawerChoice::Conversation)
-        } else {
-            drawer.pages().get(index).copied().map(DrawerChoice::Page)
-        }
-    }
-
-    pub(super) fn drawer_pointer(&mut self, pointer: PointerIntent) -> Option<Outcome> {
-        match pointer {
-            PointerIntent::Press {
-                surface: SurfaceId::Drawer,
-                at,
-            } => {
-                self.pressed_drawer = self.drawer_hit(at).map(|choice| (choice, at));
-                self.pressed_drawer.as_ref().map(|_| Outcome::default())
-            }
-            PointerIntent::Release {
-                surface: SurfaceId::Drawer,
-                at,
-            } => {
-                let (choice, original) = self.pressed_drawer.take()?;
-                Some(
-                    if at == original && self.drawer_hit(at) == Some(choice.clone()) {
-                        self.choose_drawer_row(choice)
-                    } else {
-                        Outcome::default()
-                    },
-                )
-            }
-            PointerIntent::Drag { .. }
-            | PointerIntent::Cancel { .. }
-            | PointerIntent::Suspend { .. } => {
-                self.pressed_drawer.take().map(|_| Outcome::default())
-            }
-            _ => None,
-        }
+        drawer.pages().get(index).copied().map(DrawerChoice::Page)
     }
 }
