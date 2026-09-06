@@ -34,7 +34,7 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Term | Meaning |
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
-| Session | The ongoing coding period until Plexmaton exits; temporary permissions survive starting or resuming a Conversation |
+| Session | The ongoing coding period until the process exits; temporary permissions survive `/new` and `/resume` |
 | Conversation | One agent's saved history; `/new` starts one and `/resume` reopens one |
 | Project | A physical checkout whose personal permissions survive Sessions and application restarts |
 | Journal | The authoritative Conversation record; JSONL is its on-disk encoding, not the visible transcript |
@@ -57,8 +57,8 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Command | A `/name` typed into a conversation's input and run from there, with its target captured. It means nothing else |
 | Skill | A `$name` token bound into the message the input addresses |
 | Composer menu | The popup above the composer: Skills for `$`, Commands for `/`. The draft is its query |
-| Drawer | The workspace's own surface, pulled from the top edge by `Ctrl-P`. Its title, `Workspace`, is the addressee; it holds pages, never Commands |
-| Page | One view inside the Drawer: Configuration, Permissions. Opens in place; `Escape` returns to the list |
+| Drawer | The workspace's own surface, pulled from the top edge by `Ctrl-P`. Its title, `Workspace`, is the addressee; it holds what outlives the process, as pages, never Commands |
+| Page | A view inside the Drawer: Configuration, Permissions. Opens in place; `Escape` returns to the list |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
 presentation, not a Conversation. A widget is a Rust rendering component, not a synonym for an entry
@@ -148,11 +148,11 @@ other rule about input follows from this one.
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
-  are what the user does from inside a conversation: `/new`, `/resume` with saved conversations
-  as its rows, `/compact`, and `/permissions` for the Session. `Enter` accepts with the effect the
-  row states; `Tab` completes without running; `Escape` keeps the draft. A token no row matches is
-  text. Rejected: settings as slash commands, which made the composer's title lie about the
-  addressee; and conversations as a Drawer page, which hid what users type by habit behind a chord.
+  are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
+  `/compact`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
+  `Tab` completes without running; `Escape` keeps the draft. A token no row matches is text.
+  Rejected: settings as slash commands, which made the composer's title lie about the addressee;
+  and conversations as a Drawer page, which hid what users type by habit behind a chord.
 - **The status line sits below every pane.** By default it shows the working directory; an explicitly
   configured user script may supply several styled rows, bounded to preserve typing and readable
   conversation space. The quit question temporarily replaces the terminal's last row and leaves
