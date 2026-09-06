@@ -118,8 +118,6 @@ pub enum UndeliveredReason {
     PersistenceFailed,
     /// The runtime shut down before the named boundary opened.
     Shutdown,
-    /// A requested compaction owns the conversation until its checkpoint lands or fails (CPL-9).
-    Compacting,
 }
 
 /// Why a typed approval decision changed no pending call.

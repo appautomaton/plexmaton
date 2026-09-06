@@ -63,12 +63,14 @@ for one compaction of the selected head. It is admitted only while idle: no turn
 approval, no owned compaction, shutdown not begun. Every other state, a missing budget, and a plan
 that finds nothing to replace or nothing that fits, is a typed refusal that writes no record. An
 admitted request follows CPL-1–CPL-6 and CPL-8 unchanged: one authorization, one attempt, one
-checkpoint, no fabricated step and no model call afterwards. Text submitted while it runs returns
-to the composer as `Compacting`; interrupt and shutdown cancel and join it as they do automatic
-work. The outcome, published or failed with its kind, reaches the composition root as a report
-beside the attempt's visible failure. Rejected: holding submitted text in the runtime until the
-checkpoint lands, a second waiting place with nothing on screen saying so; and retrying a failed
-request, because the user can ask again.
+checkpoint, no fabricated step and no model call afterwards. Text submitted while it runs waits
+in the runtime's bounded input queue and opens its turn once the request ends, so the first
+request after `/compact` already starts from the summary; interrupt and shutdown cancel and join
+the request and return the waiting text as they do queued input. The outcome, published or failed
+with its kind, reaches the composition root as a report beside the attempt's visible failure.
+Rejected: returning typed text to the composer while the summarizer runs, which made the user
+send again what they had already said; and retrying a failed request, because the user can ask
+again.
 
 ## Model
 
@@ -150,4 +152,4 @@ offline; cache hits and model-generated summary quality are not live-test requir
 | CPL-6 | `cpl_6_summary_http_preserves_environment_output_and_accounting_across_dialects`, `cpl_6_summary_http_rejects_tools_and_keeps_their_output_for_audit`, `cpl_6_summary_http_failures_keep_raw_terminal_and_partial_output`, `cpl_6_collector_keeps_cancelled_partial_output_and_bounds_block_growth`, `collected_attempt_validation_distinguishes_success_from_partial_failure` |
 | CPL-7 | `skill_preparation_completes_while_compaction_is_waiting`, `soft_pre_turn_compaction_uses_a_distinct_owner_and_refreshes_after_checkpoint`, `post_tool_hard_pressure_preserves_history_and_dispatches_nothing`, `typed_context_error_recovers_the_same_step_once`, `context_error_after_output_does_not_start_compaction`, `summary_context_pressure_does_not_retry_with_changed_input`, `compaction_timeout_cancels_and_joins_before_continuation`, `interrupt_cancels_and_joins_the_owned_compaction`, `shutdown_cancels_and_joins_the_owned_compaction`, `interrupt_during_compaction_authorization_never_dispatches_the_summarizer`, `shutdown_during_compaction_authorization_never_dispatches_the_summarizer`, `interrupt_during_compaction_terminal_ack_starts_no_continuation`, `shutdown_during_checkpoint_ack_starts_no_agent_continuation`, `interrupt_during_refreshed_agent_authorization_starts_no_provider`, `cpl_7_turn_compaction_limits_are_bounded_independent_and_reset` |
 | CPL-8 | `failed_attempt_keeps_the_frozen_source_usable`, `failed_compaction_diagnostic_reopens_without_exposing_partial_output`, `post_tool_hard_pressure_preserves_history_and_dispatches_nothing`, `uncertain_checkpoint_append_freezes_before_agent_continuation`, `cancelled_compaction_terminal_append_keeps_the_operation_owned` |
-| CPL-9 | `cpl_9_requested_compaction_publishes_a_checkpoint_and_dispatches_no_step`, `cpl_9_a_running_step_refuses_the_request`, `cpl_9_an_owned_compaction_and_shutdown_refuse_the_request`, `cpl_9_a_waiting_approval_refuses_the_request`, `cpl_9_planning_refusals_are_typed_and_write_nothing`, `cpl_9_interrupt_cancels_a_requested_compaction_and_reports_it`, `cpl_9_shutdown_cancels_a_requested_compaction_and_dispatches_nothing`, `cpl_9_text_during_a_requested_compaction_returns_to_the_composer`, `cpl_9_failed_and_timed_out_requests_report_their_kind_and_keep_the_head` |
+| CPL-9 | `cpl_9_requested_compaction_publishes_a_checkpoint_and_dispatches_no_step`, `cpl_9_a_running_step_refuses_the_request`, `cpl_9_an_owned_compaction_and_shutdown_refuse_the_request`, `cpl_9_a_waiting_approval_refuses_the_request`, `cpl_9_planning_refusals_are_typed_and_write_nothing`, `cpl_9_interrupt_cancels_a_requested_compaction_and_reports_it`, `cpl_9_shutdown_cancels_a_requested_compaction_and_dispatches_nothing`, `cpl_9_text_during_a_requested_compaction_waits_for_the_checkpoint`, `cpl_9_failed_and_timed_out_requests_report_their_kind_and_keep_the_head` |

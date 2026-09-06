@@ -81,6 +81,16 @@ impl LiveRuntime {
             return Ok(());
         }
         while !self.journal_failed {
+            // A requested compaction froze the head it summarizes; everything but an interrupt
+            // waits for its checkpoint and then opens its turn from the summary (CPL-9).
+            if self.requested_compaction_active()
+                && !matches!(
+                    self.pending_inputs.front().map(|pending| &pending.input),
+                    Some(Input::Interrupted)
+                )
+            {
+                break;
+            }
             let Some(pending) = self.pending_inputs.pop_front() else {
                 break;
             };

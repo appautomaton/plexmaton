@@ -395,12 +395,29 @@ async fn cpl_9_interrupt_cancels_a_requested_compaction_and_reports_it() {
     );
     let mut runtime = seeded(&driver).await;
     let id = start(&mut runtime).await;
+    let held = runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "typed while compacting".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("submit during compaction: {error}"));
+    assert!(held.undelivered.is_empty());
 
     let report = runtime
         .submit(agent_id(), Input::Interrupted)
         .await
         .unwrap_or_else(|error| panic!("interrupt compaction: {error}"));
 
+    assert_eq!(
+        report.undelivered.len(),
+        1,
+        "held text comes back with the interrupt"
+    );
+    assert_eq!(report.undelivered[0].text, "typed while compacting");
+    assert_eq!(report.undelivered[0].reason, UndeliveredReason::Interrupted);
     assert!(cancelled.load(Ordering::SeqCst));
     assert!(runtime.compaction.is_none());
     assert_eq!(
@@ -428,12 +445,29 @@ async fn cpl_9_shutdown_cancels_a_requested_compaction_and_dispatches_nothing() 
     );
     let mut runtime = seeded(&driver).await;
     let id = start(&mut runtime).await;
+    let held = runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "typed while compacting".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("submit during compaction: {error}"));
+    assert!(held.undelivered.is_empty());
 
     let report = runtime
         .shutdown()
         .await
         .unwrap_or_else(|error| panic!("shutdown: {error}"));
 
+    assert_eq!(
+        report.undelivered.len(),
+        1,
+        "held text comes back with shutdown"
+    );
+    assert_eq!(report.undelivered[0].text, "typed while compacting");
+    assert_eq!(report.undelivered[0].reason, UndeliveredReason::Shutdown);
     assert!(cancelled.load(Ordering::SeqCst));
     assert!(!runtime.has_active_work());
     assert_eq!(
@@ -447,19 +481,21 @@ async fn cpl_9_shutdown_cancels_a_requested_compaction_and_dispatches_nothing() 
     assert_eq!(driver.agent_calls().await.len(), 1);
 }
 
-/// CPL-9: text typed while a requested compaction runs comes back with its exact text and a
-/// reason, the summarizer keeps running, and the text never reaches the model.
+/// CPL-9: text typed while a requested compaction runs waits behind it, never reaches the
+/// frozen summary request, and opens its turn from the checkpoint once it lands.
 #[tokio::test]
-async fn cpl_9_text_during_a_requested_compaction_returns_to_the_composer() {
-    let cancelled = Arc::new(AtomicBool::new(false));
+async fn cpl_9_text_during_a_requested_compaction_waits_for_the_checkpoint() {
     let driver = CompactionDriver::new(
-        [large_turn()],
-        [SummaryScript::WaitForCancellation(Arc::clone(&cancelled))],
+        [
+            large_turn(),
+            Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+        ],
+        [SummaryScript::Complete("compact facts".repeat(8))],
     );
     let mut runtime = seeded(&driver).await;
-    let _id = start(&mut runtime).await;
+    let id = start(&mut runtime).await;
 
-    let report = runtime
+    let held = runtime
         .submit(
             agent_id(),
             Input::Submitted {
@@ -468,19 +504,35 @@ async fn cpl_9_text_during_a_requested_compaction_returns_to_the_composer() {
         )
         .await
         .unwrap_or_else(|error| panic!("submit during compaction: {error}"));
-
-    assert_eq!(report.undelivered.len(), 1);
-    assert_eq!(report.undelivered[0].text, "typed while compacting");
-    assert_eq!(report.undelivered[0].reason, UndeliveredReason::Compacting);
+    assert!(held.undelivered.is_empty(), "text waits behind the request");
     assert!(runtime.compaction.is_some());
-    assert!(!cancelled.load(Ordering::SeqCst));
+    assert!(
+        !runtime.agent.is_running(),
+        "the turn waits for the checkpoint"
+    );
+    assert_eq!(runtime.pending_inputs.len(), 1);
 
-    runtime
-        .shutdown()
-        .await
-        .unwrap_or_else(|error| panic!("shutdown: {error}"));
-    assert!(cancelled.load(Ordering::SeqCst));
-    assert_eq!(driver.agent_calls().await.len(), 1);
+    let (_events, reports) = settle(&mut runtime).await;
+    assert_eq!(
+        outcome(&reports),
+        Some(&RequestedCompactionOutcome::Published { id })
+    );
+    let calls = driver.agent_calls().await;
+    assert_eq!(
+        calls.len(),
+        2,
+        "the held text opened one turn after the checkpoint"
+    );
+    let atoms = &calls[1].request.atoms;
+    assert!(matches!(
+        atoms.first().map(|atom| atom.value()),
+        Some(ContextAtomValue::CompactionSummary { .. })
+    ));
+    assert!(matches!(
+        atoms.last().map(|atom| atom.value()),
+        Some(ContextAtomValue::User { text }) if text == "typed while compacting"
+    ));
+    assert!(!runtime.has_active_work());
 }
 
 /// CPL-8/CPL-9: a failed or timed-out requested attempt reports its kind, shows it in the

@@ -42,7 +42,8 @@ reading; the user's words placed them in the composer, so slice 4 moves them.
    checkpoint through `Continuation::Requested`, with no model-call continuation, admitted only
    while idle: no turn, no pending approval, no owned compaction. `CompactionRequestRefusal`
    names why not; `RequestedCompactionOutcome` reaches the dispatch report; text typed meanwhile
-   returns as `UndeliveredReason::Compacting`. CPL-9 in `specs/compaction.md`. Closed by runtime
+   waits in the runtime's queue and opens its turn from the checkpoint. CPL-9 in
+   `specs/compaction.md`. Closed by runtime
    tests for the idle path, each refusal, text during the run, and interrupt, shutdown, failure
    and timeout during a requested compaction, none dispatching a model step.
 4. **Composer menu: `/compact`, `/new`, `/resume`.** Rename `SkillPicker` to `ComposerMenu`; one
