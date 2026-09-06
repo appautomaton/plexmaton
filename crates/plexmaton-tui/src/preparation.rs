@@ -296,12 +296,7 @@ impl PreparedText {
                 .lines
                 .iter()
                 .all(|line| line.is_bounded(usize::from(self.key.width)))
-            && layout.rows.iter().all(|row| {
-                row.iter().all(|fragment| {
-                    fragment.column <= usize::from(self.key.width)
-                        && layout.text.get(fragment.text.clone()).is_some()
-                })
-            })
+            && layout.text_fragments_within_width(usize::from(self.key.width))
             && checkpoint_valid
     }
 

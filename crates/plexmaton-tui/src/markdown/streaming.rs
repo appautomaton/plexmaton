@@ -207,11 +207,7 @@ fn layout_within_limits(layout: &Layout, width: usize) -> bool {
     layout.formulas_validate(width)
         && layout.rows.len() == layout.lines.len()
         && layout.lines.iter().all(|line| line.is_bounded(width))
-        && layout.rows.iter().all(|row| {
-            row.iter().all(|fragment| {
-                fragment.column <= width && layout.text.get(fragment.text.clone()).is_some()
-            })
-        })
+        && layout.text_fragments_within_width(width)
         && layout.lines.len() <= MAX_LINES
         && layout.text.len() <= MAX_RENDERED_BYTES
         && layout.allocation_bytes() <= crate::preparation::MAX_PREPARED_BYTES

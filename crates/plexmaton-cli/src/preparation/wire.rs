@@ -270,6 +270,27 @@ mod tests {
         }
     }
 
+    /// PRE-1/MD-2: decoded text fragments must end within the requested width; their start
+    /// column alone cannot make a right-edge CJK fragment paintable or copyable.
+    #[test]
+    fn preparation_wire_rejects_a_text_fragment_at_the_right_edge() {
+        let input = request("**中文** and code".into());
+        let prepared = input.prepare();
+        let pending = Pending::new(Ticket(3), vec![input]).expect("admitted");
+        let mut reply = serde_json::to_value(Reply {
+            ticket: pending.ticket,
+            result: Ok(vec![prepared]),
+        })
+        .expect("reply");
+        *reply
+            .pointer_mut("/result/Ok/0/result/Ok/rows/0/0/column")
+            .expect("text fragment") = serde_json::json!(60);
+        assert!(matches!(
+            pending.decode_reply(&serde_json::to_vec(&reply).expect("bytes")),
+            Err(Error::Identity)
+        ));
+    }
+
     /// PRE-1/MTH-1: native geometry and atomic fragments must describe the same complete rectangle.
     #[test]
     fn preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps() {

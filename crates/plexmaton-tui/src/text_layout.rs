@@ -56,6 +56,25 @@ impl Layout {
             + self.lines.iter().map(Line::allocation_bytes).sum::<usize>()
     }
 
+    /// Validate borrowed text fragments against a measured row width without parsing or reflowing.
+    pub(crate) fn text_fragments_within_width(&self, width: usize) -> bool {
+        self.rows.iter().all(|row| {
+            row.iter().all(|fragment| {
+                let Some(text) = self.text.get(fragment.text.clone()) else {
+                    return false;
+                };
+                match fragment.kind {
+                    FragmentKind::Text => fragment
+                        .column
+                        .checked_add(text.width())
+                        .is_some_and(|end| end <= width),
+                    // Formula geometry and its atomic map are validated independently.
+                    FragmentKind::Atomic { .. } => true,
+                }
+            })
+        })
+    }
+
     pub fn decoration(&mut self, line: Line) {
         self.lines.push(line);
         self.rows.push(Vec::new());

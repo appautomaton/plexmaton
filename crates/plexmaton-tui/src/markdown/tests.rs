@@ -467,20 +467,57 @@ fn frozen_prefix_rejects_malformed_hint_copy_ranges() {
         .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
         .expect("prefix rows");
     let hint = PrefixHint::new(checkpoint, layout).expect("bounded prefix");
-    let mut invalid = serde_json::to_value(hint).expect("hint wire data");
-    invalid["layout"]["rows"][0][0]["text"]["end"] = 1.into();
-    let invalid = serde_json::from_value(invalid).expect("malformed hint");
     let source = "# 中文\n\nTail";
-    let prepared = render_layout_with_prefix(
+    for (pointer, value) in [
+        ("/layout/rows/0/0/text/end", serde_json::json!(1)),
+        ("/layout/rows/0/0/column", serde_json::json!(80)),
+    ] {
+        let mut invalid = serde_json::to_value(&hint).expect("hint wire data");
+        *invalid
+            .pointer_mut(pointer)
+            .unwrap_or_else(|| panic!("malformed hint pointer {pointer}")) = value;
+        let invalid = serde_json::from_value(invalid).expect("malformed hint");
+        let prepared = render_layout_with_prefix(
+            source,
+            80,
+            MathPresentation::Native,
+            Completion::Streaming,
+            Some(&invalid),
+        )
+        .expect("canonical fallback");
+        assert!(!prepared.reused_prefix, "{pointer}");
+        let canonical = render_layout(source, 80, MathPresentation::Native, Completion::Streaming)
+            .expect("canonical render");
+        assert_eq!(prepared.layout, canonical, "{pointer}");
+    }
+}
+
+/// MD-2/MD-4: a CJK grapheme ending exactly at the measured edge remains a reusable hint.
+#[test]
+fn frozen_prefix_accepts_an_exact_fitting_cjk_fragment() {
+    let source = "# 中文\n\n";
+    let width = 4;
+    let first = render_layout_with_prefix(
         source,
-        80,
+        width,
         MathPresentation::Native,
         Completion::Streaming,
-        Some(&invalid),
+        None,
     )
-    .expect("canonical fallback");
-    assert!(!prepared.reused_prefix);
-    let canonical = render_layout(source, 80, MathPresentation::Native, Completion::Streaming)
-        .expect("canonical render");
-    assert_eq!(prepared.layout, canonical);
+    .expect("initial render");
+    let checkpoint = first.checkpoint.expect("heading checkpoint");
+    let layout = first
+        .layout
+        .prefix(checkpoint.rows(), checkpoint.visible_text_bytes())
+        .expect("prefix rows");
+    let hint = PrefixHint::new(checkpoint, layout).expect("bounded prefix");
+    let reused = render_layout_with_prefix(
+        source,
+        width,
+        MathPresentation::Native,
+        Completion::Streaming,
+        Some(&hint),
+    )
+    .expect("reused render");
+    assert!(reused.reused_prefix);
 }
