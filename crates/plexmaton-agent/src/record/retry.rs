@@ -12,7 +12,7 @@ impl Record {
             .expect("generated branch name");
         let record_id = JournalRecordId::new(format!(
             "{}-record-{}",
-            self.journal.session_id(),
+            self.journal.conversation_id(),
             sequence.get()
         ))
         .expect("generated record id");
@@ -41,7 +41,7 @@ impl Record {
         let sequence = self.journal.next_sequence();
         let record_id = JournalRecordId::new(format!(
             "{}-record-{}",
-            self.journal.session_id(),
+            self.journal.conversation_id(),
             sequence.get()
         ))
         .expect("generated record id");

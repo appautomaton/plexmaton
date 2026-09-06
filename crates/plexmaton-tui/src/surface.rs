@@ -12,6 +12,42 @@ pub struct Point {
     pub y: u16,
 }
 
+/// Shared interior spacing for drawing, wrapping, carets and pointer hit testing (SURF-3).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ContentInsets {
+    pub(crate) sides: u16,
+    pub(crate) vertical: u16,
+}
+
+impl ContentInsets {
+    pub(crate) const fn for_surface(surface: SurfaceId, height: u16) -> Self {
+        match surface {
+            SurfaceId::Approval | SurfaceId::CommandPalette => Self {
+                sides: 2,
+                vertical: if height >= 10 { 1 } else { 0 },
+            },
+            _ => Self {
+                sides: 0,
+                vertical: 0,
+            },
+        }
+    }
+
+    pub(crate) const fn width(self, outer: u16) -> u16 {
+        outer.saturating_sub(2 + self.sides * 2)
+    }
+
+    /// Retains the border in the returned rectangle so existing input geometry has one origin.
+    pub(crate) fn inset(self, bounds: Rect) -> Rect {
+        Rect::new(
+            bounds.x.saturating_add(self.sides),
+            bounds.y.saturating_add(self.vertical),
+            bounds.width.saturating_sub(self.sides * 2),
+            bounds.height.saturating_sub(self.vertical * 2),
+        )
+    }
+}
+
 /// What holds the workspace's single text cursor.
 ///
 /// This is the whole reason a printable key is sometimes text and sometimes a command, so it is a

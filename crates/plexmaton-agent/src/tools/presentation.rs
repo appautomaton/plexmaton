@@ -100,6 +100,7 @@ pub(crate) fn unexecuted_outcome(outcome: &ToolOutcome) -> Option<ToolDetail> {
         ToolOutcome::AdmissionRefused { reason } => {
             format!("admission refused: {}", admission_refusal_name(*reason))
         }
+        ToolOutcome::PermissionRefused { reason } => format!("permission refused: {reason}"),
         ToolOutcome::Forbidden => "forbidden by policy".to_owned(),
         ToolOutcome::Denied => "denied by user".to_owned(),
         ToolOutcome::Cancelled { reason } => {

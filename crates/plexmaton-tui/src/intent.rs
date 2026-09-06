@@ -136,7 +136,7 @@ pub enum AttentionIntent {
 /// One thing the user asked of an approval surface they explicitly opened.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApprovalIntent {
-    /// Move between `AllowOnce` and `Deny`.
+    /// Move between the current producer-supported choices.
     Move(Direction),
     /// Return the highlighted typed decision to the owning loop.
     Decide,
@@ -161,7 +161,7 @@ pub enum SelectionIntent {
 /// One thing the user asked the workspace to do.
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
-/// `plexmaton_core::SessionEvent`, and the two vocabularies never merge.
+/// `plexmaton_core::ConversationEvent`, and the two vocabularies never merge.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TuiIntent {
     /// Navigate, accept, or close the primary composer's skill completions.

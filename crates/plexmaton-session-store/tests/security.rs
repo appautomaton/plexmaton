@@ -220,7 +220,7 @@ fn maximal_valid_assistant_output_fits_the_journal_line_envelope() {
         "index": 1
     }))
     .unwrap_or_else(|error| panic!("fixture model step: {error}"));
-    let journal = plexmaton_agent::SessionJournal::new(session("maximal-output"));
+    let journal = plexmaton_agent::ConversationJournal::new(session("maximal-output"));
     let record = append(
         &journal,
         1,

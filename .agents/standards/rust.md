@@ -19,7 +19,7 @@
 
 ## Organization and style
 
-- Keep explicit public boundaries; split by responsibility and invariant, not size.
+- Split modules by responsibility and invariant.
 - Keep first-party APIs narrow. Public types and functions need useful documentation about
   contracts and invariants, not restated signatures.
 - Comments explain why a constraint exists, which failure it prevents, or why an alternative was
@@ -27,8 +27,7 @@
 - Use `rustfmt`; do not hand-format against it.
 - Treat Clippy findings as design feedback. Suppress narrowly, with a reason, rather than adding
   broad crate-level allowances.
-- Preserve deterministic ordering when it affects rendering, serialization, snapshots, or
-  user-visible behavior.
+- Preserve ordering in rendering, serialization, snapshots and user-visible behavior.
 - Do not perform speculative micro-optimization. Do avoid obvious whole-history cloning, repeated
   parsing, unbounded allocation, and blocking work; measure before adding complex fast paths.
 
@@ -73,15 +72,15 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | --- | --- | --- |
 | `ratatui` | Cell buffer, layout, text, widgets, test backend | Current modular generation and umbrella crate; splitting its subcrates requires a measured compile-time or boundary benefit |
 | `reqwest` | Pooled streaming HTTP client | Defaults off; `json`, `stream`, Rustls. Redirects are disabled around bearer authority. Rustls selects vendored `aws-lc-rs`, not platform OpenSSL |
-| `rustix` | File access and process groups for tools/status commands | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
-| `crossterm` | Terminal lifecycle and input events | `event-stream`, and one event-reader path. `osc52` arrived with `plexmaton-cli::clipboard`, which is the only caller; it brings `base64` and nothing else |
+| `rustix` | Files, permission locks and process groups | Defaults off; `fs`, `process`, `std`. Pinned-toolchain compatible; Apache-2.0 WITH LLVM-exception / Apache-2.0 / MIT; no system library. Unix only |
+| `crossterm` | Terminal lifecycle and input | One `event-stream` reader; `osc52` is used only by the CLI clipboard |
 | `eventsource-stream2` | Incremental SSE framing at the provider boundary | Maintained fork with partial-chunk and UTF-8 handling; `std` only. It frames events and knows no provider JSON |
 | `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
 | `serde` / `serde_json` | Deterministic scenario, snapshot and durable-journal data | `derive` enabled; identity and opaque-replay decoding still pass through validating constructors |
-| `sha2` | Request fingerprint | Defaults off; SHA-256; credentials excluded |
-| `toml` | Typed user configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
+| `sha2` | Request, command and project fingerprints | Defaults off; SHA-256; command scopes pin execution context |
+| `toml` | Typed configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |
 | `thiserror` | Library error types | No `anyhow::Error` in core contracts |
 | `anyhow` | Composition-root errors | Binary boundary only |
@@ -89,7 +88,8 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |
-| `uuid` | Session identity | Defaults off; `std` and UUIDv7; chronology is separate |
+| `tree-sitter` / `tree-sitter-bash` | Literal command scopes | Defaults off, engine `std`; bundled C, no Wasm. [Audit](../specs/permission-policy.md#dependency-admission) |
+| `uuid` | Conversation, Session and store identities | Defaults off; `std`, UUIDv7 |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
 | RaTeX core | Native math | Defaults off; exact pins and [audit](../specs/math-layout.md#dependency-admission) |
 | `yaml_serde` / `unicode-normalization` | Skill metadata / NFKC names | Audited 2026-09-05; MIT/Apache-2.0, MSRV 1.82/1.36, `std` only; Rust `libyaml-rs`, no system library |
@@ -104,7 +104,7 @@ Audited 2026-09-03 against the graph resolved in `Cargo.lock`.
 
 ## Maintenance
 
-- Keep one supported path per behavior. Bound migrations with a start, cutover and removal.
+- Keep one supported path per behavior; bound migrations through removal.
 - Refactor when a real responsibility boundary becomes visible; do not postpone obvious state
   duplication or ownership confusion under the label of future cleanup.
 - Preserve backward compatibility only when the project explicitly declares a public contract that

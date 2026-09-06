@@ -6,8 +6,8 @@
 use std::collections::VecDeque;
 
 use plexmaton_core::{
-    AgentId, ApprovalDecision, ApprovalId, EventSequence, IdError, SessionEvent,
-    SessionEventEnvelope, TranscriptItemId, TranscriptRole,
+    AgentId, ApprovalDecision, ApprovalId, ConversationEvent, ConversationEventEnvelope,
+    EventSequence, IdError, TranscriptItemId, TranscriptRole,
 };
 
 use crate::{Scenario, ScenarioStep};
@@ -65,7 +65,7 @@ impl ScriptedRuntime {
     }
 
     /// Emits every scheduled event whose logical tick has arrived.
-    pub fn ready(&mut self, tick: u64) -> Vec<SessionEventEnvelope> {
+    pub fn ready(&mut self, tick: u64) -> Vec<ConversationEventEnvelope> {
         let mut emitted = Vec::new();
         while self
             .scheduled
@@ -87,23 +87,23 @@ impl ScriptedRuntime {
     pub fn submit(
         &mut self,
         command: RuntimeCommand,
-    ) -> Result<Vec<SessionEventEnvelope>, IdError> {
+    ) -> Result<Vec<ConversationEventEnvelope>, IdError> {
         match command {
             RuntimeCommand::SendMessage { to, text } => {
                 let item_id = self.next_item_id("user")?;
                 Ok(vec![
-                    self.envelope(SessionEvent::TranscriptItemStarted {
+                    self.envelope(ConversationEvent::TranscriptItemStarted {
                         agent_id: to.clone(),
                         item_id: item_id.clone(),
                         role: TranscriptRole::User,
                     }),
-                    self.envelope(SessionEvent::TranscriptDelta {
+                    self.envelope(ConversationEvent::TranscriptDelta {
                         agent_id: to.clone(),
                         item_id: item_id.clone(),
                         item_revision: 1,
                         text,
                     }),
-                    self.envelope(SessionEvent::TranscriptItemFinalized {
+                    self.envelope(ConversationEvent::TranscriptItemFinalized {
                         agent_id: to,
                         item_id,
                         item_revision: 2,
@@ -112,7 +112,7 @@ impl ScriptedRuntime {
             }
             RuntimeCommand::Interrupt { to } => {
                 let item_id = self.next_item_id("warning")?;
-                Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                Ok(vec![self.envelope(ConversationEvent::RuntimeWarning {
                     agent_id: to.clone(),
                     item_id,
                     message: format!(
@@ -126,7 +126,7 @@ impl ScriptedRuntime {
                 decision,
             } => {
                 let item_id = self.next_item_id("warning")?;
-                Ok(vec![self.envelope(SessionEvent::RuntimeWarning {
+                Ok(vec![self.envelope(ConversationEvent::RuntimeWarning {
                     agent_id: to.clone(),
                     item_id,
                     message: format!(
@@ -143,10 +143,10 @@ impl ScriptedRuntime {
         !self.scheduled.is_empty()
     }
 
-    fn envelope(&mut self, event: SessionEvent) -> SessionEventEnvelope {
+    fn envelope(&mut self, event: ConversationEvent) -> ConversationEventEnvelope {
         let sequence = EventSequence::new(self.next_sequence);
         self.next_sequence = self.next_sequence.saturating_add(1);
-        SessionEventEnvelope { sequence, event }
+        ConversationEventEnvelope { sequence, event }
     }
 
     fn next_item_id(&mut self, kind: &str) -> Result<TranscriptItemId, IdError> {
@@ -157,7 +157,9 @@ impl ScriptedRuntime {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, ApprovalDecision, ApprovalId, SessionEvent, TranscriptRole};
+    use plexmaton_core::{
+        AgentId, ApprovalDecision, ApprovalId, ConversationEvent, TranscriptRole,
+    };
 
     use super::{RuntimeCommand, ScriptedRuntime};
     use crate::Scenario;
@@ -172,7 +174,7 @@ mod tests {
         AgentId::new(value).unwrap_or_else(|error| panic!("fixture: {error}"))
     }
 
-    fn send(runtime: &mut ScriptedRuntime, text: &str) -> Vec<SessionEvent> {
+    fn send(runtime: &mut ScriptedRuntime, text: &str) -> Vec<ConversationEvent> {
         runtime
             .submit(RuntimeCommand::SendMessage {
                 to: agent("agent-a"),
@@ -215,9 +217,9 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [
-                SessionEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
-                SessionEvent::TranscriptDelta { text, item_revision: 1, .. },
-                SessionEvent::TranscriptItemFinalized { item_revision: 2, .. },
+                ConversationEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
+                ConversationEvent::TranscriptDelta { text, item_revision: 1, .. },
+                ConversationEvent::TranscriptItemFinalized { item_revision: 2, .. },
             ] if text == "hello"
         ));
     }
@@ -229,8 +231,8 @@ mod tests {
         let first = send(&mut runtime, "one");
         let second = send(&mut runtime, "two");
 
-        let id = |events: &[SessionEvent]| match &events[0] {
-            SessionEvent::TranscriptItemStarted { item_id, .. } => item_id.to_string(),
+        let id = |events: &[ConversationEvent]| match &events[0] {
+            ConversationEvent::TranscriptItemStarted { item_id, .. } => item_id.to_string(),
             other => panic!("expected a started item, got {other:?}"),
         };
         assert_ne!(
@@ -255,7 +257,7 @@ mod tests {
             [event]
                 if matches!(
                     &event.event,
-                    SessionEvent::RuntimeWarning { message, .. }
+                    ConversationEvent::RuntimeWarning { message, .. }
                         if message.contains("agent-a") && message.contains("cannot interrupt")
                 )
         ));
@@ -279,7 +281,7 @@ mod tests {
             [event]
                 if matches!(
                     &event.event,
-                    SessionEvent::RuntimeWarning { message, .. }
+                    ConversationEvent::RuntimeWarning { message, .. }
                         if message.contains("approval-1") && message.contains("cannot apply")
                 )
         ));

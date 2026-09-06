@@ -1,24 +1,24 @@
 //! The live turn's boundary onto the canonical session journal.
 //!
-//! Completed semantic facts enter [`SessionJournal`] once. Provider requests rebuild from its
+//! Completed semantic facts enter [`ConversationJournal`] once. Provider requests rebuild from its
 //! selected head; `Reaction::records` exposes those same mutations to the runtime. The remaining
 //! counter numbers transient live events, including provider deltas that are deliberately not
 //! durable session facts (JRN-5, JRN-6).
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ApprovalId, AttentionId, EventSequence, HeadName, JournalRecordId,
-    SessionEntryId, SessionEvent, SessionEventEnvelope, SessionId, ToolCallId, TranscriptItemId,
-    TranscriptRole, TurnId,
+    AgentId, AgentStatus, ApprovalId, AttentionId, ConversationEntryId, ConversationEvent,
+    ConversationEventEnvelope, ConversationId, EventSequence, HeadName, JournalRecordId,
+    ToolCallId, TranscriptItemId, TranscriptRole, TurnId,
 };
 
 use crate::interface::Reaction;
 use crate::journal::{
-    JournalEntryPayload, JournalProjection, JournalRecord, SessionEntry, SessionJournal,
+    ConversationEntry, ConversationJournal, JournalEntryPayload, JournalProjection, JournalRecord,
 };
 use crate::model::{ContextAtom, ModelOutputPosition, ModelRequest};
 use crate::{
-    RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminal,
-    RequestEnvironment, SessionMetadata, UnixMillis,
+    ConversationMetadata, RequestAttemptAuthorized, RequestAttemptId, RequestAttemptOwner,
+    RequestAttemptTerminal, RequestEnvironment, UnixMillis,
 };
 
 mod recovery;
@@ -29,7 +29,7 @@ mod retry;
 pub(crate) struct Record {
     agent_id: AgentId,
     head: HeadName,
-    journal: SessionJournal,
+    journal: ConversationJournal,
     announced: bool,
     next_event: u64,
 }
@@ -42,20 +42,20 @@ pub(crate) enum RequestAttemptCommitError {
 impl Record {
     /// Starts one ephemeral in-memory session for the non-persistent composition path.
     pub(crate) fn new(agent_id: AgentId) -> Self {
-        let session_id = SessionId::new(format!("{agent_id}-session"))
+        let session_id = ConversationId::new(format!("{agent_id}-session"))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
-        Self::for_session(
+        Self::for_conversation(
             agent_id,
-            SessionMetadata::new(session_id, UnixMillis::EPOCH),
+            ConversationMetadata::new(session_id, UnixMillis::EPOCH),
         )
     }
 
-    pub(crate) fn for_session(agent_id: AgentId, metadata: SessionMetadata) -> Self {
+    pub(crate) fn for_conversation(agent_id: AgentId, metadata: ConversationMetadata) -> Self {
         Self {
             agent_id,
             head: HeadName::new("main")
                 .unwrap_or_else(|error| unreachable!("the main head is valid: {error}")),
-            journal: SessionJournal::with_metadata(metadata),
+            journal: ConversationJournal::with_metadata(metadata),
             announced: false,
             next_event: 1,
         }
@@ -63,7 +63,7 @@ impl Record {
 
     pub(crate) fn from_journal(
         agent_id: AgentId,
-        journal: SessionJournal,
+        journal: ConversationJournal,
     ) -> Result<Self, crate::JournalProjectionError> {
         let head = HeadName::new("main")
             .unwrap_or_else(|error| unreachable!("the main head is valid: {error}"));
@@ -71,7 +71,7 @@ impl Record {
         let announced = projection.events().iter().any(|envelope| {
             matches!(
                 &envelope.event,
-                SessionEvent::AgentCreated { agent_id: created, .. } if created == &agent_id
+                ConversationEvent::AgentCreated { agent_id: created, .. } if created == &agent_id
             )
         });
         if !announced {
@@ -97,7 +97,7 @@ impl Record {
         &self.agent_id
     }
 
-    pub(crate) fn journal(&self) -> &SessionJournal {
+    pub(crate) fn journal(&self) -> &ConversationJournal {
         &self.journal
     }
 
@@ -158,10 +158,10 @@ impl Record {
         );
         let sequence = self.journal.next_sequence();
         let ordinal = sequence.get();
-        let session_id = self.journal.session_id();
+        let session_id = self.journal.conversation_id();
         let record_id = JournalRecordId::new(format!("{session_id}-record-{ordinal}"))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
-        let entry_id = SessionEntryId::new(format!("{session_id}-entry-{ordinal}"))
+        let entry_id = ConversationEntryId::new(format!("{session_id}-entry-{ordinal}"))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         let parent_id = self
             .journal
@@ -177,7 +177,7 @@ impl Record {
             record_id,
             head: self.head.clone(),
             expected_head_revision,
-            entry: Box::new(SessionEntry {
+            entry: Box::new(ConversationEntry {
                 id: entry_id,
                 parent_id,
                 payload,
@@ -198,7 +198,7 @@ impl Record {
         reaction: &mut Reaction,
     ) {
         let sequence = self.journal.next_sequence();
-        let session_id = self.journal.session_id();
+        let session_id = self.journal.conversation_id();
         let record_id = JournalRecordId::new(format!("{session_id}-record-{}", sequence.get()))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         let semantic_boundary = self
@@ -237,7 +237,7 @@ impl Record {
         }
         self.emit(
             reaction,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 agent_id: self.agent_id.clone(),
                 status: AgentStatus::Idle,
             },
@@ -263,7 +263,7 @@ impl Record {
         let sequence = self.journal.next_sequence();
         let record_id = JournalRecordId::new(format!(
             "{}-record-{}",
-            self.journal.session_id(),
+            self.journal.conversation_id(),
             sequence.get()
         ))
         .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
@@ -299,7 +299,7 @@ impl Record {
         let sequence = self.journal.next_sequence();
         let record_id = JournalRecordId::new(format!(
             "{}-record-{}",
-            self.journal.session_id(),
+            self.journal.conversation_id(),
             sequence.get()
         ))
         .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
@@ -326,7 +326,7 @@ impl Record {
     }
 
     /// Numbers one transient or journal-derived event for the live projection.
-    pub(crate) fn emit(&mut self, reaction: &mut Reaction, event: SessionEvent) {
+    pub(crate) fn emit(&mut self, reaction: &mut Reaction, event: ConversationEvent) {
         let sequence = EventSequence::new(self.next_event);
         self.next_event = self
             .next_event
@@ -334,7 +334,7 @@ impl Record {
             .unwrap_or_else(|| unreachable!("live event sequence exhausted"));
         reaction
             .events
-            .push(SessionEventEnvelope { sequence, event });
+            .push(ConversationEventEnvelope { sequence, event });
     }
 
     /// Transcript identity paired with the journal record that will be appended next.
@@ -380,11 +380,27 @@ impl Record {
     }
 
     /// Approval and attention identities are stable consequences of the unique call identity.
-    pub(crate) fn approval_ids(&self, call_id: &ToolCallId) -> (ApprovalId, AttentionId) {
-        let approval = ApprovalId::new(format!("{}-approval-{call_id}", self.agent_id))
-            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
-        let attention = AttentionId::new(format!("{}-attention-{call_id}", self.agent_id))
-            .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+    pub(crate) fn approval_ids(
+        &self,
+        turn_id: &TurnId,
+        call_id: &ToolCallId,
+    ) -> (ApprovalId, AttentionId) {
+        let approval = ApprovalId::new(format!(
+            "{}-{}-{turn_id}-{}-{}-approval-{call_id}",
+            self.journal.conversation_id(),
+            self.head,
+            self.journal.next_sequence().get(),
+            self.agent_id
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
+        let attention = AttentionId::new(format!(
+            "{}-{}-{turn_id}-{}-{}-attention-{call_id}",
+            self.journal.conversation_id(),
+            self.head,
+            self.journal.next_sequence().get(),
+            self.agent_id
+        ))
+        .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         (approval, attention)
     }
 }
@@ -400,7 +416,7 @@ fn owner_turn_id(owner: &RequestAttemptOwner) -> TurnId {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, AgentStatus, SessionEvent};
+    use plexmaton_core::{AgentId, AgentStatus, ConversationEvent};
 
     use super::Record;
     use crate::ContextAtomValue;
@@ -421,7 +437,7 @@ mod tests {
             let item_id = record.next_item_id();
             record.emit(
                 &mut reaction,
-                SessionEvent::RuntimeWarning {
+                ConversationEvent::RuntimeWarning {
                     agent_id: record.agent_id().clone(),
                     item_id,
                     message: "noticed".to_owned(),

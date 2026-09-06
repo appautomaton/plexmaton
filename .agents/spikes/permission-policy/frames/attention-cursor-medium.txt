@@ -1,0 +1,24 @@
+┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
+│  block worker · Edit src/worker.rs with the admitted changes                                │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Agents ────────────────┐┌ Plexmaton · waiting ────────────────────────────────────── ( !2 ) ┐
+│○ Worker B  waiting     ││Agent is active; no transcript item has started yet.               │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        │├ Allow edit_file? ─────────────────────────────────────────────────┤
+│                        ││Access  change files                                               │
+│                        ││Edit src/primary.rs with the admitted changes                      │
+│                        ││> Allow once      ↑↓ choose · Enter decide                         │
+│                        ││  Deny            ⌃O more · Esc input                              │
+│                        │├ Message Plexmaton · Approval required ────────────────────────────┤
+│                        ││Keep this draft                                                    │
+└────────────────────────┘└───────────────────────────────────────────────────────────────────┘
+

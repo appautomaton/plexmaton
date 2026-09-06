@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-use plexmaton_agent::{JournalRecord, SessionJournal, UnixMillis};
-use plexmaton_core::SessionId;
+use plexmaton_agent::{ConversationJournal, JournalRecord, UnixMillis};
+use plexmaton_core::ConversationId;
 
 mod automatic;
 #[cfg(test)]
@@ -31,7 +31,7 @@ mod tests;
 pub use codec::{MAX_JOURNAL_LINE_BYTES, SCHEMA_EPOCH};
 pub use error::{AppendFailure, StoreError};
 pub use load::JournalRecovery;
-pub use paths::SessionDirectory;
+pub use paths::ConversationDirectory;
 
 use codec::{encode_header, encode_line};
 
@@ -45,7 +45,7 @@ enum WriterState {
 pub struct JournalFile {
     path: PathBuf,
     file: File,
-    journal: SessionJournal,
+    journal: ConversationJournal,
     recovery: JournalRecovery,
     state: WriterState,
 }
@@ -54,7 +54,7 @@ impl JournalFile {
     /// Creates a new locked session file and writes its typed header.
     pub fn create(
         path: impl AsRef<Path>,
-        session_id: SessionId,
+        session_id: ConversationId,
         created_at_unix_ms: UnixMillis,
     ) -> Result<Self, StoreError> {
         let path = path.as_ref();
@@ -86,7 +86,7 @@ impl JournalFile {
         Ok(Self {
             path: path.to_path_buf(),
             file,
-            journal: SessionJournal::with_created_at(session_id, created_at_unix_ms),
+            journal: ConversationJournal::with_created_at(session_id, created_at_unix_ms),
             recovery: JournalRecovery::Clean,
             state: WriterState::Ready,
         })
@@ -117,7 +117,7 @@ impl JournalFile {
 
     /// Canonical in-memory reduction of every complete record currently in the file.
     #[must_use]
-    pub const fn journal(&self) -> &SessionJournal {
+    pub const fn journal(&self) -> &ConversationJournal {
         &self.journal
     }
 

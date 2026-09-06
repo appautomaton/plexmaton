@@ -4,7 +4,7 @@
 //! the decision and the doing in different places — and what lets a whole turn be driven from a
 //! script with no network, no clock and no terminal.
 
-use plexmaton_core::{ApprovalDecision, ApprovalId, SessionEventEnvelope, ToolCallId};
+use plexmaton_core::{ApprovalDecision, ApprovalId, ConversationEventEnvelope, ToolCallId};
 
 use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::journal::JournalRecord;
@@ -69,6 +69,10 @@ pub enum Input {
         /// Once-only decision APV-4 accepts.
         decision: ApprovalDecision,
     },
+    /// The retained permission owner answered a remembered decision.
+    PermissionPrepared(crate::PermissionPreparationOutcome),
+    /// The owner published a changed policy; covered waiting calls may now pass ordinary policy.
+    PermissionsChanged,
     /// The user asked the current turn to stop.
     Interrupted,
     /// The runtime began orderly shutdown.
@@ -83,7 +87,14 @@ pub enum Effect {
     /// Ask the trusted catalog to validate and canonicalize one raw model call.
     AdmitTool(AdmissionRequest),
     /// Run one admitted call, and feed the result back in as [`Input::ToolFinished`].
-    RunTool(AdmittedToolCall),
+    RunTool {
+        /// Immutable catalog-validated operation.
+        call: AdmittedToolCall,
+        /// Authority that the runtime rechecks immediately before dispatch.
+        authorization: crate::ToolAuthorization,
+    },
+    /// Apply one remembered scope before the call can pass its Conversation audit boundary.
+    PreparePermission(crate::PermissionPreparationRequest),
 }
 
 /// Why user input could not be claimed by the boundary it named.
@@ -114,6 +125,12 @@ pub enum UndeliveredReason {
 pub enum ApprovalDecisionRefusal {
     /// No current turn has that request pending; it may be stale or belong elsewhere.
     NotPending,
+    /// A previous decision is already being prepared for this exact request.
+    Preparing,
+    /// The selected offer is absent, foreign or no longer effective under current policy.
+    PolicyChanged,
+    /// The permission owner refused to prepare the requested scope.
+    Permission(crate::PermissionChangeError),
 }
 
 /// A decision the loop did not apply, retaining its exact identity and action (APV-4).
@@ -125,6 +142,8 @@ pub struct UnresolvedApprovalDecision {
     pub decision: ApprovalDecision,
     /// Typed refusal reason.
     pub reason: ApprovalDecisionRefusal,
+    /// Fresh producer-issued offer after a refusal, if this call remains pending.
+    pub current_offer: Option<plexmaton_core::RememberPermissionOffer>,
 }
 
 /// User input the loop did not deliver, retaining both its payload and the reason (LOOP-6).
@@ -252,9 +271,9 @@ pub struct Reaction {
     /// The runtime returns it if the transition fails its durability boundary.
     pub released_inputs: Vec<ReleasedInput>,
     /// Events for the projection, numbered on this agent's one sequence.
-    pub events: Vec<SessionEventEnvelope>,
+    pub events: Vec<ConversationEventEnvelope>,
     /// A rare explicit branch selection replaces the UI projection after persistence acknowledgement.
-    pub projection_reset: Option<Vec<SessionEventEnvelope>>,
+    pub projection_reset: Option<Vec<ConversationEventEnvelope>>,
     /// Work for whoever owns the outside world.
     pub effects: Vec<Effect>,
     /// User input whose intended boundary cannot claim it. Ownership returns to the caller with

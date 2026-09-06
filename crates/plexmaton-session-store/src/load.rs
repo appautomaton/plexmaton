@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use plexmaton_agent::{JournalRecord, SessionJournal};
+use plexmaton_agent::{ConversationJournal, JournalRecord};
 
 use crate::codec::{decode_header, read_line};
 use crate::{StoreError, secure_open_options};
@@ -24,7 +24,7 @@ pub enum JournalRecovery {
 }
 
 pub(crate) struct Loaded {
-    pub(crate) journal: SessionJournal,
+    pub(crate) journal: ConversationJournal,
     pub(crate) recovery: JournalRecovery,
 }
 
@@ -63,14 +63,14 @@ pub(crate) fn load(file: &mut File, path: &Path) -> Result<Loaded, StoreError> {
     Ok(Loaded { journal, recovery })
 }
 
-fn decode(reader: &mut impl BufRead) -> Result<(SessionJournal, Repair), StoreError> {
+fn decode(reader: &mut impl BufRead) -> Result<(ConversationJournal, Repair), StoreError> {
     let Some(header) = read_line(reader, 1)? else {
         return Err(StoreError::MissingHeader);
     };
     let header_json = without_newline(&header.bytes, header.terminated);
     let decoded = decode_header(header_json)?;
     let mut journal =
-        SessionJournal::with_created_at(decoded.session_id, decoded.created_at_unix_ms);
+        ConversationJournal::with_created_at(decoded.session_id, decoded.created_at_unix_ms);
     let mut valid_bytes = u64::try_from(header.bytes.len()).unwrap_or(u64::MAX);
     if !header.terminated {
         return Ok((journal, Repair::AddNewline));

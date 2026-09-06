@@ -1,0 +1,20 @@
+┌ Plexmaton · idle · 1 tool · 1 selected ──────────────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│[-] exec_command · cancelled                              │
+│Warning · Project permission saved; tool did not run.     │
+│Review /permissions.                                      │
+│                                                          │

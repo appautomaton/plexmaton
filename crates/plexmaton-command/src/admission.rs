@@ -8,8 +8,10 @@ use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall,
     MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision, bounded_tool_text,
 };
+use plexmaton_agent::{CommandPermission, PermissionSubject};
 use plexmaton_core::{ToolCapability, ToolDefinitionId, ToolDetail};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
 use crate::{
@@ -173,9 +175,71 @@ impl CommandTool {
         &self.workspace_root
     }
 
+    /// Physical working-directory binding shared with the coding Session permission owner.
+    #[must_use]
+    pub fn permission_workspace(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"plexmaton.permission.workspace.v1");
+        hash.update(self.workspace_identity.device.to_le_bytes());
+        hash.update(self.workspace_identity.inode.to_le_bytes());
+        hash.update(self.workspace_root_utf8.as_bytes());
+        hash.finalize().into()
+    }
+
+    fn permission_context(&self) -> [u8; 32] {
+        let mut hash = Sha256::new();
+        hash.update(b"plexmaton.permission.command.v1:/bin/sh");
+        hash.update(self.permission_workspace());
+        self.environment.fingerprint(&mut hash);
+        hash.finalize().into()
+    }
+
+    /// Compiles explicit literal argv scope; configuration cannot supply execution bindings.
+    #[must_use]
+    pub fn prefix_permission(
+        &self,
+        arguments: Vec<String>,
+    ) -> Option<plexmaton_agent::PermissionMatcher> {
+        Some(plexmaton_agent::PermissionMatcher::CommandPrefix {
+            definition: plexmaton_agent::PermissionDefinition::new(
+                self.definition_id.clone(),
+                self.definition_revision,
+            ),
+            prefix: plexmaton_agent::CommandPrefix::new(arguments, self.permission_context())?,
+        })
+    }
+
+    /// Compiles configured exact source with the same bounds, definition and context as admission.
+    #[must_use]
+    pub fn exact_permission(&self, source: &str) -> Option<plexmaton_agent::PermissionMatcher> {
+        if !valid_command(source) {
+            return None;
+        }
+        Some(plexmaton_agent::PermissionMatcher::ExactCommand {
+            definition: plexmaton_agent::PermissionDefinition::new(
+                self.definition_id.clone(),
+                self.definition_revision,
+            ),
+            command: CommandPermission::new(source.to_owned(), self.permission_context())?,
+        })
+    }
+
     /// Parses and canonicalizes one untrusted model request (APV-1, CMD-1).
     #[must_use]
     pub fn admit(&self, request: AdmissionRequest) -> AdmissionOutcome {
+        self.admit_with_cancellation(request, &|| false)
+    }
+
+    /// Admits on an owned worker, observing cancellation before, during and after prefix parsing.
+    #[must_use]
+    pub fn admit_with_cancellation(
+        &self,
+        request: AdmissionRequest,
+        cancelled: &dyn Fn() -> bool,
+    ) -> AdmissionOutcome {
+        if cancelled() {
+            return request.refuse(AdmissionRefusal::Cancelled);
+        }
         if request.requested().name != COMMAND_TOOL_NAME {
             return request.refuse(AdmissionRefusal::UnknownTool);
         }
@@ -203,6 +267,19 @@ impl CommandTool {
         };
         let detail = approval_detail(&canonical);
         let invocation = invocation_detail(&canonical);
+        let Some(subject) =
+            CommandPermission::new(canonical.cmd.clone(), self.permission_context())
+        else {
+            return request.refuse(AdmissionRefusal::InvalidArguments);
+        };
+        let syntax = crate::prefix::analyze(&canonical.cmd, cancelled);
+        if cancelled() {
+            return request.refuse(AdmissionRefusal::Cancelled);
+        }
+        let request = request.with_permission_subject(PermissionSubject::Command {
+            command: subject,
+            syntax,
+        });
         let call_id = request.requested().call_id.clone();
         match request.admit(
             self.definition_id.clone(),
@@ -360,6 +437,9 @@ fn bounded_head_tail(text: &str, limit: usize) -> String {
 }
 
 #[cfg(test)]
+mod permission_tests;
+
+#[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -378,10 +458,10 @@ mod tests {
 
     static NEXT_DIR: AtomicU64 = AtomicU64::new(1);
 
-    struct TestDirectory(std::path::PathBuf);
+    pub(super) struct TestDirectory(pub(super) std::path::PathBuf);
 
     impl TestDirectory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let serial = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
                 "plexmaton-command-admission-{}-{serial}",
@@ -400,7 +480,7 @@ mod tests {
         }
     }
 
-    fn request(name: &str, arguments: String) -> AdmissionRequest {
+    pub(super) fn request(name: &str, arguments: String) -> AdmissionRequest {
         let mut agent = Agent::new(
             AgentId::new("command-admission-fixture")
                 .unwrap_or_else(|error| panic!("fixture agent id: {error}")),
@@ -701,5 +781,57 @@ mod tests {
             Err(super::CommandExecutionError::WorkspaceChanged)
         ));
         assert!(!replacement_was_touched);
+    }
+    /// PER-4: the real catalog binds permission scope to the captured environment and physical root.
+    #[test]
+    fn per_4_command_subject_tracks_executor_context_and_preserves_exact_source() {
+        use crate::environment::CommandEnvironment;
+        use plexmaton_agent::PermissionSubject;
+        let root = TestDirectory::new();
+        let other = TestDirectory::new();
+        let environment =
+            || CommandEnvironment::from_pairs([("PATH".into(), "/usr/bin:/bin".into())]);
+        let first = CommandTool::open(&root.0, environment()).expect("tool");
+        let reopened = CommandTool::open(&root.0, environment()).expect("same context");
+        let changed = CommandTool::open(
+            &root.0,
+            CommandEnvironment::from_pairs([("PATH".into(), "/somewhere/else".into())]),
+        )
+        .expect("changed environment");
+        let moved = CommandTool::open(&other.0, environment()).expect("other workspace");
+        let subject = |tool: &CommandTool, timeout| {
+            let AdmissionOutcome::Admitted(call) = tool.admit(request(
+                COMMAND_TOOL_NAME,
+                serde_json::json!({"cmd": "git fetch 'two words'", "timeout_ms": timeout})
+                    .to_string(),
+            )) else {
+                panic!("admitted command");
+            };
+            assert!(
+                tool.exact_permission("git fetch 'two words'")
+                    .expect("compiled scope")
+                    .matches(&call),
+                "configured scope agrees with real admission"
+            );
+            assert!(
+                !tool
+                    .exact_permission("git fetch 'two words' ")
+                    .expect("different literal source")
+                    .matches(&call)
+            );
+            call.permission_subject().clone()
+        };
+        let original = subject(&first, 1000);
+        assert_eq!(
+            subject(&reopened, 2000),
+            original,
+            "timeout is per-call validity, not command authority"
+        );
+        assert_ne!(subject(&changed, 1000), original);
+        assert_ne!(subject(&moved, 1000), original);
+        let PermissionSubject::Command { command, .. } = original else {
+            panic!("typed command subject");
+        };
+        assert_eq!(command.source(), "git fetch 'two words'");
     }
 }

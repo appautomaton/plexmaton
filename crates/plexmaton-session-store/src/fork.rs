@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use plexmaton_agent::UnixMillis;
-use plexmaton_core::SessionId;
+use plexmaton_core::ConversationId;
 
 use super::codec::{encode_header, encode_line};
 use super::{
@@ -15,7 +15,7 @@ impl JournalFile {
     pub fn fork(
         &self,
         destination: impl AsRef<Path>,
-        session_id: SessionId,
+        session_id: ConversationId,
         created_at_unix_ms: UnixMillis,
     ) -> Result<Self, StoreError> {
         let destination = destination.as_ref();
@@ -36,7 +36,7 @@ impl JournalFile {
             .write_all(&encode_header(&session_id, created_at_unix_ms)?)
             .map_err(|source| StoreError::io("write fork header", source))?;
         let mut journal =
-            plexmaton_agent::SessionJournal::with_created_at(session_id, created_at_unix_ms);
+            plexmaton_agent::ConversationJournal::with_created_at(session_id, created_at_unix_ms);
         for record in self.journal.records() {
             staging
                 .write_all(&encode_line(record)?)

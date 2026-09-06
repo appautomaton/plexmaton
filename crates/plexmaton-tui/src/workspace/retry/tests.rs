@@ -1,7 +1,7 @@
 use super::*;
 use crate::{SkillChoice, SkillChoiceSource};
 use plexmaton_core::{
-    AgentStatus, EventSequence, SessionEvent, TranscriptItemId, TranscriptRole, TurnId,
+    AgentStatus, ConversationEvent, EventSequence, TranscriptItemId, TranscriptRole, TurnId,
 };
 use ratatui::{
     Terminal,
@@ -27,23 +27,23 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
     let question = TranscriptItemId::new("question").expect("id");
     let error = TranscriptItemId::new("error").expect("id");
     let events = vec![
-        SessionEvent::AgentCreated {
+        ConversationEvent::AgentCreated {
             agent_id: agent.clone(),
             label: "Plexmaton".into(),
             status: AgentStatus::Idle,
         },
-        SessionEvent::TranscriptItemStarted {
+        ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: question.clone(),
             role: TranscriptRole::User,
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent.clone(),
             item_id: question.clone(),
             item_revision: 1,
             text: "Original question".into(),
         },
-        SessionEvent::RuntimeError {
+        ConversationEvent::RuntimeError {
             agent_id: agent,
             item_id: error.clone(),
             message: "Request was rate limited.".into(),
@@ -53,7 +53,7 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>, Point) {
         events
             .into_iter()
             .enumerate()
-            .map(|(i, event)| SessionEventEnvelope {
+            .map(|(i, event)| ConversationEventEnvelope {
                 sequence: EventSequence::new(i as u64 + 1),
                 event,
             })
@@ -88,17 +88,17 @@ fn unchanged_numeric_skill_retry_uses_the_historical_semantic_binding() {
     let (mut workspace, _terminal, _) = fixture(95);
     let question = TranscriptItemId::new("numeric-question").expect("id");
     workspace.emit(vec![
-        SessionEventEnvelope {
+        ConversationEventEnvelope {
             sequence: EventSequence::new(5),
-            event: SessionEvent::TranscriptItemStarted {
+            event: ConversationEvent::TranscriptItemStarted {
                 agent_id: AgentId::new("primary").expect("agent"),
                 item_id: question.clone(),
                 role: TranscriptRole::User,
             },
         },
-        SessionEventEnvelope {
+        ConversationEventEnvelope {
             sequence: EventSequence::new(6),
-            event: SessionEvent::TranscriptDelta {
+            event: ConversationEvent::TranscriptDelta {
                 agent_id: AgentId::new("primary").expect("agent"),
                 item_id: question.clone(),
                 item_revision: 1,
@@ -316,9 +316,9 @@ fn acknowledged_edit_retry_restores_the_draft_without_losing_keyboard_focus() {
     workspace.handle(&Event::Paste("saved draft".into()));
     workspace.perform_retry_action(RetryAction::EditRetry);
     workspace.complete_retry_edit();
-    workspace.replace_projection(vec![SessionEventEnvelope {
+    workspace.replace_projection(vec![ConversationEventEnvelope {
         sequence: EventSequence::new(1),
-        event: SessionEvent::AgentCreated {
+        event: ConversationEvent::AgentCreated {
             agent_id: AgentId::new("primary").expect("agent"),
             label: "Plexmaton".into(),
             status: AgentStatus::Idle,
@@ -481,17 +481,17 @@ fn copy_icons_share_one_right_edge_across_roles_and_wrapped_text() {
                 let agent_id = AgentId::new("primary").expect("agent");
                 let item_id = TranscriptItemId::new("alignment").expect("item");
                 workspace.emit(vec![
-                    SessionEventEnvelope {
+                    ConversationEventEnvelope {
                         sequence: EventSequence::new(5),
-                        event: SessionEvent::TranscriptItemStarted {
+                        event: ConversationEvent::TranscriptItemStarted {
                             agent_id: agent_id.clone(),
                             item_id: item_id.clone(),
                             role,
                         },
                     },
-                    SessionEventEnvelope {
+                    ConversationEventEnvelope {
                         sequence: EventSequence::new(6),
-                        event: SessionEvent::TranscriptDelta {
+                        event: ConversationEvent::TranscriptDelta {
                             agent_id,
                             item_id,
                             item_revision: 1,

@@ -1,6 +1,6 @@
 //! Logical lines for queued requests and the approval decision card.
 
-use plexmaton_core::{ApprovalDecision, AttentionKind, ToolCapability};
+use plexmaton_core::AttentionKind;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
@@ -19,10 +19,7 @@ use crate::{
 pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
     // Named rather than counted: the band lists a subset now, so an index into it is an index into
     // a different list than the one the cursor moves through.
-    let cursor = state
-        .attention()
-        .nth(state.attention_cursor())
-        .map(|item| item.id.clone());
+    let cursor = state.listed_attention_cursor();
     state
         .attention_listed()
         .map(|item| {
@@ -31,7 +28,7 @@ pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'stati
                 (false, AttentionKind::Approval) => ("block ", Role::ActionRequired),
                 (false, AttentionKind::Clarification) => ("ask   ", Role::NewInformation),
             };
-            let (caret, caret_role) = if cursor.as_ref() == Some(&item.id) {
+            let (caret, caret_role) = if cursor == Some(&item.id) {
                 ("> ", Role::Accent)
             } else {
                 ("  ", Role::Muted)
@@ -46,118 +43,186 @@ pub(crate) fn attention(state: &ViewState, palette: &Palette) -> Vec<Line<'stati
         .collect()
 }
 
-/// The decision region: a section of the asking conversation's box, above its composer.
-///
-/// Nothing here scrolls. Every row but the detail is clipped to `width`, and the two options are
-/// the last rows the region has at either size, so the row carrying `Allow once` cannot be pushed,
-/// wrapped, or scrolled out of the region that exists to show it. `Ctrl-O` grows the detail in
-/// place, which is the same disclosure a tool entry uses (ui-ux §progressive disclosure).
-///
-/// Rejected: ordering the options first so that wrapping cannot reach them. It guarantees the row
-/// at the cost of asking for a decision above the thing being decided. Rejected: scrolling the
-/// region, which moved the options off it — a decision surface whose decision can leave the screen
-/// is not one.
-pub(crate) const fn approval_option_label(decision: ApprovalDecision) -> &'static str {
-    match decision {
-        ApprovalDecision::AllowOnce => "Allow once",
-        ApprovalDecision::Deny => "Deny",
+/// Builds the exact visible card rows. On short terminals secondary copy yields before actions.
+struct ApprovalContent {
+    lines: Vec<Line<'static>>,
+    choices: Vec<(usize, crate::ApprovalChoice)>,
+}
+
+pub(crate) fn approval(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    height: u16,
+) -> Vec<Line<'static>> {
+    approval_content(state, palette, width, height).lines
+}
+
+fn approval_content(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    height: u16,
+) -> ApprovalContent {
+    use crate::{ApprovalChoice, ApprovalStage};
+    let Some(view) = state.approval() else {
+        return ApprovalContent {
+            lines: Vec::new(),
+            choices: Vec::new(),
+        };
+    };
+    let scope_fits = approval_scope_fits(state, width, height);
+    let budget = usize::from(height);
+    let choices = view.choices();
+    let choice_rows = choices.len().min(budget);
+    let mut heading = detail_rows(view.detail, width, view.expanded);
+    match view.stage {
+        ApprovalStage::Review => heading.extend(wrap_line(
+            match view.reason {
+                plexmaton_core::ApprovalReason::PermissionRequired => {
+                    "Approval is required for this operation."
+                }
+                plexmaton_core::ApprovalReason::ExplicitAsk => {
+                    "An explicit Ask rule requires an individual decision."
+                }
+                plexmaton_core::ApprovalReason::NativeFileChange => {
+                    "No current permission allows this file change."
+                }
+                plexmaton_core::ApprovalReason::CommandExecution => {
+                    "No current permission allows this command."
+                }
+            },
+            usize::from(width),
+        )),
+        ApprovalStage::Remember => {
+            if let Some(offer) = view.remember {
+                let scope = wrap_line(&format!("Scope: {}", offer.label), usize::from(width));
+                let available = budget.saturating_sub(choice_rows);
+                // PER-10: repeated operation detail yields before the scope being confirmed.
+                heading.truncate(available.saturating_sub(scope.len()));
+                heading.extend(scope);
+                if let Some(note) = &offer.note {
+                    heading.extend(wrap_line(note, usize::from(width)));
+                }
+            }
+        }
+        ApprovalStage::Submitting => {
+            heading.push("Applying decision… Waiting for confirmation.".to_owned())
+        }
+    }
+    if let Some(feedback) = view.feedback {
+        heading.push(feedback.message().to_owned());
+    }
+    if !scope_fits {
+        heading = vec!["More space needed to review scope.".to_owned()];
+    }
+    let hint = match view.stage {
+        ApprovalStage::Review => "↑↓ choose · Enter decide · Ctrl-O details",
+        ApprovalStage::Remember => "↑↓ choose · Enter confirm · Esc back",
+        ApprovalStage::Submitting => "Esc input · your draft stays usable",
+    };
+    let description = match view.selected {
+        ApprovalChoice::ThisSession => "Until Plexmaton exits; kept across /new and resume.",
+        ApprovalChoice::ThisProject => "Saved for this checkout across restarts.",
+        ApprovalChoice::Back => "Return without granting permission.",
+        _ if state.approval_in_primary() => "Esc input · Tab returns to this card",
+        _ => "Esc returns to the conversation",
+    };
+    let extras = if budget >= heading.len() + choice_rows + 4 {
+        4
+    } else if budget >= heading.len() + choice_rows + 2 {
+        2
+    } else {
+        0
+    };
+    heading.truncate(budget.saturating_sub(choice_rows + extras));
+    let mut lines: Vec<_> = heading
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| {
+            clip(
+                Line::styled(
+                    text,
+                    palette.style(if index == 0 { Role::Body } else { Role::Muted }),
+                ),
+                width,
+            )
+        })
+        .collect();
+    if extras > 0 {
+        lines.push(Line::default());
+    }
+    let mut choice_positions = Vec::with_capacity(choice_rows);
+    for choice in choices.iter().take(choice_rows) {
+        let enabled = scope_fits || *choice == ApprovalChoice::Back;
+        if enabled {
+            choice_positions.push((lines.len(), *choice));
+        }
+        let selected = *choice == view.selected;
+        lines.push(clip(
+            Line::from(vec![
+                Span::styled(
+                    if selected { "> " } else { "  " },
+                    palette.style(if selected { Role::Accent } else { Role::Muted }),
+                ),
+                Span::styled(
+                    if enabled {
+                        choice.label().to_owned()
+                    } else {
+                        format!("{} (resize)", choice.label())
+                    },
+                    palette.style(if !enabled {
+                        Role::Muted
+                    } else if selected {
+                        Role::ActionRequired
+                    } else {
+                        Role::Body
+                    }),
+                ),
+            ]),
+            width,
+        ));
+    }
+    if extras > 0 {
+        if extras == 4 {
+            lines.push(Line::default());
+        }
+        lines.push(clip(Line::styled(hint, palette.style(Role::Muted)), width));
+        if extras == 4 {
+            lines.push(clip(
+                Line::styled(description, palette.style(Role::Muted)),
+                width,
+            ));
+        }
+    }
+    ApprovalContent {
+        lines,
+        choices: choice_positions,
     }
 }
 
-pub(crate) fn approval(state: &ViewState, palette: &Palette, width: u16) -> Vec<Line<'static>> {
-    let Some(approval) = state.approval() else {
-        return Vec::new();
+/// Both input routes use this same full-scope constraint; clipped confirmation never grants.
+pub(crate) fn approval_scope_fits(state: &ViewState, width: u16, height: u16) -> bool {
+    let Some(view) = state.approval() else {
+        return true;
     };
-    let capabilities = approval
-        .capabilities
-        .iter()
-        .map(|capability| match capability {
-            ToolCapability::FileRead => "read files",
-            ToolCapability::FileWrite => "change files",
-            ToolCapability::ProcessSpawn => "run processes",
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
+    if view.stage != crate::ApprovalStage::Remember {
+        return true;
+    }
+    let Some(offer) = view.remember else {
+        return false;
+    };
+    wrap_line(&format!("Scope: {}", offer.label), usize::from(width)).len() + view.choices().len()
+        <= usize::from(height)
+}
 
-    let field = |label: &'static str, value: String, value_role: Role| {
-        Line::from(vec![
-            Span::styled(label, palette.style(Role::Muted)),
-            Span::styled(value, palette.style(value_role)),
-        ])
-    };
-    let option = |decision, label: &'static str| {
-        let selected = approval.selected == decision;
-        vec![
-            Span::styled(
-                // The same caret the Attention queue uses for the row `Enter` acts on. One cursor
-                // glyph across the workspace, or the user learns two.
-                if selected { "> " } else { "  " },
-                palette.style(if selected { Role::Accent } else { Role::Muted }),
-            ),
-            Span::styled(
-                label,
-                palette.style(if selected {
-                    Role::ActionRequired
-                } else {
-                    Role::Body
-                }),
-            ),
-        ]
-    };
-
-    // Stacked, because the keys that move between them are `↑` and `↓`. Options read left to
-    // right teach the hand the wrong gesture, and the arrow the eye expects then does nothing.
-    // Each option carries one hint beside it, so the pair costs two rows rather than three.
-    let choice = |decision, label: &'static str, hint: String| {
-        let mut spans = option(decision, label);
-        let used = label.chars().count().saturating_add(2);
-        spans.push(Span::raw(
-            " ".repeat(HINT_COLUMN.saturating_sub(used).max(2)),
-        ));
-        spans.push(Span::styled(hint, palette.style(Role::Muted)));
-        Line::from(spans)
-    };
-
-    let mut lines = vec![clip(
-        field("Access  ", capabilities, Role::ActionRequired),
-        width,
-    )];
-    // No label: the producer's approval detail already names what it is (CMD-1 leads with the
-    // command), and a second word in front of it would be the tool saying `Command` twice.
-    lines.extend(
-        detail_rows(approval.detail, width, approval.expanded)
-            .into_iter()
-            .map(|row| clip(Line::styled(row, palette.style(Role::Body)), width)),
-    );
-    lines.push(clip(
-        choice(
-            ApprovalDecision::AllowOnce,
-            approval_option_label(ApprovalDecision::AllowOnce),
-            "↑↓ choose · Enter decide".to_owned(),
-        ),
-        width,
-    ));
-    lines.push(clip(
-        choice(
-            ApprovalDecision::Deny,
-            approval_option_label(ApprovalDecision::Deny),
-            format!(
-                "{} · Esc {}",
-                if approval.expanded {
-                    "⌃O less"
-                } else {
-                    "⌃O more"
-                },
-                if state.approval_in_primary() {
-                    "input"
-                } else {
-                    "later"
-                }
-            ),
-        ),
-        width,
-    ));
-    lines
+/// Geometry of the actually drawn options, shared with pointer routing.
+pub(crate) fn approval_choice_rows(
+    state: &ViewState,
+    width: u16,
+    height: u16,
+) -> Vec<(usize, crate::ApprovalChoice)> {
+    approval_content(state, &Palette::default(), width, height).choices
 }
 
 /// The detail as the region will paint it: one clipped row, or every wrapped row up to the cap.
@@ -179,9 +244,6 @@ pub(crate) fn detail_rows(detail: &str, width: u16, expanded: bool) -> Vec<Strin
     }
     rows
 }
-
-/// Column the decision hints start at, so the two option rows read as one aligned pair.
-const HINT_COLUMN: usize = 18;
 
 /// Rows the disclosed detail may take before the region stops growing into the conversation.
 const DETAIL_ROWS_MAX: usize = 8;

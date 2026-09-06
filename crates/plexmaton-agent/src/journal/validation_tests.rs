@@ -1,11 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId,
-    ToolPresentation, TranscriptItemId,
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+    ToolCallId, ToolPresentation, TranscriptItemId,
 };
 
 use super::{
-    HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
-    SessionJournal,
+    ConversationEntry, ConversationJournal, HeadRevision, JournalEntryPayload, JournalError,
+    JournalRecord, JournalSequence,
 };
 use crate::test_support::{call_block, output, reasoning_block, step, text_block};
 use crate::{AdmissionRefusal, ToolCall, ToolCancellationReason, ToolOutcome, UnixMillis};
@@ -22,9 +22,9 @@ fn record(value: &str) -> JournalRecordId {
     id(value, JournalRecordId::new)
 }
 
-fn entry(value: &str, parent_id: Option<SessionEntryId>) -> SessionEntry {
-    SessionEntry {
-        id: id(value, SessionEntryId::new),
+fn entry(value: &str, parent_id: Option<ConversationEntryId>) -> ConversationEntry {
+    ConversationEntry {
+        id: id(value, ConversationEntryId::new),
         parent_id,
         payload: JournalEntryPayload::RuntimeWarning {
             agent_id: id("agent-a", AgentId::new),
@@ -39,7 +39,7 @@ fn append(
     record_id: &str,
     head_name: &str,
     revision: u64,
-    entry: SessionEntry,
+    entry: ConversationEntry,
 ) -> JournalRecord {
     JournalRecord::AppendEntry {
         sequence: JournalSequence::new(sequence),
@@ -50,8 +50,8 @@ fn append(
     }
 }
 
-fn rooted() -> (SessionJournal, SessionEntryId) {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+fn rooted() -> (ConversationJournal, ConversationEntryId) {
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     let root = entry("entry-1", None);
     let root_id = root.id.clone();
     journal
@@ -63,15 +63,15 @@ fn rooted() -> (SessionJournal, SessionEntryId) {
 /// TIM-1: agent creation cannot bypass its typed lifecycle boundary.
 #[test]
 fn tim_1_invalid_initial_agent_status_changes_nothing() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     let agent_id = id("agent-a", AgentId::new);
     let running_creation = append(
         1,
         "running-agent",
         "main",
         0,
-        SessionEntry {
-            id: id("running-agent-entry", SessionEntryId::new),
+        ConversationEntry {
+            id: id("running-agent-entry", ConversationEntryId::new),
             parent_id: None,
             payload: JournalEntryPayload::AgentCreated {
                 agent_id: agent_id.clone(),
@@ -181,7 +181,7 @@ fn jrn_2_each_head_mutation_rejects_a_missing_head() {
 fn jrn_2_an_unknown_append_parent_is_a_missing_entry() {
     let (mut journal, _) = rooted();
     let unchanged = journal.clone();
-    let missing = id("missing", SessionEntryId::new);
+    let missing = id("missing", ConversationEntryId::new);
     let result = journal.apply(append(
         2,
         "record-2",
@@ -306,8 +306,8 @@ fn jrn_3_every_context_block_variant_round_trips_inside_an_append() {
             &format!("record-{index}"),
             "main",
             0,
-            SessionEntry {
-                id: id(&format!("entry-{index}"), SessionEntryId::new),
+            ConversationEntry {
+                id: id(&format!("entry-{index}"), ConversationEntryId::new),
                 parent_id: None,
                 payload,
             },

@@ -1,5 +1,7 @@
 //! Strict model schemas, trusted admission, and executor dispatch.
 
+use plexmaton_agent::{NativeFileChange, PermissionSubject};
+
 mod arguments;
 mod definitions;
 mod outcome;
@@ -110,8 +112,11 @@ fn admit_edit(
             "s"
         }
     );
+    let Some(subject) = NativeFileChange::edit(canonical.path.clone()) else {
+        return request.refuse(AdmissionRefusal::InvalidArguments);
+    };
     admit_mutation_call(
-        request,
+        request.with_permission_subject(PermissionSubject::NativeFileChange(subject)),
         EDIT_DEFINITION_ID,
         [ToolCapability::FileRead, ToolCapability::FileWrite],
         canonical_edit(&canonical),
@@ -135,8 +140,11 @@ fn admit_create(
         Err(error) => return request.refuse(refusal_for_mutation(&error)),
     };
     let detail = format!("create {}", bounded_detail(&canonical.path, 900));
+    let Some(subject) = NativeFileChange::create(canonical.path.clone()) else {
+        return request.refuse(AdmissionRefusal::InvalidArguments);
+    };
     admit_mutation_call(
-        request,
+        request.with_permission_subject(PermissionSubject::NativeFileChange(subject)),
         CREATE_DEFINITION_ID,
         [ToolCapability::FileWrite],
         canonical_create(&canonical),
@@ -326,4 +334,20 @@ fn bounded_detail(value: &str, max: usize) -> &str {
         end = end.saturating_sub(1);
     }
     &value[..end]
+}
+
+/// Kept with the actual definitions so a preset cannot silently follow a new write-capable tool.
+pub(crate) fn permission_definitions() -> (
+    plexmaton_agent::PermissionDefinition,
+    plexmaton_agent::PermissionDefinition,
+) {
+    let binding = |id| {
+        plexmaton_agent::PermissionDefinition::new(
+            ToolDefinitionId::new(id)
+                .unwrap_or_else(|_| unreachable!("reviewed definition identity")),
+            ToolDefinitionRevision::new(DEFINITION_REVISION)
+                .unwrap_or_else(|| unreachable!("published nonzero revision")),
+        )
+    };
+    (binding(CREATE_DEFINITION_ID), binding(EDIT_DEFINITION_ID))
 }

@@ -101,7 +101,7 @@ only plexmaton-command "plexmaton-agent plexmaton-core"
 # selected codec and native executors, but it must not reach the projection or synthetic producer.
 forbid plexmaton-runtime "a terminal, projection, or synthetic producer" \
     'crossterm|ratatui|plexmaton-sim|plexmaton-tui'
-only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-provider plexmaton-session-store plexmaton-skills"
+only plexmaton-runtime "plexmaton-agent plexmaton-command plexmaton-core plexmaton-file-tools plexmaton-permission-store plexmaton-provider plexmaton-session-store plexmaton-skills"
 
 # Skills own a local format and scoped file reader, not a provider or a task runtime.
 forbid plexmaton-skills "a provider, runtime, network client, terminal, or composition root" \
@@ -113,6 +113,11 @@ only plexmaton-skills "plexmaton-agent plexmaton-core plexmaton-file-tools"
 forbid plexmaton-session-store "a runtime, provider, tool executor, terminal, or composition root" \
     'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui|plexmaton-cli|plexmaton-command|plexmaton-file-tools|plexmaton-provider|plexmaton-runtime|plexmaton-sim|plexmaton-tui'
 only plexmaton-session-store "plexmaton-agent plexmaton-core"
+
+# Personal project policy is a blocking storage adapter over permission vocabulary.
+forbid plexmaton-permission-store "a runtime, provider, tool executor, terminal, or composition root" \
+    'tokio|tokio-util|reqwest|hyper|h2|rustls|mio|crossterm|ratatui|plexmaton-cli|plexmaton-command|plexmaton-file-tools|plexmaton-provider|plexmaton-runtime|plexmaton-sim|plexmaton-tui'
+only plexmaton-permission-store "plexmaton-agent plexmaton-core"
 
 if [[ "$fail" -ne 0 ]]; then
     cat >&2 <<'HINT'

@@ -34,12 +34,12 @@ impl Fixture {
             agent: AgentId::new("primary").expect("agent"),
             item: TranscriptItemId::new("stream").expect("item"),
         };
-        fixture.emit(SessionEvent::AgentCreated {
+        fixture.emit(ConversationEvent::AgentCreated {
             agent_id: fixture.agent.clone(),
             label: "Plexmaton".into(),
             status: AgentStatus::Running,
         });
-        fixture.emit(SessionEvent::TranscriptItemStarted {
+        fixture.emit(ConversationEvent::TranscriptItemStarted {
             agent_id: fixture.agent.clone(),
             item_id: fixture.item.clone(),
             role: TranscriptRole::Assistant,
@@ -49,11 +49,11 @@ impl Fixture {
         fixture
     }
 
-    fn emit(&mut self, event: SessionEvent) {
+    fn emit(&mut self, event: ConversationEvent) {
         self.sequence += 1;
         self.frames.receive(
             &mut self.workspace,
-            SessionEventEnvelope {
+            ConversationEventEnvelope {
                 sequence: EventSequence::new(self.sequence),
                 event,
             },
@@ -62,7 +62,7 @@ impl Fixture {
 
     fn delta(&mut self, text: String) {
         self.revision += 1;
-        self.emit(SessionEvent::TranscriptDelta {
+        self.emit(ConversationEvent::TranscriptDelta {
             agent_id: self.agent.clone(),
             item_id: self.item.clone(),
             item_revision: self.revision,
@@ -175,7 +175,7 @@ fn stream_event_pressure_bounds_batches_and_finalization_flushes_the_tail() {
     assert_eq!(fixture.workspace.frames() - frames, 2);
     assert_eq!(fixture.frames.pending.len(), 32);
     fixture.revision += 1;
-    fixture.emit(SessionEvent::TranscriptItemFinalized {
+    fixture.emit(ConversationEvent::TranscriptItemFinalized {
         agent_id: fixture.agent.clone(),
         item_id: fixture.item.clone(),
         item_revision: fixture.revision,

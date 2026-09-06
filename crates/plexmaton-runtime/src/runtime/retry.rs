@@ -4,7 +4,7 @@ use plexmaton_agent::{RetryCandidate, RetryTarget};
 impl LiveRuntime {
     /// Only acknowledged, idle state can expose an actionable retry.
     pub fn retry_candidate(&self) -> Option<RetryCandidate> {
-        if self.shutting_down
+        if self.shutdown_state != ShutdownState::Open
             || self.journal_failed
             || self.has_active_work()
             || self.pending_commit.is_some()

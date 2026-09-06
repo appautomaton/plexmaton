@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use plexmaton_core::{
-    AgentStatus, AttentionId, AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus,
+    AgentStatus, AttentionId, AttentionRequest, ConversationEvent, ToolCallId, ToolCallStatus,
     ToolPresentation, TranscriptItemId, TurnId,
 };
 
 use super::Record;
-use crate::{AssistantBlock, JournalEntryPayload, JournalProjection, SessionEntry};
+use crate::{AssistantBlock, ConversationEntry, JournalEntryPayload, JournalProjection};
 
 pub(crate) struct RecoverableTool {
     pub(crate) call_id: ToolCallId,
@@ -38,16 +38,16 @@ impl Record {
         let mut approvals = BTreeMap::<ToolCallId, AttentionId>::new();
         for envelope in projection.events() {
             match &envelope.event {
-                SessionEvent::AgentCreated {
+                ConversationEvent::AgentCreated {
                     agent_id,
                     status: next,
                     ..
                 }
-                | SessionEvent::AgentStatusChanged {
+                | ConversationEvent::AgentStatusChanged {
                     agent_id,
                     status: next,
                 } if agent_id == &self.agent_id => status = Some(*next),
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     agent_id,
                     item_id,
                     item_revision,
@@ -73,7 +73,7 @@ impl Record {
                         },
                     );
                 }
-                SessionEvent::AttentionRequested {
+                ConversationEvent::AttentionRequested {
                     agent_id,
                     attention_id,
                     request: AttentionRequest::Approval { call_id, .. },
@@ -81,7 +81,7 @@ impl Record {
                 } if agent_id == &self.agent_id => {
                     approvals.insert(call_id.clone(), attention_id.clone());
                 }
-                SessionEvent::AttentionResolved {
+                ConversationEvent::AttentionResolved {
                     agent_id,
                     attention_id,
                 } if agent_id == &self.agent_id => {
@@ -147,7 +147,7 @@ impl Record {
 
 fn include_unrequested_calls(
     projection: &JournalProjection,
-    path: &[&SessionEntry],
+    path: &[&ConversationEntry],
     order: &mut Vec<ToolCallId>,
     tools: &mut BTreeMap<ToolCallId, RecoverableTool>,
 ) {

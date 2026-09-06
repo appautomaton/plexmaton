@@ -1,7 +1,7 @@
 //! Turn completion, cancellation, status, and visible runtime degradation.
 
 use plexmaton_core::{
-    ApprovalDecision, ApprovalId, SessionEvent, ToolCallStatus, ToolPresentation,
+    ApprovalDecision, ApprovalId, ConversationEvent, ToolCallStatus, ToolPresentation,
 };
 
 use super::{Agent, DeliveryBoundary, Turn};
@@ -40,7 +40,7 @@ impl Agent {
             );
             self.record.emit(
                 &mut reaction,
-                SessionEvent::RuntimeWarning {
+                ConversationEvent::RuntimeWarning {
                     agent_id: self.record.agent_id().clone(),
                     item_id,
                     message: PROCESS_RECOVERY_MESSAGE.to_owned(),
@@ -59,7 +59,7 @@ impl Agent {
                 );
                 self.record.emit(
                     &mut reaction,
-                    SessionEvent::ToolCallChanged {
+                    ConversationEvent::ToolCallChanged {
                         agent_id: self.record.agent_id().clone(),
                         item_id: tool.item_id.clone(),
                         item_revision: 0,
@@ -94,7 +94,7 @@ impl Agent {
             );
             self.record.emit(
                 &mut reaction,
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     agent_id: self.record.agent_id().clone(),
                     item_id: tool.item_id,
                     item_revision,
@@ -296,7 +296,7 @@ impl Agent {
             },
             reaction,
         );
-        let event = SessionEvent::AgentStatusChanged {
+        let event = ConversationEvent::AgentStatusChanged {
             agent_id: self.record.agent_id().clone(),
             status: status.agent_status(),
         };
@@ -313,7 +313,7 @@ impl Agent {
             },
             reaction,
         );
-        let event = SessionEvent::RuntimeWarning {
+        let event = ConversationEvent::RuntimeWarning {
             agent_id: self.record.agent_id().clone(),
             item_id,
             message: message.to_owned(),
@@ -331,7 +331,7 @@ impl Agent {
             },
             reaction,
         );
-        let event = SessionEvent::RuntimeError {
+        let event = ConversationEvent::RuntimeError {
             agent_id: self.record.agent_id().clone(),
             item_id,
             message: message.to_owned(),
@@ -350,6 +350,7 @@ impl Agent {
                 approval_id,
                 decision,
                 reason: ApprovalDecisionRefusal::NotPending,
+                current_offer: None,
             });
     }
 }

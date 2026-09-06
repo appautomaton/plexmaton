@@ -3,9 +3,11 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use plexmaton_agent::{
-    JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry, UnixMillis,
+    ConversationEntry, JournalEntryPayload, JournalRecord, JournalSequence, UnixMillis,
 };
-use plexmaton_core::{AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId};
+use plexmaton_core::{
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+};
 
 use super::{JournalFile, JournalRecovery, MAX_JOURNAL_LINE_BYTES, StoreError, WriterState};
 
@@ -16,8 +18,12 @@ use super::{JournalFile, JournalRecovery, MAX_JOURNAL_LINE_BYTES, StoreError, Wr
 fn jrn_4_writer_drop_releases_the_lock_even_while_a_duplicate_descriptor_survives() {
     let directory = crate::test_support::TestDir::new("duplicate-lock");
     let path = directory.path().join("session.jsonl");
-    let store = JournalFile::create(&path, id("lock-owner", SessionId::new), UnixMillis::EPOCH)
-        .expect("create writer");
+    let store = JournalFile::create(
+        &path,
+        id("lock-owner", ConversationId::new),
+        UnixMillis::EPOCH,
+    )
+    .expect("create writer");
     let inherited = store.file.try_clone().expect("duplicate descriptor");
     assert!(matches!(
         JournalFile::open(&path),
@@ -37,7 +43,7 @@ fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::Id
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
 }
 
-fn record(journal: &plexmaton_agent::SessionJournal, label: String) -> JournalRecord {
+fn record(journal: &plexmaton_agent::ConversationJournal, label: String) -> JournalRecord {
     let head = id("main", HeadName::new);
     JournalRecord::AppendEntry {
         sequence: journal.next_sequence(),
@@ -46,8 +52,8 @@ fn record(journal: &plexmaton_agent::SessionJournal, label: String) -> JournalRe
         expected_head_revision: journal
             .head_revision(&head)
             .unwrap_or_else(|error| panic!("head revision: {error:?}")),
-        entry: Box::new(SessionEntry {
-            id: id("entry-1", SessionEntryId::new),
+        entry: Box::new(ConversationEntry {
+            id: id("entry-1", ConversationEntryId::new),
             parent_id: None,
             payload: JournalEntryPayload::AgentCreated {
                 agent_id: id("agent-a", AgentId::new),
@@ -71,8 +77,8 @@ fn jrn_4_write_failure_changes_no_memory_and_requires_reopen() {
     let path = path("write-failure");
     let _stale = std::fs::remove_file(&path);
     std::fs::write(&path, b"fixture").unwrap_or_else(|error| panic!("write fixture file: {error}"));
-    let session_id = id("session-a", SessionId::new);
-    let journal = plexmaton_agent::SessionJournal::new(session_id);
+    let session_id = id("session-a", ConversationId::new);
+    let journal = plexmaton_agent::ConversationJournal::new(session_id);
     let attempted = record(&journal, "Plexmaton".to_owned());
     let mut store = JournalFile {
         path: path.clone(),
@@ -103,7 +109,7 @@ fn jrn_4_write_failure_changes_no_memory_and_requires_reopen() {
 fn jrn_4_oversized_record_is_returned_without_poisoning_the_writer() {
     let path = path("oversized");
     let _stale = std::fs::remove_file(&path);
-    let session_id = id("session-a", SessionId::new);
+    let session_id = id("session-a", ConversationId::new);
     let mut store = JournalFile::create(&path, session_id, UnixMillis::EPOCH)
         .unwrap_or_else(|error| panic!("create store: {error}"));
     let oversized = record(&store.journal, "x".repeat(MAX_JOURNAL_LINE_BYTES));
@@ -125,8 +131,12 @@ fn jrn_4_oversized_record_is_returned_without_poisoning_the_writer() {
 fn jrn_4_partial_write_reopens_at_the_last_complete_record() {
     let path = path("partial-write");
     let _stale = std::fs::remove_file(&path);
-    let mut store = JournalFile::create(&path, id("session-a", SessionId::new), UnixMillis::EPOCH)
-        .unwrap_or_else(|error| panic!("create store: {error}"));
+    let mut store = JournalFile::create(
+        &path,
+        id("session-a", ConversationId::new),
+        UnixMillis::EPOCH,
+    )
+    .unwrap_or_else(|error| panic!("create store: {error}"));
     let attempted = record(&store.journal, "Plexmaton".to_owned());
     let failure = store
         .append_with(attempted.clone(), |file, encoded| {
@@ -160,7 +170,7 @@ fn jrn_4_poisoned_writer_cannot_fork() {
     let _stale_destination = std::fs::remove_file(&destination);
     let mut store = JournalFile::create(
         &source_path,
-        id("session-a", SessionId::new),
+        id("session-a", ConversationId::new),
         UnixMillis::EPOCH,
     )
     .unwrap_or_else(|error| panic!("create store: {error}"));
@@ -177,7 +187,7 @@ fn jrn_4_poisoned_writer_cannot_fork() {
     assert!(matches!(
         store.fork(
             &destination,
-            id("session-b", SessionId::new),
+            id("session-b", ConversationId::new),
             UnixMillis::EPOCH,
         ),
         Err(StoreError::WriterPoisoned)
@@ -193,8 +203,12 @@ fn jrn_4_poisoned_writer_cannot_fork() {
 fn jrn_4_newline_write_failure_recovers_the_record_as_committed() {
     let path = path("newline-write");
     let _stale = std::fs::remove_file(&path);
-    let mut store = JournalFile::create(&path, id("session-a", SessionId::new), UnixMillis::EPOCH)
-        .unwrap_or_else(|error| panic!("create store: {error}"));
+    let mut store = JournalFile::create(
+        &path,
+        id("session-a", ConversationId::new),
+        UnixMillis::EPOCH,
+    )
+    .unwrap_or_else(|error| panic!("create store: {error}"));
     let attempted = record(&store.journal, "Plexmaton".to_owned());
     let failure = store
         .append_with(attempted.clone(), |file, encoded| {
@@ -220,7 +234,7 @@ fn jrn_4_newline_write_failure_recovers_the_record_as_committed() {
 fn jrn_4_failed_header_encoding_leaves_no_file() {
     let path = path("header-bound");
     let _stale = std::fs::remove_file(&path);
-    let oversized = id(&"x".repeat(MAX_JOURNAL_LINE_BYTES), SessionId::new);
+    let oversized = id(&"x".repeat(MAX_JOURNAL_LINE_BYTES), ConversationId::new);
 
     assert!(matches!(
         JournalFile::create(&path, oversized, UnixMillis::EPOCH),
@@ -234,8 +248,12 @@ fn jrn_4_failed_header_encoding_leaves_no_file() {
 fn jrn_4_rejected_append_writes_nothing_and_returns_exact_ownership() {
     let path = path("rejected-record");
     let _stale = std::fs::remove_file(&path);
-    let mut store = JournalFile::create(&path, id("session-a", SessionId::new), UnixMillis::EPOCH)
-        .unwrap_or_else(|error| panic!("create store: {error}"));
+    let mut store = JournalFile::create(
+        &path,
+        id("session-a", ConversationId::new),
+        UnixMillis::EPOCH,
+    )
+    .unwrap_or_else(|error| panic!("create store: {error}"));
     let before = std::fs::read(&path).unwrap_or_else(|error| panic!("read header: {error}"));
     let invalid = JournalRecord::CreateHead {
         sequence: JournalSequence::new(99),

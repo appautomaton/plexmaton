@@ -5,8 +5,8 @@
 //! payer.
 
 use plexmaton_core::{
-    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus,
-    ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, ConversationEvent, ConversationEventEnvelope, EventSequence, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_sim::{Scenario, ScriptedRuntime};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
@@ -45,7 +45,7 @@ pub fn canonical_state() -> ViewState {
 /// The canonical projection while the primary agent has an open assistant response.
 pub fn current_responding_state() -> ViewState {
     let mut conversation = Conversation::canonical();
-    conversation.emit(SessionEvent::TranscriptItemStarted {
+    conversation.emit(ConversationEvent::TranscriptItemStarted {
         agent_id: conversation.agent.clone(),
         item_id: TranscriptItemId::new("current-response")
             .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
@@ -62,7 +62,7 @@ pub fn current_running_tool_state() -> ViewState {
     let call_id = ToolCallId::new("current-running-tool")
         .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
     for (item_revision, status) in [(0, ToolCallStatus::Queued), (1, ToolCallStatus::Running)] {
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: conversation.agent.clone(),
             item_id: item_id.clone(),
             item_revision,
@@ -87,7 +87,7 @@ pub struct Conversation {
     sequence: u64,
     items: usize,
     newest: Option<(AgentId, TranscriptItemId, u64)>,
-    pending: Vec<SessionEventEnvelope>,
+    pending: Vec<ConversationEventEnvelope>,
 }
 
 impl Conversation {
@@ -121,7 +121,7 @@ impl Conversation {
     /// A [`Workspace`](crate::Workspace) reduces the stream itself, so a test driving one has to be
     /// handed the events rather than the finished state. Both projections then see the same stream
     /// in the same order, which is the only way their revisions stay comparable.
-    pub fn drain(&mut self) -> Vec<SessionEventEnvelope> {
+    pub fn drain(&mut self) -> Vec<ConversationEventEnvelope> {
         std::mem::take(&mut self.pending)
     }
 
@@ -137,7 +137,7 @@ impl Conversation {
             self.items = self.items.saturating_add(1);
             let item_id = TranscriptItemId::new(format!("filler-{}", self.items))
                 .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
-            self.emit(SessionEvent::TranscriptItemStarted {
+            self.emit(ConversationEvent::TranscriptItemStarted {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 role: TranscriptRole::Assistant,
@@ -159,7 +159,7 @@ impl Conversation {
             .clone()
             .unwrap_or_else(|| panic!("nothing has been streamed to append to"));
         let item_revision = revision.saturating_add(1);
-        self.emit(SessionEvent::TranscriptDelta {
+        self.emit(ConversationEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision,
@@ -174,9 +174,9 @@ impl Conversation {
     /// Public because the counter is the reason this fixture exists: a test that builds its own
     /// envelope has to guess the sequence, and a guess produces a notice log rather than a
     /// transcript, with an assertion failure that says nothing about why.
-    pub fn emit(&mut self, event: SessionEvent) {
+    pub fn emit(&mut self, event: ConversationEvent) {
         self.sequence = self.sequence.saturating_add(1);
-        let envelope = SessionEventEnvelope {
+        let envelope = ConversationEventEnvelope {
             sequence: EventSequence::new(self.sequence),
             event,
         };
@@ -194,7 +194,7 @@ impl Conversation {
 /// Both halves matter. The cache has to outlive the frame or none of its invariants mean anything,
 /// and the scroll path reads the same cache the frame wrote — a test that built a fresh one per
 /// frame would be measuring a cold cache the binary never has.
-pub struct Session {
+pub struct RenderFixture {
     pub conversation: Conversation,
     palette: Palette,
     metrics: TranscriptMetrics,
@@ -204,7 +204,7 @@ pub struct Session {
     height: u16,
 }
 
-impl Session {
+impl RenderFixture {
     /// The canonical timeline on a terminal of this size, with one frame already drawn.
     pub fn canonical(width: u16, height: u16) -> Self {
         let mut session = Self {
@@ -288,10 +288,10 @@ impl Session {
 /// The canonical timeline plus one producer defect, so the notice strip exists.
 pub fn degraded_state() -> ViewState {
     let mut state = canonical_state();
-    state.apply(SessionEventEnvelope {
+    state.apply(ConversationEventEnvelope {
         // A stale sequence: the canonical scenario has already advanced well past 1.
         sequence: EventSequence::new(1),
-        event: SessionEvent::RuntimeWarning {
+        event: ConversationEvent::RuntimeWarning {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             item_id: TranscriptItemId::new("stale-warning")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),

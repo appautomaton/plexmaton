@@ -1,6 +1,6 @@
 //! Pure occupancy arithmetic shared by request planning and diagnostics.
 
-use plexmaton_core::SessionEntryId;
+use plexmaton_core::ConversationEntryId;
 use serde::{Deserialize, Serialize};
 
 use crate::{RequestAttemptId, RequestEnvironment};
@@ -67,7 +67,7 @@ impl TokenEstimate {
 /// One indivisible atom's estimate, with identities usable by the compaction planner.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct AtomBudget {
-    pub source_entries: Box<[SessionEntryId]>,
+    pub source_entries: Box<[ConversationEntryId]>,
     pub estimate: TokenEstimate,
 }
 

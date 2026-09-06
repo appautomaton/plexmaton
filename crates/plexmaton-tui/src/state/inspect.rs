@@ -81,10 +81,14 @@ impl ViewState {
         }
         // The topmost rung: the command list opened last and sits above every other layer, so one
         // `Escape` takes it and leaves whatever it was covering exactly where it was.
-        if self.close_command_palette() {
+        if self.permission_back() || self.close_command_palette() {
             return true;
         }
         if self.close_configuration() {
+            return true;
+        }
+        if self.focus.resolve(surfaces) == Some(SurfaceId::Approval) && self.approval.back() {
+            self.touch();
             return true;
         }
         if surfaces.get(SurfaceId::Approval).is_some()

@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plexmaton · approval view proposal</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, sans-serif; color: #eae4f2; background: #15131c; }
+  * { box-sizing: border-box; }
+  body { max-width: 1160px; padding: 32px 28px 44px; margin: auto; }
+  .eyebrow { color: #c6a0f6; letter-spacing: .15em; font-size: 11px; font-weight: 650; }
+  h1 { margin: 10px 0; font-size: 29px; font-weight: 550; letter-spacing: -.035em; }
+  p { margin: 8px 0; color: #aaa4b9; font-size: 14px; line-height: 1.6; }
+  .controls { display: flex; flex-wrap: wrap; align-items: end; gap: 18px; margin: 25px 0 18px; }
+  .group { display: flex; gap: 5px; }
+  label, .label { display: block; font-size: 11px; color: #aaa4b9; margin-bottom: 7px; }
+  select, button { border: 1px solid #514d66; color: #eae4f2; background: #211e2b; border-radius: 5px; padding: 8px 10px; font: inherit; font-size: 12px; }
+  button { cursor: pointer; }
+  button[aria-pressed="true"] { border-color: #8bd5ca; color: #8bd5ca; }
+  button:focus-visible, select:focus-visible, #terminal:focus-visible { outline: 2px solid #8bd5ca; outline-offset: 3px; }
+  #stage { overflow-x: auto; padding: 16px; border: 1px solid #35313f; border-radius: 9px; background: #1b1823; }
+  #terminal { display: block; margin: auto; max-width: none; outline: none; }
+  #terminal text { font-family: Menlo, "DejaVu Sans Mono", monospace; font-size: 14px; white-space: pre; }
+  #terminal [data-action] { cursor: pointer; }
+  .below { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 15px; }
+  .below p { max-width: 720px; margin: 0; font-size: 12px; }
+  .legend { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; border-top: 1px solid #35313f; padding-top: 18px; }
+  .legend strong { font-size: 12px; font-weight: 600; }
+  .legend p { font-size: 12px; }
+  #announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  @media (max-width: 700px) { body { padding: 22px 14px; } h1 { font-size: 24px; } .legend { grid-template-columns: 1fr; gap: 10px; } }
+</style>
+<div class="eyebrow">PLEXMATON / APPROVAL STUDY</div>
+<h1>Keep the decision in the conversation.</h1>
+<p>Interactive proposal based on the current TUI. No commands run and no permissions are saved.</p>
+<div class="controls">
+  <div><label for="surface">View</label><select id="surface"><option value="approval">Approval card</option><option value="palette">Command palette</option></select></div>
+  <div><span class="label">Terminal size</span><div class="group" id="sizes">
+    <button data-width="120" aria-pressed="true">Wide · 120</button>
+    <button data-width="95" aria-pressed="false">Medium · 95</button>
+    <button data-width="60" aria-pressed="false">Narrow · 60</button>
+  </div></div>
+  <div><label for="operation">Operation</label><select id="operation"><option value="edit">File edit</option><option value="command">Command</option></select></div>
+  <div><label for="policy">Why it asks</label><select id="policy"><option value="default">Default policy</option><option value="always">Explicit ask rule</option></select></div>
+  <div><label for="outcome">Preview state</label><select id="outcome">
+    <option value="review">Review</option><option value="scope">Remember scope</option>
+    <option value="submitting">Submitting</option><option value="stale">Permission changed</option>
+    <option value="not_written">Save failed</option><option value="unknown">Save uncertain</option>
+  </select></div>
+</div>
+<div id="stage"><svg id="terminal" tabindex="0" role="group" aria-label="Interactive terminal approval preview"></svg></div>
+<div class="below">
+  <p id="explanation"></p>
+  <button id="confirm" hidden>Confirm result (demo)</button>
+  <button id="reset">Reset preview</button>
+</div>
+<div class="legend">
+  <div><strong>One-time decisions stay compact</strong><p>The operation and reason come first. Deny starts selected; Esc returns to your draft.</p></div>
+  <div><strong>Remembering names its scope</strong><p>A second step shows the operation scope and lifetime before you allow and remember.</p></div>
+  <div><strong>The runtime confirms the result</strong><p>The card stays while submitting. A changed permission or uncertain save cannot silently approve work.</p></div>
+</div>
+<div id="announcement" aria-live="polite"></div>
+<script>
+'use strict';
+// Finite presentation fixture. Colors follow Palette::pastel; cells follow the TUI's 120/95/60 review widths.
+// This is a design mockup, not the Ratatui renderer or a permission-policy implementation.
+const P = Object.freeze({ REVIEW: 'review', SCOPE: 'scope', SUBMITTING: 'submitting', STALE: 'stale', NOT_WRITTEN: 'not_written', UNKNOWN: 'unknown' });
+const V = Object.freeze({ APPROVAL: 'approval', PALETTE: 'palette' });
+const spacing = Object.freeze({ sides: 2, top: 1, bottom: 1 });
+const commands = Object.freeze([
+  { id: 'config', name: '/config', summary: 'Provider, model, and reasoning effort', aliases: ['settings'] },
+  { id: 'resume', name: '/resume', summary: 'Find and resume a saved conversation', aliases: ['continue', 'sessions'] },
+  { id: 'new', name: '/new', summary: 'Start a new conversation', aliases: [] }
+]);
+const C = Object.freeze({ body: '#eae4f2', muted: '#938fa8', border: '#514d66', focus: '#8bd5ca', accent: '#c6a0f6', ambient: '#8aadf4', info: '#a6da95', attention: '#eed49f', failure: '#ed8796' });
+const state = { width: 120, height: 24, view: V.APPROVAL, palette: { filter: '', selected: 0 }, operation: 'edit', policy: 'default', phase: P.REVIEW, selected: 2, focus: 'card', detail: false, draft: 'Keep the change focused.', pending: 2, submitted: null, completed: null };
+const svg = document.querySelector('#terminal');
+const ns = 'http://www.w3.org/2000/svg';
+const cell = { x: 8.5, y: 21, margin: 10 };
+let targets = [];
+let rowText = [];
+function element(name, attrs, text) {
+  const el = document.createElementNS(ns, name);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  if (text !== undefined) el.textContent = text;
+  svg.append(el); return el;
+}
+function text(x, y, value, color = C.body, bold = false) {
+  if (value.length > state.width - x) throw new Error('Unbounded preview row: ' + value);
+  element('text', { x: cell.margin + x * cell.x, y: cell.margin + y * cell.y + 15,
+    fill: color, 'font-weight': bold ? '600' : '400', 'xml:space': 'preserve', textLength: value.length * cell.x, lengthAdjust: 'spacingAndGlyphs' }, value);
+  rowText.push({ x, y, value });
+}
+function wrap(value, width) {
+  const lines = []; let line = '';
+  for (const word of value.split(' ')) {
+    if (line && line.length + word.length + 1 > width) { lines.push(line); line = ''; }
+    line += (line ? ' ' : '') + word;
+  }
+  if (line) lines.push(line); return lines;
+}
+function divider(y, title, color = C.border, first = false) {
+  element('line', { x1: cell.margin + cell.x / 2, x2: cell.margin + (state.width - .5) * cell.x,
+    y1: cell.margin + y * cell.y + 10, y2: cell.margin + y * cell.y + 10, stroke: color });
+  if (title) {
+    element('rect', { x: cell.margin + 2 * cell.x, y: cell.margin + y * cell.y, width: (title.length + 2) * cell.x, height: cell.y, fill: '#1b1823' });
+    text(2, y, ' ' + title + ' ', C.accent, true);
+  }
+}
+function hit(y, action, height = 1, x = 1 + spacing.sides, width = state.width - 2 - spacing.sides * 2) {
+  const id = 'hit-' + targets.length;
+  const rect = element('rect', { id, x: cell.margin + x * cell.x, y: cell.margin + y * cell.y,
+    width: width * cell.x, height: cell.y * height,
+    fill: 'transparent', 'data-action': action, 'aria-label': action });
+  rect.addEventListener('click', () => { svg.focus({ preventScroll: true }); activate(action); });
+  targets.push({ x, y, width, height, action });
+}
+function choices() {
+  if (state.phase === P.REVIEW) return state.policy === 'always'
+    ? [{ id: 'once', label: 'Allow once' }, { id: 'deny', label: 'Deny' }]
+    : [{ id: 'once', label: 'Allow once' }, { id: 'remember', label: 'Allow and remember…' }, { id: 'deny', label: 'Deny' }];
+  if (state.phase === P.SCOPE) return [{ id: 'session', label: 'This session' }, { id: 'project', label: 'This project' }, { id: 'back', label: 'Back' }];
+  if (state.phase === P.STALE) return [{ id: 'review', label: 'Review updated request' }];
+  if (state.phase === P.NOT_WRITTEN) return [{ id: 'review', label: 'Review and try again' }];
+  if (state.phase === P.UNKNOWN) return [{ id: 'reopen', label: 'Reopen session' }];
+  return [];
+}
+function operationLine() { return state.operation === 'edit' ? 'Edit src/parser.rs                         +1 -1' : '$ cargo test -p plexmaton-agent'; }
+function setPhase(phase) {
+  state.phase = phase; state.focus = 'card'; state.detail = false;
+  state.selected = phase === P.REVIEW ? choices().length - 1 : 0;
+  if (phase === P.REVIEW) state.submitted = null;
+  render();
+}
+function activate(action) {
+  if (action.startsWith('palette:')) {
+    const command = commands.find(command => command.id === action.slice(8));
+    if (command) document.querySelector('#explanation').textContent = 'Preview only: ' + command.name + ' would ' + command.summary.toLowerCase() + '. No command was dispatched.';
+    return;
+  }
+  if (action === 'composer') { state.focus = 'composer'; render(); return; }
+  if (action === 'details') { state.detail = !state.detail; render(); return; }
+  if (action === 'remember') { setPhase(P.SCOPE); return; }
+  if (action === 'back' || action === 'review') { setPhase(P.REVIEW); return; }
+  if (action === 'reopen') { document.querySelector('#explanation').textContent = 'Preview: reopening would reconcile storage before presenting fresh work. It would not replay this pending call.'; return; }
+  if (state.phase !== P.REVIEW && state.phase !== P.SCOPE) return;
+  state.submitted = action; setPhase(P.SUBMITTING);
+}
+function row(value, role = 'body') { return { value, role }; }
+function card() {
+  const contentWidth = state.width - 2 - spacing.sides * 2;
+  const out = []; const add = (value, role) => {
+    const lines = value.length > contentWidth ? wrap(value, contentWidth) : [value];
+    for (const line of lines) out.push(row(line, role));
+  };
+  let title = 'Approval required · 1 of ' + state.pending;
+  const operation = operationLine();
+  if (state.phase === P.REVIEW) {
+    add(operation);
+    add(state.policy === 'always' ? 'Your rule requires approval for each request.' : state.operation === 'edit' ? 'File edits require approval.' : 'Running commands requires approval.', 'muted');
+    if (state.detail) {
+      add('Workspace  ~/dev/plexmaton', 'muted');
+      if (state.operation === 'edit') { add('- return None;', 'failure'); add('+ return Some(token);', 'info'); }
+      else { add('Command  cargo test -p plexmaton-agent'); add('Timeout  120 seconds · host shell', 'muted'); }
+    }
+  } else if (state.phase === P.SCOPE) {
+    title = 'Allow and remember'; add(operation);
+    add(state.operation === 'edit' ? 'Scope  Edit existing files in this workspace.' : 'Scope  This exact command, cwd and environment.');
+    add(state.operation === 'edit' ? 'Excludes control and configuration files.' : 'Other commands still require approval.', 'muted');
+    add('Workspace  ~/dev/plexmaton', 'muted');
+  } else {
+    const messages = {
+      [P.SUBMITTING]: ['Applying decision…', 'Waiting for confirmation. Your draft is still usable.', 'ambient'],
+      [P.STALE]: ['Permission changed', 'Nothing ran. Review the updated request before deciding.', 'attention'],
+      [P.NOT_WRITTEN]: ['Permission was not saved', 'Nothing ran. The write failed; this request still waits.', 'failure'],
+      [P.UNKNOWN]: ['Save outcome is uncertain', 'Nothing ran. Reopen the session to check what was saved.', 'failure']
+    };
+    const [heading, message, role] = messages[state.phase]; title = heading;
+    add(operation); for (const line of wrap(message, state.width - 4)) add(line, role);
+    if (state.phase === P.SUBMITTING) add(state.submitted === 'project' ? 'Remembering for this project…' : state.submitted === 'session' ? 'Remembering for this session…' : state.submitted === 'deny' ? 'Declining this request…' : 'Allowing this request once…', 'muted');
+  }
+  const offered = choices();
+  if (offered.length) { add(''); for (const [index, option] of offered.entries()) out.push({ ...row((state.selected === index && state.focus === 'card' && state.view === V.APPROVAL ? '> ' : '  ') + option.label, state.selected === index && state.focus === 'card' && state.view === V.APPROVAL ? 'attention' : 'body'), action: option.id }); }
+  if (state.phase === P.SCOPE) {
+    const descriptions = ['Until Plexmaton closes. Kept across /new and resume.', 'Saved for you in this checkout, across restarts.', 'Return without granting permission.'];
+    add(''); for (const line of wrap(descriptions[state.selected], state.width - 4)) add(line, 'muted');
+    add(state.selected === 2 ? '↑↓ choose · Enter back · Esc back' : '↑↓ choose · Enter allow & remember · Esc back', 'muted');
+  } else if (state.phase === P.REVIEW) {
+    add(''); add('↑↓ choose · Enter decide · Ctrl-O details', 'muted'); add('Esc input · Tab returns to this card', 'muted');
+  } else add('Esc input · waiting never discards your draft', 'muted');
+  return { title, rows: out };
+}
+function paletteMatches() {
+  const filter = state.palette.filter.trim().replace(/^\//, '').toLowerCase();
+  return commands.filter(command => [command.id, ...command.aliases].some(name => name.includes(filter)));
+}
+function drawPalette() {
+  const width = Math.min(76, state.width - 6);
+  const x = Math.floor((state.width - width) / 2); const y = 3;
+  const insideX = x + 1 + spacing.sides; const insideWidth = width - 2 - spacing.sides * 2;
+  const matches = paletteMatches();
+  const items = matches.length || 1;
+  const filterY = y + 1 + spacing.top;
+  const firstChoice = filterY + 2;
+  const footerY = firstChoice + items + 1;
+  const bottomY = footerY + 1 + spacing.bottom;
+  // A modal catches clicks below it; the proposed palette never activates an obscured approval.
+  element('rect', { x: 0, y: 0, width: cell.margin * 2 + state.width * cell.x, height: cell.margin * 2 + state.height * cell.y, fill: 'transparent' });
+  element('rect', { x: cell.margin + x * cell.x, y: cell.margin + y * cell.y,
+    width: width * cell.x, height: (bottomY - y + 1) * cell.y, fill: '#1b1823' });
+  element('rect', { x: cell.margin + (x + .5) * cell.x, y: cell.margin + y * cell.y + 10,
+    width: (width - 1) * cell.x, height: (bottomY - y) * cell.y, fill: 'none', stroke: C.focus });
+  element('rect', { x: cell.margin + (x + 2) * cell.x, y: cell.margin + y * cell.y, width: 10 * cell.x, height: cell.y, fill: '#1b1823' });
+  text(x + 2, y, ' Commands ', C.accent, true);
+  text(insideX, filterY, state.palette.filter ? state.palette.filter + '▏' : '▏ Type to filter', state.palette.filter ? C.body : C.muted);
+  if (!matches.length) text(insideX, firstChoice, 'No command matches', C.muted);
+  for (const [index, command] of matches.entries()) {
+    const selected = index === state.palette.selected;
+    const prefix = (selected ? '> ' : '  ') + command.name + '  ';
+    const available = insideWidth - prefix.length;
+    const summary = command.summary.length <= available ? command.summary : command.summary.slice(0, available - 1) + '…';
+    text(insideX, firstChoice + index, prefix, selected ? C.accent : C.body);
+    text(insideX + prefix.length, firstChoice + index, summary, C.muted);
+    hit(firstChoice + index, 'palette:' + command.id, 1, insideX, insideWidth);
+  }
+  text(insideX, footerY, '↑↓ choose · Enter run · Esc close', C.muted);
+  return { x, y, width, bottomY, insideX, insideWidth, filterY, firstChoice, footerY };
+}
+function render() {
+  svg.replaceChildren(); rowText = []; targets = [];
+  const width = cell.margin * 2 + state.width * cell.x;
+  const height = cell.margin * 2 + state.height * cell.y;
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`); svg.setAttribute('width', width); svg.setAttribute('height', height);
+  element('rect', { x: 0, y: 0, width, height, fill: '#1b1823' });
+  for (const x of [.5, state.width - .5]) element('line', { x1: cell.margin + x * cell.x, x2: cell.margin + x * cell.x,
+    y1: cell.margin + 10, y2: cell.margin + (state.height - 2) * cell.y + 10, stroke: C.border });
+  divider(0, 'Plexmaton · primary', C.border, true);
+  const content = card(); const composerTop = state.height - 4;
+  const cardTop = composerTop - content.rows.length - 1 - spacing.top - spacing.bottom;
+  if (cardTop < 3) throw new Error('Approval hides the conversation');
+  const history = state.operation === 'edit'
+    ? ['Fix the parser’s empty-input case and run its tests.', '', 'The empty token is being dropped. I’ll adjust the', 'return value, then run the focused tests.', '', '[?] edit_file · approval required']
+    : ['Run the focused tests for the agent loop.', '', 'I’ll run the agent tests from this workspace.', '', '[?] exec_command · approval required'];
+  if (state.completed) history.splice(history.length - 1, 0, state.completed);
+  const visible = history.flatMap(line => line ? wrap(line, state.width - 4) : ['']).slice(-(cardTop - 2));
+  const start = Math.max(2, cardTop - visible.length - 1);
+  visible.forEach((line, i) => text(2, start + i, line, line.startsWith('[?]') ? C.attention : C.body));
+  divider(cardTop, content.title, state.focus === 'card' && state.view === V.APPROVAL ? C.focus : C.border);
+  content.rows.forEach((line, i) => {
+    const y = cardTop + 1 + spacing.top + i; text(1 + spacing.sides, y, line.value, C[line.role], line.role === 'attention');
+    if (line.action) hit(y, line.action);
+  });
+  divider(composerTop, 'Message Plexmaton · Approval required', state.focus === 'composer' && state.view === V.APPROVAL ? C.focus : C.border);
+  const shownDraft = state.draft.length > state.width - 5 ? '…' + state.draft.slice(-(state.width - 6)) : state.draft;
+  text(2, composerTop + 1, shownDraft + (state.focus === 'composer' && state.view === V.APPROVAL ? '▏' : ''), C.body); hit(composerTop + 1, 'composer', 1, 2, state.width - 4);
+  divider(state.height - 2, '', C.border);
+  text(1, state.height - 1, '~/dev/plexmaton', C.muted);
+  const paletteBounds = state.view === V.PALETTE ? drawPalette() : null;
+  document.querySelector('#surface').value = state.view;
+  for (const id of ['operation', 'policy', 'outcome']) document.querySelector('#' + id).disabled = state.view === V.PALETTE;
+  document.querySelector('#outcome').value = state.phase;
+  for (const button of document.querySelectorAll('[data-width]')) button.setAttribute('aria-pressed', String(Number(button.dataset.width) === state.width));
+  document.querySelector('#outcome option[value="scope"]').disabled = state.policy === 'always';
+  document.querySelector('#confirm').hidden = state.phase !== P.SUBMITTING || state.view !== V.APPROVAL;
+  document.querySelector('#explanation').textContent = state.view === V.PALETTE
+    ? 'The palette uses the same two-cell side padding and one blank row at the top and bottom. Filtering, choices and key hints have separate spacing. Type or use arrows in the terminal; commands are preview-only.'
+    : state.phase === P.SCOPE
+    ? 'A session is your ongoing coding period. /new starts a conversation and keeps these permissions in the same workspace. Session grants clear when Plexmaton exits; project grants survive restarting it.'
+    : state.phase === P.SUBMITTING
+    ? 'The decision is in flight. Repeated Enter does nothing. Use Preview state above to inspect confirmation and failure outcomes.'
+    : state.focus === 'composer'
+    ? 'Your draft is still usable. Type here, then Tab back to the approval; changing focus grants nothing.'
+    : 'Click an option, or focus the terminal and use ↑ / ↓ then Enter. Ctrl-O reveals details. The pending count belongs to this conversation.';
+  document.querySelector('#announcement').textContent = content.title + '. ' + (choices()[state.selected]?.label || '');
+  window.previewSnapshot = { ...state, spacing, cardTop, composerTop, paletteBounds, targets: [...targets], rows: [...rowText] };
+}
+svg.addEventListener('keydown', event => {
+  if (event.metaKey || event.altKey) return;
+  const key = event.key;
+  if (state.view === V.PALETTE) {
+    if (key === 'Escape') { event.preventDefault(); state.view = V.APPROVAL; render(); return; }
+    const offered = paletteMatches();
+    if (key === 'ArrowUp' || key === 'ArrowDown') { event.preventDefault(); state.palette.selected = Math.max(0, Math.min(offered.length - 1, state.palette.selected + (key === 'ArrowUp' ? -1 : 1))); render(); }
+    else if (key === 'Enter' && offered[state.palette.selected]) { event.preventDefault(); activate('palette:' + offered[state.palette.selected].id); }
+    else if (key === 'Backspace') { event.preventDefault(); state.palette.filter = state.palette.filter.slice(0, -1); state.palette.selected = 0; render(); }
+    else if (key.length === 1 && !event.ctrlKey && state.palette.filter.length < 32) { event.preventDefault(); state.palette.filter += key; state.palette.selected = 0; render(); }
+    return;
+  }
+  if (key === 'Tab') { event.preventDefault(); state.focus = state.focus === 'card' ? 'composer' : 'card'; render(); return; }
+  if (key === 'Escape') { event.preventDefault(); if (state.phase === P.SCOPE && state.focus === 'card') setPhase(P.REVIEW); else { state.focus = 'composer'; render(); } return; }
+  if (state.focus === 'composer') {
+    if (key === 'Backspace') { event.preventDefault(); state.draft = [...state.draft].slice(0, -1).join(''); render(); }
+    else if (key.length === 1 && !event.ctrlKey && state.draft.length < 256) { event.preventDefault(); state.draft += key; render(); }
+    return;
+  }
+  if (event.ctrlKey && key.toLowerCase() === 'o' && state.phase === P.REVIEW) { event.preventDefault(); activate('details'); return; }
+  const offered = choices();
+  if (key === 'ArrowUp' || key === 'ArrowDown') { event.preventDefault(); state.selected = Math.max(0, Math.min(offered.length - 1, state.selected + (key === 'ArrowUp' ? -1 : 1))); render(); }
+  if (key === 'Enter' && offered[state.selected]) { event.preventDefault(); activate(offered[state.selected].id); }
+});
+document.querySelector('#sizes').addEventListener('click', event => { const button = event.target.closest('[data-width]'); if (button) { state.width = Number(button.dataset.width); render(); } });
+document.querySelector('#surface').addEventListener('change', event => { state.view = event.target.value; render(); });
+document.querySelector('#operation').addEventListener('change', event => { state.operation = event.target.value; setPhase(P.REVIEW); });
+document.querySelector('#policy').addEventListener('change', event => { state.policy = event.target.value; setPhase(P.REVIEW); });
+document.querySelector('#outcome').addEventListener('change', event => setPhase(event.target.value));
+document.querySelector('#reset').addEventListener('click', () => { state.draft = 'Keep the change focused.'; state.policy = 'default'; state.pending = 2; state.completed = null; state.palette = { filter: '', selected: 0 }; document.querySelector('#policy').value = 'default'; setPhase(P.REVIEW); });
+document.querySelector('#confirm').addEventListener('click', () => {
+  const tool = state.operation === 'edit' ? 'edit_file' : 'exec_command';
+  state.completed = state.submitted === 'deny' ? '[-] ' + tool + ' · denied' : '[~] ' + tool + ' · running';
+  state.operation = state.operation === 'edit' ? 'command' : 'edit'; state.pending = 1;
+  document.querySelector('#operation').value = state.operation; setPhase(P.REVIEW);
+});
+render();
+</script>
+</html>

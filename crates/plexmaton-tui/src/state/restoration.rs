@@ -10,7 +10,7 @@ pub(crate) enum FeedbackPlacement {
 
 /// File repair performed before restoring a conversation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SessionTailRepair {
+pub enum ConversationTailRepair {
     /// A complete final JSON record lacked its newline.
     AddedFinalNewline,
     /// An incomplete final fragment was retained beside the journal.
@@ -19,13 +19,13 @@ pub enum SessionTailRepair {
 
 /// Presentation-only confirmation after the acknowledged history has been installed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SessionRestoration {
+pub struct ConversationRestoration {
     /// Optional file-tail repair, shown before the success confirmation.
-    pub tail: Option<SessionTailRepair>,
+    pub tail: Option<ConversationTailRepair>,
 }
 
 impl ViewState {
-    pub(crate) fn report_session_recovery(&mut self, summary: SessionRestoration) {
+    pub(crate) fn report_conversation_recovery(&mut self, summary: ConversationRestoration) {
         let Some(id) = self.primary_agent().map(|agent| agent.id.clone()) else {
             return;
         };
@@ -44,8 +44,8 @@ mod tests {
     use super::*;
     use crate::{Palette, TranscriptMetrics, surface::SurfaceId};
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId,
-        TranscriptRole,
+        AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+        TranscriptItemId, TranscriptRole,
     };
 
     #[test]
@@ -54,15 +54,15 @@ mod tests {
         for width in [120, 95, 60] {
             let mut state = ViewState::default();
             let agent_id = AgentId::new("primary").expect("agent");
-            state.apply(SessionEventEnvelope {
+            state.apply(ConversationEventEnvelope {
                 sequence: EventSequence::new(1),
-                event: SessionEvent::AgentCreated {
+                event: ConversationEvent::AgentCreated {
                     agent_id: agent_id.clone(),
                     label: "Plexmaton".into(),
                     status: AgentStatus::Idle,
                 },
             });
-            state.report_session_recovery(SessionRestoration { tail: None });
+            state.report_conversation_recovery(ConversationRestoration { tail: None });
             let before = crate::test_support::draw(&state, width, 24);
             assert!(before.contains("✓ Conversation restored."));
             assert!(!before.contains("Notices"));
@@ -71,7 +71,7 @@ mod tests {
             for (sequence, event) in [
                 (
                     2,
-                    SessionEvent::TranscriptItemStarted {
+                    ConversationEvent::TranscriptItemStarted {
                         agent_id: agent_id.clone(),
                         item_id: item_id.clone(),
                         role: TranscriptRole::User,
@@ -79,7 +79,7 @@ mod tests {
                 ),
                 (
                     3,
-                    SessionEvent::TranscriptDelta {
+                    ConversationEvent::TranscriptDelta {
                         agent_id: agent_id.clone(),
                         item_id,
                         item_revision: 1,
@@ -87,7 +87,7 @@ mod tests {
                     },
                 ),
             ] {
-                state.apply(SessionEventEnvelope {
+                state.apply(ConversationEventEnvelope {
                     sequence: EventSequence::new(sequence),
                     event,
                 });

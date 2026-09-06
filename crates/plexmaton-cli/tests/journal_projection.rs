@@ -1,11 +1,11 @@
 use plexmaton_agent::{
-    Agent, AssistantBlock, AssistantOutput, ContextAtom, Effect, Input, JournalEntryPayload,
-    JournalRecord, ModelError, ModelEvent, ModelOutputPosition, ModelStepId, SessionEntry,
-    SessionJournal, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
+    Agent, AssistantBlock, AssistantOutput, ContextAtom, ConversationEntry, ConversationJournal,
+    Effect, Input, JournalEntryPayload, JournalRecord, ModelError, ModelEvent, ModelOutputPosition,
+    ModelStepId, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, ToolCallId,
-    ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+    ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{ApplyOutcome, TranscriptEntryView, ViewState};
 
@@ -23,7 +23,7 @@ fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::Id
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
 }
 
-fn append(journal: &mut SessionJournal, ordinal: u64, payload: JournalEntryPayload) {
+fn append(journal: &mut ConversationJournal, ordinal: u64, payload: JournalEntryPayload) {
     let head = id("main", HeadName::new);
     let parent_id = journal
         .head_target(&head)
@@ -38,8 +38,8 @@ fn append(journal: &mut SessionJournal, ordinal: u64, payload: JournalEntryPaylo
             record_id: id(&format!("record-{ordinal}"), JournalRecordId::new),
             head,
             expected_head_revision,
-            entry: Box::new(SessionEntry {
-                id: id(&format!("entry-{ordinal}"), SessionEntryId::new),
+            entry: Box::new(ConversationEntry {
+                id: id(&format!("entry-{ordinal}"), ConversationEntryId::new),
                 parent_id,
                 payload,
             }),
@@ -61,7 +61,7 @@ fn first_step(agent_id: AgentId, text: &str) -> ModelStepId {
 
 fn apply_all(
     view: &mut ViewState,
-    events: impl IntoIterator<Item = plexmaton_core::SessionEventEnvelope>,
+    events: impl IntoIterator<Item = plexmaton_core::ConversationEventEnvelope>,
 ) {
     for envelope in events {
         assert_eq!(view.apply(envelope), ApplyOutcome::Accepted);
@@ -121,7 +121,7 @@ fn live_and_replayed_after(
 fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
     let agent_id = id("agent-primary", AgentId::new);
     let call_id = id("call-1", ToolCallId::new);
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     let step_id = first_step(agent_id.clone(), "inspect the workspace");
     append(
         &mut journal,
@@ -222,13 +222,13 @@ fn jrn_5_journal_projection_builds_the_model_request_and_tui_state() {
         .unwrap_or_else(|error| panic!("tool batch fixture: {error:?}"));
     let expected_atoms = [
         ContextAtom::user(
-            id("entry-2", SessionEntryId::new),
+            id("entry-2", ConversationEntryId::new),
             "inspect the workspace".to_owned(),
         ),
         ContextAtom::tool_batch(
             [3, 4, 5, 6]
                 .into_iter()
-                .map(|ordinal| id(&format!("entry-{ordinal}"), SessionEntryId::new))
+                .map(|ordinal| id(&format!("entry-{ordinal}"), ConversationEntryId::new))
                 .collect(),
             batch,
         )
@@ -305,7 +305,7 @@ fn jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics() {
     records.append(&mut stopped.records);
     apply_all(&mut live_view, stopped.events);
 
-    let mut rebuilt = SessionJournal::new(live.journal().session_id().clone());
+    let mut rebuilt = ConversationJournal::new(live.journal().conversation_id().clone());
     for record in records {
         rebuilt
             .apply(record)

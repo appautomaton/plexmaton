@@ -11,7 +11,8 @@
 
 **SKL-1 — Project settings do not relocate user state.** The physical checkout/worktree's optional
 `.plexmaton/config.toml` selects an exact user-defined provider/model pair; unknown fields and invalid
-present files fail explicitly. `PLEXMATON_HOME` retains configuration and runtime ownership (PRV-6).
+present files fail explicitly. PER-8 owns its permission rules and separate personal trust.
+`PLEXMATON_HOME` retains configuration and runtime ownership (PRV-6).
 
 **SKL-2 — Discovery publishes a bounded deterministic catalog.** Direct bundles are discovered in
 project `.plexmaton/skills`, project `.agents/skills`, then user-home `skills`; first validated name

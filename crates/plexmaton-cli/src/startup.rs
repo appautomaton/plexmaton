@@ -9,16 +9,16 @@ use plexmaton_runtime::NativeToolCatalog;
 
 use crate::{
     INTERNAL_RG_DRIVER, project_config, resolve_path_executable,
-    session::{OpenedSession, SessionSelection, open_selected_session},
+    session::{ConversationSelection, OpenedConversation, open_selected_conversation},
     session_picker, statusline,
 };
 
 pub(super) async fn live_runtime_from_process(
-    selection: SessionSelection,
+    selection: ConversationSelection,
 ) -> anyhow::Result<(
-    OpenedSession,
+    OpenedConversation,
     PathBuf,
-    session_picker::SessionPicker,
+    session_picker::ConversationPicker,
     Option<statusline::StatusLine>,
 )> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
@@ -28,14 +28,15 @@ pub(super) async fn live_runtime_from_process(
     let path = root.join("config.toml");
     let source = fs::read_to_string(&path)
         .with_context(|| format!("read provider configuration at {}", path.display()))?;
-    let (config, status_config) = statusline::parse(&source)?;
+    let config = crate::user_config::parse(&source)?;
     let workspace_root = std::env::current_dir()
         .context("resolve tool workspace")?
         .canonicalize()
         .context("canonicalize tool workspace")?;
     let project_root = project_config::discover_project_root(&workspace_root)
         .context("resolve project configuration root")?;
-    let model = project_config::select_model(&project_root, &config)
+    let model = project_config::load(&project_root)?
+        .select_model(&config.models)
         .context("resolve project model selection")?;
     let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
@@ -58,16 +59,39 @@ pub(super) async fn live_runtime_from_process(
         &plexmaton_file_tools::FileCancellation::new(),
     )
     .context("discover project and user skills")?;
-    let picker = session_picker::SessionPicker::new(session_picker::Launcher {
+    let compiler = tools.permission_compiler();
+    let user_rules = config
+        .permissions
+        .compile(&compiler, |index| {
+            plexmaton_agent::PermissionRuleSource::UserConfiguration {
+                fingerprint: config.fingerprint,
+                index,
+            }
+        })
+        .context("compile user permission rules")?;
+    let project_store =
+        plexmaton_permission_store::ProjectPermissionStore::open(&root, &project_root)
+            .context("open personal project permissions")?;
+    let permissions = plexmaton_runtime::CodingSessionPermissions::new(&tools)
+        .with_user_rules(user_rules)?
+        .with_project_store(project_store)?
+        .with_project_configuration(std::sync::Arc::new(
+            project_config::ProjectPermissionReader::new(project_root, compiler),
+        ))?;
+    let picker = session_picker::ConversationPicker::new(session_picker::Launcher {
         root: root.clone(),
         workspace: workspace_root.clone(),
         model: model.clone(),
         ripgrep,
         driver,
+        permissions: permissions.clone(),
     });
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let status_line = status_config
+    let status_line = config
+        .status_line
         .map(|config| statusline::StatusLine::new(config, model.clone(), workspace_root.clone()));
-    let opened = open_selected_session(&root, selection, agent_id, model, key, tools).await?;
+    let mut opened =
+        open_selected_conversation(&root, selection, agent_id, model, key, tools).await?;
+    opened.runtime.use_coding_session(permissions)?;
     Ok((opened, workspace_root, picker, status_line))
 }

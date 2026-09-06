@@ -4,7 +4,7 @@ use std::io;
 
 use plexmaton_agent::{
     AtomBudget, BudgetError, BudgetLedger, BudgetLimits, ContextAtom, ContextAtomValue,
-    JournalProjectionError, ModelRequest, SessionJournal, TokenEstimate, TokenEstimator,
+    ConversationJournal, JournalProjectionError, ModelRequest, TokenEstimate, TokenEstimator,
 };
 use plexmaton_core::HeadName;
 use serde::Serialize;
@@ -17,7 +17,7 @@ use crate::{
 /// Pure, on-demand occupancy snapshot of a journal head under this exact model and tool set.
 /// Automatic compaction/dispatch policy consumes the result; this function performs no effect.
 pub fn budget_ledger(
-    journal: &SessionJournal,
+    journal: &ConversationJournal,
     head: &HeadName,
     model: &ResolvedModel,
     tools: &[FunctionTool],
@@ -39,7 +39,7 @@ pub fn budget_ledger(
     let empty = encode_request(
         model,
         &ModelRequest {
-            session_id: journal.session_id().clone(),
+            session_id: journal.conversation_id().clone(),
             atoms: Vec::new(),
         },
         tools,

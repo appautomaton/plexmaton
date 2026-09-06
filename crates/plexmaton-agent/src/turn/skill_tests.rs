@@ -1,4 +1,4 @@
-use plexmaton_core::{AgentId, HeadName, SessionEvent};
+use plexmaton_core::{AgentId, ConversationEvent, HeadName};
 
 use super::Agent;
 use crate::{
@@ -67,7 +67,7 @@ fn skl_5_explicit_submission_records_skill_separately_before_dispatch() {
         .events
         .iter()
         .filter_map(|event| match &event.event {
-            SessionEvent::TranscriptDelta { text, .. } => Some(text.as_str()),
+            ConversationEvent::TranscriptDelta { text, .. } => Some(text.as_str()),
             _ => None,
         })
         .collect();

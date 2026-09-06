@@ -58,7 +58,8 @@ struct Measured {
     id: TranscriptItemId,
     revision: u64,
     open: bool,
-    restoration: Option<(FeedbackPlacement, crate::SessionRestoration)>,
+    restoration: Option<(FeedbackPlacement, crate::ConversationRestoration)>,
+    permission_saved: bool,
     leading_rows: usize,
     retry: Option<crate::RetryTarget>,
     compact_rows: usize,
@@ -151,6 +152,7 @@ impl TranscriptMetrics {
         for item in agent.entries() {
             let open = disclosure.is_open(item.id());
             let restoration = agent.restoration_for(item.id());
+            let permission_saved = item.saved_project_permission().is_some();
             let retry = agent
                 .retry
                 .as_ref()
@@ -161,6 +163,7 @@ impl TranscriptMetrics {
                     && entry.revision == item.revision()
                     && entry.open == open
                     && entry.retry.as_ref() == retry
+                    && entry.permission_saved == permission_saved
                     && entry
                         .restoration
                         .as_ref()
@@ -178,6 +181,13 @@ impl TranscriptMetrics {
                         .wrap(Wrap { trim: false })
                         .line_count(width)
                 });
+                let permission_rows = if permission_saved {
+                    Paragraph::new(crate::content_permissions::saved_permission_lines(palette))
+                        .wrap(Wrap { trim: false })
+                        .line_count(width)
+                } else {
+                    0
+                };
                 let body_rows = if open {
                     wrap_rows(item, palette, width, true)
                 } else {
@@ -188,6 +198,7 @@ impl TranscriptMetrics {
                     revision: item.revision(),
                     retry: retry.cloned(),
                     open,
+                    permission_saved,
                     restoration: restoration.map(|(place, summary)| (place, summary.clone())),
                     leading_rows: if restoration
                         .is_some_and(|(place, _)| place == FeedbackPlacement::Before)
@@ -200,6 +211,7 @@ impl TranscriptMetrics {
                     body_rows,
                     rows: body_rows
                         .saturating_add(feedback_rows)
+                        .saturating_add(permission_rows)
                         .saturating_add(if retry.is_some() { 2 } else { 0 }),
                 };
                 self.wrapped = self.wrapped.saturating_add(1);
@@ -408,6 +420,9 @@ impl TranscriptMetrics {
                     lines.push(Line::from(vec![ratatui::text::Span::styled("[ Retry ]", style(crate::RetryAction::Retry)), ratatui::text::Span::raw("   "), ratatui::text::Span::styled("[ Edit & retry ]", style(crate::RetryAction::EditRetry)), ratatui::text::Span::styled(" · r / e", palette.style(crate::Role::Muted))]));
                     lines.push(Line::default());
                 }
+                if item.saved_project_permission().is_some() {
+                    lines.extend(crate::content_permissions::saved_permission_lines(palette));
+                }
                 if let Some((place, summary)) = agent.restoration_for(item.id()) {
                     let feedback = content::recovery_lines(summary, palette);
                     match place {
@@ -513,7 +528,8 @@ fn wrap_rows(item: &TranscriptEntryView, palette: &Palette, width: u16, open: bo
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        SessionEvent, ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId,
+        ConversationEvent, ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation,
+        TranscriptItemId,
     };
     use ratatui::widgets::{Paragraph, Wrap};
 
@@ -561,11 +577,11 @@ mod tests {
             let wraps = metrics.wrapped();
             conversation
                 .state
-                .report_session_recovery(crate::SessionRestoration { tail: None });
+                .report_conversation_recovery(crate::ConversationRestoration { tail: None });
             let once = conversation.state.clone();
             conversation
                 .state
-                .report_session_recovery(crate::SessionRestoration { tail: None });
+                .report_conversation_recovery(crate::ConversationRestoration { tail: None });
             assert_eq!(
                 conversation.state, once,
                 "identical confirmation is a no-op"
@@ -700,7 +716,7 @@ mod tests {
         let item_id = TranscriptItemId::new("primary-tool")
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         let call_id = ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}"));
-        let event = |revision, status| SessionEvent::ToolCallChanged {
+        let event = |revision, status| ConversationEvent::ToolCallChanged {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: revision,
@@ -996,7 +1012,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         let call = ToolCallId::new("maximum-newline-tool")
             .unwrap_or_else(|error| panic!("fixture: {error}"));
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent_id.clone(),
             item_id: item.clone(),
             item_revision: 0,
@@ -1005,7 +1021,7 @@ mod tests {
             status: ToolCallStatus::Queued,
             presentation: ToolPresentation::default(),
         });
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent_id.clone(),
             item_id: item.clone(),
             item_revision: 1,

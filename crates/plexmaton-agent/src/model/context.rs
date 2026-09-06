@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use plexmaton_core::{SessionEntryId, ToolCallId, TranscriptItemId};
+use plexmaton_core::{ConversationEntryId, ToolCallId, TranscriptItemId};
 use serde::{Deserialize, Serialize};
 
 use super::{ProviderReplay, ReplayCompatibility};
@@ -400,6 +400,7 @@ impl ToolBatch {
                 ToolOutcome::Succeeded { output } => output.len(),
                 ToolOutcome::Failed { message } => message.len(),
                 ToolOutcome::AdmissionRefused { .. }
+                | ToolOutcome::PermissionRefused { .. }
                 | ToolOutcome::Forbidden
                 | ToolOutcome::Denied
                 | ToolOutcome::Cancelled { .. } => 0,
@@ -428,7 +429,7 @@ impl ToolBatch {
 /// One provider-safe context unit that compaction and rewind never split.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContextAtom {
-    source_entries: Box<[SessionEntryId]>,
+    source_entries: Box<[ConversationEntryId]>,
     value: ContextAtomValue,
 }
 
@@ -442,7 +443,7 @@ pub enum ContextAtomValue {
 }
 
 impl ContextAtom {
-    pub fn user(source: SessionEntryId, text: String) -> Self {
+    pub fn user(source: ConversationEntryId, text: String) -> Self {
         Self {
             source_entries: vec![source].into_boxed_slice(),
             value: ContextAtomValue::User { text },
@@ -450,7 +451,7 @@ impl ContextAtom {
     }
 
     /// Retains one explicit skill activation separately from user-authored text (SKL-5).
-    pub fn skill(source: SessionEntryId, activation: SkillActivation) -> Self {
+    pub fn skill(source: ConversationEntryId, activation: SkillActivation) -> Self {
         Self {
             source_entries: vec![source].into_boxed_slice(),
             value: ContextAtomValue::Skill(activation),
@@ -458,7 +459,7 @@ impl ContextAtom {
     }
 
     pub fn assistant(
-        source: SessionEntryId,
+        source: ConversationEntryId,
         output: AssistantOutput,
     ) -> Result<Self, ContextError> {
         if output.tool_calls().next().is_some() {
@@ -471,7 +472,7 @@ impl ContextAtom {
     }
 
     pub fn tool_batch(
-        source_entries: Vec<SessionEntryId>,
+        source_entries: Vec<ConversationEntryId>,
         batch: ToolBatch,
     ) -> Result<Self, ContextError> {
         if source_entries.is_empty() {
@@ -491,7 +492,7 @@ impl ContextAtom {
     }
 
     #[must_use]
-    pub fn source_entries(&self) -> &[SessionEntryId] {
+    pub fn source_entries(&self) -> &[ConversationEntryId] {
         &self.source_entries
     }
 

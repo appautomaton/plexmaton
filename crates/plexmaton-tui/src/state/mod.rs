@@ -3,8 +3,9 @@ mod approval;
 mod asking;
 mod attention;
 mod command_palette;
+pub(crate) mod permissions;
 mod session_picker;
-pub use session_picker::{MAX_SESSION_CHOICES, SessionChoice, SessionPickerStatus};
+pub use session_picker::{ConversationChoice, ConversationPickerStatus, MAX_CONVERSATION_CHOICES};
 mod composer;
 mod configuration;
 mod current_work;
@@ -30,7 +31,9 @@ use std::collections::BTreeMap;
 use plexmaton_core::{AgentId, EventSequence};
 
 pub use agent::AgentView;
-pub use approval::{ApprovalSubmission, ApprovalView};
+pub use approval::{
+    ApprovalChoice, ApprovalFeedback, ApprovalStage, ApprovalSubmission, ApprovalView,
+};
 pub use attention::AttentionView;
 pub use command_palette::{Command, CommandPalette};
 pub(crate) use composer::apply_text;
@@ -45,7 +48,7 @@ pub use ingest::{ApplyOutcome, ReduceError};
 pub use inspector::InspectorView;
 pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
 pub(crate) use restoration::FeedbackPlacement;
-pub use restoration::{SessionRestoration, SessionTailRepair};
+pub use restoration::{ConversationRestoration, ConversationTailRepair};
 pub use retry::{RetryAction, RetryActions, RetrySubmission, RetryTarget};
 pub use scroll::ScrollPosition;
 pub(crate) use selection::TextPoint;
@@ -211,10 +214,12 @@ impl ViewState {
         let Some(palette) = self.command_palette.as_mut() else {
             return false;
         };
+        if palette.permissions().is_some() {
+            return false;
+        }
         if palette
-            .sessions
-            .as_ref()
-            .is_some_and(|s| s.status == SessionPickerStatus::Opening)
+            .conversations()
+            .is_some_and(|s| s.status == ConversationPickerStatus::Opening)
         {
             return false;
         }
@@ -232,28 +237,29 @@ impl ViewState {
 
     /// Rows the command list asks layout for, borders included. Zero while it is closed.
     ///
-    /// Derived from what it will actually draw, so the box is never taller than its content or
-    /// shorter than the row the caret is on.
+    /// Keeps the padded filter origin stable while filtering; small terminals clamp the overlay.
     #[must_use]
-    pub fn command_palette_rows(&self) -> u16 {
+    pub fn command_palette_rows(&self, width: u16) -> u16 {
         let Some(palette) = self.command_palette.as_ref() else {
             return 0;
         };
-        // The filter, one row per match — or the one row saying nothing matched — the key line,
-        // and two borders.
-        if palette.is_session_picker() {
+        if let Some(panel) = palette.permissions() {
+            return panel.preferred_rows(width);
+        }
+        // Filter, result rows, footer, interior gaps, padding and borders.
+        if palette.is_conversation_picker() {
             return u16::try_from(
                 palette
                     .match_count()
-                    .clamp(1, session_picker::VISIBLE_SESSIONS),
+                    .clamp(1, session_picker::VISIBLE_CONVERSATIONS),
             )
             .unwrap_or(1)
-                + 5;
+                + 9;
         }
         let listed = u16::try_from(palette.matches().len())
             .unwrap_or(u16::MAX)
             .max(1);
-        listed.saturating_add(2).saturating_add(2)
+        listed.saturating_add(8).max(10)
     }
 
     /// Returns the current projection revision.

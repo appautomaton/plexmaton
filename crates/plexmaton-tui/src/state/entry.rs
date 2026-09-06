@@ -88,6 +88,8 @@ impl TranscriptEntryView {
 /// One visible tool call and its current lifecycle state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ToolCallView {
+    /// Producer receipt shown beside this call; absent from semantic copy and replay.
+    pub saved_project_permission: Option<plexmaton_core::PermissionGrantId>,
     pub entry_id: TranscriptItemId,
     pub id: ToolCallId,
     pub label: String,
@@ -117,4 +119,13 @@ pub struct MailView {
     pub to: AgentId,
     pub summary: String,
     pub revision: u64,
+}
+
+impl TranscriptEntryView {
+    pub(crate) fn saved_project_permission(&self) -> Option<&plexmaton_core::PermissionGrantId> {
+        match self {
+            Self::Tool(tool) => tool.saved_project_permission.as_ref(),
+            _ => None,
+        }
+    }
 }

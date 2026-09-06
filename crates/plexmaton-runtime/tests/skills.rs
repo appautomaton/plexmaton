@@ -6,7 +6,7 @@ use plexmaton_agent::{
     AdmissionRefusal, ContextAtomValue, Input, JournalEntryPayload, SkillSource, ToolOutcome,
     UndeliveredReason, UnixMillis,
 };
-use plexmaton_core::{AgentId, HeadName, SessionId};
+use plexmaton_core::{AgentId, ConversationId, HeadName};
 use plexmaton_file_tools::FileCancellation;
 use plexmaton_provider::{ApiKey, ModelRegistry, ResolvedModel, resolve_api_key};
 use plexmaton_runtime::{DispatchReport, LiveRuntime, NativeToolCatalog, RuntimeUpdate};
@@ -283,7 +283,8 @@ async fn model_skill_call_records_real_read_while_catalog_omits_body() {
     let journal_path = scratch.path().join("model-call.jsonl");
     let journal = JournalFile::create(
         &journal_path,
-        SessionId::new("model-call-session").unwrap_or_else(|error| panic!("session id: {error}")),
+        ConversationId::new("model-call-session")
+            .unwrap_or_else(|error| panic!("session id: {error}")),
         UnixMillis::new(2),
     )
     .unwrap_or_else(|error| panic!("fresh journal: {error}"));
@@ -375,7 +376,7 @@ async fn explicit_user_only_skill_allows_resource_but_not_unprompted_body() {
     let journal_path = scratch.path().join("user-only.jsonl");
     let journal = JournalFile::create(
         &journal_path,
-        SessionId::new("user-only-session")
+        ConversationId::new("user-only-session")
             .unwrap_or_else(|error| panic!("user-only session id: {error}")),
         UnixMillis::new(4),
     )

@@ -453,6 +453,9 @@ pub(crate) fn tool_output(outcome: &ToolOutcome) -> String {
             },
         })
         .to_string(),
+        ToolOutcome::PermissionRefused { reason } => {
+            serde_json::json!({"status": "permission_refused", "reason": reason}).to_string()
+        }
         ToolOutcome::Forbidden => serde_json::json!({ "status": "forbidden" }).to_string(),
         ToolOutcome::Denied => serde_json::json!({ "status": "denied" }).to_string(),
         ToolOutcome::Cancelled { reason } => serde_json::json!({
@@ -474,7 +477,7 @@ mod tests {
         AdmissionRefusal, ContextAtom, ModelError, ModelRequest, SkillActivation, SkillSource,
         ToolCancellationReason, ToolOutcome,
     };
-    use plexmaton_core::{SessionEntryId, SessionId};
+    use plexmaton_core::{ConversationEntryId, ConversationId};
 
     use super::{SKILL_CONTEXT_LABEL, classify_http_error, encode_request, tool_output};
     use crate::{ModelRegistry, ResolvedModel};
@@ -516,18 +519,18 @@ output_reserve_tokens = 1000
         let instructions =
             "Follow <skill> literally.\nKeep \\\"quotes\\\", \\\\slashes, and 🦀 exact.";
         let request = ModelRequest {
-            session_id: SessionId::new("session-skill").expect("session id"),
+            session_id: ConversationId::new("session-skill").expect("conversation id"),
             atoms: vec![
                 ContextAtom::user(
-                    SessionEntryId::new("entry-before").expect("entry id"),
+                    ConversationEntryId::new("entry-before").expect("entry id"),
                     "before".to_owned(),
                 ),
                 ContextAtom::skill(
-                    SessionEntryId::new("entry-skill").expect("entry id"),
+                    ConversationEntryId::new("entry-skill").expect("entry id"),
                     skill_activation(instructions),
                 ),
                 ContextAtom::user(
-                    SessionEntryId::new("entry-after").expect("entry id"),
+                    ConversationEntryId::new("entry-after").expect("entry id"),
                     "after".to_owned(),
                 ),
             ],

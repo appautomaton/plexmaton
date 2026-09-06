@@ -7,41 +7,43 @@ use std::{
 
 use anyhow::Context as _;
 use plexmaton_agent::UnixMillis;
-use plexmaton_core::{AgentId, SessionId};
+use plexmaton_core::{AgentId, ConversationId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
-use plexmaton_runtime::{JournalTailRecovery, LiveRuntime, NativeToolCatalog, SessionRecovery};
-use plexmaton_session_store::{AutomaticJournal, JournalFile, SessionDirectory};
-use plexmaton_tui::{SessionRestoration, SessionTailRepair};
+use plexmaton_runtime::{
+    ConversationRecovery, JournalTailRecovery, LiveRuntime, NativeToolCatalog,
+};
+use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, JournalFile};
+use plexmaton_tui::{ConversationRestoration, ConversationTailRepair};
 
 pub(super) const USAGE: &str =
-    "Usage: plexmaton [--ephemeral | create <session-id> | resume <session-id>]";
+    "Usage: plexmaton [--ephemeral | create <conversation-id> | resume <conversation-id>]";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) enum SessionSelection {
+pub(super) enum ConversationSelection {
     Automatic,
     Ephemeral,
-    Create(SessionId),
-    Resume(SessionId),
+    Create(ConversationId),
+    Resume(ConversationId),
 }
 
 pub(super) enum StartupAction {
-    Run(SessionSelection),
+    Run(ConversationSelection),
     Help,
 }
 
-pub(super) struct PersistedSession {
-    pub(super) id: SessionId,
+pub(super) struct PersistedConversation {
+    pub(super) id: ConversationId,
     pub(super) path: PathBuf,
 }
 
-pub(super) struct OpenedSession {
+pub(super) struct OpenedConversation {
     pub(super) runtime: LiveRuntime,
-    pub(super) recovery: Option<SessionRecovery>,
-    pub(super) persisted: Option<PersistedSession>,
+    pub(super) recovery: Option<ConversationRecovery>,
+    pub(super) persisted: Option<PersistedConversation>,
 }
 
-pub(super) fn report_persisted_session(
-    session: &PersistedSession,
+pub(super) fn report_persisted_conversation(
+    session: &PersistedConversation,
     output: &mut impl std::io::Write,
 ) -> anyhow::Result<()> {
     // Terminal ownership has ended; a planned automatic filename is not a saved conversation.
@@ -54,7 +56,7 @@ pub(super) fn report_persisted_session(
     }
     writeln!(
         output,
-        "To continue this session, run:\n  plexmaton resume {}",
+        "To continue this conversation, run:\n  plexmaton resume {}",
         session.id
     )
     .context("write session continuation command")
@@ -62,37 +64,37 @@ pub(super) fn report_persisted_session(
 
 pub(super) fn parse_startup_action(arguments: &[OsString]) -> anyhow::Result<StartupAction> {
     match arguments {
-        [] => Ok(StartupAction::Run(SessionSelection::Automatic)),
-        [flag] if flag == "--ephemeral" => Ok(StartupAction::Run(SessionSelection::Ephemeral)),
+        [] => Ok(StartupAction::Run(ConversationSelection::Automatic)),
+        [flag] if flag == "--ephemeral" => Ok(StartupAction::Run(ConversationSelection::Ephemeral)),
         [flag] if flag == "--help" || flag == "-h" || flag == "help" => Ok(StartupAction::Help),
         [command, session] if command == "create" || command == "resume" => {
             let session = session
                 .to_str()
                 .ok_or_else(|| anyhow::anyhow!("session id must be UTF-8"))?;
-            let session = SessionId::new(session).context("validate session id")?;
+            let session = ConversationId::new(session).context("validate session id")?;
             if command == "create" {
-                Ok(StartupAction::Run(SessionSelection::Create(session)))
+                Ok(StartupAction::Run(ConversationSelection::Create(session)))
             } else {
-                Ok(StartupAction::Run(SessionSelection::Resume(session)))
+                Ok(StartupAction::Run(ConversationSelection::Resume(session)))
             }
         }
         _ => anyhow::bail!("{USAGE}"),
     }
 }
 
-pub(super) async fn open_selected_session(
+pub(super) async fn open_selected_conversation(
     root: &Path,
-    selection: SessionSelection,
+    selection: ConversationSelection,
     agent_id: AgentId,
     model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
-) -> anyhow::Result<OpenedSession> {
+) -> anyhow::Result<OpenedConversation> {
     Ok(match selection {
-        SessionSelection::Automatic => {
+        ConversationSelection::Automatic => {
             let journal = AutomaticJournal::new(root, created_at_now()?);
-            let persisted = PersistedSession {
-                id: journal.metadata().session_id().clone(),
+            let persisted = PersistedConversation {
+                id: journal.metadata().conversation_id().clone(),
                 path: journal.path().to_path_buf(),
             };
             let runtime = LiveRuntime::provider_with_automatic_journal(
@@ -105,27 +107,27 @@ pub(super) async fn open_selected_session(
             )
             .await
             .context("configure automatic session")?;
-            OpenedSession {
+            OpenedConversation {
                 runtime,
                 recovery: None,
                 persisted: Some(persisted),
             }
         }
-        SessionSelection::Ephemeral => OpenedSession {
+        ConversationSelection::Ephemeral => OpenedConversation {
             runtime: LiveRuntime::provider(agent_id, "Plexmaton", model, key, tools)
                 .context("configure live provider transport")?,
             recovery: None,
             persisted: None,
         },
-        SessionSelection::Create(session_id) => {
-            let journal = SessionDirectory::under(root)
+        ConversationSelection::Create(session_id) => {
+            let journal = ConversationDirectory::under(root)
                 .context("open sessions directory")?
                 .create(session_id.clone(), created_at_now()?)
                 .context("create session")?;
-            open_fresh_session(agent_id, model, key, tools, session_id, journal).await?
+            open_fresh_conversation(agent_id, model, key, tools, session_id, journal).await?
         }
-        SessionSelection::Resume(session_id) => {
-            let journal = SessionDirectory::under(root)
+        ConversationSelection::Resume(session_id) => {
+            let journal = ConversationDirectory::under(root)
                 .context("open sessions directory")?
                 .resume(&session_id)
                 .context("resume session")?;
@@ -134,10 +136,10 @@ pub(super) async fn open_selected_session(
                 LiveRuntime::provider_with_resumed_journal(agent_id, model, key, tools, journal)
                     .await
                     .context("resume durable runtime")?;
-            OpenedSession {
+            OpenedConversation {
                 runtime,
                 recovery: Some(recovery),
-                persisted: Some(PersistedSession {
+                persisted: Some(PersistedConversation {
                     id: session_id,
                     path,
                 }),
@@ -155,14 +157,14 @@ fn created_at_now() -> anyhow::Result<UnixMillis> {
     Ok(UnixMillis::new(millis))
 }
 
-async fn open_fresh_session(
+async fn open_fresh_conversation(
     agent_id: AgentId,
     model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
-    session_id: SessionId,
+    session_id: ConversationId,
     journal: JournalFile,
-) -> anyhow::Result<OpenedSession> {
+) -> anyhow::Result<OpenedConversation> {
     let path = journal.path().to_path_buf();
     let runtime = match LiveRuntime::provider_with_fresh_journal(
         agent_id,
@@ -185,10 +187,10 @@ async fn open_fresh_session(
             return Err(error).context("create durable runtime");
         }
     };
-    Ok(OpenedSession {
+    Ok(OpenedConversation {
         runtime,
         recovery: None,
-        persisted: Some(PersistedSession {
+        persisted: Some(PersistedConversation {
             id: session_id,
             path,
         }),
@@ -196,31 +198,33 @@ async fn open_fresh_session(
 }
 
 pub(super) fn restoration_feedback(
-    recovery: Option<SessionRecovery>,
-) -> Option<SessionRestoration> {
+    recovery: Option<ConversationRecovery>,
+) -> Option<ConversationRestoration> {
     let tail = recovery?.tail.map(|tail| match tail {
-        JournalTailRecovery::AddedFinalNewline => SessionTailRepair::AddedFinalNewline,
+        JournalTailRecovery::AddedFinalNewline => ConversationTailRepair::AddedFinalNewline,
         JournalTailRecovery::IsolatedFinalTail { bytes } => {
-            SessionTailRepair::IsolatedFinalTail { bytes }
+            ConversationTailRepair::IsolatedFinalTail { bytes }
         }
     });
-    Some(SessionRestoration { tail })
+    Some(ConversationRestoration { tail })
 }
 
 #[cfg(test)]
 mod tests {
     use std::{ffi::OsString, io::Write as _, time::Duration};
 
-    use plexmaton_agent::{Agent, ApprovalPolicy, Input, SessionMetadata, TurnBudget, UnixMillis};
-    use plexmaton_core::{AgentId, AgentStatus, HeadName, SessionId, TranscriptRole};
+    use plexmaton_agent::{
+        Agent, ApprovalPolicy, ConversationMetadata, Input, TurnBudget, UnixMillis,
+    };
+    use plexmaton_core::{AgentId, AgentStatus, ConversationId, HeadName, TranscriptRole};
     use plexmaton_provider::{ApiKey, ModelRegistry, ResolvedModel, resolve_api_key};
     use plexmaton_runtime::{JournalTailRecovery, NativeToolCatalog, RuntimeUpdate};
-    use plexmaton_session_store::{JournalFile, SessionDirectory};
+    use plexmaton_session_store::{ConversationDirectory, JournalFile};
     use plexmaton_tui::{ViewState, Workspace};
     use uuid::{Uuid, Version};
 
     use super::{
-        OpenedSession, SessionSelection, StartupAction, open_selected_session,
+        ConversationSelection, OpenedConversation, StartupAction, open_selected_conversation,
         parse_startup_action, restoration_feedback,
     };
     use crate::tests::{FixtureWorkspace, fixture_http_server};
@@ -230,8 +234,8 @@ mod tests {
         // JRN-5: startup confirmation is UI data, not a journal entry or a model message.
         assert!(restoration_feedback(None).is_none());
         assert_eq!(
-            restoration_feedback(Some(plexmaton_runtime::SessionRecovery::default())),
-            Some(plexmaton_tui::SessionRestoration { tail: None })
+            restoration_feedback(Some(plexmaton_runtime::ConversationRecovery::default())),
+            Some(plexmaton_tui::ConversationRestoration { tail: None })
         );
     }
 
@@ -239,8 +243,8 @@ mod tests {
         AgentId::new("agent-primary").unwrap_or_else(|error| panic!("agent id: {error}"))
     }
 
-    fn session_id(value: &str) -> SessionId {
-        SessionId::new(value).unwrap_or_else(|error| panic!("session id: {error}"))
+    fn conversation_id(value: &str) -> ConversationId {
+        ConversationId::new(value).unwrap_or_else(|error| panic!("session id: {error}"))
     }
 
     fn transport(
@@ -303,12 +307,12 @@ output_reserve_tokens = 5000
     fn jrn_4_cli_grammar_makes_only_the_explicit_flag_ephemeral() {
         assert!(matches!(
             parse_startup_action(&[]).unwrap_or_else(|error| panic!("empty args: {error}")),
-            StartupAction::Run(SessionSelection::Automatic)
+            StartupAction::Run(ConversationSelection::Automatic)
         ));
         assert!(matches!(
             parse_startup_action(&[OsString::from("--ephemeral")])
                 .unwrap_or_else(|error| panic!("ephemeral args: {error}")),
-            StartupAction::Run(SessionSelection::Ephemeral)
+            StartupAction::Run(ConversationSelection::Ephemeral)
         ));
         for (command, expected_create) in [("create", true), ("resume", false)] {
             let parsed =
@@ -317,11 +321,11 @@ output_reserve_tokens = 5000
             assert!(
                 matches!(
                     parsed,
-                    StartupAction::Run(SessionSelection::Create(ref id))
+                    StartupAction::Run(ConversationSelection::Create(ref id))
                         if expected_create && id.as_str() == "work-01"
                 ) || matches!(
                     parsed,
-                    StartupAction::Run(SessionSelection::Resume(ref id))
+                    StartupAction::Run(ConversationSelection::Resume(ref id))
                         if !expected_create && id.as_str() == "work-01"
                 )
             );
@@ -334,9 +338,9 @@ output_reserve_tokens = 5000
     async fn a_default_session_is_durable_and_ephemeral_is_an_explicit_opt_out() {
         let root = FixtureWorkspace::new();
         let (profile, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let mut automatic = open_selected_session(
+        let mut automatic = open_selected_conversation(
             root.path(),
-            SessionSelection::Automatic,
+            ConversationSelection::Automatic,
             agent_id(),
             profile,
             key,
@@ -368,9 +372,9 @@ output_reserve_tokens = 5000
 
         let ephemeral_root = FixtureWorkspace::new();
         let (profile, key, tools) = transport(ephemeral_root.path(), "http://127.0.0.1:9/v1");
-        let mut ephemeral = open_selected_session(
+        let mut ephemeral = open_selected_conversation(
             ephemeral_root.path(),
-            SessionSelection::Ephemeral,
+            ConversationSelection::Ephemeral,
             agent_id(),
             profile,
             key,
@@ -398,9 +402,9 @@ output_reserve_tokens = 5000
             "../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"
         )]);
         let (model, key, tools) = transport(root.path(), &url);
-        let mut opened = open_selected_session(
+        let mut opened = open_selected_conversation(
             root.path(),
-            SessionSelection::Automatic,
+            ConversationSelection::Automatic,
             agent_id(),
             model,
             key,
@@ -426,7 +430,7 @@ output_reserve_tokens = 5000
         let _live = project_until_idle(&mut opened.runtime).await;
         let before = opened
             .runtime
-            .acknowledged_session()
+            .acknowledged_conversation()
             .expect("acknowledged session")
             .0
             .clone();
@@ -441,13 +445,13 @@ output_reserve_tokens = 5000
             1
         );
         let file = JournalFile::open(&path).expect("reopen JSONL");
-        assert_eq!(file.journal().session_id(), &id);
+        assert_eq!(file.journal().conversation_id(), &id);
         assert_ne!(file.journal().created_at_unix_ms(), UnixMillis::EPOCH);
         drop(file);
         let (model, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let mut resumed = open_selected_session(
+        let mut resumed = open_selected_conversation(
             root.path(),
-            SessionSelection::Resume(id),
+            ConversationSelection::Resume(id),
             agent_id(),
             model,
             key,
@@ -468,7 +472,7 @@ output_reserve_tokens = 5000
         assert_eq!(
             resumed
                 .runtime
-                .acknowledged_session()
+                .acknowledged_conversation()
                 .expect("acknowledged replay")
                 .0,
             &before
@@ -482,9 +486,9 @@ output_reserve_tokens = 5000
         let root = FixtureWorkspace::new();
         std::fs::write(root.path().join("sessions"), "blocking file").expect("failure fixture");
         let (model, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let mut opened = open_selected_session(
+        let mut opened = open_selected_conversation(
             root.path(),
-            SessionSelection::Automatic,
+            ConversationSelection::Automatic,
             agent_id(),
             model,
             key,
@@ -509,7 +513,7 @@ output_reserve_tokens = 5000
         let events: Vec<_> = std::iter::from_fn(|| opened.runtime.try_next_event()).collect();
         assert!(!events.iter().any(|event| matches!(
             event.event,
-            plexmaton_core::SessionEvent::TranscriptItemStarted {
+            plexmaton_core::ConversationEvent::TranscriptItemStarted {
                 role: TranscriptRole::User,
                 ..
             }
@@ -528,10 +532,10 @@ output_reserve_tokens = 5000
     #[tokio::test]
     async fn failed_fresh_runtime_construction_removes_its_unusable_session() {
         let root = FixtureWorkspace::new();
-        let named_id = session_id("invalid-transport");
+        let named_id = conversation_id("invalid-transport");
         for selection in [
-            SessionSelection::Create(named_id.clone()),
-            SessionSelection::Automatic,
+            ConversationSelection::Create(named_id.clone()),
+            ConversationSelection::Automatic,
         ] {
             let (profile, key, _matching_tools) = transport(root.path(), "http://127.0.0.1:9/v1");
             let tools = NativeToolCatalog::open(
@@ -543,13 +547,13 @@ output_reserve_tokens = 5000
             )
             .unwrap_or_else(|error| panic!("open mismatched tools: {error}"));
             assert!(
-                open_selected_session(root.path(), selection, agent_id(), profile, key, tools,)
+                open_selected_conversation(root.path(), selection, agent_id(), profile, key, tools,)
                     .await
                     .is_err()
             );
         }
 
-        let sessions = SessionDirectory::under(root.path())
+        let sessions = ConversationDirectory::under(root.path())
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         assert!(
             !sessions
@@ -575,9 +579,9 @@ output_reserve_tokens = 5000
             include_str!("../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"),
         ]);
         let (profile, key, tools) = transport(root.path(), &base_url);
-        let mut created = open_selected_session(
+        let mut created = open_selected_conversation(
             root.path(),
-            SessionSelection::Create(session_id("conversation-01")),
+            ConversationSelection::Create(conversation_id("conversation-01")),
             agent_id(),
             profile,
             key,
@@ -607,10 +611,10 @@ output_reserve_tokens = 5000
             .unwrap_or_else(|error| panic!("fixture HTTP server: {error}"));
         assert_eq!(requests.len(), 2);
 
-        let sessions = SessionDirectory::under(root.path())
+        let sessions = ConversationDirectory::under(root.path())
             .unwrap_or_else(|error| panic!("sessions directory: {error}"));
         let expected_store = sessions
-            .resume(&session_id("conversation-01"))
+            .resume(&conversation_id("conversation-01"))
             .unwrap_or_else(|error| panic!("open expected projection: {error}"));
         let head = HeadName::new("main").unwrap_or_else(|error| panic!("main head: {error}"));
         let expected_projection = expected_store
@@ -627,13 +631,13 @@ output_reserve_tokens = 5000
             "../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"
         )]);
         let (profile, key, tools) = transport(root.path(), &resume_url);
-        let OpenedSession {
+        let OpenedConversation {
             runtime: mut resumed,
             recovery,
             ..
-        } = open_selected_session(
+        } = open_selected_conversation(
             root.path(),
-            SessionSelection::Resume(session_id("conversation-01")),
+            ConversationSelection::Resume(conversation_id("conversation-01")),
             agent_id(),
             profile,
             key,
@@ -680,9 +684,9 @@ output_reserve_tokens = 5000
     async fn a_torn_final_record_resumes_with_one_typed_visible_recovery() {
         let root = FixtureWorkspace::new();
         let (profile, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let created = open_selected_session(
+        let created = open_selected_conversation(
             root.path(),
-            SessionSelection::Create(session_id("torn-01")),
+            ConversationSelection::Create(conversation_id("torn-01")),
             agent_id(),
             profile,
             key,
@@ -692,10 +696,10 @@ output_reserve_tokens = 5000
         .unwrap_or_else(|error| panic!("create torn fixture: {error}"))
         .runtime;
         drop(created);
-        let sessions = SessionDirectory::under(root.path())
+        let sessions = ConversationDirectory::under(root.path())
             .unwrap_or_else(|error| panic!("sessions directory: {error}"));
         let path = sessions
-            .path_for(&session_id("torn-01"))
+            .path_for(&conversation_id("torn-01"))
             .unwrap_or_else(|error| panic!("session path: {error}"));
         let mut file = std::fs::OpenOptions::new()
             .append(true)
@@ -706,13 +710,13 @@ output_reserve_tokens = 5000
         drop(file);
 
         let (profile, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let OpenedSession {
+        let OpenedConversation {
             runtime: mut resumed,
             recovery,
             ..
-        } = open_selected_session(
+        } = open_selected_conversation(
             root.path(),
-            SessionSelection::Resume(session_id("torn-01")),
+            ConversationSelection::Resume(conversation_id("torn-01")),
             agent_id(),
             profile,
             key,
@@ -728,7 +732,7 @@ output_reserve_tokens = 5000
         while let Some(event) = resumed.try_next_event() {
             workspace.emit(vec![event]);
         }
-        workspace.report_session_recovery(
+        workspace.report_conversation_recovery(
             restoration_feedback(recovery).unwrap_or_else(|| panic!("missing recovery notice")),
         );
         assert_eq!(workspace.state().notices().count(), 0);
@@ -742,15 +746,15 @@ output_reserve_tokens = 5000
     #[tokio::test]
     async fn an_unfinished_final_turn_resumes_once_as_interrupted_without_an_effect() {
         let root = FixtureWorkspace::new();
-        let session = session_id("unfinished-01");
-        let sessions = SessionDirectory::under(root.path())
+        let session = conversation_id("unfinished-01");
+        let sessions = ConversationDirectory::under(root.path())
             .unwrap_or_else(|error| panic!("sessions directory: {error}"));
         let mut file = sessions
             .create(session.clone(), UnixMillis::EPOCH)
             .unwrap_or_else(|error| panic!("create unfinished fixture: {error}"));
-        let mut agent = Agent::for_session(
+        let mut agent = Agent::for_conversation(
             agent_id(),
-            SessionMetadata::new(session.clone(), UnixMillis::EPOCH),
+            ConversationMetadata::new(session.clone(), UnixMillis::EPOCH),
             TurnBudget::default(),
             ApprovalPolicy::default(),
         );
@@ -770,13 +774,13 @@ output_reserve_tokens = 5000
         drop(file);
 
         let (profile, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let OpenedSession {
+        let OpenedConversation {
             runtime: mut resumed,
             recovery,
             ..
-        } = open_selected_session(
+        } = open_selected_conversation(
             root.path(),
-            SessionSelection::Resume(session.clone()),
+            ConversationSelection::Resume(session.clone()),
             agent_id(),
             profile,
             key,
@@ -815,13 +819,13 @@ output_reserve_tokens = 5000
         drop(resumed);
 
         let (profile, key, tools) = transport(root.path(), "http://127.0.0.1:9/v1");
-        let OpenedSession {
+        let OpenedConversation {
             runtime: mut reopened,
             recovery: again,
             ..
-        } = open_selected_session(
+        } = open_selected_conversation(
             root.path(),
-            SessionSelection::Resume(session),
+            ConversationSelection::Resume(session),
             agent_id(),
             profile,
             key,

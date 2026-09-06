@@ -4,7 +4,8 @@
 //! tool catalog turns that request into [`AdmittedToolCall`]; the loop never infers authority from
 //! the model's name or prose (APV-1 and APV-2).
 
-use std::num::NonZeroU64;
+use crate::{PermissionSnapshot, PermissionSubject};
+use std::{num::NonZeroU64, sync::Arc};
 
 use plexmaton_core::{ToolCallId, ToolCapability, ToolDefinitionId, ToolDetail};
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,8 @@ impl CapabilitySet {
 }
 
 /// Monotonic revision of one trusted tool definition.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
 pub struct ToolDefinitionRevision(NonZeroU64);
 
 impl ToolDefinitionRevision {
@@ -113,11 +115,22 @@ pub enum AdmittedCallError {
 #[derive(Debug, Eq, PartialEq)]
 pub struct AdmissionRequest {
     requested: ToolCall,
+    subject: Box<PermissionSubject>,
 }
 
 impl AdmissionRequest {
-    pub(crate) const fn new(requested: ToolCall) -> Self {
-        Self { requested }
+    pub(crate) fn new(requested: ToolCall) -> Self {
+        Self {
+            requested,
+            subject: Box::new(PermissionSubject::Opaque),
+        }
+    }
+
+    /// Adds catalog-validated permission facts to this non-cloneable admission ticket.
+    #[must_use]
+    pub fn with_permission_subject(mut self, subject: PermissionSubject) -> Self {
+        self.subject = Box::new(subject);
+        self
     }
 
     /// Exact untrusted call the catalog must parse and answer.
@@ -145,7 +158,10 @@ impl AdmissionRequest {
             detail,
             invocation,
         )
-        .map(AdmissionOutcome::Admitted)
+        .map(|mut call| {
+            call.subject = self.subject;
+            AdmissionOutcome::Admitted(call)
+        })
     }
 
     /// Consumes this loop-issued ticket as a typed refusal.
@@ -168,6 +184,7 @@ impl AdmissionRequest {
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AdmittedToolCall {
+    subject: Box<PermissionSubject>,
     requested: ToolCall,
     definition_id: ToolDefinitionId,
     definition_revision: ToolDefinitionRevision,
@@ -201,6 +218,7 @@ impl AdmittedToolCall {
             return Err(AdmittedCallError::PresentationTooLarge);
         }
         Ok(Self {
+            subject: Box::new(PermissionSubject::Opaque),
             requested,
             definition_id,
             definition_revision,
@@ -209,6 +227,12 @@ impl AdmittedToolCall {
             detail,
             invocation,
         })
+    }
+
+    /// Reusable facts issued by the trusted catalog, separate from rendered invocation detail.
+    #[must_use]
+    pub const fn permission_subject(&self) -> &PermissionSubject {
+        &self.subject
     }
 
     /// The exact request this admitted call answers.
@@ -269,7 +293,8 @@ pub enum AdmissionOutcome {
 }
 
 /// Pure policy result over an admitted call.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PolicyDecision {
     /// Run without asking the user.
     Allow,
@@ -277,6 +302,8 @@ pub enum PolicyDecision {
     RequireApproval,
     /// Never run; approval cannot override this result.
     Forbidden,
+    /// A required permission source could not be validated; no decision can authorize a call.
+    Unavailable,
 }
 
 /// Stateless policy over typed capabilities (APV-2).
@@ -284,6 +311,8 @@ pub enum PolicyDecision {
 pub struct ApprovalPolicy {
     approval_required: CapabilitySet,
     forbidden: CapabilitySet,
+    snapshot: Option<Arc<PermissionSnapshot>>,
+    fallback_ask: CapabilitySet,
 }
 
 impl ApprovalPolicy {
@@ -293,28 +322,120 @@ impl ApprovalPolicy {
         Self {
             approval_required,
             forbidden,
+            snapshot: None,
+            fallback_ask: CapabilitySet::default(),
         }
     }
 
     /// Decides an admitted call without I/O or presentation state (APV-2).
     #[must_use]
     pub fn decide(&self, call: &AdmittedToolCall) -> PolicyDecision {
+        self.evaluate(call).decision()
+    }
+
+    fn evaluate<'a>(&'a self, call: &AdmittedToolCall) -> crate::permissions::PolicyMatch<'a> {
+        use crate::permissions::PolicyMatch;
         if call.capabilities.intersects(&self.forbidden) {
-            PolicyDecision::Forbidden
-        } else if call.capabilities.intersects(&self.approval_required) {
+            return PolicyMatch::Capability(PolicyDecision::Forbidden);
+        }
+        let explicit_ask = call.capabilities.intersects(&self.approval_required);
+        let fallback = if explicit_ask || call.capabilities.intersects(&self.fallback_ask) {
             PolicyDecision::RequireApproval
         } else {
             PolicyDecision::Allow
+        };
+        self.snapshot.as_ref().map_or_else(
+            || {
+                if explicit_ask {
+                    PolicyMatch::Capability(fallback)
+                } else {
+                    PolicyMatch::Fallback(fallback)
+                }
+            },
+            |view| view.evaluate(call, fallback, explicit_ask),
+        )
+    }
+
+    pub(crate) fn audit(
+        &self,
+        call: &AdmittedToolCall,
+        user: Option<crate::PermissionUserDecision>,
+    ) -> crate::PermissionDecisionAudit {
+        crate::PermissionDecisionAudit::new(
+            self.snapshot.as_deref(),
+            call,
+            self.evaluate(call).into(),
+            user,
+        )
+    }
+
+    /// Replaces the derived immutable permission view; the Session owner retains mutation authority.
+    pub fn use_snapshot(&mut self, snapshot: Arc<PermissionSnapshot>) {
+        self.snapshot = Some(snapshot);
+    }
+
+    pub(crate) fn remember_offer(
+        &self,
+        call: &AdmittedToolCall,
+    ) -> Option<crate::permissions::PendingPermissionOffer> {
+        let snapshot = self.snapshot.as_ref()?;
+        if !self.remember_is_effective(snapshot, call) {
+            return None;
         }
+        snapshot.remember_offer(call)
+    }
+
+    pub(crate) fn approval_reason(
+        &self,
+        call: &AdmittedToolCall,
+    ) -> plexmaton_core::ApprovalReason {
+        use plexmaton_core::ApprovalReason;
+        if call.capabilities.intersects(&self.approval_required)
+            || self
+                .snapshot
+                .as_ref()
+                .is_some_and(|view| !view.permits_remembering(call))
+        {
+            return ApprovalReason::ExplicitAsk;
+        }
+        match call.permission_subject() {
+            PermissionSubject::NativeFileChange(_) => ApprovalReason::NativeFileChange,
+            PermissionSubject::Command { .. } => ApprovalReason::CommandExecution,
+            PermissionSubject::Opaque => ApprovalReason::PermissionRequired,
+        }
+    }
+
+    pub(crate) fn offer_is_current(
+        &self,
+        offer: &crate::permissions::PendingPermissionOffer,
+    ) -> bool {
+        self.snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.revision() == &offer.revision)
+    }
+
+    pub(crate) fn remember_is_effective(
+        &self,
+        snapshot: &PermissionSnapshot,
+        call: &AdmittedToolCall,
+    ) -> bool {
+        !call.capabilities.intersects(&self.forbidden)
+            && !call.capabilities.intersects(&self.approval_required)
+            && snapshot.permits_remembering(call)
     }
 }
 
 impl Default for ApprovalPolicy {
     fn default() -> Self {
-        Self::new(
-            CapabilitySet::new([ToolCapability::FileWrite, ToolCapability::ProcessSpawn]),
-            CapabilitySet::default(),
-        )
+        Self {
+            approval_required: CapabilitySet::default(),
+            forbidden: CapabilitySet::default(),
+            snapshot: None,
+            fallback_ask: CapabilitySet::new([
+                ToolCapability::FileWrite,
+                ToolCapability::ProcessSpawn,
+            ]),
+        }
     }
 }
 

@@ -1,6 +1,8 @@
 use super::*;
 use crate::Point;
-use plexmaton_core::{AgentStatus, EventSequence, SessionEvent, TranscriptItemId, TranscriptRole};
+use plexmaton_core::{
+    AgentStatus, ConversationEvent, EventSequence, TranscriptItemId, TranscriptRole,
+};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -14,19 +16,19 @@ fn fixture(
 ) -> (Workspace, Terminal<TestBackend>, u64) {
     let mut workspace = Workspace::with_palette(Palette::pastel());
     let agent = AgentId::new("primary").expect("agent");
-    let mut events = vec![SessionEvent::AgentCreated {
+    let mut events = vec![ConversationEvent::AgentCreated {
         agent_id: agent.clone(),
         label: "Plexmaton".into(),
         status: AgentStatus::Idle,
     }];
     for (index, (role, text)) in messages.iter().enumerate() {
         let item = TranscriptItemId::new(format!("item-{index}")).expect("item");
-        events.push(SessionEvent::TranscriptItemStarted {
+        events.push(ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: item.clone(),
             role: *role,
         });
-        events.push(SessionEvent::TranscriptDelta {
+        events.push(ConversationEvent::TranscriptDelta {
             agent_id: agent.clone(),
             item_id: item,
             item_revision: 1,
@@ -38,7 +40,7 @@ fn fixture(
         events
             .into_iter()
             .enumerate()
-            .map(|(i, event)| SessionEventEnvelope {
+            .map(|(i, event)| ConversationEventEnvelope {
                 sequence: EventSequence::new(i as u64 + 1),
                 event,
             })
@@ -236,9 +238,9 @@ fn streamed_text_preserves_or_invalidates_selection_by_its_exact_prefix() {
             ..start
         };
         assert_eq!(drag(&mut workspace, &mut terminal, start, end), "hello");
-        workspace.emit(vec![SessionEventEnvelope {
+        workspace.emit(vec![ConversationEventEnvelope {
             sequence: EventSequence::new(sequence),
-            event: SessionEvent::TranscriptDelta {
+            event: ConversationEvent::TranscriptDelta {
                 agent_id: AgentId::new("primary").expect("agent"),
                 item_id: TranscriptItemId::new("item-0").expect("item"),
                 item_revision: 2,
@@ -265,17 +267,17 @@ fn inspector_text_drag_survives_input_geometry_and_empty_drag_clears() {
         let agent = AgentId::new("helper").expect("agent");
         let item = TranscriptItemId::new("helper-answer").expect("item");
         let events = [
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent.clone(),
                 label: "Helper".into(),
                 status: AgentStatus::Idle,
             },
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent.clone(),
                 item_id: item.clone(),
                 role: TranscriptRole::Assistant,
             },
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent.clone(),
                 item_id: item,
                 item_revision: 1,
@@ -286,7 +288,7 @@ fn inspector_text_drag_survives_input_geometry_and_empty_drag_clears() {
             events
                 .into_iter()
                 .enumerate()
-                .map(|(i, event)| SessionEventEnvelope {
+                .map(|(i, event)| ConversationEventEnvelope {
                     sequence: EventSequence::new(sequence + i as u64),
                     event,
                 })

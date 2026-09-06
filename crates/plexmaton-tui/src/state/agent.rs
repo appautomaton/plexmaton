@@ -28,7 +28,7 @@ pub struct AgentView {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RestorationFeedback {
     pub(crate) after: Option<TranscriptItemId>,
-    pub(crate) summary: super::SessionRestoration,
+    pub(crate) summary: super::ConversationRestoration,
 }
 
 impl AgentView {
@@ -59,7 +59,7 @@ impl AgentView {
         self.entries.iter()
     }
 
-    pub(super) fn report_restoration(&mut self, summary: super::SessionRestoration) -> bool {
+    pub(super) fn report_restoration(&mut self, summary: super::ConversationRestoration) -> bool {
         let feedback = RestorationFeedback {
             after: self
                 .entries
@@ -79,7 +79,7 @@ impl AgentView {
     pub(crate) fn restoration_for(
         &self,
         id: &TranscriptItemId,
-    ) -> Option<(super::FeedbackPlacement, &super::SessionRestoration)> {
+    ) -> Option<(super::FeedbackPlacement, &super::ConversationRestoration)> {
         let feedback = self.restoration.as_ref()?;
         let placement = match &feedback.after {
             Some(after) if after == id => super::FeedbackPlacement::After,
@@ -237,6 +237,7 @@ impl AgentView {
         let _added = self.entries.upsert(
             entry_id.clone(),
             TranscriptEntryView::Tool(ToolCallView {
+                saved_project_permission: None,
                 entry_id,
                 id,
                 label,
@@ -335,6 +336,29 @@ impl AgentView {
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_) => Err(ReduceError::EntryKindChanged(item_id.clone())),
+        }
+    }
+}
+
+impl super::ViewState {
+    pub(crate) fn report_saved_project_permission(
+        &mut self,
+        to: &AgentId,
+        receipt: plexmaton_core::SavedProjectPermission,
+    ) {
+        let Ok(agent) = self.agents.get_mut(to) else {
+            return;
+        };
+        let entry = agent
+            .tools()
+            .find(|tool| tool.id == receipt.call_id)
+            .map(|tool| tool.entry_id.clone());
+        if let Some(TranscriptEntryView::Tool(tool)) =
+            entry.and_then(|id| agent.entries.get_mut(&id))
+            && tool.saved_project_permission.as_ref() != Some(&receipt.grant)
+        {
+            tool.saved_project_permission = Some(receipt.grant);
+            self.touch();
         }
     }
 }

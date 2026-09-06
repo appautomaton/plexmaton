@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, ensure};
 use plexmaton_core::{
-    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId, TranscriptRole,
+    AgentId, ConversationEvent, ConversationEventEnvelope, EventSequence, TranscriptItemId,
+    TranscriptRole,
 };
 use plexmaton_tui::{SurfaceId, TranscriptEntryView};
 use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -70,9 +71,9 @@ struct Observation {
     input: Duration,
 }
 
-fn envelope(sequence: &mut u64, event: SessionEvent) -> SessionEventEnvelope {
+fn envelope(sequence: &mut u64, event: ConversationEvent) -> ConversationEventEnvelope {
     *sequence += 1;
-    SessionEventEnvelope {
+    ConversationEventEnvelope {
         sequence: EventSequence::new(*sequence),
         event,
     }
@@ -90,12 +91,12 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
     let mut frames = StreamFrames::new(now);
     let mut expected = PREFIX.repeat(32);
     for event in [
-        SessionEvent::TranscriptItemStarted {
+        ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: item.clone(),
             role: TranscriptRole::Assistant,
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent.clone(),
             item_id: item.clone(),
             item_revision: 1,
@@ -138,7 +139,7 @@ fn sample(messages: usize, drawing: Drawing, arrivals: Arrivals) -> anyhow::Resu
         expected.push_str(text);
         let event = envelope(
             &mut sequence,
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent.clone(),
                 item_id: item.clone(),
                 item_revision: index + 1,

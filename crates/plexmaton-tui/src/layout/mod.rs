@@ -98,6 +98,8 @@ pub struct WorkspaceInput {
     pub decision_mode: DecisionMode,
     /// Rows the command list asks for, borders included. Zero registers no region at all.
     pub command_palette_rows: u16,
+    /// The current overlay page either edits a filter or navigates permission controls.
+    pub command_palette_focus: crate::KeyboardFocus,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
     pub skill_picker_rows: u16,
     /// Rows requested by the read-only configuration page. Zero while closed.
@@ -119,6 +121,7 @@ impl Default for WorkspaceInput {
             decision_rows: 0,
             decision_mode: DecisionMode::Inline,
             command_palette_rows: 0,
+            command_palette_focus: crate::KeyboardFocus::TextInput,
             skill_picker_rows: 0,
             configuration_rows: 0,
             rail: false,
@@ -235,6 +238,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         regions,
         input.decision_mode,
         input.skill_picker_rows,
+        input.command_palette_focus,
     )
 }
 
@@ -306,6 +310,13 @@ const MAX_WORKSPACE_OVERLAY_WIDTH: u16 = 76;
 /// Rows and columns left visible on every side, excluding the status line (INV-13).
 const WORKSPACE_OVERLAY_MARGIN: u16 = 3;
 
+/// The shared width used for both overlay measurement and placement (INV-13).
+pub(crate) fn workspace_overlay_width(width: u16) -> u16 {
+    width
+        .saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2)
+        .min(MAX_WORKSPACE_OVERLAY_WIDTH)
+}
+
 /// Shared placement for the command list and its configuration page.
 ///
 /// Compact at every width, with no layout-class switch. The top edge stays fixed while the
@@ -314,10 +325,7 @@ fn workspace_overlay_region(body: Rect, rows: u16) -> Option<Rect> {
     if rows == 0 {
         return None;
     }
-    let width = body
-        .width
-        .saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2)
-        .min(MAX_WORKSPACE_OVERLAY_WIDTH);
+    let width = workspace_overlay_width(body.width);
     let height = rows.min(body.height.saturating_sub(WORKSPACE_OVERLAY_MARGIN * 2));
     Some(Rect {
         x: body.x + body.width.saturating_sub(width) / 2,
@@ -505,6 +513,7 @@ mod tests {
             regions,
             DecisionMode::Inline,
             8,
+            crate::KeyboardFocus::TextInput,
         );
         assert!(tree.get(SurfaceId::SkillPicker).is_none());
     }

@@ -136,7 +136,10 @@ impl ViewState {
         self.retry_edit.is_some()
     }
 
-    pub(crate) fn replace_projection(&mut self, events: Vec<plexmaton_core::SessionEventEnvelope>) {
+    pub(crate) fn replace_projection(
+        &mut self,
+        events: Vec<plexmaton_core::ConversationEventEnvelope>,
+    ) {
         let status = self.status.clone();
         let inputs = self.inputs.clone();
         let skill_bindings = self.skill_bindings.clone();

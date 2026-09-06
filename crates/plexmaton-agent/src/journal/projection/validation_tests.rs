@@ -1,13 +1,13 @@
 use plexmaton_core::{
-    AgentId, ApprovalId, AttentionId, AttentionRequest, MailId, SessionEvent, SessionId,
+    AgentId, ApprovalId, AttentionId, AttentionRequest, ConversationEvent, ConversationId, MailId,
     ToolCallId, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
-use super::super::{JournalEntryPayload, JournalProjectionError, SessionJournal};
+use super::super::{ConversationJournal, JournalEntryPayload, JournalProjectionError};
 use super::tests::{agent, announce, append, assistant_calls, call, head, id, message};
 use crate::test_support::{call_block, text_block};
 
-fn declare_call(journal: &mut SessionJournal, call: crate::ToolCall) {
+fn declare_call(journal: &mut ConversationJournal, call: crate::ToolCall) {
     append(journal, 1, message(TranscriptRole::User, 1, "inspect"));
     append(
         journal,
@@ -28,7 +28,7 @@ fn declare_call(journal: &mut SessionJournal, call: crate::ToolCall) {
 /// JRN-5: recovery applies only to a final tail, never to corruption before later model facts.
 #[test]
 fn jrn_5_incomplete_tool_batch_before_later_content_is_rejected() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
     declare_call(&mut journal, call.clone());
@@ -49,7 +49,7 @@ fn jrn_5_incomplete_tool_batch_before_later_content_is_rejected() {
 /// JRN-5: invalid lifecycle data is rejected before either consumer sees it.
 #[test]
 fn jrn_5_invalid_tool_lifecycle_has_a_typed_projection_error() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
     declare_call(&mut journal, call.clone());
@@ -79,7 +79,7 @@ fn jrn_5_invalid_tool_lifecycle_has_a_typed_projection_error() {
 /// JRN-5: one transcript identity cannot create two model/UI facts.
 #[test]
 fn jrn_5_duplicate_transcript_identity_is_rejected_before_projection() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let item_id = id("same-item", TranscriptItemId::new);
     append(
@@ -113,7 +113,7 @@ fn jrn_5_duplicate_transcript_identity_is_rejected_before_projection() {
 /// JRN-5: mail cannot produce an event for a recipient absent from the selected head.
 #[test]
 fn jrn_5_mail_requires_both_visible_endpoints() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let missing = id("agent-b", AgentId::new);
     append(
@@ -137,7 +137,7 @@ fn jrn_5_mail_requires_both_visible_endpoints() {
 /// JRN-5: an Attention identity cannot move between visible agent owners.
 #[test]
 fn jrn_5_attention_resolution_keeps_its_request_owner() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let agent_b = id("agent-b", AgentId::new);
     append(
@@ -157,6 +157,8 @@ fn jrn_5_attention_resolution_keeps_its_request_owner() {
             agent_id: agent(),
             attention_id: attention_id.clone(),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: id("approval-1", ApprovalId::new),
                 call_id: id("call-1", ToolCallId::new),
                 tool: "read_file".to_owned(),
@@ -187,7 +189,7 @@ fn jrn_5_attention_resolution_keeps_its_request_owner() {
 /// JRN-5: a visible notice does not turn an incomplete final batch into corruption.
 #[test]
 fn jrn_5_visible_notice_after_incomplete_batch_remains_a_recoverable_tail() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let (call, _) = call("call-a", "output");
     declare_call(&mut journal, call.clone());
@@ -208,14 +210,14 @@ fn jrn_5_visible_notice_after_incomplete_batch_remains_a_recoverable_tail() {
     );
     assert!(projection.events().iter().any(|event| matches!(
         &event.event,
-        SessionEvent::RuntimeWarning { message, .. } if message == "turn interrupted"
+        ConversationEvent::RuntimeWarning { message, .. } if message == "turn interrupted"
     )));
 }
 
 /// JRN-5: later snapshots retain earlier presentation fields instead of erasing them.
 #[test]
 fn jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     let (call, outcome) = call("call-a", "output");
     declare_call(&mut journal, call.clone());
@@ -258,7 +260,7 @@ fn jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots() {
         .events()
         .iter()
         .find_map(|event| match &event.event {
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Succeeded,
                 presentation,
                 ..
@@ -268,5 +270,84 @@ fn jrn_5_tool_presentation_accumulates_across_lifecycle_snapshots() {
     assert_eq!(
         terminal.and_then(|detail| detail.invocation.as_ref()),
         Some(&invocation)
+    );
+}
+
+/// PER-9/JRN-5: decision history must name a requested live call and cannot repeat at one boundary.
+#[test]
+fn per_9_provenance_refuses_foreign_late_and_duplicate_call_facts() {
+    use crate::{
+        PermissionDecisionAudit, PermissionDefinition, PermissionEvidence, PermissionProjectAudit,
+        PolicyDecision, ToolDefinitionRevision,
+    };
+    let payload = |agent_id, call_id| JournalEntryPayload::ToolPermissionDecided {
+        agent_id,
+        call_id,
+        audit: Box::new(PermissionDecisionAudit {
+            definition: PermissionDefinition::new(
+                id("native-read", plexmaton_core::ToolDefinitionId::new),
+                ToolDefinitionRevision::new(1).expect("revision"),
+            ),
+            command_context: None,
+            revision: None,
+            project: PermissionProjectAudit::Disabled,
+            evidence: PermissionEvidence::Fallback {
+                decision: PolicyDecision::Allow,
+            },
+            user: None,
+        }),
+    };
+    let mut journal = ConversationJournal::new(id("audit", ConversationId::new));
+    announce(&mut journal);
+    let (call, _) = call("call-a", "output");
+    declare_call(&mut journal, call.clone());
+    let mut missing = journal.clone();
+    let foreign_call = id("absent", ToolCallId::new);
+    append(&mut missing, 4, payload(agent(), foreign_call.clone()));
+    assert_eq!(
+        missing.project(&head("main")),
+        Err(JournalProjectionError::MissingToolCall(foreign_call))
+    );
+    let mut wrong = journal.clone();
+    append(
+        &mut wrong,
+        4,
+        payload(id("foreign", AgentId::new), call.call_id.clone()),
+    );
+    assert_eq!(
+        wrong.project(&head("main")),
+        Err(JournalProjectionError::WrongToolAgent(call.call_id.clone()))
+    );
+    let mut duplicate = journal.clone();
+    append(&mut duplicate, 4, payload(agent(), call.call_id.clone()));
+    let first = duplicate.project(&head("main")).expect("valid audit");
+    let before = journal.project(&head("main")).expect("before audit");
+    assert_eq!(first.events(), before.events());
+    assert_eq!(first.request(), before.request());
+    append(&mut duplicate, 5, payload(agent(), call.call_id.clone()));
+    assert_eq!(
+        duplicate.project(&head("main")),
+        Err(JournalProjectionError::InvalidPermissionDecision(
+            call.call_id.clone()
+        ))
+    );
+    append(
+        &mut journal,
+        4,
+        JournalEntryPayload::ToolCallChanged {
+            agent_id: agent(),
+            call_id: call.call_id.clone(),
+            item_revision: 1,
+            status: ToolCallStatus::Running,
+            presentation: ToolPresentation::default(),
+            outcome: None,
+        },
+    );
+    append(&mut journal, 5, payload(agent(), call.call_id.clone()));
+    assert_eq!(
+        journal.project(&head("main")),
+        Err(JournalProjectionError::InvalidPermissionDecision(
+            call.call_id
+        ))
     );
 }

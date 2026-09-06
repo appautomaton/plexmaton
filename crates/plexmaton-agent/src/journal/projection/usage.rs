@@ -2,9 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_core::{AgentId, HeadName, SessionEvent, TokenUsage, TurnId};
+use plexmaton_core::{AgentId, ConversationEvent, HeadName, TokenUsage, TurnId};
 
-use super::{JournalProjectionError, SessionJournal};
+use super::{ConversationJournal, JournalProjectionError};
 use crate::timing::UsageAccumulator;
 use crate::{RequestAttemptAuthorized, RequestAttemptTerminal, RequestAttemptTerminalState};
 
@@ -14,7 +14,7 @@ pub(super) fn cumulative_usage_event(
     agent_id: &AgentId,
     totals: &mut BTreeMap<TurnId, UsageAccumulator>,
     other_unresolved: bool,
-) -> Result<Option<SessionEvent>, JournalProjectionError> {
+) -> Result<Option<ConversationEvent>, JournalProjectionError> {
     let Some(step_id) = authorization.owner().agent_step() else {
         return Ok(None);
     };
@@ -36,7 +36,7 @@ pub(super) fn cumulative_usage_event(
         TokenUsage::Complete(counts) if other_unresolved => TokenUsage::Partial(counts),
         aggregate => aggregate,
     };
-    Ok(Some(SessionEvent::TurnUsageUpdated {
+    Ok(Some(ConversationEvent::TurnUsageUpdated {
         agent_id: agent_id.clone(),
         turn_id: step_id.turn_id().clone(),
         usage,
@@ -47,25 +47,25 @@ pub(super) fn unknown_usage_event(
     turn_id: &TurnId,
     agent_id: &AgentId,
     total: Option<&UsageAccumulator>,
-) -> SessionEvent {
+) -> ConversationEvent {
     let usage = total
         .cloned()
         .unwrap_or_default()
         .add(TokenUsage::Unavailable)
         .unwrap_or_else(|()| unreachable!("marking coverage unknown adds no counts"));
-    SessionEvent::TurnUsageUpdated {
+    ConversationEvent::TurnUsageUpdated {
         agent_id: agent_id.clone(),
         turn_id: turn_id.clone(),
         usage,
     }
 }
 
-impl SessionJournal {
+impl ConversationJournal {
     pub(crate) fn preview_cumulative_usage_event(
         &self,
         head: &HeadName,
         terminal: &RequestAttemptTerminal,
-    ) -> Result<Option<SessionEvent>, JournalProjectionError> {
+    ) -> Result<Option<ConversationEvent>, JournalProjectionError> {
         let selected: BTreeSet<_> = self
             .path(head)?
             .into_iter()
@@ -136,7 +136,7 @@ impl SessionJournal {
         &self,
         head: &HeadName,
         turn_id: &TurnId,
-    ) -> Result<Option<SessionEvent>, JournalProjectionError> {
+    ) -> Result<Option<ConversationEvent>, JournalProjectionError> {
         if !self.request_attempts().any(|attempt| {
             attempt.terminal().is_none()
                 && attempt

@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, Write};
 
 use plexmaton_agent::UnixMillis;
-use plexmaton_core::SessionId;
+use plexmaton_core::ConversationId;
 use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
@@ -15,17 +15,17 @@ const HEADER_FORMAT: &str = "plexmaton.session";
 struct HeaderWire {
     format: String,
     schema: String,
-    session_id: SessionId,
+    session_id: ConversationId,
     created_at_unix_ms: UnixMillis,
 }
 
 pub(crate) struct DecodedHeader {
-    pub(crate) session_id: SessionId,
+    pub(crate) session_id: ConversationId,
     pub(crate) created_at_unix_ms: UnixMillis,
 }
 
 pub(crate) fn encode_header(
-    session_id: &SessionId,
+    session_id: &ConversationId,
     created_at_unix_ms: UnixMillis,
 ) -> Result<Vec<u8>, StoreError> {
     encode_line(&HeaderWire {

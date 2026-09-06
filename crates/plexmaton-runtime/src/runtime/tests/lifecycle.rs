@@ -10,7 +10,7 @@ use std::{
 
 use futures_util::{FutureExt as _, future::BoxFuture};
 use plexmaton_agent::{Input, ModelCall, ModelEvent, ModelOutputPosition, StopReason, ToolCall};
-use plexmaton_core::{ApprovalDecision, AttentionRequest, SessionEvent, ToolCallId};
+use plexmaton_core::{ApprovalDecision, AttentionRequest, ConversationEvent, ToolCallId};
 use rustix::{io::Errno, process::Pid};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -101,7 +101,7 @@ async fn start_stubborn_command(runtime: &mut LiveRuntime, workspace: &Path) -> 
                 .unwrap_or_else(|error| panic!("receive lifecycle event: {error}"))
                 .unwrap_or_else(|| panic!("runtime ended before lifecycle approval")),
         };
-        if let SessionEvent::AttentionRequested {
+        if let ConversationEvent::AttentionRequested {
             request: AttentionRequest::Approval { approval_id, .. },
             ..
         } = envelope.event
@@ -269,7 +269,7 @@ async fn dropping_an_active_runtime_drops_the_exact_provider_future() {
             .unwrap_or_else(|| panic!("runtime ended before provider future started"));
         if matches!(
             event.event,
-            SessionEvent::TranscriptDelta { ref text, .. } if text == "started"
+            ConversationEvent::TranscriptDelta { ref text, .. } if text == "started"
         ) {
             break;
         }

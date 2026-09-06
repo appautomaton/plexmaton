@@ -70,6 +70,10 @@ pub(super) struct ScrollState {
 }
 
 impl ScrollState {
+    pub(super) fn reset_panel(&mut self, surface: SurfaceId) {
+        self.panels.remove(&surface);
+    }
+
     /// Returns where the user put this panel, if they ever did.
     pub(super) fn panel(&self, surface_id: SurfaceId) -> Option<ScrollPosition> {
         self.panels.get(&surface_id).copied()

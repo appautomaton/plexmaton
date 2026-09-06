@@ -1,6 +1,6 @@
-use plexmaton_core::{HeadName, SessionEntryId, TranscriptItemId, TurnId};
+use plexmaton_core::{ConversationEntryId, HeadName, TranscriptItemId, TurnId};
 
-use super::{HeadRevision, JournalEntryPayload, SessionJournal};
+use super::{ConversationJournal, HeadRevision, JournalEntryPayload};
 use crate::{RequestAttemptTerminalState, RequestDispatchedOutcome, TurnOutcome};
 
 /// Compare-and-set identity of the exact failed conversation tail a user acted on.
@@ -19,10 +19,10 @@ pub struct RetryCandidate {
     pub skill: Option<String>,
     pub question_item: TranscriptItemId,
     pub error_item: TranscriptItemId,
-    pub before_question: Option<SessionEntryId>,
+    pub before_question: Option<ConversationEntryId>,
 }
 
-impl SessionJournal {
+impl ConversationJournal {
     pub(super) fn validate_retry(
         &self,
         head: &HeadName,

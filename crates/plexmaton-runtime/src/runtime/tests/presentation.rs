@@ -1,10 +1,10 @@
 //! Assertions for native tool facts carried through the runtime boundary (ENT-4).
 
-use plexmaton_core::{SessionEvent, SessionEventEnvelope, ToolCallStatus, ToolDetail};
+use plexmaton_core::{ConversationEvent, ConversationEventEnvelope, ToolCallStatus, ToolDetail};
 
-pub(super) fn assert_edit(events: &[SessionEventEnvelope]) {
+pub(super) fn assert_edit(events: &[ConversationEventEnvelope]) {
     let presentation = events.iter().find_map(|envelope| match &envelope.event {
-        SessionEvent::ToolCallChanged {
+        ConversationEvent::ToolCallChanged {
             call_id,
             status: ToolCallStatus::Succeeded,
             presentation,
@@ -26,10 +26,10 @@ pub(super) fn assert_edit(events: &[SessionEventEnvelope]) {
     ));
 }
 
-pub(super) fn assert_command(events: &[SessionEventEnvelope], expected_model_result: &str) {
+pub(super) fn assert_command(events: &[ConversationEventEnvelope], expected_model_result: &str) {
     assert!(events.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::ToolCallChanged {
+        ConversationEvent::ToolCallChanged {
             call_id,
             status: ToolCallStatus::Succeeded,
             presentation,

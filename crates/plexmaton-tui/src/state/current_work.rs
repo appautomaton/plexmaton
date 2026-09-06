@@ -148,6 +148,8 @@ mod tests {
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             agent_id: id(agent_id),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new(format!("approval-{agent_id}"))
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new(format!("call-{agent_id}"))

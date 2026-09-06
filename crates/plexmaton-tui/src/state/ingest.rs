@@ -6,8 +6,8 @@
 //! "where is the reader" from sharing one file and one set of reasons to change.
 
 use plexmaton_core::{
-    AgentId, AttentionId, AttentionRequest, SessionEvent, SessionEventEnvelope, ToolCallId,
-    ToolCallStatus, TranscriptItemId,
+    AgentId, AttentionId, AttentionRequest, ConversationEvent, ConversationEventEnvelope,
+    ToolCallId, ToolCallStatus, TranscriptItemId,
 };
 use thiserror::Error;
 
@@ -84,7 +84,7 @@ impl ViewState {
     /// is rejected, so one defective event cannot make every later event look like a gap. This
     /// keeps the workspace interactive when a producer misbehaves, which returning an error to a
     /// caller that exits would not.
-    pub fn apply(&mut self, envelope: SessionEventEnvelope) -> ApplyOutcome {
+    pub fn apply(&mut self, envelope: ConversationEventEnvelope) -> ApplyOutcome {
         let sequence = envelope.sequence;
         let expected = self.last_sequence.map_or(1, |last| last.get() + 1);
         let received = sequence.get();
@@ -130,9 +130,9 @@ impl ViewState {
     /// even an empty one invalidates a measured height; finalizing closes the item to further
     /// deltas; and starting one adds an item. Each is state a later frame reads, which is the test
     /// FR-1 actually asks — not whether a glyph moved.
-    fn apply_event(&mut self, event: SessionEvent) -> Result<bool, ReduceError> {
+    fn apply_event(&mut self, event: ConversationEvent) -> Result<bool, ReduceError> {
         let changed = match event {
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id,
                 label,
                 status,
@@ -140,13 +140,13 @@ impl ViewState {
                 self.agents.add(agent_id, label, status)?;
                 true
             }
-            SessionEvent::AgentStatusChanged { agent_id, status } => {
+            ConversationEvent::AgentStatusChanged { agent_id, status } => {
                 let agent = self.agent_mut(&agent_id)?;
                 let moved = agent.status != status;
                 agent.status = status;
                 moved
             }
-            SessionEvent::TurnUsageUpdated {
+            ConversationEvent::TurnUsageUpdated {
                 agent_id,
                 turn_id,
                 usage,
@@ -156,7 +156,7 @@ impl ViewState {
                 // exists it paints no cell, so FR-1 charges it no revision or frame.
                 false
             }
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id,
                 item_id,
                 role,
@@ -167,7 +167,7 @@ impl ViewState {
                 self.remember_entry_owner(item_id, agent_id);
                 true
             }
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id,
                 item_id,
                 item_revision,
@@ -178,7 +178,7 @@ impl ViewState {
                     .append_delta(&item_id, item_revision, &text)?;
                 true
             }
-            SessionEvent::TranscriptItemFinalized {
+            ConversationEvent::TranscriptItemFinalized {
                 agent_id,
                 item_id,
                 item_revision,
@@ -188,7 +188,7 @@ impl ViewState {
                     .finalize_item(&item_id, item_revision)?;
                 true
             }
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 agent_id,
                 item_id,
                 item_revision,
@@ -209,7 +209,7 @@ impl ViewState {
                 self.remember_entry_owner(item_id, agent_id);
                 changed
             }
-            SessionEvent::AttentionRequested {
+            ConversationEvent::AttentionRequested {
                 agent_id,
                 attention_id,
                 request,
@@ -238,7 +238,7 @@ impl ViewState {
                 let opened = answer_here && self.open_next_primary_approval();
                 queued || opened
             }
-            SessionEvent::AttentionResolved {
+            ConversationEvent::AttentionResolved {
                 agent_id,
                 attention_id,
             } => {
@@ -256,31 +256,31 @@ impl ViewState {
                 }
                 let return_focus = self.approval.resolved(&attention_id);
                 let removed = self.attention.resolve(&attention_id);
-                let advanced = return_focus.is_some() && self.open_next_primary_approval();
+                let advanced = self.open_next_primary_approval();
                 let restored =
                     !advanced && return_focus.is_some_and(|surface| self.focus.prefer(surface));
                 removed || restored || advanced
             }
-            SessionEvent::MailDelivered {
+            ConversationEvent::MailDelivered {
                 item_id,
                 mail_id,
                 from,
                 to,
                 summary,
             } => self.apply_mail(item_id, mail_id, from, to, summary)?,
-            SessionEvent::ArtifactAnnounced {
+            ConversationEvent::ArtifactAnnounced {
                 agent_id,
                 item_id,
                 artifact_id,
                 label,
                 pointer,
             } => self.apply_artifact(agent_id, item_id, artifact_id, label, pointer)?,
-            SessionEvent::RuntimeWarning {
+            ConversationEvent::RuntimeWarning {
                 agent_id,
                 item_id,
                 message,
             } => self.apply_runtime_message(agent_id, item_id, message, false)?,
-            SessionEvent::RuntimeError {
+            ConversationEvent::RuntimeError {
                 agent_id,
                 item_id,
                 message,
@@ -381,8 +381,8 @@ impl ViewState {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ArtifactId, EventSequence, MailId, SessionEvent,
-        SessionEventEnvelope, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus,
+        AgentId, AgentStatus, ArtifactId, ConversationEvent, ConversationEventEnvelope,
+        EventSequence, MailId, TokenCounts, TokenUsage, ToolCallId, ToolCallStatus,
         ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
     };
 
@@ -397,15 +397,15 @@ mod tests {
         AgentId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
     }
 
-    fn envelope(sequence: u64, event: SessionEvent) -> SessionEventEnvelope {
-        SessionEventEnvelope {
+    fn envelope(sequence: u64, event: ConversationEvent) -> ConversationEventEnvelope {
+        ConversationEventEnvelope {
             sequence: EventSequence::new(sequence),
             event,
         }
     }
 
-    fn created(id: &str) -> SessionEvent {
-        SessionEvent::AgentCreated {
+    fn created(id: &str) -> ConversationEvent {
+        ConversationEvent::AgentCreated {
             agent_id: agent_id(id),
             label: id.to_owned(),
             status: AgentStatus::Running,
@@ -416,8 +416,13 @@ mod tests {
         TranscriptItemId::new(value).unwrap_or_else(|error| panic!("invalid fixture: {error}"))
     }
 
-    fn tool_event(entry: &str, call: &str, revision: u64, status: ToolCallStatus) -> SessionEvent {
-        SessionEvent::ToolCallChanged {
+    fn tool_event(
+        entry: &str,
+        call: &str,
+        revision: u64,
+        status: ToolCallStatus,
+    ) -> ConversationEvent {
+        ConversationEvent::ToolCallChanged {
             agent_id: agent_id("agent-a"),
             item_id: item_id(entry),
             item_revision: revision,
@@ -470,7 +475,7 @@ mod tests {
         state.apply(envelope(2, created("agent-b")));
         state.apply(envelope(
             3,
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent.clone(),
                 item_id: item_id("text"),
                 role: TranscriptRole::System,
@@ -482,7 +487,7 @@ mod tests {
         ));
         state.apply(envelope(
             5,
-            SessionEvent::ArtifactAnnounced {
+            ConversationEvent::ArtifactAnnounced {
                 agent_id: agent.clone(),
                 item_id: item_id("artifact"),
                 artifact_id: ArtifactId::new("artifact-1")
@@ -493,7 +498,7 @@ mod tests {
         ));
         state.apply(envelope(
             6,
-            SessionEvent::MailDelivered {
+            ConversationEvent::MailDelivered {
                 item_id: item_id("mail"),
                 mail_id: MailId::new("mail-1").unwrap_or_else(|error| panic!("fixture: {error}")),
                 from: agent.clone(),
@@ -503,7 +508,7 @@ mod tests {
         ));
         state.apply(envelope(
             7,
-            SessionEvent::RuntimeWarning {
+            ConversationEvent::RuntimeWarning {
                 agent_id: agent.clone(),
                 item_id: item_id("warning"),
                 message: "degraded".to_owned(),
@@ -511,7 +516,7 @@ mod tests {
         ));
         state.apply(envelope(
             8,
-            SessionEvent::RuntimeError {
+            ConversationEvent::RuntimeError {
                 agent_id: agent,
                 item_id: item_id("error"),
                 message: "failed".to_owned(),
@@ -654,7 +659,7 @@ mod tests {
         state.apply(envelope(2, created("agent-b")));
         state.apply(envelope(
             3,
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent_id("agent-a"),
                 item_id: item_id("shared"),
                 role: TranscriptRole::Assistant,
@@ -664,7 +669,7 @@ mod tests {
         assert!(matches!(
             state.apply(envelope(
                 4,
-                SessionEvent::TranscriptDelta {
+                ConversationEvent::TranscriptDelta {
                     agent_id: agent_id("agent-b"),
                     item_id: item_id("shared"),
                     item_revision: 1,
@@ -732,7 +737,7 @@ mod tests {
         assert_eq!(
             state.apply(envelope(
                 2,
-                SessionEvent::AgentStatusChanged {
+                ConversationEvent::AgentStatusChanged {
                     agent_id: agent_id("agent-a"),
                     status: AgentStatus::Running,
                 }
@@ -749,7 +754,7 @@ mod tests {
 
         state.apply(envelope(
             3,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 agent_id: agent_id("agent-a"),
                 status: AgentStatus::Waiting,
             },
@@ -832,7 +837,7 @@ mod tests {
         assert_eq!(
             state.apply(envelope(
                 2,
-                SessionEvent::TurnUsageUpdated {
+                ConversationEvent::TurnUsageUpdated {
                     agent_id: agent_id("agent-a"),
                     turn_id: turn_id.clone(),
                     usage: TokenUsage::Partial(TokenCounts {

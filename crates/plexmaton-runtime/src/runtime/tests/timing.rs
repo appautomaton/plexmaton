@@ -5,7 +5,7 @@ use plexmaton_agent::{
     ModelOutputPosition, RequestAttemptTerminalState, StopReason, ToolCall, TurnBudget,
     TurnFinishedAt, UnixMillis,
 };
-use plexmaton_core::{HeadName, SessionEvent, SessionId, TokenUsage, ToolCallId};
+use plexmaton_core::{ConversationEvent, ConversationId, HeadName, TokenUsage, ToolCallId};
 use plexmaton_session_store::JournalFile;
 
 use super::{
@@ -73,8 +73,8 @@ async fn runtime_clock_values_reach_session_and_turn_chronology() {
 }
 
 async fn journal_runtime(workspace: &TestWorkspace, driver: Arc<FakeDriver>) -> LiveRuntime {
-    let session_id =
-        SessionId::new("request-audit").unwrap_or_else(|error| panic!("session identity: {error}"));
+    let session_id = ConversationId::new("request-audit")
+        .unwrap_or_else(|error| panic!("session identity: {error}"));
     let file = JournalFile::create(
         workspace.0.join("session.jsonl"),
         session_id,
@@ -115,7 +115,7 @@ async fn provider_failure_reopens_as_the_same_non_retryable_outcome() {
     let events = finish_active(&mut runtime).await;
     assert!(events.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::RuntimeError { message, .. } if message == &error.message()
+        ConversationEvent::RuntimeError { message, .. } if message == &error.message()
     )));
     assert!(runtime.retry_candidate().is_none());
     assert_eq!(driver.calls().await.len(), 1);
@@ -188,11 +188,12 @@ async fn request_attempts_reopen_with_identical_accounting_and_context() {
     assert_eq!(projection.events(), live_projection.events());
     // Streaming text precedes its canonical completion; accounting retains its own event order.
     for accounting in [false, true] {
-        let select = |events: &[plexmaton_core::SessionEventEnvelope]| {
+        let select = |events: &[plexmaton_core::ConversationEventEnvelope]| {
             events
                 .iter()
                 .filter(|envelope| {
-                    matches!(envelope.event, SessionEvent::TurnUsageUpdated { .. }) == accounting
+                    matches!(envelope.event, ConversationEvent::TurnUsageUpdated { .. })
+                        == accounting
                 })
                 .map(|envelope| envelope.event.clone())
                 .collect::<Vec<_>>()
@@ -213,7 +214,7 @@ async fn request_attempts_reopen_with_identical_accounting_and_context() {
     assert_eq!(
         events
             .iter()
-            .filter(|event| matches!(event.event, SessionEvent::TurnUsageUpdated { .. }))
+            .filter(|event| matches!(event.event, ConversationEvent::TurnUsageUpdated { .. }))
             .count(),
         1
     );
@@ -288,7 +289,7 @@ async fn dropped_runtime_reopens_authorization_without_a_fabricated_terminal() {
         .unwrap_or_else(|error| panic!("project crash prefix: {error:?}"));
     assert!(
         matches!(projection.events().iter().rev().find_map(|envelope| match &envelope.event {
-        SessionEvent::TurnUsageUpdated { usage, .. } => Some(usage), _ => None,
+        ConversationEvent::TurnUsageUpdated { usage, .. } => Some(usage), _ => None,
     }), Some(TokenUsage::Partial(counts)) if counts.total == 107)
     );
     let mut agent = Agent::from_journal(
@@ -312,7 +313,7 @@ async fn dropped_runtime_reopens_authorization_without_a_fabricated_terminal() {
     );
     assert!(
         matches!(recovered.events.iter().find_map(|envelope| match &envelope.event {
-        SessionEvent::TurnUsageUpdated { usage, .. } => Some(usage), _ => None,
+        ConversationEvent::TurnUsageUpdated { usage, .. } => Some(usage), _ => None,
     }), Some(TokenUsage::Partial(counts)) if counts.total == 107)
     );
     assert_eq!(

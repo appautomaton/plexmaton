@@ -244,12 +244,16 @@ fn status_configuration_stays_outside_the_model_registry() {
         "",
     );
     let source = format!("active_model = {{ provider = \"local\", model = \"luna\" }}\n{source}");
-    let (models, status) = parse(&source).expect("user configuration");
+    let crate::user_config::UserConfig {
+        models,
+        status_line: status,
+        ..
+    } = crate::user_config::parse(&source).expect("user configuration");
     assert_eq!(models.active_model(), &model());
     assert_eq!(status.expect("script").max_rows, 4);
-    assert!(parse(&source.replace("max_rows = 4", "max_rows = 0")).is_err());
+    assert!(crate::user_config::parse(&source.replace("max_rows = 4", "max_rows = 0")).is_err());
     assert!(
-        parse(&source.replace("max_rows = 4", "surprise = 'secret-marker'"))
+        crate::user_config::parse(&source.replace("max_rows = 4", "surprise = 'secret-marker'"))
             .expect_err("unknown key")
             .to_string()
             .find("secret-marker")

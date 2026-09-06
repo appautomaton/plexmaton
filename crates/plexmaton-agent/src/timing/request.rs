@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use plexmaton_core::SessionEntryId;
+use plexmaton_core::ConversationEntryId;
 use serde::{Deserialize, Serialize};
 
 use crate::{ModelStepId, UnixMillis};
@@ -161,7 +161,7 @@ impl RequestAttemptOwner {
 pub struct RequestAttemptAuthorized {
     attempt_id: RequestAttemptId,
     owner: RequestAttemptOwner,
-    semantic_boundary: SessionEntryId,
+    semantic_boundary: ConversationEntryId,
     environment: RequestEnvironment,
     authorized_at: UnixMillis,
 }
@@ -172,7 +172,7 @@ impl RequestAttemptAuthorized {
     pub const fn new(
         attempt_id: RequestAttemptId,
         owner: RequestAttemptOwner,
-        semantic_boundary: SessionEntryId,
+        semantic_boundary: ConversationEntryId,
         environment: RequestEnvironment,
         authorized_at: UnixMillis,
     ) -> Self {
@@ -199,7 +199,7 @@ impl RequestAttemptAuthorized {
 
     /// Last semantic entry included by this request.
     #[must_use]
-    pub const fn semantic_boundary(&self) -> &SessionEntryId {
+    pub const fn semantic_boundary(&self) -> &ConversationEntryId {
         &self.semantic_boundary
     }
 

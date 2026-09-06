@@ -41,7 +41,7 @@ impl Workspace {
         self.state.finish_retry_edit();
     }
     /// Replaces semantic history while keeping local input and its focus; drops old geometry.
-    pub fn replace_projection(&mut self, events: Vec<SessionEventEnvelope>) {
+    pub fn replace_projection(&mut self, events: Vec<ConversationEventEnvelope>) {
         self.state.replace_projection(events);
         self.metrics = TranscriptMetrics::default();
         self.router = Router::default();

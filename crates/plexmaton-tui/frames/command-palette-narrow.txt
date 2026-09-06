@@ -2,17 +2,17 @@
 │> ask   agent-b · Choose whether the overlap study should │
 └──────────────────────────────────────────────────────────┘
 ┌ A┌ Commands ──────────────────────────────────────────┐──┐
-│○ │ Type to filter                                     │  │
-│  │> /config  Provider, model, and reasoning effort    │  │
-│  │  /resume  Find and resume a saved conversation     │  │
-└──│  /new  Start a new conversation                    │──┘
-┌ A│ ↑↓ choose · Enter run · Esc close                  │) ┐
+│○ │                                                    │  │
+│  │  Type to filter                                    │  │
+│  │                                                    │  │
+└──│  > /config  Provider, model, and reasoning effort  │──┘
+┌ A│    /resume  Find and resume a saved conversation   │) ┐
+│  │    /new  Start a new conversation                  │  │
+│  │    /permissions  Review and change Session or Pr…  │  │
+│  │                                                    │  │
+│  │  ↑↓ choose · Enter run · Esc close                 │  │
+│  │                                                    │  │
 │  └────────────────────────────────────────────────────┘  │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

@@ -5,7 +5,7 @@ use std::{collections::VecDeque, sync::Arc};
 use plexmaton_agent::{
     Agent, Input, ModelCall, ModelStepId, RequestAttemptId, UndeliveredInput, UndeliveredReason,
 };
-use plexmaton_core::{AgentId, SessionEventEnvelope};
+use plexmaton_core::{AgentId, ConversationEventEnvelope};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -16,6 +16,8 @@ mod clock;
 mod construction;
 mod journal;
 mod model;
+mod permissions;
+pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
 mod retry;
 mod skills;
 mod terminal;
@@ -75,13 +77,14 @@ pub struct LiveRuntime {
     agent_id: AgentId,
     agent: Agent,
     driver: Arc<dyn ModelDriver>,
-    pending: VecDeque<SessionEventEnvelope>,
+    pending: VecDeque<ConversationEventEnvelope>,
     signals: mpsc::Sender<ModelSignal>,
     signal_rx: mpsc::Receiver<ModelSignal>,
     active: Option<ActiveModel>,
     pending_model_start: Option<PendingModelStart>,
     deferred_model_call: Option<ModelCall>,
     tools: ToolTasks,
+    permissions: CodingSessionPermissions,
     report: DispatchReport,
     journal: Option<JournalWriter>,
     pending_commit: Option<PendingCommit>,
@@ -89,8 +92,15 @@ pub struct LiveRuntime {
     pending_inputs: VecDeque<PendingInput>,
     preparing_input: Option<PreparingSkillInput>,
     journal_failed: bool,
-    shutting_down: bool,
+    shutdown_state: ShutdownState,
     clock: Arc<dyn WallClock>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShutdownState {
+    Open,
+    Requested,
+    Settling,
 }
 
 impl LiveRuntime {
@@ -128,7 +138,7 @@ impl LiveRuntime {
                 received: to,
             });
         }
-        if self.shutting_down {
+        if self.shutdown_state != ShutdownState::Open {
             if let Some(input) = rejected_user_input(
                 &input,
                 selected_skill.as_deref(),
@@ -186,7 +196,7 @@ impl LiveRuntime {
     }
 
     /// Returns an event already produced without waiting for provider traffic.
-    pub fn try_next_event(&mut self) -> Option<SessionEventEnvelope> {
+    pub fn try_next_event(&mut self) -> Option<ConversationEventEnvelope> {
         // A replacement projection establishes the sequence base of all queued events.
         if self.report.projection_reset.is_some() {
             return None;
@@ -199,7 +209,7 @@ impl LiveRuntime {
     /// Composition roots should prefer [`Self::next_update`] so non-event ownership reports cannot
     /// be missed. This event-only surface leaves such a report available through `take_report` and
     /// returns [`RuntimeError::DispatchReportPending`].
-    pub async fn next_event(&mut self) -> Result<Option<SessionEventEnvelope>, RuntimeError> {
+    pub async fn next_event(&mut self) -> Result<Option<ConversationEventEnvelope>, RuntimeError> {
         match self.next_update().await? {
             RuntimeUpdate::Event(event) => Ok(Some(event)),
             RuntimeUpdate::Finished => Ok(None),
@@ -228,7 +238,7 @@ impl LiveRuntime {
             if !self.report.is_empty() {
                 return Ok(RuntimeUpdate::Report(self.take_report()));
             }
-            if self.shutting_down && !self.has_active_work() {
+            if self.shutdown_state != ShutdownState::Open && !self.has_active_work() {
                 return Ok(RuntimeUpdate::Finished);
             }
             let transition = match self.wait_for_work().await {
@@ -256,6 +266,9 @@ impl LiveRuntime {
     /// Cancellation of this future does not make shutdown look complete: calling it again resumes
     /// the retained provider and tool cleanup.
     pub async fn shutdown(&mut self) -> Result<DispatchReport, RuntimeError> {
+        if self.shutdown_state == ShutdownState::Open {
+            self.shutdown_state = ShutdownState::Requested;
+        }
         self.cancel_skill_inputs(UndeliveredReason::Shutdown).await;
         if let Err(error) = self.finish_pending_inputs().await {
             return self.shutdown_after_journal_failure(error).await;
@@ -265,8 +278,8 @@ impl LiveRuntime {
                 .shutdown_after_journal_failure(RuntimeError::JournalRequiresReopen)
                 .await;
         }
-        if !self.shutting_down {
-            self.shutting_down = true;
+        if self.shutdown_state == ShutdownState::Requested {
+            self.shutdown_state = ShutdownState::Settling;
             if let Err(error) = self
                 .apply_agent_input(Input::ShuttingDown, None, AfterCommit::Shutdown)
                 .await
@@ -295,9 +308,11 @@ impl LiveRuntime {
         &mut self,
         error: RuntimeError,
     ) -> Result<DispatchReport, RuntimeError> {
-        self.shutting_down = true;
+        self.shutdown_state = ShutdownState::Settling;
         self.finish_failed_owners().await;
-        if self.report.persistence_failure.is_some() {
+        if self.report.persistence_failure.is_some()
+            || !self.report.saved_project_permissions.is_empty()
+        {
             Ok(self.take_report())
         } else {
             Err(error)
@@ -311,7 +326,10 @@ impl LiveRuntime {
         self.deferred_model_call = None;
         self.after_commit = None;
         let provider = self.discard_active_after_journal_failure().await;
-        let tools = self.tools.cancel_and_join().await;
+        let tools = self
+            .tools
+            .cancel_and_join(&mut self.report.saved_project_permissions)
+            .await;
         let writer = match &mut self.journal {
             Some(journal) => journal
                 .shutdown()
@@ -390,6 +408,20 @@ impl LiveRuntime {
         resolution: ToolResolution,
     ) -> Result<(), RuntimeError> {
         let input = match resolution {
+            ToolResolution::Permission(Ok(outcome)) => Input::PermissionPrepared(outcome),
+            ToolResolution::Permission(Err(call_id)) => {
+                let Some(pending) = self
+                    .agent
+                    .pending_approvals()
+                    .find(|pending| pending.admitted().requested().call_id == call_id)
+                else {
+                    return Ok(());
+                };
+                Input::PermissionPrepared(plexmaton_agent::PermissionPreparationOutcome::Refused {
+                    approval_id: pending.approval_id().clone(),
+                    reason: plexmaton_agent::PermissionChangeError::Unavailable,
+                })
+            }
             ToolResolution::Admission(outcome) => Input::ToolAdmissionResolved(outcome),
             ToolResolution::Execution { call_id, result } => {
                 Input::ToolFinished { call_id, result }

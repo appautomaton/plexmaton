@@ -1,6 +1,6 @@
 use super::*;
-use crate::{Point, SessionChoice, SessionPickerStatus, SurfaceId};
-use plexmaton_core::SessionId;
+use crate::{ConversationChoice, ConversationPickerStatus, Point, SurfaceId};
+use plexmaton_core::ConversationId;
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -18,17 +18,17 @@ fn mouse(kind: MouseEventKind, point: Point) -> Event {
         modifiers: KeyModifiers::NONE,
     })
 }
-fn choices() -> Vec<SessionChoice> {
+fn choices() -> Vec<ConversationChoice> {
     (0..12)
-        .map(|i| SessionChoice {
-            id: SessionId::new(format!("conversation-{i:02}")).expect("id"),
+        .map(|i| ConversationChoice {
+            id: ConversationId::new(format!("conversation-{i:02}")).expect("id"),
             title: format!("Discuss project {i:02}"),
         })
         .collect()
 }
 fn setup(width: u16) -> (Workspace, Terminal<TestBackend>) {
     let mut workspace = Workspace::default();
-    workspace.open_session_picker();
+    workspace.open_conversation_picker();
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
     workspace.draw(&mut terminal).expect("draw");
     (workspace, terminal)
@@ -40,6 +40,30 @@ fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
         .expect("picker")
         .bounds;
     crate::test_support::snapshot_text(terminal.backend().buffer(), bounds)
+}
+
+fn drawn_choice(workspace: &Workspace, terminal: &Terminal<TestBackend>, text: &str) -> Point {
+    let bounds = workspace
+        .surfaces()
+        .get(SurfaceId::CommandPalette)
+        .expect("palette")
+        .bounds;
+    let drawn = panel(workspace, terminal);
+    let (row, line) = drawn
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains(text))
+        .expect("visible choice");
+    Point {
+        x: bounds.x
+            + u16::try_from(
+                line.chars()
+                    .position(|c| c == '>')
+                    .expect("selected marker"),
+            )
+            .expect("column"),
+        y: bounds.y + u16::try_from(row).expect("row"),
+    }
 }
 
 /// INV-11: message actions cannot enter global discovery, while every resume alias selects one command.
@@ -61,7 +85,12 @@ fn resume_aliases_share_one_command_and_retry_is_not_a_global_command() {
     }
     assert_eq!(
         Command::ALL,
-        [Command::Config, Command::Resume, Command::New]
+        [
+            Command::Config,
+            Command::Resume,
+            Command::New,
+            Command::Permissions
+        ]
     );
     assert_eq!(Command::from_slash("/new"), Some(Command::New));
 }
@@ -82,15 +111,7 @@ fn new_command_keyboard_and_pointer_emit_the_same_intent() {
             workspace.draw(&mut terminal).expect("palette");
             assert!(panel(&workspace, &terminal).contains("/new  Start a new conversation"));
             let outcome = if pointer {
-                let bounds = workspace
-                    .surfaces()
-                    .get(SurfaceId::CommandPalette)
-                    .expect("palette")
-                    .bounds;
-                let point = Point {
-                    x: bounds.x + 3,
-                    y: bounds.y + 2,
-                };
+                let point = drawn_choice(&workspace, &terminal, "> /new");
                 workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), point));
                 workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), point))
             } else {
@@ -98,7 +119,7 @@ fn new_command_keyboard_and_pointer_emit_the_same_intent() {
             };
             assert_eq!(outcome.command, Some(Command::New));
             assert!(outcome.submitted.is_none());
-            workspace.close_session_picker();
+            workspace.close_conversation_picker();
         }
     }
 }
@@ -108,7 +129,7 @@ fn new_command_keyboard_and_pointer_emit_the_same_intent() {
 fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
     for width in [120, 95, 60] {
         let (mut workspace, mut terminal) = setup(width);
-        workspace.set_session_choices(choices(), false);
+        workspace.set_conversation_choices(choices(), false);
         for _ in 0..9 {
             workspace.handle(&key(KeyCode::Down));
         }
@@ -118,15 +139,7 @@ fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
             .resume
             .expect("keyboard selection");
         assert_eq!(id.as_str(), "conversation-09");
-        let bounds = workspace
-            .surfaces()
-            .get(SurfaceId::CommandPalette)
-            .expect("picker")
-            .bounds;
-        let point = Point {
-            x: bounds.x + 2,
-            y: bounds.y + 7,
-        };
+        let point = drawn_choice(&workspace, &terminal, "> Discuss project 09");
         workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), point));
         workspace.handle(&mouse(
             MouseEventKind::Drag(MouseButton::Left),
@@ -158,16 +171,16 @@ fn session_picker_keyboard_and_mouse_share_identity_and_cancel_drags() {
                 .as_str(),
             "conversation-03"
         );
-        workspace.set_session_picker_status(SessionPickerStatus::Opening);
+        workspace.set_conversation_picker_status(ConversationPickerStatus::Opening);
         let before = workspace.state().command_palette().expect("picker").clone();
         workspace.handle(&Event::Paste("ignored while opening".into()));
         workspace.handle(&key(KeyCode::Down));
         assert_eq!(workspace.state().command_palette(), Some(&before));
         assert!(workspace.handle(&key(KeyCode::Enter)).resume.is_none());
         workspace.handle(&key(KeyCode::Esc));
-        workspace.set_session_choices(choices(), false);
+        workspace.set_conversation_choices(choices(), false);
         assert!(
-            !workspace.session_picker_open(),
+            !workspace.conversation_picker_open(),
             "late completion cannot reopen dismissed UI"
         );
     }
@@ -181,20 +194,20 @@ fn session_picker_frames_cover_empty_populated_and_failure_states() {
         let (mut workspace, mut terminal) = setup(width);
         let mut frame = String::new();
         for state in [
-            SessionPickerStatus::Loading,
-            SessionPickerStatus::Ready,
-            SessionPickerStatus::OpenFailed,
+            ConversationPickerStatus::Loading,
+            ConversationPickerStatus::Ready,
+            ConversationPickerStatus::OpenFailed,
         ] {
-            if state == SessionPickerStatus::Ready {
-                workspace.set_session_choices(Vec::new(), false);
+            if state == ConversationPickerStatus::Ready {
+                workspace.set_conversation_choices(Vec::new(), false);
             }
-            if state == SessionPickerStatus::OpenFailed {
-                workspace.set_session_choices(choices(), false);
+            if state == ConversationPickerStatus::OpenFailed {
+                workspace.set_conversation_choices(choices(), false);
             }
-            workspace.set_session_picker_status(state);
+            workspace.set_conversation_picker_status(state);
             workspace.draw(&mut terminal).expect("draw state");
             let drawn = panel(&workspace, &terminal);
-            assert!(drawn.contains("Sessions") && drawn.contains("Esc close"));
+            assert!(drawn.contains("Conversations") && drawn.contains("Esc close"));
             frame.push_str(&drawn);
             frame.push('\n');
         }
@@ -217,7 +230,7 @@ fn session_picker_frames_cover_empty_populated_and_failure_states() {
 #[test]
 fn short_session_picker_keeps_selected_result_and_footer_visible() {
     let (mut workspace, _) = setup(60);
-    workspace.set_session_choices(choices(), false);
+    workspace.set_conversation_choices(choices(), false);
     let mut terminal = Terminal::new(TestBackend::new(60, 12)).expect("short terminal");
     for _ in 0..9 {
         workspace.handle(&key(KeyCode::Down));
@@ -229,7 +242,7 @@ fn short_session_picker_keeps_selected_result_and_footer_visible() {
         text.contains("Enter resume") && text.contains("Esc close"),
         "{text}"
     );
-    workspace.set_session_picker_status(SessionPickerStatus::OpenFailed);
+    workspace.set_conversation_picker_status(ConversationPickerStatus::OpenFailed);
     workspace.draw(&mut terminal).expect("failed short draw");
     assert!(panel(&workspace, &terminal).contains("Cannot open"));
     assert!(

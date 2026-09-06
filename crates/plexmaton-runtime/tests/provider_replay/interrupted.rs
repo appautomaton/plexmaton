@@ -2,7 +2,7 @@ use super::*;
 use plexmaton_agent::{
     AssistantBlock, ContextAtomValue, ModelError, ModelOutputPosition, StopReason,
 };
-use plexmaton_core::SessionEvent;
+use plexmaton_core::ConversationEvent;
 use serde_json::Value;
 
 /// PRV-3/JRN-5: incomplete reasoning remains visible without stranding live or reopened history.
@@ -74,13 +74,13 @@ output_reserve_tokens = 512
                         block, AssistantBlock::Reasoning { text, .. } if text == "Unfinished reasoning."
                     )));
                     assert!(before.events().iter().any(|event| matches!(
-                        &event.event, SessionEvent::TranscriptDelta { text, .. } if text == "Unfinished reasoning."
+                        &event.event, ConversationEvent::TranscriptDelta { text, .. } if text == "Unfinished reasoning."
                     )));
                     let scratch = Scratch::new("interrupted-thinking");
                     let path = scratch.0.join("session.jsonl");
                     let mut file = JournalFile::create(
                         &path,
-                        agent.journal().session_id().clone(),
+                        agent.journal().conversation_id().clone(),
                         UnixMillis::EPOCH,
                     )
                     .expect("create");

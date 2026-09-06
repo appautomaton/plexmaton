@@ -1,3 +1,7 @@
+mod permissions;
+mod prefix_permissions;
+mod project_permissions;
+
 use std::{
     path::PathBuf,
     sync::{
@@ -12,7 +16,9 @@ use plexmaton_agent::{
     ToolCall, ToolOutcome,
 };
 use plexmaton_command::MAX_MODEL_OUTPUT_BYTES;
-use plexmaton_core::{ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId};
+use plexmaton_core::{
+    ApprovalDecision, ApprovalId, AttentionRequest, ConversationEvent, ToolCallId,
+};
 use rustix::{io::Errno, process::Pid};
 
 use super::{FakeDriver, Script, agent_id, complete_usage, finish_active, presentation};
@@ -95,7 +101,7 @@ async fn next_approval(runtime: &mut LiveRuntime) -> ApprovalId {
                 .unwrap_or_else(|error| panic!("receive approval event: {error}"))
                 .unwrap_or_else(|| panic!("runtime ended before approval")),
         };
-        if let SessionEvent::AttentionRequested {
+        if let ConversationEvent::AttentionRequested {
             request: AttentionRequest::Approval { approval_id, .. },
             ..
         } = event.event

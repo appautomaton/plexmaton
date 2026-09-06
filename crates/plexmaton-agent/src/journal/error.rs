@@ -1,4 +1,4 @@
-use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, TurnId};
+use plexmaton_core::{AgentId, ConversationEntryId, HeadName, JournalRecordId, TurnId};
 
 use super::{HeadRevision, JournalSequence};
 use crate::{ModelStepId, RequestAttemptId, RequestTimingError};
@@ -16,9 +16,9 @@ pub enum JournalError {
     /// A prior record already used this identity.
     DuplicateRecord(JournalRecordId),
     /// A prior entry already used this identity.
-    DuplicateEntry(SessionEntryId),
+    DuplicateEntry(ConversationEntryId),
     /// A referenced parent or head target does not exist.
-    MissingEntry(SessionEntryId),
+    MissingEntry(ConversationEntryId),
     /// The named head does not exist.
     MissingHead(HeadName),
     /// The head name is active or was retired and may not be reused.
@@ -32,8 +32,8 @@ pub enum JournalError {
     /// An append was prepared for a parent other than the head's current target.
     ParentMismatch {
         head: HeadName,
-        expected: Option<SessionEntryId>,
-        actual: Option<SessionEntryId>,
+        expected: Option<ConversationEntryId>,
+        actual: Option<ConversationEntryId>,
     },
     /// No later stream sequence can be represented.
     SequenceExhausted,
@@ -67,7 +67,7 @@ pub enum JournalError {
     /// Request authorization did not name the selected head's exact semantic boundary.
     InvalidRequestAttemptBoundary {
         attempt_id: RequestAttemptId,
-        boundary: SessionEntryId,
+        boundary: ConversationEntryId,
     },
     /// Agent creation tried to bypass the idle initial lifecycle boundary.
     InvalidInitialAgentStatus(AgentId),
@@ -84,7 +84,7 @@ pub enum JournalError {
     /// A terminal fact named a boundary outside its turn ancestry.
     InvalidTurnBoundary {
         turn_id: TurnId,
-        boundary: SessionEntryId,
+        boundary: ConversationEntryId,
     },
     /// Steering named a turn that had already reached its terminal fact.
     ClosedTurnInput(TurnId),

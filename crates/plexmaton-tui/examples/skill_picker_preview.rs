@@ -3,7 +3,9 @@
 
 use std::path::Path;
 
-use plexmaton_core::{AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope};
+use plexmaton_core::{
+    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+};
 use plexmaton_tui::{SkillChoice, SkillChoiceSource, Workspace};
 use ratatui::{
     Terminal,
@@ -35,9 +37,9 @@ fn main() -> Result<()> {
 
 fn preview(width: u16, height: u16) -> Result<Buffer> {
     let mut workspace = Workspace::default();
-    workspace.emit(vec![SessionEventEnvelope {
+    workspace.emit(vec![ConversationEventEnvelope {
         sequence: EventSequence::new(1),
-        event: SessionEvent::AgentCreated {
+        event: ConversationEvent::AgentCreated {
             agent_id: AgentId::new("primary")?,
             label: "Plexmaton".to_owned(),
             status: AgentStatus::Idle,

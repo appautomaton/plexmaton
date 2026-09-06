@@ -5,7 +5,7 @@
 
 use std::time::{Duration, Instant};
 
-use plexmaton_core::{SessionEvent, SessionEventEnvelope};
+use plexmaton_core::{ConversationEvent, ConversationEventEnvelope};
 use plexmaton_tui::{FrameWork, Outcome, Workspace};
 use ratatui::{Terminal, backend::Backend, crossterm::event::Event};
 
@@ -15,7 +15,7 @@ const MAX_TEXT_BYTES: usize = 128 * 1024;
 
 /// Only stream presentation waits; input, lifecycle changes and resource pressure may paint sooner.
 pub(crate) struct StreamFrames {
-    pending: Vec<SessionEventEnvelope>,
+    pending: Vec<ConversationEventEnvelope>,
     text_bytes: usize,
     not_before: Instant,
 }
@@ -30,8 +30,8 @@ impl StreamFrames {
     }
 
     /// Retain only small text deltas. A non-text transition cannot overtake pending revisions.
-    pub(crate) fn receive(&mut self, workspace: &mut Workspace, event: SessionEventEnvelope) {
-        let SessionEvent::TranscriptDelta { text, .. } = &event.event else {
+    pub(crate) fn receive(&mut self, workspace: &mut Workspace, event: ConversationEventEnvelope) {
+        let ConversationEvent::TranscriptDelta { text, .. } = &event.event else {
             self.flush(workspace);
             workspace.emit(vec![event]);
             return;

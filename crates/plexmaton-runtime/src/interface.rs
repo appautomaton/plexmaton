@@ -3,7 +3,7 @@
 use plexmaton_agent::{
     ModelStepId, UndeliveredInput, UndeliveredModelInput, UnresolvedApprovalDecision,
 };
-use plexmaton_core::{AgentId, SessionEventEnvelope, ToolCallId};
+use plexmaton_core::{AgentId, ConversationEventEnvelope, ToolCallId};
 use thiserror::Error;
 
 /// User-facing skill metadata projected from the winning runtime catalog.
@@ -28,14 +28,14 @@ pub enum JournalTailRecovery {
 
 /// One startup-only summary of work performed while resuming a session.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct SessionRecovery {
+pub struct ConversationRecovery {
     /// Syntactic file repair, if the final write was incomplete.
     pub tail: Option<JournalTailRecovery>,
     /// Whether canonical recovery settled an unfinished turn without replaying its effects.
     pub interrupted_turn: bool,
 }
 
-impl SessionRecovery {
+impl ConversationRecovery {
     /// Whether opening required no repair or semantic interruption.
     #[must_use]
     pub const fn is_clean(&self) -> bool {
@@ -47,11 +47,14 @@ impl SessionRecovery {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
     /// A committed branch selection replaces the conversation projection atomically in the UI.
-    pub projection_reset: Option<Vec<SessionEventEnvelope>>,
+    pub projection_reset: Option<Vec<ConversationEventEnvelope>>,
     /// User input returned with its exact text and reason.
     pub undelivered: Vec<UndeliveredInput>,
     /// Approval decisions that named no pending request.
     pub unresolved_approvals: Vec<UnresolvedApprovalDecision>,
+    /// Project grants acknowledged by their owner while cancellation abandoned the dependent call.
+    /// Bounded by the outstanding tool batch; these receipts never restore authority.
+    pub saved_project_permissions: Vec<plexmaton_core::SavedProjectPermission>,
     /// Provider output refused by model-step correlation.
     pub undelivered_model: Vec<UndeliveredModelInput>,
     /// Durable session failure that prevented accepted input from becoming visible or executable.
@@ -70,6 +73,7 @@ impl DispatchReport {
             && self.undelivered.is_empty()
             && self.unresolved_approvals.is_empty()
             && self.undelivered_model.is_empty()
+            && self.saved_project_permissions.is_empty()
             && self.persistence_failure.is_none()
             && self.cleanup_failures.is_empty()
             && self.skill_errors.is_empty()
@@ -81,7 +85,7 @@ impl DispatchReport {
 #[derive(Debug, Eq, PartialEq)]
 pub enum RuntimeUpdate {
     /// One revisioned semantic event is ready for the projection.
-    Event(SessionEventEnvelope),
+    Event(ConversationEventEnvelope),
     /// Non-event ownership or refusal information is ready for the composition root.
     Report(DispatchReport),
     /// Orderly shutdown has no owned work or further output.
@@ -111,6 +115,12 @@ pub enum CleanupFailure {
 /// A live-runtime ownership or routing failure.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    /// A Session owner failed; authority cannot be silently reconstructed.
+    #[error("the coding Session permission owner is unavailable")]
+    PermissionOwnerUnavailable,
+    /// Permission authority belongs to another workspace or a runtime already accepting work.
+    #[error("cannot attach these Session permissions to this Conversation")]
+    PermissionOwnerMismatch,
     #[error("a selected skill must accompany submitted or steering text")]
     InvalidSkillInput,
     /// The selected request is no longer an eligible idle retry target.
@@ -174,6 +184,17 @@ pub enum RuntimeError {
         /// Typed storage boundary failure.
         #[source]
         source: plexmaton_session_store::StoreError,
+    },
+    /// The Project write was acknowledged but its dependent Conversation audit could not commit.
+    #[error(
+        "Project permission {grant} was saved, but the Conversation audit failed. The tool did not run. Review /permissions to revoke the saved grant."
+    )]
+    ProjectPermissionSavedAuditFailed {
+        /// Stable identity of the retained personal grant.
+        grant: plexmaton_core::PermissionGrantId,
+        /// Conversation failure; it never implies a compensating project revoke.
+        #[source]
+        source: Box<RuntimeError>,
     },
     /// A prior journal failure made further work unsafe.
     #[error("the session journal requires reopen before more work")]

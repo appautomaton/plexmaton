@@ -1,6 +1,6 @@
 use super::*;
 use crate::tests::{FixtureWorkspace, fixture_http_responses};
-use plexmaton_core::SessionId;
+use plexmaton_core::ConversationId;
 
 #[test]
 fn skill_retry_failure_retains_one_editor_copy_until_handoff() {
@@ -65,7 +65,7 @@ async fn retry_and_normal_continuation_survive_jsonl_and_both_wire_codecs() {
             .active_model()
             .clone();
         let agent = AgentId::new("fixture-agent").expect("agent");
-        let id = SessionId::new("retry-fixture").expect("session");
+        let id = ConversationId::new("retry-fixture").expect("session");
         let open = |selection| {
             let key = resolve_api_key(&model, Some(OsString::from("fixture-only"))).expect("key");
             let tools = NativeToolCatalog::open(
@@ -76,7 +76,7 @@ async fn retry_and_normal_continuation_survive_jsonl_and_both_wire_codecs() {
                 Vec::new(),
             )
             .expect("tools never run");
-            open_selected_session(
+            open_selected_conversation(
                 root.path(),
                 selection,
                 agent.clone(),
@@ -85,7 +85,7 @@ async fn retry_and_normal_continuation_survive_jsonl_and_both_wire_codecs() {
                 tools,
             )
         };
-        let mut session = open(SessionSelection::Create(id.clone()))
+        let mut session = open(ConversationSelection::Create(id.clone()))
             .await
             .expect("create");
         session
@@ -106,7 +106,9 @@ async fn retry_and_normal_continuation_survive_jsonl_and_both_wire_codecs() {
             .target;
         session.runtime.shutdown().await.expect("close");
         drop(session);
-        let mut session = open(SessionSelection::Resume(id)).await.expect("resume");
+        let mut session = open(ConversationSelection::Resume(id))
+            .await
+            .expect("resume");
         assert_eq!(
             session
                 .runtime

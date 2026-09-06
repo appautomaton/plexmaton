@@ -4,7 +4,7 @@ use super::*;
 impl Projector {
     pub(super) fn assistant_output(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         step_id: ModelStepId,
         output: AssistantOutput,
@@ -59,6 +59,7 @@ impl Projector {
                             item_id: item_id.clone(),
                             call: call.clone(),
                             requested: false,
+                            permission_at: None,
                             status: ToolCallStatus::Queued,
                             revision: 0,
                             outcome: None,

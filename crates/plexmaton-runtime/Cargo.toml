@@ -11,6 +11,7 @@ plexmaton-agent = { path = "../plexmaton-agent" }
 plexmaton-command = { path = "../plexmaton-command" }
 plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-file-tools = { path = "../plexmaton-file-tools" }
+plexmaton-permission-store = { path = "../plexmaton-permission-store" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 plexmaton-session-store = { path = "../plexmaton-session-store" }
 plexmaton-skills = { path = "../plexmaton-skills" }
@@ -20,6 +21,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 rustix.workspace = true

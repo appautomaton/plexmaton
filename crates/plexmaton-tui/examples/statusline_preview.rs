@@ -4,9 +4,9 @@
 use std::{fmt::Write as _, path::Path};
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence, SessionEvent,
-    SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability, ToolPresentation,
-    TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, ConversationEvent,
+    ConversationEventEnvelope, EventSequence, ToolCallId, ToolCallStatus, ToolCapability,
+    ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{Palette, SurfaceId, Workspace};
 use ratatui::{
@@ -99,7 +99,7 @@ fn preview(width: u16, height: u16, mode: Mode) -> Result<Buffer> {
 
 fn fixture(mode: Mode) -> Result<Workspace> {
     let agent = AgentId::new("agent-primary")?;
-    let mut events = vec![SessionEvent::AgentCreated {
+    let mut events = vec![ConversationEvent::AgentCreated {
         agent_id: agent.clone(),
         label: "Plexmaton".into(),
         status: AgentStatus::Idle,
@@ -118,18 +118,18 @@ fn fixture(mode: Mode) -> Result<Workspace> {
     ] {
         let item_id = TranscriptItemId::new(id)?;
         events.extend([
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent.clone(),
                 item_id: item_id.clone(),
                 role,
             },
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent.clone(),
                 item_id: item_id.clone(),
                 item_revision: 1,
                 text: text.into(),
             },
-            SessionEvent::TranscriptItemFinalized {
+            ConversationEvent::TranscriptItemFinalized {
                 agent_id: agent.clone(),
                 item_id,
                 item_revision: 2,
@@ -142,7 +142,7 @@ fn fixture(mode: Mode) -> Result<Workspace> {
             (0, ToolCallStatus::Queued),
             (1, ToolCallStatus::AwaitingApproval),
         ] {
-            events.push(SessionEvent::ToolCallChanged {
+            events.push(ConversationEvent::ToolCallChanged {
                 agent_id: agent.clone(),
                 item_id: TranscriptItemId::new("tool")?,
                 item_revision: revision,
@@ -152,12 +152,12 @@ fn fixture(mode: Mode) -> Result<Workspace> {
                 presentation: ToolPresentation::default(),
             });
         }
-        events.push(SessionEvent::AgentStatusChanged {
+        events.push(ConversationEvent::AgentStatusChanged {
             agent_id: agent.clone(),
             status: AgentStatus::Waiting,
         });
-        events.push(SessionEvent::AttentionRequested { agent_id: agent.clone(), attention_id: AttentionId::new("fixture-attention")?,
-            request: AttentionRequest::Approval { approval_id: ApprovalId::new("fixture-approval")?, call_id,
+        events.push(ConversationEvent::AttentionRequested { agent_id: agent.clone(), attention_id: AttentionId::new("fixture-attention")?,
+            request: AttentionRequest::Approval { reason: plexmaton_core::ApprovalReason::PermissionRequired, remember: None, approval_id: ApprovalId::new("fixture-approval")?, call_id,
                 tool: "exec_command".into(), capabilities: vec![ToolCapability::FileRead, ToolCapability::FileWrite, ToolCapability::ProcessSpawn],
                 detail: "Command \"cargo test -p plexmaton-runtime\" · cwd \"/work/plexmaton\" · timeout 120000 ms".into() } });
     }
@@ -166,7 +166,7 @@ fn fixture(mode: Mode) -> Result<Workspace> {
         events
             .into_iter()
             .enumerate()
-            .map(|(index, event)| SessionEventEnvelope {
+            .map(|(index, event)| ConversationEventEnvelope {
                 sequence: EventSequence::new(index as u64 + 1),
                 event,
             })

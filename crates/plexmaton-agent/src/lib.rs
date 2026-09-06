@@ -6,7 +6,7 @@
 //! from a script, inspectable between any two inputs, and — when Phase 02 arrives — resumable
 //! from its canonical journal.
 //!
-//! The vocabulary crossing outward is [`plexmaton_core::SessionEvent`]; the vocabulary crossing
+//! The vocabulary crossing outward is [`plexmaton_core::ConversationEvent`]; the vocabulary crossing
 //! inward is [`Input`]. They never merge.
 
 mod admission;
@@ -14,6 +14,7 @@ mod budget;
 mod interface;
 mod journal;
 mod model;
+mod permissions;
 mod record;
 mod skill;
 mod step;
@@ -39,10 +40,10 @@ pub use interface::{
     UnresolvedApprovalDecision,
 };
 pub use journal::{
-    BudgetBasis, HeadRevision, JournalEntryPayload, JournalError, JournalProjection,
-    JournalProjectionError, JournalRecord, JournalSequence, RecoveryProjection, RequestAccounting,
-    RequestAccountingError, RetryCandidate, RetryTarget, SessionEntry, SessionJournal,
-    SessionMetadata,
+    BudgetBasis, ConversationEntry, ConversationJournal, ConversationMetadata, HeadRevision,
+    JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError, JournalRecord,
+    JournalSequence, RecoveryProjection, RequestAccounting, RequestAccountingError, RetryCandidate,
+    RetryTarget,
 };
 pub use model::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
@@ -68,3 +69,18 @@ pub use tools::{
     ToolExecutionResult, ToolOutcome, bounded_tool_text,
 };
 pub use turn::{Agent, ProjectionRebuildError, TurnBudget};
+
+pub use permissions::{
+    CommandPermission, CommandPrefix, CommandSyntax, LiteralCommand, LiteralShell,
+    MAX_PERMISSION_ENTRIES, NativeFileChange, PermissionChangeError, PermissionConfiguration,
+    PermissionDecisionAudit, PermissionDefinition, PermissionEvidence, PermissionGrant,
+    PermissionGrantId, PermissionGrantOrigin, PermissionMatcher, PermissionProjectAudit,
+    PermissionRevision, PermissionRule, PermissionRuleAction, PermissionRuleSource,
+    PermissionSnapshot, PermissionSubject, PermissionUserDecision, PrefixUnavailable,
+    ProjectPermissions, SessionPermissions,
+};
+
+pub use permissions::{
+    PermissionPreparationOutcome, PermissionPreparationRequest, PreparedPermission,
+    ToolAuthorization,
+};

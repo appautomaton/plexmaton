@@ -1,7 +1,7 @@
 //! Head identity, ancestry and revision preconditions shared by journal transitions.
 use super::*;
 
-impl SessionJournal {
+impl ConversationJournal {
     pub(super) fn head(&self, head: &HeadName) -> Result<&HeadState, JournalError> {
         self.heads
             .get(head)
@@ -33,7 +33,7 @@ impl SessionJournal {
 
     pub(super) fn validate_target(
         &self,
-        target: Option<&SessionEntryId>,
+        target: Option<&ConversationEntryId>,
     ) -> Result<(), JournalError> {
         if let Some(target) = target
             && !self.entries.contains_key(target)

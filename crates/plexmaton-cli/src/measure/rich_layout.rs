@@ -2,7 +2,8 @@
 use super::{Harness, SCALES, SIZE};
 use anyhow::ensure;
 use plexmaton_core::{
-    AgentId, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId, TranscriptRole,
+    AgentId, ConversationEvent, ConversationEventEnvelope, EventSequence, TranscriptItemId,
+    TranscriptRole,
 };
 use plexmaton_sim::Scenario;
 use plexmaton_tui::{FrameWork, Palette};
@@ -39,12 +40,12 @@ fn sample(messages: usize) -> anyhow::Result<[Observation; 3]> {
     for index in 0..messages {
         let item = TranscriptItemId::new(format!("rich-{index}"))?;
         for event in [
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent.clone(),
                 item_id: item.clone(),
                 role: TranscriptRole::Assistant,
             },
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent.clone(),
                 item_id: item,
                 item_revision: 1,
@@ -52,7 +53,7 @@ fn sample(messages: usize) -> anyhow::Result<[Observation; 3]> {
             },
         ] {
             sequence += 1;
-            harness.workspace.emit(vec![SessionEventEnvelope {
+            harness.workspace.emit(vec![ConversationEventEnvelope {
                 sequence: EventSequence::new(sequence),
                 event,
             }]);

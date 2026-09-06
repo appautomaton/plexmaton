@@ -7,10 +7,10 @@ use std::{
 };
 
 use plexmaton_agent::{
-    Input, JournalEntryPayload, JournalRecord, ModelEvent, ModelOutputPosition, SessionMetadata,
-    StopReason, ToolCall, UndeliveredReason,
+    ConversationMetadata, Input, JournalEntryPayload, JournalRecord, ModelEvent,
+    ModelOutputPosition, StopReason, ToolCall, UndeliveredReason,
 };
-use plexmaton_core::{AgentId, SessionId, ToolCallId, ToolCallStatus};
+use plexmaton_core::{AgentId, ConversationId, ToolCallId, ToolCallStatus};
 use plexmaton_session_store::StoreError;
 use tokio::sync::Notify;
 
@@ -29,14 +29,36 @@ struct ControlledStore {
     fail_text: Arc<Mutex<Option<String>>>,
     panic_at: Arc<AtomicUsize>,
     block_payload: Arc<Mutex<Option<BlockPayload>>>,
+    cancel_gate: Arc<Gate>,
 }
 
 #[derive(Clone, Copy)]
 enum BlockPayload {
     ToolRequested,
+    PermissionDecision,
     ToolStatus(ToolCallStatus),
     RequestAuthorized,
     RequestFinished,
+}
+
+impl BlockPayload {
+    fn matches(self, record: &JournalRecord) -> bool {
+        match self {
+            Self::PermissionDecision => {
+                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolPermissionDecided { audit, .. } if audit.user.is_some()))
+            }
+            Self::ToolRequested => {
+                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolCallRequested { .. }))
+            }
+            Self::ToolStatus(expected) => {
+                matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(&entry.payload, JournalEntryPayload::ToolCallChanged { status, .. } if *status == expected))
+            }
+            Self::RequestAuthorized => {
+                matches!(record, JournalRecord::RequestAttemptAuthorized { .. })
+            }
+            Self::RequestFinished => matches!(record, JournalRecord::RequestAttemptFinished { .. }),
+        }
+    }
 }
 
 impl Drop for ControlledStore {
@@ -120,34 +142,19 @@ impl JournalStore for ControlledStore {
         if self.block_at.load(Ordering::SeqCst) == attempt {
             self.gate.wait();
         }
-        let blocks_payload = match *self
+        let blocks_payload = self
             .block_payload
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-        {
-            Some(BlockPayload::ToolRequested) => matches!(
-                &record,
-                JournalRecord::AppendEntry { entry, .. }
-                    if matches!(&entry.payload, JournalEntryPayload::ToolCallRequested { .. })
-            ),
-            Some(BlockPayload::ToolStatus(expected)) => matches!(
-                &record,
-                JournalRecord::AppendEntry { entry, .. }
-                    if matches!(
-                        &entry.payload,
-                        JournalEntryPayload::ToolCallChanged { status, .. } if *status == expected
-                    )
-            ),
-            Some(BlockPayload::RequestAuthorized) => {
-                matches!(&record, JournalRecord::RequestAttemptAuthorized { .. })
-            }
-            Some(BlockPayload::RequestFinished) => {
-                matches!(&record, JournalRecord::RequestAttemptFinished { .. })
-            }
-            None => false,
-        };
+            .is_some_and(|payload| payload.matches(&record));
         if blocks_payload {
             self.gate.wait();
+        }
+        if matches!(&record, JournalRecord::AppendEntry { entry, .. }
+        if matches!(&entry.payload, JournalEntryPayload::ToolCallChanged {
+            status: ToolCallStatus::Cancelled, ..
+        })) {
+            self.cancel_gate.wait();
         }
         assert_ne!(
             self.panic_at.load(Ordering::SeqCst),
@@ -200,6 +207,7 @@ struct StoreControl {
     fail_text: Arc<Mutex<Option<String>>>,
     panic_at: Arc<AtomicUsize>,
     block_payload: Arc<Mutex<Option<BlockPayload>>>,
+    cancel_gate: Arc<Gate>,
 }
 
 impl StoreControl {
@@ -214,6 +222,7 @@ impl StoreControl {
         let fail_text = Arc::new(Mutex::new(None));
         let panic_at = Arc::new(AtomicUsize::new(0));
         let block_payload = Arc::new(Mutex::new(None));
+        let cancel_gate = Arc::new(Gate::new());
         (
             Self {
                 records: Arc::clone(&records),
@@ -226,6 +235,7 @@ impl StoreControl {
                 fail_text: Arc::clone(&fail_text),
                 panic_at: Arc::clone(&panic_at),
                 block_payload: Arc::clone(&block_payload),
+                cancel_gate: Arc::clone(&cancel_gate),
             },
             ControlledStore {
                 records,
@@ -238,6 +248,7 @@ impl StoreControl {
                 fail_text,
                 panic_at,
                 block_payload,
+                cancel_gate,
             },
         )
     }
@@ -310,8 +321,9 @@ async fn runtime_with_clock(
         "Plexmaton".to_owned(),
         driver,
         tools,
-        SessionMetadata::new(
-            SessionId::new("session-durable").unwrap_or_else(|error| panic!("session id: {error}")),
+        ConversationMetadata::new(
+            ConversationId::new("session-durable")
+                .unwrap_or_else(|error| panic!("session id: {error}")),
             created_at_unix_ms,
         ),
         Box::new(controlled),
@@ -342,8 +354,12 @@ async fn await_report(runtime: &mut LiveRuntime) -> crate::DispatchReport {
 }
 
 async fn drive_until_store_blocks(runtime: &mut LiveRuntime, control: &StoreControl) {
+    drive_until_gate(runtime, &control.gate).await;
+}
+
+async fn drive_until_gate(runtime: &mut LiveRuntime, gate: &Gate) {
     loop {
-        let entered = control.gate.entered.notified();
+        let entered = gate.entered.notified();
         let blocked = {
             let update = runtime.next_update();
             tokio::pin!(update);
@@ -369,4 +385,5 @@ async fn drive_until_store_blocks(runtime: &mut LiveRuntime, control: &StoreCont
 mod barriers;
 mod cancellation;
 mod failures;
+mod permissions;
 mod retry;

@@ -24,6 +24,7 @@ pub(super) fn surface_tree(
     regions: BodyRegions,
     decision_mode: DecisionMode,
     skill_picker_rows: u16,
+    command_palette_focus: crate::KeyboardFocus,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
@@ -112,7 +113,10 @@ pub(super) fn surface_tree(
         &mut tree,
         SurfaceId::CommandPalette,
         regions.command_palette,
-        SurfaceKind::CommandPalette,
+        match command_palette_focus {
+            crate::KeyboardFocus::TextInput => SurfaceKind::CommandPalette,
+            crate::KeyboardFocus::Navigation => SurfaceKind::Modal,
+        },
         COMMAND_PALETTE_Z_INDEX,
     );
     register(

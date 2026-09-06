@@ -14,6 +14,7 @@ mod admission;
 mod capture;
 mod environment;
 mod executor;
+mod prefix;
 mod process;
 mod result;
 

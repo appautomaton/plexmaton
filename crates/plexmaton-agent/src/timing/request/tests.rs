@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use plexmaton_core::{SessionEntryId, TokenCounts, TokenUsage, TurnId};
+use plexmaton_core::{ConversationEntryId, TokenCounts, TokenUsage, TurnId};
 
 use super::{
     CompactionId, DispatchedRequestTiming, ElapsedMillis, RequestAttemptAuthorized,
@@ -19,8 +19,8 @@ fn compaction(value: &str) -> CompactionId {
     CompactionId::new(value).unwrap_or_else(|error| panic!("compaction fixture: {error}"))
 }
 
-fn entry(value: &str) -> SessionEntryId {
-    SessionEntryId::new(value).unwrap_or_else(|error| panic!("entry fixture: {error}"))
+fn entry(value: &str) -> ConversationEntryId {
+    ConversationEntryId::new(value).unwrap_or_else(|error| panic!("entry fixture: {error}"))
 }
 
 fn step(turn: &str, index: u16) -> ModelStepId {

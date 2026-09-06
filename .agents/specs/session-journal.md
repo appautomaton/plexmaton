@@ -69,7 +69,8 @@ return. The automatic startup announcement is the sole in-memory exception defin
 user input and dependent effects never cross that boundary without file writes.
 Cancelled waits stay owned; shutdown joins accepted appends and the writer. Failure returns
 text in arrival order, distinguishes unwritten from unknown outcomes, reports cleanup and requires
-reopen. The TUI loop performs no filesystem operation.
+reopen. The TUI loop performs no filesystem operation. Permission decision provenance follows
+[permission-policy](./permission-policy.md) PER-9 and never becomes replayed authority.
 
 **JRN-8 — Retry extends context; editing preserves its old branch.** Only an idle, rate-limited
 tail with no retained assistant output, reasoning or tools is eligible. Its turn identity and head

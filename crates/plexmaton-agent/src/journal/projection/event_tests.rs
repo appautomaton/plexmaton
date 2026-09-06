@@ -1,9 +1,9 @@
 use plexmaton_core::{
-    AgentStatus, HeadName, JournalRecordId, SessionEvent, SessionId, TokenCounts, TokenUsage,
-    TranscriptItemId,
+    AgentStatus, ConversationEvent, ConversationId, HeadName, JournalRecordId, TokenCounts,
+    TokenUsage, TranscriptItemId,
 };
 
-use super::super::{HeadRevision, JournalEntryPayload, JournalRecord, SessionJournal};
+use super::super::{ConversationJournal, HeadRevision, JournalEntryPayload, JournalRecord};
 use super::tests::{agent, append, head, id, message};
 use crate::test_support::{
     output_with_replay, reasoning_block, replay, replay_compatibility, step,
@@ -29,7 +29,7 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
         reasoning_output: Some(1),
         total: 13,
     });
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     append(
         &mut journal,
         1,
@@ -140,21 +140,21 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
     );
     assert!(projection.events().iter().any(|event| matches!(
         &event.event,
-        SessionEvent::TurnUsageUpdated {
+        ConversationEvent::TurnUsageUpdated {
             usage: actual, ..
         } if actual == &usage
     )));
     let usage_position = projection
         .events()
         .iter()
-        .position(|event| matches!(event.event, SessionEvent::TurnUsageUpdated { .. }))
+        .position(|event| matches!(event.event, ConversationEvent::TurnUsageUpdated { .. }))
         .unwrap_or_else(|| panic!("usage event"));
     let reasoning_position = projection
         .events()
         .iter()
         .position(|event| matches!(
             &event.event,
-            SessionEvent::TranscriptItemStarted { item_id, .. } if item_id.as_str() == "reasoning"
+            ConversationEvent::TranscriptItemStarted { item_id, .. } if item_id.as_str() == "reasoning"
         ))
         .unwrap_or_else(|| panic!("reasoning event"));
     assert!(
@@ -163,7 +163,7 @@ fn jrn_5_hidden_replay_and_visible_diagnostics_project_to_their_exact_consumers(
     );
     assert!(projection.events().iter().any(|event| matches!(
         &event.event,
-        SessionEvent::RuntimeWarning { message, .. } if message == "recovered valid prefix"
+        ConversationEvent::RuntimeWarning { message, .. } if message == "recovered valid prefix"
     )));
     assert!(!format!("{projection:?}").contains("encrypted-secret"));
 }

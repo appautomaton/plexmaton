@@ -1,0 +1,30 @@
+┌ Plexmaton · idle ────────────────────────────────────────┐
+│Agent is active; no transcript item has started yet.      │
+│                                                          │
+│  ┌ Project configuration rules ───────────────────────┐  │
+│  │                                                    │  │
+│  │  Project: .plexmaton/config.toml                   │  │
+│  │  Allow rules inactive until personally trusted.    │  │
+│  │  Ask and Deny take precedence over Allow and       │  │
+│  │  remembered grants.                                │  │
+│  │                                                    │  │
+│  │  1. Allow: Exact command: "printf trusted >        │  │
+│  │  trusted-result"                                   │  │
+│  │                                                    │  │
+│  │  SHA-256:                                          │  │
+│  │  68647301d21e6d80c9fa3f86358990a2187d5b502b688eb0  │  │
+│  │  22ee43019bba5e5a                                  │  │
+│  │                                                    │  │
+│  │                                                    │  │
+│  │                                                    │  │
+│  │                                                    │  │
+│  │  > Continue to activation…                         │  │
+│  │                                                    │  │
+│  │  ↑↓ read · Enter continue · Esc back               │  │
+│  │                                                    │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+├ Message Plexmaton ───────────────────────────────────────┤
+│Type a message · ⇥ to focus                               │
+└──────────────────────────────────────────────────────────┘
+ /private/tmp/plexmaton-permission-smoke-fixture0/project

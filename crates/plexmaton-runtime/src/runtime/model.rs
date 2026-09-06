@@ -298,7 +298,7 @@ impl LiveRuntime {
     }
 
     pub(super) fn authorize_model(&mut self, call: ModelCall) -> Result<(), RuntimeError> {
-        if self.shutting_down {
+        if self.shutdown_state != super::ShutdownState::Open {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(active) = &self.active {
@@ -351,7 +351,7 @@ impl LiveRuntime {
             .pending_model_start
             .as_ref()
             .ok_or(RuntimeError::MissingAuthorizedModelStart)?;
-        if self.shutting_down {
+        if self.shutdown_state != super::ShutdownState::Open {
             return Err(RuntimeError::ShuttingDown);
         }
         if let Some(active) = &self.active {

@@ -1,8 +1,8 @@
 use super::*;
 use crate::{ApprovalIntent, Point, SurfaceId};
 use plexmaton_core::{
-    AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest, EventSequence,
-    SessionEvent, ToolCallId, ToolCapability,
+    AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest, ConversationEvent,
+    EventSequence, ToolCallId, ToolCapability,
 };
 use ratatui::{
     Terminal,
@@ -16,11 +16,13 @@ fn agent() -> AgentId {
 fn attention(index: usize) -> AttentionId {
     AttentionId::new(format!("ask-{index}")).expect("attention")
 }
-fn request(index: usize) -> SessionEvent {
-    SessionEvent::AttentionRequested {
+fn request(index: usize) -> ConversationEvent {
+    ConversationEvent::AttentionRequested {
         agent_id: agent(),
         attention_id: attention(index),
         request: AttentionRequest::Approval {
+            reason: plexmaton_core::ApprovalReason::PermissionRequired,
+            remember: None,
             approval_id: ApprovalId::new(format!("approval-{index}")).expect("approval"),
             call_id: ToolCallId::new(format!("call-{index}")).expect("call"),
             tool: "exec_command".into(),
@@ -29,8 +31,8 @@ fn request(index: usize) -> SessionEvent {
         },
     }
 }
-fn emit(workspace: &mut Workspace, next: &mut u64, event: SessionEvent) {
-    workspace.emit(vec![SessionEventEnvelope {
+fn emit(workspace: &mut Workspace, next: &mut u64, event: ConversationEvent) {
+    workspace.emit(vec![ConversationEventEnvelope {
         sequence: EventSequence::new(*next),
         event,
     }]);
@@ -47,7 +49,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
         emit(
             &mut workspace,
             &mut next,
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent(),
                 label: "Plexmaton".into(),
                 status: AgentStatus::Waiting,
@@ -72,7 +74,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
                 .approval()
                 .expect("choice preserved")
                 .selected,
-            ApprovalDecision::AllowOnce
+            crate::ApprovalChoice::AllowOnce
         );
         for index in 0..3 {
             workspace.draw(&mut terminal).expect("inline card");
@@ -81,7 +83,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
             let approval = workspace.state().approval().expect("pending inline");
             assert_eq!(approval.attention_id, &attention(index));
             if index > 0 {
-                assert_eq!(approval.selected, ApprovalDecision::Deny);
+                assert_eq!(approval.selected, crate::ApprovalChoice::Deny);
             }
             let decision = workspace
                 .state
@@ -99,7 +101,7 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
             emit(
                 &mut workspace,
                 &mut next,
-                SessionEvent::AttentionResolved {
+                ConversationEvent::AttentionResolved {
                     agent_id: agent(),
                     attention_id: attention(index),
                 },
@@ -157,7 +159,7 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
         emit(
             &mut workspace,
             &mut next,
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent(),
                 label: "Plexmaton".into(),
                 status: AgentStatus::Waiting,
@@ -193,7 +195,7 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
         emit(
             &mut workspace,
             &mut next,
-            SessionEvent::AttentionResolved {
+            ConversationEvent::AttentionResolved {
                 agent_id: agent(),
                 attention_id: attention(0),
             },
@@ -226,7 +228,7 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
     emit(
         &mut workspace,
         &mut next,
-        SessionEvent::AgentCreated {
+        ConversationEvent::AgentCreated {
             agent_id: agent(),
             label: "Plexmaton".into(),
             status: AgentStatus::Waiting,
@@ -259,7 +261,7 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
     emit(
         &mut workspace,
         &mut next,
-        SessionEvent::AttentionResolved {
+        ConversationEvent::AttentionResolved {
             agent_id: agent(),
             attention_id: attention(0),
         },
@@ -281,4 +283,150 @@ fn approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request() {
             .attention_id,
         &attention(1)
     );
+}
+
+/// ATT-1/ATT-3: keyboard activation uses the filtered visible queue, even when its first raw item is primary.
+#[test]
+fn attention_keyboard_activates_the_visible_worker_and_escape_restores_primary_card() {
+    let mut workspace = Workspace::default();
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).expect("terminal");
+    let mut next = 1;
+    emit(
+        &mut workspace,
+        &mut next,
+        ConversationEvent::AgentCreated {
+            agent_id: agent(),
+            label: "Plexmaton".into(),
+            status: AgentStatus::Waiting,
+        },
+    );
+    let worker = AgentId::new("worker").expect("worker");
+    emit(
+        &mut workspace,
+        &mut next,
+        ConversationEvent::AgentCreated {
+            agent_id: worker.clone(),
+            label: "Worker".into(),
+            status: AgentStatus::Waiting,
+        },
+    );
+    emit(&mut workspace, &mut next, request(0));
+    let mut background = request(1);
+    if let ConversationEvent::AttentionRequested { agent_id, .. } = &mut background {
+        *agent_id = worker.clone();
+    }
+    emit(&mut workspace, &mut next, background);
+    workspace.draw(&mut terminal).expect("frame");
+    assert_eq!(
+        workspace
+            .state()
+            .attention_listed()
+            .map(|item| &item.agent_id)
+            .collect::<Vec<_>>(),
+        [&worker]
+    );
+    workspace
+        .state
+        .attend(&workspace.surfaces, crate::AttentionIntent::GoTo);
+    assert_eq!(
+        workspace
+            .state()
+            .approval()
+            .expect("visible worker")
+            .agent_id,
+        &worker
+    );
+    workspace.draw(&mut terminal).expect("worker card");
+    workspace.state.dismiss(&workspace.surfaces);
+    assert_eq!(
+        workspace
+            .state()
+            .approval()
+            .expect("primary returns")
+            .attention_id,
+        &attention(0)
+    );
+}
+
+/// PER-10/PER-5: a growing draft cannot leave an actionable but unreadable remembered scope.
+#[test]
+fn per_10_keyboard_and_pointer_cannot_confirm_a_scope_clipped_by_the_draft() {
+    for pointer in [false, true] {
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(48, 12)).expect("terminal");
+        let mut next = 1;
+        emit(
+            &mut workspace,
+            &mut next,
+            ConversationEvent::AgentCreated {
+                agent_id: agent(),
+                label: "Plexmaton".into(),
+                status: AgentStatus::Waiting,
+            },
+        );
+        let draft = "first line\nsecond line\nthird line";
+        workspace.return_input(agent(), draft.into());
+        let mut event = request(0);
+        let ConversationEvent::AttentionRequested {
+            request: AttentionRequest::Approval { remember, .. },
+            ..
+        } = &mut event
+        else {
+            panic!("approval");
+        };
+        *remember = Some(plexmaton_core::RememberPermissionOffer {
+            id: plexmaton_core::PermissionOfferId::new(1),
+            label: "git fetch …; same cwd/environment".into(),
+            note: None,
+            scopes: plexmaton_core::PermissionScopes::SessionAndProject,
+        });
+        emit(&mut workspace, &mut next, event);
+        workspace.draw(&mut terminal).expect("review");
+        workspace.handle(&key(KeyCode::Up));
+        assert!(workspace.handle(&key(KeyCode::Enter)).approval.is_none());
+        workspace.draw(&mut terminal).expect("scope");
+        assert_eq!(
+            workspace.state.approval().expect("view").stage,
+            crate::ApprovalStage::Remember
+        );
+        let bounds = workspace
+            .surfaces
+            .get(SurfaceId::Approval)
+            .expect("card")
+            .bounds;
+        let text = crate::test_support::snapshot_text(terminal.backend().buffer(), bounds);
+        assert!(text.contains("(resize)"), "{text}");
+        let outcome = if pointer {
+            let row = text
+                .lines()
+                .position(|row| row.contains("This Session"))
+                .expect("disabled row");
+            let at = Point {
+                x: bounds.x + 4,
+                y: bounds.y + u16::try_from(row).expect("row"),
+            };
+            workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at));
+            workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), at))
+        } else {
+            workspace.handle(&key(KeyCode::Enter))
+        };
+        assert!(outcome.approval.is_none());
+        assert_eq!(
+            workspace.state.approval().expect("still pending").stage,
+            crate::ApprovalStage::Remember
+        );
+        assert_eq!(workspace.state.composer().text(), draft);
+        workspace.handle(&Event::Resize(120, 30));
+        let mut large = Terminal::new(TestBackend::new(120, 30)).expect("resized terminal");
+        workspace.draw(&mut large).expect("readable scope");
+        let outcome = workspace.handle(&key(KeyCode::Enter));
+        assert!(matches!(
+            outcome.approval.expect("reviewed scope").decision,
+            ApprovalDecision::AllowAndRemember {
+                scope: plexmaton_core::PermissionScope::Session,
+                ..
+            }
+        ));
+        assert_eq!(workspace.state.composer().text(), draft);
+    }
 }

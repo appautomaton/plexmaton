@@ -8,7 +8,7 @@ use plexmaton_agent::{
     RequestAttemptTerminalState, RequestCost, RequestDispatchedOutcome,
     RequestNotDispatchedOutcome, UnixMillis, UsdCostTicks,
 };
-use plexmaton_core::{AgentId, SessionEntryId, TokenCounts, TokenUsage, TranscriptItemId};
+use plexmaton_core::{AgentId, ConversationEntryId, TokenCounts, TokenUsage, TranscriptItemId};
 use plexmaton_provider::{
     FunctionTool, ModelApi, ModelRegistry, ResolvedModel, request_environment, resolve_api_key,
 };
@@ -87,7 +87,7 @@ fn model_call() -> ModelCall {
         .into_iter()
         .find_map(|effect| match effect {
             Effect::CallModel(call) => Some(call),
-            Effect::AdmitTool(_) | Effect::RunTool(_) => None,
+            Effect::AdmitTool(_) | Effect::RunTool { .. } | Effect::PreparePermission(_) => None,
         })
         .unwrap_or_else(|| panic!("submission opens one model call"))
 }
@@ -108,11 +108,11 @@ fn opaque_chat_call(model: &ResolvedModel) -> ModelCall {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     call.request = ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(
-                SessionEntryId::new("entry-http-fixture")
+                ConversationEntryId::new("entry-http-fixture")
                     .unwrap_or_else(|error| panic!("fixture entry: {error}")),
                 output,
             )

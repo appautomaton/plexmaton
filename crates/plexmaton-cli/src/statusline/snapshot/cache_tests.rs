@@ -3,10 +3,10 @@
 //! All requests in this test terminate at the canned loopback server, never at a configured model.
 
 use super::*;
-use crate::session::{SessionSelection, open_selected_session};
+use crate::session::{ConversationSelection, open_selected_conversation};
 use crate::tests::{FixtureWorkspace, fixture_http_server};
 use plexmaton_agent::Input;
-use plexmaton_core::{AgentId, SessionId};
+use plexmaton_core::{AgentId, ConversationId};
 use plexmaton_runtime::{NativeToolCatalog, RuntimeUpdate};
 use std::{ffi::OsString, path::Path, time::Duration};
 
@@ -32,14 +32,14 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
         .active_model()
         .clone();
     let agent_id = AgentId::new("cache-fixture").expect("agent");
-    let session_id = SessionId::new("cache-fixture").expect("session");
+    let session_id = ConversationId::new("cache-fixture").expect("session");
     let key = || {
         plexmaton_provider::resolve_api_key(&model, Some(OsString::from("fixture-only")))
             .expect("fixture key")
     };
-    let mut opened = open_selected_session(
+    let mut opened = open_selected_conversation(
         root.path(),
-        SessionSelection::Create(session_id.clone()),
+        ConversationSelection::Create(session_id.clone()),
         agent_id.clone(),
         model.clone(),
         key(),
@@ -116,9 +116,9 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
         3840
     );
 
-    let mut reopened = open_selected_session(
+    let mut reopened = open_selected_conversation(
         root.path(),
-        SessionSelection::Resume(session_id),
+        ConversationSelection::Resume(session_id),
         agent_id,
         model.clone(),
         key(),

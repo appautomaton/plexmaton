@@ -1,5 +1,7 @@
 use super::*;
-use plexmaton_core::{AgentStatus, EventSequence, SessionEvent, TranscriptItemId, TranscriptRole};
+use plexmaton_core::{
+    AgentStatus, ConversationEvent, EventSequence, TranscriptItemId, TranscriptRole,
+};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -14,28 +16,28 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>) {
     let user = TranscriptItemId::new("question").expect("item");
     let assistant = TranscriptItemId::new("answer").expect("item");
     let events = [
-        SessionEvent::AgentCreated {
+        ConversationEvent::AgentCreated {
             agent_id: agent.clone(),
             label: "Plexmaton".into(),
             status: AgentStatus::Idle,
         },
-        SessionEvent::TranscriptItemStarted {
+        ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: user.clone(),
             role: TranscriptRole::User,
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent.clone(),
             item_id: user,
             item_revision: 1,
             text: "Show **Markdown** and a Rust example.".into(),
         },
-        SessionEvent::TranscriptItemStarted {
+        ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: assistant.clone(),
             role: TranscriptRole::Assistant,
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent,
             item_id: assistant,
             item_revision: 1,
@@ -46,7 +48,7 @@ fn fixture(width: u16) -> (Workspace, Terminal<TestBackend>) {
         events
             .into_iter()
             .enumerate()
-            .map(|(index, event)| SessionEventEnvelope {
+            .map(|(index, event)| ConversationEventEnvelope {
                 sequence: EventSequence::new(index as u64 + 1),
                 event,
             })
@@ -151,9 +153,9 @@ fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {
             SOURCE
         );
         let before = workspace.metrics().wrapped();
-        workspace.emit(vec![SessionEventEnvelope {
+        workspace.emit(vec![ConversationEventEnvelope {
             sequence: EventSequence::new(6),
-            event: SessionEvent::TranscriptDelta {
+            event: ConversationEvent::TranscriptDelta {
                 agent_id: AgentId::new("primary").expect("agent"),
                 item_id: TranscriptItemId::new("answer").expect("item"),
                 item_revision: 2,

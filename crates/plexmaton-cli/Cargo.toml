@@ -22,6 +22,7 @@ futures-util.workspace = true
 plexmaton-agent = { path = "../plexmaton-agent" }
 plexmaton-core = { path = "../plexmaton-core" }
 plexmaton-file-tools = { path = "../plexmaton-file-tools" }
+plexmaton-permission-store = { path = "../plexmaton-permission-store" }
 plexmaton-provider = { path = "../plexmaton-provider" }
 plexmaton-runtime = { path = "../plexmaton-runtime" }
 plexmaton-session-store = { path = "../plexmaton-session-store" }
@@ -31,6 +32,7 @@ ratatui.workspace = true
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 tokio.workspace = true

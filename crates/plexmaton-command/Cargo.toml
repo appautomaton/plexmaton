@@ -11,9 +11,15 @@ plexmaton-core = { path = "../plexmaton-core" }
 rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+tree-sitter.workspace = true
+tree-sitter-bash.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

@@ -1,9 +1,10 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, HeadName, JournalRecordId,
-    MailId, SessionEntryId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, ConversationEntryId, HeadName,
+    JournalRecordId, MailId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+    TurnId,
 };
 
-use super::{HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence, SessionEntry};
+use super::{ConversationEntry, HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence};
 use crate::test_support::{call_block, output_with_replay, reasoning_block, replay, step};
 use crate::{ActiveTurnStatus, SkillActivation, SkillSource, ToolCall, ToolOutcome, UnixMillis};
 
@@ -83,6 +84,11 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             call_id: call_id.clone(),
             presentation: ToolPresentation::default(),
         },
+        JournalEntryPayload::ToolPermissionDecided {
+            agent_id: agent_a.clone(),
+            call_id: call_id.clone(),
+            audit: permission_audit(),
+        },
         JournalEntryPayload::ToolCallChanged {
             agent_id: agent_a.clone(),
             call_id: call_id.clone(),
@@ -140,8 +146,8 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             record_id: id(&format!("record-{index}"), JournalRecordId::new),
             head: id("main", HeadName::new),
             expected_head_revision: HeadRevision::new(0),
-            entry: Box::new(SessionEntry {
-                id: id(&format!("entry-{index}"), SessionEntryId::new),
+            entry: Box::new(ConversationEntry {
+                id: id(&format!("entry-{index}"), ConversationEntryId::new),
                 parent_id: None,
                 payload,
             }),
@@ -152,4 +158,20 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
             .unwrap_or_else(|error| panic!("decode append: {error}"));
         assert_eq!(decoded, record);
     }
+}
+
+fn permission_audit() -> Box<crate::PermissionDecisionAudit> {
+    Box::new(crate::PermissionDecisionAudit {
+        definition: crate::PermissionDefinition::new(
+            id("native-read", plexmaton_core::ToolDefinitionId::new),
+            crate::ToolDefinitionRevision::new(1).expect("revision"),
+        ),
+        command_context: None,
+        revision: None,
+        project: crate::PermissionProjectAudit::Disabled,
+        evidence: crate::PermissionEvidence::Fallback {
+            decision: crate::PolicyDecision::Allow,
+        },
+        user: None,
+    })
 }

@@ -156,6 +156,7 @@ mod tests {
 
     fn tool(status: ToolCallStatus, presentation: ToolPresentation) -> ToolCallView {
         ToolCallView {
+            saved_project_permission: None,
             entry_id: TranscriptItemId::new("entry")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             id: ToolCallId::new("call").unwrap_or_else(|error| panic!("fixture: {error}")),

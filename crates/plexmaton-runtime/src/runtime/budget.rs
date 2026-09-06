@@ -25,9 +25,12 @@ pub enum ContextBudgetUnavailable {
 impl LiveRuntime {
     /// Borrow acknowledged session facts for read-only diagnostics. No staged or failed write
     /// becomes a public snapshot; callers must never serialize the journal into external scripts.
-    pub fn acknowledged_session(
+    pub fn acknowledged_conversation(
         &self,
-    ) -> Option<(&plexmaton_agent::SessionJournal, &plexmaton_core::HeadName)> {
+    ) -> Option<(
+        &plexmaton_agent::ConversationJournal,
+        &plexmaton_core::HeadName,
+    )> {
         if self.journal_failed || self.pending_commit.is_some() {
             None
         } else {

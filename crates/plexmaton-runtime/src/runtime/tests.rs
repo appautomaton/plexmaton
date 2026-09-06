@@ -15,7 +15,7 @@ use plexmaton_agent::{
     RequestEnvironment, RequestEnvironmentFingerprint, StopReason, UnixMillis,
 };
 use plexmaton_core::{
-    AgentId, AgentStatus, SessionEvent, SessionEventEnvelope, TokenCounts, TokenUsage,
+    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, TokenCounts, TokenUsage,
 };
 use tokio::sync::{Mutex, Notify, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -376,13 +376,13 @@ fn text_delta(delta: &str) -> ModelEvent {
     }
 }
 
-fn take_ready(runtime: &mut LiveRuntime, events: &mut Vec<SessionEventEnvelope>) {
+fn take_ready(runtime: &mut LiveRuntime, events: &mut Vec<ConversationEventEnvelope>) {
     while let Some(event) = runtime.try_next_event() {
         events.push(event);
     }
 }
 
-async fn finish_active(runtime: &mut LiveRuntime) -> Vec<SessionEventEnvelope> {
+async fn finish_active(runtime: &mut LiveRuntime) -> Vec<ConversationEventEnvelope> {
     let mut events = Vec::new();
     take_ready(runtime, &mut events);
     while runtime.has_active_work() {
@@ -440,22 +440,22 @@ async fn sequential_turns_stream_and_report_their_own_usage() {
 
     assert!(first.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::TranscriptDelta { text, .. } if text == "first answer"
+        ConversationEvent::TranscriptDelta { text, .. } if text == "first answer"
     )));
     assert!(second.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::TranscriptDelta { text, .. } if text == "second answer"
+        ConversationEvent::TranscriptDelta { text, .. } if text == "second answer"
     )));
     assert!(first.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::TurnUsageUpdated {
+        ConversationEvent::TurnUsageUpdated {
             usage: TokenUsage::Complete(counts),
             ..
         } if counts.total == 13
     )));
     assert!(second.iter().any(|envelope| matches!(
         &envelope.event,
-        SessionEvent::TurnUsageUpdated {
+        ConversationEvent::TurnUsageUpdated {
             usage: TokenUsage::Complete(counts),
             ..
         } if counts.total == 24
@@ -509,7 +509,7 @@ async fn model_output_requires_both_the_active_attempt_and_step() {
     ));
     assert!(runtime.pending.iter().all(|event| !matches!(
         &event.event,
-        SessionEvent::TranscriptDelta { text, .. } if text == "must not enter the transcript"
+        ConversationEvent::TranscriptDelta { text, .. } if text == "must not enter the transcript"
     )));
     runtime
         .shutdown()
@@ -569,14 +569,14 @@ async fn interrupt_and_shutdown_cancel_and_join_the_exact_provider_task() {
         );
         assert!(events.iter().any(|envelope| matches!(
             envelope.event,
-            SessionEvent::TurnUsageUpdated {
+            ConversationEvent::TurnUsageUpdated {
                 usage: TokenUsage::Unavailable,
                 ..
             }
         )));
         assert!(events.iter().any(|envelope| matches!(
             envelope.event,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Idle,
                 ..
             }

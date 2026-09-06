@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, SessionEntryId, SessionEvent, ToolCallId, ToolCallStatus, ToolDetail,
+    AgentId, ConversationEntryId, ConversationEvent, ToolCallId, ToolCallStatus, ToolDetail,
     ToolPresentation, TranscriptItemId,
 };
 
@@ -12,6 +12,7 @@ pub(super) struct ToolProjection {
     pub(super) item_id: TranscriptItemId,
     pub(super) call: ToolCall,
     pub(super) requested: bool,
+    pub(super) permission_at: Option<ToolCallStatus>,
     pub(super) status: ToolCallStatus,
     pub(super) revision: u64,
     pub(super) outcome: Option<ToolOutcome>,
@@ -21,7 +22,7 @@ pub(super) struct ToolProjection {
 pub(super) struct PendingBatch {
     pub(super) output: AssistantOutput,
     pub(super) calls: Vec<ToolCallId>,
-    pub(super) source_entries: Vec<SessionEntryId>,
+    pub(super) source_entries: Vec<ConversationEntryId>,
 }
 
 pub(super) struct ToolChange {
@@ -79,7 +80,7 @@ impl Projector {
 
     pub(super) fn request_tool(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         call_id: ToolCallId,
         presentation: ToolPresentation,
@@ -97,7 +98,7 @@ impl Projector {
         }
         tool.requested = true;
         tool.presentation = presentation.clone();
-        let event = SessionEvent::ToolCallChanged {
+        let event = ConversationEvent::ToolCallChanged {
             agent_id,
             item_id: tool.item_id.clone(),
             item_revision: 0,
@@ -110,9 +111,38 @@ impl Projector {
         self.emit(event)
     }
 
+    pub(super) fn permission_decided(
+        &mut self,
+        source: ConversationEntryId,
+        agent_id: &AgentId,
+        call_id: &ToolCallId,
+    ) -> Result<(), JournalProjectionError> {
+        let tool = self
+            .tools
+            .get_mut(call_id)
+            .ok_or_else(|| JournalProjectionError::MissingToolCall(call_id.clone()))?;
+        if &tool.agent_id != agent_id {
+            return Err(JournalProjectionError::WrongToolAgent(call_id.clone()));
+        }
+        if !tool.requested {
+            return Err(JournalProjectionError::MissingToolRequest(call_id.clone()));
+        }
+        if !matches!(
+            tool.status,
+            ToolCallStatus::Queued | ToolCallStatus::AwaitingApproval
+        ) || tool.permission_at == Some(tool.status)
+        {
+            return Err(JournalProjectionError::InvalidPermissionDecision(
+                call_id.clone(),
+            ));
+        }
+        tool.permission_at = Some(tool.status);
+        self.pending_source(call_id, source)
+    }
+
     pub(super) fn change_tool(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         change: ToolChange,
     ) -> Result<(), JournalProjectionError> {
         let ToolChange {
@@ -169,7 +199,7 @@ impl Projector {
         tool.revision = item_revision;
         tool.outcome = outcome;
         tool.presentation = presentation.clone();
-        let event = SessionEvent::ToolCallChanged {
+        let event = ConversationEvent::ToolCallChanged {
             agent_id,
             item_id: tool.item_id.clone(),
             item_revision,
@@ -185,7 +215,7 @@ impl Projector {
     fn pending_source(
         &mut self,
         call_id: &ToolCallId,
-        source: SessionEntryId,
+        source: ConversationEntryId,
     ) -> Result<(), JournalProjectionError> {
         let pending = self
             .pending

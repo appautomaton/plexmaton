@@ -16,8 +16,7 @@ use std::{
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use config::StatusLineConfig;
-pub(super) use config::parse;
+pub(crate) use config::StatusLineConfig;
 use process::Failure;
 pub(super) use snapshot::Dimensions;
 

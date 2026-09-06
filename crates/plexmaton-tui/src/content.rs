@@ -14,7 +14,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    CleanupNotice, NoticeView, PersistenceNotice, SessionRestoration, SessionTailRepair,
+    CleanupNotice, ConversationRestoration, ConversationTailRepair, NoticeView, PersistenceNotice,
     TranscriptEntryView, ViewState,
     theme::{Palette, Role, agent_role},
 };
@@ -25,7 +25,9 @@ mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;
 
-pub(crate) use approval_presentation::{approval, approval_option_label, attention, detail_rows};
+pub(crate) use approval_presentation::{
+    approval, approval_choice_rows, approval_scope_fits, attention,
+};
 pub(crate) use transcript_presentation::{
     conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout,
 };
@@ -262,14 +264,16 @@ fn inert_inline(source: &str) -> String {
 }
 
 pub(crate) fn recovery_lines(
-    recovery: &SessionRestoration,
+    recovery: &ConversationRestoration,
     palette: &Palette,
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if let Some(tail) = recovery.tail {
         let text = match tail {
-            SessionTailRepair::AddedFinalNewline => "completed final record repaired".to_owned(),
-            SessionTailRepair::IsolatedFinalTail { bytes } => {
+            ConversationTailRepair::AddedFinalNewline => {
+                "completed final record repaired".to_owned()
+            }
+            ConversationTailRepair::IsolatedFinalTail { bytes } => {
                 format!("isolated {bytes}-byte incomplete tail")
             }
         };
@@ -394,7 +398,10 @@ pub(crate) fn command_palette(
     let Some(commands) = state.command_palette() else {
         return Vec::new();
     };
-    let mut filter = vec![Span::styled(" ", palette.style(Role::Muted))];
+    if let Some(panel) = commands.permissions() {
+        return crate::content_permissions::content(panel, palette, width, height).lines;
+    }
+    let mut filter = Vec::new();
     if commands.filter().text().is_empty() {
         filter.push(Span::styled("Type to filter", palette.style(Role::Muted)));
     } else {
@@ -404,12 +411,14 @@ pub(crate) fn command_palette(
             commands.filter_range(width),
         ));
     }
+    let gap = commands.choice_gap(height);
     let mut lines = vec![Line::from(filter)];
-    if let Some(sessions) = &commands.sessions {
+    lines.extend((0..gap).map(|_| Line::default()));
+    if let Some(sessions) = commands.conversations() {
         let matches = sessions.matches(commands.filter().text());
         let window = commands.choice_window(height);
         for (index, entry) in matches.iter().enumerate().skip(window.start).take(
-            if commands.session_rows_visible(height) {
+            if commands.conversation_rows_visible(height) {
                 window.len()
             } else {
                 0
@@ -431,24 +440,23 @@ pub(crate) fn command_palette(
                 palette.style(role),
             ));
         }
-        if matches.is_empty() && height >= 6 {
-            lines.push(Line::default());
-        }
-        let note = if sessions.status == crate::SessionPickerStatus::Ready && !matches.is_empty() {
-            if sessions.limited {
-                "Recent sessions only · older files remain on disk"
+        let note =
+            if sessions.status == crate::ConversationPickerStatus::Ready && !matches.is_empty() {
+                if sessions.limited {
+                    "Recent conversations only · older files remain on disk"
+                } else {
+                    matches
+                        .get(commands.chosen_index())
+                        .map_or("", |entry| entry.id.as_str())
+                }
             } else {
-                matches
-                    .get(commands.chosen_index())
-                    .map_or("", |entry| entry.id.as_str())
-            }
-        } else {
-            sessions.status.message()
-        };
-        if height >= 6 || matches.is_empty() || !commands.session_rows_visible(height) {
+                sessions.status.message()
+            };
+        if commands.conversation_note_visible(height) {
             let role = if matches!(
                 sessions.status,
-                crate::SessionPickerStatus::OpenFailed | crate::SessionPickerStatus::ListFailed
+                crate::ConversationPickerStatus::OpenFailed
+                    | crate::ConversationPickerStatus::ListFailed
             ) {
                 Role::Failure
             } else {
@@ -459,8 +467,9 @@ pub(crate) fn command_palette(
                 palette.style(role),
             ));
         }
+        lines.extend((0..gap).map(|_| Line::default()));
         lines.push(Line::styled(
-            " ↑↓ choose · Enter resume · Esc close",
+            "↑↓ choose · Enter resume · Esc close",
             palette.style(Role::Muted),
         ));
         return lines;
@@ -468,7 +477,7 @@ pub(crate) fn command_palette(
     let matches = commands.matches();
     if matches.is_empty() {
         lines.push(Line::styled(
-            " No command matches".to_owned(),
+            "No command matches".to_owned(),
             palette.style(Role::Muted),
         ));
     }
@@ -496,15 +505,16 @@ pub(crate) fn command_palette(
             ),
         ]));
     }
+    lines.extend((0..gap).map(|_| Line::default()));
     lines.push(Line::styled(
-        " ↑↓ choose · Enter run · Esc close".to_owned(),
+        "↑↓ choose · Enter run · Esc close".to_owned(),
         palette.style(Role::Muted),
     ));
     lines
 }
 
 /// A command occupies one row so its description cannot push the controls out of the panel.
-fn command_summary(source: &str, width: usize) -> String {
+pub(crate) fn command_summary(source: &str, width: usize) -> String {
     if source.width() <= width {
         return source.to_owned();
     }
@@ -551,9 +561,9 @@ mod tests {
         let palette = Palette::ansi();
         for tail in [
             None,
-            Some(crate::SessionTailRepair::IsolatedFinalTail { bytes: 37 }),
+            Some(crate::ConversationTailRepair::IsolatedFinalTail { bytes: 37 }),
         ] {
-            let lines = super::recovery_lines(&crate::SessionRestoration { tail }, &palette);
+            let lines = super::recovery_lines(&crate::ConversationRestoration { tail }, &palette);
             let confirmation = &lines[lines.len() - 2];
             assert_eq!(confirmation.to_string(), "✓ Conversation restored.");
             assert_eq!(confirmation.style.fg, Some(ratatui::style::Color::Green));

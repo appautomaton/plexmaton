@@ -1,14 +1,14 @@
-use plexmaton_core::SessionEvent;
+use plexmaton_core::ConversationEvent;
 
 use super::super::JournalEntryPayload;
 
-pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
+pub(super) fn visible_event(payload: JournalEntryPayload) -> ConversationEvent {
     match payload {
         JournalEntryPayload::AgentCreated {
             agent_id,
             label,
             status,
-        } => SessionEvent::AgentCreated {
+        } => ConversationEvent::AgentCreated {
             agent_id,
             label,
             status,
@@ -17,7 +17,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             agent_id,
             attention_id,
             request,
-        } => SessionEvent::AttentionRequested {
+        } => ConversationEvent::AttentionRequested {
             agent_id,
             attention_id,
             request,
@@ -25,7 +25,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
         JournalEntryPayload::AttentionResolved {
             agent_id,
             attention_id,
-        } => SessionEvent::AttentionResolved {
+        } => ConversationEvent::AttentionResolved {
             agent_id,
             attention_id,
         },
@@ -35,7 +35,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             from,
             to,
             summary,
-        } => SessionEvent::MailDelivered {
+        } => ConversationEvent::MailDelivered {
             item_id,
             mail_id,
             from,
@@ -48,7 +48,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             artifact_id,
             label,
             pointer,
-        } => SessionEvent::ArtifactAnnounced {
+        } => ConversationEvent::ArtifactAnnounced {
             agent_id,
             item_id,
             artifact_id,
@@ -59,7 +59,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             agent_id,
             item_id,
             message,
-        } => SessionEvent::RuntimeWarning {
+        } => ConversationEvent::RuntimeWarning {
             agent_id,
             item_id,
             message,
@@ -68,13 +68,13 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
             agent_id,
             item_id,
             message,
-        } => SessionEvent::RuntimeError {
+        } => ConversationEvent::RuntimeError {
             agent_id,
             item_id,
             message,
         },
         JournalEntryPayload::TurnInterruptedByRecovery { agent_id, item_id } => {
-            SessionEvent::RuntimeWarning {
+            ConversationEvent::RuntimeWarning {
                 agent_id,
                 item_id,
                 message: super::super::PROCESS_RECOVERY_MESSAGE.to_owned(),
@@ -86,6 +86,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> SessionEvent {
         | JournalEntryPayload::TurnRetried { .. }
         | JournalEntryPayload::SteeringAccepted { .. }
         | JournalEntryPayload::SkillActivated { .. }
+        | JournalEntryPayload::ToolPermissionDecided { .. }
         | JournalEntryPayload::ToolCallRequested { .. }
         | JournalEntryPayload::ToolCallChanged { .. } => {
             unreachable!("model-bearing payloads are projected separately")

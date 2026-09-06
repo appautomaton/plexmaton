@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plexmaton_core::{
-    AgentId, AttentionId, EventSequence, HeadName, SessionEntryId, SessionEvent,
-    SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+    AgentId, AttentionId, ConversationEntryId, ConversationEvent, ConversationEventEnvelope,
+    EventSequence, HeadName, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
     TranscriptRole, TurnId,
 };
 
-use super::{JournalEntryPayload, SessionEntry, SessionJournal};
+use super::{ConversationEntry, ConversationJournal, JournalEntryPayload};
 use crate::timing::UsageAccumulator;
 use crate::{
     AssistantBlock, AssistantOutput, ContextAtom, ModelRequest, ModelStepId, RequestAttempt,
@@ -36,7 +36,7 @@ use usage::{cumulative_usage_event, unknown_usage_event};
 
 struct Projector {
     atoms: Vec<ContextAtom>,
-    events: Vec<SessionEventEnvelope>,
+    events: Vec<ConversationEventEnvelope>,
     next_event: u64,
     agents: BTreeSet<AgentId>,
     entries: BTreeMap<TranscriptItemId, AgentId>,
@@ -71,12 +71,12 @@ impl Projector {
         }
     }
 
-    fn emit(&mut self, event: SessionEvent) -> Result<(), JournalProjectionError> {
+    fn emit(&mut self, event: ConversationEvent) -> Result<(), JournalProjectionError> {
         let next = self
             .next_event
             .checked_add(1)
             .ok_or(JournalProjectionError::EventSequenceExhausted)?;
-        self.events.push(SessionEventEnvelope {
+        self.events.push(ConversationEventEnvelope {
             sequence: EventSequence::new(self.next_event),
             event,
         });
@@ -91,18 +91,18 @@ impl Projector {
         role: TranscriptRole,
         text: String,
     ) -> Result<(), JournalProjectionError> {
-        self.emit(SessionEvent::TranscriptItemStarted {
+        self.emit(ConversationEvent::TranscriptItemStarted {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             role,
         })?;
-        self.emit(SessionEvent::TranscriptDelta {
+        self.emit(ConversationEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 1,
             text,
         })?;
-        self.emit(SessionEvent::TranscriptItemFinalized {
+        self.emit(ConversationEvent::TranscriptItemFinalized {
             agent_id,
             item_id,
             item_revision: 2,
@@ -111,7 +111,7 @@ impl Projector {
 
     fn user_message(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         text: String,
@@ -126,7 +126,7 @@ impl Projector {
 
     fn turn_started(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         turn_id: TurnId,
@@ -141,7 +141,7 @@ impl Projector {
             return Err(JournalProjectionError::DuplicateTurn(turn_id));
         }
         self.activation_owner = Some((agent_id.clone(), turn_id));
-        self.emit(SessionEvent::AgentStatusChanged {
+        self.emit(ConversationEvent::AgentStatusChanged {
             agent_id,
             status: plexmaton_core::AgentStatus::Running,
         })
@@ -149,7 +149,7 @@ impl Projector {
 
     fn steering(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         item_id: TranscriptItemId,
         turn_id: TurnId,
@@ -168,7 +168,7 @@ impl Projector {
 
     fn skill(
         &mut self,
-        source: SessionEntryId,
+        source: ConversationEntryId,
         agent_id: AgentId,
         turn_id: TurnId,
         activation: crate::SkillActivation,
@@ -198,7 +198,7 @@ impl Projector {
             return Err(JournalProjectionError::WrongTurnAgent(fact.turn_id.clone()));
         }
         self.finish_unknown_usage(&fact.turn_id, &fact.agent_id)?;
-        self.emit(SessionEvent::AgentStatusChanged {
+        self.emit(ConversationEvent::AgentStatusChanged {
             agent_id: fact.agent_id.clone(),
             status: plexmaton_core::AgentStatus::Idle,
         })
@@ -216,7 +216,7 @@ impl Projector {
         if expected != &agent_id {
             return Err(JournalProjectionError::WrongTurnAgent(turn_id));
         }
-        self.emit(SessionEvent::AgentStatusChanged {
+        self.emit(ConversationEvent::AgentStatusChanged {
             agent_id,
             status: status.agent_status(),
         })
@@ -360,6 +360,7 @@ impl Projector {
             | JournalEntryPayload::SteeringAccepted { .. }
             | JournalEntryPayload::SkillActivated { .. }
             | JournalEntryPayload::AssistantOutput { .. }
+            | JournalEntryPayload::ToolPermissionDecided { .. }
             | JournalEntryPayload::ToolCallRequested { .. }
             | JournalEntryPayload::ToolCallChanged { .. } => {
                 unreachable!("model-bearing payloads are projected separately")
@@ -386,7 +387,7 @@ impl Projector {
     }
 }
 
-impl SessionJournal {
+impl ConversationJournal {
     /// Rebuilds both consumers from one selected immutable path (JRN-5).
     pub fn project(&self, head: &HeadName) -> Result<JournalProjection, JournalProjectionError> {
         let mut projector = Projector::new();
@@ -468,7 +469,7 @@ impl SessionJournal {
             .collect();
         Ok(JournalProjection {
             request: ModelRequest {
-                session_id: self.session_id().clone(),
+                session_id: self.conversation_id().clone(),
                 atoms: projector.atoms,
             },
             events: projector.events,
@@ -479,7 +480,7 @@ impl SessionJournal {
 }
 
 enum SelectedFact<'a> {
-    Entry(&'a SessionEntry),
+    Entry(&'a ConversationEntry),
     TurnFinished(&'a crate::TurnFinished),
     RequestAttemptAuthorized(&'a RequestAttemptAuthorized),
     RequestAttemptFinished(&'a RequestAttempt),

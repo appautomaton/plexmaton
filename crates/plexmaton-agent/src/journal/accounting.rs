@@ -4,7 +4,7 @@ use std::fmt;
 
 use plexmaton_core::TokenUsage;
 
-use super::SessionJournal;
+use super::ConversationJournal;
 use crate::timing::UsageAccumulator;
 use crate::{
     RequestAttempt, RequestAttemptId, RequestAttemptOwner, RequestAttemptTerminalState,
@@ -57,7 +57,7 @@ impl fmt::Display for RequestAccountingError {
 
 impl std::error::Error for RequestAccountingError {}
 
-impl SessionJournal {
+impl ConversationJournal {
     /// Incurred facts for one stable turn identity, excluding compaction and every other turn.
     pub fn turn_accounting(
         &self,

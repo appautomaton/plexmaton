@@ -124,7 +124,7 @@ output_reserve_tokens = 512
     let path = scratch.0.join("session.jsonl");
     let mut file = JournalFile::create(
         &path,
-        agent.journal().session_id().clone(),
+        agent.journal().conversation_id().clone(),
         UnixMillis::EPOCH,
     )
     .unwrap_or_else(|error| panic!("create journal: {error}"));
@@ -174,7 +174,7 @@ output_reserve_tokens = 512
         prefix
     );
     let mut other = call.request.clone();
-    other.session_id = plexmaton_core::SessionId::new("another-session")
+    other.session_id = plexmaton_core::ConversationId::new("another-session")
         .unwrap_or_else(|error| panic!("session: {error}"));
     assert_ne!(
         encode_request(model, &other, &[], None)
@@ -225,12 +225,10 @@ fn prv_3_cancelled_calls_leave_no_dangling_replay() {
         },
     );
     let reaction = agent.handle_at(Input::Interrupted, UnixMillis::EPOCH);
-    assert!(
-        !reaction
-            .effects
-            .iter()
-            .any(|effect| matches!(effect, Effect::AdmitTool(_) | Effect::RunTool(_)))
-    );
+    assert!(!reaction.effects.iter().any(|effect| matches!(
+        effect,
+        Effect::AdmitTool(_) | Effect::RunTool { .. } | Effect::PreparePermission(_)
+    )));
     let head = HeadName::new("main").unwrap_or_else(|error| panic!("head: {error}"));
     let projection = agent
         .journal()
@@ -332,7 +330,10 @@ output_reserve_tokens = 512
                     .expect("admit read");
                 let reaction =
                     agent.handle_at(Input::ToolAdmissionResolved(admitted), UnixMillis::EPOCH);
-                assert!(matches!(reaction.effects.as_slice(), [Effect::RunTool(_)]));
+                assert!(matches!(
+                    reaction.effects.as_slice(),
+                    [Effect::RunTool { .. }]
+                ));
                 let reaction = agent.handle_at(
                     Input::ToolFinished {
                         call_id: call.call_id,
@@ -361,7 +362,7 @@ output_reserve_tokens = 512
         let path = scratch.0.join("session.jsonl");
         let mut file = JournalFile::create(
             &path,
-            agent.journal().session_id().clone(),
+            agent.journal().conversation_id().clone(),
             UnixMillis::EPOCH,
         )
         .expect("create journal");

@@ -51,6 +51,11 @@ pub enum ToolOutcome {
         /// Typed catalog refusal.
         reason: AdmissionRefusal,
     },
+    /// Current permission authority changed before the admitted call could start.
+    PermissionRefused {
+        /// Typed failure without a dependent tool effect.
+        reason: crate::PermissionChangeError,
+    },
     /// Policy forbade the call; approval cannot override this outcome.
     Forbidden,
     /// The user explicitly declined the admitted call.
@@ -70,11 +75,19 @@ impl ToolOutcome {
             Self::Succeeded { .. } => ToolCallStatus::Succeeded,
             Self::Denied => ToolCallStatus::Denied,
             Self::Cancelled { .. } => ToolCallStatus::Cancelled,
-            Self::Failed { .. } | Self::AdmissionRefused { .. } | Self::Forbidden => {
-                ToolCallStatus::Failed
-            }
+            Self::Failed { .. }
+            | Self::AdmissionRefused { .. }
+            | Self::PermissionRefused { .. }
+            | Self::Forbidden => ToolCallStatus::Failed,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ApprovalProgress {
+    #[default]
+    Waiting,
+    Preparing(ApprovalDecision),
 }
 
 /// One admitted call parked for an explicit user decision (LOOP-5, APV-4).
@@ -84,6 +97,8 @@ pub struct PendingApproval {
     attention_id: AttentionId,
     turn_id: TurnId,
     admitted: AdmittedToolCall,
+    pub(crate) offer: Option<crate::permissions::PendingPermissionOffer>,
+    pub(crate) progress: ApprovalProgress,
 }
 
 impl PendingApproval {
@@ -98,6 +113,8 @@ impl PendingApproval {
             attention_id,
             turn_id,
             admitted,
+            offer: None,
+            progress: ApprovalProgress::Waiting,
         }
     }
 
@@ -119,6 +136,12 @@ impl PendingApproval {
         &self.turn_id
     }
 
+    /// Current producer-issued reusable permission, if the complete operation can be remembered.
+    #[must_use]
+    pub fn permission_offer(&self) -> Option<&plexmaton_core::RememberPermissionOffer> {
+        self.offer.as_ref().map(|offer| &offer.display)
+    }
+
     /// Exact admitted call the decision controls.
     #[must_use]
     pub const fn admitted(&self) -> &AdmittedToolCall {
@@ -129,7 +152,7 @@ impl PendingApproval {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CallState {
     AwaitingAdmission,
-    AwaitingApproval(PendingApproval),
+    AwaitingApproval(Box<PendingApproval>),
     Running(AdmittedToolCall),
     Finished(ToolOutcome),
 }
@@ -257,7 +280,7 @@ impl Batch {
             return false;
         }
         slot.presentation.invocation = admitted.invocation().cloned();
-        slot.state = CallState::AwaitingApproval(pending);
+        slot.state = CallState::AwaitingApproval(Box::new(pending));
         slot.entry_revision = slot.entry_revision.saturating_add(1);
         true
     }
@@ -285,6 +308,20 @@ impl Batch {
         true
     }
 
+    pub(crate) fn pending_approval_mut(
+        &mut self,
+        approval_id: &ApprovalId,
+    ) -> Option<&mut PendingApproval> {
+        self.slots
+            .iter_mut()
+            .find_map(|slot| match &mut slot.state {
+                CallState::AwaitingApproval(pending) if pending.approval_id() == approval_id => {
+                    Some(pending.as_mut())
+                }
+                _ => None,
+            })
+    }
+
     pub(crate) fn resolve_approval(
         &mut self,
         approval_id: &ApprovalId,
@@ -304,7 +341,7 @@ impl Batch {
         };
         let attention_id = pending.attention_id().clone();
         match decision {
-            ApprovalDecision::AllowOnce => {
+            ApprovalDecision::AllowOnce | ApprovalDecision::AllowAndRemember { .. } => {
                 let admitted = pending.admitted;
                 slot.presentation.invocation = admitted.invocation().cloned();
                 slot.state = CallState::Running(admitted.clone());
@@ -327,7 +364,7 @@ impl Batch {
 
     pub(crate) fn pending_approvals(&self) -> impl Iterator<Item = &PendingApproval> {
         self.slots.iter().filter_map(|slot| match &slot.state {
-            CallState::AwaitingApproval(pending) => Some(pending),
+            CallState::AwaitingApproval(pending) => Some(pending.as_ref()),
             CallState::AwaitingAdmission | CallState::Running(_) | CallState::Finished(_) => None,
         })
     }

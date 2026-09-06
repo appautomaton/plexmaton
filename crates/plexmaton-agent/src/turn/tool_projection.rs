@@ -1,6 +1,6 @@
 //! Canonical tool facts and their immediate live presentation.
 
-use plexmaton_core::{AttentionId, SessionEvent, ToolCallId, ToolCallStatus};
+use plexmaton_core::{AttentionId, ConversationEvent, ToolCallId, ToolCallStatus};
 
 use super::{Agent, Turn};
 use crate::interface::Reaction;
@@ -45,7 +45,7 @@ impl Agent {
         );
         self.record.emit(
             reaction,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 agent_id: self.record.agent_id().clone(),
                 item_id,
                 item_revision,
@@ -90,7 +90,7 @@ impl Agent {
         );
         self.record.emit(
             reaction,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 agent_id: self.record.agent_id().clone(),
                 item_id,
                 item_revision,
@@ -112,7 +112,7 @@ impl Agent {
         );
         self.record.emit(
             reaction,
-            SessionEvent::AttentionResolved {
+            ConversationEvent::AttentionResolved {
                 agent_id: self.record.agent_id().clone(),
                 attention_id,
             },

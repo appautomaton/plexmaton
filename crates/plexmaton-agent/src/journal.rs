@@ -1,12 +1,14 @@
 //! The canonical session record's structural core.
 //!
 //! This module owns no file. A later adapter appends one prepared [`JournalRecord`] and only then
-//! gives that same value to [`SessionJournal::apply`]. Keeping preparation and reduction pure makes
+//! gives that same value to [`ConversationJournal::apply`]. Keeping preparation and reduction pure makes
 //! a JSONL reload the same operation as a live append (JRN-1, JRN-2).
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use plexmaton_core::{AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TurnId};
+use plexmaton_core::{
+    AgentId, ConversationEntryId, ConversationId, HeadName, JournalRecordId, TurnId,
+};
 
 use crate::{
     ModelStepId, RequestAttempt, RequestAttemptId, RequestAttemptOwner, TurnFinished, UnixMillis,
@@ -39,20 +41,20 @@ pub use error::JournalError;
 pub use payload::JournalEntryPayload;
 pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;
 pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
-pub use record::{HeadRevision, JournalRecord, JournalSequence, SessionEntry};
+pub use record::{ConversationEntry, HeadRevision, JournalRecord, JournalSequence};
 pub use retry::{RetryCandidate, RetryTarget};
 
 /// Immutable identity and chronology shared by every projection of one session.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SessionMetadata {
-    session_id: SessionId,
+pub struct ConversationMetadata {
+    session_id: ConversationId,
     created_at_unix_ms: UnixMillis,
 }
 
-impl SessionMetadata {
+impl ConversationMetadata {
     /// Binds one identity to the externally observed instant it first existed.
     #[must_use]
-    pub const fn new(session_id: SessionId, created_at_unix_ms: UnixMillis) -> Self {
+    pub const fn new(session_id: ConversationId, created_at_unix_ms: UnixMillis) -> Self {
         Self {
             session_id,
             created_at_unix_ms,
@@ -61,7 +63,7 @@ impl SessionMetadata {
 
     /// Stable session identity.
     #[must_use]
-    pub const fn session_id(&self) -> &SessionId {
+    pub const fn conversation_id(&self) -> &ConversationId {
         &self.session_id
     }
 
@@ -74,7 +76,7 @@ impl SessionMetadata {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct HeadState {
-    target: Option<SessionEntryId>,
+    target: Option<ConversationEntryId>,
     revision: HeadRevision,
     open_turn: Option<TurnId>,
 }
@@ -82,7 +84,7 @@ struct HeadState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct TurnStartState {
     agent_id: AgentId,
-    entry_id: SessionEntryId,
+    entry_id: ConversationEntryId,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -93,15 +95,15 @@ struct TurnFinishState {
 
 /// Deterministic in-memory reduction of one session's ordered records.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SessionJournal {
-    metadata: SessionMetadata,
+pub struct ConversationJournal {
+    metadata: ConversationMetadata,
     next_sequence: JournalSequence,
     records: Vec<JournalRecord>,
     record_ids: BTreeSet<JournalRecordId>,
-    entries: BTreeMap<SessionEntryId, SessionEntry>,
-    entry_sequences: BTreeMap<SessionEntryId, JournalSequence>,
-    stable_entries: BTreeSet<SessionEntryId>,
-    unstable_entry_turns: BTreeMap<SessionEntryId, TurnId>,
+    entries: BTreeMap<ConversationEntryId, ConversationEntry>,
+    entry_sequences: BTreeMap<ConversationEntryId, JournalSequence>,
+    stable_entries: BTreeSet<ConversationEntryId>,
+    unstable_entry_turns: BTreeMap<ConversationEntryId, TurnId>,
     heads: BTreeMap<HeadName, HeadState>,
     retired_heads: BTreeSet<HeadName>,
     turn_starts: BTreeMap<TurnId, TurnStartState>,
@@ -113,22 +115,22 @@ pub struct SessionJournal {
     active_request_owners: BTreeMap<RequestAttemptOwner, RequestAttemptId>,
 }
 
-impl SessionJournal {
+impl ConversationJournal {
     /// Starts a deterministic synthetic session at the Unix epoch.
     #[must_use]
-    pub fn new(session_id: SessionId) -> Self {
-        Self::with_metadata(SessionMetadata::new(session_id, UnixMillis::EPOCH))
+    pub fn new(session_id: ConversationId) -> Self {
+        Self::with_metadata(ConversationMetadata::new(session_id, UnixMillis::EPOCH))
     }
 
     /// Starts an empty session with canonical creation time and `main` at revision zero.
     #[must_use]
-    pub fn with_created_at(session_id: SessionId, created_at_unix_ms: UnixMillis) -> Self {
-        Self::with_metadata(SessionMetadata::new(session_id, created_at_unix_ms))
+    pub fn with_created_at(session_id: ConversationId, created_at_unix_ms: UnixMillis) -> Self {
+        Self::with_metadata(ConversationMetadata::new(session_id, created_at_unix_ms))
     }
 
     /// Starts an empty session with canonical metadata and `main` at revision zero.
     #[must_use]
-    pub fn with_metadata(metadata: SessionMetadata) -> Self {
+    pub fn with_metadata(metadata: ConversationMetadata) -> Self {
         let main = HeadName::new("main")
             .unwrap_or_else(|error| unreachable!("static main head is valid: {error}"));
         Self {
@@ -161,8 +163,8 @@ impl SessionJournal {
 
     /// Session this journal reconstructs.
     #[must_use]
-    pub const fn session_id(&self) -> &SessionId {
-        self.metadata.session_id()
+    pub const fn conversation_id(&self) -> &ConversationId {
+        self.metadata.conversation_id()
     }
 
     /// Wall-clock instant at which this session identity was first created.
@@ -173,7 +175,7 @@ impl SessionJournal {
 
     /// Canonical identity and creation chronology for downstream projections.
     #[must_use]
-    pub const fn metadata(&self) -> &SessionMetadata {
+    pub const fn metadata(&self) -> &ConversationMetadata {
         &self.metadata
     }
 
@@ -189,12 +191,15 @@ impl SessionJournal {
     }
 
     /// Current entry selected by a named head.
-    pub fn head_target(&self, head: &HeadName) -> Result<Option<&SessionEntryId>, JournalError> {
+    pub fn head_target(
+        &self,
+        head: &HeadName,
+    ) -> Result<Option<&ConversationEntryId>, JournalError> {
         self.head(head).map(|state| state.target.as_ref())
     }
 
     /// Entries from root through the selected head, in provider order.
-    pub fn path(&self, head: &HeadName) -> Result<Vec<&SessionEntry>, JournalError> {
+    pub fn path(&self, head: &HeadName) -> Result<Vec<&ConversationEntry>, JournalError> {
         let mut cursor = self.head(head)?.target.as_ref();
         let mut path = Vec::new();
         while let Some(id) = cursor {
@@ -529,12 +534,13 @@ impl SessionJournal {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId, TurnId,
+        AgentId, ConversationEntryId, ConversationId, HeadName, JournalRecordId, TranscriptItemId,
+        TurnId,
     };
 
     use super::{
-        HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence,
-        SessionEntry, SessionJournal,
+        ConversationEntry, ConversationJournal, HeadRevision, JournalEntryPayload, JournalError,
+        JournalRecord, JournalSequence,
     };
     use crate::MAX_PROVIDER_REPLAY_BYTES;
     use crate::test_support::{
@@ -546,8 +552,8 @@ mod tests {
         build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
     }
 
-    fn session() -> SessionJournal {
-        SessionJournal::new(id("session-a", SessionId::new))
+    fn session() -> ConversationJournal {
+        ConversationJournal::new(id("session-a", ConversationId::new))
     }
 
     fn head(value: &str) -> HeadName {
@@ -558,9 +564,9 @@ mod tests {
         id(value, JournalRecordId::new)
     }
 
-    fn entry(value: &str, parent_id: Option<SessionEntryId>, text: &str) -> SessionEntry {
-        SessionEntry {
-            id: id(value, SessionEntryId::new),
+    fn entry(value: &str, parent_id: Option<ConversationEntryId>, text: &str) -> ConversationEntry {
+        ConversationEntry {
+            id: id(value, ConversationEntryId::new),
             parent_id,
             payload: JournalEntryPayload::RuntimeWarning {
                 agent_id: id("agent-a", AgentId::new),
@@ -575,7 +581,7 @@ mod tests {
         record_id: &str,
         head: &str,
         revision: u64,
-        entry: SessionEntry,
+        entry: ConversationEntry,
     ) -> JournalRecord {
         JournalRecord::AppendEntry {
             sequence: JournalSequence::new(sequence),
@@ -588,13 +594,13 @@ mod tests {
 
     fn turn_entry(
         value: &str,
-        parent_id: Option<SessionEntryId>,
+        parent_id: Option<ConversationEntryId>,
         turn_id: &str,
         agent_id: &str,
         text: &str,
-    ) -> SessionEntry {
-        SessionEntry {
-            id: id(value, SessionEntryId::new),
+    ) -> ConversationEntry {
+        ConversationEntry {
+            id: id(value, ConversationEntryId::new),
             parent_id,
             payload: JournalEntryPayload::TurnStarted {
                 agent_id: id(agent_id, AgentId::new),
@@ -608,7 +614,7 @@ mod tests {
     }
 
     fn finish_record(
-        journal: &SessionJournal,
+        journal: &ConversationJournal,
         record_id: &str,
         turn_id: &str,
         agent_id: &str,
@@ -624,7 +630,7 @@ mod tests {
             fact: TurnFinished {
                 agent_id: id(agent_id, AgentId::new),
                 turn_id: id(turn_id, TurnId::new),
-                semantic_boundary: id(boundary, SessionEntryId::new),
+                semantic_boundary: id(boundary, ConversationEntryId::new),
                 outcome: TurnOutcome::Completed,
                 at: TurnFinishedAt::Observed {
                     completed_at: UnixMillis::new(20),
@@ -724,7 +730,7 @@ mod tests {
         assert_eq!(journal.path(&head("main")), Ok(vec![&started]));
     }
 
-    fn open_turn_fixture() -> (SessionJournal, SessionEntry) {
+    fn open_turn_fixture() -> (ConversationJournal, ConversationEntry) {
         let mut journal = session();
         let started = turn_entry("turn-entry", None, "turn-1", "agent-a", "hello");
         journal
@@ -844,7 +850,7 @@ mod tests {
                 fact: TurnFinished {
                     agent_id: id("agent-a", AgentId::new),
                     turn_id: id("turn-1", TurnId::new),
-                    semantic_boundary: id("outside-turn", SessionEntryId::new),
+                    semantic_boundary: id("outside-turn", ConversationEntryId::new),
                     outcome: TurnOutcome::Completed,
                     at: TurnFinishedAt::Observed {
                         completed_at: UnixMillis::new(20),
@@ -911,7 +917,7 @@ mod tests {
     fn tim_1_sibling_heads_project_only_their_own_later_turns_and_terminals() {
         let mut journal = session();
         let created = entry("created", None, "ignored");
-        let created = SessionEntry {
+        let created = ConversationEntry {
             payload: JournalEntryPayload::AgentCreated {
                 agent_id: id("agent-a", AgentId::new),
                 label: "Agent A".to_owned(),
@@ -989,7 +995,7 @@ mod tests {
                 fact: TurnFinished {
                     agent_id: id("agent-a", AgentId::new),
                     turn_id: id("turn-branch", TurnId::new),
-                    semantic_boundary: id("branch-turn", SessionEntryId::new),
+                    semantic_boundary: id("branch-turn", ConversationEntryId::new),
                     outcome: TurnOutcome::Completed,
                     at: TurnFinishedAt::Observed {
                         completed_at: UnixMillis::new(30),
@@ -1023,7 +1029,7 @@ mod tests {
                     .iter()
                     .filter(|event| matches!(
                         event.event,
-                        plexmaton_core::SessionEvent::AgentStatusChanged {
+                        plexmaton_core::ConversationEvent::AgentStatusChanged {
                             status: plexmaton_core::AgentStatus::Idle,
                             ..
                         }
@@ -1176,7 +1182,7 @@ mod tests {
                     record_id: record("record-6"),
                     head: head("main"),
                     expected_head_revision: HeadRevision::new(1),
-                    to: Some(id("missing", SessionEntryId::new)),
+                    to: Some(id("missing", ConversationEntryId::new)),
                 },
                 "missing target",
             ),
@@ -1197,15 +1203,16 @@ mod tests {
         journal
             .apply(append(1, "turn-record", "main", 0, turn))
             .unwrap_or_else(|error| panic!("start turn: {error:?}"));
-        let step_entry = |entry_id: &str, parent_id: SessionEntryId, index| SessionEntry {
-            id: id(entry_id, SessionEntryId::new),
-            parent_id: Some(parent_id),
-            payload: JournalEntryPayload::AssistantOutput {
-                agent_id: id("agent-a", AgentId::new),
-                step_id: step("turn-a", index),
-                output: output(vec![text_block(&format!("text-{entry_id}"), "assistant")]),
-            },
-        };
+        let step_entry =
+            |entry_id: &str, parent_id: ConversationEntryId, index| ConversationEntry {
+                id: id(entry_id, ConversationEntryId::new),
+                parent_id: Some(parent_id),
+                payload: JournalEntryPayload::AssistantOutput {
+                    agent_id: id("agent-a", AgentId::new),
+                    step_id: step("turn-a", index),
+                    output: output(vec![text_block(&format!("text-{entry_id}"), "assistant")]),
+                },
+            };
 
         let after_turn = journal.clone();
         assert_eq!(
@@ -1299,8 +1306,8 @@ mod tests {
             "record-1",
             "main",
             0,
-            SessionEntry {
-                id: id("entry-1", SessionEntryId::new),
+            ConversationEntry {
+                id: id("entry-1", ConversationEntryId::new),
                 parent_id: None,
                 payload: JournalEntryPayload::AssistantOutput {
                     agent_id: id("agent-a", AgentId::new),
@@ -1356,7 +1363,7 @@ mod tests {
                 fact: TurnFinished {
                     agent_id: id("agent-a", AgentId::new),
                     turn_id: id("turn-1", TurnId::new),
-                    semantic_boundary: id("entry-1", SessionEntryId::new),
+                    semantic_boundary: id("entry-1", ConversationEntryId::new),
                     outcome: TurnOutcome::Completed,
                     at: TurnFinishedAt::Observed {
                         completed_at: UnixMillis::new(123),
@@ -1381,8 +1388,8 @@ mod tests {
             "record-1",
             "main",
             0,
-            SessionEntry {
-                id: id("entry-1", SessionEntryId::new),
+            ConversationEntry {
+                id: id("entry-1", ConversationEntryId::new),
                 parent_id: None,
                 payload: JournalEntryPayload::AssistantOutput {
                     agent_id: id("agent-a", AgentId::new),

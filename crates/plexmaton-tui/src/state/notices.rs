@@ -47,7 +47,7 @@ pub enum CleanupNotice {
     Provider,
     /// Native tool work.
     Tools,
-    /// Session journal writer.
+    /// Conversation journal writer.
     JournalWriter,
 }
 

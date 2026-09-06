@@ -10,9 +10,9 @@
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, EventSequence,
-        SessionEvent, SessionEventEnvelope, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
-        ToolPresentation, TranscriptItemId,
+        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, ConversationEvent,
+        ConversationEventEnvelope, EventSequence, ToolCallId, ToolCallStatus, ToolCapability,
+        ToolDetail, ToolPresentation, TranscriptItemId,
     };
     use ratatui::{
         Terminal,
@@ -23,8 +23,8 @@ mod tests {
     };
 
     use crate::{
-        CleanupNotice, PersistenceNotice, SessionRestoration, SessionTailRepair, SkillChoice,
-        SkillChoiceSource, TranscriptMetrics, ViewState, Workspace,
+        CleanupNotice, ConversationRestoration, ConversationTailRepair, PersistenceNotice,
+        SkillChoice, SkillChoiceSource, TranscriptMetrics, ViewState, Workspace,
         intent::{AttentionIntent, Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
@@ -243,7 +243,7 @@ mod tests {
         let mut sequence = 0_u64;
         let mut apply = |state: &mut ViewState, event| {
             sequence = sequence.saturating_add(1);
-            let outcome = state.apply(SessionEventEnvelope {
+            let outcome = state.apply(ConversationEventEnvelope {
                 sequence: EventSequence::new(sequence),
                 event,
             });
@@ -254,7 +254,7 @@ mod tests {
         };
         apply(
             &mut state,
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent_id.clone(),
                 label: "Plexmaton".to_owned(),
                 status: AgentStatus::Running,
@@ -269,7 +269,7 @@ mod tests {
             };
             apply(
                 state,
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     agent_id: agent_id.clone(),
                     item_id: item_id.clone(),
                     item_revision: revision,
@@ -336,9 +336,9 @@ mod tests {
         state
     }
 
-    fn apply_frame_event(state: &mut ViewState, sequence: &mut u64, event: SessionEvent) {
+    fn apply_frame_event(state: &mut ViewState, sequence: &mut u64, event: ConversationEvent) {
         *sequence = sequence.saturating_add(1);
-        let outcome = state.apply(SessionEventEnvelope {
+        let outcome = state.apply(ConversationEventEnvelope {
             sequence: EventSequence::new(*sequence),
             event,
         });
@@ -360,7 +360,7 @@ mod tests {
         apply_frame_event(
             state,
             sequence,
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent.clone(),
                 item_id: item.clone(),
                 role,
@@ -369,7 +369,7 @@ mod tests {
         apply_frame_event(
             state,
             sequence,
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent.clone(),
                 item_id: item.clone(),
                 item_revision: 1,
@@ -379,7 +379,7 @@ mod tests {
         apply_frame_event(
             state,
             sequence,
-            SessionEvent::TranscriptItemFinalized {
+            ConversationEvent::TranscriptItemFinalized {
                 agent_id: agent.clone(),
                 item_id: item,
                 item_revision: 2,
@@ -397,7 +397,7 @@ mod tests {
         apply_frame_event(
             &mut state,
             &mut sequence,
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent.clone(),
                 label: "Plexmaton".to_owned(),
                 status: AgentStatus::Idle,
@@ -440,7 +440,7 @@ mod tests {
         apply_frame_event(
             &mut state,
             &mut sequence,
-            SessionEvent::RuntimeWarning {
+            ConversationEvent::RuntimeWarning {
                 agent_id: agent.clone(),
                 item_id: TranscriptItemId::new("runtime-warning")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
@@ -450,7 +450,7 @@ mod tests {
         apply_frame_event(
             &mut state,
             &mut sequence,
-            SessionEvent::RuntimeError {
+            ConversationEvent::RuntimeError {
                 agent_id: agent.clone(),
                 item_id: TranscriptItemId::new("runtime-error")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
@@ -481,7 +481,7 @@ mod tests {
             apply_frame_event(
                 &mut state,
                 &mut sequence,
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     agent_id: agent.clone(),
                     item_id: item.clone(),
                     item_revision: revision,
@@ -572,7 +572,7 @@ mod tests {
             .expect("canonical primary agent");
         let item = TranscriptItemId::new("skill-review").expect("item id");
         let call = ToolCallId::new("skill-review").expect("call id");
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent.clone(),
             item_id: item.clone(),
             item_revision: 0,
@@ -581,7 +581,7 @@ mod tests {
             status: ToolCallStatus::Queued,
             presentation: ToolPresentation::default(),
         });
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent.clone(),
             item_id: item,
             item_revision: 1,
@@ -625,9 +625,9 @@ mod tests {
     fn the_skill_picker_frames_match_their_fixtures() {
         for (name, width, height) in SKILL_PICKER_FRAMES {
             let mut workspace = Workspace::default();
-            workspace.emit(vec![SessionEventEnvelope {
+            workspace.emit(vec![ConversationEventEnvelope {
                 sequence: EventSequence::new(1),
-                event: SessionEvent::AgentCreated {
+                event: ConversationEvent::AgentCreated {
                     agent_id: AgentId::new("primary").expect("agent"),
                     label: "Plexmaton".to_owned(),
                     status: AgentStatus::Idle,
@@ -694,25 +694,25 @@ mod tests {
         let mut state = ViewState::default();
         let agent_id = AgentId::new("agent-primary")
             .unwrap_or_else(|error| panic!("recovery agent id: {error}"));
-        let _created = state.apply(SessionEventEnvelope {
+        let _created = state.apply(ConversationEventEnvelope {
             sequence: EventSequence::new(1),
-            event: SessionEvent::AgentCreated {
+            event: ConversationEvent::AgentCreated {
                 agent_id: agent_id.clone(),
                 label: "Plexmaton".to_owned(),
                 status: AgentStatus::Idle,
             },
         });
-        let _warned = state.apply(SessionEventEnvelope {
+        let _warned = state.apply(ConversationEventEnvelope {
             sequence: EventSequence::new(2),
-            event: SessionEvent::RuntimeWarning {
+            event: ConversationEvent::RuntimeWarning {
                 agent_id,
                 item_id: TranscriptItemId::new("recovery-warning")
                     .unwrap_or_else(|error| panic!("recovery item id: {error}")),
                 message: "The previous turn didn't finish. You can continue from here; no model requests or tools were rerun.".to_owned(),
             },
         });
-        state.report_session_recovery(SessionRestoration {
-            tail: Some(SessionTailRepair::IsolatedFinalTail { bytes: 37 }),
+        state.report_conversation_recovery(ConversationRestoration {
+            tail: Some(ConversationTailRepair::IsolatedFinalTail { bytes: 37 }),
         });
         assert_eq!(state.notices().count(), 0);
         assert_eq!(
@@ -842,11 +842,13 @@ mod tests {
 
     fn approval_state(width: u16, height: u16) -> ViewState {
         let mut conversation = Conversation::canonical();
-        conversation.emit(SessionEvent::AttentionRequested {
+        conversation.emit(ConversationEvent::AttentionRequested {
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: AttentionId::new("attention-b-approval")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new("approval-b-1")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new("tool-b-write")
@@ -875,11 +877,11 @@ mod tests {
         for (name, width, height) in APPROVAL_FRAMES {
             let drawn = draw(&approval_state(width, height), width, height);
             for signature in [
-                "Allow edit?",
-                "change files",
+                "Approval required",
+                "edit",
                 "Allow once",
                 "> Deny",
-                "Esc later",
+                "Enter decide",
             ] {
                 assert!(
                     drawn.contains(signature),
@@ -890,11 +892,25 @@ mod tests {
         }
     }
 
-    fn native_approval_state(width: u16, height: u16) -> ViewState {
+    fn native_approval_state(_width: u16, _height: u16) -> ViewState {
+        command_approval_state(
+            "cargo test",
+            "exact command; same cwd/environment",
+            Some("no prefix suggestion for this command"),
+            plexmaton_core::PermissionScopes::Session,
+        )
+    }
+
+    fn command_approval_state(
+        command: &str,
+        label: &str,
+        note: Option<&str>,
+        scopes: plexmaton_core::PermissionScopes,
+    ) -> ViewState {
         let mut conversation = Conversation::canonical();
         let item_id = TranscriptItemId::new("agent-a-command-native-1")
             .unwrap_or_else(|error| panic!("fixture: {error}"));
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             item_id: item_id.clone(),
             item_revision: 0,
@@ -904,7 +920,7 @@ mod tests {
             status: ToolCallStatus::Queued,
             presentation: ToolPresentation::default(),
         });
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             item_id,
             item_revision: 1,
@@ -914,11 +930,18 @@ mod tests {
             status: ToolCallStatus::AwaitingApproval,
             presentation: ToolPresentation::default(),
         });
-        conversation.emit(SessionEvent::AttentionRequested {
+        conversation.emit(ConversationEvent::AttentionRequested {
             agent_id: AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: AttentionId::new("attention-a-command")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::CommandExecution,
+                remember: Some(plexmaton_core::RememberPermissionOffer {
+                    id: plexmaton_core::PermissionOfferId::new(1),
+                    label: label.into(),
+                    note: note.map(str::to_owned),
+                    scopes,
+                }),
                 approval_id: ApprovalId::new("approval-a-command")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new("command-native-1")
@@ -929,18 +952,14 @@ mod tests {
                     ToolCapability::FileWrite,
                     ToolCapability::ProcessSpawn,
                 ],
-                detail: "Command \"cargo test\" · cwd \"/home/dev/plexmaton\" · timeout 120000 ms"
-                    .to_owned(),
+                detail: format!(
+                    "Command {command:?} · cwd \"/home/dev/plexmaton\" · timeout 120000 ms"
+                ),
             },
         });
         conversation
             .state
             .set_working_directory("~/plexmaton".to_owned());
-        let (surfaces, _) = draw_frame(&conversation.state, &Palette::default(), width, height);
-        conversation
-            .state
-            .attend(&surfaces, AttentionIntent::Move(Direction::Forward));
-        conversation.state.attend(&surfaces, AttentionIntent::GoTo);
         conversation.state
     }
 
@@ -956,12 +975,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{name}: approval surface is not registered"));
             let approval = region_text(&buffer, approval.bounds);
             for signature in [
-                "Allow exec_command?",
+                "Approval required",
                 "exec_command",
-                "read files",
-                "change files",
-                "run processes",
+                "No current permission",
                 "Allow once",
+                "Allow and remember…",
                 "> Deny",
                 "cargo test",
             ] {
@@ -971,6 +989,117 @@ mod tests {
                 );
             }
             crate::test_support::assert_frame(name, &drawn);
+        }
+    }
+
+    /// PER-5: remembered scopes occupy the same card and grant nothing until the lifetime is confirmed.
+    #[test]
+    fn per_5_remembered_scope_frames_preserve_the_operation_and_composer() {
+        for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
+            let mut state = native_approval_state(width, 40);
+            state.decide_approval(crate::ApprovalIntent::Move(Direction::Backward));
+            assert!(
+                state
+                    .decide_approval(crate::ApprovalIntent::Decide)
+                    .is_none()
+            );
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, 40);
+            let approval = region_text(
+                &buffer,
+                surfaces.get(SurfaceId::Approval).expect("same card").bounds,
+            );
+            for signature in [
+                "Remember permission",
+                "cargo test",
+                "Scope:",
+                "cwd",
+                "environment",
+                "> This Session",
+                "Back",
+                "Esc back",
+            ] {
+                assert!(
+                    approval.contains(signature),
+                    "{name}: {signature}: {approval}"
+                );
+            }
+            assert_eq!(
+                surfaces
+                    .get(SurfaceId::Composer)
+                    .expect("composer")
+                    .bounds
+                    .height,
+                3
+            );
+            crate::test_support::assert_frame(&format!("remember-permission-{name}"), &approval);
+        }
+    }
+
+    /// PER-10/PER-5: concrete prefix and both lifetimes remain visible in the reviewed card.
+    #[test]
+    fn per_10_prefix_permission_frames_show_tokens_context_and_project_lifetime() {
+        for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
+            let mut state = command_approval_state(
+                "git fetch 'team origin'",
+                "git fetch …; same cwd/environment",
+                None,
+                plexmaton_core::PermissionScopes::SessionAndProject,
+            );
+            state.decide_approval(crate::ApprovalIntent::Move(Direction::Backward));
+            assert!(
+                state
+                    .decide_approval(crate::ApprovalIntent::Decide)
+                    .is_none()
+            );
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, 40);
+            let approval = region_text(
+                &buffer,
+                surfaces.get(SurfaceId::Approval).expect("card").bounds,
+            );
+            for text in [
+                "Remember permission",
+                "team origin",
+                "git fetch …",
+                "cwd",
+                "environment",
+                "This Session",
+                "This Project",
+                "Back",
+                "Esc back",
+            ] {
+                assert!(approval.contains(text), "{name}: {text}: {approval}");
+            }
+            crate::test_support::assert_frame(&format!("prefix-permission-{name}"), &approval);
+        }
+    }
+
+    /// PER-10: the smallest supported confirmation cannot hide a prefix's binding or lifetime.
+    #[test]
+    fn per_10_short_prefix_confirmation_retains_scope_and_all_choices() {
+        for width in [48, 60] {
+            let mut state = command_approval_state(
+                "git fetch origin",
+                "git fetch …; same cwd/environment",
+                None,
+                plexmaton_core::PermissionScopes::SessionAndProject,
+            );
+            state.decide_approval(crate::ApprovalIntent::Move(Direction::Backward));
+            state.decide_approval(crate::ApprovalIntent::Decide);
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, 12);
+            let approval = region_text(
+                &buffer,
+                surfaces.get(SurfaceId::Approval).expect("card").bounds,
+            );
+            for text in [
+                "Scope:",
+                "git fetch",
+                "environment",
+                "This Session",
+                "This Project",
+                "Back",
+            ] {
+                assert!(approval.contains(text), "{width}: {text}: {approval}");
+            }
         }
     }
 
@@ -1041,22 +1170,20 @@ mod tests {
                     },
                 );
                 assert!(
-                    border.contains("( !1 )"),
-                    "{width}x{height} expanded={expanded}: the pill says something is waiting \
-                     even while the region below is what is waiting:\n{border}"
+                    border.contains("( !2 )"),
+                    "{width}x{height} expanded={expanded}: the pill counts the two background \
+                     requests and excludes the visible primary request:\n{border}"
                 );
 
                 let rows: Vec<String> = region_text(&buffer, region.bounds)
                     .lines()
                     .map(str::to_owned)
                     .collect();
-                let last_two = rows
-                    .get(rows.len().saturating_sub(2)..)
-                    .unwrap_or_default()
-                    .join("\n");
                 assert!(
-                    last_two.contains("Allow once") && last_two.contains("Deny"),
-                    "{width}x{height} expanded={expanded}: the options are the last rows:\n{}",
+                    rows.iter().any(|row| row.contains("Allow once"))
+                        && rows.iter().any(|row| row.contains("Allow and remember…"))
+                        && rows.iter().any(|row| row.contains("Deny")),
+                    "{width}x{height} expanded={expanded}: all three options remain visible:\n{}",
                     rows.join("\n")
                 );
 

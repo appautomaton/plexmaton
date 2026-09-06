@@ -7,7 +7,7 @@ use plexmaton_agent::{
     ProviderModelFamilyId, ProviderReplay, ProviderReplayOwnerId, ReplayCompatibility, StopReason,
     ToolBatch, ToolBatchResult, ToolCall, ToolOutcome,
 };
-use plexmaton_core::{SessionEntryId, TokenUsage, ToolCallId, TranscriptItemId};
+use plexmaton_core::{ConversationEntryId, TokenUsage, ToolCallId, TranscriptItemId};
 use plexmaton_provider::{
     DecodeLimits, ModelApi, ProviderCodec, SseDecodeError, drive_sse, encode_request,
 };
@@ -221,7 +221,7 @@ fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     let request = ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("opaque-output"), output)
@@ -242,7 +242,7 @@ fn prv_1_protocol_selection_never_falls_back_across_replay_grammars() {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     let request = ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("plain-output"), output)
@@ -299,7 +299,7 @@ fn prv_1_both_protocols_preserve_parallel_call_and_result_order() {
     )
     .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
     let request = ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::tool_batch(vec![session_entry("parallel-batch")], batch)
@@ -359,7 +359,7 @@ fn prv_1_chat_refuses_cross_kind_order_its_wire_cannot_represent() {
     )
     .unwrap_or_else(|error| panic!("fixture tool batch: {error}"));
     let request = ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::tool_batch(vec![session_entry("cross-kind")], batch)
@@ -664,8 +664,9 @@ async fn prv_2_sse_framing_rejects_partial_utf8() {
     assert!(matches!(error, SseDecodeError::InvalidUtf8));
 }
 
-fn session_entry(value: &str) -> SessionEntryId {
-    SessionEntryId::new(value).unwrap_or_else(|error| panic!("fixture session entry id: {error}"))
+fn session_entry(value: &str) -> ConversationEntryId {
+    ConversationEntryId::new(value)
+        .unwrap_or_else(|error| panic!("fixture session entry id: {error}"))
 }
 
 fn transcript_item(value: &str) -> TranscriptItemId {
@@ -699,7 +700,7 @@ fn opaque_replay_request(compatible_with: ReplayCompatibility) -> ModelRequest {
     )
     .unwrap_or_else(|error| panic!("fixture assistant output: {error}"));
     ModelRequest {
-        session_id: plexmaton_core::SessionId::new("fixture-session")
+        session_id: plexmaton_core::ConversationId::new("fixture-session")
             .unwrap_or_else(|error| panic!("session: {error}")),
         atoms: vec![
             ContextAtom::assistant(session_entry("private-output"), output)

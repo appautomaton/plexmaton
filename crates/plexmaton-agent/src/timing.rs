@@ -1,6 +1,6 @@
 //! Durable chronology values observed outside the pure agent reducer.
 
-use plexmaton_core::{AgentId, AgentStatus, SessionEntryId, TurnId};
+use plexmaton_core::{AgentId, AgentStatus, ConversationEntryId, TurnId};
 use serde::{Deserialize, Serialize};
 
 mod request;
@@ -100,7 +100,7 @@ pub struct TurnFinished {
     /// Stable turn identity introduced by its semantic start entry.
     pub turn_id: TurnId,
     /// Last semantic entry owned by the turn on its original branch.
-    pub semantic_boundary: SessionEntryId,
+    pub semantic_boundary: ConversationEntryId,
     /// Typed terminal outcome.
     pub outcome: TurnOutcome,
     /// Wall observation available for that outcome.

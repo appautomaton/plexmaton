@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::TestDir;
-use plexmaton_agent::{Agent, ApprovalPolicy, Input, SessionMetadata, TurnBudget, UnixMillis};
+use plexmaton_agent::{Agent, ApprovalPolicy, ConversationMetadata, Input, TurnBudget, UnixMillis};
 use plexmaton_core::AgentId;
 
 #[test]
@@ -19,10 +19,10 @@ fn test_directory_ownership_cleans_up_on_unwind() {
 fn fixture() -> (TestDir, AutomaticJournal, Agent) {
     let root = TestDir::new("lazy");
     let journal = AutomaticJournal::new(root.path().join("home"), UnixMillis::new(1234));
-    let agent = Agent::for_session(
+    let agent = Agent::for_conversation(
         AgentId::new("primary").expect("id"),
-        SessionMetadata::new(
-            journal.metadata().session_id().clone(),
+        ConversationMetadata::new(
+            journal.metadata().conversation_id().clone(),
             UnixMillis::new(1234),
         ),
         TurnBudget::default(),

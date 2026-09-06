@@ -60,7 +60,7 @@ impl Agent {
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AgentId, HeadName, SessionEvent, TokenCounts, TokenUsage};
+    use plexmaton_core::{AgentId, ConversationEvent, HeadName, TokenCounts, TokenUsage};
 
     use super::Agent;
     use crate::test_support::replay_compatibility;
@@ -279,7 +279,7 @@ mod tests {
             first.events.as_slice(),
             [event] if matches!(
                 &event.event,
-                SessionEvent::TurnUsageUpdated {
+                ConversationEvent::TurnUsageUpdated {
                     usage: TokenUsage::Complete(counts),
                     ..
                 } if counts.total == 14
@@ -298,7 +298,7 @@ mod tests {
             retry.events.as_slice(),
             [event] if matches!(
                 &event.event,
-                SessionEvent::TurnUsageUpdated {
+                ConversationEvent::TurnUsageUpdated {
                     usage: TokenUsage::Partial(counts),
                     ..
                 } if counts.total == 14
@@ -313,7 +313,7 @@ mod tests {
             .events()
             .iter()
             .filter_map(|event| match &event.event {
-                event @ SessionEvent::TurnUsageUpdated { .. } => Some(event.clone()),
+                event @ ConversationEvent::TurnUsageUpdated { .. } => Some(event.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -346,7 +346,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("authorize retry: {error:?}"));
         let interrupted = agent.handle_at(Input::Interrupted, UnixMillis::new(13));
         assert!(interrupted.events.iter().any(|event| matches!(
-            &event.event, SessionEvent::TurnUsageUpdated { usage: TokenUsage::Partial(counts), .. }
+            &event.event, ConversationEvent::TurnUsageUpdated { usage: TokenUsage::Partial(counts), .. }
                 if counts.total == 10
         )));
         let cancelled = RequestAttemptTerminal::new(
@@ -361,7 +361,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("record cancellation: {error:?}"));
         assert!(
             matches!(final_report.events.as_slice(), [event] if matches!(
-                &event.event, SessionEvent::TurnUsageUpdated { usage: TokenUsage::Complete(counts), .. }
+                &event.event, ConversationEvent::TurnUsageUpdated { usage: TokenUsage::Complete(counts), .. }
                     if counts.total == 10
             ))
         );
@@ -369,10 +369,10 @@ mod tests {
             .journal()
             .project(&main())
             .unwrap_or_else(|error| panic!("replay coverage: {error:?}"));
-        let usage_events = |events: &[plexmaton_core::SessionEventEnvelope]| {
+        let usage_events = |events: &[plexmaton_core::ConversationEventEnvelope]| {
             events
                 .iter()
-                .filter(|event| matches!(event.event, SessionEvent::TurnUsageUpdated { .. }))
+                .filter(|event| matches!(event.event, ConversationEvent::TurnUsageUpdated { .. }))
                 .map(|event| event.event.clone())
                 .collect::<Vec<_>>()
         };
@@ -401,7 +401,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("finish after interrupt: {error:?}"));
         assert!(matches!(
             reaction.events.as_slice(),
-            [event] if matches!(event.event, SessionEvent::TurnUsageUpdated { .. })
+            [event] if matches!(event.event, ConversationEvent::TurnUsageUpdated { .. })
         ));
 
         let finished_journal = agent.journal().clone();

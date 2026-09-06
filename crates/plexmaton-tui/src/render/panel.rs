@@ -10,14 +10,14 @@ use ratatui::{
     Frame,
     layout::Rect,
     text::Line,
-    widgets::{Paragraph, Wrap},
+    widgets::{Padding, Paragraph, Wrap},
 };
 
 use super::chrome::{Badged as _, block, title};
 use crate::{
     ViewState,
     state::{Caret, ScrollPosition, inner_width},
-    surface::Viewport,
+    surface::{ContentInsets, Viewport},
     theme::{Palette, Role},
 };
 
@@ -31,6 +31,7 @@ pub(super) struct Panel {
     pub(super) badge: Option<Line<'static>>,
     /// Which sides carry a frame, and so how many rows the content cannot have.
     pub(super) edges: Edges,
+    pub(super) insets: ContentInsets,
 }
 
 /// Which sides of a region carry a frame.
@@ -148,31 +149,33 @@ pub(super) fn draw_panel(
     panel: &Panel,
     parked: Option<ScrollPosition>,
 ) -> Viewport {
-    let frame_rows = panel.edges.rows();
-    let frame_columns = panel.edges.columns();
+    let chrome = block(palette, panel.title.clone(), focused, panel.edges)
+        .badge(panel.badge.clone())
+        .padding(Padding::new(
+            panel.insets.sides,
+            panel.insets.sides,
+            panel.insets.vertical,
+            panel.insets.vertical,
+        ));
+    let inside = chrome.inner(area);
     let mut lines = panel.body.lines().to_vec();
-    // A conversation shorter than its panel sits at the bottom, the way one that overflows does:
-    // the newest content is always at the bottom, so what a window floating over the top covers
-    // is empty rows or rows already read, never what the user is reading (`ui-ux.md` §shelf).
     if let Body::Window { viewport, .. } = &panel.body {
         let slack = usize::from(viewport.visible_rows).saturating_sub(viewport.content_rows);
         lines.splice(0..0, std::iter::repeat_n(Line::default(), slack));
     }
-    let mut paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
-    paragraph = paragraph.block(
-        block(palette, panel.title.clone(), focused, panel.edges).badge(panel.badge.clone()),
-    );
+    let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(chrome, area);
 
     let (viewport, scroll) = match &panel.body {
         Body::Whole { follows_tail, .. } => {
             // `line_count` wraps at exactly the width it is given and then adds the block's border
             // rows, so it is asked for the inner width and those rows are taken back off.
-            let inner_width = area.width.saturating_sub(frame_columns);
+            let inner_width = inside.width;
             let measured = paragraph.line_count(inner_width);
             let mut viewport = Viewport {
-                content_rows: measured.saturating_sub(usize::from(frame_rows)),
+                content_rows: measured,
                 content_width: inner_width,
-                visible_rows: area.height.saturating_sub(frame_rows),
+                visible_rows: inside.height,
                 offset: 0,
             };
             viewport.offset = resolve_offset(parked, *follows_tail, viewport.max_offset());
@@ -185,7 +188,7 @@ pub(super) fn draw_panel(
         } => (*viewport, *skip_rows),
     };
 
-    frame.render_widget(paragraph.scroll((scroll, 0)), area);
+    frame.render_widget(paragraph.scroll((scroll, 0)), inside);
     viewport
 }
 

@@ -134,6 +134,15 @@ impl FileTools {
         catalog::admit_before_resolution(self, request, cancellation, before_resolution)
     }
 
+    /// The two reviewed definition bindings eligible for the native file-change permission preset.
+    #[must_use]
+    pub fn permission_definitions() -> (
+        plexmaton_agent::PermissionDefinition,
+        plexmaton_agent::PermissionDefinition,
+    ) {
+        catalog::permission_definitions()
+    }
+
     /// Executes only a definition identity and canonical arguments produced by admission.
     pub fn execute(
         &mut self,

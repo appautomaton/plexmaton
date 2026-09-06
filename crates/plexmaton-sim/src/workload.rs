@@ -5,7 +5,7 @@
 //! scripted story with named moments — and these stay what they are, traffic at a stated volume.
 
 use plexmaton_core::{
-    AgentId, AgentStatus, IdError, SessionEvent, ToolCallId, ToolCallStatus, ToolDetail,
+    AgentId, AgentStatus, ConversationEvent, IdError, ToolCallId, ToolCallStatus, ToolDetail,
     ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
@@ -51,7 +51,7 @@ impl Scenario {
     pub fn tool_entries(items: usize) -> Result<Self, IdError> {
         let agent_id = AgentId::new("agent-0")?;
         let mut events = Vec::with_capacity(items.saturating_mul(2).saturating_add(1));
-        events.push(SessionEvent::AgentCreated {
+        events.push(ConversationEvent::AgentCreated {
             agent_id: agent_id.clone(),
             label: "Agent 0 · tool workload".to_owned(),
             status: AgentStatus::Running,
@@ -59,7 +59,7 @@ impl Scenario {
         for item in 0..items {
             let item_id = TranscriptItemId::new(format!("tool-entry-0-{item}"))?;
             let call_id = ToolCallId::new(format!("tool-0-{item}"))?;
-            events.push(SessionEvent::ToolCallChanged {
+            events.push(ConversationEvent::ToolCallChanged {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 item_revision: 0,
@@ -68,7 +68,7 @@ impl Scenario {
                 status: ToolCallStatus::Queued,
                 presentation: ToolPresentation::default(),
             });
-            events.push(SessionEvent::ToolCallChanged {
+            events.push(ConversationEvent::ToolCallChanged {
                 agent_id: agent_id.clone(),
                 item_id,
                 item_revision: 1,
@@ -103,7 +103,7 @@ impl Scenario {
         let mut events = Vec::new();
 
         for (index, agent_id) in ids.iter().enumerate() {
-            events.push(SessionEvent::AgentCreated {
+            events.push(ConversationEvent::AgentCreated {
                 agent_id: agent_id.clone(),
                 label: format!("Agent {index} · workload"),
                 status: AgentStatus::Running,
@@ -135,31 +135,35 @@ impl Scenario {
 }
 
 /// One assistant message, as the four events a streaming producer actually sends.
-fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<SessionEvent>, IdError> {
+fn message(
+    agent_id: &AgentId,
+    agent: usize,
+    item: usize,
+) -> Result<Vec<ConversationEvent>, IdError> {
     let item_id = TranscriptItemId::new(format!("m-{agent}-{item}"))?;
     let body = FRAGMENTS
         .get(item % FRAGMENTS.len())
         .copied()
         .unwrap_or_default();
     Ok(vec![
-        SessionEvent::TranscriptItemStarted {
+        ConversationEvent::TranscriptItemStarted {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             role: TranscriptRole::Assistant,
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 1,
             text: format!("Message {item}. "),
         },
-        SessionEvent::TranscriptDelta {
+        ConversationEvent::TranscriptDelta {
             agent_id: agent_id.clone(),
             item_id: item_id.clone(),
             item_revision: 2,
             text: body.to_owned(),
         },
-        SessionEvent::TranscriptItemFinalized {
+        ConversationEvent::TranscriptItemFinalized {
             agent_id: agent_id.clone(),
             item_id,
             item_revision: 3,
@@ -168,8 +172,12 @@ fn message(agent_id: &AgentId, agent: usize, item: usize) -> Result<Vec<SessionE
 }
 
 /// A tool appearing among messages, so the unified conversation has mixed entry traffic too.
-fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<SessionEvent, IdError> {
-    Ok(SessionEvent::ToolCallChanged {
+fn tool_change(
+    agent_id: &AgentId,
+    agent: usize,
+    item: usize,
+) -> Result<ConversationEvent, IdError> {
+    Ok(ConversationEvent::ToolCallChanged {
         agent_id: agent_id.clone(),
         item_id: TranscriptItemId::new(format!("tool-entry-{agent}-{item}"))?,
         item_revision: 0,
@@ -184,7 +192,7 @@ fn tool_change(agent_id: &AgentId, agent: usize, item: usize) -> Result<SessionE
 mod tests {
     use std::collections::BTreeMap;
 
-    use plexmaton_core::{SessionEvent, ToolCallStatus};
+    use plexmaton_core::{ConversationEvent, ToolCallStatus};
 
     use crate::{Scenario, ScriptedRuntime};
 
@@ -215,7 +223,9 @@ mod tests {
             .steps()
             .iter()
             .filter_map(|step| match &step.event {
-                SessionEvent::TranscriptItemStarted { agent_id, .. } => Some(agent_id.to_string()),
+                ConversationEvent::TranscriptItemStarted { agent_id, .. } => {
+                    Some(agent_id.to_string())
+                }
                 _ => None,
             })
             .take(5)
@@ -240,7 +250,7 @@ mod tests {
         let scenario = Scenario::streaming(8).unwrap_or_else(|error| panic!("fixture: {error}"));
         let mut by_item: BTreeMap<String, usize> = BTreeMap::new();
         for step in scenario.steps() {
-            if let SessionEvent::TranscriptDelta { item_id, text, .. } = &step.event {
+            if let ConversationEvent::TranscriptDelta { item_id, text, .. } = &step.event {
                 *by_item.entry(item_id.to_string()).or_default() += text.chars().count();
             }
         }
@@ -266,7 +276,7 @@ mod tests {
             .steps()
             .iter()
             .filter_map(|step| match &step.event {
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     item_revision,
                     status,
                     presentation,

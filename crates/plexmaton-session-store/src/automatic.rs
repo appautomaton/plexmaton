@@ -1,7 +1,7 @@
 //! A file is materialized only when the first user turn reaches the journal writer.
-use crate::{JournalFile, SessionDirectory, StoreError};
-use plexmaton_agent::{JournalEntryPayload, JournalRecord, SessionMetadata, UnixMillis};
-use plexmaton_core::SessionId;
+use crate::{ConversationDirectory, JournalFile, StoreError};
+use plexmaton_agent::{ConversationMetadata, JournalEntryPayload, JournalRecord, UnixMillis};
+use plexmaton_core::ConversationId;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -10,7 +10,7 @@ use uuid::Uuid;
 pub struct AutomaticJournal {
     root: PathBuf,
     path: PathBuf,
-    metadata: SessionMetadata,
+    metadata: ConversationMetadata,
     state: State,
 }
 
@@ -24,14 +24,14 @@ enum State {
 impl AutomaticJournal {
     /// Allocates an identity and chronology without accessing or creating a directory/file.
     pub fn new(root: impl AsRef<Path>, created_at: UnixMillis) -> Self {
-        let id = SessionId::new(format!("session-{}", Uuid::now_v7()))
+        let id = ConversationId::new(format!("session-{}", Uuid::now_v7()))
             .unwrap_or_else(|_| unreachable!("a generated UUIDv7 is a valid identity"));
         let root = root.as_ref().to_path_buf();
         let path = root.join("sessions").join(format!("{id}.jsonl"));
         Self {
             root,
             path,
-            metadata: SessionMetadata::new(id, created_at),
+            metadata: ConversationMetadata::new(id, created_at),
             state: State::Empty,
         }
     }
@@ -42,7 +42,7 @@ impl AutomaticJournal {
     }
 
     /// Identical metadata is handed to the reducer and written into the eventual header.
-    pub fn metadata(&self) -> &SessionMetadata {
+    pub fn metadata(&self) -> &ConversationMetadata {
         &self.metadata
     }
 
@@ -59,8 +59,8 @@ impl AutomaticJournal {
                 self.state = State::Announced(Box::new(record))
             }
             State::Announced(bootstrap) if is_first_turn(&record) => {
-                let mut file = SessionDirectory::under(&self.root)?.create(
-                    self.metadata.session_id().clone(),
+                let mut file = ConversationDirectory::under(&self.root)?.create(
+                    self.metadata.conversation_id().clone(),
                     self.metadata.created_at_unix_ms(),
                 )?;
                 for record in [*bootstrap, record] {

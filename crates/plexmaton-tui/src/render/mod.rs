@@ -4,6 +4,7 @@ mod chrome;
 mod configuration;
 mod message_actions;
 mod panel;
+pub(crate) mod permission_review;
 
 use configuration::render_configuration;
 
@@ -64,6 +65,13 @@ pub fn render(
 
     for (z, id, bounds) in drawn {
         let has_focus = focused == Some(id);
+        if id == SurfaceId::CommandPalette
+            && let Some(viewport) =
+                permission_review::render(frame, palette, state, bounds, has_focus)
+        {
+            surfaces.set_viewport(id, viewport);
+            continue;
+        }
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (INS-5). What is left is what its
         // conversation is drawn into, so the two are laid out before either is built.
@@ -78,6 +86,7 @@ pub fn render(
         // drawn and whether it scrolls.
         let panel = match id {
             SurfaceId::Agents => Some(Panel {
+                insets: crate::surface::ContentInsets::default(),
                 body: Body::Whole {
                     lines: content::agents(state, palette),
                     follows_tail: false,
@@ -87,6 +96,7 @@ pub fn render(
                 edges: Edges::All,
             }),
             SurfaceId::Transcript => Some(Panel {
+                insets: crate::surface::ContentInsets::default(),
                 body: conversation_body(
                     state,
                     palette,
@@ -104,6 +114,7 @@ pub fn render(
             // The inspected agent's conversation uses the same unified entry grammar as the
             // primary: the workspace shows one conversation, and the journey needs it to show two.
             SurfaceId::Inspector => Some(Panel {
+                insets: crate::surface::ContentInsets::default(),
                 body: conversation_body(
                     state,
                     palette,
@@ -117,6 +128,7 @@ pub fn render(
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Notices => Some(Panel {
+                insets: crate::surface::ContentInsets::default(),
                 body: Body::Whole {
                     lines: content::notices(state, palette),
                     follows_tail: true,
@@ -126,6 +138,7 @@ pub fn render(
                 edges: Edges::All,
             }),
             SurfaceId::Attention => Some(Panel {
+                insets: crate::surface::ContentInsets::default(),
                 body: Body::Whole {
                     lines: content::attention(state, palette),
                     // Oldest first, and the oldest unanswered request is the one that has been
@@ -196,8 +209,8 @@ pub fn render(
                 }
                 _ => place_cursor(
                     frame,
-                    bounds,
-                    input_caret(state, id, inner_width(bounds.width)),
+                    panel.insets.inset(bounds),
+                    input_caret(state, id, panel.insets.width(bounds.width)),
                     panel.edges,
                 ),
             }
@@ -213,11 +226,19 @@ pub fn render(
 /// an approval is a question one agent is waiting on, so it renders inside that agent's box.
 fn command_palette_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
+        insets: crate::surface::ContentInsets::for_surface(
+            SurfaceId::CommandPalette,
+            bounds.height,
+        ),
         body: Body::Whole {
             lines: content::command_palette(
                 state,
                 palette,
-                inner_width(bounds.width),
+                crate::surface::ContentInsets::for_surface(
+                    SurfaceId::CommandPalette,
+                    bounds.height,
+                )
+                .width(bounds.width),
                 bounds.height,
             ),
             follows_tail: false,
@@ -226,9 +247,14 @@ fn command_palette_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> 
             palette,
             if state
                 .command_palette()
-                .is_some_and(|p| p.is_session_picker())
+                .is_some_and(|p| p.permissions().is_some())
             {
-                "Sessions"
+                "Permissions"
+            } else if state
+                .command_palette()
+                .is_some_and(|p| p.is_conversation_picker())
+            {
+                "Conversations"
             } else {
                 "Commands"
             }
@@ -254,6 +280,7 @@ fn input_caret(state: &ViewState, id: SurfaceId, width: u16) -> Caret {
 /// The primary input's return target while an entered worker holds the cursor (INS-5).
 fn collapsed_composer_panel(state: &ViewState, palette: &Palette, stacking: &Stacking) -> Panel {
     Panel {
+        insets: crate::surface::ContentInsets::default(),
         body: Body::Whole {
             lines: content::composer_collapsed(state, palette),
             follows_tail: false,
@@ -282,7 +309,16 @@ fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         } else {
             layout::DecisionMode::Modal
         },
-        command_palette_rows: state.command_palette_rows(),
+        command_palette_rows: state
+            .command_palette_rows(layout::workspace_overlay_width(area.width)),
+        command_palette_focus: if state
+            .command_palette()
+            .is_some_and(|p| p.permissions().is_some())
+        {
+            KeyboardFocus::Navigation
+        } else {
+            KeyboardFocus::TextInput
+        },
         skill_picker_rows: state.skill_picker_rows(),
         configuration_rows: state.configuration_rows(),
         rail: state.sub_agents().next().is_some(),
@@ -293,6 +329,7 @@ fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
 
 fn skill_picker_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
     Panel {
+        insets: crate::surface::ContentInsets::default(),
         body: Body::Whole {
             lines: content::skill_picker(state, palette, inner_width(bounds.width), bounds.height),
             follows_tail: false,
@@ -314,11 +351,33 @@ fn approval_panel(
         .approval()
         .map_or_else(String::new, |approval| approval.tool.to_owned());
     Panel {
+        insets: crate::surface::ContentInsets::for_surface(SurfaceId::Approval, bounds.height),
         body: Body::Whole {
-            lines: content::approval(state, palette, inner_width(bounds.width)),
+            lines: content::approval(
+                state,
+                palette,
+                crate::surface::ContentInsets::for_surface(SurfaceId::Approval, bounds.height)
+                    .width(bounds.width),
+                bounds.height.saturating_sub(
+                    1 + 2 * crate::surface::ContentInsets::for_surface(
+                        SurfaceId::Approval,
+                        bounds.height,
+                    )
+                    .vertical,
+                ),
+            ),
             follows_tail: false,
         },
-        title: title(palette, "Allow", Role::ActionRequired, format!(" {tool}?")),
+        title: title(
+            palette,
+            match state.approval().map(|view| view.stage) {
+                Some(crate::ApprovalStage::Remember) => "Remember permission",
+                Some(crate::ApprovalStage::Submitting) => "Applying decision",
+                _ => "Approval required",
+            },
+            Role::ActionRequired,
+            format!(" · {tool}"),
+        ),
         badge: None,
         edges: if stacking.composer_under.is_some() {
             Edges::Middle
@@ -378,6 +437,7 @@ fn composer_panel(
     stacking: &Stacking,
 ) -> Panel {
     Panel {
+        insets: crate::surface::ContentInsets::default(),
         body: Body::Whole {
             lines: content::composer(state, palette, has_focus, inner_width(bounds.width)),
             follows_tail: true,
@@ -458,8 +518,8 @@ fn conversation_body(
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, SessionEvent, ToolCallId,
-        ToolCallStatus, ToolPresentation, TranscriptItemId,
+        AgentId, AgentStatus, ApprovalId, AttentionId, AttentionRequest, ConversationEvent,
+        ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
     };
     use ratatui::{
         Terminal,
@@ -486,7 +546,7 @@ mod tests {
         render,
         surface::{SurfaceId, SurfaceTree},
         test_support::{
-            Conversation, Session, canonical_state, current_responding_state,
+            Conversation, RenderFixture, canonical_state, current_responding_state,
             current_running_tool_state, degraded_state, draw, draw_frame, draw_with, region_text,
         },
         theme::{Palette, Role},
@@ -514,6 +574,7 @@ mod tests {
         let area = Rect::new(0, 0, 8, 2);
         let palette = Palette::default();
         let panel = Panel {
+            insets: crate::surface::ContentInsets::default(),
             body: Body::Whole {
                 lines: vec![Line::raw("abcdefg")],
                 follows_tail: false,
@@ -595,11 +656,13 @@ mod tests {
         );
 
         let mut approval = Conversation::canonical();
-        approval.emit(SessionEvent::AttentionRequested {
+        approval.emit(ConversationEvent::AttentionRequested {
             agent_id: primary.clone(),
             attention_id: AttentionId::new("current-approval")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new("current-approval")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new("current-approval")
@@ -616,7 +679,7 @@ mod tests {
         );
 
         let mut idle = Conversation::canonical();
-        idle.emit(SessionEvent::AgentStatusChanged {
+        idle.emit(ConversationEvent::AgentStatusChanged {
             agent_id: primary,
             status: AgentStatus::Idle,
         });
@@ -641,7 +704,7 @@ mod tests {
     #[test]
     fn a_virtualized_conversation_paints_what_the_whole_one_did() {
         for (width, height) in [(48_u16, 12_u16), (120, 24), (72, 30)] {
-            let mut session = Session::canonical(width, height);
+            let mut session = RenderFixture::canonical(width, height);
             // Enough to overflow every size below now that a message costs no heading row.
             session.conversation.extend(10);
             session.draw();
@@ -719,7 +782,7 @@ mod tests {
     #[test]
     fn the_transcript_opens_at_its_tail_and_the_wheel_moves_it() {
         // Narrow enough that the conversation wraps past the rows it is given.
-        let mut session = Session::canonical(48, 12);
+        let mut session = RenderFixture::canonical(48, 12);
         let viewport = session.viewport(SurfaceId::Transcript);
 
         assert!(
@@ -752,7 +815,7 @@ mod tests {
     /// different text, so preserving it moves the reader while looking like it did not.
     #[test]
     fn a_resized_conversation_keeps_the_reader_on_the_same_message() {
-        let mut session = Session::canonical(60, 20);
+        let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(10);
         session.draw();
         session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
@@ -787,7 +850,7 @@ mod tests {
     /// region is what catches it, because the row inside the item is the other half of an anchor.
     #[test]
     fn a_conversation_resized_away_and_back_paints_the_frame_it_had() {
-        let mut session = Session::canonical(60, 20);
+        let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(10);
         session.draw();
         session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
@@ -831,7 +894,7 @@ mod tests {
     fn each_conversation_keeps_its_own_reading_position() {
         let agent_b =
             AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
-        let mut session = Session::canonical(60, 20);
+        let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(10);
         session.conversation.extend_agent(&agent_b, 10);
         session.draw();
@@ -891,7 +954,7 @@ mod tests {
     /// passing if following were dropped entirely.
     #[test]
     fn a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put() {
-        let mut session = Session::canonical(60, 20);
+        let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(8);
         session.draw();
 
@@ -1142,13 +1205,13 @@ mod tests {
     fn monochrome_transcript_names_warning_and_error_separately() {
         let mut conversation = Conversation::canonical();
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
-        conversation.emit(SessionEvent::RuntimeWarning {
+        conversation.emit(ConversationEvent::RuntimeWarning {
             agent_id: agent_id.clone(),
             item_id: TranscriptItemId::new("warning-visible")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             message: "retrying the request".to_owned(),
         });
-        conversation.emit(SessionEvent::RuntimeError {
+        conversation.emit(ConversationEvent::RuntimeError {
             agent_id,
             item_id: TranscriptItemId::new("error-visible")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
@@ -1185,7 +1248,7 @@ mod tests {
         let mut conversation = Conversation::canonical();
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         let tool = |entry: &str, call: &str, label: &str, revision, status| {
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 agent_id: agent_id.clone(),
                 item_id: TranscriptItemId::new(entry)
                     .unwrap_or_else(|error| panic!("fixture: {error}")),

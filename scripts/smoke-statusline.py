@@ -93,7 +93,7 @@ output_reserve_tokens = 8192
             smoke.read_to_eof(master, capture)
             sessions = list((home / "sessions").glob("*.jsonl"))
             assert not sessions, f"blank status-line launch created {sessions!r}"
-            assert b"To continue this session, run:" not in capture
+            assert b"To continue this conversation, run:" not in capture
         finally:
             capture_dir = root / "target/smoke"
             capture_dir.mkdir(parents=True, exist_ok=True)

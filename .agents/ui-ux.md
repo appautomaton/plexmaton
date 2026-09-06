@@ -34,16 +34,18 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Term | Meaning |
 | --- | --- |
 | Agent | A running or resumable model-driven worker with explicit lifecycle and capabilities |
-| Session | One agent's conversation and work history, durable by default |
-| Journal | The authoritative session record; JSONL is its on-disk encoding, not the visible transcript |
+| Session | The ongoing coding period until Plexmaton exits; temporary permissions survive `/new` and `/resume` |
+| Conversation | One agent's saved history; `/new` starts another Conversation |
+| Project | A physical checkout whose personal permissions survive Sessions and application restarts |
+| Journal | The authoritative Conversation record; JSONL is its on-disk encoding, not the visible transcript |
 | Context | Semantic input prepared for a model request; journal history combines with the applicable instructions and tools, excluding UI diagnostics |
 | Transcript | The user-facing interaction history: messages, tool activity and diagnostics |
 | Transcript entry | One identified content item in that history; a user or assistant message is a message entry |
 | Conversation surface | The interactive region displaying an agent's transcript; its title and border are conversation chrome |
-| Turn | One admitted unit of work in a session: what the user asked, everything the model and its tools did about it, and the answer that ended it |
+| Turn | One admitted unit of work in a Conversation: what the user asked, everything the model and its tools did about it, and the answer that ended it |
 | Step | One request to the model and the tool calls it comes back with. A turn is one or more steps, and a turn's budget is counted in them |
 | Tool call | One invocation the model asked for, with a declared effect, a lifecycle, and bounded output |
-| Mail | A typed, durable message delivered between sessions |
+| Mail | A typed, durable message delivered between Conversations |
 | Artifact | Durable work product or evidence, referenced by identity or path rather than copied into mail |
 | Surface | A rendered interactive region that participates in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
@@ -51,7 +53,7 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Peek | Looking at a sub-agent in the list, which opens the second window; `Escape` closes it. The primary is not in the list, because its conversation is the screen |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
-presentation, not a session. A widget is a Rust rendering component, not a synonym for an entry
+presentation, not a Conversation. A widget is a Rust rendering component, not a synonym for an entry
 or surface. `Agents` names the sub-agent list; it does not name the conversation surface.
 
 ## Locked interaction decisions
@@ -59,13 +61,13 @@ or surface. `Agents` names the sub-agent list; it does not name the conversation
 Viewport and surface code cannot be written without these, and changing one afterwards is a
 rewrite rather than an adjustment.
 
-### Session start: durable by default
+### Conversation start: durable by default
 
-Launching without a session argument prepares an automatically named durable session. Its JSONL
+Launching without a conversation argument prepares an automatically named durable Conversation. Its JSONL
 is created on the first accepted user message; opening menus, editing a draft or exiting without
 sending creates no file. The restored shell offers a resume command for only the selected saved
-session, and no handoff for a blank launch. Explicit `create` reserves its file immediately.
-Only explicit `--ephemeral` declines session
+Conversation, and no handoff for a blank launch. Explicit `create` reserves its file immediately.
+Only explicit `--ephemeral` declines Conversation
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
 without the user choosing that behavior.
 
@@ -167,7 +169,10 @@ The current runtime has one main agent. Its approval requests are handled inside
 never in an Attention bar. Multiple approvals appear in arrival order without replacing the card
 being answered. Only producer confirmation advances to the next request. Click an option or use
 arrows/Enter; Esc returns focus to the composer while keeping the card visible. Tab or a click
-returns to it. Drafts remain intact, and no approval is implied by leaving the card.
+returns to it. The card separates the operation, policy reason and choices; Deny starts selected.
+Allow and remember… first reviews a backend-offered scope and lifetime. Esc in that step returns
+to review without granting anything. Submitting disables duplicate decisions until confirmation;
+refusals stay visible. Drafts remain intact, and leaving the card grants nothing.
 
 Attention is reserved for future background-agent/A2A workflows. Their reference interaction keeps
 ambient progress, new mail, action-required requests and failure distinct. Background requests
@@ -209,7 +214,7 @@ alternate entry point for main-agent approvals.
   Edit & retry fills the composer and preserves the old path when submitted; `Esc` restores the
   displaced draft. Sending a new message normally keeps both user messages and retires old actions.
   Neither action automatically repeats tools; eligibility and history ownership follow JRN-8.
-- `/resume` opens a searchable Sessions picker; `/continue`, `/sessions` and `/session` are aliases.
+- `/resume` opens a searchable Conversations picker; `/continue`, `/sessions` and `/session` are aliases.
   Arrows choose, Enter or a click resumes, and Escape closes without switching. Loading and errors
   stay inside the picker. Switching waits for idle work and an empty draft; it never silently
   interrupts work or discards input. SPK-1–SPK-3 own discovery and replacement.
@@ -396,6 +401,9 @@ Every layout class preserves the meaning of this journey even when it changes wh
   leave at least three terminal cells on every side: three rows above and below, three columns
   left and right. Rejected: maximizing the palette on narrow screens, which filled an entire terminal
   with one command and made the panel shrink abruptly when the terminal grew wider.
+- Approval cards and the command palette leave two clear cells inside each side border, one blank
+  row above and below their content, and a gap between data, choices and key hints. Short terminals
+  drop optional spacing before controls or the composer; filtering keeps the input row stable.
 
 Resize preserves the focused semantic item, keeps bottom-follow only for viewports already following
 the tail, keeps every viewport's anchor, clamps an inaccessible floating surface back into view, and

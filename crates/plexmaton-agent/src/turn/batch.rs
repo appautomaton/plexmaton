@@ -4,10 +4,7 @@
 //! state of the same per-call slot. No future or presentation queue owns the transition (LOOP-5),
 //! and that slot advances the entry revision paired with the call (ENT-2).
 
-use plexmaton_core::{
-    ApprovalDecision, ApprovalId, AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus,
-    TurnId,
-};
+use plexmaton_core::{AttentionRequest, ConversationEvent, ToolCallId, ToolCallStatus, TurnId};
 
 use super::{Agent, Turn};
 use crate::ActiveTurnStatus;
@@ -15,8 +12,7 @@ use crate::admission::{AdmissionOutcome, AdmissionRequest, PolicyDecision};
 use crate::interface::{Effect, Reaction, UndeliveredReason};
 use crate::journal::JournalEntryPayload;
 use crate::tools::{
-    ApprovalResolution, Batch, PendingApproval, ToolCall, ToolCancellationReason,
-    ToolExecutionResult, ToolOutcome,
+    Batch, PendingApproval, ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome,
 };
 
 impl Agent {
@@ -77,6 +73,7 @@ impl Agent {
                     return;
                 }
 
+                self.audit_permission(&admitted, None, reaction);
                 match self.policy.decide(&admitted) {
                     PolicyDecision::Allow => {
                         let accepted = match &mut self.turn {
@@ -88,16 +85,23 @@ impl Agent {
                             return;
                         }
                         self.emit_tool_status(call_id, ToolCallStatus::Running, reaction);
-                        reaction.effects.push(Effect::RunTool(admitted));
+                        reaction.effects.push(Effect::RunTool {
+                            call: admitted,
+                            authorization: crate::ToolAuthorization::Policy,
+                        });
                     }
                     PolicyDecision::RequireApproval => {
-                        let (approval_id, attention_id) = self.record.approval_ids(&call_id);
-                        let pending = PendingApproval::new(
+                        let (approval_id, attention_id) =
+                            self.record.approval_ids(&turn_id, &call_id);
+                        let offer = self.policy.remember_offer(&admitted);
+                        let remember = offer.as_ref().map(|offer| offer.display.clone());
+                        let mut pending = PendingApproval::new(
                             approval_id.clone(),
                             attention_id.clone(),
                             turn_id,
                             admitted.clone(),
                         );
+                        pending.offer = offer;
                         let accepted = match &mut self.turn {
                             Turn::Working { batch, .. } => batch.await_approval(pending),
                             Turn::Idle | Turn::Streaming { .. } => false,
@@ -117,6 +121,8 @@ impl Agent {
                             tool: admitted.requested().name.clone(),
                             capabilities: admitted.capabilities().to_vec(),
                             detail: admitted.detail().to_owned(),
+                            reason: self.policy.approval_reason(&admitted),
+                            remember,
                         };
                         self.record.commit(
                             JournalEntryPayload::AttentionRequested {
@@ -128,18 +134,25 @@ impl Agent {
                         );
                         self.record.emit(
                             reaction,
-                            SessionEvent::AttentionRequested {
+                            ConversationEvent::AttentionRequested {
                                 agent_id: self.record.agent_id().clone(),
                                 attention_id,
                                 request,
                             },
                         );
                     }
-                    PolicyDecision::Forbidden => {
+                    decision @ (PolicyDecision::Forbidden | PolicyDecision::Unavailable) => {
+                        let outcome = if decision == PolicyDecision::Unavailable {
+                            ToolOutcome::PermissionRefused {
+                                reason: crate::PermissionChangeError::Unavailable,
+                            }
+                        } else {
+                            ToolOutcome::Forbidden
+                        };
                         let accepted = match &mut self.turn {
                             Turn::Working { batch, .. } => batch.finish_before_run(
                                 &call_id,
-                                ToolOutcome::Forbidden,
+                                outcome,
                                 admitted.invocation().cloned(),
                             ),
                             Turn::Idle | Turn::Streaming { .. } => false,
@@ -170,46 +183,6 @@ impl Agent {
                     return;
                 }
                 self.emit_tool_status(call_id, ToolCallStatus::Failed, reaction);
-                self.continue_if_batch_complete(reaction);
-            }
-        }
-    }
-
-    /// Resolves one pending request exactly once (APV-4).
-    pub(super) fn approval_decided(
-        &mut self,
-        approval_id: ApprovalId,
-        decision: ApprovalDecision,
-        reaction: &mut Reaction,
-    ) {
-        let resolution = match &mut self.turn {
-            Turn::Working { batch, .. } => batch.resolve_approval(&approval_id, decision),
-            Turn::Idle | Turn::Streaming { .. } => None,
-        };
-        let Some(resolution) = resolution else {
-            Self::refuse_approval_decision(reaction, approval_id, decision);
-            return;
-        };
-
-        match resolution {
-            ApprovalResolution::Run {
-                attention_id,
-                admitted,
-            } => {
-                self.resolve_attention(attention_id, reaction);
-                self.emit_tool_status(
-                    admitted.requested().call_id.clone(),
-                    ToolCallStatus::Running,
-                    reaction,
-                );
-                reaction.effects.push(Effect::RunTool(admitted));
-            }
-            ApprovalResolution::Denied {
-                attention_id,
-                call_id,
-            } => {
-                self.resolve_attention(attention_id, reaction);
-                self.emit_tool_status(call_id, ToolCallStatus::Denied, reaction);
                 self.continue_if_batch_complete(reaction);
             }
         }
@@ -252,7 +225,7 @@ impl Agent {
         Some((turn_id.clone(), batch.requested(call_id)?.clone()))
     }
 
-    fn continue_if_batch_complete(&mut self, reaction: &mut Reaction) {
+    pub(super) fn continue_if_batch_complete(&mut self, reaction: &mut Reaction) {
         let complete = matches!(
             &self.turn,
             Turn::Working { batch, .. } if batch.is_settled()

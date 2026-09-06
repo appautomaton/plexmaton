@@ -7,6 +7,7 @@
 //! remember ([`specs/frame-loop.md`](../../../.agents/specs/frame-loop.md) FR-3).
 
 mod content;
+mod content_permissions;
 #[cfg(test)]
 mod frames;
 mod intent;
@@ -34,12 +35,12 @@ pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    CleanupNotice, Command, ConfigurationSummary, CopyRequest, InspectorView, MAX_SESSION_CHOICES,
-    MailView, NoticeView, PersistenceNotice, ReduceError, RetryAction, RetryActions,
-    RetrySubmission, RetryTarget, ScrollPosition, Selection, SessionChoice, SessionPickerStatus,
-    SessionRestoration, SessionTailRepair, SkillChoice, SkillChoiceSource, Submission,
-    SubmissionKind, ToolCallView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
-    ViewRevision, ViewState,
+    CleanupNotice, Command, ConfigurationSummary, ConversationChoice, ConversationPickerStatus,
+    ConversationRestoration, ConversationTailRepair, CopyRequest, InspectorView,
+    MAX_CONVERSATION_CHOICES, MailView, NoticeView, PersistenceNotice, ReduceError, RetryAction,
+    RetryActions, RetrySubmission, RetryTarget, ScrollPosition, Selection, SkillChoice,
+    SkillChoiceSource, Submission, SubmissionKind, ToolCallView, TranscriptEntryView,
+    TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{
@@ -48,3 +49,5 @@ pub use surface::{
 pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
 pub use transcript::TranscriptMetrics;
 pub use workspace::{Flow, FrameWork, Outcome, Workspace};
+
+pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};

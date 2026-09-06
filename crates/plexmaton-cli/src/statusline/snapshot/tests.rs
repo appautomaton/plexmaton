@@ -2,11 +2,11 @@ use super::*;
 use plexmaton_agent::*;
 use plexmaton_core::*;
 
-fn record_id(journal: &SessionJournal) -> JournalRecordId {
+fn record_id(journal: &ConversationJournal) -> JournalRecordId {
     JournalRecordId::new(format!("fixture-{}", journal.next_sequence().get())).expect("record id")
 }
 
-fn fixture() -> (SessionJournal, HeadName, ResolvedModel) {
+fn fixture() -> (ConversationJournal, HeadName, ResolvedModel) {
     let model = super::super::tests::model();
     let mut agent = Agent::new(AgentId::new("fixture").expect("agent id"));
     let reaction = agent.handle_at(
@@ -153,7 +153,7 @@ fn status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_iden
     ] {
         assert!(!encoded.contains(excluded));
     }
-    let mut restored = SessionJournal::with_metadata(journal.metadata().clone());
+    let mut restored = ConversationJournal::with_metadata(journal.metadata().clone());
     for record in journal.records() {
         let decoded = serde_json::from_slice(&serde_json::to_vec(record).expect("encode record"))
             .expect("decode record");

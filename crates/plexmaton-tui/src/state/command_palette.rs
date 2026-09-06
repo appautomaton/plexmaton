@@ -23,6 +23,8 @@ pub enum Command {
     Resume,
     /// Start an empty conversation; storage is created on its first submitted message.
     New,
+    /// Review grants, enable Session file changes, or revoke a permission.
+    Permissions,
 }
 
 impl Command {
@@ -33,7 +35,7 @@ impl Command {
         })
     }
     /// Every command, in the order the list shows them.
-    pub const ALL: [Self; 3] = [Self::Config, Self::Resume, Self::New];
+    pub const ALL: [Self; 4] = [Self::Config, Self::Resume, Self::New, Self::Permissions];
 
     /// The name the list shows and the user types.
     #[must_use]
@@ -42,6 +44,7 @@ impl Command {
             Self::Config => "/config",
             Self::Resume => "/resume",
             Self::New => "/new",
+            Self::Permissions => "/permissions",
         }
     }
 
@@ -52,6 +55,7 @@ impl Command {
             Self::Config => "Provider, model, and reasoning effort",
             Self::Resume => "Find and resume a saved conversation",
             Self::New => "Start a new conversation",
+            Self::Permissions => "Review and change Session or Project permissions",
         }
     }
 
@@ -64,7 +68,7 @@ impl Command {
         match self {
             Self::Config => &["settings"],
             Self::Resume => &["continue", "sessions", "session"],
-            Self::New => &[],
+            Self::New | Self::Permissions => &[],
         }
     }
 
@@ -81,13 +85,20 @@ impl Command {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PalettePage {
+    Commands,
+    Conversations(super::session_picker::ConversationPicker),
+    Permissions(Box<super::permissions::PermissionPanel>),
+}
+
 /// The command list while it is open.
 ///
 /// Absent when closed rather than carrying an `open` flag, so "is it open" and "what is it showing"
 /// cannot disagree.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandPalette {
-    pub(crate) sessions: Option<super::session_picker::SessionPicker>,
+    pub(crate) page: PalettePage,
     filter: TextInput,
     /// Index into the *matching* commands, clamped every time the filter changes.
     chosen: usize,
@@ -100,7 +111,7 @@ impl CommandPalette {
     #[must_use]
     pub fn opened_from(return_focus: SurfaceId) -> Self {
         Self {
-            sessions: None,
+            page: PalettePage::Commands,
             filter: TextInput::new(),
             chosen: 0,
             return_focus,
@@ -119,7 +130,7 @@ impl CommandPalette {
         &self.filter
     }
 
-    /// One horizontal window and its caret, including the filter row's leading space (COM-1).
+    /// One horizontal window and its caret, inside the shared surface padding (COM-1).
     /// Reserve a cell for the caret so it never lands on the border or wraps into the results.
     pub(crate) fn filter_view(&self, width: u16) -> (String, Caret) {
         let (_, visible, caret) = self.filter_window(width);
@@ -143,7 +154,7 @@ impl CommandPalette {
 
     fn filter_offset(&self, width: u16, column: u16) -> usize {
         let (mut offset, visible, _) = self.filter_window(width);
-        let mut used = 1;
+        let mut used = 0;
         for cluster in visible.graphemes(true) {
             used += UnicodeWidthStr::width(cluster);
             if used > usize::from(column) {
@@ -155,7 +166,7 @@ impl CommandPalette {
     }
 
     fn filter_window(&self, width: u16) -> (usize, String, Caret) {
-        let budget = usize::from(width.saturating_sub(2));
+        let budget = usize::from(width.saturating_sub(1));
         let text = self.filter.text();
         let cursor = self.filter.cursor();
         let mut start = cursor;
@@ -183,9 +194,36 @@ impl CommandPalette {
             visible,
             Caret {
                 row: 0,
-                column: u16::try_from(before).unwrap_or(0).saturating_add(1),
+                column: u16::try_from(before).unwrap_or(0),
             },
         )
+    }
+
+    pub(crate) fn conversations(&self) -> Option<&super::session_picker::ConversationPicker> {
+        match &self.page {
+            PalettePage::Conversations(page) => Some(page),
+            _ => None,
+        }
+    }
+    pub(crate) fn conversations_mut(
+        &mut self,
+    ) -> Option<&mut super::session_picker::ConversationPicker> {
+        match &mut self.page {
+            PalettePage::Conversations(page) => Some(page),
+            _ => None,
+        }
+    }
+    pub(crate) fn permissions(&self) -> Option<&super::permissions::PermissionPanel> {
+        match &self.page {
+            PalettePage::Permissions(page) => Some(page),
+            _ => None,
+        }
+    }
+    pub(crate) fn permissions_mut(&mut self) -> Option<&mut super::permissions::PermissionPanel> {
+        match &mut self.page {
+            PalettePage::Permissions(page) => Some(page),
+            _ => None,
+        }
     }
 
     /// The filter, for editing.
@@ -196,7 +234,7 @@ impl CommandPalette {
     /// Commands the current filter admits, in list order.
     #[must_use]
     pub fn matches(&self) -> Vec<Command> {
-        if self.sessions.is_some() {
+        if !matches!(self.page, PalettePage::Commands) {
             return Vec::new();
         }
         let needle = self.filter.text();
@@ -223,10 +261,12 @@ impl CommandPalette {
     /// Stopping is what the approval card does with the same keys; wrapping in a filtered list also
     /// means a held arrow silently returns to where it started.
     pub fn step(&mut self, forward: bool) -> bool {
+        if let Some(panel) = self.permissions_mut() {
+            return panel.step(forward);
+        }
         if self
-            .sessions
-            .as_ref()
-            .is_some_and(|s| s.status == super::SessionPickerStatus::Opening)
+            .conversations()
+            .is_some_and(|s| s.status == super::ConversationPickerStatus::Opening)
         {
             return false;
         }
@@ -249,7 +289,7 @@ impl CommandPalette {
     }
 
     pub(crate) fn match_count(&self) -> usize {
-        self.sessions.as_ref().map_or_else(
+        self.conversations().map_or_else(
             || self.matches().len(),
             |sessions| sessions.matches(self.filter.text()).len(),
         )

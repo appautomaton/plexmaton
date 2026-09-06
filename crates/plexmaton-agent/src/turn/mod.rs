@@ -8,12 +8,12 @@
 //! back with; the turn ends at the first step that stops for anything else, when its tools are
 //! answered and the budget is spent, or when the user interrupts it.
 
-use plexmaton_core::{AgentId, AgentStatus, SessionEvent, TurnId};
+use plexmaton_core::{AgentId, AgentStatus, ConversationEvent, TurnId};
 
 use crate::UnixMillis;
 use crate::admission::ApprovalPolicy;
 use crate::interface::{Effect, Input, Reaction};
-use crate::journal::{JournalEntryPayload, SessionJournal};
+use crate::journal::{ConversationJournal, JournalEntryPayload};
 use crate::model::{ModelCall, ModelStepId};
 use crate::record::Record;
 use crate::step::Step;
@@ -23,6 +23,7 @@ mod batch;
 mod input;
 mod lifecycle;
 mod model_input;
+mod permission;
 mod request_attempt;
 mod retry;
 #[cfg(test)]
@@ -113,19 +114,19 @@ impl Agent {
 
     /// Starts an idle agent for one explicit durable session identity.
     #[must_use]
-    pub fn for_session(
+    pub fn for_conversation(
         agent_id: AgentId,
-        metadata: crate::SessionMetadata,
+        metadata: crate::ConversationMetadata,
         budget: TurnBudget,
         policy: ApprovalPolicy,
     ) -> Self {
-        Self::with_record(Record::for_session(agent_id, metadata), budget, policy)
+        Self::with_record(Record::for_conversation(agent_id, metadata), budget, policy)
     }
 
     /// Rehydrates an idle owner from one already-validated canonical journal.
     pub fn from_journal(
         agent_id: AgentId,
-        journal: SessionJournal,
+        journal: ConversationJournal,
         budget: TurnBudget,
         policy: ApprovalPolicy,
     ) -> Result<Self, crate::JournalProjectionError> {
@@ -173,7 +174,7 @@ impl Agent {
             },
             reaction,
         );
-        let event = SessionEvent::AgentCreated {
+        let event = ConversationEvent::AgentCreated {
             agent_id: self.record.agent_id().clone(),
             label,
             status: AgentStatus::Idle,
@@ -206,7 +207,7 @@ impl Agent {
 
     /// Canonical in-memory journal from which the model and settled screen are rebuilt (JRN-5).
     #[must_use]
-    pub fn journal(&self) -> &SessionJournal {
+    pub fn journal(&self) -> &ConversationJournal {
         self.record.journal()
     }
 
@@ -246,6 +247,11 @@ impl Agent {
         .flatten()
     }
 
+    /// Accepts a read-only view from the coding Session owner; never restores grants from history.
+    pub fn use_permission_snapshot(&mut self, snapshot: std::sync::Arc<crate::PermissionSnapshot>) {
+        self.policy.use_snapshot(snapshot);
+    }
+
     /// Advances the machine with a wall observation supplied by its runtime owner (TIM-1).
     pub fn handle_at(&mut self, input: Input, observed_at: UnixMillis) -> Reaction {
         let mut reaction = Reaction::at(observed_at);
@@ -279,6 +285,8 @@ impl Agent {
                 approval_id,
                 decision,
             } => self.approval_decided(approval_id, decision, &mut reaction),
+            Input::PermissionPrepared(outcome) => self.permission_prepared(outcome, &mut reaction),
+            Input::PermissionsChanged => self.release_allowed_approvals(&mut reaction),
             Input::Interrupted => self.interrupt(&mut reaction),
             Input::ShuttingDown => self.shutdown(&mut reaction),
         }
@@ -309,10 +317,11 @@ impl Agent {
 
 #[cfg(test)]
 mod tests {
+    mod permissions;
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, HeadName, SessionEvent,
-        SessionId, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId, ToolDetail,
-        TranscriptRole,
+        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, ConversationEvent,
+        ConversationId, HeadName, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId,
+        ToolDetail, TranscriptRole,
     };
 
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
@@ -325,8 +334,8 @@ mod tests {
     use crate::tools::{ToolCall, ToolCancellationReason, ToolExecutionResult, ToolOutcome};
     use crate::{
         AdmissionOutcome, AdmissionRefusal, AdmittedToolCall, ApprovalDecisionRefusal,
-        ApprovalPolicy, CapabilitySet, JournalEntryPayload, JournalRecord, ModelDeliveryRefusal,
-        SessionJournal, ToolDefinitionRevision, TurnFinishedAt, TurnOutcome, UnixMillis,
+        ApprovalPolicy, CapabilitySet, ConversationJournal, JournalEntryPayload, JournalRecord,
+        ModelDeliveryRefusal, ToolDefinitionRevision, TurnFinishedAt, TurnOutcome, UnixMillis,
     };
 
     fn bare_agent() -> Agent {
@@ -455,7 +464,9 @@ mod tests {
         for effect in std::mem::take(&mut reaction.effects) {
             match effect {
                 Effect::AdmitTool(call) => calls.push(call),
-                other @ (Effect::CallModel(_) | Effect::RunTool(_)) => {
+                other @ (Effect::CallModel(_)
+                | Effect::RunTool { .. }
+                | Effect::PreparePermission(_)) => {
                     reaction.effects.push(other);
                 }
             }
@@ -497,7 +508,7 @@ mod tests {
             .append(&mut source.undelivered_model);
     }
 
-    fn events(reaction: &Reaction) -> Vec<SessionEvent> {
+    fn events(reaction: &Reaction) -> Vec<ConversationEvent> {
         reaction
             .events
             .iter()
@@ -509,8 +520,8 @@ mod tests {
         events(reaction)
             .into_iter()
             .filter_map(|event| match event {
-                SessionEvent::RuntimeWarning { message, .. }
-                | SessionEvent::RuntimeError { message, .. } => Some(message),
+                ConversationEvent::RuntimeWarning { message, .. }
+                | ConversationEvent::RuntimeError { message, .. } => Some(message),
                 _ => None,
             })
             .collect()
@@ -574,10 +585,10 @@ mod tests {
         assert!(matches!(
             events(&reaction).as_slice(),
             [
-                SessionEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
-                SessionEvent::TranscriptDelta { item_revision: 1, text, .. },
-                SessionEvent::TranscriptItemFinalized { item_revision: 2, .. },
-                SessionEvent::AgentStatusChanged { status: AgentStatus::Running, .. },
+                ConversationEvent::TranscriptItemStarted { role: TranscriptRole::User, .. },
+                ConversationEvent::TranscriptDelta { item_revision: 1, text, .. },
+                ConversationEvent::TranscriptItemFinalized { item_revision: 2, .. },
+                ConversationEvent::AgentStatusChanged { status: AgentStatus::Running, .. },
             ] if text == "hello"
         ));
         let [Effect::CallModel(request)] = reaction.effects.as_slice() else {
@@ -610,7 +621,7 @@ mod tests {
             }
             _ => None,
         });
-        let Some(crate::SessionEntry {
+        let Some(crate::ConversationEntry {
             payload:
                 JournalEntryPayload::TurnStarted {
                     turn_id,
@@ -874,11 +885,11 @@ mod tests {
         assert!(matches!(
             events(&first).as_slice(),
             [
-                SessionEvent::TranscriptItemStarted {
+                ConversationEvent::TranscriptItemStarted {
                     role: TranscriptRole::Assistant,
                     ..
                 },
-                SessionEvent::TranscriptDelta {
+                ConversationEvent::TranscriptDelta {
                     item_revision: 1,
                     ..
                 },
@@ -886,7 +897,7 @@ mod tests {
         ));
         assert!(matches!(
             events(&second).as_slice(),
-            [SessionEvent::TranscriptDelta {
+            [ConversationEvent::TranscriptDelta {
                 item_revision: 2,
                 ..
             }]
@@ -894,11 +905,11 @@ mod tests {
         assert!(matches!(
             events(&ended).as_slice(),
             [
-                SessionEvent::TranscriptItemFinalized {
+                ConversationEvent::TranscriptItemFinalized {
                     item_revision: 3,
                     ..
                 },
-                SessionEvent::AgentStatusChanged {
+                ConversationEvent::AgentStatusChanged {
                     status: AgentStatus::Idle,
                     ..
                 },
@@ -924,7 +935,7 @@ mod tests {
 
         assert!(matches!(
             events(&ended).as_slice(),
-            [SessionEvent::AgentStatusChanged {
+            [ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Idle,
                 ..
             }]
@@ -947,7 +958,7 @@ mod tests {
             dispatching
                 .effects
                 .iter()
-                .filter(|effect| matches!(effect, Effect::RunTool(_)))
+                .filter(|effect| matches!(effect, Effect::RunTool { .. }))
                 .count(),
             2,
             "both calls are asked for, and nothing else is"
@@ -961,7 +972,7 @@ mod tests {
         );
         assert!(events(&dispatching).iter().any(|event| matches!(
             event,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Waiting,
                 ..
             }
@@ -970,7 +981,7 @@ mod tests {
         let tool_events: Vec<_> = events(&dispatching)
             .into_iter()
             .filter_map(|event| match event {
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     item_id,
                     item_revision,
                     call_id,
@@ -1031,7 +1042,7 @@ mod tests {
         );
         assert!(matches!(
             events(&opened).last(),
-            Some(SessionEvent::AgentStatusChanged {
+            Some(ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Running,
                 ..
             })
@@ -1114,7 +1125,7 @@ mod tests {
             if !dispatching
                 .effects
                 .iter()
-                .any(|effect| matches!(effect, Effect::RunTool(_)))
+                .any(|effect| matches!(effect, Effect::RunTool { .. }))
             {
                 panic!("the step asked for a tool");
             }
@@ -1338,8 +1349,8 @@ mod tests {
         assert!(matches!(
             events(&stopped).as_slice(),
             [
-                SessionEvent::TranscriptItemFinalized { .. },
-                SessionEvent::AgentStatusChanged {
+                ConversationEvent::TranscriptItemFinalized { .. },
+                ConversationEvent::AgentStatusChanged {
                     status: AgentStatus::Idle,
                     ..
                 },
@@ -1465,7 +1476,9 @@ mod tests {
             .iter()
             .filter_map(|effect| match effect {
                 Effect::AdmitTool(request) => Some(request.requested().call_id.as_str()),
-                Effect::CallModel(_) | Effect::RunTool(_) => None,
+                Effect::CallModel(_) | Effect::RunTool { .. } | Effect::PreparePermission(_) => {
+                    None
+                }
             })
             .collect();
 
@@ -1523,7 +1536,7 @@ mod tests {
 
         assert!(events(&reasoning).iter().any(|event| matches!(
             event,
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 role: TranscriptRole::Reasoning,
                 ..
             }
@@ -1555,7 +1568,7 @@ mod tests {
         assert_eq!(
             events(&interrupted)
                 .iter()
-                .filter(|event| matches!(event, SessionEvent::TranscriptItemFinalized { .. }))
+                .filter(|event| matches!(event, ConversationEvent::TranscriptItemFinalized { .. }))
                 .count(),
             2
         );
@@ -1584,7 +1597,7 @@ mod tests {
         assert!(
             events(&failed)
                 .iter()
-                .any(|event| matches!(event, SessionEvent::TranscriptItemFinalized { .. })),
+                .any(|event| matches!(event, ConversationEvent::TranscriptItemFinalized { .. })),
             "the partial answer is closed rather than left waiting"
         );
     }
@@ -1661,7 +1674,7 @@ mod tests {
         ));
         assert!(events(&dispatched).iter().any(|event| matches!(
             event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Queued,
                 ..
             }
@@ -1683,7 +1696,7 @@ mod tests {
         assert_eq!(pending.admitted().definition_revision().get(), 1);
         assert!(events(&waiting).iter().any(|event| matches!(
             event,
-            SessionEvent::AttentionRequested {
+            ConversationEvent::AttentionRequested {
                 request: AttentionRequest::Approval { approval_id, call_id, .. },
                 ..
             } if approval_id == pending.approval_id() && call_id == &id("write-1")
@@ -1696,13 +1709,13 @@ mod tests {
         assert!(agent.pending_approvals().next().is_none());
         assert!(matches!(
             allowed.effects.as_slice(),
-            [Effect::RunTool(call)] if call.requested().call_id == id("write-1")
+            [Effect::RunTool { call, .. }] if call.requested().call_id == id("write-1")
         ));
         assert!(matches!(
             events(&allowed).as_slice(),
             [
-                SessionEvent::AttentionResolved { attention_id, .. },
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::AttentionResolved { attention_id, .. },
+                ConversationEvent::ToolCallChanged {
                     status: ToolCallStatus::Running,
                     ..
                 }
@@ -1725,7 +1738,7 @@ mod tests {
         let waiting_presentation = events(&waiting)
             .into_iter()
             .find_map(|event| match event {
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     status: ToolCallStatus::AwaitingApproval,
                     presentation,
                     ..
@@ -1748,7 +1761,7 @@ mod tests {
         let running_presentation = events(&running)
             .into_iter()
             .find_map(|event| match event {
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     status: ToolCallStatus::Running,
                     presentation,
                     ..
@@ -1773,7 +1786,7 @@ mod tests {
         let terminal_presentation = events(&finished)
             .into_iter()
             .find_map(|event| match event {
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     status: ToolCallStatus::Succeeded,
                     presentation,
                     ..
@@ -1817,14 +1830,16 @@ mod tests {
             denied
                 .effects
                 .iter()
-                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+                .all(|effect| !matches!(effect, Effect::RunTool { .. }))
         );
         let request = denied
             .effects
             .iter()
             .find_map(|effect| match effect {
                 Effect::CallModel(request) => Some(request),
-                Effect::AdmitTool(_) | Effect::RunTool(_) => None,
+                Effect::AdmitTool(_) | Effect::RunTool { .. } | Effect::PreparePermission(_) => {
+                    None
+                }
             })
             .unwrap_or_else(|| panic!("denial completes the batch and opens the next step"));
         assert!(matches!(
@@ -1835,7 +1850,7 @@ mod tests {
         ));
         assert!(events(&denied).iter().any(|event| matches!(
             event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Denied,
                 presentation,
                 ..
@@ -1879,7 +1894,7 @@ mod tests {
         )));
         assert!(matches!(
             read.effects.as_slice(),
-            [Effect::RunTool(call)] if call.requested().call_id == id("read-2")
+            [Effect::RunTool { call, .. }] if call.requested().call_id == id("read-2")
         ));
         let read_done = finish(&mut agent, "read-2", "contents");
         assert!(
@@ -1905,7 +1920,9 @@ mod tests {
             .iter()
             .find_map(|effect| match effect {
                 Effect::CallModel(request) => Some(request),
-                Effect::AdmitTool(_) | Effect::RunTool(_) => None,
+                Effect::AdmitTool(_) | Effect::RunTool { .. } | Effect::PreparePermission(_) => {
+                    None
+                }
             })
             .unwrap_or_else(|| panic!("settled batch opens the next step"));
         let result_ids: Vec<_> = context_results(&request.request.atoms)
@@ -1939,12 +1956,12 @@ mod tests {
             forbidden_result
                 .effects
                 .iter()
-                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+                .all(|effect| !matches!(effect, Effect::RunTool { .. }))
         );
         assert!(
             !events(&forbidden_result)
                 .iter()
-                .any(|event| matches!(event, SessionEvent::AttentionRequested { .. }))
+                .any(|event| matches!(event, ConversationEvent::AttentionRequested { .. }))
         );
         assert!(matches!(
             tool_results(&forbidden)
@@ -1954,7 +1971,7 @@ mod tests {
         ));
         assert!(events(&forbidden_result).iter().any(|event| matches!(
             event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Failed,
                 presentation,
                 ..
@@ -1979,7 +1996,7 @@ mod tests {
             refused_result
                 .effects
                 .iter()
-                .all(|effect| !matches!(effect, Effect::RunTool(_)))
+                .all(|effect| !matches!(effect, Effect::RunTool { .. }))
         );
         assert!(matches!(
             tool_results(&refused)
@@ -1991,7 +2008,7 @@ mod tests {
         ));
         assert!(events(&refused_result).iter().any(|event| matches!(
             event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Failed,
                 presentation,
                 ..
@@ -2031,7 +2048,7 @@ mod tests {
             assert!(agent.pending_approvals().next().is_none());
             assert!(events(&cancelled).iter().any(|event| matches!(
                 event,
-                SessionEvent::AttentionResolved { attention_id: resolved, .. }
+                ConversationEvent::AttentionResolved { attention_id: resolved, .. }
                     if resolved == &attention_id
             )));
             assert!(matches!(
@@ -2041,7 +2058,7 @@ mod tests {
             ));
             assert!(events(&cancelled).iter().any(|event| matches!(
                 event,
-                SessionEvent::ToolCallChanged {
+                ConversationEvent::ToolCallChanged {
                     status: ToolCallStatus::Cancelled,
                     presentation,
                     ..
@@ -2068,7 +2085,7 @@ mod tests {
 
         assert!(events(&cancelled).iter().any(|event| matches!(
             event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Cancelled,
                 presentation,
                 ..
@@ -2121,7 +2138,7 @@ mod tests {
         );
         assert!(matches!(
             events(&stopped).last(),
-            Some(SessionEvent::AgentStatusChanged {
+            Some(ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Idle,
                 ..
             })
@@ -2148,7 +2165,7 @@ mod tests {
         assert!(
             !events(&ended)
                 .iter()
-                .any(|event| matches!(event, SessionEvent::TranscriptItemFinalized { .. })),
+                .any(|event| matches!(event, ConversationEvent::TranscriptItemFinalized { .. })),
             "an item nothing opened cannot be finalized"
         );
     }
@@ -2248,7 +2265,7 @@ mod tests {
             recovered
                 .events
                 .iter()
-                .any(|event| matches!(event.event, SessionEvent::AttentionResolved { .. }))
+                .any(|event| matches!(event.event, ConversationEvent::AttentionResolved { .. }))
         );
         assert!(recovered.records.iter().any(|record| matches!(
             record,
@@ -2260,14 +2277,14 @@ mod tests {
         )));
         assert!(recovered.events.iter().any(|event| matches!(
             event.event,
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 status: ToolCallStatus::Cancelled,
                 ..
             }
         )));
         assert!(recovered.events.iter().any(|event| matches!(
             event.event,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Idle,
                 ..
             }
@@ -2276,7 +2293,7 @@ mod tests {
             recovered
                 .events
                 .iter()
-                .any(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+                .any(|event| matches!(event.event, ConversationEvent::RuntimeWarning { .. }))
         );
         let projection = resumed
             .rebuild_projection()
@@ -2296,17 +2313,17 @@ mod tests {
     #[test]
     fn an_atomic_turn_start_is_recovered_as_interrupted() {
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
-        let session_id =
-            SessionId::new("partial-transition").unwrap_or_else(|error| panic!("session: {error}"));
-        let mut source = Agent::for_session(
+        let session_id = ConversationId::new("partial-transition")
+            .unwrap_or_else(|error| panic!("session: {error}"));
+        let mut source = Agent::for_conversation(
             agent_id.clone(),
-            crate::SessionMetadata::new(session_id.clone(), UnixMillis::EPOCH),
+            crate::ConversationMetadata::new(session_id.clone(), UnixMillis::EPOCH),
             TurnBudget::default(),
             ApprovalPolicy::default(),
         );
         let announcement = source.announce("Agent A");
         let submission = submit(&mut source, "persisted before process death");
-        let mut journal = SessionJournal::new(session_id);
+        let mut journal = ConversationJournal::new(session_id);
         journal
             .apply(announcement.records[0].clone())
             .unwrap_or_else(|error| panic!("apply announcement: {error:?}"));
@@ -2327,7 +2344,7 @@ mod tests {
 
         assert!(recovered.events.iter().any(|event| matches!(
             event.event,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 status: AgentStatus::Idle,
                 ..
             }
@@ -2336,7 +2353,7 @@ mod tests {
             recovered
                 .events
                 .iter()
-                .any(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+                .any(|event| matches!(event.event, ConversationEvent::RuntimeWarning { .. }))
         );
         assert!(resumed.recover_after_process_death().is_none());
     }
@@ -2346,8 +2363,8 @@ mod tests {
     #[test]
     fn recovery_completes_calls_declared_before_their_request_record() {
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}"));
-        let session_id =
-            SessionId::new("agent-a-session").unwrap_or_else(|error| panic!("session: {error}"));
+        let session_id = ConversationId::new("agent-a-session")
+            .unwrap_or_else(|error| panic!("session: {error}"));
         let mut source = bare_agent();
         let mut base_records = source.announce("Agent A").records;
         base_records.extend(submit(&mut source, "inspect").records);
@@ -2384,7 +2401,7 @@ mod tests {
             let mut crash_records = base_records.clone();
             crash_records.extend(stopped.records[..=durable_stop].iter().cloned());
             let build_journal = || {
-                let mut journal = SessionJournal::new(session_id.clone());
+                let mut journal = ConversationJournal::new(session_id.clone());
                 for record in &crash_records {
                     journal
                         .apply(record.clone())
@@ -2504,7 +2521,7 @@ mod tests {
                 projection
                     .events()
                     .iter()
-                    .filter(|event| matches!(event.event, SessionEvent::RuntimeWarning { .. }))
+                    .filter(|event| matches!(event.event, ConversationEvent::RuntimeWarning { .. }))
                     .count(),
                 1
             );

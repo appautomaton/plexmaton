@@ -97,7 +97,7 @@ pub fn complete_tool_step(agent: &mut Agent, events: &[ModelEvent], output: &str
     );
     assert!(matches!(
         admitted_reaction.effects.as_slice(),
-        [Effect::RunTool(running)] if running.requested() == &call
+        [Effect::RunTool { call: running, .. }] if running.requested() == &call
     ));
 
     let finished = agent.handle_at(

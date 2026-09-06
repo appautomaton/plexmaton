@@ -79,11 +79,65 @@ impl ToolTasks {
         Ok(())
     }
 
-    pub(super) fn start_execution(&mut self, call: AdmittedToolCall) -> Result<(), RuntimeError> {
+    pub(super) fn start_permission_preparation(
+        &mut self,
+        request: plexmaton_agent::PermissionPreparationRequest,
+        owner: super::CodingSessionPermissions,
+    ) -> Result<(), RuntimeError> {
+        let call_id = request.admitted().requested().call_id.clone();
+        self.ensure_available(&call_id)?;
+        let cancellation = NativeCancellation::new();
+        let cancelled = cancellation.clone();
+        let completion_id = call_id.clone();
+        let future = async move {
+            let outcome = if cancelled.is_cancelled() {
+                request.refused(plexmaton_agent::PermissionChangeError::Unavailable)
+            } else {
+                owner.prepare(request, &cancelled)
+            };
+            ToolCompletion {
+                call_id: completion_id,
+                phase: ToolPhase::Permission,
+                resolution: ToolResolution::Permission(Ok(outcome)),
+            }
+        }
+        .boxed();
+        let (completion, worker) = run_on_worker(future, call_id.clone(), ToolPhase::Permission);
+        self.active.insert(
+            call_id,
+            ActiveTool {
+                phase: ToolPhase::Permission,
+                cancellation,
+                worker,
+            },
+        );
+        self.pending.push(completion);
+        Ok(())
+    }
+
+    pub(super) fn start_execution(
+        &mut self,
+        call: AdmittedToolCall,
+        authorization: plexmaton_agent::ToolAuthorization,
+        owner: super::CodingSessionPermissions,
+    ) -> Result<(), RuntimeError> {
         let call_id = call.requested().call_id.clone();
         self.ensure_available(&call_id)?;
         let cancellation = NativeCancellation::new();
-        let future = self.catalog.execute(call, cancellation.clone());
+        let authorized_call = call.clone();
+        let execute = self.catalog.execute(call, cancellation.clone());
+        let cancelled = cancellation.clone();
+        let future = async move {
+            if let Err(reason) = owner.authorize(&authorized_call, &authorization, &|| {
+                cancelled.is_cancelled()
+            }) {
+                return ToolExecutionResult::new(
+                    ToolOutcome::PermissionRefused { reason },
+                    Some(bounded_tool_text(&reason.to_string(), 0)),
+                );
+            }
+            execute.await
+        };
         let completion_id = call_id.clone();
         let resolution_id = call_id.clone();
         let future = AssertUnwindSafe(future)
@@ -144,12 +198,24 @@ impl ToolTasks {
         Ok(Some(completion.resolution.for_call(completion.call_id)))
     }
 
-    pub(super) async fn cancel_and_join(&mut self) -> Result<(), RuntimeError> {
+    pub(super) async fn cancel_and_join(
+        &mut self,
+        saved: &mut Vec<plexmaton_core::SavedProjectPermission>,
+    ) -> Result<(), RuntimeError> {
         for owner in self.active.values() {
             owner.cancellation.cancel();
         }
         while !self.pending.is_empty() {
-            let _discarded = self.next().await?;
+            if let Some(ToolResolution::Permission(Ok(
+                plexmaton_agent::PermissionPreparationOutcome::Prepared(receipt),
+            ))) = self.next().await?
+                && receipt.scope() == plexmaton_core::PermissionScope::Project
+            {
+                saved.push(plexmaton_core::SavedProjectPermission {
+                    call_id: receipt.call_id().clone(),
+                    grant: receipt.grant().clone(),
+                });
+            }
         }
         if self.active.is_empty() {
             Ok(())
@@ -160,6 +226,10 @@ impl ToolTasks {
 
     pub(super) fn is_empty(&self) -> bool {
         self.pending.is_empty() && self.active.is_empty()
+    }
+
+    pub(super) fn permission_workspace(&self) -> [u8; 32] {
+        self.catalog.permission_workspace()
     }
 
     pub(super) fn skills(&self) -> Option<std::sync::Arc<plexmaton_skills::SkillCatalog>> {
@@ -196,6 +266,7 @@ struct ActiveTool {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ToolPhase {
     Admission,
+    Permission,
     Execution,
 }
 
@@ -240,6 +311,7 @@ fn run_on_worker(
 
 fn failed_completion(call_id: ToolCallId, phase: ToolPhase) -> ToolCompletion {
     let resolution = match phase {
+        ToolPhase::Permission => ToolResolution::Permission(Err(call_id.clone())),
         ToolPhase::Admission => ToolResolution::Admission(AdmissionOutcome::Refused {
             call_id: call_id.clone(),
             reason: AdmissionRefusal::DefinitionUnavailable,
@@ -259,6 +331,7 @@ fn failed_completion(call_id: ToolCallId, phase: ToolPhase) -> ToolCompletion {
 }
 
 pub(super) enum ToolResolution {
+    Permission(Result<plexmaton_agent::PermissionPreparationOutcome, ToolCallId>),
     Admission(AdmissionOutcome),
     Execution {
         call_id: ToolCallId,

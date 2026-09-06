@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
 use plexmaton_agent::UnixMillis;
-use plexmaton_core::SessionId;
+use plexmaton_core::ConversationId;
 use uuid::Uuid;
 
 use crate::{JournalFile, StoreError};
@@ -14,11 +14,11 @@ const MAX_SESSION_FILE_NAME_BYTES: usize = 128;
 const AUTOMATIC_NAME_ATTEMPTS: u16 = 1_000;
 
 /// Owner-only home for the canonical per-session JSONL files.
-pub struct SessionDirectory {
+pub struct ConversationDirectory {
     path: PathBuf,
 }
 
-impl SessionDirectory {
+impl ConversationDirectory {
     /// Creates or opens `PLEXMATON_HOME/sessions` without consulting process-global configuration.
     pub fn under(plexmaton_home: impl AsRef<Path>) -> Result<Self, StoreError> {
         let path = plexmaton_home.as_ref().join("sessions");
@@ -36,7 +36,7 @@ impl SessionDirectory {
     /// Creates and exclusively owns a new named session.
     pub fn create(
         &self,
-        session_id: SessionId,
+        session_id: ConversationId,
         created_at_unix_ms: UnixMillis,
     ) -> Result<JournalFile, StoreError> {
         JournalFile::create(self.path_for(&session_id)?, session_id, created_at_unix_ms)
@@ -46,7 +46,7 @@ impl SessionDirectory {
     pub fn create_automatic(
         &self,
         created_at_unix_ms: UnixMillis,
-    ) -> Result<(SessionId, JournalFile), StoreError> {
+    ) -> Result<(ConversationId, JournalFile), StoreError> {
         self.create_automatic_with(created_at_unix_ms, Uuid::now_v7)
     }
 
@@ -54,10 +54,10 @@ impl SessionDirectory {
         &self,
         created_at_unix_ms: UnixMillis,
         mut next_id: impl FnMut() -> Uuid,
-    ) -> Result<(SessionId, JournalFile), StoreError> {
+    ) -> Result<(ConversationId, JournalFile), StoreError> {
         for _attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
             let name = format!("session-{}", next_id());
-            let session_id = SessionId::new(name)
+            let session_id = ConversationId::new(name)
                 .unwrap_or_else(|error| unreachable!("generated session id is valid: {error}"));
             match self.create(session_id.clone(), created_at_unix_ms) {
                 Ok(journal) => return Ok((session_id, journal)),
@@ -70,7 +70,7 @@ impl SessionDirectory {
     }
 
     /// Opens and exclusively owns an existing named session.
-    pub fn resume(&self, session_id: &SessionId) -> Result<JournalFile, StoreError> {
+    pub fn resume(&self, session_id: &ConversationId) -> Result<JournalFile, StoreError> {
         let path = self.path_for(session_id)?;
         let metadata = std::fs::symlink_metadata(&path)
             .map_err(|source| StoreError::io("inspect session path", source))?;
@@ -81,7 +81,7 @@ impl SessionDirectory {
     }
 
     /// Deterministic JSONL location for a portable session identity.
-    pub fn path_for(&self, session_id: &SessionId) -> Result<PathBuf, StoreError> {
+    pub fn path_for(&self, session_id: &ConversationId) -> Result<PathBuf, StoreError> {
         let name = session_id.as_str();
         let valid = !name.is_empty()
             && name.len() <= MAX_SESSION_FILE_NAME_BYTES
@@ -126,20 +126,20 @@ fn ensure_owner_only_directory(path: &Path) -> Result<(), StoreError> {
 #[cfg(test)]
 mod tests {
     use plexmaton_agent::UnixMillis;
-    use plexmaton_core::SessionId;
+    use plexmaton_core::ConversationId;
     use uuid::{Uuid, Version};
 
-    use super::SessionDirectory;
+    use super::ConversationDirectory;
     use crate::{JournalFile, StoreError};
 
     #[test]
     fn jrn_4_session_paths_stay_inside_an_owner_only_directory() {
         let home_owner = crate::test_support::TestDir::new("safe");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let session =
-            SessionId::new("work-01").unwrap_or_else(|error| panic!("session id: {error}"));
+            ConversationId::new("work-01").unwrap_or_else(|error| panic!("session id: {error}"));
         let path = sessions
             .path_for(&session)
             .unwrap_or_else(|error| panic!("session path: {error}"));
@@ -161,11 +161,11 @@ mod tests {
     fn jrn_4_session_file_names_cannot_escape_the_sessions_directory() {
         let home_owner = crate::test_support::TestDir::new("escape");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
 
         for value in ["../outside", ".hidden", "two words", "slash/name", "é"] {
-            let id = SessionId::new(value)
+            let id = ConversationId::new(value)
                 .unwrap_or_else(|error| panic!("semantic session id: {error}"));
             assert!(matches!(
                 sessions.path_for(&id),
@@ -178,7 +178,7 @@ mod tests {
     fn jrn_4_automatic_session_identity_is_portable_uuid_v7() {
         let home_owner = crate::test_support::TestDir::new("automatic-v7");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let created_at = UnixMillis::new(1_234);
 
@@ -205,7 +205,7 @@ mod tests {
     fn jrn_4_automatic_session_names_retry_uuid_collisions() {
         let home_owner = crate::test_support::TestDir::new("automatic-collision");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let first_uuid = Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099c75b0")
             .unwrap_or_else(|error| panic!("first UUIDv7 fixture: {error}"));
@@ -237,7 +237,7 @@ mod tests {
 
         let home_owner = crate::test_support::TestDir::new("insecure");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let mut permissions = std::fs::metadata(sessions.path())
             .unwrap_or_else(|error| panic!("sessions metadata: {error}"))
@@ -247,7 +247,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("weaken fixture permissions: {error}"));
 
         assert!(matches!(
-            SessionDirectory::under(home),
+            ConversationDirectory::under(home),
             Err(StoreError::InsecureDirectoryPermissions(0o755))
         ));
     }
@@ -271,7 +271,7 @@ mod tests {
         symlink(target, home.join("sessions"))
             .unwrap_or_else(|error| panic!("link sessions directory: {error}"));
         assert!(matches!(
-            SessionDirectory::under(home),
+            ConversationDirectory::under(home),
             Err(StoreError::SymlinkPath)
         ));
         std::fs::remove_file(home.join("sessions"))
@@ -279,7 +279,7 @@ mod tests {
 
         let home_owner = crate::test_support::TestDir::new("symlink-file");
         let home = home_owner.path();
-        let sessions = SessionDirectory::under(home)
+        let sessions = ConversationDirectory::under(home)
             .unwrap_or_else(|error| panic!("open sessions directory: {error}"));
         let target = home.join("outside.jsonl");
         std::fs::write(&target, b"not a journal")
@@ -291,7 +291,7 @@ mod tests {
         std::fs::set_permissions(&target, target_permissions)
             .unwrap_or_else(|error| panic!("secure target: {error}"));
         let session =
-            SessionId::new("linked").unwrap_or_else(|error| panic!("session id: {error}"));
+            ConversationId::new("linked").unwrap_or_else(|error| panic!("session id: {error}"));
         let linked = sessions
             .path_for(&session)
             .unwrap_or_else(|error| panic!("linked path: {error}"));

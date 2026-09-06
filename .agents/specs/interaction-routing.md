@@ -81,6 +81,9 @@ with the terminal up to 76 columns, with content-sized height at every layout cl
 least three terminal cells of margin; the top edge stays fixed as content changes. Each command
 takes one row, truncating its summary with an ellipsis before it can wrap over the controls.
 
+PER-8 owns `/permissions` rule review: Up/Down and the wheel scroll complete scopes with fixed
+controls; Enter continues to a separate confirmation, and Esc returns one page.
+
 ## Model
 
 ```text
@@ -126,10 +129,14 @@ ordinary bindings below apply.
 Control chords are never text (INV-2); reducers decide whether their target exists. A focused
 decision region uses arrows to choose, `Enter` to decide and `Ctrl-O` to disclose. Matching button
 press/release decides the exact displayed request. Primary approval uses `Esc` to return to input
-without answering or hiding the card; a background modal closes. Options remain its last two rows.
+without answering or hiding the card; a background modal closes. Allow and remember… enters a
+scope/lifetime review; `Esc` there returns to the decision step. PER-5 owns producer confirmation.
 
 The command palette owns typing and editing while open: `↑` / `↓` chooses, `Enter` runs, and
 `Esc` closes it and restores the previous focus. Its filter uses the caret contract in COM-1.
+`/permissions` opens revisioned grant controls (PER-7). Arrows or drawn-row clicks select a setting
+or grant, `Enter` reviews it, and a second confirmation applies it. Back starts selected; `Esc`
+returns from review or closes the controls. Loading/submission accepts no duplicate mutation.
 The configuration page accepts `↑` / `↓` (or `k` / `j`) to scroll longer values on short terminals,
 `Ctrl-P` to open the palette above it, and `Esc` to return to its originating palette; typing and
 editing keys stay blocked. Re-running configuration from a palette above it refreshes the same

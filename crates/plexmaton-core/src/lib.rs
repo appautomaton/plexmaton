@@ -12,8 +12,19 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod permissions;
 mod transcript;
 mod usage;
+
+pub use permissions::{
+    ApprovalDecision, ApprovalReason, PermissionChangeError, PermissionOfferId, PermissionRevision,
+    PermissionScope, PermissionScopes, RememberPermissionOffer,
+};
+pub use permissions::{
+    NativeFilePreset, PermissionAction, PermissionGrantView, PermissionIntent,
+    PermissionRuleAction, PermissionRuleView, PermissionStateView, ProjectConfigurationView,
+    ProjectPermissionSource, SavedProjectPermission,
+};
 
 pub use transcript::{ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole};
 pub use usage::{TokenCounts, TokenUsage};
@@ -91,14 +102,32 @@ stable_id!(ApprovalId, "approval id");
 stable_id!(ArtifactId, "artifact id");
 stable_id!(AttentionId, "attention id");
 stable_id!(MailId, "mail id");
-stable_id!(SessionEntryId, "session entry id");
-stable_id!(SessionId, "session id");
+stable_id!(ConversationEntryId, "conversation entry id");
+stable_id!(CodingSessionId, "coding session id");
+stable_id!(PermissionGrantId, "permission grant id");
+stable_id!(ProjectPermissionStoreId, "project permission store id");
+stable_id!(ConversationId, "conversation id");
 stable_id!(HeadName, "session head name");
 stable_id!(JournalRecordId, "journal record id");
 stable_id!(ToolDefinitionId, "tool definition id");
 stable_id!(ToolCallId, "tool call id");
 stable_id!(TranscriptItemId, "transcript item id");
 stable_id!(TurnId, "turn id");
+
+/// A personal project's durable policy version; a reset changes its store identity.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProjectPermissionRevision {
+    /// No project policy has ever been written under the stable lock.
+    Absent,
+    /// A validated store incarnation and monotonic mutation sequence.
+    Present {
+        /// Prevents a reset from making an old revision current again.
+        store: ProjectPermissionStoreId,
+        /// Last acknowledged mutation in this incarnation.
+        sequence: u64,
+    },
+}
 
 /// Monotonic sequence assigned by one semantic event producer.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -152,16 +181,6 @@ pub enum ToolCapability {
     ProcessSpawn,
 }
 
-/// The decisions APV-4 accepts for one pending approval.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalDecision {
-    /// Permit only the admitted call named by the request.
-    AllowOnce,
-    /// Decline only the admitted call named by the request.
-    Deny,
-}
-
 /// Why a background agent needs the user's attention.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -191,6 +210,12 @@ pub enum AttentionRequest {
         capabilities: Vec<ToolCapability>,
         /// Bounded explanation of the concrete operation.
         detail: String,
+        /// Policy reason supplied by the producer, separate from the operation detail.
+        #[serde(default)]
+        reason: ApprovalReason,
+        /// Optional backend-issued reusable permission; historical display is never authority.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        remember: Option<RememberPermissionOffer>,
     },
     /// The agent needs information rather than permission.
     Clarification {
@@ -225,7 +250,7 @@ impl AttentionRequest {
 /// terminal input, persistence records, and animation ticks.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum SessionEvent {
+pub enum ConversationEvent {
     /// A new agent became visible to the workspace.
     AgentCreated {
         /// Identity the agent keeps for its whole lifetime.
@@ -367,18 +392,18 @@ pub enum SessionEvent {
 
 /// An ordered event at the runtime-to-projection boundary.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SessionEventEnvelope {
+pub struct ConversationEventEnvelope {
     /// Position in the producer's monotonic stream, used to detect loss and duplication.
     pub sequence: EventSequence,
     /// The semantic transition being reported.
-    pub event: SessionEvent,
+    pub event: ConversationEvent,
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, AttentionId, AttentionRequest,
-        EventSequence, IdError, MailId, SessionEvent, SessionEventEnvelope, TokenCounts,
+        ConversationEvent, ConversationEventEnvelope, EventSequence, IdError, MailId, TokenCounts,
         TokenUsage, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail, ToolPresentation,
         TranscriptItemId, TranscriptRole, TurnId,
     };
@@ -406,7 +431,7 @@ mod tests {
         assert!(serde_json::from_str::<AgentId>(r#""""#).is_err());
         assert!(serde_json::from_str::<AgentId>(r#""   ""#).is_err());
         assert!(
-            serde_json::from_str::<SessionEventEnvelope>(
+            serde_json::from_str::<ConversationEventEnvelope>(
                 r#"{"sequence":1,"event":{"type":"agent_created","agent_id":"","label":"x","status":"idle"}}"#
             )
             .is_err(),
@@ -422,16 +447,16 @@ mod tests {
         let item = TranscriptItemId::new("item-1")
             .unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let events = [
-            SessionEvent::AgentCreated {
+            ConversationEvent::AgentCreated {
                 agent_id: agent("agent-a"),
                 label: "Agent A".into(),
                 status: AgentStatus::Running,
             },
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 agent_id: agent("agent-a"),
                 status: AgentStatus::Cancelled,
             },
-            SessionEvent::TurnUsageUpdated {
+            ConversationEvent::TurnUsageUpdated {
                 agent_id: agent("agent-a"),
                 turn_id: TurnId::new("turn-1").unwrap_or_else(|error| panic!("fixture: {error}")),
                 usage: TokenUsage::Complete(TokenCounts {
@@ -443,24 +468,24 @@ mod tests {
                     total: 14,
                 }),
             },
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent("agent-a"),
                 item_id: item.clone(),
                 role: TranscriptRole::Assistant,
             },
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent("agent-a"),
                 item_id: item.clone(),
                 item_revision: 1,
                 // Multi-byte and combining text, because transcripts carry both.
                 text: "δ 汉字 e\u{301}\n".into(),
             },
-            SessionEvent::TranscriptItemFinalized {
+            ConversationEvent::TranscriptItemFinalized {
                 agent_id: agent("agent-a"),
                 item_id: item,
                 item_revision: 2,
             },
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 agent_id: agent("agent-a"),
                 item_id: TranscriptItemId::new("item-tool-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
@@ -479,11 +504,13 @@ mod tests {
                     }),
                 },
             },
-            SessionEvent::AttentionRequested {
+            ConversationEvent::AttentionRequested {
                 agent_id: agent("agent-b"),
                 attention_id: AttentionId::new("attention-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 request: AttentionRequest::Approval {
+                    reason: crate::ApprovalReason::PermissionRequired,
+                    remember: None,
                     approval_id: ApprovalId::new("approval-1")
                         .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                     call_id: ToolCallId::new("tool-1")
@@ -493,12 +520,12 @@ mod tests {
                     detail: "approve the write".into(),
                 },
             },
-            SessionEvent::AttentionResolved {
+            ConversationEvent::AttentionResolved {
                 agent_id: agent("agent-b"),
                 attention_id: AttentionId::new("attention-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             },
-            SessionEvent::MailDelivered {
+            ConversationEvent::MailDelivered {
                 item_id: TranscriptItemId::new("item-mail-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 mail_id: MailId::new("mail-1")
@@ -507,7 +534,7 @@ mod tests {
                 to: agent("agent-a"),
                 summary: "findings".into(),
             },
-            SessionEvent::ArtifactAnnounced {
+            ConversationEvent::ArtifactAnnounced {
                 agent_id: agent("agent-b"),
                 item_id: TranscriptItemId::new("item-artifact-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
@@ -516,13 +543,13 @@ mod tests {
                 label: "findings".into(),
                 pointer: "artifact://agent-b/findings".into(),
             },
-            SessionEvent::RuntimeWarning {
+            ConversationEvent::RuntimeWarning {
                 agent_id: agent("agent-a"),
                 item_id: TranscriptItemId::new("item-warning-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 message: "degraded".into(),
             },
-            SessionEvent::RuntimeError {
+            ConversationEvent::RuntimeError {
                 agent_id: agent("agent-a"),
                 item_id: TranscriptItemId::new("item-error-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
@@ -535,13 +562,13 @@ mod tests {
             TurnId::new("turn-1").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
 
         for (index, event) in events.into_iter().enumerate() {
-            let envelope = SessionEventEnvelope {
+            let envelope = ConversationEventEnvelope {
                 sequence: EventSequence::new(index as u64 + 1),
                 event,
             };
             let encoded = serde_json::to_string(&envelope)
                 .unwrap_or_else(|error| panic!("serialize {envelope:?}: {error}"));
-            let decoded: SessionEventEnvelope = serde_json::from_str(&encoded)
+            let decoded: ConversationEventEnvelope = serde_json::from_str(&encoded)
                 .unwrap_or_else(|error| panic!("deserialize {encoded}: {error}"));
 
             assert_eq!(decoded, envelope);
@@ -552,7 +579,7 @@ mod tests {
     fn the_event_tag_is_the_stable_external_name() {
         // The tag is what an out-of-process producer writes. Renaming a variant without noticing
         // would be a silent wire break, so one tag is pinned here as the canary for the scheme.
-        let encoded = serde_json::to_string(&SessionEvent::RuntimeWarning {
+        let encoded = serde_json::to_string(&ConversationEvent::RuntimeWarning {
             agent_id: agent("agent-a"),
             item_id: TranscriptItemId::new("item-warning-1")
                 .unwrap_or_else(|error| panic!("invalid fixture: {error}")),

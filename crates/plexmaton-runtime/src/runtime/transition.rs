@@ -52,6 +52,7 @@ impl LiveRuntime {
         rejected_input: Option<UndeliveredInput>,
         after: AfterCommit,
     ) -> Result<(), RuntimeError> {
+        self.refresh_permission_snapshot()?;
         let reaction = self.agent.handle_at(input, self.clock.now());
         let rejected_inputs = failure_inputs(&reaction, rejected_input);
         self.begin_transition(reaction, rejected_inputs, after)?;
@@ -62,6 +63,7 @@ impl LiveRuntime {
         &mut self,
         input: Input,
     ) -> Result<(), RuntimeError> {
+        self.refresh_permission_snapshot()?;
         let reaction = self.agent.handle_at(input, self.clock.now());
         let rejected_inputs = failure_inputs(&reaction, None);
         self.begin_transition(reaction, rejected_inputs, AfterCommit::None)?;
@@ -88,6 +90,7 @@ impl LiveRuntime {
                 pending.selected_skill.as_deref(),
                 UndeliveredReason::PersistenceFailed,
             );
+            self.refresh_permission_snapshot()?;
             let reaction = self.agent.handle_at(pending.input, pending.observed_at);
             let rejected_inputs = failure_inputs(&reaction, rejected_input);
             self.begin_transition(reaction, rejected_inputs, pending.after)?;
@@ -117,10 +120,15 @@ impl LiveRuntime {
         if self.pending_commit.is_some()
             || (after != AfterCommit::None && self.after_commit.is_some())
         {
-            return self.fail_before_queue(rejected_inputs);
+            return self
+                .fail_before_queue(rejected_inputs)
+                .map_err(|error| permission_audit_failure(&reaction, error));
         }
         if self.journal_failed {
-            return Err(RuntimeError::JournalRequiresReopen);
+            return Err(permission_audit_failure(
+                &reaction,
+                RuntimeError::JournalRequiresReopen,
+            ));
         }
         if let Some(writer) = &self.journal
             && !reaction.records.is_empty()
@@ -128,7 +136,11 @@ impl LiveRuntime {
             let records = std::mem::take(&mut reaction.records);
             let reply = match writer.begin_append(records) {
                 Ok(reply) => reply,
-                Err(_) => return self.fail_before_queue(rejected_inputs),
+                Err(_) => {
+                    return self
+                        .fail_before_queue(rejected_inputs)
+                        .map_err(|error| permission_audit_failure(&reaction, error));
+                }
             };
             self.pending_commit = Some(PendingCommit {
                 reaction,
@@ -209,12 +221,13 @@ impl LiveRuntime {
                         });
                         return Ok(());
                     }
-                    return Err(match failure {
+                    let error = match failure {
                         CommitFailure::Store(error) => RuntimeError::JournalAppendFailed {
                             source: error.source,
                         },
                         CommitFailure::Writer => RuntimeError::JournalWriterUnavailable,
-                    });
+                    };
+                    return Err(permission_audit_failure(&pending.reaction, error));
                 }
             }
         }
@@ -229,7 +242,9 @@ impl LiveRuntime {
             AfterCommit::None => {}
             AfterCommit::Interrupt | AfterCommit::Shutdown => {
                 self.cancel_active().await?;
-                self.tools.cancel_and_join().await?;
+                self.tools
+                    .cancel_and_join(&mut self.report.saved_project_permissions)
+                    .await?;
             }
             AfterCommit::StartModel => self.start_authorized_model()?,
             AfterCommit::SettleModel => self.settle_model_completion().await?,
@@ -267,9 +282,39 @@ impl LiveRuntime {
             match effect {
                 Effect::CallModel(call) => self.authorize_model(call)?,
                 Effect::AdmitTool(request) => self.tools.start_admission(request, &self.agent)?,
-                Effect::RunTool(call) => self.tools.start_execution(call)?,
+                Effect::RunTool {
+                    call,
+                    authorization,
+                } => self.start_authorized_tool(call, authorization)?,
+                Effect::PreparePermission(request) => {
+                    if !self.permission_dispatch_cancelled() {
+                        self.tools
+                            .start_permission_preparation(request, self.permissions.clone())?;
+                    }
+                }
             }
         }
         Ok(())
+    }
+}
+
+fn permission_audit_failure(reaction: &Reaction, source: RuntimeError) -> RuntimeError {
+    let saved = reaction.effects.iter().find_map(|effect| match effect {
+        Effect::RunTool {
+            authorization:
+                plexmaton_agent::ToolAuthorization::Remembered {
+                    grant,
+                    scope: plexmaton_core::PermissionScope::Project,
+                },
+            ..
+        } => Some(grant.clone()),
+        _ => None,
+    });
+    match saved {
+        Some(grant) => RuntimeError::ProjectPermissionSavedAuditFailed {
+            grant,
+            source: Box::new(source),
+        },
+        None => source,
     }
 }

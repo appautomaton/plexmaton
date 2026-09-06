@@ -66,6 +66,12 @@ pub enum JournalEntryPayload {
         call_id: ToolCallId,
         presentation: ToolPresentation,
     },
+    /// Historical policy provenance; never model content or replayed authority (PER-9).
+    ToolPermissionDecided {
+        agent_id: AgentId,
+        call_id: ToolCallId,
+        audit: Box<crate::PermissionDecisionAudit>,
+    },
     /// One later state of a known tool call.
     ToolCallChanged {
         agent_id: AgentId,

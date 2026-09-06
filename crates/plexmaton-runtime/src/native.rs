@@ -63,7 +63,44 @@ pub struct NativeToolCatalog {
     skills: Option<Arc<plexmaton_skills::SkillCatalog>>,
 }
 
+/// Catalog-owned compiler for configured permission scopes, retaining the command execution context.
+#[derive(Clone)]
+pub struct NativePermissionCompiler {
+    command: Arc<CommandTool>,
+}
+
+impl NativePermissionCompiler {
+    /// Pins the known create/edit pair; capability names never select preset membership.
+    #[must_use]
+    pub fn native_file_changes(&self) -> plexmaton_agent::PermissionMatcher {
+        let (create, edit) = FileTools::permission_definitions();
+        plexmaton_agent::PermissionMatcher::NativeFileChanges { create, edit }
+    }
+
+    /// Explicit literal tokens retain the same definition and captured context as admission.
+    #[must_use]
+    pub fn command_prefix(
+        &self,
+        arguments: Vec<String>,
+    ) -> Option<plexmaton_agent::PermissionMatcher> {
+        self.command.prefix_permission(arguments)
+    }
+
+    /// Exact source must satisfy native command admission bounds and retains captured context.
+    #[must_use]
+    pub fn exact_command(&self, source: &str) -> Option<plexmaton_agent::PermissionMatcher> {
+        self.command.exact_permission(source)
+    }
+}
+
 impl NativeToolCatalog {
+    /// Shares only permission compilation; configuration readers cannot execute tools.
+    #[must_use]
+    pub fn permission_compiler(&self) -> NativePermissionCompiler {
+        NativePermissionCompiler {
+            command: Arc::clone(&self.command),
+        }
+    }
     /// Pins one workspace, its provider credential name, ripgrep, and descriptor driver command.
     pub fn open(
         workspace_root: impl AsRef<Path>,
@@ -121,6 +158,10 @@ impl NativeToolCatalog {
         Ok(self)
     }
 
+    pub(crate) fn permission_workspace(&self) -> [u8; 32] {
+        self.command.permission_workspace()
+    }
+
     pub(crate) fn skills(&self) -> Option<Arc<plexmaton_skills::SkillCatalog>> {
         self.skills.as_ref().map(Arc::clone)
     }
@@ -154,7 +195,7 @@ impl NativeToolCatalog {
             }
             COMMAND_TOOL_NAME => {
                 let command = Arc::clone(&self.command);
-                async move { command.admit(request) }.boxed()
+                async move { command.admit_with_cancellation(request, &|| cancellation.is_cancelled()) }.boxed()
             }
             READ_TOOL_NAME | SEARCH_TOOL_NAME | EDIT_TOOL_NAME | CREATE_TOOL_NAME => {
                 let file = Arc::clone(&self.file);
@@ -263,6 +304,10 @@ impl NativeCancellation {
             async_token: CancellationToken::new(),
             file: FileCancellation::new(),
         }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.async_token.is_cancelled() || self.file.is_cancelled()
     }
 
     pub(crate) fn cancel(&self) {

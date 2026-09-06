@@ -1,0 +1,30 @@
+┌ Plexmaton · waiting · 2 tools ─────────────────────────────────────────────────────────────────────────────── ( !1 ) ┐
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│▌trusted fixture                                                                                                      │
+│                                                                                                                      │
+│[+] exec_command · succeeded                                                                                          │
+│TRUSTED_DONE                                                                                                          │
+│                                                                                                                      │
+│▌remember prefix fixture                                                                                              │
+│                                                                                                                      │
+│[?] exec_command · approval required                                                                                  │
+├ Remember permission · exec_command ──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                                      │
+│  Command "ls first" · cwd "/private/tmp/plexmaton-permission-smoke-fixture0/project" · timeout 120000 ms             │
+│  Scope: ls …; same cwd/environment                                                                                   │
+│                                                                                                                      │
+│  > This Session                                                                                                      │
+│    This Project                                                                                                      │
+│    Back                                                                                                              │
+│                                                                                                                      │
+│  ↑↓ choose · Enter confirm · Esc back                                                                                │
+│  Until Plexmaton exits; kept across /new and resume.                                                                 │
+│                                                                                                                      │
+├ Message Plexmaton · Approval required ───────────────────────────────────────────────────────────────────────────────┤
+│Type a message · ⇥ to focus                                                                                           │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ /private/tmp/plexmaton-permission-smoke-fixture0/project

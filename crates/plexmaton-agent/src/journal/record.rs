@@ -1,4 +1,4 @@
-use plexmaton_core::{HeadName, JournalRecordId, SessionEntryId};
+use plexmaton_core::{ConversationEntryId, HeadName, JournalRecordId};
 use serde::{Deserialize, Serialize};
 
 use super::payload::JournalEntryPayload;
@@ -44,11 +44,11 @@ impl HeadRevision {
 
 /// One immutable node in the session tree.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct SessionEntry {
+pub struct ConversationEntry {
     /// Stable identity used by parents and heads.
-    pub id: SessionEntryId,
+    pub id: ConversationEntryId,
     /// Prior entry on this branch; `None` starts a root.
-    pub parent_id: Option<SessionEntryId>,
+    pub parent_id: Option<ConversationEntryId>,
     /// Typed content retained at this node.
     pub payload: JournalEntryPayload,
 }
@@ -68,7 +68,7 @@ pub enum JournalRecord {
         /// Compare-and-set revision read when this append was prepared.
         expected_head_revision: HeadRevision,
         /// New immutable entry.
-        entry: Box<SessionEntry>,
+        entry: Box<ConversationEntry>,
     },
     /// Create another named pointer at an existing entry or at the empty root.
     CreateHead {
@@ -79,7 +79,7 @@ pub enum JournalRecord {
         /// Fresh name for the new head.
         head: HeadName,
         /// Existing entry to point at, or the empty root.
-        at: Option<SessionEntryId>,
+        at: Option<ConversationEntryId>,
     },
     /// Move an existing head without creating conversation content.
     MoveHead {
@@ -92,7 +92,7 @@ pub enum JournalRecord {
         /// Compare-and-set revision read when this move was prepared.
         expected_head_revision: HeadRevision,
         /// Existing entry to point at, or the empty root.
-        to: Option<SessionEntryId>,
+        to: Option<ConversationEntryId>,
     },
     /// Give an existing head a fresh, never-used name.
     RenameHead {

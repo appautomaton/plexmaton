@@ -1,11 +1,13 @@
 //! Dispatch one canonical entry to the semantic and visible projections.
 
 use super::tools::ToolChange;
-use super::{JournalEntryPayload, JournalProjectionError, Projector, SessionEntry, SessionEvent};
+use super::{
+    ConversationEntry, ConversationEvent, JournalEntryPayload, JournalProjectionError, Projector,
+};
 
 pub(super) fn project_entry(
     projector: &mut Projector,
-    entry: &SessionEntry,
+    entry: &ConversationEntry,
 ) -> Result<(), JournalProjectionError> {
     let source = entry.id.clone();
     let activation_owner = projector.activation_owner.take();
@@ -14,7 +16,7 @@ pub(super) fn project_entry(
             agent_id, turn_id, ..
         } => {
             projector.turns.insert(turn_id.clone(), agent_id.clone());
-            projector.emit(SessionEvent::AgentStatusChanged {
+            projector.emit(ConversationEvent::AgentStatusChanged {
                 agent_id: agent_id.clone(),
                 status: plexmaton_core::AgentStatus::Running,
             })
@@ -76,6 +78,9 @@ pub(super) fn project_entry(
             call_id.clone(),
             presentation.clone(),
         ),
+        JournalEntryPayload::ToolPermissionDecided {
+            agent_id, call_id, ..
+        } => projector.permission_decided(source, agent_id, call_id),
         JournalEntryPayload::ToolCallChanged {
             agent_id,
             call_id,

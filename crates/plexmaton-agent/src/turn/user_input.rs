@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, SessionEvent, TranscriptItemId, TranscriptRole, TurnId,
+    AgentId, AgentStatus, ConversationEvent, TranscriptItemId, TranscriptRole, TurnId,
 };
 
 use super::{Agent, DeliveryBoundary};
@@ -136,7 +136,7 @@ impl Agent {
         }
         self.record.emit(
             reaction,
-            SessionEvent::AgentStatusChanged {
+            ConversationEvent::AgentStatusChanged {
                 agent_id,
                 status: AgentStatus::Running,
             },
@@ -185,7 +185,7 @@ impl Agent {
     ) {
         self.record.emit(
             reaction,
-            SessionEvent::TranscriptItemStarted {
+            ConversationEvent::TranscriptItemStarted {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 role: TranscriptRole::User,
@@ -193,7 +193,7 @@ impl Agent {
         );
         self.record.emit(
             reaction,
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 item_revision: 1,
@@ -202,7 +202,7 @@ impl Agent {
         );
         self.record.emit(
             reaction,
-            SessionEvent::TranscriptItemFinalized {
+            ConversationEvent::TranscriptItemFinalized {
                 agent_id,
                 item_id,
                 item_revision: 2,

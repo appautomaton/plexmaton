@@ -501,7 +501,7 @@ output_reserve_tokens = 16384
         .unwrap_or_else(|error| panic!("open native catalog: {error}"));
         let definitions = catalog.provider_definitions();
         let request = ModelRequest {
-            session_id: plexmaton_core::SessionId::new("fixture-session")
+            session_id: plexmaton_core::ConversationId::new("fixture-session")
                 .unwrap_or_else(|error| panic!("session: {error}")),
             atoms: Vec::new(),
         };

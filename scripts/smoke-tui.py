@@ -208,11 +208,19 @@ def check_command_palette(master: int, captured: bytearray) -> None:
         repaint(master, captured, ("Message Plexmaton",), ("Commands", "Configuration"))
     for query in ("resume", "continue", "sessions", "session"):
         os.write(master, b"\x10" + query.encode() + b"\r")
-        repaint(master, captured, ("Sessions", "Enter resume", "Esc close"))
+        repaint(master, captured, ("Conversations", "Enter resume", "Esc close"))
         os.write(master, b"\x1b")
-        repaint(master, captured, ("Message Plexmaton",), ("Sessions", "Commands"))
+        repaint(master, captured, ("Message Plexmaton",), ("Conversations", "Commands"))
+    os.write(master, b"\x10permissions\r")
+    repaint(master, captured, ("Permissions", "Enable native file changes", "Esc close"))
+    os.write(master, b"\r")
+    repaint(master, captured, ("Permissions", "create/edit", "> Back", "Enter confirm"))
+    os.write(master, b"\x1b")
+    repaint(master, captured, ("Permissions", "Enable native file changes", "Esc close"))
+    os.write(master, b"\x1b")
+    repaint(master, captured, ("Message Plexmaton",), ("Permissions", "Commands"))
     os.write(master, b"\x10new\r")
-    repaint(master, captured, ("Message Plexmaton",), ("Sessions", "Commands", "Cannot open"))
+    repaint(master, captured, ("Message Plexmaton",), ("Conversations", "Commands", "Cannot open"))
 
 
 def check_input_pointer(master: int, captured: bytearray) -> None:
@@ -433,7 +441,7 @@ output_reserve_tokens = 5000
             file=sys.stderr,
         )
         failures.append("lazy automatic session")
-    if b"To continue this session, run:" in captured:
+    if b"To continue this conversation, run:" in captured:
         failures.append("blank launch reported a nonexistent session")
 
     if failures:

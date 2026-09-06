@@ -81,6 +81,18 @@ impl AttentionQueue {
         self.items.get(id)
     }
 
+    pub(super) fn update_offer(
+        &mut self,
+        id: &AttentionId,
+        offer: Option<plexmaton_core::RememberPermissionOffer>,
+    ) {
+        if let Some(item) = self.items.get_mut(id)
+            && let AttentionRequest::Approval { remember, .. } = &mut item.request
+        {
+            *remember = offer;
+        }
+    }
+
     /// Number of requests awaiting the user.
     pub(super) fn len(&self) -> usize {
         self.items.len()
@@ -97,15 +109,26 @@ impl AttentionQueue {
     }
 
     /// Moves the cursor one request, clamped at both ends like every other list here.
-    pub(super) fn move_cursor(&mut self, direction: Direction) -> bool {
-        let last = self.items.len().saturating_sub(1);
+    pub(super) fn move_cursor(&mut self, visible: &[AttentionId], direction: Direction) -> bool {
+        let current = self.items.key_at(self.cursor());
+        let index = visible
+            .iter()
+            .position(|id| Some(id) == current)
+            .unwrap_or(0);
         let next = match direction {
-            Direction::Forward => self.cursor().saturating_add(1).min(last),
-            Direction::Backward => self.cursor().saturating_sub(1),
+            Direction::Forward => index.saturating_add(1).min(visible.len().saturating_sub(1)),
+            Direction::Backward => index.saturating_sub(1),
         };
-        let moved = next != self.cursor();
-        self.cursor = next;
-        moved
+        visible.get(next).is_some_and(|id| self.select(id))
+    }
+
+    pub(super) fn select(&mut self, id: &AttentionId) -> bool {
+        let Some(index) = self.items.iter().position(|item| &item.id == id) else {
+            return false;
+        };
+        let changed = self.cursor != index;
+        self.cursor = index;
+        changed
     }
 
     /// Marks the request under the cursor as seen and reports whose it was.
@@ -148,6 +171,8 @@ mod tests {
             id: AttentionId::new(id).unwrap_or_else(|error| panic!("fixture: {error}")),
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new(format!("approval-{id}"))
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new(format!("call-{id}"))
@@ -209,17 +234,35 @@ mod tests {
     fn the_cursor_clamps_at_both_ends_and_survives_an_empty_queue() {
         let mut queue = AttentionQueue::default();
         assert_eq!(queue.cursor(), 0);
-        assert!(!queue.move_cursor(Direction::Forward));
+        assert!(!queue.move_cursor(
+            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            Direction::Forward
+        ));
         assert_eq!(queue.acknowledge(), None);
 
         queue.request(request("ask-1", "first"));
         queue.request(request("ask-2", "other"));
-        assert!(queue.move_cursor(Direction::Forward));
+        assert!(queue.move_cursor(
+            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            Direction::Forward
+        ));
         assert_eq!(queue.cursor(), 1);
-        assert!(!queue.move_cursor(Direction::Forward), "clamped at the end");
-        assert!(queue.move_cursor(Direction::Backward));
         assert!(
-            !queue.move_cursor(Direction::Backward),
+            !queue.move_cursor(
+                &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+                Direction::Forward
+            ),
+            "clamped at the end"
+        );
+        assert!(queue.move_cursor(
+            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            Direction::Backward
+        ));
+        assert!(
+            !queue.move_cursor(
+                &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+                Direction::Backward
+            ),
             "clamped at the start"
         );
     }
@@ -230,8 +273,14 @@ mod tests {
         queue.request(request("ask-1", "first"));
         queue.request(request("ask-2", "second"));
         queue.request(request("ask-3", "third"));
-        queue.move_cursor(Direction::Forward);
-        queue.move_cursor(Direction::Forward);
+        queue.move_cursor(
+            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            Direction::Forward,
+        );
+        queue.move_cursor(
+            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            Direction::Forward,
+        );
 
         let second = AttentionId::new("ask-2").unwrap_or_else(|error| panic!("fixture: {error}"));
         assert!(queue.resolve(&second));

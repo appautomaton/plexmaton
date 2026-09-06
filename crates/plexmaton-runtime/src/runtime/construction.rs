@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{Agent, ApprovalPolicy, SessionMetadata, TurnBudget};
-use plexmaton_core::{AgentId, SessionId};
+use plexmaton_agent::{Agent, ApprovalPolicy, ConversationMetadata, TurnBudget};
+use plexmaton_core::{AgentId, ConversationId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_session_store::{AutomaticJournal, JournalFile, JournalRecovery};
 use tokio::sync::mpsc;
@@ -11,7 +11,7 @@ use super::{
     AfterCommit, JournalWriter, LiveRuntime, ModelDriver, ToolTasks, journal::JournalStore,
 };
 use crate::{
-    HttpSetupError, JournalTailRecovery, NativeToolCatalog, RuntimeError, SessionRecovery,
+    ConversationRecovery, HttpSetupError, JournalTailRecovery, NativeToolCatalog, RuntimeError,
     http::ProviderHttp,
 };
 
@@ -96,7 +96,7 @@ impl LiveRuntime {
         model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
-        metadata: SessionMetadata,
+        metadata: ConversationMetadata,
         store: Box<dyn JournalStore>,
     ) -> Result<Self, RuntimeError> {
         if !tools.matches_api_key_environment(model.api_key_env()) {
@@ -121,7 +121,7 @@ impl LiveRuntime {
         key: ApiKey,
         tools: NativeToolCatalog,
         journal: JournalFile,
-    ) -> Result<(Self, SessionRecovery), RuntimeError> {
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
         if !tools.matches_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
@@ -177,13 +177,13 @@ impl LiveRuntime {
         clock: Arc<dyn WallClock>,
     ) -> Self {
         let created_at_unix_ms = clock.now();
-        let session_id = SessionId::new(format!("{agent_id}-session"))
+        let session_id = ConversationId::new(format!("conversation-{}", uuid::Uuid::now_v7()))
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
-        let metadata = SessionMetadata::new(session_id, created_at_unix_ms);
+        let metadata = ConversationMetadata::new(session_id, created_at_unix_ms);
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id: agent_id.clone(),
-            agent: Agent::for_session(
+            agent: Agent::for_conversation(
                 agent_id,
                 metadata,
                 TurnBudget::default(),
@@ -196,6 +196,7 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             deferred_model_call: None,
+            permissions: crate::CodingSessionPermissions::new(&tools),
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: None,
@@ -204,7 +205,7 @@ impl LiveRuntime {
             pending_inputs: VecDeque::new(),
             preparing_input: None,
             journal_failed: false,
-            shutting_down: false,
+            shutdown_state: super::ShutdownState::Open,
             clock,
         };
         let announced = runtime.agent.announce(label);
@@ -219,14 +220,14 @@ impl LiveRuntime {
         label: String,
         driver: Arc<dyn ModelDriver>,
         tools: NativeToolCatalog,
-        metadata: SessionMetadata,
+        metadata: ConversationMetadata,
         store: Box<dyn JournalStore>,
         clock: Arc<dyn WallClock>,
     ) -> Result<Self, RuntimeError> {
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id: agent_id.clone(),
-            agent: Agent::for_session(
+            agent: Agent::for_conversation(
                 agent_id,
                 metadata,
                 TurnBudget::default(),
@@ -239,6 +240,7 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             deferred_model_call: None,
+            permissions: crate::CodingSessionPermissions::new(&tools),
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: Some(
@@ -249,7 +251,7 @@ impl LiveRuntime {
             pending_inputs: VecDeque::new(),
             preparing_input: None,
             journal_failed: false,
-            shutting_down: false,
+            shutdown_state: super::ShutdownState::Open,
             clock,
         };
         let reaction = runtime.agent.announce(label);
@@ -266,7 +268,7 @@ impl LiveRuntime {
         store: Box<dyn JournalStore>,
         tail_recovery: JournalRecovery,
         clock: Arc<dyn WallClock>,
-    ) -> Result<(Self, SessionRecovery), RuntimeError> {
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
         let projection = agent
             .rebuild_projection()
             .unwrap_or_else(|_| unreachable!("a newly restored agent has no transient work"));
@@ -283,6 +285,7 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             deferred_model_call: None,
+            permissions: crate::CodingSessionPermissions::new(&tools),
             tools: ToolTasks::new(tools),
             report: crate::DispatchReport::default(),
             journal: Some(
@@ -293,7 +296,7 @@ impl LiveRuntime {
             pending_inputs: VecDeque::new(),
             preparing_input: None,
             journal_failed: false,
-            shutting_down: false,
+            shutdown_state: super::ShutdownState::Open,
             clock,
         };
         let interrupted_turn = recovered.is_some();
@@ -310,7 +313,7 @@ impl LiveRuntime {
         };
         Ok((
             runtime,
-            SessionRecovery {
+            ConversationRecovery {
                 tail,
                 interrupted_turn,
             },

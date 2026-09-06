@@ -1,11 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenUsage,
-    TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+    TokenUsage, TranscriptItemId, TurnId,
 };
 
 use super::{
-    HeadRevision, JournalEntryPayload, JournalError, JournalRecord, JournalSequence, SessionEntry,
-    SessionJournal,
+    ConversationEntry, ConversationJournal, HeadRevision, JournalEntryPayload, JournalError,
+    JournalRecord, JournalSequence,
 };
 use crate::test_support::replay_compatibility;
 use crate::{
@@ -27,8 +27,8 @@ fn record(value: &str) -> JournalRecordId {
     id(value, JournalRecordId::new)
 }
 
-fn entry(value: &str) -> SessionEntryId {
-    id(value, SessionEntryId::new)
+fn entry(value: &str) -> ConversationEntryId {
+    id(value, ConversationEntryId::new)
 }
 
 fn attempt(value: &str) -> RequestAttemptId {
@@ -46,7 +46,12 @@ fn environment(seed: u8) -> RequestEnvironment {
     )
 }
 
-fn append(sequence: u64, record_id: &str, revision: u64, entry: SessionEntry) -> JournalRecord {
+fn append(
+    sequence: u64,
+    record_id: &str,
+    revision: u64,
+    entry: ConversationEntry,
+) -> JournalRecord {
     JournalRecord::AppendEntry {
         sequence: JournalSequence::new(sequence),
         record_id: record(record_id),
@@ -90,11 +95,11 @@ fn not_dispatched(attempt_id: &str) -> RequestAttemptTerminal {
 }
 
 struct OpenTurnFixture {
-    journal: SessionJournal,
+    journal: ConversationJournal,
     agent_id: AgentId,
     turn_id: TurnId,
-    root: SessionEntryId,
-    boundary: SessionEntryId,
+    root: ConversationEntryId,
+    boundary: ConversationEntryId,
 }
 
 fn open_turn() -> OpenTurnFixture {
@@ -102,13 +107,13 @@ fn open_turn() -> OpenTurnFixture {
     let turn_id = id("turn-a", TurnId::new);
     let root = entry("entry-agent");
     let boundary = entry("entry-turn");
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     journal
         .apply(append(
             1,
             "record-agent",
             0,
-            SessionEntry {
+            ConversationEntry {
                 id: root.clone(),
                 parent_id: None,
                 payload: JournalEntryPayload::AgentCreated {
@@ -124,7 +129,7 @@ fn open_turn() -> OpenTurnFixture {
             2,
             "record-turn",
             1,
-            SessionEntry {
+            ConversationEntry {
                 id: boundary.clone(),
                 parent_id: Some(root.clone()),
                 payload: JournalEntryPayload::TurnStarted {
@@ -341,7 +346,7 @@ fn tim_5_late_terminal_keeps_other_unresolved_step_usage_partial() {
     use crate::{
         AdmissionOutcome, AdmissionRefusal, Agent, Input, ModelEvent, ModelOutputPosition,
     };
-    use plexmaton_core::{SessionEvent, TokenCounts, ToolCallId};
+    use plexmaton_core::{ConversationEvent, TokenCounts, ToolCallId};
 
     let mut agent = Agent::new(id("agent-pending", AgentId::new));
     let _opened = agent.handle(Input::Submitted {
@@ -413,7 +418,7 @@ fn tim_5_late_terminal_keeps_other_unresolved_step_usage_partial() {
         .expect("replay both attempts");
     for events in [late.events.as_slice(), projection.events()] {
         let usage = events.iter().rev().find_map(|event| match &event.event {
-            SessionEvent::TurnUsageUpdated { usage, .. } => Some(usage),
+            ConversationEvent::TurnUsageUpdated { usage, .. } => Some(usage),
             _ => None,
         });
         assert_eq!(usage, Some(&TokenUsage::Partial(counts.clone())));
@@ -668,7 +673,7 @@ fn tim_3_selected_head_projects_only_attempts_on_its_path() {
     assert_eq!(main_projection.request_attempts().len(), 1);
     assert!(main_projection.events().iter().any(|event| matches!(
         event.event,
-        plexmaton_core::SessionEvent::TurnUsageUpdated { .. }
+        plexmaton_core::ConversationEvent::TurnUsageUpdated { .. }
     )));
 
     let sibling_projection = fixture
@@ -678,7 +683,7 @@ fn tim_3_selected_head_projects_only_attempts_on_its_path() {
     assert!(sibling_projection.request_attempts().is_empty());
     assert!(!sibling_projection.events().iter().any(|event| matches!(
         event.event,
-        plexmaton_core::SessionEvent::TurnUsageUpdated { .. }
+        plexmaton_core::ConversationEvent::TurnUsageUpdated { .. }
     )));
     assert_eq!(fixture.journal.request_attempts().len(), 1);
 }

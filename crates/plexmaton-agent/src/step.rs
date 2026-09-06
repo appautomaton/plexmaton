@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, btree_map::Entry};
 
-use plexmaton_core::{SessionEvent, TranscriptItemId, TranscriptRole, TurnId};
+use plexmaton_core::{ConversationEvent, TranscriptItemId, TranscriptRole, TurnId};
 
 use crate::interface::Reaction;
 use crate::journal::JournalEntryPayload;
@@ -63,7 +63,7 @@ impl StreamedText {
         if !std::mem::replace(&mut self.opened, true) {
             record.emit(
                 reaction,
-                SessionEvent::TranscriptItemStarted {
+                ConversationEvent::TranscriptItemStarted {
                     agent_id: record.agent_id().clone(),
                     item_id: self.item.clone(),
                     role: self.role,
@@ -74,7 +74,7 @@ impl StreamedText {
         self.revision = self.revision.saturating_add(1);
         record.emit(
             reaction,
-            SessionEvent::TranscriptDelta {
+            ConversationEvent::TranscriptDelta {
                 agent_id: record.agent_id().clone(),
                 item_id: self.item.clone(),
                 item_revision: self.revision,
@@ -87,7 +87,7 @@ impl StreamedText {
         if self.opened {
             record.emit(
                 reaction,
-                SessionEvent::TranscriptItemFinalized {
+                ConversationEvent::TranscriptItemFinalized {
                     agent_id: record.agent_id().clone(),
                     item_id: self.item.clone(),
                     item_revision: self.revision.saturating_add(1),

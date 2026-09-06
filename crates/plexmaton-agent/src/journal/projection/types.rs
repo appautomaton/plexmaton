@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, AttentionId, SessionEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
+    AgentId, AttentionId, ConversationEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
     TurnId,
 };
 
@@ -10,7 +10,7 @@ use crate::{ContextError, ModelRequest, ModelStepId, RequestAttempt};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JournalProjection {
     pub(super) request: ModelRequest,
-    pub(super) events: Vec<SessionEventEnvelope>,
+    pub(super) events: Vec<ConversationEventEnvelope>,
     pub(super) recovery: Option<RecoveryProjection>,
     pub(super) request_attempts: Vec<RequestAttempt>,
 }
@@ -30,7 +30,7 @@ impl JournalProjection {
 
     /// UI-facing event stream rebuilt from canonical facts.
     #[must_use]
-    pub fn events(&self) -> &[SessionEventEnvelope] {
+    pub fn events(&self) -> &[ConversationEventEnvelope] {
         &self.events
     }
 
@@ -88,6 +88,8 @@ pub enum JournalProjectionError {
     DuplicateToolRequest(ToolCallId),
     /// A transition moved a call between agent conversations.
     WrongToolAgent(ToolCallId),
+    /// Permission provenance arrived after the call had already run or settled.
+    InvalidPermissionDecision(ToolCallId),
     /// A transition skipped or repeated the per-item revision.
     UnexpectedToolRevision {
         call_id: ToolCallId,

@@ -15,20 +15,25 @@ use crossterm::{
     execute,
 };
 use futures_util::StreamExt;
+#[cfg(test)]
 use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{
-    CleanupFailure, DispatchReport, LiveRuntime, NativeToolCatalog, PersistenceFailure,
-    RuntimeUpdate, SessionRecovery,
+    ConversationRecovery, DispatchReport, LiveRuntime, NativeToolCatalog, RuntimeUpdate,
 };
-use plexmaton_tui::{
-    ApprovalSubmission, CleanupNotice, Command, ConfigurationSummary, Flow, MarkdownTheme, Palette,
-    PersistenceNotice, Submission, SubmissionKind, Workspace,
-};
+use plexmaton_tui::{Command, ConfigurationSummary, Flow, MarkdownTheme, Palette, Workspace};
 use ratatui::DefaultTerminal;
 
 mod clipboard;
+mod input;
+#[cfg(test)]
+use input::AddressedInput;
+use input::{
+    dispatch_live, restore_undelivered, route_approval, route_interrupt, route_submission,
+};
+mod permission_config;
+mod permission_controls;
 mod project_config;
 mod retry;
 mod session;
@@ -37,13 +42,15 @@ mod skills;
 mod startup;
 mod statusline;
 mod stream_frames;
+mod user_config;
 
 use startup::live_runtime_from_process;
 
 use clipboard::{ClipboardSink, TerminalClipboard};
 use session::{
-    OpenedSession, PersistedSession, SessionSelection, StartupAction, USAGE, open_selected_session,
-    parse_startup_action, report_persisted_session, restoration_feedback,
+    ConversationSelection, OpenedConversation, PersistedConversation, StartupAction, USAGE,
+    open_selected_conversation, parse_startup_action, report_persisted_conversation,
+    restoration_feedback,
 };
 
 const INTERNAL_RG_DRIVER: &str = "--__plexmaton-rg-driver";
@@ -85,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
     let (opened, workspace_root, mut picker, status_line) =
         live_runtime_from_process(selection).await?;
-    let OpenedSession {
+    let OpenedConversation {
         runtime,
         recovery,
         persisted,
@@ -118,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         Err(error) => Err(error),
         Ok(persisted) => persisted
             .as_ref()
-            .map(|session| report_persisted_session(session, &mut io::stdout()))
+            .map(|session| report_persisted_conversation(session, &mut io::stdout()))
             .transpose()
             .map(|_| ()),
     }
@@ -182,10 +189,10 @@ async fn run(
     mut runtime: LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     working_directory: Option<String>,
-    recovery: Option<SessionRecovery>,
-    mut picker: session_picker::SessionPicker,
+    recovery: Option<ConversationRecovery>,
+    mut picker: session_picker::ConversationPicker,
     mut status_line: Option<statusline::StatusLine>,
-) -> anyhow::Result<Option<PersistedSession>> {
+) -> anyhow::Result<Option<PersistedConversation>> {
     // MD-5: terminal-owned chrome surrounds the user-approved pastel Markdown accents.
     // The script footer retains its independent colors; neither choice rethemes the other.
     let mut workspace =
@@ -202,9 +209,10 @@ async fn run(
         while let Some(event) = runtime.try_next_event() {
             workspace.emit(vec![event]);
         }
-        workspace.report_session_recovery(recovery);
+        workspace.report_conversation_recovery(recovery);
     }
     retry::sync_actions(&runtime, &mut workspace);
+    let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
     let loop_result = drive_session(
         &mut terminal,
         &mut runtime,
@@ -212,16 +220,18 @@ async fn run(
         &mut workspace,
         &mut picker,
         &mut status_line,
+        &mut permissions,
     )
     .await;
     let picker_shutdown = picker.shutdown().await;
+    let permission_shutdown = permissions.shutdown().await;
     let status_shutdown = match &mut status_line {
         Some(status) => status.shutdown().await,
         None => Ok(()),
     };
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     session_result(
-        loop_result.and(picker_shutdown),
+        loop_result.and(picker_shutdown).and(permission_shutdown),
         shutdown.and_then(surface_shutdown_report),
         status_shutdown,
     )?;
@@ -250,6 +260,7 @@ fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
     if report.undelivered.is_empty()
         && report.unresolved_approvals.is_empty()
         && report.undelivered_model.is_empty()
+        && report.saved_project_permissions.is_empty()
         && report.persistence_failure.is_none()
         && report.cleanup_failures.is_empty()
     {
@@ -261,8 +272,16 @@ fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
         .map(|input| format!("{:?}", input.text))
         .collect::<Vec<_>>()
         .join(", ");
+    let saved = if report.saved_project_permissions.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; Project permissions were saved: {:?}. Dependent tools did not run; review /permissions",
+            report.saved_project_permissions
+        )
+    };
     bail!(
-        "shutdown retained input [{input}]; persistence={:?}; cleanup={:?}; unresolved_approvals={}; undelivered_model={}",
+        "shutdown retained input [{input}]; persistence={:?}; cleanup={:?}; unresolved_approvals={}; undelivered_model={}{saved}",
         report.persistence_failure,
         report.cleanup_failures,
         report.unresolved_approvals.len(),
@@ -276,8 +295,9 @@ async fn drive_session(
     runtime: &mut LiveRuntime,
     clipboard: &mut impl ClipboardSink,
     workspace: &mut Workspace,
-    picker: &mut session_picker::SessionPicker,
+    picker: &mut session_picker::ConversationPicker,
     status_line: &mut Option<statusline::StatusLine>,
+    permissions: &mut permission_controls::PermissionControls,
 ) -> anyhow::Result<()> {
     let mut terminal_events = EventStream::new();
     let mut frames = stream_frames::StreamFrames::new(Instant::now());
@@ -290,6 +310,11 @@ async fn drive_session(
         let frame_deadline = frames.deadline();
 
         tokio::select! {
+            update = permissions.next() => {
+                permission_controls::PermissionControls::publish(update, workspace);
+                let report = runtime.permissions_changed().await.context("apply current permissions to waiting calls")?;
+                restore_undelivered(workspace, runtime.agent_id().clone(), report);
+            }
             update = picker.next() => {
                 frames.flush(workspace);
                 if picker.apply(update, runtime, workspace).await? && let Some(status) = status_line {
@@ -317,9 +342,9 @@ async fn drive_session(
             runtime_update = runtime.next_update() => {
                 match runtime_update.context("receive live runtime update")? {
                     RuntimeUpdate::Event(event) => {
-                        if matches!(event.event, plexmaton_core::SessionEvent::AgentCreated { .. }
-                            | plexmaton_core::SessionEvent::AgentStatusChanged { .. }
-                            | plexmaton_core::SessionEvent::TurnUsageUpdated { .. })
+                        if matches!(event.event, plexmaton_core::ConversationEvent::AgentCreated { .. }
+                            | plexmaton_core::ConversationEvent::AgentStatusChanged { .. }
+                            | plexmaton_core::ConversationEvent::TurnUsageUpdated { .. })
                             && let Some(status) = status_line { status.mark_dirty(); }
                         frames.receive(workspace, event);
                         retry::sync_actions(runtime, workspace);
@@ -344,7 +369,8 @@ async fn drive_session(
                             && let Some(status) = status_line { status.mark_dirty(); }
                         let outcome = frames.handle(workspace, &event);
                         picker.observe_closed(workspace);
-                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker).await? {
+                        permissions.observe_closed(workspace);
+                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker, permissions).await? {
                             break;
                         }
                     }
@@ -362,10 +388,14 @@ async fn apply_workspace_outcome(
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
     clipboard: &mut impl ClipboardSink,
-    picker: &mut session_picker::SessionPicker,
+    picker: &mut session_picker::ConversationPicker,
+    permissions: &mut permission_controls::PermissionControls,
 ) -> anyhow::Result<bool> {
     if let Some(command) = outcome.command {
-        picker.execute_command(workspace, runtime, command);
+        apply_command(command, runtime, workspace, picker, permissions);
+    }
+    if let Some(intent) = outcome.permission {
+        permissions.apply(intent);
     }
     if let Some(id) = outcome.resume {
         picker.select(id, runtime, workspace);
@@ -392,6 +422,21 @@ async fn apply_workspace_outcome(
     Ok(outcome.flow == Flow::Quit)
 }
 
+fn apply_command(
+    command: Command,
+    runtime: &LiveRuntime,
+    workspace: &mut Workspace,
+    picker: &mut session_picker::ConversationPicker,
+    permissions: &mut permission_controls::PermissionControls,
+) {
+    match command {
+        Command::Config => workspace.show_configuration(picker.configuration()),
+        Command::Resume => picker.open(workspace),
+        Command::New => picker.new_conversation(workspace, runtime),
+        Command::Permissions => permissions.open(workspace),
+    }
+}
+
 async fn next_status_update(status: &mut Option<statusline::StatusLine>) -> statusline::Update {
     match status {
         Some(status) => status.next().await,
@@ -407,119 +452,6 @@ async fn wait_for_deadline(deadline: Option<Instant>) {
     }
 }
 
-/// One user input after the TUI has settled both its addressee and delivery boundary.
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct AddressedInput {
-    to: AgentId,
-    input: Input,
-    skill: Option<String>,
-}
-
-/// Preserves the route named by the visible input as the loop's own vocabulary (COM-4, LOOP-6).
-fn route_submission(submission: Submission) -> AddressedInput {
-    let input = match submission.kind {
-        SubmissionKind::Message => Input::Submitted {
-            text: submission.text,
-        },
-        SubmissionKind::Steering => Input::Steered {
-            text: submission.text,
-        },
-    };
-    AddressedInput {
-        to: submission.to,
-        input,
-        skill: submission.skill,
-    }
-}
-
-/// Turns the focused conversation identity into the loop's interrupt input (INV-7).
-fn route_interrupt(to: AgentId) -> AddressedInput {
-    AddressedInput {
-        to,
-        input: Input::Interrupted,
-        skill: None,
-    }
-}
-
-/// Preserves the exact pending identity and typed answer chosen on the approval surface (APV-4).
-fn route_approval(approval: ApprovalSubmission) -> AddressedInput {
-    AddressedInput {
-        to: approval.to,
-        input: Input::ApprovalDecided {
-            approval_id: approval.approval_id,
-            decision: approval.decision,
-        },
-        skill: None,
-    }
-}
-
-/// Gives addressed visible input to the live runtime; semantic events return on its event stream.
-///
-/// The projection is never written directly here. A message reaches the screen as the runtime's
-/// own events or not at all, which is what keeps the transcript to one writer (COM-3).
-///
-async fn dispatch_live(
-    runtime: &mut LiveRuntime,
-    workspace: &mut Workspace,
-    addressed: AddressedInput,
-) -> anyhow::Result<()> {
-    if matches!(
-        addressed.input,
-        Input::Streamed { .. }
-            | Input::SkillSubmitted { .. }
-            | Input::SkillSteered { .. }
-            | Input::Failed { .. }
-            | Input::ToolAdmissionResolved(_)
-            | Input::ToolFinished { .. }
-            | Input::ShuttingDown
-    ) {
-        bail!("the TUI produced an input reserved for the producer");
-    }
-    let to = addressed.to.clone();
-    let report = match addressed.skill {
-        Some(name) => {
-            runtime
-                .submit_skill(addressed.to, addressed.input, name)
-                .await
-        }
-        None => runtime.submit(addressed.to, addressed.input).await,
-    }
-    .context("dispatch user input")?;
-    restore_undelivered(workspace, to, report);
-    Ok(())
-}
-
-fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchReport) {
-    if report.accepted_retry_edit.is_some() {
-        workspace.complete_retry_edit();
-    }
-    if let Some(projection) = report.projection_reset {
-        workspace.complete_retry_edit();
-        workspace.replace_projection(projection);
-    }
-    for input in report.undelivered {
-        workspace.return_skill_input(to.clone(), input.text, input.skill);
-    }
-    for message in report.skill_errors {
-        workspace.report_skill_diagnostic(message);
-    }
-    for failure in report.cleanup_failures {
-        let notice = match failure {
-            CleanupFailure::Provider => CleanupNotice::Provider,
-            CleanupFailure::Tools => CleanupNotice::Tools,
-            CleanupFailure::JournalWriter => CleanupNotice::JournalWriter,
-        };
-        workspace.report_cleanup_failure(notice);
-    }
-    if let Some(failure) = report.persistence_failure {
-        let notice = match failure {
-            PersistenceFailure::NotWritten => PersistenceNotice::NotWritten,
-            PersistenceFailure::OutcomeUnknown => PersistenceNotice::OutcomeUnknown,
-        };
-        workspace.report_persistence_failure(notice);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -532,7 +464,7 @@ mod tests {
     };
 
     use plexmaton_core::{
-        SessionEvent, SessionEventEnvelope, ToolCallStatus, ToolDetail, TranscriptRole,
+        ConversationEvent, ConversationEventEnvelope, ToolCallStatus, ToolDetail, TranscriptRole,
     };
     use plexmaton_sim::{Scenario, ScriptedRuntime};
     use plexmaton_tui::{
@@ -556,6 +488,7 @@ mod tests {
         addressed: AddressedInput,
     ) -> anyhow::Result<()> {
         use anyhow::{Context as _, bail};
+        #[cfg(test)]
         use plexmaton_agent::Input;
         use plexmaton_sim::RuntimeCommand;
 
@@ -576,6 +509,8 @@ mod tests {
             Input::Streamed { .. }
             | Input::Failed { .. }
             | Input::ToolAdmissionResolved(_)
+            | Input::PermissionsChanged
+            | Input::PermissionPrepared(_)
             | Input::ToolFinished { .. }
             | Input::ShuttingDown
             | Input::SkillSubmitted { .. }
@@ -620,14 +555,6 @@ output_reserve_tokens = 5000
 "#,
         )
         .expect("valid registry fixture");
-        let mut picker =
-            super::session_picker::SessionPicker::new(super::session_picker::Launcher {
-                root: PathBuf::new(),
-                workspace: PathBuf::new(),
-                model: registry.active_model().clone(),
-                ripgrep: "/bin/false".into(),
-                driver: "/bin/false".into(),
-            });
         let root = FixtureWorkspace::new();
         let model = registry.active_model().clone();
         let tools = super::NativeToolCatalog::open(
@@ -638,6 +565,15 @@ output_reserve_tokens = 5000
             Vec::new(),
         )
         .expect("tools");
+        let mut picker =
+            super::session_picker::ConversationPicker::new(super::session_picker::Launcher {
+                root: PathBuf::new(),
+                workspace: PathBuf::new(),
+                model: registry.active_model().clone(),
+                ripgrep: "/bin/false".into(),
+                driver: "/bin/false".into(),
+                permissions: plexmaton_runtime::CodingSessionPermissions::new(&tools),
+            });
         let mut runtime = super::LiveRuntime::provider(
             super::AgentId::new("primary").expect("agent"),
             "Plexmaton",
@@ -668,7 +604,15 @@ output_reserve_tokens = 5000
                 .handle(&press(KeyCode::Enter))
                 .command
                 .expect("matched command");
-            picker.execute_command(&mut workspace, &runtime, command);
+            let mut permissions =
+                super::permission_controls::PermissionControls::new(runtime.coding_session());
+            super::apply_command(
+                command,
+                &runtime,
+                &mut workspace,
+                &mut picker,
+                &mut permissions,
+            );
             workspace.draw(&mut terminal).expect("draw configuration");
             let shown = workspace
                 .state()
@@ -746,7 +690,7 @@ output_reserve_tokens = 5000
         agent: &mut plexmaton_agent::Agent,
         call_id: &str,
         result: plexmaton_agent::ToolExecutionResult,
-    ) -> Vec<SessionEventEnvelope> {
+    ) -> Vec<ConversationEventEnvelope> {
         agent
             .handle(plexmaton_agent::Input::ToolFinished {
                 call_id: plexmaton_core::ToolCallId::new(call_id)
@@ -1106,7 +1050,9 @@ output_reserve_tokens = 5000
             .into_iter()
             .filter_map(|effect| match effect {
                 Effect::AdmitTool(request) => Some(request),
-                Effect::CallModel(_) | Effect::RunTool(_) => None,
+                Effect::CallModel(_) | Effect::RunTool { .. } | Effect::PreparePermission(_) => {
+                    None
+                }
             });
         for (expected, capability) in [
             ("success", Some(ToolCapability::FileRead)),
@@ -1160,7 +1106,7 @@ output_reserve_tokens = 5000
         });
         assert!(matches!(
             allowed.effects.as_slice(),
-            [Effect::RunTool(call)] if call.requested().call_id.as_str() == "approved"
+            [Effect::RunTool { call, .. }] if call.requested().call_id.as_str() == "approved"
         ));
         workspace.emit(std::mem::take(&mut allowed.events));
         workspace.emit(finish_tool(
@@ -1294,6 +1240,7 @@ output_reserve_tokens = 5000
     async fn a_live_dispatch_restores_undelivered_user_text() {
         use std::ffi::OsString;
 
+        #[cfg(test)]
         use plexmaton_agent::Input;
         use plexmaton_core::AgentId;
         use plexmaton_provider::{ModelRegistry, resolve_api_key};
@@ -1449,6 +1396,19 @@ output_reserve_tokens = 5000
         assert!(shown.contains(r#""exact\ntext""#));
         assert!(shown.contains("OutcomeUnknown"));
         assert!(shown.contains("JournalWriter"));
+        let receipt = plexmaton_core::SavedProjectPermission {
+            call_id: plexmaton_core::ToolCallId::new("cancelled-call").expect("call"),
+            grant: plexmaton_core::PermissionGrantId::new("saved-project-grant").expect("grant"),
+        };
+        let saved = surface_shutdown_report(plexmaton_runtime::DispatchReport {
+            saved_project_permissions: vec![receipt],
+            ..plexmaton_runtime::DispatchReport::default()
+        })
+        .expect_err("PER-6: a saved grant receipt alone must survive terminal release")
+        .to_string();
+        assert!(saved.contains("saved-project-grant"));
+        assert!(saved.contains("did not run"));
+        assert!(saved.contains("/permissions"));
     }
 
     /// LIVE-1: the production HTTP, loop, native-read, and projection boundaries compose without
@@ -1457,6 +1417,7 @@ output_reserve_tokens = 5000
     async fn a_native_tool_round_trip_is_a_stream_the_projection_accepts() {
         use std::ffi::OsString;
 
+        #[cfg(test)]
         use plexmaton_agent::Input;
         use plexmaton_core::AgentId;
         use plexmaton_provider::{ModelRegistry, resolve_api_key};
@@ -1505,8 +1466,8 @@ output_reserve_tokens = 5000
         let mut terminal = Terminal::new(TestBackend::new(120, 40))
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         let mut streamed_deltas = 0_usize;
-        let mut project = |workspace: &mut Workspace, event: SessionEventEnvelope| {
-            let is_delta = matches!(&event.event, SessionEvent::TranscriptDelta { .. });
+        let mut project = |workspace: &mut Workspace, event: ConversationEventEnvelope| {
+            let is_delta = matches!(&event.event, ConversationEvent::TranscriptDelta { .. });
             workspace.emit(vec![event]);
             let work = workspace
                 .draw(&mut terminal)

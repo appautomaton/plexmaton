@@ -1,8 +1,8 @@
 //! Offline single-agent Markdown color review, using the actual workspace and unchanged footer.
 //! cargo run -p plexmaton-tui --example markdown_style_preview -- <output-directory>
 use plexmaton_core::{
-    AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, TranscriptItemId,
-    TranscriptRole,
+    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+    TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{MarkdownTheme, Palette, StatusLineText, Workspace};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
 fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) -> Result<Buffer> {
     let mut workspace = Workspace::with_palette(Palette::ansi());
     let agent = AgentId::new("primary")?;
-    let mut events = vec![SessionEvent::AgentCreated {
+    let mut events = vec![ConversationEvent::AgentCreated {
         agent_id: agent.clone(),
         label: "Plexmaton".into(),
         status: AgentStatus::Idle,
@@ -62,12 +62,12 @@ fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) ->
         ("answer", TranscriptRole::Assistant, MARKDOWN),
     ] {
         let item = TranscriptItemId::new(name)?;
-        events.push(SessionEvent::TranscriptItemStarted {
+        events.push(ConversationEvent::TranscriptItemStarted {
             agent_id: agent.clone(),
             item_id: item.clone(),
             role,
         });
-        events.push(SessionEvent::TranscriptDelta {
+        events.push(ConversationEvent::TranscriptDelta {
             agent_id: agent.clone(),
             item_id: item,
             item_revision: 1,
@@ -78,7 +78,7 @@ fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) ->
         events
             .into_iter()
             .enumerate()
-            .map(|(i, event)| SessionEventEnvelope {
+            .map(|(i, event)| ConversationEventEnvelope {
                 sequence: EventSequence::new(i as u64 + 1),
                 event,
             })

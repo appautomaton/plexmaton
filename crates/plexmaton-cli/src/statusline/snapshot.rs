@@ -145,7 +145,7 @@ impl<'a> Snapshot<'a> {
             },
         };
         let mut result = Self::base(model, cwd, dimensions, context);
-        if let Some((journal, head)) = runtime.acknowledged_session() {
+        if let Some((journal, head)) = runtime.acknowledged_conversation() {
             result.enrich(journal, head)?;
         }
         Ok(result)
@@ -209,11 +209,11 @@ impl<'a> Snapshot<'a> {
 
     fn enrich(
         &mut self,
-        journal: &plexmaton_agent::SessionJournal,
+        journal: &plexmaton_agent::ConversationJournal,
         head: &plexmaton_core::HeadName,
     ) -> anyhow::Result<()> {
         let result = self;
-        result.session_id = Some(journal.session_id().to_string());
+        result.session_id = Some(journal.conversation_id().to_string());
         result.plexmaton.head = Some(head.to_string());
         result.plexmaton.created_at_unix_ms = Some(journal.created_at_unix_ms().get());
         let accounting = journal.incurred_accounting()?;

@@ -1,0 +1,49 @@
+┌ Permissions ─────────────────────────────────────────────────────────────┐
+│                                                                          │
+│  Session grants last until Plexmaton exits.                              │
+│  They stay active across /new and resume.                                │
+│  Project grants survive Sessions and restarts.                           │
+│  Project Allow rules need explicit trust. Ask and Deny are active.       │
+│                                                                          │
+│  > Enable native file changes for this Session…                          │
+│    Review project configuration rules…                                   │
+│    Refresh permissions                                                   │
+│                                                                          │
+│  ↑↓ choose · Enter select · Esc close                                    │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+┌ Project configuration rules ─────────────────────────────────────────────┐
+│                                                                          │
+│  Project: .plexmaton/config.toml                                         │
+│  Allow rules inactive until personally trusted.                          │
+│  Ask and Deny take precedence over Allow and remembered grants.          │
+│                                                                          │
+│  1. Allow: Exact command: "git fetch origin"; fixed cwd and environment  │
+│                                                                          │
+│  2. Ask: Native create/edit; excludes agent controls and Git metadata    │
+│                                                                          │
+│  SHA-256:                                                                │
+│  ↓ More to read                                                          │
+│  > Continue to activation…                                               │
+│                                                                          │
+│  ↑↓ read · Enter continue · Esc back                                     │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+
+┌ Permissions ─────────────────────────────────────────────────────────────┐
+│                                                                          │
+│  Activate the reviewed project Allow rules?                              │
+│  Configuration SHA-256:                                                  │
+│  abababababababababababababababababababababababababababababababab        │
+│  Personal trust survives restarts. Editing the file requires a new       │
+│  review; Ask and Deny still take precedence.                             │
+│                                                                          │
+│    Activate these Allow rules                                            │
+│  > Back                                                                  │
+│                                                                          │
+│  ↑↓ choose · Enter confirm · Esc back                                    │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘

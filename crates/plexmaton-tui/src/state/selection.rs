@@ -332,8 +332,8 @@ const fn detail_source(detail: &ToolDetail) -> &str {
 #[cfg(test)]
 mod tests {
     use plexmaton_core::{
-        AgentId, AgentStatus, EventSequence, SessionEvent, SessionEventEnvelope, ToolDetail,
-        ToolPresentation, TranscriptItemId, TranscriptRole,
+        AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+        ToolDetail, ToolPresentation, TranscriptItemId, TranscriptRole,
     };
     use proptest::{collection::vec, prelude::*};
     use ratatui::{
@@ -408,13 +408,13 @@ mod tests {
     /// longer on the screen.
     #[test]
     fn a_selection_does_not_survive_the_surface_changing_agents() {
-        use plexmaton_core::{AgentStatus, SessionEvent};
+        use plexmaton_core::{AgentStatus, ConversationEvent};
 
         use crate::test_support::Conversation;
 
         // Three agents, so the window can change from one sub-agent to another.
         let mut conversation = Conversation::canonical();
-        conversation.emit(SessionEvent::AgentCreated {
+        conversation.emit(ConversationEvent::AgentCreated {
             agent_id: AgentId::new("agent-c").unwrap_or_else(|error| panic!("fixture: {error}")),
             label: "Agent C · review".into(),
             status: AgentStatus::Running,
@@ -830,18 +830,18 @@ mod tests {
     }
 
     /// One assistant message per string, on one agent, as the producer would send them.
-    fn timeline(messages: &[String]) -> Vec<SessionEventEnvelope> {
+    fn timeline(messages: &[String]) -> Vec<ConversationEventEnvelope> {
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         let mut sequence = 0_u64;
         let mut envelopes = Vec::new();
-        let mut emit = |event: SessionEvent| {
+        let mut emit = |event: ConversationEvent| {
             sequence = sequence.saturating_add(1);
-            envelopes.push(SessionEventEnvelope {
+            envelopes.push(ConversationEventEnvelope {
                 sequence: EventSequence::new(sequence),
                 event,
             });
         };
-        emit(SessionEvent::AgentCreated {
+        emit(ConversationEvent::AgentCreated {
             agent_id: agent_id.clone(),
             label: "Agent A".into(),
             status: AgentStatus::Running,
@@ -849,12 +849,12 @@ mod tests {
         for (index, text) in messages.iter().enumerate() {
             let item_id = TranscriptItemId::new(format!("item-{index}"))
                 .unwrap_or_else(|error| panic!("fixture: {error}"));
-            emit(SessionEvent::TranscriptItemStarted {
+            emit(ConversationEvent::TranscriptItemStarted {
                 agent_id: agent_id.clone(),
                 item_id: item_id.clone(),
                 role: TranscriptRole::Assistant,
             });
-            emit(SessionEvent::TranscriptDelta {
+            emit(ConversationEvent::TranscriptDelta {
                 agent_id: agent_id.clone(),
                 item_id,
                 item_revision: 1,

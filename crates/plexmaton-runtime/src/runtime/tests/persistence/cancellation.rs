@@ -270,7 +270,7 @@ async fn cancelled_model_end_during_attempt_terminal_append_keeps_the_active_own
         crate::ContextBudgetSnapshot::Unavailable(crate::ContextBudgetUnavailable::PendingCommit)
     ));
     // STL-3: script diagnostics cannot read the staged terminal fact either.
-    assert!(runtime.acknowledged_session().is_none());
+    assert!(runtime.acknowledged_conversation().is_none());
     control.gate.release();
     tokio::time::timeout(Duration::from_secs(5), async {
         while runtime.has_active_model() {

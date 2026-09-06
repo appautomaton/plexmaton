@@ -4,8 +4,8 @@ mod runtime;
 mod workload;
 
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, IdError, MailId, SessionEvent,
-    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, ConversationEvent, IdError,
+    MailId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 
 pub use runtime::{RuntimeCommand, ScriptedRuntime};
@@ -17,7 +17,7 @@ pub use runtime::{RuntimeCommand, ScriptedRuntime};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScenarioStep {
     pub at_tick: u64,
-    pub event: SessionEvent,
+    pub event: ConversationEvent,
 }
 
 /// A replayable synthetic scenario.
@@ -38,7 +38,7 @@ impl Scenario {
         let events = vec![
             (
                 0,
-                SessionEvent::AgentCreated {
+                ConversationEvent::AgentCreated {
                     agent_id: agent_a.clone(),
                     label: "Agent A · primary".into(),
                     status: AgentStatus::Running,
@@ -46,7 +46,7 @@ impl Scenario {
             ),
             (
                 1,
-                SessionEvent::TranscriptItemStarted {
+                ConversationEvent::TranscriptItemStarted {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     role: TranscriptRole::Assistant,
@@ -54,7 +54,7 @@ impl Scenario {
             ),
             (
                 2,
-                SessionEvent::TranscriptDelta {
+                ConversationEvent::TranscriptDelta {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 1,
@@ -63,7 +63,7 @@ impl Scenario {
             ),
             (
                 4,
-                SessionEvent::AgentCreated {
+                ConversationEvent::AgentCreated {
                     agent_id: agent_b.clone(),
                     label: "Agent B · UI study".into(),
                     status: AgentStatus::Running,
@@ -71,7 +71,7 @@ impl Scenario {
             ),
             (
                 5,
-                SessionEvent::TranscriptDelta {
+                ConversationEvent::TranscriptDelta {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 2,
@@ -81,7 +81,7 @@ impl Scenario {
             ),
             (
                 6,
-                SessionEvent::TranscriptItemFinalized {
+                ConversationEvent::TranscriptItemFinalized {
                     agent_id: agent_a.clone(),
                     item_id: item_a.clone(),
                     item_revision: 3,
@@ -89,7 +89,7 @@ impl Scenario {
             ),
             (
                 7,
-                SessionEvent::TranscriptItemStarted {
+                ConversationEvent::TranscriptItemStarted {
                     agent_id: agent_b.clone(),
                     item_id: item_b.clone(),
                     role: TranscriptRole::Assistant,
@@ -97,7 +97,7 @@ impl Scenario {
             ),
             (
                 8,
-                SessionEvent::TranscriptDelta {
+                ConversationEvent::TranscriptDelta {
                     agent_id: agent_b.clone(),
                     item_id: item_b.clone(),
                     item_revision: 1,
@@ -115,7 +115,7 @@ impl Scenario {
             ),
             (
                 12,
-                SessionEvent::AttentionRequested {
+                ConversationEvent::AttentionRequested {
                     agent_id: agent_b.clone(),
                     attention_id: AttentionId::new("attention-b-1")?,
                     request: AttentionRequest::Clarification {
@@ -130,7 +130,7 @@ impl Scenario {
             ),
             (
                 15,
-                SessionEvent::ArtifactAnnounced {
+                ConversationEvent::ArtifactAnnounced {
                     agent_id: agent_b.clone(),
                     item_id: TranscriptItemId::new("item-b-artifact-1")?,
                     artifact_id: ArtifactId::new("artifact-b-1")?,
@@ -140,7 +140,7 @@ impl Scenario {
             ),
             (
                 16,
-                SessionEvent::MailDelivered {
+                ConversationEvent::MailDelivered {
                     item_id: TranscriptItemId::new("item-b-mail-1")?,
                     mail_id: MailId::new("mail-b-a-1")?,
                     from: agent_b.clone(),
@@ -150,7 +150,7 @@ impl Scenario {
             ),
             (
                 17,
-                SessionEvent::AgentStatusChanged {
+                ConversationEvent::AgentStatusChanged {
                     agent_id: agent_b,
                     status: AgentStatus::Completed,
                 },
@@ -183,8 +183,8 @@ fn canonical_tool(
     item_id: &TranscriptItemId,
     item_revision: u64,
     status: ToolCallStatus,
-) -> Result<SessionEvent, IdError> {
-    Ok(SessionEvent::ToolCallChanged {
+) -> Result<ConversationEvent, IdError> {
+    Ok(ConversationEvent::ToolCallChanged {
         agent_id: agent_id.clone(),
         item_id: item_id.clone(),
         item_revision,
@@ -197,7 +197,7 @@ fn canonical_tool(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{AttentionRequest, SessionEvent};
+    use plexmaton_core::{AttentionRequest, ConversationEvent};
 
     use super::Scenario;
 
@@ -226,7 +226,7 @@ mod tests {
         let scenario =
             Scenario::canonical().unwrap_or_else(|error| panic!("invalid fixture: {error}"));
         let request = scenario.steps().iter().find_map(|step| match &step.event {
-            SessionEvent::AttentionRequested { request, .. } => Some(request),
+            ConversationEvent::AttentionRequested { request, .. } => Some(request),
             _ => None,
         });
 

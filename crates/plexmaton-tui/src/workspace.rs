@@ -8,7 +8,7 @@
 
 use std::time::Instant;
 
-use plexmaton_core::{AgentId, SessionEventEnvelope};
+use plexmaton_core::{AgentId, ConversationEventEnvelope};
 use ratatui::{
     Terminal,
     backend::Backend,
@@ -20,8 +20,8 @@ use crate::{
     render::render,
     router::{Routed, Router, RouterContext},
     state::{
-        ApprovalSubmission, CleanupNotice, Command, CopyRequest, PersistenceNotice, QuitPress,
-        SessionRestoration, Submission, ViewRevision, ViewState,
+        ApprovalSubmission, CleanupNotice, Command, ConversationRestoration, CopyRequest,
+        PersistenceNotice, QuitPress, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -35,6 +35,8 @@ mod approval_queue_tests;
 mod markdown_tests;
 #[cfg(test)]
 mod palette_tests;
+#[cfg(test)]
+mod permission_tests;
 mod pointer;
 mod retry;
 mod session_picker;
@@ -80,7 +82,9 @@ pub struct Outcome {
     /// Explicit retry, separate from ordinary composer submission.
     pub retry: Option<crate::RetrySubmission>,
     /// A session chosen by identity; only the composition root can load it.
-    pub resume: Option<plexmaton_core::SessionId>,
+    pub resume: Option<plexmaton_core::ConversationId>,
+    /// A reviewed permission mutation; only the retained permission owner can apply it.
+    pub permission: Option<plexmaton_core::PermissionIntent>,
 }
 
 impl Outcome {
@@ -94,6 +98,7 @@ impl Outcome {
             command: None,
             retry: None,
             resume: None,
+            permission: None,
         }
     }
 }
@@ -136,6 +141,17 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Delivers producer feedback to the exact pending approval card.
+    pub fn report_approval_refusal(
+        &mut self,
+        agent: &AgentId,
+        approval: &plexmaton_core::ApprovalId,
+        feedback: crate::ApprovalFeedback,
+        offer: Option<plexmaton_core::RememberPermissionOffer>,
+    ) {
+        self.state
+            .report_approval_refusal(agent, approval, feedback, offer);
+    }
     /// Replace one fully decoded script result. Equal output does not request another frame.
     pub fn set_status_line(&mut self, text: crate::StatusLineText, max_rows: u16) {
         self.state.set_status_line(text, max_rows);
@@ -199,7 +215,7 @@ impl Workspace {
     /// A producer contract violation is a visible, typed notice inside the projection rather than a
     /// reason to tear down the user's terminal (`state::notices`), so nothing is returned to check
     /// here.
-    pub fn emit(&mut self, events: Vec<SessionEventEnvelope>) {
+    pub fn emit(&mut self, events: Vec<ConversationEventEnvelope>) {
         let before = self.state.revision();
         for envelope in events {
             let _outcome = self.state.apply(envelope);
@@ -240,14 +256,23 @@ impl Workspace {
         self.state.report_cleanup_failure(failure);
     }
 
+    /// Anchors a saved-grant receipt beside its tool without changing semantic copy or events.
+    pub fn report_saved_project_permission(
+        &mut self,
+        to: &AgentId,
+        receipt: plexmaton_core::SavedProjectPermission,
+    ) {
+        self.state.report_saved_project_permission(to, receipt);
+    }
+
     /// Shows one bounded skill discovery, load, or activation diagnostic.
     pub fn report_skill_diagnostic(&mut self, message: String) {
         self.state.report_skill_diagnostic(message);
     }
 
     /// Confirms successful restoration, including any file-tail repair, outside the journal.
-    pub fn report_session_recovery(&mut self, recovery: SessionRestoration) {
-        self.state.report_session_recovery(recovery);
+    pub fn report_conversation_recovery(&mut self, recovery: ConversationRestoration) {
+        self.state.report_conversation_recovery(recovery);
     }
 
     /// Translates one terminal event and applies whatever it asked for.
@@ -386,7 +411,7 @@ impl Workspace {
                 self.state.open_command_palette(&self.surfaces);
             }
             TuiIntent::CommandPalette(CommandPaletteIntent::Step(direction)) => {
-                self.state.step_command(direction == Direction::Forward);
+                self.step_palette(direction);
             }
             TuiIntent::CommandPalette(CommandPaletteIntent::Run) => {
                 return self.activate_palette();
@@ -467,7 +492,7 @@ impl Workspace {
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::Approval(approval) => {
                 return Outcome {
-                    approval: self.state.decide_approval(approval),
+                    approval: self.decide_visible_approval(approval),
                     ..Outcome::default()
                 };
             }
@@ -536,8 +561,8 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, ArtifactId, AttentionId,
-        AttentionRequest, SessionEvent, ToolCallId, ToolCallStatus, ToolCapability, ToolDetail,
-        ToolPresentation, TranscriptItemId,
+        AttentionRequest, ConversationEvent, ToolCallId, ToolCallStatus, ToolCapability,
+        ToolDetail, ToolPresentation, TranscriptItemId,
     };
 
     use super::{Flow, Outcome, Workspace};
@@ -590,7 +615,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("fixture: {error}"));
         let call =
             ToolCallId::new("foldable-tool").unwrap_or_else(|error| panic!("fixture: {error}"));
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent.clone(),
             item_id: item.clone(),
             item_revision: 0,
@@ -606,7 +631,7 @@ mod tests {
             }),
             outcome: None,
         };
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent.clone(),
             item_id: item.clone(),
             item_revision: 1,
@@ -1035,7 +1060,7 @@ mod tests {
                 omitted_bytes: 0,
             }),
         };
-        conversation.emit(SessionEvent::ToolCallChanged {
+        conversation.emit(ConversationEvent::ToolCallChanged {
             agent_id: agent,
             item_id: item.clone(),
             item_revision: 2,
@@ -1075,7 +1100,7 @@ mod tests {
             .primary_agent()
             .map(|agent| agent.id.clone())
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
-        conversation.emit(SessionEvent::AgentStatusChanged {
+        conversation.emit(ConversationEvent::AgentStatusChanged {
             agent_id: primary.clone(),
             status: AgentStatus::Idle,
         });
@@ -1089,7 +1114,7 @@ mod tests {
             "idle adds no label or placeholder"
         );
 
-        conversation.emit(SessionEvent::AgentStatusChanged {
+        conversation.emit(ConversationEvent::AgentStatusChanged {
             agent_id: primary,
             status: AgentStatus::Idle,
         });
@@ -2544,11 +2569,13 @@ mod tests {
         let mut conversation = Conversation::canonical();
         // Both from a sub-agent: the queue is what the user is not looking at, and the primary's
         // own approval answers itself in the composer's place rather than waiting in a line.
-        conversation.emit(SessionEvent::AttentionRequested {
+        conversation.emit(ConversationEvent::AttentionRequested {
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: AttentionId::new("attention-b-2")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new("approval-b-2")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new("tool-b-2")
@@ -2599,10 +2626,12 @@ mod tests {
         let mut conversation = Conversation::canonical();
         let attention_id = AttentionId::new("attention-b-approval")
             .unwrap_or_else(|error| panic!("fixture: {error}"));
-        conversation.emit(SessionEvent::AttentionRequested {
+        conversation.emit(ConversationEvent::AttentionRequested {
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id: attention_id.clone(),
             request: AttentionRequest::Approval {
+                reason: plexmaton_core::ApprovalReason::PermissionRequired,
+                remember: None,
                 approval_id: ApprovalId::new("approval-b-1")
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 call_id: ToolCallId::new("tool-b-write")
@@ -2691,7 +2720,7 @@ mod tests {
         assert_eq!(allowed.approval_id.as_str(), "approval-b-1");
         assert_eq!(allowed.decision, ApprovalDecision::AllowOnce);
 
-        conversation.emit(SessionEvent::AttentionResolved {
+        conversation.emit(ConversationEvent::AttentionResolved {
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             attention_id,
         });
@@ -2708,7 +2737,7 @@ mod tests {
     #[test]
     fn copying_an_artifact_returns_its_pointer_rather_than_its_label() {
         let mut conversation = Conversation::canonical();
-        conversation.emit(SessionEvent::ArtifactAnnounced {
+        conversation.emit(ConversationEvent::ArtifactAnnounced {
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             item_id: TranscriptItemId::new("artifact-copy")
                 .unwrap_or_else(|error| panic!("fixture: {error}")),
@@ -3262,12 +3291,8 @@ mod tests {
             } else {
                 bounds(&workspace, surface)
             };
-            let x = area.x
-                + if surface == SurfaceId::CommandPalette {
-                    4
-                } else {
-                    3
-                };
+            let area = crate::surface::ContentInsets::for_surface(surface, area.height).inset(area);
+            let x = area.x + 3;
             let y = area.y + 1;
             workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), x, y));
             workspace.handle(&mouse(MouseEventKind::Up(MouseButton::Left), x, y));
@@ -3280,12 +3305,7 @@ mod tests {
             };
             assert_eq!(input.text(), "中x文abc", "{surface:?}");
             frame(&mut workspace, &mut terminal);
-            let origin = area.x
-                + if surface == SurfaceId::CommandPalette {
-                    2
-                } else {
-                    1
-                };
+            let origin = area.x + 1;
             workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), origin, y));
             workspace.handle(&mouse(
                 MouseEventKind::Drag(MouseButton::Left),
@@ -3460,7 +3480,7 @@ mod tests {
                 "growing to {width} shrank the palette"
             );
             assert!(area.width < width);
-            assert_eq!(usize::from(area.height), crate::Command::ALL.len() + 4);
+            assert_eq!(usize::from(area.height), crate::Command::ALL.len() + 8);
             previous_width = area.width;
             let shown = painted(&terminal, &workspace, SurfaceId::CommandPalette);
             assert!(shown.contains("> /config"), "{width}: {shown}");
@@ -3471,7 +3491,7 @@ mod tests {
                 .expect("measured palette");
             assert_eq!(
                 viewport.content_rows,
-                crate::Command::ALL.len() + 2,
+                crate::Command::ALL.len() + 4,
                 "each item stays one row at {width}"
             );
         }
@@ -3514,7 +3534,7 @@ mod tests {
             }
             step(&mut workspace, &mut terminal, &ctrl('p'));
             let area = bounds(&workspace, SurfaceId::CommandPalette);
-            let origin = (area.x + 2, area.y + 1);
+            let origin = (area.x + 3, area.y + 2);
             assert_eq!(cursor(&terminal), Some(origin.into()));
             for (code, column, filter) in [
                 (KeyCode::Char('宽'), 2, "宽"),
@@ -3562,7 +3582,7 @@ mod tests {
             let area = bounds(&workspace, SurfaceId::CommandPalette);
             assert_eq!(
                 cursor(&terminal),
-                Some((area.right() - 2, area.y + 1).into())
+                Some((area.right() - 4, area.y + 2).into())
             );
             assert!(
                 painted(&terminal, &workspace, SurfaceId::CommandPalette)
@@ -3573,7 +3593,7 @@ mod tests {
                 &mut terminal,
                 &press(KeyCode::Home, KeyModifiers::NONE),
             );
-            assert_eq!(cursor(&terminal), Some((area.x + 2, area.y + 1).into()));
+            assert_eq!(cursor(&terminal), Some((area.x + 3, area.y + 2).into()));
             step(
                 &mut workspace,
                 &mut terminal,

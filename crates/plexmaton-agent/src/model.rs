@@ -79,7 +79,7 @@ impl ModelStepId {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ModelRequest {
     /// Stable session identity used by adapters for cache affinity.
-    pub session_id: plexmaton_core::SessionId,
+    pub session_id: plexmaton_core::ConversationId,
     /// Indivisible conversation units, oldest first.
     pub atoms: Vec<ContextAtom>,
 }

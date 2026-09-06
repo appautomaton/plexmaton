@@ -70,7 +70,7 @@ impl Agent {
             );
             self.record.emit(
                 &mut reaction,
-                SessionEvent::AgentStatusChanged {
+                ConversationEvent::AgentStatusChanged {
                     agent_id: self.record.agent_id().clone(),
                     status: AgentStatus::Running,
                 },

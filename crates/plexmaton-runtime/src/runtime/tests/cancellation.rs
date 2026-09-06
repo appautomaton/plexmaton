@@ -26,7 +26,7 @@ async fn deterministic_failure_paths_leave_no_provider_task_alive() {
         assert!(!runtime.has_active_model());
         assert!(events.iter().any(|envelope| matches!(
             envelope.event,
-            SessionEvent::TurnUsageUpdated {
+            ConversationEvent::TurnUsageUpdated {
                 usage: TokenUsage::Unavailable,
                 ..
             }
@@ -34,7 +34,7 @@ async fn deterministic_failure_paths_leave_no_provider_task_alive() {
         assert!(
             events
                 .iter()
-                .any(|envelope| matches!(envelope.event, SessionEvent::RuntimeError { .. }))
+                .any(|envelope| matches!(envelope.event, ConversationEvent::RuntimeError { .. }))
         );
     }
 }

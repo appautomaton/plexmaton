@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{Context as _, bail};
-use plexmaton_provider::ModelRegistry;
+use anyhow::bail;
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -27,7 +26,7 @@ impl StatusLineConfig {
     pub fn timeout(&self) -> Duration {
         Duration::from_millis(self.timeout_ms)
     }
-    fn validate(&self) -> anyhow::Result<()> {
+    pub(crate) fn validate(&self) -> anyhow::Result<()> {
         if self.command.trim().is_empty()
             || self.command.len() > 4096
             || self.command.contains('\0')
@@ -45,22 +44,4 @@ impl StatusLineConfig {
         }
         Ok(())
     }
-}
-
-pub(crate) fn parse(source: &str) -> anyhow::Result<(ModelRegistry, Option<StatusLineConfig>)> {
-    // Do not echo a TOML decoding error: it may include a source line containing a secret.
-    let mut table: toml::Table =
-        toml::from_str(source).map_err(|_| anyhow::anyhow!("invalid user TOML configuration"))?;
-    let status = table
-        .remove("status_line")
-        .map(|value| {
-            let config: StatusLineConfig = value
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("invalid status_line configuration"))?;
-            config.validate()?;
-            Ok::<_, anyhow::Error>(config)
-        })
-        .transpose()?;
-    let models = ModelRegistry::from_table(table).context("parse model configuration")?;
-    Ok((models, status))
 }

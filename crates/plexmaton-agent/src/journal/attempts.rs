@@ -1,9 +1,9 @@
-use plexmaton_core::{HeadName, SessionEntryId};
+use plexmaton_core::{ConversationEntryId, HeadName};
 
-use super::{HeadRevision, JournalError, SessionJournal};
+use super::{ConversationJournal, HeadRevision, JournalError};
 use crate::{ModelStepId, RequestAttemptAuthorized, RequestAttemptOwner};
 
-impl SessionJournal {
+impl ConversationJournal {
     pub(super) fn validate_request_authorization(
         &self,
         head: &HeadName,
@@ -91,7 +91,7 @@ impl SessionJournal {
     }
 
     pub(super) fn boundary_is_selected(
-        selected: &std::collections::BTreeSet<SessionEntryId>,
+        selected: &std::collections::BTreeSet<ConversationEntryId>,
         fact: &RequestAttemptAuthorized,
     ) -> bool {
         selected.contains(fact.semantic_boundary())

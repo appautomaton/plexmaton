@@ -1,5 +1,5 @@
 ┌ Attention · 1 ───────────────────────────────────────────┐
-│  ask   agent-b · Choose whether the overlap study should │
+│> ask   agent-b · Choose whether the overlap study should │
 └──────────────────────────────────────────────────────────┘
 ┌ Agents ──────────────────────────────────────────────────┐
 │● Agent B · UI study  done · 1 tool @1 1 mail             │
@@ -16,12 +16,6 @@
 │                                                          │
 │                                                          │
 │                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
 │I found the surface-routing boundary and am checking      │
 │overlap behavior.                                         │
 │                                                          │
@@ -29,11 +23,17 @@
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
 │-> agent-a · Routing stays centralized and z-ordered.     │
-├ Allow edit? ─────────────────────────────────────────────┤
-│Access  change files                                      │
-│Change crates/plexmaton-core/src/lib.rs and preserve its …│
-│  Allow once      ↑↓ choose · Enter decide                │
-│> Deny            ⌃O more · Esc later                     │
+├ Approval required · edit ────────────────────────────────┤
+│                                                          │
+│  Change crates/plexmaton-core/src/lib.rs and preserve …  │
+│  Approval is required for this operation.                │
+│                                                          │
+│    Allow once                                            │
+│  > Deny                                                  │
+│                                                          │
+│  ↑↓ choose · Enter decide · Ctrl-O details               │
+│  Esc returns to the conversation                         │
+│                                                          │
 ├ Message Agent A · primary · Thinking ────────────────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘

@@ -1,10 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionEvent, SessionId,
-    ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole, TurnId,
+    AgentId, AgentStatus, ConversationEntryId, ConversationEvent, ConversationId, HeadName,
+    JournalRecordId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
+    TranscriptRole, TurnId,
 };
 
 use super::super::{
-    HeadRevision, JournalEntryPayload, JournalRecord, SessionEntry, SessionJournal,
+    ConversationEntry, ConversationJournal, HeadRevision, JournalEntryPayload, JournalRecord,
 };
 use crate::test_support::{call_block, output, step, text_block};
 use crate::{AssistantBlock, ContextAtomValue, ToolCall, ToolOutcome, UnixMillis};
@@ -37,7 +38,11 @@ pub(super) fn call(value: &str, output: &str) -> (ToolCall, ToolOutcome) {
     )
 }
 
-pub(super) fn append(journal: &mut SessionJournal, ordinal: u64, payload: JournalEntryPayload) {
+pub(super) fn append(
+    journal: &mut ConversationJournal,
+    ordinal: u64,
+    payload: JournalEntryPayload,
+) {
     let main = head("main");
     let parent_id = journal
         .head_target(&main)
@@ -52,8 +57,8 @@ pub(super) fn append(journal: &mut SessionJournal, ordinal: u64, payload: Journa
             record_id: id(&format!("record-{ordinal}"), JournalRecordId::new),
             head: main,
             expected_head_revision: revision,
-            entry: Box::new(SessionEntry {
-                id: id(&format!("entry-{ordinal}"), SessionEntryId::new),
+            entry: Box::new(ConversationEntry {
+                id: id(&format!("entry-{ordinal}"), ConversationEntryId::new),
                 parent_id,
                 payload,
             }),
@@ -92,7 +97,7 @@ pub(super) fn assistant_calls(
     }
 }
 
-fn finish_turn(journal: &mut SessionJournal, ordinal: u64) {
+fn finish_turn(journal: &mut ConversationJournal, ordinal: u64) {
     let main = head("main");
     let boundary = journal
         .head_target(&main)
@@ -121,7 +126,7 @@ fn finish_turn(journal: &mut SessionJournal, ordinal: u64) {
         .unwrap_or_else(|error| panic!("finish fixture turn: {error:?}"));
 }
 
-pub(super) fn announce(journal: &mut SessionJournal) {
+pub(super) fn announce(journal: &mut ConversationJournal) {
     append(
         journal,
         0,
@@ -136,7 +141,7 @@ pub(super) fn announce(journal: &mut SessionJournal) {
 /// JRN-5: one path supplies both consumers and preserves model call order.
 #[test]
 fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     append(
         &mut journal,
         1,
@@ -250,7 +255,7 @@ fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
         .events()
         .iter()
         .filter_map(|event| match &event.event {
-            SessionEvent::ToolCallChanged {
+            ConversationEvent::ToolCallChanged {
                 call_id,
                 status: ToolCallStatus::Succeeded,
                 ..
@@ -264,7 +269,7 @@ fn jrn_5_one_path_projects_model_order_and_visible_lifecycle() {
 /// JRN-5 / stage 2 slice 3: a head cannot split a completed parallel tool batch.
 #[test]
 fn jrn_5_head_mutations_refuse_the_first_parallel_result_boundary() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     append(&mut journal, 1, message(TranscriptRole::User, 1, "inspect"));
     let (first, first_outcome) = call("call-a", "first");
@@ -325,8 +330,8 @@ fn jrn_5_head_mutations_refuse_the_first_parallel_result_boundary() {
     }
     finish_turn(&mut journal, 1);
 
-    let first_result = id("entry-7", SessionEntryId::new);
-    let last_result = id("entry-8", SessionEntryId::new);
+    let first_result = id("entry-7", ConversationEntryId::new);
+    let last_result = id("entry-8", ConversationEntryId::new);
     let unchanged = journal.clone();
     assert_eq!(
         journal.apply(JournalRecord::CreateHead {
@@ -384,7 +389,7 @@ fn jrn_5_head_mutations_refuse_the_first_parallel_result_boundary() {
 /// JRN-5: an incomplete final batch is visible but cannot enter provider input unmatched.
 #[test]
 fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     append(&mut journal, 1, message(TranscriptRole::User, 1, "inspect"));
     let (first, _) = call("call-a", "first");
@@ -454,7 +459,7 @@ fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
     );
     assert!(projection.events().iter().any(|event| matches!(
         event.event,
-        SessionEvent::ToolCallChanged {
+        ConversationEvent::ToolCallChanged {
             status: ToolCallStatus::Succeeded,
             ..
         }
@@ -464,7 +469,7 @@ fn jrn_5_incomplete_tool_batch_is_explicit_and_absent_from_the_request() {
 /// JRN-5: two named heads cannot leak model or screen facts into one another.
 #[test]
 fn jrn_5_named_heads_project_only_their_selected_ancestry() {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     announce(&mut journal);
     append(&mut journal, 1, message(TranscriptRole::User, 1, "root"));
     finish_turn(&mut journal, 1);
@@ -491,8 +496,8 @@ fn jrn_5_named_heads_project_only_their_selected_ancestry() {
                 record_id: id(&format!("record-{ordinal}"), JournalRecordId::new),
                 head: selected.clone(),
                 expected_head_revision: HeadRevision::new(0),
-                entry: Box::new(SessionEntry {
-                    id: id(&format!("entry-{ordinal}"), SessionEntryId::new),
+                entry: Box::new(ConversationEntry {
+                    id: id(&format!("entry-{ordinal}"), ConversationEntryId::new),
                     parent_id: root.clone(),
                     payload: message(TranscriptRole::User, ordinal, text),
                 }),

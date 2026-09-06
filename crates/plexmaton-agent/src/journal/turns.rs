@@ -1,9 +1,9 @@
-use plexmaton_core::{AgentId, HeadName, SessionEntryId, TurnId};
+use plexmaton_core::{AgentId, ConversationEntryId, HeadName, TurnId};
 
-use super::{JournalEntryPayload, JournalError, JournalRecord, SessionJournal};
+use super::{ConversationJournal, JournalEntryPayload, JournalError, JournalRecord};
 use crate::{TurnFinished, TurnFinishedAt, TurnOutcome};
 
-impl SessionJournal {
+impl ConversationJournal {
     pub(super) fn validate_skill_activation(
         &self,
         agent_id: &AgentId,
@@ -107,7 +107,7 @@ impl SessionJournal {
 
     pub(super) fn validate_stable_target(
         &self,
-        target: Option<&SessionEntryId>,
+        target: Option<&ConversationEntryId>,
     ) -> Result<(), JournalError> {
         let Some(target) = target else {
             return Ok(());

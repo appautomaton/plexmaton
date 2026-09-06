@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+use sha2::{Digest as _, Sha256};
 use tokio::process::Command;
 
 const FALLBACK_PATH: &str = "/usr/bin:/bin";
@@ -37,6 +38,15 @@ impl CommandEnvironment {
             })
             .collect();
         Self { inherited }
+    }
+
+    pub(crate) fn fingerprint(&self, hash: &mut Sha256) {
+        for (key, value) in &self.inherited {
+            for bytes in [key.as_encoded_bytes(), value.as_encoded_bytes()] {
+                hash.update(bytes.len().to_le_bytes());
+                hash.update(bytes);
+            }
+        }
     }
 
     pub(crate) fn install(&self, command: &mut Command, workspace_root: &Path) {

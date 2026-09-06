@@ -56,11 +56,17 @@ impl ViewState {
         surfaces: &SurfaceTree,
         surface: SurfaceId,
     ) -> Option<ratatui::layout::Rect> {
+        if surface == SurfaceId::CommandPalette
+            && self.command_palette.as_ref()?.permissions().is_some()
+        {
+            return None;
+        }
         match surface {
             SurfaceId::Inspector => self.steer_input(surfaces).map(|(split, _)| split.input),
-            SurfaceId::Composer | SurfaceId::CommandPalette => {
-                surfaces.get(surface).map(|surface| surface.bounds)
-            }
+            SurfaceId::Composer | SurfaceId::CommandPalette => surfaces.get(surface).map(|entry| {
+                crate::surface::ContentInsets::for_surface(surface, entry.bounds.height)
+                    .inset(entry.bounds)
+            }),
             _ => None,
         }
     }
@@ -69,6 +75,7 @@ impl ViewState {
         if surface == SurfaceId::CommandPalette {
             self.command_palette
                 .as_mut()
+                .filter(|palette| palette.permissions().is_none())
                 .map(super::CommandPalette::filter_mut)
         } else {
             let target = match surface {

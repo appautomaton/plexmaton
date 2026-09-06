@@ -11,8 +11,12 @@ mod runtime;
 
 pub use http::HttpSetupError;
 pub use interface::{
-    CleanupFailure, DispatchReport, JournalTailRecovery, PersistenceFailure, RuntimeError,
-    RuntimeUpdate, SessionRecovery, SkillSummary,
+    CleanupFailure, ConversationRecovery, DispatchReport, JournalTailRecovery, PersistenceFailure,
+    RuntimeError, RuntimeUpdate, SkillSummary,
 };
-pub use native::{MAX_NATIVE_TOOL_RESULT_BYTES, NativeToolCatalog, NativeToolSetupError};
+pub use native::{
+    MAX_NATIVE_TOOL_RESULT_BYTES, NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError,
+};
 pub use runtime::{ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime};
+
+pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

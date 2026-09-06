@@ -7,7 +7,7 @@ use plexmaton_agent::{
     SkillSource, StopReason, ToolBatch, ToolBatchResult, ToolCall, ToolOutcome, UnixMillis,
 };
 use plexmaton_core::{
-    AgentId, SessionEntryId, TokenCounts, TokenUsage, ToolCallId, TranscriptItemId,
+    AgentId, ConversationEntryId, TokenCounts, TokenUsage, ToolCallId, TranscriptItemId,
 };
 use serde_json::json;
 
@@ -64,7 +64,7 @@ fn skill_atom(instructions: &str) -> ContextAtom {
     )
     .expect("skill activation");
     ContextAtom::skill(
-        SessionEntryId::new("entry-skill").expect("entry id"),
+        ConversationEntryId::new("entry-skill").expect("entry id"),
         activation,
     )
 }
@@ -210,7 +210,11 @@ fn replay_atom(model: &ResolvedModel) -> ContextAtom {
         AssistantReplay::from_positioned([(0, replay)]).expect("attachments"),
     )
     .expect("output");
-    ContextAtom::assistant(SessionEntryId::new("entry-replay").expect("id"), output).expect("atom")
+    ContextAtom::assistant(
+        ConversationEntryId::new("entry-replay").expect("id"),
+        output,
+    )
+    .expect("atom")
 }
 
 /// BUD-3/PRV-3: opaque bytes have explicit heuristic provenance; incompatible replay is still refused.
@@ -269,7 +273,7 @@ fn bud_3_maximal_tool_results_are_estimated_as_one_indivisible_atom() {
             .collect(),
     )
     .expect("batch");
-    let atom = ContextAtom::tool_batch(vec![SessionEntryId::new("batch").expect("id")], batch)
+    let atom = ContextAtom::tool_batch(vec![ConversationEntryId::new("batch").expect("id")], batch)
         .expect("atom");
     for api in ["openai_responses", "openai_chat_completions"] {
         let estimate = estimate_atom(&model(api), &atom).expect("estimate");

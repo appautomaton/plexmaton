@@ -2,18 +2,20 @@
 mod directory;
 pub use directory::TestDir;
 
-use plexmaton_agent::{JournalEntryPayload, JournalRecord, SessionEntry, SessionJournal};
-use plexmaton_core::{AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId};
+use plexmaton_agent::{ConversationEntry, ConversationJournal, JournalEntryPayload, JournalRecord};
+use plexmaton_core::{
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+};
 
 pub fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
     build(value.to_owned()).unwrap_or_else(|error| panic!("fixture identity: {error}"))
 }
 
-pub fn session(value: &str) -> SessionId {
-    id(value, SessionId::new)
+pub fn session(value: &str) -> ConversationId {
+    id(value, ConversationId::new)
 }
 
-pub fn agent_created(journal: &SessionJournal, ordinal: u64) -> JournalRecord {
+pub fn agent_created(journal: &ConversationJournal, ordinal: u64) -> JournalRecord {
     append(
         journal,
         ordinal,
@@ -26,7 +28,7 @@ pub fn agent_created(journal: &SessionJournal, ordinal: u64) -> JournalRecord {
 }
 
 pub fn append(
-    journal: &SessionJournal,
+    journal: &ConversationJournal,
     ordinal: u64,
     payload: JournalEntryPayload,
 ) -> JournalRecord {
@@ -38,8 +40,8 @@ pub fn append(
         expected_head_revision: journal
             .head_revision(&head)
             .unwrap_or_else(|error| panic!("main revision: {error:?}")),
-        entry: Box::new(SessionEntry {
-            id: id(&format!("entry-{ordinal}"), SessionEntryId::new),
+        entry: Box::new(ConversationEntry {
+            id: id(&format!("entry-{ordinal}"), ConversationEntryId::new),
             parent_id: journal
                 .head_target(&head)
                 .unwrap_or_else(|error| panic!("main target: {error:?}"))

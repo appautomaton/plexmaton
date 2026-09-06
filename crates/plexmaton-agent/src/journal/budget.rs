@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use plexmaton_core::{HeadName, TokenUsage};
 
-use super::{JournalProjectionError, RecoveryProjection, SessionJournal};
+use super::{ConversationJournal, JournalProjectionError, RecoveryProjection};
 use crate::{
     InputUsageAnchor, ModelRequest, RequestAttemptOwner, RequestAttemptTerminalState,
     RequestEnvironment,
@@ -16,7 +16,7 @@ pub struct BudgetBasis {
     pub recovery: Option<RecoveryProjection>,
 }
 
-impl SessionJournal {
+impl ConversationJournal {
     /// Projects once; selects a measured input prefix without replaying every historical request.
     pub fn budget_basis(
         &self,

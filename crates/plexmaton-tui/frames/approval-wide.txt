@@ -1,13 +1,9 @@
 ┌ Attention · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  ask   agent-b · Choose whether the overlap study should cover narrow screens.                                       │
+│> ask   agent-b · Choose whether the overlap study should cover narrow screens.                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ──────────────────┐┌ Agent A · primary · running ───────────────────────────────────────────────────── ( !1 ) ┐
 │● Agent B · UI study  done││┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ───────────────────────────────┐│
 │· 1 tool @1 1 mail        │││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││                                                                                        ││
 │                          │││                                                                                        ││
 │                          │││                                                                                        ││
 │                          │││I found the surface-routing boundary and am checking overlap behavior.                  ││
@@ -24,16 +20,20 @@
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
 │                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running        │
 │                          ││independently; this transcript remains interactive.                                       │
 │                          ││                                                                                          │
-│                          │├ Allow edit? ─────────────────────────────────────────────────────────────────────────────┤
-│                          ││Access  change files                                                                      │
-│                          ││Change crates/plexmaton-core/src/lib.rs and preserve its current revision.                │
-│                          ││  Allow once      ↑↓ choose · Enter decide                                                │
-│                          ││> Deny            ⌃O more · Esc later                                                     │
+│                          │├ Approval required · edit ────────────────────────────────────────────────────────────────┤
+│                          ││                                                                                          │
+│                          ││  Change crates/plexmaton-core/src/lib.rs and preserve its current revision.              │
+│                          ││  Approval is required for this operation.                                                │
+│                          ││                                                                                          │
+│                          ││    Allow once                                                                            │
+│                          ││  > Deny                                                                                  │
+│                          ││                                                                                          │
+│                          ││  ↑↓ choose · Enter decide · Ctrl-O details                                               │
+│                          ││  Esc returns to the conversation                                                         │
+│                          ││                                                                                          │
 │                          │├ Message Agent A · primary · Thinking ────────────────────────────────────────────────────┤
 │                          ││Type a message · ⇥ to focus                                                               │
 └──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────┘

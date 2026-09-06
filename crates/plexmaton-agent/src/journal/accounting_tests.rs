@@ -1,11 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TokenCounts,
-    TokenUsage, TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+    TokenCounts, TokenUsage, TranscriptItemId, TurnId,
 };
 
 use super::{
-    JournalEntryPayload, JournalRecord, RequestAccounting, RequestAccountingError, SessionEntry,
-    SessionJournal,
+    ConversationEntry, ConversationJournal, JournalEntryPayload, JournalRecord, RequestAccounting,
+    RequestAccountingError,
 };
 use crate::test_support::replay_compatibility;
 use crate::{
@@ -24,20 +24,20 @@ fn attempt_id(name: &str) -> RequestAttemptId {
     RequestAttemptId::new(name).expect("fixture attempt")
 }
 
-fn record_id(journal: &SessionJournal) -> JournalRecordId {
+fn record_id(journal: &ConversationJournal) -> JournalRecordId {
     JournalRecordId::new(format!("record-{}", journal.next_sequence().get()))
         .expect("fixture record")
 }
 
-fn append(journal: &mut SessionJournal, head_name: &str, payload: JournalEntryPayload) {
+fn append(journal: &mut ConversationJournal, head_name: &str, payload: JournalEntryPayload) {
     let head = head(head_name);
     journal
         .apply(JournalRecord::AppendEntry {
             sequence: journal.next_sequence(),
             record_id: record_id(journal),
             expected_head_revision: journal.head_revision(&head).expect("fixture revision"),
-            entry: Box::new(SessionEntry {
-                id: SessionEntryId::new(format!("entry-{}", journal.next_sequence().get()))
+            entry: Box::new(ConversationEntry {
+                id: ConversationEntryId::new(format!("entry-{}", journal.next_sequence().get()))
                     .expect("fixture entry"),
                 parent_id: journal.head_target(&head).expect("fixture target").cloned(),
                 payload,
@@ -47,8 +47,9 @@ fn append(journal: &mut SessionJournal, head_name: &str, payload: JournalEntryPa
         .expect("append fixture entry");
 }
 
-fn journal() -> SessionJournal {
-    let mut journal = SessionJournal::new(SessionId::new("session").expect("fixture session"));
+fn journal() -> ConversationJournal {
+    let mut journal =
+        ConversationJournal::new(ConversationId::new("session").expect("fixture session"));
     append(
         &mut journal,
         "main",
@@ -61,7 +62,11 @@ fn journal() -> SessionJournal {
     journal
 }
 
-fn start_turn(journal: &mut SessionJournal, head_name: &str, name: &str) -> RequestAttemptOwner {
+fn start_turn(
+    journal: &mut ConversationJournal,
+    head_name: &str,
+    name: &str,
+) -> RequestAttemptOwner {
     let turn_id = TurnId::new(name).expect("fixture turn");
     append(
         journal,
@@ -80,7 +85,7 @@ fn start_turn(journal: &mut SessionJournal, head_name: &str, name: &str) -> Requ
     }
 }
 
-fn finish_turn(journal: &mut SessionJournal, head_name: &str, name: &str) {
+fn finish_turn(journal: &mut ConversationJournal, head_name: &str, name: &str) {
     let head = head(head_name);
     journal
         .apply(JournalRecord::TurnFinished {
@@ -105,7 +110,7 @@ fn finish_turn(journal: &mut SessionJournal, head_name: &str, name: &str) {
         .expect("finish fixture turn");
 }
 
-fn create_head(journal: &mut SessionJournal, name: &str, from: &str) {
+fn create_head(journal: &mut ConversationJournal, name: &str, from: &str) {
     journal
         .apply(JournalRecord::CreateHead {
             sequence: journal.next_sequence(),
@@ -120,7 +125,7 @@ fn create_head(journal: &mut SessionJournal, name: &str, from: &str) {
 }
 
 fn authorize(
-    journal: &mut SessionJournal,
+    journal: &mut ConversationJournal,
     head_name: &str,
     owner: RequestAttemptOwner,
     name: &str,
@@ -150,7 +155,7 @@ fn authorize(
         .expect("authorize fixture attempt");
 }
 
-fn finish(journal: &mut SessionJournal, name: &str, terminal: RequestAttemptTerminalState) {
+fn finish(journal: &mut ConversationJournal, name: &str, terminal: RequestAttemptTerminalState) {
     journal
         .apply(JournalRecord::RequestAttemptFinished {
             sequence: journal.next_sequence(),
@@ -276,7 +281,7 @@ fn tim_3_session_accounting_includes_abandoned_branches_and_compaction() {
         })
     );
 
-    let mut restored = SessionJournal::with_metadata(journal.metadata().clone());
+    let mut restored = ConversationJournal::with_metadata(journal.metadata().clone());
     for record in journal.records() {
         restored
             .apply(record.clone())

@@ -1,19 +1,12 @@
 ┌ Attention · 1 ───────────────────────────────────────────┐
-│  ask   agent-b · Choose whether the overlap study should │
+│> ask   agent-b · Choose whether the overlap study should │
 └──────────────────────────────────────────────────────────┘
 ┌ Agents ──────────────────────────────────────────────────┐
 │○ Agent B · UI study  done · 1 tool @1 1 mail             │
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent A · primary · running · 1 tool ──────────── ( !1 ) ┐
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
-│                                                          │
+┌ Agent A · primary · running · 1 tool ──────────── ( !2 ) ┐
 │                                                          │
 │                                                          │
 │                                                          │
@@ -29,11 +22,18 @@
 │transcript remains interactive.                           │
 │                                                          │
 │[?] exec_command · approval required                      │
-├ Allow exec_command? ─────────────────────────────────────┤
-│Access  read files, change files, run processes           │
-│Command "cargo test" · cwd "/home/dev/plexmaton" · timeou…│
-│  Allow once      ↑↓ choose · Enter decide                │
-│> Deny            ⌃O more · Esc input                     │
+├ Approval required · exec_command ────────────────────────┤
+│                                                          │
+│  Command "cargo test" · cwd "/home/dev/plexmaton" · ti…  │
+│  No current permission allows this command.              │
+│                                                          │
+│    Allow once                                            │
+│    Allow and remember…                                   │
+│  > Deny                                                  │
+│                                                          │
+│  ↑↓ choose · Enter decide · Ctrl-O details               │
+│  Esc input · Tab returns to this card                    │
+│                                                          │
 ├ Message Agent A · primary · Approval required ───────────┤
 │Type a message · ⇥ to focus                               │
 └──────────────────────────────────────────────────────────┘

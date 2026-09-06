@@ -157,7 +157,7 @@ fn jrn_4_create_append_reopen_and_immediate_visibility() {
     drop(store);
 
     let reopened = JournalFile::open(&path).unwrap_or_else(|error| panic!("reopen store: {error}"));
-    assert_eq!(reopened.journal().session_id(), &session_id);
+    assert_eq!(reopened.journal().conversation_id(), &session_id);
     assert_eq!(reopened.journal().created_at_unix_ms(), created_at);
     assert_eq!(reopened.journal().records(), [record]);
     assert_eq!(reopened.recovery(), &JournalRecovery::Clean);
@@ -298,7 +298,7 @@ fn jrn_4_fork_publishes_a_complete_sibling() {
     let forked = source
         .fork(&destination, session("forked"), UnixMillis::new(20))
         .unwrap_or_else(|error| panic!("fork session: {error}"));
-    assert_eq!(forked.journal().session_id(), &session("forked"));
+    assert_eq!(forked.journal().conversation_id(), &session("forked"));
     assert_eq!(forked.journal().created_at_unix_ms(), UnixMillis::new(20));
     assert_eq!(forked.journal().records(), source.journal().records());
     let published =

@@ -1,9 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, HeadName, JournalRecordId, SessionEntryId, SessionId, TranscriptItemId,
-    TurnId,
+    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
+    TranscriptItemId, TurnId,
 };
 
-use super::{JournalEntryPayload, JournalError, JournalRecord, SessionEntry, SessionJournal};
+use super::{
+    ConversationEntry, ConversationJournal, JournalEntryPayload, JournalError, JournalRecord,
+};
 use crate::{ContextAtomValue, SkillActivation, SkillSource, UnixMillis};
 
 fn id<T>(value: &str, build: impl FnOnce(String) -> Result<T, plexmaton_core::IdError>) -> T {
@@ -29,14 +31,18 @@ fn activation() -> SkillActivation {
     .expect("activation")
 }
 
-fn record(journal: &SessionJournal, label: &str, payload: JournalEntryPayload) -> JournalRecord {
+fn record(
+    journal: &ConversationJournal,
+    label: &str,
+    payload: JournalEntryPayload,
+) -> JournalRecord {
     let head = head();
     JournalRecord::AppendEntry {
         sequence: journal.next_sequence(),
         record_id: id(&format!("record-{label}"), JournalRecordId::new),
         expected_head_revision: journal.head_revision(&head).expect("revision"),
-        entry: Box::new(SessionEntry {
-            id: id(&format!("entry-{label}"), SessionEntryId::new),
+        entry: Box::new(ConversationEntry {
+            id: id(&format!("entry-{label}"), ConversationEntryId::new),
             parent_id: journal.head_target(&head).expect("target").cloned(),
             payload,
         }),
@@ -44,13 +50,13 @@ fn record(journal: &SessionJournal, label: &str, payload: JournalEntryPayload) -
     }
 }
 
-fn apply(journal: &mut SessionJournal, label: &str, payload: JournalEntryPayload) {
+fn apply(journal: &mut ConversationJournal, label: &str, payload: JournalEntryPayload) {
     let next = record(journal, label, payload);
     journal.apply(next).expect("valid fixture record");
 }
 
-fn started_journal() -> (SessionJournal, TurnId) {
-    let mut journal = SessionJournal::new(id("session-a", SessionId::new));
+fn started_journal() -> (ConversationJournal, TurnId) {
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
     apply(
         &mut journal,
         "agent",

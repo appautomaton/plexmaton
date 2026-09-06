@@ -9,7 +9,7 @@ fn environment() -> RequestEnvironment {
 }
 fn atom(tokens: u64) -> AtomBudget {
     AtomBudget {
-        source_entries: vec![SessionEntryId::new("entry").expect("fixture id")].into(),
+        source_entries: vec![ConversationEntryId::new("entry").expect("fixture id")].into(),
         estimate: TokenEstimate {
             tokens,
             opaque_replay_bytes: 0,

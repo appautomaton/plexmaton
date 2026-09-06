@@ -1,6 +1,6 @@
 //! Non-mutating bounded previews. Full validation and exclusive ownership happen only on open.
 use super::*;
-use plexmaton_tui::MAX_SESSION_CHOICES;
+use plexmaton_tui::MAX_CONVERSATION_CHOICES;
 use std::io::{BufRead as _, Read as _};
 use std::time::SystemTime;
 
@@ -10,7 +10,7 @@ const PREVIEW_BYTES: u64 = 64 * 1024;
 pub(super) fn list(
     root: &Path,
     cancel: &CancellationToken,
-) -> anyhow::Result<(Vec<SessionChoice>, bool)> {
+) -> anyhow::Result<(Vec<ConversationChoice>, bool)> {
     let directory = root.join("sessions");
     match fs::symlink_metadata(&directory) {
         Ok(metadata) => anyhow::ensure!(
@@ -54,7 +54,7 @@ pub(super) fn list(
         {
             continue;
         }
-        let Ok(id) = SessionId::new(name) else {
+        let Ok(id) = ConversationId::new(name) else {
             continue;
         };
         let modified = entry
@@ -63,7 +63,7 @@ pub(super) fn list(
             .unwrap_or(SystemTime::UNIX_EPOCH);
         candidates.push((modified, id, path));
         candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.as_str().cmp(b.1.as_str())));
-        if candidates.len() > MAX_SESSION_CHOICES {
+        if candidates.len() > MAX_CONVERSATION_CHOICES {
             candidates.pop();
             limited = true;
         }
@@ -79,7 +79,7 @@ pub(super) fn list(
         } else {
             format!("{preview} · {}", id.as_str())
         };
-        entries.push(SessionChoice { id, title });
+        entries.push(ConversationChoice { id, title });
     }
     Ok((entries, limited))
 }

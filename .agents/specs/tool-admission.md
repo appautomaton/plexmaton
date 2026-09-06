@@ -17,19 +17,20 @@ presentation adapter, nor a holder of an admitted call can construct another. Ra
 arguments stop at 64 KiB; canonical state has a separate 1 KiB structural reserve so trusted
 normalization does not widen the wire boundary.
 
-**APV-2 — Policy reads capabilities, not names.** An admitted call carries definition identity and
+**APV-2 — Policy reads trusted semantic facts.** An admitted call carries definition identity and
 revision, normalized arguments, typed capabilities, bounded decision detail and a bounded canonical
-invocation. Policy returns exactly `Allow`, `RequireApproval`, or `Forbidden`; tool
-names, display labels and prompt prose are never authority. The first live policy allows `FileRead`,
-requires approval for `FileWrite` or `ProcessSpawn`, and forbids no capability by default.
+invocation. Policy returns `Allow`, `RequireApproval`, `Forbidden`, or typed source `Unavailable`; tool
+names, display labels and prompt prose are never authority. The default capability fallback is extended by [permission-policy](./permission-policy.md)
+PER-2–PER-4; remembered scopes use catalog-issued permission subjects.
 
 **APV-3 — Approval grants permission, not validity.** `AllowOnce` authorizes only the admitted call
 the request pins. It cannot override an admission refusal, relax workspace confinement, satisfy an
 integrity precondition such as read-before-edit, or replace executor-boundary enforcement.
 
 **APV-4 — A decision names one stable pending call.** A pending record binds an `ApprovalId` to its
-`AgentId`, `TurnId`, `ToolCallId` and admitted call. The UI returns that ID with only `AllowOnce` or
-`Deny`; an absent, stale or mismatched ID is a typed non-decision, and the UI never repeats policy.
+`AgentId`, `TurnId`, `ToolCallId` and admitted call. The UI returns that ID with `AllowOnce`, `Deny`, or a producer-issued remembered offer and
+lifetime; PER-5 owns preparation. An absent, stale or mismatched ID is a typed non-decision. IDs
+bind the Conversation, head, turn and journal position as well as the agent/call.
 
 **APV-5 — Waiting is per call.** A protected call may wait while admitted siblings run; the model
 does not receive the batch until every slot has paid its result debt, assembled in model order
@@ -66,8 +67,8 @@ ordering.
 | Boundary | Current | Later |
 | --- | --- | --- |
 | Tool catalog | Native read, search, create, edit, command and skill definitions declare schemas, capabilities and bounded details | Phase 02 adds MCP definitions behind the same admission boundary |
-| Approval policy | Stateless policy over the admitted call; reads run, while writes and process spawning ask once | Phase 02 may add session- and workspace-scoped grants behind a durable policy store |
-| Decision vocabulary | `AllowOnce`, `Deny` | A stored grant is a policy operation, not an `ApproveAll` answer smuggled through the UI |
+| Approval policy | Revisioned Session permission snapshots and the capability fallback (PER-1–PER-4) | Persistent personal project rules/grants remain the next permission slice |
+| Decision vocabulary | `AllowOnce`, `Deny`, `AllowAndRemember` with a producer-issued offer | Project persistence extends the existing preparation ticket; the UI never supplies a matcher |
 | Presentation | One revisioned transcript entry follows the call lifecycle; Attention projects the pending decision separately | The user-reviewed decision surface may vary by transport without owning pending state |
 | Executor | The live runtime sends only admitted, allowed calls to filesystem and process adapters, which enforce their own hard constraints | Network and MCP adapters enter through the same boundary |
 

@@ -95,7 +95,7 @@ fn bud_2_anchor_uses_exact_input_and_survives_record_reload() {
     assert_eq!(anchor.input_tokens(), 100);
     assert_eq!(basis.request.atoms.len(), 3);
     assert_eq!(journal, &before);
-    let mut loaded = SessionJournal::with_metadata(journal.metadata().clone());
+    let mut loaded = ConversationJournal::with_metadata(journal.metadata().clone());
     for record in journal.records() {
         let encoded = serde_json::to_vec(record).expect("encode");
         loaded
