@@ -484,9 +484,9 @@ it (FR-4). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loo
 
 ## Open questions
 
-- Persistent agent rail versus an agent switcher page at medium widths.
+- The left agent rail and the top Attention strip: neither is the wanted shape yet.
 - How much tool activity remains visible in a collapsed transcript block.
 - Notification treatment for mail that arrives while its sender's window is open.
-- Whether ten rows is the right primary-conversation guarantee under real transcripts.
+- Whether ten rows is the right primary-conversation guarantee in real use.
 
 An answered question moves into the section that owns the answer.
