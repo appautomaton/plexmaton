@@ -88,4 +88,6 @@ Worker inputs offering `/` or `$`; targets other than the primary agent; `/branc
 which are Phase 02 stage 2's; `/model`, which needs the runtime to change a conversation's model
 mid-flight and is its own stage; editing configuration in the Drawer; Drawer motion, which is
 stage 10's clock if it is ever wanted; scope labels on menu rows, because placement is the scope;
-and any hand-off from a typed `/config` to the Drawer, which would blur the line this stage draws.
+any hand-off from a typed `/config` to the Drawer, which would blur the line this stage draws;
+and a visible sign of messages queued for the next turn, which the agent already accepts during a
+turn and the contract's state matrix asks for, but nothing draws. That is its own stage.
