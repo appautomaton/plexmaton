@@ -29,11 +29,32 @@ impl Fixture {
         use std::os::unix::fs::PermissionsExt as _;
         let path = self.0.join("worker");
         let root = serde_json::to_string(&self.0).expect("quoted path");
+        // PRE-2: select the installed Python explicitly before the production owner clears its
+        // environment. /usr/bin/python3 may be an Xcode launcher rather than this interpreter.
+        let python = std::process::Command::new("python3")
+            .args(["-I", "-c", "import sys; print(sys.executable)"])
+            .output()
+            .expect("resolve fixture Python 3 from PATH");
+        assert!(python.status.success(), "Python 3 discovery: {python:?}");
+        let python = String::from_utf8(python.stdout).expect("Python executable UTF-8");
+        let python = python.trim();
+        assert!(
+            Path::new(python).is_absolute(),
+            "absolute Python executable"
+        );
         fs::write(
-            &path,
-            format!("#!/usr/bin/python3\n{PYTHON}\nROOT = pathlib.Path({root})\n{script}\n"),
+            path.with_extension("py"),
+            format!("{PYTHON}\nROOT = pathlib.Path({root})\n{script}\n"),
         )
         .expect("write process fixture");
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\nexec '{}' -I \"$0.py\" \"$@\"\n",
+                python.replace('\'', "'\\''")
+            ),
+        )
+        .expect("write fixture launcher");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
             .expect("make fixture executable");
         path

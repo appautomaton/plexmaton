@@ -51,7 +51,13 @@ async fn blocked_preparation_never_holds_the_production_input_and_frame_loop() {
         let root = FixtureWorkspace::new();
         let marker = root.path().join("preparing");
         let executable = root.path().join("preparation-worker");
-        fs::write(&executable, format!("#!/usr/bin/python3\nimport os, signal\nwith open({}, 'a') as marker:\n    marker.write(str(os.getpid()) + '\\n')\nwhile True:\n    signal.pause()\n", serde_json::to_string(&marker).expect("quoted path"))).expect("write process fixture");
+        // PRE-2: readiness precedes an idle block in the same PID. No interpreter startup or
+        // descendant process belongs in this input-loop witness.
+        fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\n' \"$$\" >> \"${0%/*}/preparing\"\nexec /bin/sleep 30\n",
+        )
+        .expect("write process fixture");
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))
             .expect("executable fixture");
         let (mut runtime, mut picker, mut workspace, sequence) = empty_session(root.path());

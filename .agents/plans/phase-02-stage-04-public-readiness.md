@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Phase | [Phase 02](../phases/phase-02-durable-sessions.md) |
-| Contract | JRN-3/JRN-5, PER-1–PER-10; quality gates and corpus ownership |
-| Status | Slice 2 of 3: presentation and CI updates complete; commit verification in progress |
+| Contract | JRN-3/JRN-5, PER-1–PER-10, PRE-2/PRE-3/FR-3; quality gates and corpus ownership |
+| Status | Slice 3 of 3: repository public; repairing the macOS process-fixture readiness failure |
 
 ## Slices
 
@@ -14,7 +14,8 @@
 2. Run local gates without replacing a running executable. Commit and push the reviewed changes.
    Recheck the publication candidates for private state or secrets.
 3. Update the repository description and make the audited repository public. Verify anonymous
-   access and a green macOS CI run. Remove this consumed plan and record the evidence in the phase.
+   access and a green macOS CI run. Repair fixture portability without changing runtime deadlines
+   or weakening lifecycle assertions. Remove this consumed plan and record the evidence in the phase.
 
 ## Boundaries
 
