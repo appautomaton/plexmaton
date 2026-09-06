@@ -281,10 +281,6 @@ pub(super) fn render_status(
             "press Ctrl-D again to quit".to_owned(),
             Role::ActionRequired,
         ),
-        StatusNote::CommandHint { .. } => (
-            "press Ctrl-P for the command palette".to_owned(),
-            Role::NewInformation,
-        ),
         StatusNote::Quiet => (
             status.working_directory().unwrap_or_default().to_owned(),
             Role::Muted,

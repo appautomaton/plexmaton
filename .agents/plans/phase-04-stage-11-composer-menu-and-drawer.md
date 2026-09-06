@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) |
 | Contract | [UI/UX](../ui-ux.md) §product vocabulary, §input, §surface model (Drawer), §responsive layout classes |
-| Status | Slice 1 of 5 done |
+| Status | Slices 1 and 2 of 5 done |
 
 ## Outcome
 
@@ -20,11 +20,12 @@ gone, and the surface count does not grow: pages and menu rows are content.
 1. **Contract and stage record — done.** Vocabulary rows for Command, Skill, Composer menu, Drawer
    and Page; the composer completion rule; the closed-categories rule and the Drawer's geometry;
    the phase and roadmap rows. Closed by `check-citations.sh` passing and the budget report.
-2. **Drawer.** Rename `CommandPalette` to `Drawer` in surface id, kind, state, render and router;
+2. **Drawer — done.** Rename `CommandPalette` to `Drawer` in surface id, kind, state, render and router;
    dock it to the top edge at full width with height from content; make Configuration a page
    beside Conversations and Permissions, so `return_palette` and the separate configuration
    surface disappear; put New conversation first in Conversations; drop the filter's leading-slash
-   tolerance. `Outcome.command` becomes `Outcome.page` for the composition root. Write
+   tolerance; delete `StatusNote::CommandHint`, which offered the palette for a `/`.
+   `Outcome.command` becomes `Outcome.page` for the composition root. Write
    `specs/drawer.md` under a `DRW` prefix, absorbing INV-11's discovery clauses and INV-12/INV-13;
    rename `specs/session-picker.md` to `specs/conversation-picker.md` with SPK numbers unchanged.
    Closed by a width sweep proving full width and a fixed top edge down to 48 × 12, the Escape
@@ -43,7 +44,7 @@ gone, and the surface count does not grow: pages and menu rows are content.
    on `SurfaceKind`, not on the surface's id. `Command` returns as the conversation-command enum,
    `Compact` first, carrying a `CommandTarget` of agent, conversation, head and revision that the
    composition root revalidates before dispatch; a stale or busy target is a notice in that
-   conversation, never a redirect. Delete `StatusNote::CommandHint`. A menu accept outranks retry
+   conversation, never a redirect. A menu accept outranks retry
    submission; a bare `Enter` with no menu keeps today's retry precedence. `specs/skill-picker.md`
    becomes `specs/composer-menu.md`, SKP numbers kept and a `CMD` prefix for command rows. Closed
    by tests for `/` listing only conversation commands, `/config` and `/compact please` staying

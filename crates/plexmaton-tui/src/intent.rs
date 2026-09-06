@@ -168,8 +168,8 @@ pub enum TuiIntent {
     SkillPicker(SkillPickerIntent),
     /// Contextual action on the primary conversation's eligible failed message.
     Retry(crate::RetryAction),
-    /// Open, work, or dismiss the workspace's command list.
-    CommandPalette(CommandPaletteIntent),
+    /// Pull the Drawer open, move through it, or choose the row under the marker.
+    Drawer(DrawerIntent),
     /// The quit chord, `Ctrl-D`. The reducer asks on the first press and leaves only when a second
     /// arrives inside its one-second window, so a quit is never one keystroke (INV-7).
     Quit,
@@ -217,13 +217,13 @@ pub enum TuiIntent {
     },
 }
 
-/// What the user asked of the command list.
+/// What the user asked of the Drawer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CommandPaletteIntent {
-    /// Show the list, with an empty filter and the first command chosen.
+pub enum DrawerIntent {
+    /// Pull it open on its page list, with an empty filter and the first page chosen.
     Open,
-    /// Move the choice by one, stopping at the ends.
+    /// Move the choice by one, stopping at the ends; on a page that scrolls, move the viewport.
     Step(Direction),
-    /// Run the chosen command and close the list.
-    Run,
+    /// Act on the chosen row: open a page, a conversation, or a permission choice.
+    Choose,
 }

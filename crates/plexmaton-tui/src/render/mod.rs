@@ -65,12 +65,25 @@ pub fn render(
 
     for (z, id, bounds) in drawn {
         let has_focus = focused == Some(id);
-        if id == SurfaceId::CommandPalette
-            && let Some(viewport) =
+        // Two Drawer pages paint their own scrolling body under a fixed footer; the rest is a
+        // panel like any other.
+        if id == SurfaceId::Drawer {
+            let viewport = if state.configuration().is_some() {
+                Some(render_configuration(
+                    frame,
+                    palette,
+                    state,
+                    bounds,
+                    has_focus,
+                    state.scroll_position(id),
+                ))
+            } else {
                 permission_review::render(frame, palette, state, bounds, has_focus)
-        {
-            surfaces.set_viewport(id, viewport);
-            continue;
+            };
+            if let Some(viewport) = viewport {
+                surfaces.set_viewport(id, viewport);
+                continue;
+            }
         }
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
         // the conversation's ten-row guarantee (INS-5). What is left is what its
@@ -150,20 +163,8 @@ pub fn render(
                 edges: Edges::All,
             }),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
-            SurfaceId::CommandPalette => Some(command_palette_panel(state, palette, bounds)),
+            SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
             SurfaceId::SkillPicker => Some(skill_picker_panel(state, palette, bounds)),
-            SurfaceId::Configuration => {
-                let viewport = render_configuration(
-                    frame,
-                    palette,
-                    state,
-                    bounds,
-                    has_focus,
-                    state.scroll_position(id),
-                );
-                surfaces.set_viewport(id, viewport);
-                None
-            }
             // While a sub-agent's input holds the cursor the composer is one row — where typing
             // would go and how to get back — not a box (INS-5). The row closes the conversation's
             // box, so the only thing that changes is the divider and the empty line going away.
@@ -220,59 +221,42 @@ pub fn render(
     surfaces
 }
 
-/// The command list: a box of its own, not a section of anyone's.
+/// The Drawer: a box of its own, not a section of anyone's.
 ///
 /// The workspace owns it rather than a conversation, which is what separates it from an approval —
-/// an approval is a question one agent is waiting on, so it renders inside that agent's box.
-fn command_palette_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+/// an approval is a question one agent is waiting on, so it renders inside that agent's box. Its
+/// title names the addressee, then the open page.
+fn drawer_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
     Panel {
-        insets: crate::surface::ContentInsets::for_surface(
-            SurfaceId::CommandPalette,
-            bounds.height,
-        ),
+        insets,
         body: Body::Whole {
-            lines: content::command_palette(
-                state,
-                palette,
-                crate::surface::ContentInsets::for_surface(
-                    SurfaceId::CommandPalette,
-                    bounds.height,
-                )
-                .width(bounds.width),
-                bounds.height,
-            ),
+            lines: content::drawer(state, palette, insets.width(bounds.width), bounds.height),
             follows_tail: false,
         },
-        title: title(
-            palette,
-            if state
-                .command_palette()
-                .is_some_and(|p| p.permissions().is_some())
-            {
-                "Permissions"
-            } else if state
-                .command_palette()
-                .is_some_and(|p| p.is_conversation_picker())
-            {
-                "Conversations"
-            } else {
-                "Commands"
-            }
-            .to_owned(),
-            Role::SectionHeading,
-            "",
-        ),
+        title: title(palette, drawer_title(state), Role::SectionHeading, ""),
         badge: None,
         edges: Edges::All,
     }
 }
 
+/// `Workspace`, the addressee, then the page that is open (ui-ux §product vocabulary).
+pub(crate) fn drawer_title(state: &ViewState) -> String {
+    state
+        .drawer()
+        .and_then(crate::state::Drawer::page)
+        .map_or_else(
+            || "Workspace".to_owned(),
+            |page| format!("Workspace · {}", page.name()),
+        )
+}
+
 /// Resolve the input painted in this surface, using the same width and inset as its text.
 fn input_caret(state: &ViewState, id: SurfaceId, width: u16) -> Caret {
-    if id == SurfaceId::CommandPalette {
+    if id == SurfaceId::Drawer {
         return state
-            .command_palette()
-            .map_or(Caret::default(), |commands| commands.filter_view(width).1);
+            .drawer()
+            .map_or(Caret::default(), |drawer| drawer.filter_view(width).1);
     }
     state.composer().caret(width)
 }
@@ -309,18 +293,9 @@ fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         } else {
             layout::DecisionMode::Modal
         },
-        command_palette_rows: state
-            .command_palette_rows(layout::workspace_overlay_width(area.width)),
-        command_palette_focus: if state
-            .command_palette()
-            .is_some_and(|p| p.permissions().is_some())
-        {
-            KeyboardFocus::Navigation
-        } else {
-            KeyboardFocus::TextInput
-        },
+        drawer_rows: state.drawer_rows(area.width),
+        drawer_focus: state.drawer_focus(),
         skill_picker_rows: state.skill_picker_rows(),
-        configuration_rows: state.configuration_rows(),
         rail: state.sub_agents().next().is_some(),
         composer_rows: state.composer_rows(composer_width),
         inspector,
@@ -1137,9 +1112,8 @@ mod tests {
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
-                SurfaceId::CommandPalette => "Commands",
+                SurfaceId::Drawer => "Workspace",
                 SurfaceId::SkillPicker => "Skills",
-                SurfaceId::Configuration => "Configuration",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(

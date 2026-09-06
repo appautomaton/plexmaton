@@ -11,8 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, AttentionIntent, CommandPaletteIntent, Direction, InspectorIntent,
-        PointerIntent, ScrollDirection, SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
+        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, PointerIntent,
+        ScrollDirection, SelectionIntent, SkillPickerIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
@@ -122,29 +122,37 @@ impl Router {
         // unclaimed and reaches no text input: a control chord under a cursor is never the letter.
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('p')
-            && context.focused != Some(SurfaceId::CommandPalette)
+            && context.focused != Some(SurfaceId::Drawer)
         {
-            return Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Open));
+            return Routed::Intent(TuiIntent::Drawer(DrawerIntent::Open));
         }
 
-        // The command list owns every non-global key while it is open, the same way an approval
-        // does, because both block below (SURF-4). `Escape` still falls through to the ladder.
-        if context.focused == Some(SurfaceId::CommandPalette) {
+        // The Drawer owns every non-global key while it is open, the same way an approval does,
+        // because both block below (SURF-4). `Escape` still falls through to the ladder. Whether
+        // the rest is text is the kind it registered as (SURF-3): a page that is navigated takes
+        // `j`/`k` and nothing else.
+        if context.focused == Some(SurfaceId::Drawer) {
+            let typing = context.focus == KeyboardFocus::TextInput;
             return match key.code {
-                KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                KeyCode::Char('y') if typing && key.modifiers.contains(KeyModifiers::CONTROL) => {
                     Routed::Intent(TuiIntent::Selection(SelectionIntent::Copy))
                 }
                 KeyCode::Esc => self.escape(context),
-                KeyCode::Up => Routed::Intent(TuiIntent::CommandPalette(
-                    CommandPaletteIntent::Step(Direction::Backward),
-                )),
-                KeyCode::Down => Routed::Intent(TuiIntent::CommandPalette(
-                    CommandPaletteIntent::Step(Direction::Forward),
-                )),
-                KeyCode::Enter => {
-                    Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Run))
+                KeyCode::Up => {
+                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
                 }
-                _ => text_key(key),
+                KeyCode::Down => {
+                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
+                }
+                KeyCode::Char('k') if !typing && key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
+                }
+                KeyCode::Char('j') if !typing && key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
+                }
+                KeyCode::Enter => Routed::Intent(TuiIntent::Drawer(DrawerIntent::Choose)),
+                _ if typing => text_key(key),
+                _ => Routed::Ignored(Ignored::Unbound),
             };
         }
 
@@ -187,19 +195,6 @@ impl Router {
                 }
                 KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
                 KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
-                _ => Routed::Ignored(Ignored::Unbound),
-            };
-        }
-
-        if context.focused == Some(SurfaceId::Configuration) {
-            return match key.code {
-                KeyCode::Esc => self.escape(context),
-                KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() => {
-                    step(Direction::Backward, ScrollDirection::Up, context)
-                }
-                KeyCode::Down | KeyCode::Char('j') if key.modifiers.is_empty() => {
-                    step(Direction::Forward, ScrollDirection::Down, context)
-                }
                 _ => Routed::Ignored(Ignored::Unbound),
             };
         }
@@ -299,13 +294,11 @@ fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) ->
             },
         )));
     }
-    if context.surfaces.hit_test(at) == Some(SurfaceId::CommandPalette) {
-        return Routed::Intent(TuiIntent::CommandPalette(CommandPaletteIntent::Step(
-            match direction {
-                ScrollDirection::Up => Direction::Backward,
-                ScrollDirection::Down => Direction::Forward,
-            },
-        )));
+    if context.surfaces.hit_test(at) == Some(SurfaceId::Drawer) {
+        return Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(match direction {
+            ScrollDirection::Up => Direction::Backward,
+            ScrollDirection::Down => Direction::Forward,
+        })));
     }
     if let Some(surface) = context.surfaces.wheel_target(at) {
         return Routed::Intent(TuiIntent::Scroll { surface, direction });

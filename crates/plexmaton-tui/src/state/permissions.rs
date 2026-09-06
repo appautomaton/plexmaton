@@ -42,9 +42,8 @@ impl PermissionPanel {
         if self.is_reading() {
             return 22;
         }
-        let width =
-            crate::surface::ContentInsets::for_surface(crate::SurfaceId::CommandPalette, u16::MAX)
-                .width(width);
+        let width = crate::surface::ContentInsets::for_surface(crate::SurfaceId::Drawer, u16::MAX)
+            .width(width);
         let heading = self
             .description()
             .iter()
@@ -298,7 +297,7 @@ impl PermissionPanel {
                 PermissionAction::EnableNativeFiles => vec![
                     "Allow native create/edit in this workspace?".to_owned(),
                     "Excludes agent controls, configuration paths and Git metadata. Commands need their own permission.".to_owned(),
-                    "Until Plexmaton exits; kept across /new and resume.".to_owned(),
+                    "Until Plexmaton exits; kept across conversations.".to_owned(),
                 ],
                 PermissionAction::Revoke(id) => vec![
                     "Revoke this permission?".to_owned(),
@@ -315,24 +314,16 @@ impl super::ViewState {
         &mut self,
         choice: &PermissionChoice,
     ) -> Option<PermissionIntent> {
-        let panel = self.command_palette.as_mut()?.permissions_mut()?;
+        let panel = self.drawer.as_mut()?.permissions_mut()?;
         let intent = panel.activate(choice);
-        self.scroll.reset_panel(crate::SurfaceId::CommandPalette);
+        self.scroll.reset_panel(crate::SurfaceId::Drawer);
         self.touch();
         intent
     }
     pub(crate) fn open_permissions(&mut self) {
-        let focus = self.command_palette.as_ref().map_or(
-            crate::SurfaceId::Composer,
-            super::CommandPalette::return_focus,
-        );
-        let mut palette = super::CommandPalette::opened_from(focus);
-        palette.page =
-            super::command_palette::PalettePage::Permissions(Box::new(PermissionPanel::loading()));
-        self.command_palette = Some(palette);
-        self.scroll.reset_panel(crate::SurfaceId::CommandPalette);
-        self.focus.prefer(crate::SurfaceId::CommandPalette);
-        self.touch();
+        self.show_page(super::Shown::Permissions(Box::new(
+            PermissionPanel::loading(),
+        )));
     }
 
     pub(crate) fn update_permissions(
@@ -341,24 +332,24 @@ impl super::ViewState {
         changed: Option<Result<(), PermissionChangeError>>,
     ) {
         if let Some(panel) = self
-            .command_palette
+            .drawer
             .as_mut()
-            .and_then(super::CommandPalette::permissions_mut)
+            .and_then(super::Drawer::permissions_mut)
         {
             panel.loaded(view, changed);
-            self.scroll.reset_panel(crate::SurfaceId::CommandPalette);
+            self.scroll.reset_panel(crate::SurfaceId::Drawer);
             self.touch();
         }
     }
 
     pub(crate) fn permission_back(&mut self) -> bool {
         let changed = self
-            .command_palette
+            .drawer
             .as_mut()
-            .and_then(super::CommandPalette::permissions_mut)
+            .and_then(super::Drawer::permissions_mut)
             .is_some_and(PermissionPanel::back);
         if changed {
-            self.scroll.reset_panel(crate::SurfaceId::CommandPalette);
+            self.scroll.reset_panel(crate::SurfaceId::Drawer);
             self.touch();
         }
         changed

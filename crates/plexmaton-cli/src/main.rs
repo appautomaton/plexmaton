@@ -143,7 +143,7 @@ async fn failed_terminal_setup(
         Ok(()),
     )
 }
-/// Project only display values from the same model handed to the runtime (INV-12, PRV-6).
+/// Project only display values from the same model handed to the runtime (DRW-4, PRV-6).
 fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> ConfigurationSummary {
     ConfigurationSummary {
         provider: model.provider_name().to_owned(),
@@ -322,7 +322,7 @@ fn surface_shutdown_report(report: DispatchReport) -> anyhow::Result<()> {
         String::new()
     } else {
         format!(
-            "; Project permissions were saved: {:?}. Dependent tools did not run; review /permissions",
+            "; Project permissions were saved: {:?}. Dependent tools did not run; review them under Ctrl-P · Permissions",
             report.saved_project_permissions
         )
     };
@@ -419,9 +419,9 @@ mod tests {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
     }
 
-    /// INV-12, PRV-6: the real composition-root handler opens the resolved model's display.
+    /// DRW-4, PRV-6: the real composition-root handler opens the resolved model's display.
     #[tokio::test]
-    async fn config_and_settings_commands_open_the_resolved_configuration() {
+    async fn the_configuration_page_shows_the_resolved_model() {
         let registry = plexmaton_provider::ModelRegistry::parse(
             r#"
 active_model = { provider = "fixture", model = "chosen" }
@@ -466,7 +466,7 @@ output_reserve_tokens = 5000
             tools,
         )
         .expect("runtime");
-        for query in ["config", "/config", "settings", "/settings"] {
+        for query in ["conf", "Configuration"] {
             let mut workspace = Workspace::default();
             workspace.emit(
                 ScriptedRuntime::new(Scenario::canonical().expect("scenario")).ready(u64::MAX),
@@ -478,24 +478,18 @@ output_reserve_tokens = 5000
                 KeyCode::Char('p'),
                 KeyModifiers::CONTROL,
             )));
-            workspace.draw(&mut terminal).expect("draw palette");
+            workspace.draw(&mut terminal).expect("draw drawer");
             for character in query.chars() {
                 workspace.handle(&press(KeyCode::Char(character)));
             }
             workspace.handle(&press(KeyCode::Left));
-            let command = workspace
+            let page = workspace
                 .handle(&press(KeyCode::Enter))
-                .command
-                .expect("matched command");
+                .page
+                .expect("chosen page");
             let mut permissions =
                 super::permission_controls::PermissionControls::new(runtime.coding_session());
-            super::interaction::apply_command(
-                command,
-                &runtime,
-                &mut workspace,
-                &mut picker,
-                &mut permissions,
-            );
+            super::interaction::open_page(page, &mut workspace, &mut picker, &mut permissions);
             workspace.draw(&mut terminal).expect("draw configuration");
             let shown = workspace
                 .state()
@@ -506,22 +500,22 @@ output_reserve_tokens = 5000
             assert_eq!(shown.reasoning_effort, "high");
             assert_eq!(
                 workspace.state().focused(workspace.surfaces()),
-                Some(SurfaceId::Configuration)
+                Some(SurfaceId::Drawer)
             );
             workspace.handle(&press(KeyCode::Esc));
             workspace.draw(&mut terminal).expect("draw return");
             assert!(workspace.state().configuration().is_none());
             assert_eq!(
                 workspace.state().focused(workspace.surfaces()),
-                Some(SurfaceId::CommandPalette)
+                Some(SurfaceId::Drawer)
             );
-            let palette = workspace
-                .state()
-                .command_palette()
-                .expect("restored palette");
-            assert_eq!(palette.filter().text(), query);
-            assert_eq!(palette.filter().cursor(), query.len() - 1);
-            assert_eq!(palette.chosen(), Some(plexmaton_tui::Command::Config));
+            let drawer = workspace.state().drawer().expect("restored list");
+            assert_eq!(drawer.filter().text(), query);
+            assert_eq!(drawer.filter().cursor(), query.len() - 1);
+            assert_eq!(
+                drawer.chosen_page(),
+                Some(plexmaton_tui::Page::Configuration)
+            );
             workspace.handle(&press(KeyCode::Esc));
             workspace.draw(&mut terminal).expect("draw conversation");
             assert_eq!(workspace.state().focused(workspace.surfaces()), before);
@@ -1291,7 +1285,7 @@ output_reserve_tokens = 5000
         .to_string();
         assert!(saved.contains("saved-project-grant"));
         assert!(saved.contains("did not run"));
-        assert!(saved.contains("/permissions"));
+        assert!(saved.contains("Ctrl-P · Permissions"));
     }
 
     /// LIVE-1: the production HTTP, loop, native-read, and projection boundaries compose without

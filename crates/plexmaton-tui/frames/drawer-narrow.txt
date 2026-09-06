@@ -1,19 +1,19 @@
-┌ Attention · 1 ───────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should │
+┌ Workspace ───────────────────────────────────────────────┐
+│                                                          │
+│  Type to filter                                          │
+│                                                          │
+│  > Configuration  Provider, model, and reasoning effort  │
+│    Conversations  Start a new conversation or resume a…  │
+│    Permissions    Review and change Session or Project…  │
+│                                                          │
+│  ↑↓ choose · Enter open · Esc close                      │
+│                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ A┌ Configuration · read only ─────────────────────────┐──┐
-│○ │Provider                                            │  │
-│  │local                                               │  │
-│  │                                                    │  │
-└──│Model                                               │──┘
-┌ A│gpt-5.6-sol                                         │) ┐
-│  │                                                    │  │
-│  │Reasoning effort                                    │  │
-│  │high                                                │  │
-│  │                                                    │  │
-│  │Edit config.toml and restart to change.             │  │
-│  │Esc back · ↑↓ scroll                                │  │
-│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

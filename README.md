@@ -17,7 +17,7 @@ Plexmaton is an AI coding assistant for the terminal, built in Rust by App Autom
 
 - **Keep the work in view.** Streaming answers, tool activity and approvals share a responsive workspace with expandable details.
 - **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
-- **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it with `/permissions`.
+- **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it in the Drawer.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
 - **Read comfortably.** Pastel Markdown, code, tables and native math stay visible during updates. Selection copies the representation you chose.
 
@@ -51,13 +51,13 @@ The interface, tools and journals run locally. Model requests go to your configu
 
 | Input | Action |
 | --- | --- |
-| `Ctrl-P` | Open the command palette |
+| `Ctrl-P` | Open the Drawer: configuration, conversations, permissions |
 | `Ctrl-C` | Clear a draft or interrupt its conversation |
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
 | `$` | Find and complete a skill |
 
-Use `/new` for a fresh conversation, `/resume` for saved history, `/config` for settings and `/permissions` for grants. Rate limits offer Retry and Edit & retry.
+The Drawer starts or resumes conversations and shows configuration and permissions. Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 

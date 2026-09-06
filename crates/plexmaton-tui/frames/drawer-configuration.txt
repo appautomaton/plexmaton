@@ -1,0 +1,16 @@
+┌ Workspace · Configuration · read only ──────────────────────────────────────────────────────┐
+│                                                                                             │
+│  Provider                                                                                   │
+│  local                                                                                      │
+│                                                                                             │
+│  Model                                                                                      │
+│  gpt-5.6-sol                                                                                │
+│                                                                                             │
+│  Reasoning effort                                                                           │
+│  high                                                                                       │
+│                                                                                             │
+│  Edit config.toml and restart to change.                                                    │
+│                                                                                             │
+│  Esc back · ↑↓ scroll                                                                       │
+│                                                                                             │
+└─────────────────────────────────────────────────────────────────────────────────────────────┘

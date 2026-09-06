@@ -2,10 +2,12 @@ mod agent;
 mod approval;
 mod asking;
 mod attention;
-mod command_palette;
+mod conversation_picker;
+mod drawer;
 pub(crate) mod permissions;
-mod session_picker;
-pub use session_picker::{ConversationChoice, ConversationPickerStatus, MAX_CONVERSATION_CHOICES};
+pub use conversation_picker::{
+    ConversationChoice, ConversationPickerStatus, ConversationRequest, MAX_CONVERSATION_CHOICES,
+};
 mod composer;
 mod configuration;
 mod current_work;
@@ -35,11 +37,12 @@ pub use approval::{
     ApprovalChoice, ApprovalFeedback, ApprovalStage, ApprovalSubmission, ApprovalView,
 };
 pub use attention::AttentionView;
-pub use command_palette::{Command, CommandPalette};
 pub(crate) use composer::apply_text;
 pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
+pub(crate) use drawer::Shown;
+pub use drawer::{Drawer, Page};
 pub use entry::{
     ArtifactView, MailView, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind,
@@ -116,9 +119,8 @@ pub struct ViewState {
     selection: Option<Selection>,
     copy_note: Option<(Selection, CopyNote)>,
     status: Status,
-    /// The command list, present only while it is open (SURF-4).
-    command_palette: Option<CommandPalette>,
-    configuration: Option<configuration::ConfigurationView>,
+    /// The Drawer, present only while it is open (SURF-4).
+    drawer: Option<Drawer>,
     retry_edit: Option<retry::RetryEdit>,
 }
 
@@ -161,106 +163,125 @@ pub const fn inner_width(width: u16) -> u16 {
 }
 
 impl ViewState {
-    /// The command list while it is open.
+    /// The Drawer while it is open.
     #[must_use]
-    pub const fn command_palette(&self) -> Option<&CommandPalette> {
-        self.command_palette.as_ref()
+    pub const fn drawer(&self) -> Option<&Drawer> {
+        self.drawer.as_ref()
     }
 
-    /// Opens the command list and gives it the keyboard, reporting whether it was not already open.
+    /// Pulls the Drawer open on its page list and gives it the keyboard, reporting whether it was
+    /// not already open.
     ///
     /// The preference is set for the *next* frame, which is when layout registers the surface: the
     /// same two-step every other opened surface uses, and why `Focus::prefer` does not check the
     /// current tree.
-    pub fn open_command_palette(&mut self, surfaces: &SurfaceTree) -> bool {
-        if self.command_palette.is_some() {
+    pub fn open_drawer(&mut self, surfaces: &SurfaceTree) -> bool {
+        if self.drawer.is_some() {
             return false;
         }
         let return_focus = self.focus.resolve(surfaces).unwrap_or(SurfaceId::Composer);
-        self.command_palette = Some(CommandPalette::opened_from(return_focus));
-        self.focus.prefer(SurfaceId::CommandPalette);
+        self.drawer = Some(Drawer::opened_from(return_focus));
+        self.focus.prefer(SurfaceId::Drawer);
         self.touch();
         true
     }
 
-    /// Closes the command list, discarding its filter and returning the keyboard where it was.
-    pub fn close_command_palette(&mut self) -> bool {
-        let Some(palette) = self.command_palette.take() else {
+    /// Closes the Drawer whatever it shows, returning the keyboard where it was.
+    pub fn close_drawer(&mut self) -> bool {
+        let Some(drawer) = self.drawer.take() else {
             return false;
         };
-        self.focus.prefer(palette.return_focus());
+        self.focus.prefer(drawer.return_focus());
         self.touch();
         true
     }
 
-    /// Moves the chosen command, reporting whether the screen changed.
-    pub fn step_command(&mut self, forward: bool) -> bool {
+    /// One rung of the `Escape` ladder: an open page returns to the list, and the list closes.
+    pub fn drawer_back(&mut self) -> bool {
+        let Some(drawer) = self.drawer.as_mut() else {
+            return false;
+        };
+        if drawer.shown == Shown::Pages {
+            return self.close_drawer();
+        }
+        drawer.shown = Shown::Pages;
+        self.scroll.reset_panel(SurfaceId::Drawer);
+        self.touch();
+        true
+    }
+
+    /// Opens a page in place, pulling the Drawer open first when the composition root asks for a
+    /// page while it is closed.
+    pub(crate) fn show_page(&mut self, shown: Shown) {
+        let drawer = self
+            .drawer
+            .get_or_insert_with(|| Drawer::opened_from(SurfaceId::Composer));
+        drawer.shown = shown;
+        self.scroll.reset_panel(SurfaceId::Drawer);
+        self.focus.prefer(SurfaceId::Drawer);
+        self.touch();
+    }
+
+    /// Moves the chosen row, reporting whether the screen changed.
+    pub fn step_drawer_choice(&mut self, forward: bool) -> bool {
         let changed = self
-            .command_palette
+            .drawer
             .as_mut()
-            .is_some_and(|palette| palette.step(forward));
+            .is_some_and(|drawer| drawer.step(forward));
         if changed {
             self.touch();
         }
         changed
     }
 
-    /// The command the user chose. Its handler owns the transition to the destination page.
-    pub fn chosen_command(&self) -> Option<Command> {
-        self.command_palette.as_ref()?.chosen()
+    /// The page the user chose from the list. Opening it belongs to the composition root.
+    pub fn chosen_page(&self) -> Option<Page> {
+        self.drawer.as_ref()?.chosen_page()
     }
 
-    /// Applies one edit to the command list's filter.
-    pub fn edit_command_filter(&mut self, intent: TextIntent) -> bool {
-        let Some(palette) = self.command_palette.as_mut() else {
+    /// Applies one edit to the query the Drawer shows.
+    pub fn edit_drawer_filter(&mut self, intent: TextIntent) -> bool {
+        let Some(drawer) = self.drawer.as_mut() else {
             return false;
         };
-        if palette.permissions().is_some() {
-            return false;
-        }
-        if palette
+        if drawer
             .conversations()
-            .is_some_and(|s| s.status == ConversationPickerStatus::Opening)
+            .is_some_and(conversation_picker::ConversationPicker::opening)
         {
             return false;
         }
+        let Some(filter) = drawer.filter_mut() else {
+            return false;
+        };
         let intent = match intent {
             TextIntent::Paste(text) => TextIntent::Paste(text.replace(['\r', '\n', '\t'], " ")),
             intent => intent,
         };
-        let changed = apply_text(palette.filter_mut(), intent);
+        let changed = apply_text(filter, intent);
         if changed {
-            palette.reclamp();
+            drawer.reclamp();
             self.touch();
         }
         changed
     }
 
-    /// Rows the command list asks layout for, borders included. Zero while it is closed.
-    ///
-    /// Keeps the padded filter origin stable while filtering; small terminals clamp the overlay.
+    /// What typing does in the Drawer: the list and the Conversations page take text; the other
+    /// pages are navigated.
     #[must_use]
-    pub fn command_palette_rows(&self, width: u16) -> u16 {
-        let Some(palette) = self.command_palette.as_ref() else {
-            return 0;
-        };
-        if let Some(panel) = palette.permissions() {
-            return panel.preferred_rows(width);
+    pub fn drawer_focus(&self) -> KeyboardFocus {
+        if self.drawer.as_ref().is_some_and(Drawer::takes_text) {
+            KeyboardFocus::TextInput
+        } else {
+            KeyboardFocus::Navigation
         }
-        // Filter, result rows, footer, interior gaps, padding and borders.
-        if palette.is_conversation_picker() {
-            return u16::try_from(
-                palette
-                    .match_count()
-                    .clamp(1, session_picker::VISIBLE_CONVERSATIONS),
-            )
-            .unwrap_or(1)
-                + 9;
-        }
-        let listed = u16::try_from(palette.matches().len())
-            .unwrap_or(u16::MAX)
-            .max(1);
-        listed.saturating_add(8).max(10)
+    }
+
+    /// Rows the Drawer asks layout for, borders included. Zero while it is closed.
+    #[must_use]
+    pub fn drawer_rows(&self, width: u16) -> u16 {
+        self.drawer
+            .as_ref()
+            .map_or(0, |drawer| drawer.preferred_rows(width))
     }
 
     /// Returns the current projection revision.

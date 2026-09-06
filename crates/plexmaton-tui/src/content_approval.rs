@@ -122,7 +122,7 @@ fn approval_content(
         ApprovalStage::Submitting => "Esc input · your draft stays usable",
     };
     let description = match view.selected {
-        ApprovalChoice::ThisSession => "Until Plexmaton exits; kept across /new and resume.",
+        ApprovalChoice::ThisSession => "Until Plexmaton exits; kept across conversations.",
         ApprovalChoice::ThisProject => "Saved for this checkout across restarts.",
         ApprovalChoice::Back => "Return without granting permission.",
         _ if state.approval_in_primary() => "Esc input · Tab returns to this card",

@@ -380,7 +380,7 @@ fn cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued() {
         workspace
             .draw(&mut terminal)
             .expect("overlay while preparing");
-        assert!(workspace.surfaces.get(SurfaceId::CommandPalette).is_some());
+        assert!(workspace.surfaces.get(SurfaceId::Drawer).is_some());
         assert_eq!(workspace.metrics.text_layouts(), 0);
         assert_eq!(workspace.handle(&ctrl('d')).flow, Flow::Continue);
         assert_eq!(workspace.handle(&ctrl('d')).flow, Flow::Quit);
@@ -607,7 +607,7 @@ fn selected_text_waits_for_missing_preparation_and_emits_one_complete_copy() {
         workspace
             .draw(&mut terminal)
             .expect("overlay during copy preparation");
-        assert!(workspace.surfaces.get(SurfaceId::CommandPalette).is_some());
+        assert!(workspace.surfaces.get(SurfaceId::Drawer).is_some());
         assert!(workspace.take_copy().is_none());
         workspace
             .settled_draw(&mut terminal)

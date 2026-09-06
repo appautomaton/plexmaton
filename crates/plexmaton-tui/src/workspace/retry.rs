@@ -22,7 +22,7 @@ impl Workspace {
             RetryAction::Retry => {
                 let target = self.state.retry_actions()?.target.clone();
                 self.state.finish_retry_edit();
-                self.state.close_command_palette();
+                self.state.close_drawer();
                 self.state.set_retry_actions(None);
                 Some(RetrySubmission {
                     target,
@@ -51,7 +51,7 @@ impl Workspace {
         self.pressed_entry = None;
         self.pressed_retry = None;
         self.pressed_approval = None;
-        self.pressed_palette = None;
+        self.pressed_drawer = None;
         self.drag_autoscroll = None;
         self.painted = None;
     }

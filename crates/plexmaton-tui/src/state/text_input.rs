@@ -3,7 +3,7 @@
 //! This is the text, and nothing about what any particular input is *for*. It does not know which
 //! agent a draft addresses, what submitting means, or which surface is painting it: those are the
 //! caller's, which is what lets the primary composer, an entered worker's steering input and the
-//! command palette's filter be three uses of one editing model rather than three editors.
+//! Drawer's filter be three uses of one editing model rather than three editors.
 //!
 //! Movement is measured in graphemes and logical lines, so it never depends on a width. Only
 //! presentation does: [`TextInput::visible_rows`] and [`TextInput::caret`] take the width they are

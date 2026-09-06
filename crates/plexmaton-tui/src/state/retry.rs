@@ -97,7 +97,7 @@ impl ViewState {
             saved,
             saved_skill,
         });
-        self.close_command_palette();
+        self.close_drawer();
         self.focus.prefer(SurfaceId::Composer);
         self.touch();
     }

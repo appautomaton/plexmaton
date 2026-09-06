@@ -1,19 +1,19 @@
-┌ Attention · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.                                       │
+┌ Workspace ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                      │
+│  Type to filter                                                                                                      │
+│                                                                                                                      │
+│  > Configuration  Provider, model, and reasoning effort                                                              │
+│    Conversations  Start a new conversation or resume a saved one                                                     │
+│    Permissions    Review and change Session or Project permissions                                                   │
+│                                                                                                                      │
+│  ↑↓ choose · Enter open · Esc close                                                                                  │
+│                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents ─────────────┌ Configuration · read only ───────────────────────────────────────────────┐───────────── ( !1 ) ┐
-│○ Agent B · UI study │Provider                                                                  │                     │
-│· 1 tool @1 1 mail   │local                                                                     │                     │
-│                     │                                                                          │                     │
-│                     │Model                                                                     │                     │
-│                     │gpt-5.6-sol                                                               │                     │
-│                     │                                                                          │                     │
-│                     │Reasoning effort                                                          │                     │
-│                     │high                                                                      │                     │
-│                     │                                                                          │                     │
-│                     │Edit config.toml and restart to change.                                   │                     │
-│                     │Esc back · ↑↓ scroll                                                      │                     │
-│                     └──────────────────────────────────────────────────────────────────────────┘                     │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
+│                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │
 │                          ││                                                                                          │

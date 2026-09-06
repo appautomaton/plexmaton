@@ -26,7 +26,7 @@ fn view() -> PermissionStateView {
 fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
     let bounds = workspace
         .surfaces()
-        .get(SurfaceId::CommandPalette)
+        .get(SurfaceId::Drawer)
         .expect("permissions")
         .bounds;
     crate::test_support::snapshot_text(terminal.backend().buffer(), bounds)
@@ -34,7 +34,7 @@ fn panel(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> String {
 fn click(workspace: &mut Workspace, terminal: &Terminal<TestBackend>, text: &str) -> Outcome {
     let bounds = workspace
         .surfaces()
-        .get(SurfaceId::CommandPalette)
+        .get(SurfaceId::Drawer)
         .expect("permissions")
         .bounds;
     let drawn = panel(workspace, terminal);
@@ -74,7 +74,7 @@ fn per_7_permission_controls_review_cancel_submit_and_refresh_by_identity() {
             assert!(
                 workspace
                     .state()
-                    .command_palette()
+                    .drawer()
                     .expect("page")
                     .filter()
                     .text()
@@ -133,7 +133,7 @@ fn per_7_permission_controls_review_cancel_submit_and_refresh_by_identity() {
     }
 }
 
-/// PER-7/INV-13: reviewable three-width frames and a smallest-terminal confirmation keep the actions visible.
+/// PER-7/DRW-2: reviewable three-width frames and a smallest-terminal confirmation keep the actions visible.
 #[test]
 fn per_7_permission_controls_frames_keep_scope_and_confirmation_visible() {
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
@@ -153,7 +153,7 @@ fn per_7_permission_controls_frames_keep_scope_and_confirmation_visible() {
         for text in [
             "create/edit",
             "configuration",
-            "Git metadata",
+            "metadata",
             "Commands",
             "Enable for this Session",
             "> Back",
@@ -222,7 +222,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
         workspace.draw(&mut terminal).expect("review");
         let bounds = workspace
             .surfaces()
-            .get(SurfaceId::CommandPalette)
+            .get(SurfaceId::Drawer)
             .expect("review bounds")
             .bounds;
         let footer = crate::render::permission_review::choice_row(bounds);
@@ -237,7 +237,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
         for _ in 0..200 {
             let before = workspace
                 .surfaces()
-                .viewport(SurfaceId::CommandPalette)
+                .viewport(SurfaceId::Drawer)
                 .expect("viewport")
                 .offset;
             let outcome = workspace.handle(&key(KeyCode::Down));
@@ -250,7 +250,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
                 crate::render::permission_review::choice_row(
                     workspace
                         .surfaces()
-                        .get(SurfaceId::CommandPalette)
+                        .get(SurfaceId::Drawer)
                         .expect("surface")
                         .bounds
                 ),
@@ -258,7 +258,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
             );
             let after = workspace
                 .surfaces()
-                .viewport(SurfaceId::CommandPalette)
+                .viewport(SurfaceId::Drawer)
                 .expect("viewport")
                 .offset;
             if before == after {
@@ -293,7 +293,7 @@ fn per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation() 
     }
 }
 
-/// PER-8/INV-13: real three-width frames keep project lifetime, source, rules and explicit activation legible.
+/// PER-8/DRW-2: real three-width frames keep project lifetime, source, rules and explicit activation legible.
 #[test]
 fn per_8_project_trust_frames_show_source_scopes_and_confirmation() {
     for (width, name) in [(120, "wide"), (95, "medium"), (60, "narrow")] {
@@ -405,7 +405,7 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
             "exec_command",
             "Project permission saved",
             "tool did not run",
-            "Review /permissions",
+            "Review it under Ctrl-P · Permissions",
         ] {
             assert!(text.contains(required), "{name}: {required}: {text}");
         }

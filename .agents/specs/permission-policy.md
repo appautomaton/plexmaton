@@ -10,7 +10,7 @@
 ## Invariants
 
 **PER-1 — Session authority outlives a Conversation.** One explicit owner retains temporary
-grants for the coding Session and physical workspace. `/new`, `/resume`, head selection and
+grants for the coding Session and physical workspace. Opening a new or saved conversation, head selection and
 compaction do not reset it. Exit/restart creates fresh memory-only authority; Conversation JSONL
 never restores a grant. Immutable snapshots are projections of this owner.
 
@@ -130,7 +130,7 @@ source. The catalog compiles definitions and command context; configuration cann
 Project files retain SKL-1's 64 KiB complete-read bound. User rules load once per coding Session;
 restart reloads them. Project rules refresh under the personal store lock before controls and dispatch.
 
-`/permissions` reviews and revokes Session/Project grants, controls the Session native preset, and
+The Drawer's Permissions page reviews and revokes Session/Project grants, controls the Session native preset, and
 reviews project rules. In project review, Up/Down or the wheel scroll complete escaped scopes;
 Enter or the visible Continue action opens activation confirmation. Back is selected initially.
 Esc returns one page. Activation applies only to the reviewed SHA-256 fingerprint and permission

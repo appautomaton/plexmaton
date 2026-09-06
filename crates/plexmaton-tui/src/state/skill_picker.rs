@@ -251,7 +251,7 @@ impl ViewState {
     pub(crate) fn skill_picker_rows(&self) -> u16 {
         if !self.skill_picker.is_open()
             || !self.focus.prefers(SurfaceId::Composer)
-            || self.command_palette.is_some()
+            || self.drawer.is_some()
         {
             return 0;
         }

@@ -381,7 +381,7 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-/// The command list's body: the filter, the matching commands, and how to work them.
+/// The Drawer's body: the filter, the rows of what it shows, and how to work them.
 ///
 /// The chosen row is marked and coloured exactly as the Attention list and the approval card mark
 /// theirs (`Accent` against `Muted`), because it is the same interaction: `↑↓` to choose, `Enter` to
@@ -389,72 +389,63 @@ pub(crate) const fn agent_status_label(status: AgentStatus) -> &'static str {
 ///
 /// The keys are a muted last row rather than a badge on the title: they are a sentence, and the
 /// badge is where a short status goes.
-pub(crate) fn command_palette(
+pub(crate) fn drawer(
     state: &ViewState,
     palette: &Palette,
     width: u16,
     height: u16,
 ) -> Vec<Line<'static>> {
-    let Some(commands) = state.command_palette() else {
+    let Some(drawer) = state.drawer() else {
         return Vec::new();
     };
-    if let Some(panel) = commands.permissions() {
+    if let Some(panel) = drawer.permissions() {
         return crate::content_permissions::content(panel, palette, width, height).lines;
     }
     let mut filter = Vec::new();
-    if commands.filter().text().is_empty() {
+    if drawer.filter().text().is_empty() {
         filter.push(Span::styled("Type to filter", palette.style(Role::Muted)));
     } else {
         filter.extend(input_spans(
-            commands.filter(),
+            drawer.filter(),
             palette,
-            commands.filter_range(width),
+            drawer.filter_range(width),
         ));
     }
-    let gap = commands.choice_gap(height);
+    let gap = drawer.choice_gap(height);
     let mut lines = vec![Line::from(filter)];
     lines.extend((0..gap).map(|_| Line::default()));
-    if let Some(sessions) = commands.conversations() {
-        let matches = sessions.matches(commands.filter().text());
-        let window = commands.choice_window(height);
-        for (index, entry) in matches.iter().enumerate().skip(window.start).take(
-            if commands.conversation_rows_visible(height) {
-                window.len()
+    if let Some(picker) = drawer.conversations() {
+        let rows = picker.rows();
+        let window = drawer.choice_window(height);
+        for (index, row) in rows
+            .iter()
+            .enumerate()
+            .skip(window.start)
+            .take(window.len())
+        {
+            let chosen = index == drawer.chosen_index();
+            let (marker, role) = if chosen {
+                ("> ", Role::Accent)
             } else {
-                0
-            },
-        ) {
-            let role = if index == commands.chosen_index() {
-                Role::Accent
-            } else {
-                Role::Muted
+                ("  ", Role::Muted)
             };
-            let marker = if index == commands.chosen_index() {
-                "> "
-            } else {
-                "  "
-            };
-            let label = format!("{marker}{}", entry.title);
             lines.push(Line::styled(
-                command_summary(&label, usize::from(width)),
+                command_summary(&format!("{marker}{}", row.label()), usize::from(width)),
                 palette.style(role),
             ));
         }
-        let note =
-            if sessions.status == crate::ConversationPickerStatus::Ready && !matches.is_empty() {
-                if sessions.limited {
-                    "Recent conversations only · older files remain on disk"
-                } else {
-                    matches
-                        .get(commands.chosen_index())
-                        .map_or("", |entry| entry.id.as_str())
-                }
+        let note = if picker.status == crate::ConversationPickerStatus::Ready && !rows.is_empty() {
+            if picker.limited {
+                "Recent conversations only · older files remain on disk"
             } else {
-                sessions.status.message()
-            };
-        if commands.conversation_note_visible(height) {
+                rows.get(drawer.chosen_index()).map_or("", |row| row.note())
+            }
+        } else {
+            picker.status.message()
+        };
+        if drawer.conversation_note_visible(height) {
             let role = if matches!(
-                sessions.status,
+                picker.status,
                 crate::ConversationPickerStatus::OpenFailed
                     | crate::ConversationPickerStatus::ListFailed
             ) {
@@ -469,51 +460,57 @@ pub(crate) fn command_palette(
         }
         lines.extend((0..gap).map(|_| Line::default()));
         lines.push(Line::styled(
-            "↑↓ choose · Enter resume · Esc close",
+            "↑↓ choose · Enter open · Esc back",
             palette.style(Role::Muted),
         ));
         return lines;
     }
-    let matches = commands.matches();
-    if matches.is_empty() {
+    let pages = drawer.pages();
+    if pages.is_empty() {
         lines.push(Line::styled(
-            "No command matches".to_owned(),
+            "No page matches".to_owned(),
             palette.style(Role::Muted),
         ));
     }
-    let window = commands.choice_window(height);
-    for (index, command) in matches
+    // Names in one column, so the summaries line up whatever page is listed.
+    let name_width = crate::Page::ALL
+        .iter()
+        .map(|page| page.name().width())
+        .max()
+        .unwrap_or(0);
+    let window = drawer.choice_window(height);
+    for (index, page) in pages
         .into_iter()
         .enumerate()
         .skip(window.start)
         .take(window.len())
     {
-        let chosen = index == commands.chosen_index();
+        let chosen = index == drawer.chosen_index();
         let (marker, role) = if chosen {
             ("> ", Role::Accent)
         } else {
             ("  ", Role::Muted)
         };
-        let name = format!("{}  ", command.name());
+        let name = format!("{:<name_width$}  ", page.name());
         let remaining = usize::from(width).saturating_sub(2 + name.width());
         lines.push(Line::from(vec![
             Span::styled(marker, palette.style(role)),
             Span::styled(name, palette.style(role)),
             Span::styled(
-                command_summary(command.summary(), remaining),
+                command_summary(page.summary(), remaining),
                 palette.style(Role::Muted),
             ),
         ]));
     }
     lines.extend((0..gap).map(|_| Line::default()));
     lines.push(Line::styled(
-        "↑↓ choose · Enter run · Esc close".to_owned(),
+        "↑↓ choose · Enter open · Esc close".to_owned(),
         palette.style(Role::Muted),
     ));
     lines
 }
 
-/// A command occupies one row so its description cannot push the controls out of the panel.
+/// A row occupies one line so its text cannot push the controls out of the panel.
 pub(crate) fn command_summary(source: &str, width: usize) -> String {
     if source.width() <= width {
         return source.to_owned();

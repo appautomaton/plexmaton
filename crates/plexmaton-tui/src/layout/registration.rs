@@ -13,8 +13,7 @@ const BASE_Z_INDEX: u32 = 0;
 const FLOATING_Z_INDEX: u32 = 1;
 const POPUP_Z_INDEX: u32 = 5;
 const MODAL_Z_INDEX: u32 = 10;
-const CONFIGURATION_Z_INDEX: u32 = 15;
-const COMMAND_PALETTE_Z_INDEX: u32 = 20;
+const DRAWER_Z_INDEX: u32 = 20;
 
 /// Registers the complete supported workspace from rectangles computed by layout.
 pub(super) fn surface_tree(
@@ -24,7 +23,7 @@ pub(super) fn surface_tree(
     regions: BodyRegions,
     decision_mode: DecisionMode,
     skill_picker_rows: u16,
-    command_palette_focus: crate::KeyboardFocus,
+    drawer_focus: crate::KeyboardFocus,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
@@ -100,24 +99,17 @@ pub(super) fn surface_tree(
         },
         MODAL_Z_INDEX,
     );
-    register_at(
-        &mut tree,
-        SurfaceId::Configuration,
-        regions.configuration,
-        SurfaceKind::Modal,
-        CONFIGURATION_Z_INDEX,
-    );
-    // Above the decision region, because layers stack: opening the list over a waiting approval
+    // Above the decision region, because layers stack: pulling the Drawer over a waiting approval
     // leaves the approval exactly where it was, and one `Escape` pops one layer.
     register_at(
         &mut tree,
-        SurfaceId::CommandPalette,
-        regions.command_palette,
-        match command_palette_focus {
-            crate::KeyboardFocus::TextInput => SurfaceKind::CommandPalette,
+        SurfaceId::Drawer,
+        regions.drawer,
+        match drawer_focus {
+            crate::KeyboardFocus::TextInput => SurfaceKind::Drawer,
             crate::KeyboardFocus::Navigation => SurfaceKind::Modal,
         },
-        COMMAND_PALETTE_Z_INDEX,
+        DRAWER_Z_INDEX,
     );
     register(
         &mut tree,

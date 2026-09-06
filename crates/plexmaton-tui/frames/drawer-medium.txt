@@ -1,18 +1,18 @@
-┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
+┌ Workspace ──────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                             │
+│  Type to filter                                                                             │
+│                                                                                             │
+│  > Configuration  Provider, model, and reasoning effort                                     │
+│    Conversations  Start a new conversation or resume a saved one                            │
+│    Permissions    Review and change Session or Project permissions                          │
+│                                                                                             │
+│  ↑↓ choose · Enter open · Esc close                                                         │
+│                                                                                             │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents ┌ Commands ────────────────────────────────────────────────────────────────┐─ ( !1 ) ┐
-│○ Agent │                                                                          │         │
-│done · 1│  Type to filter                                                          │         │
-│        │                                                                          │         │
-│        │  > /config  Provider, model, and reasoning effort                        │         │
-│        │    /resume  Find and resume a saved conversation                         │         │
-│        │    /new  Start a new conversation                                        │         │
-│        │    /permissions  Review and change Session or Project permissions        │         │
-│        │                                                                          │         │
-│        │  ↑↓ choose · Enter run · Esc close                                       │         │
-│        │                                                                          │         │
-│        └──────────────────────────────────────────────────────────────────────────┘         │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │

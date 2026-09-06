@@ -104,11 +104,12 @@ mod tests {
         ),
     ];
 
-    /// INV-13: the command list stays a compact overlay across all three widths.
-    const COMMAND_PALETTE_FRAMES: [(&str, u16, u16); 3] = [
-        ("command-palette-wide", 120, 40),
-        ("command-palette-medium", 95, 40),
-        ("command-palette-narrow", 60, 40),
+    /// DRW-2: the Drawer's page list over the whole composition, one frame per layout class.
+    const DRAWER_FRAMES: [(&str, u16, u16); 4] = [
+        ("drawer-ultrawide", 160, 40),
+        ("drawer-wide", 120, 40),
+        ("drawer-medium", 95, 40),
+        ("drawer-narrow", 60, 40),
     ];
 
     fn composer_frame(state: &ViewState, width: u16, height: u16) -> String {
@@ -149,14 +150,20 @@ mod tests {
         }
     }
 
-    /// Phase 01 §scope 1: the composition at wide, medium and narrow, checked in.
+    /// DRW-2: the page list pulled over the canonical composition at each layout class.
     #[test]
-    fn the_command_palette_frames_match_their_fixtures() {
-        for (name, width, height) in COMMAND_PALETTE_FRAMES {
+    fn the_drawer_frames_match_their_fixtures() {
+        for (name, width, height) in DRAWER_FRAMES {
             let mut state = canonical_state();
-            state.open_command_palette(&SurfaceTree::default());
+            state.open_drawer(&SurfaceTree::default());
             let drawn = draw(&state, width, height);
-            for signature in ["Commands", "/config", "/new", "Esc close"] {
+            for signature in [
+                "Workspace",
+                "> Configuration",
+                "Conversations",
+                "Permissions",
+                "Esc close",
+            ] {
                 assert!(
                     drawn.contains(signature),
                     "{name}: {signature:?} is not on screen"
@@ -172,30 +179,30 @@ mod tests {
         }
     }
 
-    /// INV-12, INV-13: the configuration page is readable in the complete workspace at each width.
+    /// DRW-4: the Configuration page, cropped to the Drawer, at the medium width.
     #[test]
-    fn the_configuration_frames_match_their_fixtures() {
-        for (name, width) in [
-            ("configuration-wide", 120),
-            ("configuration-medium", 95),
-            ("configuration-narrow", 60),
+    fn the_configuration_page_frame_matches_its_fixture() {
+        let mut state = canonical_state();
+        state.show_configuration(crate::test_support::configuration_summary());
+        let (surfaces, buffer) = draw_frame(&state, &Palette::default(), 95, 40);
+        let drawer = surfaces
+            .get(SurfaceId::Drawer)
+            .expect("the page is the Drawer");
+        let drawn = region_text(&buffer, drawer.bounds);
+        for signature in [
+            "Workspace · Configuration",
+            "read only",
+            "Provider",
+            "local",
+            "gpt-5.6-sol",
+            "Reasoning effort",
+            "high",
+            "restart",
+            "Esc back",
         ] {
-            let mut state = canonical_state();
-            state.show_configuration(crate::test_support::configuration_summary());
-            let drawn = draw(&state, width, 40);
-            for signature in [
-                "Configuration",
-                "Provider",
-                "local",
-                "gpt-5.6-sol",
-                "Reasoning effort",
-                "high",
-                "restart",
-            ] {
-                assert!(drawn.contains(signature), "{name}: {signature} absent");
-            }
-            crate::test_support::assert_frame(name, &drawn);
+            assert!(drawn.contains(signature), "{signature} absent: {drawn}");
         }
+        crate::test_support::assert_frame("drawer-configuration", &drawn);
     }
 
     #[test]

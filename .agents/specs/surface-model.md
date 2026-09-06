@@ -26,11 +26,10 @@ never asserted independently.
 **SURF-4 — A modal blocks delivery below it.** While a surface that blocks is registered, pointer
 hit testing stops at it and the focus ring contains only it. Main-agent approvals use a non-blocking
 `Panel` inside their conversation (ATT-1): their rows remain above the composer, and Esc returns
-focus to input without removing the card. Configuration and user-opened background request
-overlays use `Modal`; a background request arriving alone registers no modal.
-
-The configuration page uses `Modal` above approvals; `CommandPalette` is a blocking text input
-above both. Their dismissal and compact geometry are INV-12 and INV-13.
+focus to input without removing the card. User-opened background request overlays use `Modal`; a
+background request arriving alone registers no modal. The Drawer is a blocking text input above
+approvals, or a `Modal` while one of its navigated pages is open; its dismissal and geometry are
+DRW-2 and DRW-3.
 
 **SURF-5 — Hidden state survives.** A surface's focus and scroll state belong to the surface, not
 to the frame that drew it. Covering, unregistering for a frame, or re-registering does not reset
@@ -52,7 +51,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | --- | --- |
 | `id` | `SurfaceId`, a named variant. Rejected: numeric identities, which break silently when a region is added; and a second layout computed for hit testing, whose failure is a click landing one panel over |
 | `bounds` | The rectangle the surface occupies. `visible()` is `bounds ∩ clip` (SURF-2), and until a surface exists that does not fit its parent, `clip` is `bounds` and not a field |
-| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, ten for approval, fifteen for configuration, twenty for the command palette |
+| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, ten for approval, twenty for the Drawer |
 | `kind` | What the surface is; every behavioural answer below is derived from it |
 | `viewport` | Content height and the user's position through it, filled in by the renderer because measuring needs the text; `None` until a frame has drawn it |
 
@@ -63,7 +62,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | `Composer` | yes | yes | yes | no | no |
 | `Inspector` | yes | yes | yes | no | yes |
 | `Modal` | yes | yes | no | yes | yes |
-| `CommandPalette` | yes | yes | yes | yes | yes |
+| `Drawer` | yes | yes | yes | yes | yes |
 
 Deriving the five answers from `kind` makes the boolean combinations that mean nothing, a status
 line holding the cursor, or a modal that does not block, unrepresentable.
@@ -105,5 +104,5 @@ hover never does (INV-3).
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap`, `the_canonical_frames_match_their_fixtures` with the `canonical-*` frames, `a_partial_frame_measures_each_axis_from_the_edges_it_paints` |
 | SURF-2 | Unproven; no surface overflows its parent. The inspector is one composite surface whose entered input leaves a smaller conversation rectangle, but both parts remain inside its bounds and one local accessor keeps painting and row hit resolution together; a generic clip field waits for a surface that needs clipping. Which rows of a scrolled item a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
 | SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
-| SURF-4 | `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_approval_frames_match_their_fixtures` |
+| SURF-4 | `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_drawer_opens_over_a_waiting_approval_and_leaves_the_card_alone`, `the_approval_frames_match_their_fixtures` |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

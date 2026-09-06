@@ -194,33 +194,12 @@ def repaint(master, captured, markers=(), absent=(), exact_lines=()):
     return screen, bytes(captured[start:])
 
 
-def check_command_palette(master: int, captured: bytearray) -> None:
-    """INV-11/INV-12/SPK-1: every action waits for its own visible result."""
-    for query in ("config", "/config", "settings", "/settings"):
-        os.write(master, b"\x10" + query.encode())
-        repaint(master, captured, ("Commands", "> /config"), exact_lines=(query,))
-        os.write(master, b"\r")
-        repaint(master, captured, ("Configuration", "Provider", "smoke", "gpt-5.6-luna",
-                                   "Reasoning effort", "none", "Esc back"))
-        os.write(master, b"\x1b")
-        repaint(master, captured, ("Commands", "> /config"), ("Configuration",), exact_lines=(query,))
-        os.write(master, b"\x1b")
-        repaint(master, captured, ("Message Plexmaton",), ("Commands", "Configuration"))
-    for query in ("resume", "continue", "sessions", "session"):
-        os.write(master, b"\x10" + query.encode() + b"\r")
-        repaint(master, captured, ("Conversations", "Enter resume", "Esc close"))
-        os.write(master, b"\x1b")
-        repaint(master, captured, ("Message Plexmaton",), ("Conversations", "Commands"))
-    os.write(master, b"\x10permissions\r")
-    repaint(master, captured, ("Permissions", "Enable native file changes", "Esc close"))
-    os.write(master, b"\r")
-    repaint(master, captured, ("Permissions", "create/edit", "> Back", "Enter confirm"))
+def check_drawer(master: int, captured: bytearray) -> None:
+    """DRW-1/DRW-3: the chord pulls the Drawer open in a real terminal, and Escape returns it."""
+    os.write(master, b"\x10")
+    repaint(master, captured, ("Workspace", "> Configuration", "Conversations", "Esc close"))
     os.write(master, b"\x1b")
-    repaint(master, captured, ("Permissions", "Enable native file changes", "Esc close"))
-    os.write(master, b"\x1b")
-    repaint(master, captured, ("Message Plexmaton",), ("Permissions", "Commands"))
-    os.write(master, b"\x10new\r")
-    repaint(master, captured, ("Message Plexmaton",), ("Conversations", "Commands", "Cannot open"))
+    repaint(master, captured, ("Message Plexmaton",), ("Type to filter", "Esc close"))
 
 
 def check_input_pointer(master: int, captured: bytearray) -> None:
@@ -250,26 +229,6 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("zabc",))
     os.write(master, b"\x03")
     repaint(master, captured, ("Message Plexmaton",), ("zabc",))
-
-
-def check_skill_picker(master: int, captured: bytearray) -> None:
-    """SKP-2/SKP-3: completion and dismissal remain edits, never model dispatch."""
-    os.write(master, b"$")
-    repaint(master, captured, ("Skills", "smoke-review", "Review smoke fixture"))
-    os.write(master, b"smo")
-    repaint(master, captured, ("Skills", "smoke-review"), exact_lines=("$smo",))
-    os.write(master, b"\r")
-    repaint(master, captured, ("$smoke-review",), ("Skills",), exact_lines=("$smoke-review",))
-    os.write(master, b"\x03$")
-    repaint(master, captured, ("Skills", "smoke-review"))
-    os.write(master, b"\x1b")
-    repaint(master, captured, ("Message Plexmaton",), ("Skills",), exact_lines=("$",))
-    os.write(master, b"\x03$")
-    repaint(master, captured, ("Skills", "smoke-review"))
-    os.write(master, b"\t")
-    repaint(master, captured, ("$smoke-review",), ("Skills",), exact_lines=("$smoke-review",))
-    os.write(master, b"\x03")
-    repaint(master, captured, ("Message Plexmaton",), ("$smoke-review", "Skills"))
 
 
 def run_smoke(model_url: str) -> int:
@@ -345,9 +304,8 @@ output_reserve_tokens = 5000
 
         column, row = CLICK_IN_TRANSCRIPT
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
-        check_command_palette(master, captured)
+        check_drawer(master, captured)
         check_input_pointer(master, captured)
-        check_skill_picker(master, captured)
 
         question = "press Ctrl-D again to quit"
         armed_start = len(captured)

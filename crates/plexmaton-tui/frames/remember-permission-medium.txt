@@ -8,5 +8,5 @@
 │    Back                                                           │
 │                                                                   │
 │  ↑↓ choose · Enter confirm · Esc back                             │
-│  Until Plexmaton exits; kept across /new and resume.              │
+│  Until Plexmaton exits; kept across conversations.                │
 │                                                                   │

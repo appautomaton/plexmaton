@@ -1,0 +1,40 @@
+┌ Workspace ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                                                              │
+│  Type to filter                                                                                                                                              │
+│                                                                                                                                                              │
+│  > Configuration  Provider, model, and reasoning effort                                                                                                      │
+│    Conversations  Start a new conversation or resume a saved one                                                                                             │
+│    Permissions    Review and change Session or Project permissions                                                                                           │
+│                                                                                                                                                              │
+│  ↑↓ choose · Enter open · Esc close                                                                                                                          │
+│                                                                                                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││                                                                                                                                  │
+│                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running independently; this transcript remains         │
+│                          ││interactive.                                                                                                                      │
+│                          ││                                                                                                                                  │
+│                          │├ Message Agent A · primary · Thinking ────────────────────────────────────────────────────────────────────────────────────────────┤
+│                          ││Type a message · ⇥ to focus                                                                                                       │
+└──────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ~/plexmaton                                                                                                                                                    

@@ -22,7 +22,7 @@ pub(crate) struct ContentInsets {
 impl ContentInsets {
     pub(crate) const fn for_surface(surface: SurfaceId, height: u16) -> Self {
         match surface {
-            SurfaceId::Approval | SurfaceId::CommandPalette => Self {
+            SurfaceId::Approval | SurfaceId::Drawer => Self {
                 sides: 2,
                 vertical: if height >= 10 { 1 } else { 0 },
             },
@@ -86,13 +86,14 @@ pub enum SurfaceKind {
     Inspector,
     /// A user-opened blocking decision surface. It owns navigation until answered or dismissed.
     Modal,
-    /// The workspace's own command list, opened with `⌃P` and filtered by typing.
+    /// The workspace's own input, pulled from the top edge with `⌃P` and filtered by typing.
     ///
     /// A blocking layer that also holds the cursor, which is why it is a kind and not a `Modal`: an
     /// approval is answered with `↑↓` and `Enter` and must never grow a caret, so one kind cannot
-    /// answer "is there a cursor" for both. It belongs to the workspace rather than to any
+    /// answer "is there a cursor" for both. A Drawer page that is navigated rather than typed into
+    /// registers as `Modal` for that frame. It belongs to the workspace rather than to any
     /// conversation, so unlike an approval it is not a section of anyone's box.
-    CommandPalette,
+    Drawer,
     /// Inline completion list anchored to the primary composer; pointer-active without taking focus.
     Popup,
 }
@@ -107,7 +108,7 @@ impl SurfaceKind {
                 | Self::Composer
                 | Self::Inspector
                 | Self::Modal
-                | Self::CommandPalette
+                | Self::Drawer
                 | Self::Popup
         )
     }
@@ -117,7 +118,7 @@ impl SurfaceKind {
     pub const fn is_focusable(self) -> bool {
         matches!(
             self,
-            Self::Panel | Self::Composer | Self::Inspector | Self::Modal | Self::CommandPalette
+            Self::Panel | Self::Composer | Self::Inspector | Self::Modal | Self::Drawer
         )
     }
 
@@ -130,7 +131,7 @@ impl SurfaceKind {
     pub const fn is_dismissible(self) -> bool {
         matches!(
             self,
-            Self::Inspector | Self::Modal | Self::CommandPalette | Self::Popup
+            Self::Inspector | Self::Modal | Self::Drawer | Self::Popup
         )
     }
 
@@ -138,7 +139,7 @@ impl SurfaceKind {
     /// visible rectangle.
     #[must_use]
     pub const fn blocks_below(self) -> bool {
-        matches!(self, Self::Modal | Self::CommandPalette)
+        matches!(self, Self::Modal | Self::Drawer)
     }
 
     /// What typing does while a surface of this kind holds focus.
@@ -149,7 +150,7 @@ impl SurfaceKind {
             // The inspector carries the inspected agent's steer input, which renders only while it
             // holds focus (INS-5). There is still exactly one cursor: focus decides which surface
             // has it, and no surface has one without focus.
-            Self::Composer | Self::Inspector | Self::CommandPalette => KeyboardFocus::TextInput,
+            Self::Composer | Self::Inspector | Self::Drawer => KeyboardFocus::TextInput,
         }
     }
 }
@@ -189,13 +190,11 @@ pub enum SurfaceId {
     Attention,
     /// A pending tool approval, inline for the main agent and modal for an explicitly opened background request.
     Approval,
-    /// Read-only configuration, opened by the workspace command and dismissed with Escape.
-    Configuration,
-    /// The workspace's command list, floating over everything while it is open.
+    /// The Drawer, docked to the top edge over everything while it is open.
     ///
     /// Last in the ring because it is never a `Tab` destination: it is opened by its own chord and
     /// closed by `Escape`, and while it is open SURF-4 leaves it the only stop anyway.
-    CommandPalette,
+    Drawer,
     /// The status line: the last row of the screen, under every pane.
     Status,
 }

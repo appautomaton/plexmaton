@@ -16,5 +16,5 @@
 │                                                                                                                      │
 │[-] exec_command · cancelled                                                                                          │
 │Warning · Project permission saved; tool did not run.                                                                 │
-│Review /permissions.                                                                                                  │
+│Review it under Ctrl-P · Permissions.                                                                                 │
 │                                                                                                                      │

@@ -20,15 +20,12 @@ Visual changes are reviewed against real frames before the contract adopts them.
    Powerline example includes rainbow path components and omits unavailable statistics. Workspace
    tests, two independent code reviews and the real PTY status-line smoke passed without model calls.
 2. **Session interaction — complete.** JRN-4/JRN-7/JRN-8, SEL-7 and
-   [SPK-1–SPK-3](../specs/session-picker.md) cover lazy JSONL creation, restoration feedback,
+   [SPK-1–SPK-3](../specs/conversation-picker.md) cover lazy JSONL creation, restoration feedback,
    message-local retry/edit-retry, hover Copy and the session picker. Offline workspace tests,
    three-width frames and PTY smoke passed. It consumes Phase 02's journal/context APIs;
    compaction remains owned there. Text selection and main-agent approval refinements are stage 4;
    per-turn usage presentation remains a follow-up.
-   `/new` reuses SPK-2's replacement owner and lazy storage. Its palette row was inspected at
-   [wide](../../crates/plexmaton-tui/frames/command-palette-wide.txt),
-   [medium](../../crates/plexmaton-tui/frames/command-palette-medium.txt) and
-   [narrow](../../crates/plexmaton-tui/frames/command-palette-narrow.txt) widths.
+   New conversation reuses SPK-2's replacement owner and lazy storage.
 3. **Markdown transcript — complete.** [MD-1–MD-4](../specs/markdown.md) provide bounded assistant
    formatting while preserving journal source and virtualized scrolling. Reviewed
    [wide](../../crates/plexmaton-tui/frames/markdown-wide.txt),
@@ -118,7 +115,8 @@ Visual changes are reviewed against real frames before the contract adopts them.
     by `Ctrl-P`; `/config`, `/resume`, `/new`, `/permissions` and the three-second palette hint
     cease to exist. The user approved the vocabulary and a hand-composed three-width sketch on
     2026-09-06; real frames replace it slice by slice under the
-    [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md). Rejected: one picker for
+    [plan](../plans/phase-04-stage-11-composer-menu-and-drawer.md); the Drawer landed with
+    [DRW-1–DRW-4](../specs/drawer.md). Rejected: one picker for
     both entry points reached by `Ctrl-P`, which would put workspace pages in the composer and
     make its title lie about the addressee.
 

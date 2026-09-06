@@ -409,7 +409,7 @@ fn native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges() {
             clipped && complete,
             "both complete and bisected large operators were exercised at {width}"
         );
-        // Move to the formula, then cover it with the real command palette.
+        // Move to the formula, then cover it with the real Drawer.
         workspace.state.scroll_conversation_by(
             &workspace.surfaces,
             &workspace.metrics,
@@ -425,7 +425,7 @@ fn native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges() {
         paint(&mut workspace, &mut terminal);
         let overlay = workspace
             .surfaces
-            .get(SurfaceId::CommandPalette)
+            .get(SurfaceId::Drawer)
             .expect("overlay")
             .bounds;
         for native in workspace

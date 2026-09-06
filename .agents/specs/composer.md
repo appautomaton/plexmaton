@@ -14,7 +14,7 @@ holds one (ui-ux §input). The caret is painted by one call per frame, `place_cu
 surface owns it, so "how many cursors are there" is answered by the focus ring rather than by
 counting call sites.
 
-The command filter paints its own caret and leading inset. Its single row scrolls horizontally
+The Drawer's filter paints its own caret and leading inset. Its single row scrolls horizontally
 around the insertion point, reserving a caret cell; it never borrows the primary draft's position.
 
 **COM-2 — One insertion point, on a grapheme boundary.** Every input is a `TextInput`: text plus one
@@ -45,10 +45,10 @@ accepted collapsed composer (ui-ux §input).
 **COM-6 — Input selection names editable source.** A click places the caret; dragging retains a
 grapheme-boundary anchor, paints the source range, and release copies it through SEL-4. Typing or
 deletion replaces that range; motion or `Esc` clears it, and an active drag cancels without copying.
-The composer, entered worker input and command filter share this model. An edit that joins clusters
+The composer, entered worker input and the Drawer's filter share this model. An edit that joins clusters
 repairs the caret against the complete text; an exactly full row reserves the following caret row.
 Bracketed terminal paste replaces the selected range atomically, normalizes CRLF/CR to newlines,
-and never submits. A command filter flattens pasted line breaks to spaces to remain single-line.
+and never submits. The Drawer's filter flattens pasted line breaks to spaces to remain single-line.
 
 **COM-7 — Edited retry transfers draft ownership on acknowledgment.** Edit & retry fills the
 composer from the addressed question and labels it `Editing previous message · Esc to cancel`.
@@ -97,7 +97,7 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | Invariant | Proven by |
 | --- | --- |
 | COM-7 | `edit_retry_keeps_exact_text_until_ack_and_escape_restores_displaced_draft`, `failed_retry_append_returns_edited_input_without_starting_another_request`, `plain_retry_leaves_edit_mode_and_restores_the_displaced_draft`, `escape_clears_retry_input_selection_before_cancelling_the_edit`, `acknowledged_edit_retry_restores_the_draft_without_losing_keyboard_focus`, `retry_edit_submission_and_saved_draft_keep_independent_skill_bindings`; SKP-2 |
-| COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists`, `a_wrapped_draft_puts_the_caret_at_the_end_of_the_text_not_on_the_border`, `the_caret_reports_the_row_and_column_it_is_painted_on`, `a_wide_glyph_advances_the_caret_by_two_cells`, `a_click_lands_on_the_boundary_under_it`, `a_draft_reserves_the_rows_it_needs_in_an_ultrawide_split`, `the_command_filter_paints_its_own_caret_while_editing`, `a_long_command_filter_keeps_the_caret_inside_its_row` |
+| COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists`, `a_wrapped_draft_puts_the_caret_at_the_end_of_the_text_not_on_the_border`, `the_caret_reports_the_row_and_column_it_is_painted_on`, `a_wide_glyph_advances_the_caret_by_two_cells`, `a_click_lands_on_the_boundary_under_it`, `a_draft_reserves_the_rows_it_needs_in_an_ultrawide_split`, `the_drawer_filter_paints_its_own_caret_while_editing`, `a_long_drawer_filter_keeps_the_caret_inside_its_row` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing`, `editing_happens_at_the_caret_rather_than_at_the_end`, `motion_steps_over_whole_clusters_and_stops_at_the_ends`, `word_deletion_takes_the_trailing_space_and_the_word`, `killing_binds_to_the_logical_line_the_caret_is_on`, `the_visible_window_follows_the_caret_above_the_tail` |
 | COM-3 | `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `returned_text_lands_after_the_existing_draft`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text`, `persistence_failure_restores_the_draft_and_opens_one_notice` |
 | COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
