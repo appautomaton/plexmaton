@@ -28,7 +28,9 @@ pub use permissions::{
 };
 
 pub use reasoning::ReasoningEffort;
-pub use transcript::{ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole};
+pub use transcript::{
+    CommandInvocation, ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole,
+};
 pub use usage::{TokenCounts, TokenUsage};
 
 /// Rejected stable identifier input.

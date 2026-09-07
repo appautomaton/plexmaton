@@ -21,7 +21,9 @@ use crate::{
 
 #[path = "content_approval.rs"]
 mod approval_presentation;
+mod command;
 mod drawer;
+pub(crate) use command::{command_display_source, command_transcript_source};
 mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;

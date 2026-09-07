@@ -18,7 +18,8 @@ ceilings. Admission pins the definition revision, root, timeout and
 `[FileRead, FileWrite, ProcessSpawn]`; the executor revalidates them and the root's file identity
 (APV-1 through APV-3). Approval detail bounds each root and command with head, tail and exact
 omitted-byte count; the command leads so execution is visible before context wraps. Transcript
-invocation retains the canonical command, root and timeout within admitted-state bounds.
+invocation retains the original canonical command, root and timeout as `ToolDetail::Command` within
+admitted-state bounds. Display summaries do not become the source for inspection or copying (APD-1).
 
 **CMD-2 — The process context is explicit and noninteractive.** One `/bin/sh -c` root starts in its
 own process group, with null stdin and the admitted root as `cwd`. The tool snapshots the owner's

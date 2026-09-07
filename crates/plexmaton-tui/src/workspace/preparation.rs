@@ -267,6 +267,10 @@ fn snapshot_bytes(entry: &crate::TranscriptEntryView) -> usize {
     use crate::TranscriptEntryView as Entry;
     use plexmaton_core::ToolDetail;
     let detail = |detail: &ToolDetail| match detail {
+        ToolDetail::Command(command) => command
+            .source
+            .len()
+            .saturating_add(command.workspace_root.len()),
         ToolDetail::Text { source, .. } => source.len(),
         ToolDetail::Diff { patch } => patch.as_str().len(),
     };

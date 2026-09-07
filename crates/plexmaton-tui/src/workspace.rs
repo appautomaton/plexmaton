@@ -26,6 +26,8 @@ use crate::{
     transcript::TranscriptMetrics,
 };
 
+#[cfg(test)]
+mod approval_interaction_tests;
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
@@ -172,6 +174,8 @@ pub struct Workspace {
     metrics: TranscriptMetrics,
     palette: Palette,
     painted: Option<ViewRevision>,
+    /// Decisions bind to the request and scope in the last successfully delivered frame.
+    painted_approval: Option<approval_pointer::PaintedApproval>,
     frames: u64,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
@@ -417,6 +421,9 @@ impl Workspace {
     /// Intents whose reducer arrives in a later delivery step are listed explicitly rather than
     /// caught by a wildcard, so a new intent cannot be added and silently do nothing.
     fn apply(&mut self, intent: TuiIntent, now: Instant) -> Outcome {
+        if !matches!(intent, TuiIntent::Pointer(_)) {
+            self.pressed = None;
+        }
         match intent {
             TuiIntent::Menu(intent) => return self.apply_menu(intent),
             TuiIntent::Retry(action) => {
@@ -496,6 +503,7 @@ impl Workspace {
             }
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
+            TuiIntent::InspectCommand(action) => return self.inspect_command(action),
             TuiIntent::Approval(approval) => {
                 return Outcome {
                     approval: self.decide_visible_approval(approval),
@@ -508,6 +516,7 @@ impl Workspace {
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
             TuiIntent::TerminalResized { .. } => {
+                self.painted_approval = None;
                 self.pressed = None;
                 self.state.hover_entry(None);
                 self.cancel_pointer_click();
@@ -522,25 +531,7 @@ impl Workspace {
                 self.state
                     .scroll(&self.surfaces, &self.metrics, surface, direction);
             }
-            TuiIntent::Hover { surface, at } => {
-                // A bare move means the primary button is no longer reported as held. It also
-                // prevents a lost release from leaving the timer active indefinitely.
-                self.pressed = None;
-                self.drag_autoscroll = None;
-                self.pressed_entry = None;
-                let target = surface.and_then(|surface| self.entry_target_at(surface, at));
-                let copy = target
-                    .as_ref()
-                    .is_some_and(|target| self.copy_button_hit(target, at));
-                let retry = surface
-                    .and_then(|surface| self.retry_hit(surface, at))
-                    .and_then(|(_, command)| {
-                        self.state
-                            .retry_actions()
-                            .map(|actions| (actions.error_item.clone(), command))
-                    });
-                self.state.hover_controls(target, copy, retry);
-            }
+            TuiIntent::Hover { surface, at } => self.hover(surface, at),
         }
         Outcome::default()
     }
@@ -2990,7 +2981,7 @@ mod tests {
         let card_text = painted(&terminal, &workspace, SurfaceId::Approval);
         assert!(card_text.contains("Change crates/plexmaton-core/src/lib.rs"));
         assert!(
-            card_text.contains("> Deny"),
+            card_text.contains("> 2. Deny"),
             "safe answer is highlighted: {card_text}"
         );
         assert!(

@@ -118,8 +118,10 @@ fn approval_content(
         heading = vec!["More space needed to review scope.".to_owned()];
     }
     let hint = match view.stage {
-        ApprovalStage::Review => "↑↓ choose · Enter decide · Ctrl-O details",
-        ApprovalStage::Remember => "↑↓ choose · Enter confirm · Esc back",
+        ApprovalStage::Review if choices.len() == 3 => "1–3 decide · ↑↓ Enter · Ctrl-O details",
+        ApprovalStage::Review => "1–2 decide · ↑↓ Enter · Ctrl-O details",
+        ApprovalStage::Remember if choices.len() == 3 => "1–3 confirm · ↑↓ Enter · Esc back",
+        ApprovalStage::Remember => "1–2 confirm · ↑↓ Enter · Esc back",
         ApprovalStage::Submitting => "Esc input · your draft stays usable",
     };
     let description = match view.selected {
@@ -144,7 +146,16 @@ fn approval_content(
             clip(
                 Line::styled(
                     text,
-                    palette.style(if index == 0 { Role::Body } else { Role::Muted }),
+                    if index == 0
+                        && view.stage == ApprovalStage::Review
+                        && state.approval_command().is_some()
+                    {
+                        palette
+                            .style(Role::Accent)
+                            .add_modifier(ratatui::style::Modifier::UNDERLINED)
+                    } else {
+                        palette.style(if index == 0 { Role::Body } else { Role::Muted })
+                    },
                 ),
                 width,
             )
@@ -154,39 +165,14 @@ fn approval_content(
         lines.push(Line::default());
     }
     let mut choice_positions = Vec::with_capacity(choice_rows);
-    for choice in choices.iter().take(choice_rows) {
+    for (index, choice) in choices.iter().take(choice_rows).enumerate() {
         let enabled = scope_fits || *choice == ApprovalChoice::Back;
         if enabled {
             choice_positions.push((lines.len(), *choice));
         }
-        let selected = *choice == view.selected;
-        let label = if enabled {
-            choice.label().to_owned()
-        } else {
-            format!("{} (resize)", choice.label())
-        };
-        let row = if selected {
-            crate::content::chosen_row(
-                vec![
-                    Span::raw("> "),
-                    Span::styled(
-                        label,
-                        palette.style(if enabled { Role::Chosen } else { Role::Muted }),
-                    ),
-                ],
-                palette,
-                width,
-            )
-        } else {
-            Line::from(vec![
-                Span::styled("  ", palette.style(Role::Muted)),
-                Span::styled(
-                    label,
-                    palette.style(if enabled { Role::Body } else { Role::Muted }),
-                ),
-            ])
-        };
-        lines.push(clip(row, width));
+        lines.push(approval_choice_line(
+            state, palette, *choice, index, enabled, width,
+        ));
     }
     if extras > 0 {
         if extras == 4 {
@@ -206,7 +192,51 @@ fn approval_content(
     }
 }
 
-/// Both input routes use this same full-scope constraint; clipped confirmation never grants.
+/// Choice styling is independent of the line budget that places the decision rows.
+fn approval_choice_line(
+    state: &ViewState,
+    palette: &Palette,
+    choice: crate::ApprovalChoice,
+    index: usize,
+    enabled: bool,
+    width: u16,
+) -> Line<'static> {
+    let selected = state.approval().is_some_and(|view| view.selected == choice);
+    let label = if enabled {
+        format!("{}. {}", index + 1, choice.label())
+    } else {
+        format!("{}. {} (resize)", index + 1, choice.label())
+    };
+    let hovered = enabled && state.approval_hovered(choice);
+    let role = if !enabled {
+        Role::Muted
+    } else if selected {
+        Role::Chosen
+    } else if hovered {
+        Role::Accent
+    } else {
+        Role::Body
+    };
+    let mut style = palette.style(role);
+    if hovered {
+        style = style.add_modifier(ratatui::style::Modifier::UNDERLINED);
+    }
+    let row = if selected {
+        crate::content::chosen_row(
+            vec![Span::raw("> "), Span::styled(label, style)],
+            palette,
+            width,
+        )
+    } else {
+        Line::from(vec![
+            Span::styled("  ", palette.style(Role::Muted)),
+            Span::styled(label, style),
+        ])
+    };
+    clip(row, width)
+}
+
+/// Every input route uses the same full-scope constraint; clipped confirmation never grants.
 pub(crate) fn approval_scope_fits(state: &ViewState, width: u16, height: u16) -> bool {
     let Some(view) = state.approval() else {
         return true;
@@ -291,5 +321,5 @@ fn clip(line: Line<'static>, width: u16) -> Line<'static> {
         break;
     }
     spans.push(Span::raw("…"));
-    Line::from(spans)
+    Line::from(spans).style(line.style)
 }

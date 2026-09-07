@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PER-6/PER-8/PER-10: trust, prefix reuse and revoke through the real executable."""
 
+import base64
 import fcntl
 import hashlib
 import importlib.util
@@ -162,11 +163,17 @@ output_reserve_tokens = 4096
             terminal.prompt("trusted fixture", "TRUSTED_DONE", absent=("Approval required",))
             assert (project / "trusted-result").read_text() == "trusted"
             terminal.prompt("remember prefix fixture", "Approval required", "Allow and remember", "ls first")
-            terminal.send(UP, "> Allow and remember")
-            terminal.send(ENTER, "Remember permission", "Scope: ls", "> This Session")
+            terminal.send(b"\x0f", "Command", "ls first", "c copy", "Esc back")
+            start = len(terminal.capture)
+            os.write(terminal.master, b"c")
+            expected = b"]52;c;" + base64.b64encode(b"ls first")
+            smoke.read_until(terminal.master, terminal.capture,
+                             lambda: expected in bytes(terminal.capture[start:]),
+                             description="command inspection copy")
+            terminal.send(ESC, "Approval required", "1. Allow once", "3. Deny")
+            terminal.send(b"2", "Remember permission", "Scope: ls", "> 1. This Session")
             terminal.widths("prefix", "Remember permission", "Scope: ls", "same cwd/environment", "This Project")
-            terminal.send(DOWN, "> This Project")
-            terminal.send(ENTER, "PREFIX_SAVED", absent=("Remember permission",))
+            terminal.send(b"2", "PREFIX_SAVED", absent=("Remember permission",))
             grant = changes(home)[-1]
             assert grant["kind"] == "grant", grant
             assert grant["grant"]["matcher"]["kind"] == "command_prefix", grant
@@ -187,8 +194,8 @@ output_reserve_tokens = 4096
             terminal.send(ENTER, "Permission updated", absent=("Revoke Project:",))
             assert changes(home)[-1] == {"kind": "revoke", "id": grant["grant"]["id"]}
             terminal.close_permissions()
-            terminal.prompt("revoked prefix fixture", "Approval required", "ls first", "> Deny")
-            terminal.send(ENTER, "PREFIX_DENIED", absent=("Approval required",))
+            terminal.prompt("revoked prefix fixture", "Approval required", "ls first", "> 3. Deny")
+            terminal.send(b"3", "PREFIX_DENIED", absent=("Approval required",))
             terminal.quit()
         requests, errors = provider.snapshot()
         assert not errors and len(requests) == 8, (len(requests), errors)

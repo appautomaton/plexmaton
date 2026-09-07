@@ -54,6 +54,11 @@ pub(crate) struct DisclosureState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum HoverTarget {
+    Approval {
+        approval: super::ApprovalTarget,
+        stage: crate::ApprovalStage,
+        choice: crate::ApprovalChoice,
+    },
     Entry {
         target: EntryTarget,
         copy_button: bool,
@@ -80,8 +85,19 @@ impl DisclosureState {
         target: Option<EntryTarget>,
         copy: bool,
         retry: Option<(TranscriptItemId, super::RetryAction)>,
+        approval: Option<(
+            super::ApprovalTarget,
+            crate::ApprovalStage,
+            crate::ApprovalChoice,
+        )>,
     ) -> bool {
-        let target = if let Some((item, command)) = retry {
+        let target = if let Some((approval, stage, choice)) = approval {
+            Some(HoverTarget::Approval {
+                approval,
+                stage,
+                choice,
+            })
+        } else if let Some((item, command)) = retry {
             Some(HoverTarget::Retry { item, command })
         } else {
             target.map(|target| HoverTarget::Entry {
@@ -142,7 +158,7 @@ impl ViewState {
 
     /// Changes only the visual hover target and never focus, selection, scroll, or semantic data.
     pub(crate) fn hover_entry(&mut self, target: Option<EntryTarget>) {
-        self.hover_controls(target, false, None);
+        self.hover_controls(target, false, None, None);
     }
 
     pub(crate) fn hover_controls(
@@ -150,15 +166,28 @@ impl ViewState {
         target: Option<EntryTarget>,
         copy: bool,
         retry: Option<(TranscriptItemId, super::RetryAction)>,
+        approval: Option<(
+            super::ApprovalTarget,
+            crate::ApprovalStage,
+            crate::ApprovalChoice,
+        )>,
     ) {
         let target = target.filter(|target| {
             !self
                 .selected_in(target.surface, &target.agent)
                 .contains(target.index)
         });
-        if self.disclosure.hover(target, copy, retry) {
+        if self.disclosure.hover(target, copy, retry, approval) {
             self.touch();
         }
+    }
+
+    pub(crate) fn approval_hovered(&self, choice: crate::ApprovalChoice) -> bool {
+        self.approval().is_some_and(|view| {
+            matches!(&self.disclosure.hovered,
+            Some(HoverTarget::Approval { approval, stage, choice: hovered })
+                if approval.matches(&view) && *stage == view.stage && *hovered == choice)
+        })
     }
 
     pub(crate) fn retry_hovered(&self, item: &TranscriptItemId) -> Option<super::RetryAction> {
@@ -241,7 +270,7 @@ impl ViewState {
             self.scroll.park_conversation(target.agent.clone(), anchor);
         }
         // Changed geometry invalidates the old under-pointer target; it is not keyboard focus.
-        let _changed = self.disclosure.hover(None, false, None);
+        let _changed = self.disclosure.hover(None, false, None, None);
         self.disclosure.toggle(target.item);
         self.touch();
     }

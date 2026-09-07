@@ -42,6 +42,31 @@ pub(super) struct DragAutoScroll {
 }
 
 impl Workspace {
+    /// Resolve one visual target through the last painted geometry, without moving keyboard focus.
+    pub(super) fn hover(&mut self, surface: Option<SurfaceId>, at: Point) {
+        // A bare move means the primary button is no longer reported as held. It also
+        // prevents a lost release from leaving the timer active indefinitely.
+        self.pressed = None;
+        self.drag_autoscroll = None;
+        self.pressed_entry = None;
+        let target = surface.and_then(|surface| self.entry_target_at(surface, at));
+        let copy = target
+            .as_ref()
+            .is_some_and(|target| self.copy_button_hit(target, at));
+        let retry = surface
+            .and_then(|surface| self.retry_hit(surface, at))
+            .and_then(|(_, command)| {
+                self.state
+                    .retry_actions()
+                    .map(|actions| (actions.error_item.clone(), command))
+            });
+        let approval = (surface == Some(SurfaceId::Approval))
+            .then(|| self.approval_hit(at))
+            .flatten()
+            .and_then(|(id, choice)| self.state.approval().map(|view| (id, view.stage, choice)));
+        self.state.hover_controls(target, copy, retry, approval);
+    }
+
     pub(super) fn cancel_pointer_click(&mut self) {
         if self
             .pressed_entry

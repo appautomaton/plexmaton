@@ -4,9 +4,9 @@
    Scope: exact command; same cwd/environment                                               
    no prefix suggestion for this command                                                    
                                                                                             
-   > This Session                                                                           
-     Back                                                                                   
+   > 1. This Session                                                                        
+     2. Back                                                                                
                                                                                             
-   ↑↓ choose · Enter confirm · Esc back                                                     
+   1–2 confirm · ↑↓ Enter · Esc back                                                        
    Until Plexmaton exits; kept across conversations.                                        
                                                                                             

@@ -59,6 +59,17 @@ impl ToolCallStatus {
     }
 }
 
+/// Original admitted shell source and the context in which it will execute.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CommandInvocation {
+    /// Original shell source, including newlines and quoting; inspection copies this text.
+    pub source: String,
+    /// Canonical working directory selected at admission.
+    pub workspace_root: String,
+    /// Admitted foreground execution timeout.
+    pub timeout_ms: u64,
+}
+
 /// Semantic detail retained for an openable tool transcript entry.
 ///
 /// Producers enforce the applicable byte limit before constructing this value. Renderers may
@@ -66,6 +77,8 @@ impl ToolCallStatus {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ToolDetail {
+    /// Exact admitted shell invocation. Indirection keeps other tool and admission states compact.
+    Command(Box<CommandInvocation>),
     /// Bounded plain text, with any deliberate omission made explicit.
     Text {
         /// Exact retained semantic source.

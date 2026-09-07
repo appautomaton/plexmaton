@@ -28,10 +28,10 @@
 │                          │   Change crates/plexmaton-core/src/lib.rs and preserve its current revision.               
 │                          │   Approval is required for this operation.                                                 
 │                          │                                                                                            
-│                          │     Allow once                                                                             
-│                          │   > Deny                                                                                   
+│                          │     1. Allow once                                                                          
+│                          │   > 2. Deny                                                                                
 │                          │                                                                                            
-│                          │   ↑↓ choose · Enter decide · Ctrl-O details                                                
+│                          │   1–2 decide · ↑↓ Enter · Ctrl-O details                                                   
 │                          │   Esc returns to the conversation                                                          
 │                          │                                                                                            
 │                          │── Message Agent A · primary ───────────────────────────────────────────────────────────────

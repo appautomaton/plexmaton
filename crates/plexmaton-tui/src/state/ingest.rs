@@ -107,6 +107,7 @@ impl ViewState {
                 // report rather than a transition, and FR-1 says it costs no frame at all. Entry
                 // updates instead carry exact revisions and reject repeats (ENT-2).
                 if changed {
+                    self.reconcile_command_inspection();
                     self.touch();
                 }
                 ApplyOutcome::Accepted

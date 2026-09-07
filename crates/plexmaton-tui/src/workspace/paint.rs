@@ -69,6 +69,7 @@ impl Workspace {
         self.surfaces = drawn;
         self.metrics.commit_frame();
         self.painted = Some(self.state.revision());
+        self.painted_approval = self.approval_frame();
         self.frames = self.frames.saturating_add(1);
         Ok(Some(FrameWork {
             entries_wrapped: self.metrics.wrapped().saturating_sub(wrapped),

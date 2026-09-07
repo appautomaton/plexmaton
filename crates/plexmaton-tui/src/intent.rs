@@ -141,12 +141,22 @@ pub enum AttentionIntent {
 /// One thing the user asked of an approval surface they explicitly opened.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApprovalIntent {
+    /// Activate the displayed one-based choice while the approval surface holds focus.
+    Shortcut(u8),
     /// Move between the current producer-supported choices.
     Move(Direction),
     /// Return the highlighted typed decision to the owning loop.
     Decide,
     /// Show the request's detail in full, or clip it back to one row.
     ToggleDetail,
+}
+
+/// Inspection never submits an approval; it only opens, copies or closes retained command text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandInspectionIntent {
+    Open,
+    Copy,
+    Close,
 }
 
 /// One thing the user asked of the selection.
@@ -193,6 +203,8 @@ pub enum TuiIntent {
     Attention(AttentionIntent),
     /// Act on the open approval surface.
     Approval(ApprovalIntent),
+    /// Read or copy the exact pending command without changing its approval.
+    InspectCommand(CommandInspectionIntent),
     /// Act on the selection.
     Selection(SelectionIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.

@@ -96,6 +96,8 @@ pub struct WorkspaceInput {
     pub decision_rows: u16,
     /// Primary approvals are inline inputs; a user-opened background request can be modal.
     pub decision_mode: DecisionMode,
+    /// A user-opened command inspection overlays the approval without deciding it.
+    pub command_inspection: bool,
     /// Rows the Drawer asks for, borders included. Zero registers no region at all.
     pub drawer_rows: u16,
     /// Whether the Drawer's open view is typed into or navigated, which decides its kind.
@@ -118,6 +120,7 @@ impl Default for WorkspaceInput {
             attention: 0,
             decision_rows: 0,
             decision_mode: DecisionMode::Inline,
+            command_inspection: false,
             drawer_rows: 0,
             drawer_focus: crate::KeyboardFocus::TextInput,
             composer_menu_rows: 0,
@@ -225,6 +228,20 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     // have moved while it was open.
     let above_status = Rect::new(area.x, area.y, area.width, status.y.saturating_sub(area.y));
     regions.drawer = drawer_region(above_status, input.drawer_rows);
+    regions.command_inspection = input.command_inspection.then(|| {
+        let width = above_status.width.saturating_sub(4).min(110);
+        let height = above_status
+            .height
+            .saturating_sub(4)
+            .max(3)
+            .min(above_status.height);
+        Rect::new(
+            above_status.x + (above_status.width - width) / 2,
+            above_status.y + (above_status.height - height) / 2,
+            width,
+            height,
+        )
+    });
 
     registration::surface_tree(
         status,
@@ -305,6 +322,7 @@ pub(super) struct BodyRegions {
     pub(super) decision: Option<Rect>,
     /// The Drawer, docked to the top edge over the body while it is open.
     pub(super) drawer: Option<Rect>,
+    pub(super) command_inspection: Option<Rect>,
 }
 
 /// The Drawer's one geometry (DRW-2): the top edge, the full width, and the rows its content asks
@@ -345,6 +363,7 @@ fn body_regions(
             composer: Rect::default(),
             decision: None,
             drawer: None,
+            command_inspection: None,
         }
     } else {
         match class {
@@ -360,6 +379,7 @@ fn body_regions(
                     composer: Rect::default(),
                     decision: None,
                     drawer: None,
+                    command_inspection: None,
                 }
             }
             // `TooSmall` returned before layout began, so it cannot reach here.
@@ -378,6 +398,7 @@ fn body_regions(
                     composer: Rect::default(),
                     decision: None,
                     drawer: None,
+                    command_inspection: None,
                 }
             }
         }
@@ -454,6 +475,15 @@ fn band(column: Rect, top: u16, height: u16) -> Option<Rect> {
     (height > 0).then(|| Rect::new(column.x, top, column.width, height))
 }
 
+/// Top-border controls share exact geometry with pointer hit testing.
+pub(crate) fn command_inspection_controls(bounds: Rect) -> [Rect; 2] {
+    let right = bounds.right().saturating_sub(1);
+    [
+        Rect::new(right.saturating_sub(6), bounds.y, 3, 1),
+        Rect::new(right.saturating_sub(3), bounds.y, 3, 1),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::layout::Rect;
@@ -486,6 +516,7 @@ mod tests {
             composer: Rect::new(0, 4, 60, 3),
             decision: Some(Rect::new(0, 2, 60, 2)),
             drawer: None,
+            command_inspection: None,
         };
         let tree = super::registration::surface_tree(
             Rect::new(0, 8, 60, 1),

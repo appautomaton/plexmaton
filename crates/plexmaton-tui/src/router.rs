@@ -187,28 +187,28 @@ impl Router {
             };
         }
 
+        if context.focused == Some(SurfaceId::CommandInspection) {
+            return match key.code {
+                KeyCode::Esc => self.escape(context),
+                KeyCode::Char('c') if key.modifiers.is_empty() => Routed::Intent(
+                    TuiIntent::InspectCommand(crate::intent::CommandInspectionIntent::Copy),
+                ),
+                KeyCode::Up | KeyCode::Char('k') => Routed::Intent(TuiIntent::Scroll {
+                    surface: SurfaceId::CommandInspection,
+                    direction: ScrollDirection::Up,
+                }),
+                KeyCode::Down | KeyCode::Char('j') => Routed::Intent(TuiIntent::Scroll {
+                    surface: SurfaceId::CommandInspection,
+                    direction: ScrollDirection::Down,
+                }),
+                _ => Routed::Ignored(Ignored::Unbound),
+            };
+        }
+
         // A modal owns every non-global key. In particular, inspector and selection chords must
         // not reach a surface hidden underneath it (SURF-4).
         if context.focused == Some(SurfaceId::Approval) {
-            return match key.code {
-                KeyCode::Esc => self.escape(context),
-                KeyCode::Up | KeyCode::Char('k') => Routed::Intent(TuiIntent::Approval(
-                    ApprovalIntent::Move(Direction::Backward),
-                )),
-                KeyCode::Down | KeyCode::Char('j') => Routed::Intent(TuiIntent::Approval(
-                    ApprovalIntent::Move(Direction::Forward),
-                )),
-                KeyCode::Enter => Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide)),
-                // The same chord that discloses a tool entry, doing the same thing to the request
-                // one is asking about. A page key would be a second gesture for one idea, and on
-                // a Mac laptop it is a key the keyboard does not have.
-                KeyCode::Char('o' | 'O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    Routed::Intent(TuiIntent::Approval(ApprovalIntent::ToggleDetail))
-                }
-                KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
-                KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
-                _ => Routed::Ignored(Ignored::Unbound),
-            };
+            return self.approval_key(key, context);
         }
 
         if let Some(intent) = inspector_chord(key).or_else(|| selection_chord(key)) {
@@ -226,6 +226,38 @@ impl Router {
                 KeyboardFocus::TextInput => text_key(key),
                 KeyboardFocus::Navigation => navigation_key(key, context),
             },
+        }
+    }
+
+    /// Approval owns its focused grammar; every granting key needs an explicit press.
+    fn approval_key(&mut self, key: KeyEvent, context: &RouterContext<'_>) -> Routed {
+        match key.code {
+            KeyCode::Esc => self.escape(context),
+            KeyCode::Up | KeyCode::Char('k') => Routed::Intent(TuiIntent::Approval(
+                ApprovalIntent::Move(Direction::Backward),
+            )),
+            KeyCode::Down | KeyCode::Char('j') => Routed::Intent(TuiIntent::Approval(
+                ApprovalIntent::Move(Direction::Forward),
+            )),
+            KeyCode::Char(number @ '1'..='3')
+                if key.modifiers.is_empty() && key.kind == KeyEventKind::Press =>
+            {
+                Routed::Intent(TuiIntent::Approval(ApprovalIntent::Shortcut(
+                    number as u8 - b'0',
+                )))
+            }
+            KeyCode::Enter if key.kind == KeyEventKind::Press => {
+                Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide))
+            }
+            // The same chord that discloses a tool entry, doing the same thing to the request
+            // one is asking about. A page key would be a second gesture for one idea, and on
+            // a Mac laptop it is a key the keyboard does not have.
+            KeyCode::Char('o' | 'O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Routed::Intent(TuiIntent::Approval(ApprovalIntent::ToggleDetail))
+            }
+            KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
+            KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
+            _ => Routed::Ignored(Ignored::Unbound),
         }
     }
 
@@ -718,6 +750,25 @@ mod tests {
         );
         let mut router = Router::default();
 
+        for (number, choice) in [('1', 1), ('2', 2), ('3', 3)] {
+            assert_eq!(
+                router.translate(&key(KeyCode::Char(number), KeyModifiers::NONE), &context),
+                Routed::Intent(TuiIntent::Approval(ApprovalIntent::Shortcut(choice)))
+            );
+            assert_eq!(
+                router.translate(&key(KeyCode::Char(number), KeyModifiers::CONTROL), &context),
+                Routed::Ignored(Ignored::Unbound)
+            );
+            let repeat = Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char(number),
+                KeyModifiers::NONE,
+                KeyEventKind::Repeat,
+            ));
+            assert_eq!(
+                router.translate(&repeat, &context),
+                Routed::Ignored(Ignored::Unbound)
+            );
+        }
         assert_eq!(
             router.translate(&key(KeyCode::Up, KeyModifiers::NONE), &context),
             Routed::Intent(TuiIntent::Approval(ApprovalIntent::Move(

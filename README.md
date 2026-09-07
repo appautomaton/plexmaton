@@ -28,7 +28,7 @@ Plexmaton is an AI coding assistant for the terminal, built in Rust by App Autom
 
 ## Get started
 
-The current development target is **macOS on Apple Silicon**. Install the pinned Rust toolchain and ripgrep (`rg`).
+**macOS Apple Silicon** is the development target. Install the pinned Rust toolchain and `rg`.
 
 ```sh
 git clone https://github.com/appautomaton/plexmaton.git
@@ -37,7 +37,7 @@ mkdir -p .local/plexmaton
 cp examples/providers.toml .local/plexmaton/config.toml
 ```
 
-Edit the copied configuration to select a provider and model you can access. Set the environment variable named by `api_key_env`, then launch:
+Select your provider/model in that file, set its `api_key_env` variable, then launch:
 
 ```sh
 PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmaton
@@ -45,7 +45,7 @@ PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmato
 
 [Configuration and effort](.agents/specs/provider-adapter.md#request-configuration)
 
-The interface, tools and journals run locally. Model requests go to your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
+UI, tools and journals are local; model requests use your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
 
 ## Everyday controls
 
@@ -55,6 +55,8 @@ The interface, tools and journals run locally. Model requests go to your configu
 | `Ctrl-C` | Clear a draft or interrupt its conversation |
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
+| `1`–`3` | Choose an approval option while focused |
+| Approval: `Ctrl-O` / command click | Inspect; `c` / ⧉ copy, `Esc` / × close |
 | `$` | Find and complete a skill |
 | `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort` |
 

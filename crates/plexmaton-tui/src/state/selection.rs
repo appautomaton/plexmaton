@@ -347,10 +347,16 @@ fn tool_source(presentation: &plexmaton_core::ToolPresentation) -> Option<String
     (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
-const fn detail_source(detail: &ToolDetail) -> &str {
+fn detail_source(detail: &ToolDetail) -> std::borrow::Cow<'_, str> {
     match detail {
-        ToolDetail::Text { source, .. } => source.as_str(),
-        ToolDetail::Diff { patch } => patch.as_str(),
+        ToolDetail::Text { source, .. } => source.as_str().into(),
+        ToolDetail::Diff { patch } => patch.as_str().into(),
+        ToolDetail::Command(command) => crate::content::command_transcript_source(
+            &command.source,
+            &command.workspace_root,
+            command.timeout_ms,
+        )
+        .into(),
     }
 }
 
@@ -423,6 +429,26 @@ mod tests {
         assert_eq!(copied, format!("{invocation}\n{outcome}"));
         assert!(!copied.contains("invocation:"));
         assert!(!copied.contains("outcome:"));
+    }
+
+    /// ENT-4: copying a whole tool entry retains cwd and timeout; only modal copy extracts shell source.
+    #[test]
+    fn command_tool_copy_keeps_the_complete_invocation_context() {
+        let copied = tool_source(&ToolPresentation {
+            invocation: Some(ToolDetail::Command(Box::new(
+                plexmaton_core::CommandInvocation {
+                    source: "echo one\necho \"two\"".into(),
+                    workspace_root: "/workspace".into(),
+                    timeout_ms: 42,
+                },
+            ))),
+            outcome: None,
+        })
+        .expect("complete invocation");
+        assert_eq!(
+            copied,
+            "Command \"echo one\\necho \\\"two\\\"\"\ncwd: \"/workspace\"\ntimeout_ms: 42"
+        );
     }
 
     /// SEL-3: a selection cannot outlive the surface having stopped showing its agent.

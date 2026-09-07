@@ -19,6 +19,7 @@ pub struct AgentView {
     pub label: String,
     pub status: AgentStatus,
     entries: OrderedById<TranscriptItemId, TranscriptEntryView>,
+    tool_entries: std::collections::BTreeMap<ToolCallId, TranscriptItemId>,
     usage: Option<(TurnId, TokenUsage)>,
     pub(crate) note: Option<AnchoredNote>,
     pub(crate) retry: Option<super::RetryActions>,
@@ -39,6 +40,7 @@ impl AgentView {
             label,
             status,
             entries: OrderedById::default(),
+            tool_entries: std::collections::BTreeMap::new(),
             usage: None,
             note: None,
             retry: None,
@@ -88,6 +90,13 @@ impl AgentView {
             _ => return None,
         };
         Some((placement, &anchored.note))
+    }
+
+    pub(crate) fn tool(&self, call: &ToolCallId) -> Option<&ToolCallView> {
+        match self.entries.get(self.tool_entries.get(call)?)? {
+            TranscriptEntryView::Tool(tool) => Some(tool),
+            _ => None,
+        }
     }
 
     /// Iterates tool calls in arrival order.
@@ -232,9 +241,10 @@ impl AgentView {
         if item_revision != 0 || status != ToolCallStatus::Queued {
             return Err(ReduceError::UnknownTranscriptItem(entry_id));
         }
-        if self.tools().any(|tool| tool.id == id) {
+        if self.tool_entries.contains_key(&id) {
             return Err(ReduceError::DuplicateToolCall(id));
         }
+        self.tool_entries.insert(id.clone(), entry_id.clone());
         let _added = self.entries.upsert(
             entry_id.clone(),
             TranscriptEntryView::Tool(ToolCallView {
@@ -351,8 +361,7 @@ impl super::ViewState {
             return;
         };
         let entry = agent
-            .tools()
-            .find(|tool| tool.id == receipt.call_id)
+            .tool(&receipt.call_id)
             .map(|tool| tool.entry_id.clone());
         if let Some(TranscriptEntryView::Tool(tool)) =
             entry.and_then(|id| agent.entries.get_mut(&id))

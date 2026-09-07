@@ -51,6 +51,13 @@ pub fn bounded_tool_text(source: &str, already_omitted_bytes: u64) -> ToolDetail
 
 pub(crate) fn detail_fits_text_bound(detail: &ToolDetail) -> bool {
     match detail {
+        ToolDetail::Command(command) => {
+            command
+                .source
+                .len()
+                .saturating_add(command.workspace_root.len())
+                <= MAX_TOOL_PRESENTATION_TEXT_BYTES
+        }
         ToolDetail::Text { source, .. } => source.len() <= MAX_TOOL_PRESENTATION_TEXT_BYTES,
         ToolDetail::Diff { patch } => patch.len() <= MAX_TOOL_PRESENTATION_TEXT_BYTES,
     }

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–18 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -182,6 +182,16 @@ Visual changes are reviewed against real frames before the contract adopts them.
     file length and diff whitespace checks passed. The [MTH review evidence](../specs/math-layout.md#rendered-and-terminal-evidence) records
     inspected 120/88/60-column formula and index frames. Tall/script roots remain coarse;
     physical-terminal pixel fidelity and CI on this branch remain unverified.
+
+18. **Approval inspection — complete.** [APD-1–APD-3](../specs/approval-inspection.md) cover exact
+    command inspection/copy and return to the pending approval. INV-2/INV-3/INV-11 and PER-5/PER-10
+    cover hover, numbered choices, painted-frame confirmation and stale/captured input guards.
+    The user approved the single-heading layout; six linked wide/medium/narrow frames were inspected.
+    On `2661aef` plus these changes, 629 unit tests and one doctest across core, agent, command and TUI
+    passed, along with affected all-target Clippy and both permission and terminal PTY smokes.
+    Static corpus, formatting and dependency-direction checks passed. No CI or live model run was
+    performed for this uncommitted branch.
+
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
