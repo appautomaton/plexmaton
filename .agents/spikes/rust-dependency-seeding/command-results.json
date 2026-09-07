@@ -1,0 +1,69 @@
+{
+  "source_revision": "1393bcb",
+  "tool": "scripts/seed-rust-deps.py conservative policy",
+  "workload": "cargo test -p plexmaton-tui --lib --no-run --offline --locked --jobs 6",
+  "platform": "macOS APFS, Rust/Cargo 1.98.0",
+  "samples": "Ordered observations including a final empty-target control after host-cache warmup; no statistically established wall-time benefit.",
+  "seed": {
+    "excluded_packages": 62,
+    "files": 336,
+    "logical_bytes": 82513141,
+    "packages": 47,
+    "units": 48,
+    "seconds": 0.511,
+    "observed_process_write_bytes": 4096
+  },
+  "builds": [
+    {
+      "label": "qualified-producer",
+      "seconds": 16.5,
+      "observed_process_write_bytes": 653185024,
+      "external_fresh": 0,
+      "external_compiled": 124,
+      "local_compiled": 4
+    },
+    {
+      "label": "qualified-consumer",
+      "seconds": 13.515,
+      "observed_process_write_bytes": 517066752,
+      "external_fresh": 48,
+      "external_compiled": 76,
+      "local_compiled": 4
+    },
+    {
+      "label": "qualified-after-drop",
+      "seconds": 12.614,
+      "observed_process_write_bytes": 517087232,
+      "external_fresh": 48,
+      "external_compiled": 76,
+      "local_compiled": 4
+    },
+    {
+      "label": "final-consumer",
+      "seconds": 9.892,
+      "observed_process_write_bytes": 517079040,
+      "external_fresh": 48,
+      "external_compiled": 76,
+      "local_compiled": 4
+    },
+    {
+      "label": "final-empty-control",
+      "seconds": 10.594,
+      "observed_process_write_bytes": 652722176,
+      "external_fresh": 0,
+      "external_compiled": 124,
+      "local_compiled": 4
+    }
+  ],
+  "correctness": {
+    "producer_removed_before_second_build": true,
+    "tui_tests_passed": 409,
+    "real_git_cargo_fixture": "external reuse, local identity, full-debug source frame, feature invalidation and subsequent local edit passed"
+  },
+  "measurement": "Observed instrumented-process I/O; not complete process-tree or NAND writes. Rustup exec-transition seed sample excluded from byte accounting.",
+  "final_seed": {
+    "seconds": 0.403,
+    "observed_process_write_bytes": 532480
+  },
+  "decision": "Manual opt-in for reduced observed writes and independent cloned dependency data; no material elapsed-time benefit established."
+}
