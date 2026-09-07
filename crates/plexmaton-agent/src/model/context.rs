@@ -22,6 +22,10 @@ pub const MAX_ASSISTANT_TOOL_ARGUMENT_BYTES: usize = 512 * 1024;
 /// Maximum aggregate visible text and plaintext reasoning retained in one assistant output.
 pub const MAX_ASSISTANT_TEXT_BYTES: usize = 1024 * 1024;
 
+/// Maximum UTF-8 bytes in one model-facing tool success or failure.
+/// Execution and journal replay share this ceiling; transcript previews have a separate bound.
+pub const MAX_TOOL_OUTCOME_BYTES: usize = 1024 * 1024;
+
 /// Maximum bytes retained for one provider-supplied tool call identity or name.
 pub const MAX_TOOL_IDENTITY_BYTES: usize = 1024;
 
@@ -405,7 +409,7 @@ impl ToolBatch {
                 | ToolOutcome::Denied
                 | ToolOutcome::Cancelled { .. } => 0,
             };
-            retained > crate::MAX_TOOL_PRESENTATION_TEXT_BYTES
+            retained > MAX_TOOL_OUTCOME_BYTES
         }) {
             return Err(ContextError::ToolOutcomeTooLarge);
         }

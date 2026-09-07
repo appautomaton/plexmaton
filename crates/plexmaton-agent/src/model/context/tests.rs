@@ -211,6 +211,7 @@ fn tool_batch_accepts_only_model_call_order() {
     assert_eq!(batch.results()[1].call_id().as_str(), "call-b");
 }
 
+/// JRN-5: success and failure outcomes share the execution ceiling, including its exact boundary.
 #[test]
 fn tool_batch_rechecks_persisted_result_bounds() {
     let output = AssistantOutput::new(
@@ -221,15 +222,31 @@ fn tool_batch_rechecks_persisted_result_bounds() {
         None,
     )
     .unwrap_or_else(|error| panic!("fixture output: {error}"));
-    let result = ToolBatchResult::new(
-        id("call-a", |value| ToolCallId::new(value)),
-        ToolOutcome::Succeeded {
-            output: "x".repeat(crate::MAX_TOOL_PRESENTATION_TEXT_BYTES + 1),
-        },
-    );
-
-    assert_eq!(
-        ToolBatch::new(output, vec![result]),
-        Err(ContextError::ToolOutcomeTooLarge)
-    );
+    for bytes in [
+        crate::MAX_TOOL_OUTCOME_BYTES,
+        crate::MAX_TOOL_OUTCOME_BYTES + 1,
+    ] {
+        for outcome in [
+            ToolOutcome::Succeeded {
+                output: "x".repeat(bytes),
+            },
+            ToolOutcome::Failed {
+                message: "x".repeat(bytes),
+            },
+        ] {
+            let result = ToolBatchResult::new(
+                id("call-a", |value| ToolCallId::new(value)),
+                outcome.clone(),
+            );
+            let batch = ToolBatch::new(output.clone(), vec![result]);
+            if bytes <= crate::MAX_TOOL_OUTCOME_BYTES {
+                assert_eq!(
+                    batch.expect("valid retained model output").results()[0].outcome(),
+                    &outcome
+                );
+            } else {
+                assert_eq!(batch, Err(ContextError::ToolOutcomeTooLarge));
+            }
+        }
+    }
 }

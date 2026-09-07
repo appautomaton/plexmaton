@@ -15,9 +15,7 @@ pub use interface::{
     DispatchReport, JournalTailRecovery, PersistenceFailure, RequestedCompactionOutcome,
     RuntimeError, RuntimeUpdate, SkillSummary,
 };
-pub use native::{
-    MAX_NATIVE_TOOL_RESULT_BYTES, NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError,
-};
+pub use native::{NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::{
     ContextBudgetSnapshot, ContextBudgetUnavailable, EffortChangeRefusal, LiveRuntime,
 };

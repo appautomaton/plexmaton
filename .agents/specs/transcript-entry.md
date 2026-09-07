@@ -36,7 +36,7 @@ facts. A restored pending approval remains subject to APV-6.
 from a canonical diff, distinguishes omitted bytes from empty text, and keeps invocation separate
 from outcome. Admission contributes a bounded canonical invocation; every later lifecycle update
 retains it, and execution or a no-run terminal contributes a bounded outcome. Plain text retains
-at most 64 KiB with explicit omitted-byte metadata. A successful exact edit retains its complete
+at most 64 KiB with explicit omitted-byte metadata. JRN-5 owns the separate model-outcome bound. A successful exact edit retains its complete
 canonical patch under the bound derived by MUT-6; unchanged file bytes never enter it. Slice 2
 proves production and retention bounds. Disclosure is view state keyed by `TranscriptItemId`, never
 another session fact: it survives lifecycle replacement, changes one cached height, and expands
