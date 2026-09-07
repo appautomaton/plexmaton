@@ -8,7 +8,7 @@ use plexmaton_provider::{resolve_api_key, resolve_home};
 use plexmaton_runtime::NativeToolCatalog;
 
 use crate::{
-    INTERNAL_RG_DRIVER, project_config, resolve_path_executable,
+    INTERNAL_RG_DRIVER, agent_instructions, project_config, resolve_path_executable,
     session::{ConversationSelection, OpenedConversation, open_selected_conversation},
     session_picker, statusline,
 };
@@ -35,9 +35,17 @@ pub(super) async fn live_runtime_from_process(
         .context("canonicalize tool workspace")?;
     let project_root = project_config::discover_project_root(&workspace_root)
         .context("resolve project configuration root")?;
-    let model = project_config::load(&project_root)?
+    let configured_model = project_config::load(&project_root)?
         .select_model(&config.models)
         .context("resolve project model selection")?;
+    let model = agent_instructions::resolve_model(
+        &configured_model,
+        &root,
+        &project_root,
+        &workspace_root,
+        &plexmaton_file_tools::FileCancellation::new(),
+    )
+    .context("load AGENTS.md instructions")?;
     let key = resolve_api_key(&model, std::env::var_os(model.api_key_env()))
         .context("resolve provider API key")?;
     let ripgrep = resolve_path_executable("rg", std::env::var_os("PATH").as_deref())?;
@@ -81,7 +89,7 @@ pub(super) async fn live_runtime_from_process(
     let picker = session_picker::ConversationPicker::new(session_picker::Launcher {
         root: root.clone(),
         workspace: workspace_root.clone(),
-        model: model.clone(),
+        model: configured_model,
         ripgrep,
         driver,
         permissions: permissions.clone(),

@@ -3,6 +3,8 @@ use crate::tests::FixtureWorkspace;
 use plexmaton_agent::{Agent, ApprovalPolicy, ConversationMetadata, TurnBudget, UnixMillis};
 use plexmaton_session_store::JournalFile;
 
+mod instructions;
+
 const CONFIG: &str = r#"
 active_model = { provider = "fixture", model = "test" }
 [providers.fixture]

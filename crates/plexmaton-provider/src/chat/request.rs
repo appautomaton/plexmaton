@@ -95,6 +95,9 @@ fn encode_messages(
     if !model.instructions().is_empty() {
         messages.push(json!({"role":"system", "content":model.instructions()}));
     }
+    if !model.workspace_instructions().is_empty() {
+        messages.push(json!({"role":"user", "content":model.workspace_instructions()}));
+    }
     for atom in &request.atoms {
         messages.extend(encode_atom(model, atom)?);
     }

@@ -36,7 +36,8 @@ signature-requiring wire encoders omit it without fabricating replay.
 
 **PRV-4 — The semantic record is replay authority.** Every request is rebuilt from the record,
 including exact provider replay sidecars and tool-call identities. The same selected journal path,
-resolved configuration, ordered tool schemas and output cap produce the same wire request. Gemini local call IDs are scoped
+resolved configuration (including AGI-4's current workspace instruction snapshot), ordered tool
+schemas and output cap produce the same wire request. Gemini local call IDs are scoped
 to the request attempt; only retained upstream IDs enter the wire call/result pair. A response-level
 ID is diagnostic metadata only: the selected proxy reports `store: false`, and an unavailable `previous_response_id`
 must not strand the session or create an adapter-private transcript.
@@ -63,6 +64,9 @@ fails before network work begins. SKL-1 permits a narrow project model-selection
 project provider definitions or credential changes. An allowed-effort declaration must be nonempty,
 unique and encodable by the dialect; an explicit configured effort must belong to it. Rejected: a combined provider/model profile,
 inline keys, and untyped merging of project configuration into provider authority.
+
+[AGI-3/AGI-4](./agent-instructions.md) add a bounded workspace snapshot to that immutable request
+environment as user context, separately from configured system instructions and tool authority.
 
 **PRV-7 — Local bounds do not trust upstream hints.** Provider token limits may be forwarded but
 are not memory or context boundaries. The stream owner bounds retained output and replay locally,

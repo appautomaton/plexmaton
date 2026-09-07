@@ -14,6 +14,7 @@ use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{ConversationRecovery, DispatchReport, LiveRuntime, NativeToolCatalog};
 use plexmaton_tui::{ConfigurationSummary, MarkdownTheme, Palette, Workspace};
 
+mod agent_instructions;
 mod clipboard;
 mod input;
 #[cfg(test)]
