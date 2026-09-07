@@ -1,9 +1,5 @@
 # AGENTS.md — Plexmaton
 
-Plexmaton is an early-stage Rust agentic harness with a Ratatui UI, explicit session/context state, multiple provider dialects, and durable tools and sessions. Asynchronous multi-agent collaboration is planned. Preserve that direction without speculative compatibility or abstraction.
-
-Inherit `../AGENTS.md` relative to the primary checkout; the stricter applicable rule wins. This is the only project document loaded every turn. Task-specific rules load through the table below; [`.agents/README.md`](./.agents/README.md) owns the corpus structure.
-
 ## Context routing
 
 Read only what the active task needs. Do not preload all phases, reference repositories, or broad source trees.

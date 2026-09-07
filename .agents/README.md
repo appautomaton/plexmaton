@@ -1,17 +1,16 @@
 # The `.agents` corpus
 
-The project's durable memory. `AGENTS.md` at the repository root is its entry point and the only
-part loaded on every turn. Everything here states what is true now.
+`AGENTS.md` at the repository root routes tasks to the documents in this directory.
+Keep project instructions inside the checkout so they work in clones and linked worktrees.
 
 ## Layers
 
-Every byte in `AGENTS.md` is paid on every turn. Every byte below it is paid once, when a task
-needs it. A rule earns a place in `AGENTS.md` only if it shapes behaviour before the task is
-known; everything else is pushed down until pushing further would hurt.
+Keep rules that apply across tasks in `AGENTS.md`. Put task-specific rules in the documents
+below and read them when their trigger applies. Harnesses determine when files enter model context.
 
-| Layer | Loaded | Files |
+| Layer | Applies to | Files |
 | --- | --- | --- |
-| Always | Every turn | `AGENTS.md` |
+| Always | Every task | `AGENTS.md` |
 | On trigger | When the trigger table names it | `standards/*.md` |
 | On demand | When the work touches the subject | `roadmap.md`, `ui-ux.md`, `phases/*`, `plans/*`, `specs/*`, `research/*`, `spikes/*` |
 
