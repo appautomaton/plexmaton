@@ -3,6 +3,7 @@
    /resume  Resume a saved conversation                              
    /compact  Compact this conversation's context now                 
    /permissions  Review this Session's permissions                   
+   /effort  Adjust this conversation's reasoning effort              
   ↑↓ choose · Tab complete · Enter accept · Esc close                
 ── Message Agent A · primary ────────────────────────────────────────
  /                                                                   

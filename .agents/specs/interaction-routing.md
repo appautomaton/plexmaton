@@ -80,6 +80,9 @@ a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
 
 ### Key grammar
 
+The `/effort` selector uses EFF-2: Left/Right or Up/Down skip disabled stops, pointer release
+previews a selectable level, Enter confirms, and Escape cancels a held press before closing.
+
 The primary composer's visible [composer menu](./composer-menu.md) owns Up/Down, Tab/Enter and Esc
 under SKP-3; completing a name edits the draft without submitting it. Outside that surface the
 ordinary bindings below apply.

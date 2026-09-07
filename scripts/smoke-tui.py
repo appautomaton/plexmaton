@@ -235,6 +235,16 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("Message Plexmaton",), ("zabc",))
 
 
+def check_effort(master: int, captured: bytearray) -> None:
+    """EFF-1/EFF-2: a real command changes idle effort without a model request or journal."""
+    os.write(master, b"/effort ")
+    repaint(master, captured, ("Effort", "none", "low", "medium", "high", "xhigh", "max"))
+    os.write(master, b"\x1b[C\r")
+    repaint(master, captured, ("Message Plexmaton", "low"), ("Enter confirm",))
+    os.write(master, b"/effort none\r")
+    repaint(master, captured, ("Message Plexmaton", "none"), ("Enter confirm",))
+
+
 def run_smoke(model_url: str) -> int:
     if sys.argv[1:]:
         print("usage: smoke-tui.py", file=sys.stderr)
@@ -259,6 +269,7 @@ api_key_env = "PLEXMATON_SMOKE_API_KEY"
 api = "openai_responses"
 id = "gpt-5.6-luna"
 reasoning_effort = "none"
+allowed_reasoning_efforts = ["none", "low", "high", "max"]
 context_window_tokens = 100000
 max_output_tokens = 10000
 output_reserve_tokens = 5000
@@ -310,6 +321,7 @@ output_reserve_tokens = 5000
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
         check_drawer(master, captured)
         check_input_pointer(master, captured)
+        check_effort(master, captured)
 
         question = "press Ctrl-D again to quit"
         armed_start = len(captured)

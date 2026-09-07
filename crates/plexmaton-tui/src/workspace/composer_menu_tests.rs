@@ -16,11 +16,11 @@ use ratatui::{
     layout::Rect,
 };
 
-fn key(code: KeyCode) -> Event {
+pub(super) fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }
 
-fn mouse(kind: MouseEventKind, point: Point) -> Event {
+pub(super) fn mouse(kind: MouseEventKind, point: Point) -> Event {
     Event::Mouse(MouseEvent {
         kind,
         column: point.x,
@@ -43,7 +43,7 @@ fn agent() -> AgentId {
 }
 
 /// A drawn workspace with the caret in the composer.
-fn setup(width: u16) -> (Workspace, Terminal<TestBackend>) {
+pub(super) fn setup(width: u16) -> (Workspace, Terminal<TestBackend>) {
     let mut workspace = Workspace::default();
     let mut terminal = Terminal::new(TestBackend::new(width, 40)).expect("terminal");
     workspace.emit(canonical_runtime().ready(u64::MAX));
@@ -62,7 +62,7 @@ fn setup(width: u16) -> (Workspace, Terminal<TestBackend>) {
     (workspace, terminal)
 }
 
-fn typed(workspace: &mut Workspace, text: &str) -> Outcome {
+pub(super) fn typed(workspace: &mut Workspace, text: &str) -> Outcome {
     let mut last = Outcome::default();
     for character in text.chars() {
         last = workspace.handle(&key(KeyCode::Char(character)));

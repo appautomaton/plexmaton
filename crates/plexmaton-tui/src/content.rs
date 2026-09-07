@@ -240,6 +240,9 @@ pub(crate) fn composer_menu(
     height: u16,
 ) -> Vec<Line<'static>> {
     use crate::state::MenuRow;
+    if state.menu_listing() == Some(crate::Listing::Effort) {
+        return crate::render::effort::lines(state, palette, width, height);
+    }
     if state.menu_listing().is_none() {
         return Vec::new();
     }
@@ -296,6 +299,7 @@ pub(crate) fn composer_menu(
                 menu.permission_label(choice).unwrap_or_default(),
                 String::new(),
             ),
+            MenuRow::Effort(effort) => (effort.as_str().to_owned(), String::new()),
         };
         let text = if detail.is_empty() {
             command_summary(&format!("{marker} {name}"), usize::from(width))

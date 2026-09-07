@@ -13,11 +13,18 @@ pub enum Command {
     Resume,
     Compact,
     Permissions,
+    Effort,
 }
 
 impl Command {
     /// Every Command, in the order the menu lists them.
-    pub const ALL: [Self; 4] = [Self::New, Self::Resume, Self::Compact, Self::Permissions];
+    pub const ALL: [Self; 5] = [
+        Self::New,
+        Self::Resume,
+        Self::Compact,
+        Self::Permissions,
+        Self::Effort,
+    ];
 
     /// The name after the slash.
     #[must_use]
@@ -27,6 +34,7 @@ impl Command {
             Self::Resume => "resume",
             Self::Compact => "compact",
             Self::Permissions => "permissions",
+            Self::Effort => "effort",
         }
     }
 
@@ -36,6 +44,7 @@ impl Command {
         match self {
             Self::Resume => Some(Listing::Conversations),
             Self::Permissions => Some(Listing::Permissions),
+            Self::Effort => Some(Listing::Effort),
             Self::New | Self::Compact => None,
         }
     }
@@ -48,6 +57,7 @@ impl Command {
             Self::Resume => "Resume a saved conversation",
             Self::Compact => "Compact this conversation's context now",
             Self::Permissions => "Review this Session's permissions",
+            Self::Effort => "Adjust this conversation's reasoning effort",
         }
     }
 

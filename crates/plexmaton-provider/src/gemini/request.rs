@@ -3,10 +3,11 @@
 use plexmaton_agent::{
     AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest, ToolOutcome,
 };
+use plexmaton_core::ReasoningEffort;
 use serde_json::{Value, json};
 
 use super::wire::PartReplay;
-use crate::{EncodeError, FunctionTool, ReasoningEffort, ResolvedModel, codec::tool_output};
+use crate::{EncodeError, FunctionTool, ResolvedModel, codec::tool_output};
 
 pub(crate) fn encode(
     model: &ResolvedModel,

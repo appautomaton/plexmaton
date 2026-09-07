@@ -18,6 +18,8 @@ clock. Producer traffic that alters nothing visible costs no frame. An admitted 
 completion invalidates presentation without changing semantic state (PRE-3).
 An owned status command may publish a changed footer (STL-4); only changed decoded output advances
 the view revision. Its optional refresh clock schedules a command, not a frame or transcript scan.
+EFF-4 owns a separate visible-only effort animation deadline; its phase invalidates presentation
+without advancing semantic revision. The same cell/native commit path publishes every frame.
 
 **FR-2 — A frame's layout work is bounded by its viewport, not by the conversation's length.** What
 a frame builds is what its viewport reaches (TR-2). Cold/new-width literal heights use count-only

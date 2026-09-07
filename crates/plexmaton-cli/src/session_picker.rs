@@ -242,6 +242,11 @@ impl ConversationPicker {
                 let events = std::iter::from_fn(|| opened.runtime.try_next_event()).collect();
                 workspace.close_conversation_picker();
                 workspace.replace_projection(events);
+                if let Some(model) = opened.runtime.configured_model() {
+                    workspace.set_model(configuration_summary(model));
+                    workspace
+                        .set_effort_choices(model.allowed_reasoning_efforts().map(<[_]>::to_vec));
+                }
                 skills::sync_choices(&opened.runtime, workspace);
                 for diagnostic in opened.runtime.skill_diagnostics() {
                     workspace.report_skill_diagnostic(diagnostic);

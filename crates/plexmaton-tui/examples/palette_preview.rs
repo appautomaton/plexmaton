@@ -108,7 +108,7 @@ fn render(palette: Palette, frame: &str) -> Result<Buffer> {
     workspace.set_model(plexmaton_tui::ConfigurationSummary {
         provider: "local".into(),
         model: "plexmaton-dev".into(),
-        reasoning_effort: "high".into(),
+        reasoning_effort: plexmaton_core::ReasoningEffort::High,
     });
     let mut events = ScriptedRuntime::new(Scenario::canonical()?).ready(u64::MAX);
     let next = events.len() as u64 + 1;

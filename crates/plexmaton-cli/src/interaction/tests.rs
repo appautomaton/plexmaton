@@ -161,3 +161,67 @@ async fn blocked_preparation_never_holds_the_production_input_and_frame_loop() {
         }
     }
 }
+
+/// EFF-1/EFF-2/EFF-5: the production select loop routes /effort through to the real driver.
+#[tokio::test]
+async fn effort_command_changes_the_live_driver_without_submitting_a_message() {
+    use plexmaton_core::ReasoningEffort;
+    let root = FixtureWorkspace::new();
+    let (mut runtime, mut picker, mut workspace, _) = empty_session(root.path());
+    let agent = runtime.agent_id().clone();
+    let model = runtime.set_reasoning_effort(&agent, ReasoningEffort::Max);
+    let model = model.expect("initial max");
+    workspace.set_model(crate::configuration_summary(&model));
+    workspace.set_effort_choices(model.allowed_reasoning_efforts().map(<[_]>::to_vec));
+    let mut terminal = Terminal::new(TestBackend::new(88, 30)).expect("terminal");
+    workspace.draw(&mut terminal).expect("first frame");
+    for _ in 0..workspace.surfaces().len() {
+        if workspace.state().focused(workspace.surfaces())
+            == Some(plexmaton_tui::SurfaceId::Composer)
+        {
+            break;
+        }
+        workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        workspace.draw(&mut terminal).expect("focus");
+    }
+    let key = |code, modifiers| Ok(Event::Key(KeyEvent::new(code, modifiers)));
+    let mut events = stream::iter([
+        Ok(Event::Paste("/effort ".to_owned())),
+        key(KeyCode::Left, KeyModifiers::NONE),
+        key(KeyCode::Left, KeyModifiers::NONE),
+        key(KeyCode::Enter, KeyModifiers::NONE),
+        key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+    ]);
+    let mut preparation = LivePreparation::new("/bin/false".into());
+    let mut clipboard = TerminalClipboard::new(Vec::new(), ClipboardRoute::Direct);
+    let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
+    let result = drive_session(
+        &mut terminal,
+        &mut runtime,
+        &mut clipboard,
+        &mut workspace,
+        &mut picker,
+        &mut None,
+        &mut permissions,
+        &mut events,
+        &mut preparation,
+        |_, _| Ok(()),
+    )
+    .await;
+    assert_eq!(
+        runtime
+            .configured_model()
+            .expect("model")
+            .reasoning_effort(),
+        ReasoningEffort::High
+    );
+    assert!(workspace.state().composer().text().is_empty());
+    assert!(!root.path().join("sessions").exists());
+    result.expect("loop");
+    preparation.shutdown().await.expect("preparation");
+    clipboard.shutdown().await.expect("clipboard");
+    picker.shutdown().await.expect("picker");
+    permissions.shutdown().await.expect("permissions");
+    runtime.shutdown().await.expect("runtime");
+}

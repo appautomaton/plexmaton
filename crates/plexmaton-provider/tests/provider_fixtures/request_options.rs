@@ -1,5 +1,6 @@
 use super::*;
-use plexmaton_provider::{DecodeError, ModelRegistry, ReasoningEffort, request_environment};
+use plexmaton_core::ReasoningEffort;
+use plexmaton_provider::{DecodeError, ModelRegistry, request_environment};
 
 /// PRV-5: empty additive fields preserve visible output; populated unknown content fails explicitly.
 #[test]

@@ -39,7 +39,7 @@ pub(crate) fn encode(
         "include": ["reasoning.encrypted_content"],
         "parallel_tool_calls": true,
     });
-    if model.reasoning_effort() != crate::ReasoningEffort::Default {
+    if model.reasoning_effort() != plexmaton_core::ReasoningEffort::Default {
         body["reasoning"] = json!({"effort":model.reasoning_effort().as_str()});
     }
     if !model.instructions().is_empty() {

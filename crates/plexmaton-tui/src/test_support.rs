@@ -31,7 +31,7 @@ pub fn configuration_summary() -> crate::ConfigurationSummary {
     crate::ConfigurationSummary {
         provider: "local".to_owned(),
         model: "gpt-5.6-sol".to_owned(),
-        reasoning_effort: "high".to_owned(),
+        reasoning_effort: plexmaton_core::ReasoningEffort::High,
     }
 }
 

@@ -148,7 +148,7 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
     ConfigurationSummary {
         provider: model.provider_name().to_owned(),
         model: model.wire_id().to_owned(),
-        reasoning_effort: model.reasoning_effort().as_str().to_owned(),
+        reasoning_effort: model.reasoning_effort(),
     }
 }
 
@@ -223,6 +223,11 @@ async fn run(
         output.math,
     );
     workspace.set_model(picker.configuration());
+    workspace.set_effort_choices(
+        runtime
+            .configured_model()
+            .and_then(|model| model.allowed_reasoning_efforts().map(<[_]>::to_vec)),
+    );
     skills::sync_choices(&runtime, &mut workspace);
     for diagnostic in runtime.skill_diagnostics() {
         workspace.report_skill_diagnostic(diagnostic);
@@ -505,7 +510,10 @@ output_reserve_tokens = 5000
                 .expect("configuration is open");
             assert_eq!(shown.provider, "fixture");
             assert_eq!(shown.model, "wire-model");
-            assert_eq!(shown.reasoning_effort, "high");
+            assert_eq!(
+                shown.reasoning_effort,
+                plexmaton_core::ReasoningEffort::High
+            );
             assert_eq!(
                 workspace.state().focused(workspace.surfaces()),
                 Some(SurfaceId::Drawer)

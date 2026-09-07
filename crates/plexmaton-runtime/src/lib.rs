@@ -18,6 +18,8 @@ pub use interface::{
 pub use native::{
     MAX_NATIVE_TOOL_RESULT_BYTES, NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError,
 };
-pub use runtime::{ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime};
+pub use runtime::{
+    ContextBudgetSnapshot, ContextBudgetUnavailable, EffortChangeRefusal, LiveRuntime,
+};
 
 pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

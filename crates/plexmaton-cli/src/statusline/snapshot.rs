@@ -171,10 +171,10 @@ impl<'a> Snapshot<'a> {
             },
             thinking: Thinking {
                 enabled: match model.reasoning_effort() {
-                    plexmaton_provider::ReasoningEffort::Default => (model.api()
+                    plexmaton_core::ReasoningEffort::Default => (model.api()
                         == plexmaton_provider::ModelApi::AnthropicMessages)
                         .then_some(true),
-                    plexmaton_provider::ReasoningEffort::None => Some(false),
+                    plexmaton_core::ReasoningEffort::None => Some(false),
                     _ => Some(true),
                 },
             },

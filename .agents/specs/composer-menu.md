@@ -54,7 +54,7 @@ the description gives way, ending in `…`.
 ## Grammar
 
 At the start of a primary draft, `$` opens available skills and `/` the Commands, `/new`,
-`/resume`, `/compact` and `/permissions`; subsequent characters filter. Up/Down select, Tab or
+`/resume`, `/compact`, `/permissions` and `/effort`; subsequent characters filter. Up/Down select, Tab or
 Enter completes a skill, Tab completes a Command and Enter accepts it, and Escape dismisses. A completed `$name request` submits normally on the next
 Enter. Exact unselected nonnumeric skill names activate only when present in the user-invocable
 catalog. Unknown variables, `$HOME`, currency, command substitutions and dollar expressions inside
@@ -71,6 +71,9 @@ Selected names accompany submitted, returned and retry-editor input. A historica
 selection comes from its typed journal activation, never from interpreting currency-shaped text.
 
 ## Rendered review
+
+`/effort` uses [EFF-1–EFF-5](./reasoning-effort.md), including its horizontal keys, disabled
+stops, confirmed model state and bounded presentation clock.
 
 Skills: the real workspace buffer was inspected at
 [wide](../spikes/agent-skills/frames/skill-picker-wide.svg),

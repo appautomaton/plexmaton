@@ -29,7 +29,7 @@ pub use compaction::{
 };
 pub use config::{
     ApiKey, ConfigError, ModelApi, ModelCost, ModelRegistry, ModelSelection, PromptCache,
-    ReasoningEffort, ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
+    ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
 };
 pub use cost::request_cost;
 pub use environment::request_environment;

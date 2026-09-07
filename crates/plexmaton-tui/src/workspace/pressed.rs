@@ -54,6 +54,10 @@ impl Workspace {
     /// What the row does; the press and the release both resolved to it.
     fn activate(&mut self, target: PressTarget) -> Outcome {
         match target {
+            PressTarget::Menu(MenuRow::Effort(effort)) => {
+                self.state.choose_effort(effort);
+                Outcome::default()
+            }
             PressTarget::Menu(row) => self.accept_menu(Some(row)),
             PressTarget::Drawer(choice) => self.choose_drawer_row(choice),
             PressTarget::Approval { choice, .. } => {

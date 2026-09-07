@@ -37,6 +37,8 @@ pub struct RouterContext<'a> {
     pub dismissible: bool,
     /// Whether the user has a selection, which is a rung of the `Escape` ladder above that layer.
     pub selecting: bool,
+    /// The composer menu is showing the horizontal effort selector.
+    pub effort_selector: bool,
 }
 
 /// Why a terminal event produced no intent.
@@ -161,7 +163,14 @@ impl Router {
             && context.surfaces.get(SurfaceId::ComposerMenu).is_some()
         {
             return match key.code {
+                KeyCode::Esc if self.capture.is_some() => self.escape(context),
                 KeyCode::Esc => Routed::Intent(TuiIntent::Menu(MenuIntent::Close)),
+                KeyCode::Left if context.effort_selector && key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Backward)))
+                }
+                KeyCode::Right if context.effort_selector && key.modifiers.is_empty() => {
+                    Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Forward)))
+                }
                 KeyCode::Up if key.modifiers.is_empty() => {
                     Routed::Intent(TuiIntent::Menu(MenuIntent::Step(Direction::Backward)))
                 }
@@ -549,6 +558,7 @@ mod tests {
             focused: Some(focused),
             dismissible,
             selecting: false,
+            effort_selector: false,
         }
     }
 

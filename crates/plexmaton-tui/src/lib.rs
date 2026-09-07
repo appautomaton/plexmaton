@@ -49,7 +49,9 @@ pub use statusline::{StatusLineText, StatusLineTextError};
 pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
 };
-pub use theme::{MarkdownTheme, Palette, Role, agent_role, tool_role};
+pub use theme::{
+    EFFORT_COLOR_PHASES, EffortPalette, MarkdownTheme, Palette, Role, agent_role, tool_role,
+};
 pub use transcript::TranscriptMetrics;
-pub use workspace::{CommandRun, CommandTarget, Flow, FrameWork, Outcome, Workspace};
+pub use workspace::{CommandRun, CommandTarget, EffortChange, Flow, FrameWork, Outcome, Workspace};
 pub mod math;

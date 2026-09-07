@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod permissions;
+mod reasoning;
 mod transcript;
 mod usage;
 
@@ -26,6 +27,7 @@ pub use permissions::{
     ProjectPermissionSource, SavedProjectPermission,
 };
 
+pub use reasoning::ReasoningEffort;
 pub use transcript::{ToolCallStatus, ToolDetail, ToolPresentation, TranscriptRole};
 pub use usage::{TokenCounts, TokenUsage};
 
