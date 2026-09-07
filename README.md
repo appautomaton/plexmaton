@@ -68,7 +68,7 @@ Conversations save on the first message; blank launches save nothing. Use `--eph
 
 One live agent is available today. Multi-agent collaboration is on the [roadmap](.agents/roadmap.md). Linux compatibility is not yet established.
 
-Run `cargo test --workspace` and the [quality gates](.agents/standards/quality-gates.md). Tests use local model fixtures. Private state belongs in ignored `.local/`.
+Use the [quality gates](.agents/standards/quality-gates.md) for local checks and CI coverage. Model fixtures stay local; private state goes in ignored `.local/`.
 
 ## More from App Automaton
 

@@ -1,5 +1,5 @@
 //! `/permissions` in the composer menu: the Session's grants as rows under their panel's
-//! description, reviewed and confirmed in place, and withdrawn with the draft (CMD-3, PER-7).
+//! description, reviewed and confirmed in place, and withdrawn with the draft (CMC-3, PER-7).
 use super::{HEADING_LINES, Listing, MenuRow};
 use crate::state::{
     ViewState,

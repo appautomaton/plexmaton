@@ -19,7 +19,7 @@ def run_smoke(model_url):
     spec = importlib.util.spec_from_file_location("terminal_smoke", root / "scripts/smoke-tui.py")
     smoke = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(smoke)
-    subprocess.run(["cargo", "build", "-p", "plexmaton-cli", "--bin", "plexmaton", "--quiet"], cwd=root, check=True)
+    subprocess.run(["cargo", "build", "--locked", "-p", "plexmaton-cli", "--bin", "plexmaton", "--quiet"], cwd=root, check=True)
     with tempfile.TemporaryDirectory(prefix="plexmaton-status-smoke-", dir="/tmp") as folder:
         home = Path(folder)
         # Width in the model label is a fixture marker, not a product field or a sleep heuristic.

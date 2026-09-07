@@ -160,7 +160,7 @@ async fn apply_workspace_outcome(
     Ok(outcome.flow == Flow::Quit)
 }
 
-/// Runs a Command against the conversation it names; the runtime admits or refuses it (CMD-1).
+/// Runs a Command against the conversation it names; the runtime admits or refuses it (CMC-1).
 async fn run_command(
     run: CommandRun,
     runtime: &mut LiveRuntime,

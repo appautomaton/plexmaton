@@ -2,7 +2,7 @@
 //!
 //! `$` lists Skills, `/` lists Commands, `/resume ` lists saved conversations and `/permissions `
 //! the Session's grants. The draft is the query and nothing here writes it. A Skill binds into the
-//! message (SKP-2); a Command leaves the workspace as a value for the composition root (CMD-1); a
+//! message (SKP-2); a Command leaves the workspace as a value for the composition root (CMC-1); a
 //! conversation leaves as a request (SPK-2) and a permission change as a reviewed intent (PER-7).
 //! The menu owns no filter of its own, so there is exactly one caret (COM-1).
 
@@ -455,7 +455,7 @@ impl ViewState {
         self.composer_menu.chosen().cloned()
     }
 
-    /// The Command the whole draft is, if it is one (CMD-2).
+    /// The Command the whole draft is, if it is one (CMC-2).
     pub(crate) fn exact_command(&self) -> Option<Command> {
         exact_command(self.composer().text())
     }
@@ -485,7 +485,7 @@ impl ViewState {
         true
     }
 
-    /// Completes the draft to `/name ` without running it (CMD-2).
+    /// Completes the draft to `/name ` without running it (CMC-2).
     pub(crate) fn complete_command(&mut self, command: Command) {
         let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) else {
             return;
@@ -579,7 +579,7 @@ mod tests {
         assert!(retained <= MAX_SKILL_CATALOG_BYTES);
     }
 
-    /// CMD-2: a whole draft is a Command only when nothing but the command is in it; `/resume`
+    /// CMC-2: a whole draft is a Command only when nothing but the command is in it; `/resume`
     /// keeps its query, `/compact please` is text, and a slash inside prose is a character.
     #[test]
     fn a_whole_draft_is_a_command_only_when_nothing_else_is_in_it() {
@@ -594,7 +594,7 @@ mod tests {
         assert_eq!(exact_command(""), None);
     }
 
-    /// CMD-1/SKP-3: the listing follows the token the draft starts with, and the query is what
+    /// CMC-1/SKP-3: the listing follows the token the draft starts with, and the query is what
     /// was typed inside it.
     #[test]
     fn the_listing_follows_the_leading_token() {

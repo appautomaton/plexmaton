@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Every checked-in frame is evidence someone can find again: named by a test, or cited by a
-# document as its exact stem or as a `family-*` wildcard. A frame nobody names goes stale the
+# Every checked-in frame is evidence someone can find again: cited by a document as its exact
+# stem or as a `family-*` wildcard. A frame nobody names goes stale the
 # moment its subject changes, and nobody notices, because nothing reads it.
 #
-# Tests may build a name with `format!`, so for test code a stem also matches by a dashed prefix
-# followed by a placeholder brace. Documents cite what was reviewed, so they must name the stem or the family.
+# Documents cite what was reviewed, so they must name the stem or the family.
 # Examples only generate frames; generating one does not earn it a place in the repository.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"

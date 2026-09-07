@@ -26,7 +26,7 @@ impl Workspace {
                 Outcome::default()
             }
             MenuIntent::Complete => match self.state.menu_chosen() {
-                // Completing a Command writes `/name ` and runs nothing (CMD-2).
+                // Completing a Command writes `/name ` and runs nothing (CMC-2).
                 Some(MenuRow::Command(command)) => self.complete_command(command),
                 other => self.accept_menu(other),
             },
@@ -117,7 +117,7 @@ impl Workspace {
         }
     }
 
-    /// A whole draft that is a Command runs on `Enter` even with the menu dismissed (CMD-2).
+    /// A whole draft that is a Command runs on `Enter` even with the menu dismissed (CMC-2).
     pub(super) fn submit_command(&mut self) -> Option<Outcome> {
         let command = self.state.exact_command()?;
         Some(self.accept_menu(Some(MenuRow::Command(command))))

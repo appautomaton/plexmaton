@@ -2,22 +2,26 @@
 
 | Field | Value |
 | --- | --- |
-| Trigger | A gate failed, you are setting up a clone, or you are about to claim a check passed |
+| Trigger | Selecting or running checks, fixing a gate, setting up a clone/worktree, or reporting results |
 | Owns | Which gates exist, what each one catches, and how to run them |
 
 ## The lanes
 
-Workspace gates, run per change:
+Select checks per [AGENTS.md](../../AGENTS.md#working-discipline). CI runs on pull requests,
+pushes to `main`, or manual dispatch, not feature-branch pushes alone.
+
+CI's Rust gates:
 
 ```console
 cargo fmt --all --check
-cargo check --workspace --all-targets
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
 ```
 
-Supply-chain and corpus lanes, which depend on the resolved graph or the documents rather than on
-any single edit:
+For local compile-only feedback, use `cargo check -p <crate> --all-targets --locked`. CI uses
+Clippy for compilation; these are alternative checks, not two required runs.
+
+Supply-chain and corpus lanes, selected by dependency or document changes:
 
 | Command | Catches |
 | --- | --- |
@@ -27,7 +31,7 @@ any single edit:
 | `./scripts/check-file-length.sh` | Module sprawl in `crates/**/*.rs` |
 | `python3 -m unittest discover -s scripts/tests` | Gate boundary regressions and offline smoke-fixture ownership |
 | `./scripts/check-crate-graph.sh` | A dependency arrow the design forbids: a runtime, a client or a terminal reachable from the loop or the vocabulary, and a producer reachable from the projection |
-| `./scripts/check-citations.sh` | An `INV-4` or `INS-5` in code that resolves to nothing, and a spec naming a test that no longer exists |
+| `./scripts/check-citations.sh` | Duplicate invariant IDs/prefix owners, missing source citations or proof functions, and broken inline local links/headings |
 | `./scripts/check-frames.sh` | A frame no document cites: evidence nobody can find again |
 | `./scripts/check-doc-budget.sh` | Documents that outgrew their layer. Reports only; never fails |
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
@@ -54,18 +58,19 @@ than raising it.
 
 ## Local setup
 
-The executable and corpus gates require `rg` on PATH; script tests require Python 3 and Bash.
-The configured-footer smoke also requires jq. CI installs Bash, ripgrep and jq explicitly.
+The gates require ripgrep, Python 3 and Bash; the hook uses Perl for timing and the footer smoke
+needs jq. CI installs Bash, ripgrep and jq explicitly.
 
 The primary CI target is macOS Apple Silicon, matching local product development. One verification
-job runs the same workspace, supply-chain and PTY gates; it does not package or deploy releases.
+job runs the Rust, supply-chain and PTY gates above; it does not package or deploy releases.
 Actions use verified stable releases pinned to commit IDs.
 Linux compatibility is not established: the current Bash grammar has a known native parser crash
 on Linux ([upstream report](https://github.com/tree-sitter/tree-sitter-bash/issues/337)).
 Passing macOS CI is not evidence of Linux support.
 
-Commits run the read-only gates in parallel through a repository-managed hook, which reports its
-time against a five-second budget. Enable it once per clone:
+The hook runs read-only gates in parallel, then reports document budgets and total time against
+a five-second target. Cargo graph and smoke checks use `--locked` to preserve dependency choices.
+Enable the hook once per clone:
 
 ```console
 git config core.hooksPath .githooks
@@ -73,13 +78,13 @@ git config core.hooksPath .githooks
 
 The hook clears Git's repository-local environment first: an inherited `GIT_DIR` redirects even a
 fixture's `git init`. Rejected: clippy and the workspace tests in the hook, which build the
-workspace at two minutes a commit to repeat what the handoff run and CI already answered.
+workspace at two minutes a commit to repeat what CI already checks.
 
 ## The terminal smoke
 
-`./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, the quit key, and mouse
-and focus reporting in front of a real pseudo-terminal. Run it locally when changing the event
-loop, terminal setup, layout classes, the quit binding, or surface kinds. It runs in CI.
+`./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, quitting, and mouse/focus
+reporting through a real PTY. Use CI unless a terminal or interaction change needs local
+reproduction or terminal-specific evidence.
 
 Input reporting is checked here because neither half fits a cell buffer: enabling and releasing
 mouse and focus events are byte sequences, and the click is sent as a real SGR report so
@@ -107,9 +112,8 @@ Terminal-boundary pitfalls:
 
 ## Parallel checkouts
 
-`.worktrees/<name>/` is the only place a worktree goes. It is the one ignored path, it belongs to
-no vendor, and an agent harness that would default somewhere else is pointed here rather than
-followed:
+Use the location required by [AGENTS.md](../../AGENTS.md#working-discipline), even when a harness
+defaults elsewhere:
 
 ```console
 git worktree add .worktrees/surfaces -b feat/surfaces   # then start the agent inside it
@@ -123,23 +127,13 @@ After a move, rebuild packages whose fixtures embed old absolute paths (`cargo c
 **Never share `CARGO_TARGET_DIR` between worktrees.** Sharing it can silently run the wrong code. Two checkouts of this workspace
 produce the same fingerprint for a member crate, so the second build overwrites the first's
 artifact, and the first checkout's older source files then pass the freshness check against it.
-Reproduce in under a minute:
-
-```console
-git worktree add --detach .worktrees/probe HEAD
-printf '\n#[cfg(test)]\nmod probe { #[test] fn only_in_the_worktree() {} }\n' \
-    >> .worktrees/probe/crates/plexmaton-core/src/lib.rs
-(cd .worktrees/probe && CARGO_TARGET_DIR=/tmp/shared cargo test -p plexmaton-core --lib -- --list)
-CARGO_TARGET_DIR=/tmp/shared cargo test -p plexmaton-core --lib -- --list
-```
-
-The main checkout's listing contains `only_in_the_worktree`
-([cargo#12516](https://github.com/rust-lang/cargo/issues/12516)). Use a separate target directory
-per worktree.
+The shared-target failure is tracked in
+[cargo#12516](https://github.com/rust-lang/cargo/issues/12516). Use a separate target directory per
+worktree.
 
 ## Claiming a result
 
-Do not claim a check passed unless it was actually run in this workspace, in this state. Report
-what changed, what was tested, and what remains unverified. Update phase evidence only when the
-criterion is actually demonstrated — file presence, code volume, and a successful happy-path demo
-are not evidence.
+Report local and CI results with their revision, plus pending, failed, or unrun checks.
+Passing CI does not cover subsequent edits.
+Update phase evidence only when the criterion is demonstrated; file presence, code volume, and
+happy-path demos do not suffice.

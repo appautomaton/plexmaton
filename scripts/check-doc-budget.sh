@@ -4,8 +4,8 @@
 # This never fails a build, deliberately. A budget here is not a length limit: it is a signal that
 # content is sitting at the wrong load-time, and the escape hatch for each path — push it down,
 # split it, or rewrite it — matters more than the number. Budgets are in bytes, because a line
-# budget is satisfied by writing longer lines. They and their escape hatches are defined once, in
-# .agents/README.md; this script only measures against them.
+# budget is satisfied by writing longer lines. Thresholds below implement the budgets and escape
+# hatches documented in .agents/README.md.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
@@ -32,9 +32,9 @@ budget_for() {
 
 over=0
 
-while IFS= read -r file; do
+while IFS= read -r -d '' file; do
     # A tracked file deleted in the working tree has nothing to measure.
-    [[ -f "$file" ]] || continue
+    [[ "$file" == *.md && -f "$file" ]] || continue
     budget=$(budget_for "$file")
     [[ "$budget" -eq 0 ]] && continue
     bytes=$(wc -c < "$file")
@@ -43,7 +43,7 @@ while IFS= read -r file; do
             "$file" "$bytes" "$((bytes - budget))" "$budget" >&2
         over=$((over + 1))
     fi
-done < <(git ls-files AGENTS.md README.md .agents | grep '\.md$' | sort)
+done < <(git ls-files --cached --others --exclude-standard --deduplicate -z -- AGENTS.md README.md .agents)
 
 if [[ "$over" -ne 0 ]]; then
     printf '\ndoc budget: %d document(s) over budget. Escape hatches are in .agents/README.md;\n' "$over" >&2
