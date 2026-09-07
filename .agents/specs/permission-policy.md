@@ -55,7 +55,7 @@ will stop allowing matching operations. Review and Back apply nothing, submissio
 producer confirmation, and stale controls return the current view. Enabling a Session setting
 before the first turn creates no Conversation JSONL. A completed change re-evaluates covered
 waiting calls through PER-5. Controls sit where their lifetime is typed: the Session's grants
-and the native preset are `/permissions` rows in the composer menu (CMD-3); Project grants and
+and the native preset are `/permissions` rows in the composer menu (CMC-3); Project grants and
 configuration trust are the Drawer's Permissions page. A grant is offered in one place only, and
 one acknowledged view lands in every open place.
 

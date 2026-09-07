@@ -14,8 +14,9 @@ input, drives `Agent::handle`, publishes its `ConversationEvent` envelopes, and 
 provider is one retained future rather than a detached task, and every native admission or
 execution runs on a bounded per-call worker the runtime joins. `Drop` cancels and joins those
 workers and drops the provider future; orderly shutdown remains the semantic transition. One
-catalog advertises four workspace-file definitions and one command definition through either
-codec; native outcomes are bounded before replay. The TUI knows only semantic events and intents.
+catalog advertises native definitions across provider dialects; skill discovery conditionally adds
+the `skill` definition (SKL-2/SKL-4). Native outcomes are bounded before replay. The TUI knows only
+semantic events and intents.
 
 **LIVE-2 — Every model event names the step that requested it.** A stable typed step identity
 travels on `CallModel`, streamed input and model failure. Runtime signals also carry their authorized
@@ -40,8 +41,9 @@ Unknown attempts keep coverage incomplete until their terminal fact resolves it.
 context estimation is separate; monetary cost follows TIM-3's resolved pricing and known usage.
 
 **LIVE-6 — Configuration is resolved before terminal or network ownership.** The composition root
-uses `PLEXMATON_HOME` or the user-level default and reads the chosen key environment variable; it
-never searches a project `.plexmaton/`. It also canonicalizes the process's current directory as
+loads provider definitions from `PLEXMATON_HOME` or the user-level default and reads the chosen key
+environment variable (PRV-6). Project model selection and skill discovery follow SKL-1–SKL-4;
+project permission declarations follow PER-8. It also canonicalizes the process's current directory as
 the sole native workspace, resolves `rg` only from absolute `PATH` entries, and pins the current
 executable plus a fixed private argument as the directory-search driver. Any failure happens before
 entering the alternate screen; the selected key variable's exact name reaches the native catalog
@@ -89,9 +91,9 @@ that same step from its new checkpoint.
 
 | Invariant | Proven by |
 | --- | --- |
-| LIVE-1 | `native_catalog_is_exact_unique_and_advertised_by_both_protocols`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request`, `dropping_an_active_runtime_drops_the_exact_provider_future`, `dropping_an_active_runtime_joins_its_command_worker_and_process_group`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts`, crate-graph gate |
+| LIVE-1 | `native_catalog_is_exact_unique_and_advertised_by_both_protocols`, `file_observation_survives_the_runtime_boundary_into_an_approved_edit`, `maximal_command_result_stays_bounded_in_the_next_model_request`, `dropping_an_active_runtime_drops_the_exact_provider_future`, `dropping_an_active_runtime_joins_its_command_worker_and_process_group`, `a_native_tool_round_trip_is_a_stream_the_projection_accepts`, crate-graph gate; [SKL-2/SKL-4](./agent-skills.md#evidence) and [PRV-1](./provider-adapter.md#evidence) |
 | LIVE-2 | `stale_and_post_cancellation_model_output_is_a_typed_non_delivery`, `model_output_requires_both_the_active_attempt_and_step`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
 | LIVE-3 | `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task`, `a_cancelled_terminal_join_remains_owned_until_interrupt_joins_it`, `cancelled_next_event_keeps_command_work_owned_until_interrupt_joins_it`, `cancelled_shutdown_can_be_called_again_to_finish_exact_cleanup`, `cancellation_wins_a_queued_completion_race_without_touching_a_later_turn` |
 | LIVE-4 | `prv_1_chat_fixture_drives_a_full_stateless_tool_round_trip`, `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `a_combined_chat_terminal_chunk_orders_usage_before_stop`, `reported_step_usage_is_aggregated_for_the_owning_turn`, `usage_is_retained_without_charging_an_invisible_frame` |
 | LIVE-5 | `missing_step_usage_is_never_presented_as_zero`, `responses_null_usage_breakdowns_are_partial_coverage`, `deterministic_failure_paths_leave_no_provider_task_alive`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task` |
-| LIVE-6 | `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `prv_6_resolution_rejects_unsafe_routes_without_echoing_them`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape`, `catalog_key_identity_must_match_resolved_model`, `endpoint_resolution_is_api_specific`, `invalid_configuration_never_takes_over_the_terminal`, `executable_private_driver_reenters_a_pinned_directory_and_execs_ripgrep` |
+| LIVE-6 | `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `prv_6_resolution_rejects_unsafe_routes_without_echoing_them`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape`, `catalog_key_identity_must_match_resolved_model`, `endpoint_resolution_is_api_specific`, `invalid_configuration_never_takes_over_the_terminal`, `executable_private_driver_reenters_a_pinned_directory_and_execs_ripgrep`; [SKL-1](./agent-skills.md#evidence) and [PER-8](./permission-policy.md#evidence) |

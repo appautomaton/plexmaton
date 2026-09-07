@@ -1,5 +1,5 @@
 //! The draft's grammar: which listing a draft asks for, its query and the token the query is
-//! in, and whether the whole draft is a Command (CMD-2).
+//! in, and whether the whole draft is a Command (CMC-2).
 use super::Listing;
 
 /// A `/name` typed into a conversation's input and run from there (ui-ux §product vocabulary).
@@ -30,7 +30,7 @@ impl Command {
         }
     }
 
-    /// The listing a completed Command opens, whose query is the text after it (CMD-2).
+    /// The listing a completed Command opens, whose query is the text after it (CMC-2).
     #[must_use]
     pub const fn lists(self) -> Option<Listing> {
         match self {
@@ -84,7 +84,7 @@ pub(super) fn completion(text: &str, cursor: usize) -> Option<Completion<'_>> {
     let rest = text.strip_prefix('/')?;
     let token = initial_token(text)?;
     // A listing Command and a space: what follows is its query, wherever the caret is. Any
-    // other command with text after it is text (CMD-2).
+    // other command with text after it is text (CMC-2).
     if let Some(listing) = Command::parse(token).and_then(Command::lists)
         && rest.len() > token.len()
     {
@@ -112,7 +112,7 @@ pub(super) fn initial_token(text: &str) -> Option<&str> {
     rest.get(..end)
 }
 
-/// The Command a whole draft is, or nothing: `/compact` runs, `/compact please` is text (CMD-2).
+/// The Command a whole draft is, or nothing: `/compact` runs, `/compact please` is text (CMC-2).
 /// A listing Command with a query after it is still that Command, because the query belongs to it.
 pub(crate) fn exact_command(text: &str) -> Option<Command> {
     let rest = text.strip_prefix('/')?;

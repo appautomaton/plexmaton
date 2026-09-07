@@ -111,7 +111,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
 11. **Composer menu and Drawer — complete.** A Command is a slash command only, typed into the
     conversation it addresses and run from there with a captured target: `/new`, `/resume` over
     saved conversations, `/compact` and `/permissions` for the Session, under
-    [CMD-1 to CMD-3](../specs/composer-menu.md); SPK-1 to SPK-3 moved with the rows. The Drawer,
+    [CMC-1 to CMC-3](../specs/composer-menu.md); SPK-1 to SPK-3 moved with the rows. The Drawer,
     pulled from the top edge by `Ctrl-P` under [DRW-1 to DRW-4](../specs/drawer.md), holds what
     outlives a Session: Configuration, and Project grants and configuration trust; `/config` and
     the three-second palette hint ceased to exist. One `PermissionPanel` serves both places and
@@ -123,7 +123,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     hid what users type by habit behind a chord. Not done, each its own stage: `/model`, which
     needs the runtime to change a conversation's model mid-flight; a visible sign of messages
     queued for the next turn; the User rules snapshot, which the permission view does not
-    project; and a loopback run of `/compact` through the executable, unproven in CMD-1.
+    project; and a loopback run of `/compact` through the executable, unproven in CMC-1.
 
 12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
     prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.

@@ -198,7 +198,7 @@ output_reserve_tokens = 4096
 
 
 def main():
-    subprocess.run(["cargo", "build", "--offline", "-p", "plexmaton-cli", "--bin", "plexmaton", "--quiet"],
+    subprocess.run(["cargo", "build", "--locked", "--offline", "-p", "plexmaton-cli", "--bin", "plexmaton", "--quiet"],
                    cwd=ROOT, check=True)
     responses = []
     for command, marker in [("printf trusted > trusted-result", "TRUSTED_DONE"),

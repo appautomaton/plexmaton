@@ -80,7 +80,7 @@ the plan. `scripts/check-citations.sh` enforces this.
 
 ## Closing
 
-- A **slice** closes with its commit and the test that proves it.
+- A **slice** closes when implemented and verified. Commits require an explicit user request.
 - A **plan** closes by being deleted, with every spec's evidence table current and the phase
   file's sequence saying done.
 - A **phase** closes when its exit gate is assessed against the screen and the tests. The roadmap
@@ -101,9 +101,9 @@ implies reading it.
 
 ## Budgets
 
-Budgets count bytes, not lines. `./scripts/check-doc-budget.sh` warns and exits zero; use the
-escape hatch to move content to its owning layer. Short documents have tight budgets; phase and
-interaction-contract ceilings catch runaway growth.
+Budgets count bytes, not lines. `./scripts/check-doc-budget.sh` measures tracked and untracked
+corpus documents; warnings are advisory. Move excess content to its owning layer using the
+escape hatch below.
 
 | Path | Budget | Escape hatch when it fires |
 | --- | --- | --- |

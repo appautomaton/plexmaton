@@ -4,13 +4,13 @@
 | --- | --- |
 | Status | Implemented; evidence below |
 | Owns | `/new` and `/resume`: bounded discovery of saved conversations, the user's choice among them as composer menu rows, and live conversation replacement |
-| Depends on | INV-1, INV-6, JRN-4, JRN-5; [composer-menu](./composer-menu.md) CMD-1/CMD-2 and SKP-3/SKP-4 for the rows' geometry and routing |
+| Depends on | INV-1, INV-6, JRN-4, JRN-5; [composer-menu](./composer-menu.md) CMC-1/CMC-2 and SKP-3/SKP-4 for the rows' geometry and routing |
 | Proven by | CLI `session_picker` and TUI `workspace::composer_menu_tests` |
 
 ## Invariants
 
 **SPK-1 — The saved conversations are `/resume`'s rows.** `/resume` lists saved history in the
-composer menu, newest first, filtered by the text after it; `/new` is a Command row (CMD-1).
+composer menu, newest first, filtered by the text after it; `/new` is a Command row (CMC-1).
 Keyboard and matching mouse press/release choose one row; wheels move the choice without focus
 changes, and dragging cancels activation. A row leaves the workspace as a `ConversationRequest`,
 new or by identity. The listing's one status row says what stands in for rows: loading, no match,

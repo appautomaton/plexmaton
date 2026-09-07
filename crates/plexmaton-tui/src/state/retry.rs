@@ -46,7 +46,7 @@ pub(super) struct RetryEdit {
 impl ViewState {
     pub(crate) fn has_unsent_input(&self) -> bool {
         // A draft that is a whole Command, `/resume` and its query included, is a request, not
-        // something a switch would lose (SPK-2, CMD-2).
+        // something a switch would lose (SPK-2, CMC-2).
         let primary = self.primary_agent().map(|agent| &agent.id);
         let command = self.exact_command().is_some();
         self.retry_edit.is_some()
