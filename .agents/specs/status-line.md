@@ -61,8 +61,8 @@ Optional `refresh_ms` is 1000–3600000; omitted means semantic/resize refresh o
 requires no Rust rebuild; editing its configuration requires restart.
 
 Stdin is at most 64 KiB JSON and closes after writing. Stdout is at most 16 KiB, stderr 4 KiB;
-stderr never enters the screen or a diagnostic. The configured provider-key environment variable
-is removed. Other inherited environment, HOME and filesystem access remain available: user-owned
+stderr never enters the screen or a diagnostic. Every configured provider-key environment variable is removed before any status child starts
+(MDL-3). Other inherited environment, HOME and filesystem access remain available: user-owned
 commands are not sandboxed. Cleanup signals the entire owned process group and waits up to one
 second for the child and group to end. A permission-denied signal/probe during teardown does not
 prove disappearance: cleanup waits within that same deadline and fails if the group persists.

@@ -47,6 +47,7 @@ fn main() -> Result<()> {
 fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) -> Result<Buffer> {
     let mut workspace = Workspace::with_palette(Palette::ansi());
     workspace.set_model(plexmaton_tui::ConfigurationSummary {
+        configured_name: "fixture".into(),
         provider: "local".into(),
         model: "plexmaton-dev".into(),
         reasoning_effort: plexmaton_core::ReasoningEffort::High,

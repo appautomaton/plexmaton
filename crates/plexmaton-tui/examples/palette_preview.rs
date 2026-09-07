@@ -106,6 +106,7 @@ h1{font-weight:600}h2{font-size:15px;margin:2.5rem 0 .25rem}.what{color:#8ea2c4;
 fn render(palette: Palette, frame: &str) -> Result<Buffer> {
     let mut workspace = Workspace::with_palette(palette);
     workspace.set_model(plexmaton_tui::ConfigurationSummary {
+        configured_name: "fixture".into(),
         provider: "local".into(),
         model: "plexmaton-dev".into(),
         reasoning_effort: plexmaton_core::ReasoningEffort::High,

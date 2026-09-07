@@ -12,6 +12,14 @@ impl ViewState {
     /// behind the rows' two-cell marker column and capped, so a review reads before its
     /// confirmation (PER-7). `width` is the menu's inner width.
     pub(crate) fn menu_heading(&self, width: u16) -> Vec<String> {
+        if self.menu_listing() == Some(Listing::Models) {
+            return self
+                .model_heading()
+                .iter()
+                .flat_map(|line| wrap_line(line, usize::from(width.saturating_sub(2).max(1))))
+                .take(HEADING_LINES)
+                .collect();
+        }
         if self.menu_listing() != Some(Listing::Permissions) {
             return Vec::new();
         }

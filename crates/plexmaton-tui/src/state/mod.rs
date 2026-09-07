@@ -43,7 +43,9 @@ pub use approval::{
 pub use attention::AttentionView;
 pub(crate) use composer::apply_text;
 pub(crate) use composer::input_window;
-pub use composer_menu::{Command, Listing, SkillChoice, SkillChoiceSource};
+pub use composer_menu::{
+    Command, Listing, ModelChoice, ModelIdentity, SkillChoice, SkillChoiceSource,
+};
 pub(crate) use composer_menu::{MenuRow, VISIBLE_ROWS};
 pub use configuration::ConfigurationSummary;
 pub(crate) use current_work::CurrentWork;

@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Status | Implemented; verified offline and at three rendered widths |
-| Owns | What the primary composer's draft completes to: Skills for `$`, Commands for `/`, `/resume`'s saved conversations and `/permissions`' Session grants; what leaves the workspace when a row is accepted |
+| Owns | What the primary composer's draft completes to: Skills for `$`, Commands for `/`, `/resume`'s saved conversations, `/permissions`' Session grants and model/effort choices; what leaves the workspace when a row is accepted |
 | Depends on | SKL-2/SKL-4/SKL-5, COM-1/COM-3/COM-6, INV-1/INV-6, SURF-3; [conversation-picker](./conversation-picker.md) for `/resume`'s rows; CPL-9 for `/compact`; PER-7 for `/permissions` |
 | Proven by | TUI, runtime and agent proofs below; real terminal completion smoke |
 
@@ -36,7 +36,7 @@ loop step and the runtime's admission already names a busy conversation.
 
 **CMC-2 — Only a whole Command runs.** `Tab` completes the chosen Command into the draft as
 `/name ` and runs nothing; `Enter` runs a draft that is exactly a Command, with the menu open or
-dismissed. A listing Command, `/resume` or `/permissions`, keeps the text after it as its query.
+dismissed. A listing Command, `/resume`, `/permissions`, `/effort` or `/model`, keeps the text after it as its query.
 Any other draft with text after the token, `/compact please` included, is text and submits as
 text. `/` followed by a character no Command starts with lists nothing. A whole Command is a
 request, never unsent input a switch would lose (SPK-2).
@@ -54,12 +54,14 @@ the description gives way, ending in `…`.
 ## Grammar
 
 At the start of a primary draft, `$` opens available skills and `/` the Commands, `/new`,
-`/resume`, `/compact`, `/permissions` and `/effort`; subsequent characters filter. Up/Down select, Tab or
+`/resume`, `/compact`, `/permissions`, `/effort` and `/model`; subsequent characters filter. Up/Down select, Tab or
 Enter completes a skill, Tab completes a Command and Enter accepts it, and Escape dismisses. A completed `$name request` submits normally on the next
 Enter. Exact unselected nonnumeric skill names activate only when present in the user-invocable
 catalog. Unknown variables, `$HOME`, currency, command substitutions and dollar expressions inside
 prose/code remain literal text. Numeric skill names can be deliberately selected from the menu;
 unbound `$100` remains currency. There is no `/skill:` execution alias.
+
+[MDL-1–MDL-4](./model-selection.md) own configured model identity, filtering, acceptance and lifetime.
 
 The menu shows up to five choices and keeps the selected row and controls visible when height is
 constrained; it is suppressed if even one choice and the controls cannot fit. Source labels precede

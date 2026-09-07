@@ -25,7 +25,7 @@ async fn status_command_reads_snapshot_eof_and_returns_only_styled_text() {
         &config("cat >/dev/null; printf '\\033[38;2;1;2;3mhello\\033[0m\\nworld\\n'"),
         b"{}".to_vec(),
         std::path::Path::new("/"),
-        "PLEXMATON_TEST_UNUSED_KEY",
+        &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
         CancellationToken::new(),
     )
     .await
@@ -56,7 +56,7 @@ async fn status_command_failure_timeout_overflow_and_cancellation_are_bounded() 
             &config,
             b"{}".to_vec(),
             std::path::Path::new("/"),
-            "PLEXMATON_TEST_UNUSED_KEY",
+            &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
             CancellationToken::new(),
         )
         .await
@@ -70,7 +70,7 @@ async fn status_command_failure_timeout_overflow_and_cancellation_are_bounded() 
             &config("exit 7"),
             vec![],
             std::path::Path::new("/"),
-            "PLEXMATON_TEST_UNUSED_KEY",
+            &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
             cancel
         )
         .await,
@@ -94,7 +94,7 @@ async fn status_script_omits_null_fields_and_keeps_rainbow_path() {
         &config,
         serde_json::to_vec(&input).expect("fixture"),
         std::path::Path::new("/"),
-        "PLEXMATON_TEST_UNUSED_KEY",
+        &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
         CancellationToken::new(),
     )
     .await
@@ -153,7 +153,7 @@ async fn status_script_context_uses_reported_input_with_a_glyph_at_each_width() 
             &config,
             serde_json::to_vec(&input).expect("fixture"),
             std::path::Path::new("/"),
-            "PLEXMATON_TEST_UNUSED_KEY",
+            &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
             CancellationToken::new(),
         )
         .await
@@ -182,6 +182,7 @@ async fn status_owner_replacement_and_shutdown_join_before_returning() {
     let mut owner = StatusLine {
         config: config("sleep 30"),
         model: model(),
+        credential_envs: vec!["TEST_KEY".into()],
         cwd: "/".into(),
         active: None,
         due: None,
@@ -200,7 +201,7 @@ async fn status_owner_replacement_and_shutdown_join_before_returning() {
                 &config("cat >/dev/null; sleep 30"),
                 b"{}".to_vec(),
                 std::path::Path::new("/"),
-                "PLEXMATON_TEST_UNUSED_KEY",
+                &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
                 child_token,
             )
             .await
@@ -299,7 +300,7 @@ async fn status_shutdown_joins_descendants_after_a_dropped_poll() {
                 &child_config,
                 b"{}".to_vec(),
                 &cwd,
-                "PLEXMATON_TEST_UNUSED_KEY",
+                &["PLEXMATON_TEST_UNUSED_KEY".to_owned()],
                 child_cancel,
             )
             .await

@@ -27,6 +27,10 @@ pub(super) struct ToolTasks {
 }
 
 impl ToolTasks {
+    pub(super) fn excludes_api_key_environment(&self, name: &str) -> bool {
+        self.catalog.excludes_api_key_environment(name)
+    }
+
     pub(super) fn new(catalog: NativeToolCatalog) -> Self {
         Self {
             catalog,

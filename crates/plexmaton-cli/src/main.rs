@@ -149,6 +149,7 @@ fn configuration_summary(model: &plexmaton_provider::ResolvedModel) -> Configura
     ConfigurationSummary {
         provider: model.provider_name().to_owned(),
         model: model.wire_id().to_owned(),
+        configured_name: model.model_name().to_owned(),
         reasoning_effort: model.reasoning_effort(),
     }
 }
@@ -224,6 +225,19 @@ async fn run(
         output.math,
     );
     workspace.set_model(picker.configuration());
+    workspace.set_model_choices(
+        picker
+            .models()
+            .models()
+            .map(|model| plexmaton_tui::ModelChoice {
+                identity: plexmaton_tui::ModelIdentity {
+                    provider: model.provider_name().to_owned(),
+                    model: model.model_name().to_owned(),
+                },
+                display_name: model.display_name().to_owned(),
+                wire_id: model.wire_id().to_owned(),
+            }),
+    );
     workspace.set_effort_choices(
         runtime
             .configured_model()
@@ -467,6 +481,7 @@ output_reserve_tokens = 5000
                 root: PathBuf::new(),
                 workspace: PathBuf::new(),
                 model: registry.active_model().clone(),
+                models: registry.clone(),
                 ripgrep: "/bin/false".into(),
                 driver: "/bin/false".into(),
                 permissions: plexmaton_runtime::CodingSessionPermissions::new(&tools),

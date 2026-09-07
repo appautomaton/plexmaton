@@ -48,6 +48,7 @@ fn main() -> Result<()> {
         workspace.draw(&mut terminal)?;
         save(directory, "drawer", &terminal)?;
         workspace.show_configuration(ConfigurationSummary {
+            configured_name: "fixture".into(),
             provider: "Local development".into(),
             model: "example-model".into(),
             reasoning_effort: ReasoningEffort::High,

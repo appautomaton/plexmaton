@@ -18,6 +18,8 @@ use super::{
 use crate::{Direction, surface::SurfaceId};
 
 mod grammar;
+mod models;
+pub use models::{ModelChoice, ModelIdentity};
 mod navigation;
 mod session_permissions;
 mod skill_bindings;
@@ -68,6 +70,7 @@ pub enum Listing {
     Conversations,
     Permissions,
     Effort,
+    Models,
 }
 
 impl Listing {
@@ -80,12 +83,16 @@ impl Listing {
             Self::Conversations => "Conversations",
             Self::Permissions => "Session permissions",
             Self::Effort => "Effort",
+            Self::Models => "Models",
         }
     }
 
     /// Whether the listing stands for something while it has no rows, so it stays open.
     const fn stands_without_rows(self) -> bool {
-        matches!(self, Self::Conversations | Self::Permissions | Self::Effort)
+        matches!(
+            self,
+            Self::Conversations | Self::Permissions | Self::Effort | Self::Models
+        )
     }
 
     /// The keys, on the menu's last row.
@@ -97,6 +104,7 @@ impl Listing {
             Self::Conversations => " ↑↓ choose · Enter open · Esc close",
             Self::Permissions => " ↑↓ choose · Enter review · Esc close",
             Self::Effort => " ←/→ adjust · Enter confirm · Esc cancel",
+            Self::Models => " ↑↓ choose · Enter confirm · Esc cancel",
         }
     }
 }
@@ -109,6 +117,7 @@ pub(crate) enum MenuRow {
     Conversation(ConversationId),
     Permission(PermissionChoice),
     Effort(ReasoningEffort),
+    Model(ModelIdentity),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -117,6 +126,8 @@ pub(crate) struct ComposerMenu {
     pub(crate) effort_feedback: Option<String>,
     pub(crate) effort_phase: u16,
     skills: Vec<SkillChoice>,
+    models: models::ModelCatalog,
+    pub(crate) model_feedback: Option<String>,
     /// Saved conversations for `/resume`, once the composition root has listed them (SPK-1).
     pub(crate) conversations: Option<ConversationPicker>,
     /// The Session's grants for `/permissions`, once the owner has projected them (PER-7).
@@ -230,6 +241,7 @@ impl ComposerMenu {
 
     fn rows_for(&self, completion: &Completion<'_>) -> Vec<MenuRow> {
         match completion.listing {
+            Listing::Models => self.models.rows(completion.query),
             Listing::Effort => {
                 if completion.query == "default" {
                     return vec![MenuRow::Effort(ReasoningEffort::Default)];
@@ -450,6 +462,9 @@ impl ViewState {
         let text = self.composer().text().to_owned();
         let cursor = self.composer().cursor();
         let changed = self.composer_menu.sync(&text, cursor);
+        if changed {
+            self.composer_menu.model_feedback = None;
+        }
         if !was_effort
             && self.menu_listing() == Some(Listing::Effort)
             && let Some(effort) = self.reasoning_effort()
@@ -597,6 +612,7 @@ mod tests {
                 MenuRow::Command(Command::Compact),
                 MenuRow::Command(Command::Permissions),
                 MenuRow::Command(Command::Effort),
+                MenuRow::Command(Command::Model),
             ]
         );
         assert!(menu.rows("/zzz", 4).is_empty());

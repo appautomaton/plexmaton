@@ -61,6 +61,7 @@ pub(super) async fn live_runtime_from_process(
         vec![OsString::from(INTERNAL_RG_DRIVER)],
     )
     .context("configure native workspace tools")?
+    .with_provider_credentials(config.models.models().map(|model| model.api_key_env()))
     .with_skill_roots(
         &root,
         &project_root,
@@ -90,14 +91,21 @@ pub(super) async fn live_runtime_from_process(
         root: root.clone(),
         workspace: workspace_root.clone(),
         model: configured_model,
+        models: config.models.clone(),
         ripgrep,
         driver,
         permissions: permissions.clone(),
     });
     let agent_id = AgentId::new("agent-primary").context("build primary agent identity")?;
-    let status_line = config
-        .status_line
-        .map(|config| statusline::StatusLine::new(config, model.clone(), workspace_root.clone()));
+    let status_line = config.status_line.map(|status| {
+        statusline::StatusLine::new(status, model.clone(), workspace_root.clone())
+            .with_provider_credentials(
+                config
+                    .models
+                    .models()
+                    .map(|model| model.api_key_env().to_owned()),
+            )
+    });
     let mut opened =
         open_selected_conversation(&root, selection, agent_id, model, key, tools).await?;
     opened.runtime.use_coding_session(permissions)?;

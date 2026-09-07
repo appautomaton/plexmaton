@@ -293,6 +293,11 @@ impl ModelRegistry {
         })
     }
 
+    /// Every configured model in deterministic provider/name order; no credentials are resolved.
+    pub fn models(&self) -> impl ExactSizeIterator<Item = &ResolvedModel> {
+        self.models.values()
+    }
+
     /// Exact selected provider/model identity.
     #[must_use]
     pub const fn active_selection(&self) -> &ModelSelection {

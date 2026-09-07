@@ -4,6 +4,7 @@ use plexmaton_agent::{Agent, ApprovalPolicy, ConversationMetadata, TurnBudget, U
 use plexmaton_session_store::JournalFile;
 
 mod instructions;
+mod model;
 
 const CONFIG: &str = r#"
 active_model = { provider = "fixture", model = "test" }
@@ -28,14 +29,13 @@ fn launcher(root: &Path) -> Launcher {
         Vec::new(),
     )
     .expect("permission workspace");
+    let models = plexmaton_provider::ModelRegistry::parse(CONFIG).expect("model");
     Launcher {
         permissions: plexmaton_runtime::CodingSessionPermissions::new(&tools),
         root: root.to_owned(),
         workspace: root.to_owned(),
-        model: plexmaton_provider::ModelRegistry::parse(CONFIG)
-            .expect("model")
-            .active_model()
-            .clone(),
+        model: models.active_model().clone(),
+        models,
         ripgrep: "/bin/false".into(),
         driver: "/bin/false".into(),
     }

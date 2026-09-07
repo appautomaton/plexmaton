@@ -245,6 +245,19 @@ def check_newline(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("Message Plexmaton",), ("first", "second"))
 
 
+def check_model_menu(master: int, captured: bytearray) -> None:
+    """MDL-2: opening, filtering and dismissing remain a blank conversation."""
+    os.write(master, b"/model ")
+    repaint(master, captured, ("Models", "current", "Enter confirm"))
+    os.write(master, b"no-match")
+    repaint(master, captured, ("No matching models.", "/model no-match"))
+    os.write(master, b"\x1b")
+    await_screen(master, captured, RESIZED, ("/model no-match",), ("Enter confirm",))
+    repaint(master, captured, ("/model no-match",), ("Enter confirm",))
+    os.write(master, b"\x15")
+    repaint(master, captured, ("Message Plexmaton",), ("/model",))
+
+
 def check_effort(master: int, captured: bytearray) -> None:
     """EFF-1/EFF-2: a real command changes idle effort without a model request or journal."""
     os.write(master, b"/effort ")
@@ -333,6 +346,7 @@ output_reserve_tokens = 5000
         check_input_pointer(master, captured)
         check_newline(master, captured)
         check_effort(master, captured)
+        check_model_menu(master, captured)
 
         question = "press Ctrl-D again to quit"
         armed_start = len(captured)

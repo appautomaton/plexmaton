@@ -17,7 +17,7 @@ pub use interface::{
 };
 pub use native::{NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::{
-    ContextBudgetSnapshot, ContextBudgetUnavailable, EffortChangeRefusal, LiveRuntime,
+    ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime, ModelChangeRefusal,
 };
 
 pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

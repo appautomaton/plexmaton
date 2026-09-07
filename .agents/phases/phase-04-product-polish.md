@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–21 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–22 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -217,6 +217,19 @@ Visual changes are reviewed against real frames before the contract adopts them.
 21. **Dependency reuse evaluation — complete.** [The experiment](../spikes/rust-dependency-seeding/README.md)
     did not establish repeatable benefits sufficient to justify a project seeder's maintenance.
     Ordinary Cargo and private task targets remain the build workflow; no seeding command is maintained.
+
+22. **Model selection — complete.** [MDL-1–MDL-4](../specs/model-selection.md) own bounded
+    configured `/model` rows, atomic idle replacement, replay compatibility, credential isolation
+    and conversation-local overrides. New, resume and restart retain the configured default.
+    Local validation passed the 412-test TUI suite, then five focused model tests after refusal
+    and direct-click identity fixes; the 104-test CLI suite plus its new reset witness; runtime
+    replacement/replay and command environment tests; affected all-target Clippy and corpus gates.
+    The two offline PTY journeys prove blank open/filter/Escape, missing-key refusal, a second
+    endpoint receiving the retained history/guidance, real command/status credential exclusion,
+    and `/new` reset. CI runs the new model journey. Sol-high review found no remaining blockers;
+    its direct-click regression failed before the fix and passed afterward.
+    Six actual [choice/refusal frames](../specs/model-selection.md#rendered-review) were inspected
+    at 120/88/60 columns. Live-provider acceptance is not claimed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

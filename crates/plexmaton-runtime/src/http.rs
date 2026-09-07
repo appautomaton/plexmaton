@@ -286,15 +286,33 @@ async fn failed_response_report(
 }
 
 impl ModelDriver for ProviderHttp {
+    fn with_model(
+        &self,
+        model: ResolvedModel,
+        key: ApiKey,
+    ) -> Result<Arc<dyn ModelDriver>, crate::ModelChangeRefusal> {
+        let endpoint = endpoint(&model).map_err(|_| crate::ModelChangeRefusal::InvalidModel)?;
+        let environment = request_environment(&model, &self.tools, Some(model.max_output_tokens()));
+        Ok(Arc::new(Self {
+            client: self.client.clone(),
+            endpoint,
+            model,
+            key: Arc::new(key),
+            tools: Arc::clone(&self.tools),
+            environment,
+            clock: Arc::clone(&self.clock),
+        }))
+    }
+
     fn with_reasoning_effort(
         &self,
         effort: plexmaton_core::ReasoningEffort,
-    ) -> Result<Arc<dyn ModelDriver>, crate::EffortChangeRefusal> {
+    ) -> Result<Arc<dyn ModelDriver>, crate::ModelChangeRefusal> {
         let mut driver = self.clone();
         driver.model = self
             .model
             .with_reasoning_effort(effort)
-            .map_err(|_| crate::EffortChangeRefusal::Unsupported)?;
+            .map_err(|_| crate::ModelChangeRefusal::Unsupported)?;
         driver.environment = request_environment(
             &driver.model,
             &driver.tools,
