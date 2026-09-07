@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Phase | [Phase 04](../phases/phase-04-product-polish.md) stage 16 |
-| Contract | [EFF-1–EFF-5](../specs/reasoning-effort.md), PRV-6, CMD-1/CMD-2, INV-11, FR-1/FR-3/FR-4, STL-3 |
+| Contract | [EFF-1–EFF-5](../specs/reasoning-effort.md), PRV-6, CMC-1/CMC-2, INV-11, FR-1/FR-3/FR-4, STL-3 |
 | Status | Active; slice 4 of 4 implemented and locally verified; user terminal testing pending |
 
 ## Outcome

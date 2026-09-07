@@ -227,7 +227,7 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
 }
 
 /// Bounded composer completions; every choice occupies exactly one pointer-addressable row.
-/// The composer menu's rows, by the token the draft starts with, and its key line (SKP-4, CMD-1).
+/// The composer menu's rows, by the token the draft starts with, and its key line (SKP-4, CMC-1).
 ///
 /// Skills carry their source and name; Commands their name and what `Enter` does; conversations
 /// their title and, muted, their identity; permissions their label. The chosen row is the bar

@@ -84,7 +84,7 @@ Foundation audited 2026-09-03; later admissions below.
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |
 | `thiserror` | Library error types | No `anyhow::Error` in core contracts |
 | `anyhow` | Composition-root errors | Binary boundary only |
-| `tracing` / `tracing-subscriber` | Structured diagnostics | `tracing`: std, no attributes; subscriber: formatting/filtering. PRV-5 logs omit payloads and stay off screen |
+| `tracing` | Structured diagnostic events | std, no attributes. PRV-5 events omit payloads; no subscriber is installed by the executable |
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |

@@ -4,10 +4,10 @@
 #
 #     git config core.hooksPath .githooks
 #
-# It answers "is this commit clean", never "is this code right". Every check here is read-only
-# and runs in parallel, so the hook costs about its slowest check, budgeted at five seconds.
-# Clippy and the test suite build the workspace; the author runs them before handoff and CI runs
-# them again, so they are not repeated here at two minutes a commit.
+# It answers "is this commit clean", never "is this code right". Read-only gates run in parallel;
+# the advisory document report follows. The total has a five-second target.
+# Clippy and broad test suites belong in CI by default; local runs address a specific need.
+# They are not repeated here at two minutes a commit.
 #
 # Set PLEXMATON_SKIP_HOOKS=1 to bypass deliberately; do not remove a check to make a commit pass.
 set -euo pipefail

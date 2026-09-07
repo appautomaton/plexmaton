@@ -22,7 +22,7 @@ fail=0
 # gate, because it is believed.
 closure_of() {
     local crate="$1" output
-    if ! output=$(cargo tree -p "$crate" --edges normal --prefix none 2>&1); then
+    if ! output=$(cargo tree --locked -p "$crate" --edges normal --prefix none 2>&1); then
         printf 'cannot read the dependency closure of %s:\n%s\n' "$crate" "$output" >&2
         fail=1
         return 1
@@ -48,7 +48,7 @@ forbid() {
 only() {
     local crate="$1" allowed="$2" closure reached
     closure=$(closure_of "$crate") || return
-    reached=$(printf '%s\n' "$closure" | awk 'NR > 1 && $1 ~ /^plexmaton-/ {print $1}' |
+    reached=$(printf '%s\n' "$closure" | awk -v root="$crate" '$1 != root && $1 ~ /^plexmaton-/ {print $1}' |
         sort -u | tr '\n' ' ')
     reached="${reached% }"
     if [[ "$reached" != "$allowed" ]]; then

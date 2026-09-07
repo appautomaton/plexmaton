@@ -286,7 +286,7 @@ output_reserve_tokens = 5000
     child_env["PLEXMATON_SMOKE_API_KEY"] = "fixture-only"
     default_sessions_root = config_root / "sessions"
     subprocess.run(
-        ["cargo", "build", "-p", "plexmaton-cli", "--quiet"], cwd=root, check=True
+        ["cargo", "build", "--locked", "-p", "plexmaton-cli", "--quiet"], cwd=root, check=True
     )
 
     master, slave = pty.openpty()

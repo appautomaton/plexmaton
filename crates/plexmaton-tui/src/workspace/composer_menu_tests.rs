@@ -1,5 +1,5 @@
 //! The composer menu's `/`: Commands, `/resume`'s saved conversations with one identity for
-//! keyboard and pointer, and what leaves the workspace when a row is accepted (CMD-1, CMD-2,
+//! keyboard and pointer, and what leaves the workspace when a row is accepted (CMC-1, CMC-2,
 //! SPK-1, CPL-9).
 use super::*;
 use crate::{
@@ -126,7 +126,7 @@ fn row_point(workspace: &Workspace, terminal: &Terminal<TestBackend>, text: &str
     }
 }
 
-/// CMD-1/CMD-2: `/` lists the Commands, the query narrows them, `Enter` on `/compact` leaves a
+/// CMC-1/CMC-2: `/` lists the Commands, the query narrows them, `Enter` on `/compact` leaves a
 /// run with its target and consumes the draft, and text that is not exactly a Command is text.
 #[test]
 fn the_slash_lists_the_commands_and_only_a_whole_command_runs() {
@@ -175,7 +175,7 @@ fn the_slash_lists_the_commands_and_only_a_whole_command_runs() {
     }
 }
 
-/// CMD-2: `Tab` completes the chosen Command into the draft without running it, a completed
+/// CMC-2: `Tab` completes the chosen Command into the draft without running it, a completed
 /// `/new` runs on `Enter` with the menu gone, and `Escape` keeps the draft.
 #[test]
 fn tab_completes_a_command_and_escape_keeps_the_draft() {
@@ -342,7 +342,7 @@ fn resume_status_rows_cover_failure_no_match_and_opening() {
     assert_eq!(workspace.state.composer().text(), "/resume ");
 }
 
-/// CMD-2/SKP-3: a paste opens the listing like typing does, and a character no Command starts
+/// CMC-2/SKP-3: a paste opens the listing like typing does, and a character no Command starts
 /// with closes it so the draft stays text.
 #[test]
 fn paste_and_unicode_inside_the_token_follow_the_same_rule() {

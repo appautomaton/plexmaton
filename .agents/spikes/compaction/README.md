@@ -106,6 +106,6 @@ makes the epoch/prefix witness fail (mutation checked); CPL-5 owns the implement
 ## Production evidence
 
 CPL-1–CPL-8 own the implementation and named regression tests. The
-[stage record](../../phases/phase-02-durable-sessions.md#compaction--implemented) owns validation
+[stage record](../../phases/phase-02-durable-sessions.md#compaction--complete) owns validation
 receipts and the three-width failure frames produced by [the real renderer](./render-review.rs).
 Summary quality, exact token sufficiency and realized provider cache hits remain unverified.

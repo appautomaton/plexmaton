@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implemented locally; physical-terminal appearance awaits user testing |
 | Owns | Conversation effort selection, its RGB projection and its visible-only animation |
-| Depends on | PRV-6, CMD-1/CMD-2, INV-11, FR-1/FR-3/FR-4, STL-3 |
+| Depends on | PRV-6, CMC-1/CMC-2, INV-11, FR-1/FR-3/FR-4, STL-3 |
 | Proven by | Runtime, TUI and production-loop tests below |
 
 ## Invariants

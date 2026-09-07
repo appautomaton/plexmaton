@@ -101,7 +101,7 @@ pub struct Outcome {
     /// What a permissions place asked of the retained owner, which only the root holds (PER-7).
     pub permission: Option<PermissionRequest>,
     /// A Command to run against the conversation it names; the runtime admits or refuses it
-    /// (CMD-1, CPL-9).
+    /// (CMC-1, CPL-9).
     pub command: Option<CommandRun>,
     /// An explicit effort selected for the addressed conversation.
     pub effort: Option<EffortChange>,
@@ -114,7 +114,7 @@ pub struct EffortChange {
     pub effort: plexmaton_core::ReasoningEffort,
 }
 
-/// A Command accepted in the composer, with the target captured at that moment (CMD-1).
+/// A Command accepted in the composer, with the target captured at that moment (CMC-1).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandRun {
     pub command: crate::Command,
@@ -454,7 +454,7 @@ impl Workspace {
                         ..Outcome::default()
                     };
                 }
-                // A whole draft that is a Command runs, menu or no menu (CMD-2).
+                // A whole draft that is a Command runs, menu or no menu (CMC-2).
                 if matches!(edit, TextIntent::Submit)
                     && self.state.focused(&self.surfaces) == Some(crate::SurfaceId::Composer)
                     && let Some(outcome) = self.submit_command()
