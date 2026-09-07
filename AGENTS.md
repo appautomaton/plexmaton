@@ -18,7 +18,8 @@ Read only what the active task needs. Do not preload all phases, reference repos
 | change interaction, layout, focus, attention, or copy behaviour | the relevant sections of [`ui-ux.md`](./.agents/ui-ux.md) |
 | write, change, or delete a test | [`standards/testing.md`](./.agents/standards/testing.md) |
 | organize a module, or add/upgrade/remove a dependency | [`standards/rust.md`](./.agents/standards/rust.md) |
-| select, run, or fix gates; set up a clone or worktree | [`standards/quality-gates.md`](./.agents/standards/quality-gates.md) |
+| start or resume development; create, merge, or retire a branch/worktree | [`standards/git-workflow.md`](./.agents/standards/git-workflow.md) |
+| select, run, or fix gates; set up clone hooks or worktree builds | [`standards/quality-gates.md`](./.agents/standards/quality-gates.md) |
 | write or reorganize a document | [`.agents/README.md`](./.agents/README.md) |
 | compare against a third-party implementation | `.references/`, which is gitignored and absent in a fresh clone. Treat its absence as normal |
 
@@ -36,8 +37,12 @@ A change is not done until the documents it invalidates are rewritten in the sam
 
 ## Working discipline
 
-Additional Git worktrees go only in `.worktrees/<name>/`. Setup, cleanup, and build isolation follow
-[quality gates §Parallel checkouts](./.agents/standards/quality-gates.md#parallel-checkouts).
+The primary checkout stays on `main`; all development, including docs and CI, happens on a task
+branch in `.worktrees/<name>/` under the primary checkout, unless the user explicitly requests an
+exception. Each task's primary agent owns its branch, worktree and cleanup. After its authorized
+merge, that agent syncs `main` and retires the task's worktree and local/remote branches without another
+cleanup request, following [Git workflow](./.agents/standards/git-workflow.md). Preserve unfinished
+work; report a blocked cleanup instead of calling it complete. New work gets a new branch.
 
 The primary agent owns all edits, integration, and verification. Delegates are read-only and
 return evidence.
@@ -53,7 +58,7 @@ Before handoff: inspect the diff for dependency, generated-file, snapshot, or fo
 
 For layout, copy, focus, attention, or interaction changes, inspect wide, medium, and narrow rendered frames; attach them to the stage record unless the user reviewed them. String assertions prove mechanisms, not the experience.
 
-Claim only observed passes for the current code; identify local, CI, and pending checks. Do not commit, publish, install globally, or mutate live user configuration unless explicitly requested. Commit messages follow Conventional Commits.
+Claim only observed passes for the current code; identify local, CI, and pending checks. Do not commit, publish, merge, install globally, or mutate live user configuration unless explicitly requested. Commit messages follow Conventional Commits.
 
 ## Documenting work
 
