@@ -104,9 +104,18 @@ fn drawer_retract_is_visible_on_pages_and_requires_an_unchanged_click() {
             assert!(workspace.state.drawer_retract_hovered());
             workspace.settled_draw(&mut terminal).expect("hover frame");
             let after = terminal.backend().buffer();
-            for x in [rect.x, at.x, rect.right() - 1] {
+            // DRW-3: keep the side strokes without underlines crossing through them.
+            for buffer in [&before, after] {
+                for (x, symbol) in [(rect.x, "┐"), (rect.right() - 1, "┌")] {
+                    assert_eq!(buffer[(x, at.y)].symbol(), symbol);
+                    assert!(
+                        !buffer[(x, at.y)]
+                            .modifier
+                            .contains(ratatui::style::Modifier::UNDERLINED)
+                    );
+                }
                 assert!(
-                    after[(x, at.y)]
+                    buffer[(at.x, at.y)]
                         .modifier
                         .contains(ratatui::style::Modifier::UNDERLINED)
                 );

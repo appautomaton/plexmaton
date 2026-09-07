@@ -30,7 +30,8 @@ filter and choice for its return (SURF-5). `Escape` returns page, list, then ori
 press. The chosen row carries `Chosen` across its whole width, a bar with weight and a hue, against `Muted`.
 INV-3 shares that choice with pointer movement. A padded bottom-center `︽` handle retracts the whole Drawer to
 its origin from any page; Esc retains the one-layer ladder. The eight-cell hit region shares the
-existing bottom-border row. Downward corners and an underlined interior form its lower outline;
+existing bottom-border row. Undecorated downward corners retain the side strokes; only the interior is underlined, so no
+underline crosses or protrudes beyond a side stroke. Together they form the lower outline;
 the single two-cell glyph has equal padding, a muted resting color and accent hover, without animation. INV-11 guards its press/release.
 
 **DRW-4 — Configuration shows the model this process resolved.** The composition root projects

@@ -211,7 +211,8 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Drawer and frame tests, TUI all-target Clippy and the revised corner/hover witness passed on
     `1393bcb` plus this change. Six [rendered controls](../specs/drawer.md#rendered-controls) were
     inspected at 120/88/60 columns. Full workspace and terminal verification runs in PR CI;
-    no new Kitty windows were opened for this styling change.
+    no new Kitty windows were opened for this styling change. The corner regression
+    witness retains both side glyphs and forbids underlines on them in rest and hover states.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
