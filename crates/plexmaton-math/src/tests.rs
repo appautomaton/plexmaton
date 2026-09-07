@@ -1,5 +1,6 @@
 use super::*;
 
+mod projection;
 #[path = "test_support.rs"]
 mod support;
 
@@ -355,7 +356,7 @@ fn framed_paint_inherits_without_erasing_explicit_color() {
     assert!(Formula::parse(r"$\textcolor[rgb]{-1,-1,-1}{x}$").is_err());
 }
 
-/// MTH-2: root pieces span the body, and engine word gaps do not disappear in the cell grid.
+/// MTH-2: roots reserve one joined native glyph/rule, while engine word gaps remain visible.
 #[test]
 fn radicals_span_the_radicand_and_text_keeps_word_gaps() {
     let layout = prepared(r"$\sqrt{d_k}$");
@@ -363,19 +364,24 @@ fn radicals_span_the_radicand_and_text_keeps_word_gaps() {
         .runs()
         .iter()
         .find(|run| run.text == "√")
-        .expect("radical foot");
-    let top = layout
+        .expect("radical glyph");
+    let roof = layout
         .runs()
         .iter()
-        .find(|run| run.text == "┌")
-        .expect("radical top");
+        .filter(|run| run.text == "─" && run.y == root.y)
+        .min_by_key(|run| run.x)
+        .expect("radical roof");
     let body = layout
         .runs()
         .iter()
         .find(|run| run.text == "d")
         .expect("radicand");
-    assert_eq!(root.x, top.x);
-    assert!(top.y < body.y && root.y >= body.y);
+    assert_eq!(root.scale, TextScale::Large);
+    assert_eq!((root.columns, root.rows), (2, 2));
+    assert_eq!(roof.x, root.x + root.columns);
+    assert_eq!(body.x, roof.x);
+    assert_eq!(body.y, root.y + 1);
+    assert_disjoint(&layout);
     let layout = prepared(r"$\text{number of heads}$");
     let words: Vec<_> = layout.runs().iter().collect();
     assert_eq!(

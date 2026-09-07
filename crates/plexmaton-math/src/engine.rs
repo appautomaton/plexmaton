@@ -1,4 +1,5 @@
-//! External parser/layout boundary. Admission normalizes paint but never owns TeX geometry.
+//! External parser/layout boundary. Admission normalizes paint and native index reservations;
+//! RaTeX owns parsing and TeX layout.
 use ratex_layout::{LayoutOptions, layout, to_display_list};
 use ratex_parser::ParseNode;
 use ratex_types::{Color, MathStyle};
@@ -8,6 +9,8 @@ use crate::{
 };
 
 mod decode;
+mod paths;
+mod roots;
 
 // Transparent colors are refused at admission, reserving this marker for inherited paint.
 const INHERIT: Color = Color::new(0.0, 0.0, 0.0, 0.0);
@@ -42,12 +45,14 @@ pub(super) enum Kind {
     Horizontal,
     Vertical,
     Delimiter(char),
-    Radical,
+    Radical {
+        scale: TextScale,
+    },
 }
 
 pub(super) fn prepare(source: &str, mode: MathMode) -> Result<Scene, MathError> {
     let mut tree = ratex_parser::parse(source).map_err(|_| MathError::ParseRejected)?;
-    admit(&mut tree)?;
+    let paths = admit(&mut tree)?;
     let options = LayoutOptions {
         style: match mode {
             MathMode::Inline => MathStyle::Text,
@@ -56,7 +61,8 @@ pub(super) fn prepare(source: &str, mode: MathMode) -> Result<Scene, MathError> 
         color: INHERIT,
         ..LayoutOptions::default()
     };
-    let boxes = layout(&tree, &options);
+    let mut boxes = layout(&tree, &options);
+    roots::reserve_indices(&mut boxes)?;
     let list = to_display_list(&boxes);
     if list.items.len() > MAX_ITEMS {
         return Err(MathError::Limited(Limit::Items));
@@ -67,7 +73,7 @@ pub(super) fn prepare(source: &str, mode: MathMode) -> Result<Scene, MathError> 
     if list.width < 0.0 || list.total_height() <= 0.0 {
         return Err(MathError::Empty);
     }
-    decode::scene(&list, options.metrics().axis_height)
+    decode::scene(&list, options.metrics().axis_height, paths)
 }
 
 fn geometry(value: f64) -> Result<f64, MathError> {
@@ -104,7 +110,7 @@ fn source_color(value: &str) -> Result<Color, MathError> {
     paint(color).map(|_| color)
 }
 
-fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
+fn admit(nodes: &mut [ParseNode]) -> Result<paths::PathAdmissions, MathError> {
     if nodes.len() > MAX_NODES {
         return Err(MathError::Limited(Limit::Nodes));
     }
@@ -113,6 +119,7 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
         .map(|node| (node, 0_usize, INHERIT, false))
         .collect();
     let mut count = 0_usize;
+    let mut paths = paths::PathAdmissions::default();
     while let Some((node, depth, inherited, explicit_font)) = pending.pop() {
         count += 1;
         // The upstream parser separately limits logical input nesting to 32.
@@ -208,11 +215,13 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
                 }
             }
             ParseNode::LeftRight {
-                body, right_color, ..
+                body,
+                left,
+                right,
+                right_color,
+                ..
             } => {
-                if let Some(color) = right_color {
-                    source_color(color)?;
-                }
+                admit_left_right(&mut paths, left, right, right_color)?;
                 for node in body {
                     push(node, inherited, explicit_font)?;
                 }
@@ -251,6 +260,20 @@ fn admit(nodes: &mut [ParseNode]) -> Result<(), MathError> {
             }
             _ => return Err(MathError::Unsupported(Unsupported::Construct)),
         }
+    }
+    Ok(paths)
+}
+
+fn admit_left_right(
+    paths: &mut paths::PathAdmissions,
+    left: &str,
+    right: &str,
+    right_color: &Option<String>,
+) -> Result<(), MathError> {
+    paths.admit(left);
+    paths.admit(right);
+    if let Some(color) = right_color {
+        source_color(color)?;
     }
     Ok(())
 }
