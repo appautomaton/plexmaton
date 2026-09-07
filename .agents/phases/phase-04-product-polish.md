@@ -214,14 +214,9 @@ Visual changes are reviewed against real frames before the contract adopts them.
     no new Kitty windows were opened for this styling change. The corner regression
     witness retains both side glyphs and forbids underlines on them in rest and hover states.
 
-21. **Worktree dependency seeding — complete.** [Rust builds](../standards/rust-builds.md#dependency-seeding)
-    defines the explicit macOS/Cargo 1.98 command. It clones eligible external library units into
-    an absent private target, with Cargo locks and atomic no-replace publication. Local and
-    execution-dependent units remain Cargo's work. Eighteen seeding tests cover policy, filesystems,
-    real Cargo locking, feature/local-source changes and full-debug external frames; 409 TUI tests
-    passed after donor removal. [Qualification](../spikes/rust-dependency-seeding/README.md) records
-    lower observed writes and shared dependency data; no material wall-time benefit is established.
-    Automatic activation, global configuration and binary relocation are not part of this stage.
+21. **Dependency reuse evaluation — complete.** [The experiment](../spikes/rust-dependency-seeding/README.md)
+    did not establish repeatable benefits sufficient to justify a project seeder's maintenance.
+    Ordinary Cargo and private task targets remain the build workflow; no seeding command is maintained.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

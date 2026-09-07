@@ -5,7 +5,6 @@
 # Reproducible binary builds keep Cargo.lock. Generated outputs stay local.
 target/
 /target-*/
-/.target-seed-*/
 *.rs.bk
 *.o
 *.obj
