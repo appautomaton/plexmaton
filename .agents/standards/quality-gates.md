@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Trigger | Selecting or running checks, fixing a gate, setting up a clone/worktree, or reporting results |
+| Trigger | Selecting or running checks, fixing a gate, setting up clone hooks or worktree builds, or reporting results |
 | Owns | Which gates exist, what each one catches, and how to run them |
 
 ## The lanes
@@ -116,15 +116,8 @@ Terminal-boundary pitfalls:
 
 ## Parallel checkouts
 
-Use the location required by [AGENTS.md](../../AGENTS.md#working-discipline), even when a harness
-defaults elsewhere:
-
-```console
-git worktree add .worktrees/surfaces -b feat/surfaces   # then start the agent inside it
-git worktree remove .worktrees/surfaces                 # never rm -rf; this takes target/ with it
-```
-
-Never put a worktree in `.agents/`, which is the tracked corpus.
+[Git workflow](./git-workflow.md) owns checkout placement, task branches and retirement.
+This section owns build isolation, including when a harness supplies its own worktree defaults.
 
 After a move, rebuild packages whose fixtures embed old absolute paths (`cargo clean -p <package>`).
 
