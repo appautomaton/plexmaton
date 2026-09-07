@@ -1,4 +1,4 @@
-┌ Workspace · Permissions ───────────────────────────── ⌃ ─┐
+┌ Workspace · Permissions ─────────────────────────────────┐
 │                                                          │
 │  Project grants survive Sessions and restarts.           │
 │  Project Allow rules need explicit trust. Ask and Deny   │
@@ -9,10 +9,10 @@
 │                                                          │
 │  ↑↓ choose · Enter select · Esc close                    │
 │                                                          │
-└──────────────────────────────────────────────────────────┘
+└─────────────────────────┐  ︽  ┌─────────────────────────┘
 
 
-┌ Project configuration rules ───────────────────────── ⌃ ─┐
+┌ Project configuration rules ─────────────────────────────┐
 │                                                          │
 │  Project: .plexmaton/config.toml                         │
 │  Allow rules inactive until personally trusted.          │
@@ -33,10 +33,10 @@
 │                                                          │
 │  ↑↓ read · Enter continue · Esc back                     │
 │                                                          │
-└──────────────────────────────────────────────────────────┘
+└─────────────────────────┐  ︽  ┌─────────────────────────┘
 
 
-┌ Workspace · Permissions ───────────────────────────── ⌃ ─┐
+┌ Workspace · Permissions ─────────────────────────────────┐
 │                                                          │
 │  Activate the reviewed project Allow rules?              │
 │  Configuration SHA-256:                                  │
@@ -51,4 +51,4 @@
 │                                                          │
 │  ↑↓ choose · Enter confirm · Esc back                    │
 │                                                          │
-└──────────────────────────────────────────────────────────┘
+└─────────────────────────┐  ︽  ┌─────────────────────────┘

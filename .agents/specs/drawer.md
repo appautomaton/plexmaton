@@ -28,8 +28,10 @@ or a matching press and release on a row hands the page to the composition root 
 owns what opening it costs. The page replaces the list inside the same surface, keeping the list's
 filter and choice for its return (SURF-5). `Escape` returns page, list, then origin, one layer per
 press. The chosen row carries `Chosen` across its whole width, a bar with weight and a hue, against `Muted`.
-INV-3 shares that choice with pointer movement. A padded top-right `⌃` retracts the whole Drawer to
-its origin from any page; Esc retains the one-layer ladder. INV-11 guards its press/release.
+INV-3 shares that choice with pointer movement. A padded bottom-center `︽` handle retracts the whole Drawer to
+its origin from any page; Esc retains the one-layer ladder. The eight-cell hit region shares the
+existing bottom-border row. Downward corners and an underlined interior form its lower outline;
+the single two-cell glyph has equal padding, a muted resting color and accent hover, without animation. INV-11 guards its press/release.
 
 **DRW-4 — Configuration shows the model this process resolved.** The composition root projects
 provider, wire model ID and reasoning effort from the model handed to the runtime, without keys or

@@ -3,7 +3,12 @@
 //! Separated from the draw loop so that file keeps one question, which surface is drawn when,
 //! and this one keeps the other: what drawing each of them means.
 
-use ratatui::{Frame, layout::Rect, text::Line};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::Modifier,
+    text::{Line, Span},
+};
 
 use super::{
     chrome::{composer_title, title},
@@ -68,15 +73,29 @@ pub(super) fn drawer_retract(
     state: &ViewState,
     bounds: Rect,
 ) {
-    let style = palette.style(if state.drawer_retract_hovered() {
-        Role::Accent
-    } else {
-        Role::Muted
-    });
-    frame.render_widget(
-        ratatui::widgets::Paragraph::new(" ⌃ ").style(style),
-        layout::drawer_retract_control(bounds),
-    );
+    let control = layout::drawer_retract_control(bounds);
+    if control.is_empty() {
+        return;
+    }
+    let hovered = state.drawer_retract_hovered();
+    let mut face = palette
+        .style(if hovered { Role::Accent } else { Role::Muted })
+        .add_modifier(Modifier::UNDERLINED);
+    if hovered {
+        face.bg = palette.style(Role::Chosen).bg;
+    }
+    // Downward corners join the existing rule. Underline draws the lower edge within this
+    // same row: no second border row, upper outline, graphics protocol or animation owner.
+    // U+FE3D is one character occupying two terminal cells; equal padding centers its glyph.
+    let border = palette
+        .style(Role::BorderFocused)
+        .add_modifier(Modifier::UNDERLINED);
+    let line = Line::from(vec![
+        Span::styled("┐", border),
+        Span::styled("  ︽  ", face),
+        Span::styled("┌", border),
+    ]);
+    frame.render_widget(ratatui::widgets::Paragraph::new(line), control);
 }
 
 /// `Workspace`, the addressee, then the page that is open (ui-ux §product vocabulary).

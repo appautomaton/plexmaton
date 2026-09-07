@@ -341,8 +341,9 @@ Docked to the top edge at full width, height from content. It floats over the
 strips and the rows already read, and may cover everything but the status line, because it
 blocks input anyway. `Ctrl-P` opens it from any focus state, even over a waiting approval,
 and never touches a draft: it addresses the workspace, not a conversation. A page opens in place,
-and `Escape` returns one layer per press: page, list, then where it was opened from. A top-right
-`⌃` retracts the entire Drawer to that origin from any page. Rejected: the
+and `Escape` returns one layer per press: page, list, then where it was opened from. A centered bottom-edge
+`︽` handle retracts the entire Drawer to that origin from any page. It has only a lower outline,
+uses the existing border row and remains static; hover accents the handle. Rejected: the
 command palette, a centred overlay with three-cell margins, a dialog about nothing in particular.
 
 ### Shelf: overlay without occlusion

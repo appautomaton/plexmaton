@@ -61,7 +61,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | `$` | Find and complete a skill |
 | `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort` |
 
-Mouse movement and arrows share the focused menu choice. The Drawer’s `⌃` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
+Mouse movement and arrows share the focused menu choice. The Drawer’s bottom-center `︽` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 

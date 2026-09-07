@@ -81,6 +81,7 @@ fn drawer_retract_is_visible_on_pages_and_requires_an_unchanged_click() {
     for width in [120, 88, 60] {
         for cancel in 0..4 {
             let (mut workspace, mut terminal) = setup(width);
+            workspace.set_palette(Palette::pastel());
             workspace.handle(&control('p'));
             workspace.show_configuration(crate::test_support::configuration_summary());
             workspace.settled_draw(&mut terminal).expect("page");
@@ -90,13 +91,49 @@ fn drawer_retract_is_visible_on_pages_and_requires_an_unchanged_click() {
                 .expect("drawer")
                 .bounds;
             let rect = crate::layout::drawer_retract_control(bounds);
+            assert_eq!(rect.y, bounds.bottom() - 1);
+            assert_eq!(rect.height, 1);
+            assert_eq!(rect.x - bounds.x, (bounds.width - rect.width) / 2);
             let at = Point {
-                x: rect.x + 1,
+                x: rect.x + 3,
                 y: rect.y,
             };
-            assert_eq!(terminal.backend().buffer()[(at.x, at.y)].symbol(), "⌃");
+            assert_eq!(terminal.backend().buffer()[(at.x, at.y)].symbol(), "︽");
+            let before = terminal.backend().buffer().clone();
             workspace.handle(&mouse(MouseEventKind::Moved, at));
             assert!(workspace.state.drawer_retract_hovered());
+            workspace.settled_draw(&mut terminal).expect("hover frame");
+            let after = terminal.backend().buffer();
+            for x in [rect.x, at.x, rect.right() - 1] {
+                assert!(
+                    after[(x, at.y)]
+                        .modifier
+                        .contains(ratatui::style::Modifier::UNDERLINED)
+                );
+            }
+            assert_eq!(
+                after[(at.x, at.y)].bg,
+                workspace
+                    .palette
+                    .style(crate::theme::Role::Chosen)
+                    .bg
+                    .expect("pastel chosen background")
+            );
+            assert_ne!(before[(at.x, at.y)].fg, after[(at.x, at.y)].fg);
+            for y in before.area.y..before.area.bottom() {
+                for x in before.area.x..before.area.right() {
+                    if !rect.contains((x, y).into()) {
+                        assert_eq!(
+                            before[(x, y)],
+                            after[(x, y)],
+                            "hover stays inside the handle"
+                        );
+                    }
+                }
+            }
+            let revision = workspace.state.revision();
+            workspace.handle(&mouse(MouseEventKind::Moved, at));
+            assert_eq!(workspace.state.revision(), revision);
             workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), at));
             match cancel {
                 1 => {
