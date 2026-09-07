@@ -484,12 +484,16 @@ pub(crate) fn command_inspection_controls(bounds: Rect) -> [Rect; 2] {
     ]
 }
 
-/// DRW-3: the retract control stays in the top-right border, clear of page content.
+/// DRW-3: one centered bottom-border row owns both the handle and its padded hit region.
 pub(crate) fn drawer_retract_control(bounds: Rect) -> Rect {
+    const WIDTH: u16 = 8;
+    if bounds.width < WIDTH + 2 || bounds.height == 0 {
+        return Rect::default();
+    }
     Rect::new(
-        bounds.right().saturating_sub(5),
-        bounds.y,
-        3.min(bounds.width),
+        bounds.x + (bounds.width - WIDTH) / 2,
+        bounds.bottom() - 1,
+        WIDTH,
         1,
     )
 }

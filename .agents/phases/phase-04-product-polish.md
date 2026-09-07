@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–19 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–20 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -204,6 +204,14 @@ Visual changes are reviewed against real frames before the contract adopts them.
     verified raw Ctrl-J and Copy sent; permission and status-line PTYs passed with isolated
     loopback fixtures. Terra-max's read-only review has no remaining blockers. CI and live
     desktop clipboard acceptance were not exercised locally.
+
+20. **Drawer handle styling — complete.** DRW-3 uses the user-approved static bottom-center
+    `︽` handle and lower outline within the existing border row. Its painted and hit regions share
+    one geometry; content height, focus and cancellation behavior are preserved. Local focused
+    Drawer and frame tests, TUI all-target Clippy and the revised corner/hover witness passed on
+    `1393bcb` plus this change. Six [rendered controls](../specs/drawer.md#rendered-controls) were
+    inspected at 120/88/60 columns. Full workspace and terminal verification runs in PR CI;
+    no new Kitty windows were opened for this styling change.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

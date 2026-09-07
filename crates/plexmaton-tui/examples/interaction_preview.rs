@@ -53,7 +53,7 @@ fn main() -> Result<()> {
             reasoning_effort: ReasoningEffort::High,
         });
         workspace.draw(&mut terminal)?;
-        let (x, y) = point(&terminal, "⌃")?;
+        let (x, y) = point(&terminal, "︽")?;
         workspace.handle(&Event::Mouse(MouseEvent {
             kind: MouseEventKind::Moved,
             column: x,
