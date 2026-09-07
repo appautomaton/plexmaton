@@ -87,9 +87,11 @@ pub(super) fn drawer_retract(
     // Downward corners join the existing rule. Underline draws the lower edge within this
     // same row: no second border row, upper outline, graphics protocol or animation owner.
     // U+FE3D is one character occupying two terminal cells; equal padding centers its glyph.
+    // Underlining a corner paints across its entire cell, crossing the vertical stroke and
+    // protruding outside the handle. Keep both corner glyphs; underline only the interior.
     let border = palette
         .style(Role::BorderFocused)
-        .add_modifier(Modifier::UNDERLINED);
+        .remove_modifier(Modifier::UNDERLINED);
     let line = Line::from(vec![
         Span::styled("┐", border),
         Span::styled("  ︽  ", face),
