@@ -286,6 +286,23 @@ async fn failed_response_report(
 }
 
 impl ModelDriver for ProviderHttp {
+    fn with_reasoning_effort(
+        &self,
+        effort: plexmaton_core::ReasoningEffort,
+    ) -> Result<Arc<dyn ModelDriver>, crate::EffortChangeRefusal> {
+        let mut driver = self.clone();
+        driver.model = self
+            .model
+            .with_reasoning_effort(effort)
+            .map_err(|_| crate::EffortChangeRefusal::Unsupported)?;
+        driver.environment = request_environment(
+            &driver.model,
+            &driver.tools,
+            Some(driver.model.max_output_tokens()),
+        );
+        Ok(Arc::new(driver))
+    }
+
     fn request_environment(&self) -> &RequestEnvironment {
         &self.environment
     }

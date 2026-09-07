@@ -2,6 +2,7 @@ use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
 mod chrome;
 mod configuration;
+pub(crate) mod effort;
 mod message_actions;
 mod panel;
 pub(crate) mod permission_review;
@@ -204,6 +205,9 @@ pub fn render(
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
+        if id == SurfaceId::Composer {
+            effort::composer_rules(frame, state, bounds, panel.edges);
+        }
         message_actions::render(frame, state, palette, metrics, id, bounds, viewport);
 
         // The cursor belongs to whichever surface the projection says owns it, which is the same

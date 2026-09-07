@@ -39,6 +39,7 @@ impl Workspace {
         match command {
             Command::Resume => self.list_conversations(),
             Command::Permissions => self.list_session_permissions(),
+            Command::Effort => Outcome::default(),
             Command::New | Command::Compact => Outcome::default(),
         }
     }
@@ -72,9 +73,9 @@ impl Workspace {
                     ..Outcome::default()
                 }
             }
-            MenuRow::Command(command @ (Command::Resume | Command::Permissions)) => {
-                self.complete_command(command)
-            }
+            MenuRow::Command(
+                command @ (Command::Resume | Command::Permissions | Command::Effort),
+            ) => self.complete_command(command),
             MenuRow::Command(Command::Compact) => {
                 let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
                     return Outcome::default();
@@ -102,6 +103,13 @@ impl Workspace {
                     ..Outcome::default()
                 }
             }
+            MenuRow::Effort(effort) => Outcome {
+                effort: self.state.primary_agent().map(|agent| EffortChange {
+                    agent: agent.id.clone(),
+                    effort,
+                }),
+                ..Outcome::default()
+            },
         }
     }
 
@@ -125,6 +133,9 @@ impl Workspace {
 
     pub(super) fn menu_hit(&self, at: Point) -> Option<MenuRow> {
         let bounds = self.surfaces.get(SurfaceId::ComposerMenu)?.bounds;
+        if self.state.menu_listing() == Some(crate::Listing::Effort) {
+            return crate::render::effort::hit(&self.state, bounds, at).map(MenuRow::Effort);
+        }
         if at.x <= bounds.x
             || at.x >= bounds.right().saturating_sub(1)
             || at.y <= bounds.y

@@ -36,6 +36,9 @@ mod composer_menu_tests;
 mod composer_tests;
 mod copy;
 mod drawer;
+mod effort;
+#[cfg(test)]
+mod effort_tests;
 #[cfg(test)]
 mod markdown_tests;
 #[cfg(test)]
@@ -100,6 +103,15 @@ pub struct Outcome {
     /// A Command to run against the conversation it names; the runtime admits or refuses it
     /// (CMD-1, CPL-9).
     pub command: Option<CommandRun>,
+    /// An explicit effort selected for the addressed conversation.
+    pub effort: Option<EffortChange>,
+}
+
+/// Effort selection captured at acceptance; only the runtime can apply it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffortChange {
+    pub agent: AgentId,
+    pub effort: plexmaton_core::ReasoningEffort,
 }
 
 /// A Command accepted in the composer, with the target captured at that moment (CMD-1).
@@ -129,6 +141,7 @@ impl Outcome {
             conversation: None,
             permission: None,
             command: None,
+            effort: None,
         }
     }
 }
@@ -169,6 +182,7 @@ pub struct Workspace {
     preparation: preparation::Preparation,
     copy: copy::CopyPreparation,
     native: crate::math::NativeFrame,
+    effort_animation: Option<effort::EffortAnimation>,
 }
 
 impl Workspace {
@@ -343,6 +357,7 @@ impl Workspace {
             ..
         } = self;
         let context = RouterContext {
+            effort_selector: state.effort_visible(),
             surfaces,
             // Derived from whichever surface holds focus, never asserted here (SURF-3).
             focus: state.keyboard_focus(surfaces),

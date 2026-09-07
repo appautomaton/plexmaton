@@ -60,6 +60,9 @@ the displaced draft. No branch mutation occurs while merely editing (JRN-8, SKP-
 
 ## Model
 
+EFF-1–EFF-5 own the confirmed reasoning effort, shared RGB rule/label colors and `/effort` selection.
+The composer's effort changes only after the addressed idle runtime accepts it.
+
 ```text
 TextIntent ──▶ ViewState::edit ──▶ Option<Submission>
                      │                  ├─ Message  ──▶ Input::Submitted

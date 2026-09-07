@@ -1,5 +1,6 @@
 //! Typed model registry and pure home/config resolution.
 
+use plexmaton_core::ReasoningEffort;
 use std::{collections::BTreeMap, fmt};
 
 mod environment;
@@ -33,35 +34,6 @@ impl ModelApi {
             Self::OpenaiChatCompletions => "openai_chat_completions",
             Self::AnthropicMessages => "anthropic_messages",
             Self::GoogleGenerateContent => "google_generate_content",
-        }
-    }
-}
-
-/// Provider reasoning effort selected for one resolved model.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReasoningEffort {
-    /// Use the provider's default effort level; summary display remains a dialect setting.
-    #[default]
-    Default,
-    None,
-    Low,
-    Medium,
-    High,
-    Xhigh,
-    Max,
-}
-
-impl ReasoningEffort {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::None => "none",
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Xhigh => "xhigh",
-            Self::Max => "max",
         }
     }
 }
@@ -193,6 +165,7 @@ struct RawModel {
     api: Option<ModelApi>,
     #[serde(default)]
     reasoning_effort: ReasoningEffort,
+    allowed_reasoning_efforts: Option<Vec<ReasoningEffort>>,
     #[serde(default)]
     instructions: String,
     #[serde(default)]

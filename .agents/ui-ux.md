@@ -132,9 +132,9 @@ other rule about input follows from this one.
   usable at once. This does not conflict with "background agents never steal focus": that rule
   constrains what agents do on their own, not what the user asks for. `Escape` closes the window and
   returns focus to the primary conversation. Rejected: focusing on look, which stops the arrows.
-- **Every input sits directly under the conversation it addresses**, between two rules; the
+- **Every input sits directly under its conversation**, between two rules; the
   conversation runs into the top rule with no edge of its own. The top rule names the target and
-  the reasoning effort the message will get, and nothing else is written on either rule. A
+  the [reasoning effort](./specs/reasoning-effort.md) for the message; neither rule carries other text. A
   sub-agent's input is the bottom of its window. There is no input anywhere else, and `Tab` from
   a sub-agent's input lands on the primary composer, which is what the collapsed row's
   `⇥ to return` promises. Rejected: a box around conversation and input, chrome that said
@@ -153,7 +153,7 @@ other rule about input follows from this one.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
   are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
-  `/compact`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
+  `/compact`, `/effort`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
   `Tab` completes without running; `Escape` keeps the draft. A token no row matches is text.
   Rejected: settings as slash commands, which made the composer's title lie about the addressee;
   and conversations as a Drawer page, which hid what users type by habit behind a chord.

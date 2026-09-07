@@ -40,6 +40,110 @@ cache_read = 0.02
 cache_write = 0.25
 "#;
 
+/// PRV-6: each model owns its declared effort choices, independent of another model's dialect.
+#[test]
+fn prv_6_allowed_efforts_are_model_local_and_do_not_invent_capabilities() {
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"xhigh\"",
+        "reasoning_effort = \"max\"\nallowed_reasoning_efforts = [\"none\", \"low\", \"medium\", \"high\", \"xhigh\", \"max\"]",
+    );
+    let registry = ModelRegistry::parse(&source).expect("declared Luna efforts");
+    let luna = registry.active_model();
+    assert_eq!(luna.reasoning_effort(), ReasoningEffort::Max);
+    assert_eq!(
+        luna.allowed_reasoning_efforts(),
+        Some(
+            [
+                ReasoningEffort::None,
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::Xhigh,
+                ReasoningEffort::Max,
+            ]
+            .as_slice()
+        )
+    );
+    assert_eq!(
+        registry
+            .model("local", "sol")
+            .expect("Sol")
+            .allowed_reasoning_efforts(),
+        None
+    );
+    let source = source.replace(
+        "reasoning_effort = \"max\"",
+        "reasoning_effort = \"default\"",
+    );
+    assert_eq!(
+        ModelRegistry::parse(&source)
+            .expect("provider default is separate")
+            .active_model()
+            .reasoning_effort(),
+        ReasoningEffort::Default
+    );
+}
+
+/// PRV-6: a typo, empty/duplicate catalog or disallowed explicit default fails before transport.
+#[test]
+fn prv_6_invalid_effort_catalogs_and_defaults_fail_closed() {
+    for (list, field) in [
+        ("[]", "allowed_reasoning_efforts"),
+        ("[\"xhigh\", \"xhigh\"]", "allowed_reasoning_efforts"),
+        ("[\"default\", \"xhigh\"]", "allowed_reasoning_efforts"),
+        ("[\"low\", \"high\"]", "reasoning_effort"),
+    ] {
+        let source = LOCAL_CONFIG.replace(
+            "reasoning_effort = \"xhigh\"",
+            &format!("reasoning_effort = \"xhigh\"\nallowed_reasoning_efforts = {list}"),
+        );
+        assert!(
+            matches!(ModelRegistry::parse(&source), Err(ConfigError::InvalidRequestOption { field: found, .. }) if found == field),
+            "{list}"
+        );
+    }
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"xhigh\"",
+        "reasoning_effort = \"xhigh\"\nallowed_reasoning_efforts = [\"xhig\"]",
+    );
+    assert!(matches!(
+        ModelRegistry::parse(&source),
+        Err(ConfigError::Toml)
+    ));
+    // An inactive model must be validated too; selection cannot conceal a bad default.
+    let source = LOCAL_CONFIG.replace(
+        "reasoning_effort = \"high\"",
+        "reasoning_effort = \"high\"\nallowed_reasoning_efforts = [\"low\"]",
+    );
+    assert!(
+        matches!(ModelRegistry::parse(&source), Err(ConfigError::InvalidRequestOption { model, .. }) if model == "sol")
+    );
+}
+
+/// PRV-6: user-declared capabilities cannot bypass a dialect's request grammar.
+#[test]
+fn prv_6_effort_catalogs_cannot_enable_unencodable_levels() {
+    let source = LOCAL_CONFIG.replace("openai_responses", "google_generate_content")
+        .replace("reasoning_effort = \"xhigh\"", "reasoning_effort = \"high\"\nallowed_reasoning_efforts = [\"low\", \"medium\", \"high\"]");
+    ModelRegistry::parse(&source).expect("declared Gemini-compatible subset");
+    for unsupported in ["none", "xhigh", "max"] {
+        let source = source.replace(
+            "[\"low\", \"medium\", \"high\"]",
+            &format!("[\"low\", \"medium\", \"high\", \"{unsupported}\"]"),
+        );
+        assert!(
+            matches!(
+                ModelRegistry::parse(&source),
+                Err(ConfigError::InvalidRequestOption {
+                    field: "allowed_reasoning_efforts",
+                    ..
+                })
+            ),
+            "{unsupported}"
+        );
+    }
+}
+
 #[test]
 fn prv_6_one_provider_resolves_two_exact_models_without_repeating_authority() {
     let registry = ModelRegistry::parse(LOCAL_CONFIG).expect("valid local registry");

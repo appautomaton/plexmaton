@@ -234,10 +234,22 @@ pub(super) fn composer_title(state: &ViewState, palette: &Palette) -> Line<'stat
     );
     // Only what concerns the input is written on its rule: whom it goes to, and how hard the
     // model will think about it. What the agent is doing is the conversation's activity line.
-    let rest = state
-        .reasoning_effort()
-        .map_or_else(String::new, |effort| format!(" · {effort}"));
-    title_with(palette, name, Role::SectionHeading, rest, Role::Accent)
+    let mut line = title_with(
+        palette,
+        name,
+        Role::SectionHeading,
+        String::new(),
+        Role::Accent,
+    );
+    if let Some(effort) = state.reasoning_effort() {
+        line.spans.pop();
+        line.spans
+            .push(Span::styled(" · ", palette.style(Role::Muted)));
+        line.spans
+            .extend(super::effort::effort_spans(effort, state.effort_phase()));
+        line.spans.push(Span::raw(" "));
+    }
+    line
 }
 
 /// Decoded script rows or the cwd baseline, with system hints on the final terminal row (STL-4).

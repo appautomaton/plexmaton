@@ -18,6 +18,7 @@ pub struct ResolvedModel {
     display_name: String,
     api_key_env: String,
     reasoning_effort: ReasoningEffort,
+    allowed_reasoning_efforts: Option<Vec<ReasoningEffort>>,
     instructions: String,
     prompt_cache: PromptCache,
     context_window_tokens: u32,
@@ -29,6 +30,22 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
+    /// Replace only the effort after checking the model's declared subset and wire dialect.
+    pub fn with_reasoning_effort(&self, effort: ReasoningEffort) -> Result<Self, ConfigError> {
+        if effort != ReasoningEffort::Default
+            && !self
+                .allowed_reasoning_efforts
+                .as_ref()
+                .is_some_and(|allowed| allowed.contains(&effort))
+        {
+            return Err(self.invalid_option("reasoning_effort"));
+        }
+        let mut model = self.clone();
+        model.reasoning_effort = effort;
+        model.validate_reasoning_efforts()?;
+        Ok(model)
+    }
+
     pub(super) fn resolve(
         provider_name: String,
         model_name: String,
@@ -54,6 +71,7 @@ impl ResolvedModel {
             display_name,
             api_key_env: api_key_env.to_owned(),
             reasoning_effort: model.reasoning_effort,
+            allowed_reasoning_efforts: model.allowed_reasoning_efforts,
             instructions: model.instructions,
             prompt_cache: model.prompt_cache,
             context_window_tokens: model.context_window_tokens,
@@ -97,20 +115,14 @@ impl ResolvedModel {
         if self.instructions.len() > 64 * 1024 {
             return Err(self.invalid_option("instructions"));
         }
-        if self.api == ModelApi::GoogleGenerateContent {
-            if matches!(
-                self.reasoning_effort,
-                ReasoningEffort::None | ReasoningEffort::Xhigh | ReasoningEffort::Max
-            ) {
-                return Err(self.invalid_option("reasoning_effort"));
-            }
-            if !self
+        self.validate_reasoning_efforts()?;
+        if self.api == ModelApi::GoogleGenerateContent
+            && !self
                 .wire_id
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-            {
-                return Err(self.invalid_option("id"));
-            }
+        {
+            return Err(self.invalid_option("id"));
         }
         if let Some(cost) = &self.cost {
             cost.validate(&self.provider_name, &self.model_name)?;
@@ -122,6 +134,38 @@ impl ResolvedModel {
                 provider: self.provider_name.clone(),
                 model: self.model_name.clone(),
             });
+        }
+        Ok(())
+    }
+
+    fn validate_reasoning_efforts(&self) -> Result<(), ConfigError> {
+        let encodable = |effort| {
+            self.api != ModelApi::GoogleGenerateContent
+                || !matches!(
+                    effort,
+                    ReasoningEffort::None | ReasoningEffort::Xhigh | ReasoningEffort::Max
+                )
+        };
+        if !encodable(self.reasoning_effort) {
+            return Err(self.invalid_option("reasoning_effort"));
+        }
+        if let Some(allowed) = &self.allowed_reasoning_efforts {
+            // The six explicit levels bound the catalog. Default is an omission, not a level.
+            if allowed.is_empty()
+                || allowed.len() > ReasoningEffort::EXPLICIT.len()
+                || allowed.iter().enumerate().any(|(i, effort)| {
+                    *effort == ReasoningEffort::Default
+                        || !encodable(*effort)
+                        || allowed[..i].contains(effort)
+                })
+            {
+                return Err(self.invalid_option("allowed_reasoning_efforts"));
+            }
+            if self.reasoning_effort != ReasoningEffort::Default
+                && !allowed.contains(&self.reasoning_effort)
+            {
+                return Err(self.invalid_option("reasoning_effort"));
+            }
         }
         Ok(())
     }
@@ -183,6 +227,13 @@ impl ResolvedModel {
     #[must_use]
     pub const fn reasoning_effort(&self) -> ReasoningEffort {
         self.reasoning_effort
+    }
+
+    /// User-declared explicit choices in configuration order; absent means capabilities unknown.
+    /// Provider default remains a separate request-omission choice, never a spectrum stop.
+    #[must_use]
+    pub fn allowed_reasoning_efforts(&self) -> Option<&[ReasoningEffort]> {
+        self.allowed_reasoning_efforts.as_deref()
     }
 
     #[must_use]

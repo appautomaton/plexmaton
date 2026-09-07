@@ -20,6 +20,7 @@ api_key_env = "PLEXMATON_TEST_UNUSED_KEY"
 api = "openai_responses"
 [providers.fixture.models.test]
 id = "fixture"
+allowed_reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
 context_window_tokens = 100000
 max_output_tokens = 1000
 output_reserve_tokens = 1000

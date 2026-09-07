@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use plexmaton_core::{AgentId, ConversationId};
+use plexmaton_core::{AgentId, ConversationId, ReasoningEffort};
 
 use super::{
     ViewState,
@@ -19,6 +19,7 @@ use crate::{Direction, surface::SurfaceId};
 
 mod grammar;
 mod session_permissions;
+mod skill_bindings;
 
 pub use grammar::Command;
 pub(super) use grammar::binding_matches;
@@ -65,6 +66,7 @@ pub enum Listing {
     Commands,
     Conversations,
     Permissions,
+    Effort,
 }
 
 impl Listing {
@@ -76,12 +78,13 @@ impl Listing {
             Self::Commands => "Commands",
             Self::Conversations => "Conversations",
             Self::Permissions => "Session permissions",
+            Self::Effort => "Effort",
         }
     }
 
     /// Whether the listing stands for something while it has no rows, so it stays open.
     const fn stands_without_rows(self) -> bool {
-        matches!(self, Self::Conversations | Self::Permissions)
+        matches!(self, Self::Conversations | Self::Permissions | Self::Effort)
     }
 
     /// The keys, on the menu's last row.
@@ -92,6 +95,7 @@ impl Listing {
             Self::Commands => " ↑↓ choose · Tab complete · Enter accept · Esc close",
             Self::Conversations => " ↑↓ choose · Enter open · Esc close",
             Self::Permissions => " ↑↓ choose · Enter review · Esc close",
+            Self::Effort => " ←/→ adjust · Enter confirm · Esc cancel",
         }
     }
 }
@@ -103,10 +107,14 @@ pub(crate) enum MenuRow {
     Command(Command),
     Conversation(ConversationId),
     Permission(PermissionChoice),
+    Effort(ReasoningEffort),
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ComposerMenu {
+    pub(crate) efforts: Option<Vec<ReasoningEffort>>,
+    pub(crate) effort_feedback: Option<String>,
+    pub(crate) effort_phase: u16,
     skills: Vec<SkillChoice>,
     /// Saved conversations for `/resume`, once the composition root has listed them (SPK-1).
     pub(crate) conversations: Option<ConversationPicker>,
@@ -200,7 +208,13 @@ impl ComposerMenu {
             let chosen = match &self.state {
                 MenuState::Open {
                     chosen: Some(chosen),
-                } if rows.contains(chosen) => Some(chosen.clone()),
+                } if rows.contains(chosen)
+                    || (*chosen == MenuRow::Effort(ReasoningEffort::Default)
+                        && completion.listing == Listing::Effort
+                        && completion.query.is_empty()) =>
+                {
+                    Some(chosen.clone())
+                }
                 _ => rows.first().cloned(),
             };
             self.state = MenuState::Open { chosen };
@@ -215,6 +229,21 @@ impl ComposerMenu {
 
     fn rows_for(&self, completion: &Completion<'_>) -> Vec<MenuRow> {
         match completion.listing {
+            Listing::Effort => {
+                if completion.query == "default" {
+                    return vec![MenuRow::Effort(ReasoningEffort::Default)];
+                }
+                ReasoningEffort::EXPLICIT
+                    .into_iter()
+                    .filter(|effort| {
+                        self.efforts
+                            .as_ref()
+                            .is_some_and(|allowed| allowed.contains(effort))
+                            && effort.as_str().starts_with(completion.query)
+                    })
+                    .map(MenuRow::Effort)
+                    .collect()
+            }
             Listing::Skills => self
                 .skills
                 .iter()
@@ -259,8 +288,11 @@ impl ComposerMenu {
     }
 
     /// Puts the marker on `row` if the draft lists it.
-    fn choose(&mut self, text: &str, cursor: usize, row: MenuRow) {
-        if self.rows(text, cursor).contains(&row) {
+    pub(super) fn choose(&mut self, text: &str, cursor: usize, row: MenuRow) {
+        let provider_default = row == MenuRow::Effort(ReasoningEffort::Default)
+            && completion(text, cursor)
+                .is_some_and(|value| value.listing == Listing::Effort && value.query.is_empty());
+        if self.rows(text, cursor).contains(&row) || provider_default {
             self.state = MenuState::Open { chosen: Some(row) };
         }
     }
@@ -279,6 +311,21 @@ impl ComposerMenu {
 
     pub(crate) fn step(&mut self, text: &str, cursor: usize, direction: Direction) -> bool {
         let rows = self.rows(text, cursor);
+        if self.chosen() == Some(&MenuRow::Effort(ReasoningEffort::Default))
+            && !rows.contains(&MenuRow::Effort(ReasoningEffort::Default))
+        {
+            let next = match direction {
+                Direction::Forward => rows.first(),
+                Direction::Backward => rows.last(),
+            };
+            if let Some(row) = next {
+                self.state = MenuState::Open {
+                    chosen: Some(row.clone()),
+                };
+                return true;
+            }
+            return false;
+        }
         let Some(current) = self
             .chosen()
             .and_then(|chosen| rows.iter().position(|row| row == chosen))
@@ -366,6 +413,9 @@ impl ViewState {
         {
             return 0;
         }
+        if self.menu_listing() == Some(Listing::Effort) {
+            return 11;
+        }
         let listed = self.menu_rows().len().min(VISIBLE_ROWS);
         let status = usize::from(self.menu_status().is_some());
         let heading = self.menu_heading(width).len();
@@ -395,9 +445,17 @@ impl ViewState {
     }
 
     pub(crate) fn sync_composer_menu(&mut self) {
+        let was_effort = matches!(self.composer_menu.chosen(), Some(MenuRow::Effort(_)));
         let text = self.composer().text().to_owned();
         let cursor = self.composer().cursor();
         let changed = self.composer_menu.sync(&text, cursor);
+        if !was_effort
+            && self.menu_listing() == Some(Listing::Effort)
+            && let Some(effort) = self.reasoning_effort()
+        {
+            self.composer_menu
+                .choose(&text, cursor, MenuRow::Effort(effort));
+        }
         self.retain_primary_skill_binding();
         let dropped = self.drop_unlisted_conversations() | self.drop_unlisted_permissions();
         if dropped || changed {
@@ -429,6 +487,7 @@ impl ViewState {
     }
 
     pub(crate) fn close_composer_menu(&mut self) {
+        self.composer_menu.effort_feedback = None;
         let text = self.composer().text().to_owned();
         let cursor = self.composer().cursor();
         if self.composer_menu.dismiss(&text, cursor) {
@@ -460,31 +519,6 @@ impl ViewState {
         exact_command(self.composer().text())
     }
 
-    pub(crate) fn accept_skill(&mut self, name: Option<String>) -> bool {
-        let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) else {
-            return false;
-        };
-        let name = name.or_else(|| match self.composer_menu.chosen() {
-            Some(MenuRow::Skill(name)) => Some(name.clone()),
-            _ => None,
-        });
-        let Some(name) = name.filter(|name| {
-            self.menu_rows()
-                .iter()
-                .any(|row| matches!(row, MenuRow::Skill(listed) if listed == name))
-        }) else {
-            return false;
-        };
-        self.inputs
-            .entry(primary.clone())
-            .or_default()
-            .complete_initial_token(&name);
-        self.skill_bindings.insert(primary, name);
-        self.composer_menu.close();
-        self.touch();
-        true
-    }
-
     /// Completes the draft to `/name ` without running it (CMD-2).
     pub(crate) fn complete_command(&mut self, command: Command) {
         let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) else {
@@ -507,37 +541,6 @@ impl ViewState {
         }
         self.composer_menu.close();
         self.touch();
-    }
-
-    pub(crate) fn selected_skill(&self, agent: &AgentId) -> Option<&str> {
-        self.skill_bindings.get(agent).map(String::as_str)
-    }
-
-    pub(crate) fn take_skill_binding(&mut self, agent: &AgentId) -> Option<String> {
-        self.skill_bindings.remove(agent)
-    }
-
-    pub(crate) fn clear_skill_binding(&mut self, agent: &AgentId) {
-        self.skill_bindings.remove(agent);
-        if self
-            .primary_agent()
-            .is_some_and(|primary| &primary.id == agent)
-        {
-            self.composer_menu.close();
-        }
-    }
-
-    pub(crate) fn retain_primary_skill_binding(&mut self) {
-        let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) else {
-            return;
-        };
-        let keep = self
-            .skill_bindings
-            .get(&primary)
-            .is_some_and(|name| binding_matches(self.composer().text(), name));
-        if !keep {
-            self.skill_bindings.remove(&primary);
-        }
     }
 }
 
@@ -620,6 +623,7 @@ mod tests {
                 MenuRow::Command(Command::Resume),
                 MenuRow::Command(Command::Compact),
                 MenuRow::Command(Command::Permissions),
+                MenuRow::Command(Command::Effort),
             ]
         );
         assert!(menu.rows("/zzz", 4).is_empty());

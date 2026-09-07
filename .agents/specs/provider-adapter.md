@@ -53,14 +53,15 @@ an unknown content-bearing event fails rather than silently losing output.
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its
 base URL, credential environment and default API; a model owns its wire/display identity, optional
-API override, optional reasoning controls, stable instructions, cache intent, context/output/reserve
+API override, optional reasoning controls and a declared allowed-effort subset, stable instructions, cache intent, context/output/reserve
 limits, compaction retention target, estimator and optional price
 snapshot. Resolution yields one immutable credential-blind value: omitted estimators become an
 explicit versioned default, while omitted pricing remains unavailable. Selection never uses fuzzy
 names or URL inference. `PLEXMATON_HOME` redirects the whole root for isolated development; keys
 never enter the file, diagnostics, repository or a native command's environment, and invalid input
 fails before network work begins. SKL-1 permits a narrow project model-selection layer without
-project provider definitions or credential changes. Rejected: a combined provider/model profile,
+project provider definitions or credential changes. An allowed-effort declaration must be nonempty,
+unique and encodable by the dialect; an explicit configured effort must belong to it. Rejected: a combined provider/model profile,
 inline keys, and untyped merging of project configuration into provider authority.
 
 **PRV-7 — Local bounds do not trust upstream hints.** Provider token limits may be forwarded but
@@ -155,6 +156,14 @@ before transport construction. `max_output_tokens` remains the output cap. Rejec
 thinking paths, because they are outside the frontier target set. Per-model restrictions within a
 dialect remain the endpoint's contract; unsupported options never trigger a silent downgrade.
 
+`allowed_reasoning_efforts` optionally declares a model's available explicit levels, in configuration
+order, from `none`, `low`, `medium`, `high`, `xhigh`, `max`. The list cannot be empty or contain
+duplicates, `default`, unknown levels, or levels the selected dialect cannot encode. A configured
+explicit `reasoning_effort` must belong to it. Omitting the list leaves capabilities unknown; the
+harness does not infer a model's support from its name. `default` remains a separate omission of
+the provider effort field and is valid with any declared subset. This metadata is not sent on the
+wire and does not itself enable interactive effort changes.
+
 `prompt_cache` defaults to `automatic`: OpenAI gets a 64-character hash of canonical session
 identity as `prompt_cache_key`; Messages gets top-level `cache_control: {type: ephemeral}`; Gemini uses
 implicit caching. `disabled` suppresses harness-added hints, not provider-internal caching. The key
@@ -235,5 +244,5 @@ Wire references: [Messages](https://platform.claude.com/docs/en/api/messages/cre
 | PRV-3 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools`, `prv_3_replay_compatibility_covers_route_codec_revision_and_model_family`, `prv_3_replay_route_owner_encoding_is_unambiguous`, `prv_3_rejects_opaque_replay_before_step_state_can_grow`, `assistant_output_round_trips_order_and_redacts_replay`, `replay_only_wire_without_a_payload_is_rejected`, `reasoning_and_opaque_replay_survive_interrupt_without_sharing_presentation`, `provider_replay_is_named_and_bounded_before_turn_state_can_retain_it`, `prv_3_responses_phase_and_parts_survive_jsonl_reopen`, `prv_3_native_tool_conversations_survive_jsonl_reopen`, `prv_3_cancelled_calls_leave_no_dangling_replay`, `prv_3_chat_reasoning_aliases_round_trip_without_renaming`, `prv_3_gemini_signature_only_and_early_signature_parts_are_replayable`, `prv_3_interrupted_unsigned_reasoning_allows_durable_continuation`, `prv_3_unsigned_reasoning_in_tool_batches_is_still_refused` |
 | PRV-4 | `prv_3_responses_fixture_replays_encrypted_reasoning_exactly_and_round_trips_tools` proves stateless full-record replay without a response ID, `prv_3_responses_phase_and_parts_survive_jsonl_reopen`, `prv_3_native_tool_conversations_survive_jsonl_reopen`, `prv_3_interrupted_unsigned_reasoning_allows_durable_continuation` |
 | PRV-5 | `http_rate_limit_is_typed_and_keeps_retry_after`, `context_error_is_classified_by_wire_code`, `prv_5_responses_done_only_refusal_is_visible_and_typed`, and both fixture completion reasons, `prv_5_chat_rejects_structured_or_conflicting_reasoning`, `prv_5_messages_context_limits_and_refusals_keep_final_usage`, `native_stream_rate_limits_are_typed`, `gemini_declared_failures_preserve_diagnostics_without_dispatching_calls`, `messages_usage_refuses_unaccounted_server_tools`, `prv_5_gemini_policy_and_unsupported_image_finishes_are_distinct`, `stream_provider_errors_keep_their_category_and_observed_usage`, `dispatched_http_failures_preserve_their_terminal_measurements`, `provider_failure_reopens_as_the_same_non_retryable_outcome`, `prv_5_empty_additive_fields_preserve_text_and_populated_fields_fail`, `prv_5_messages_pause_turn_is_explicitly_unsupported` |
-| PRV-6 | `prv_6_one_provider_resolves_two_exact_models_without_repeating_authority`, `prv_6_selection_and_every_model_fail_closed_before_network_work`, `prv_6_inline_authority_and_legacy_profiles_are_not_a_second_config_path`, `prv_6_resolution_rejects_unsafe_routes_without_echoing_them`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape`, `prv_6_standard_requests_omit_unspecified_reasoning_and_encode_instructions`, `prv_6_native_thinking_options_are_explicit_and_validated`, `prv_6_gemini_38_requests_use_only_frontier_thinking_controls`, `prv_6_messages_cache_and_thinking_match_native_request_contract`, `prv_6_provider_example_selects_each_documented_dialect`, `native_messages_http_uses_api_key_headers_and_terminal_usage`, `completed_messages_without_thinking_breakdown_keep_final_cost`, `native_gemini_http_uses_versioned_endpoint_and_header_authority` ; [SKL-1](./agent-skills.md#evidence) |
+| PRV-6 | `prv_6_allowed_efforts_are_model_local_and_do_not_invent_capabilities`, `prv_6_invalid_effort_catalogs_and_defaults_fail_closed`, `prv_6_effort_catalogs_cannot_enable_unencodable_levels`, `prv_6_one_provider_resolves_two_exact_models_without_repeating_authority`, `prv_6_selection_and_every_model_fail_closed_before_network_work`, `prv_6_inline_authority_and_legacy_profiles_are_not_a_second_config_path`, `prv_6_resolution_rejects_unsafe_routes_without_echoing_them`, `prv_6_resolves_only_an_override_or_the_user_root`, `prv_6_key_resolution_is_explicit_and_redacted`, `cmd_2_selected_api_key_environment_is_removed_even_without_credential_shape`, `prv_6_standard_requests_omit_unspecified_reasoning_and_encode_instructions`, `prv_6_native_thinking_options_are_explicit_and_validated`, `prv_6_gemini_38_requests_use_only_frontier_thinking_controls`, `prv_6_messages_cache_and_thinking_match_native_request_contract`, `prv_6_provider_example_selects_each_documented_dialect`, `native_messages_http_uses_api_key_headers_and_terminal_usage`, `completed_messages_without_thinking_breakdown_keep_final_cost`, `native_gemini_http_uses_versioned_endpoint_and_header_authority` ; [SKL-1](./agent-skills.md#evidence) |
 | PRV-7 | `event_guard_rejects_an_unterminated_event_at_the_bound`, `event_guard_rejects_one_oversized_transport_chunk`, `prv_2_and_prv_7_reject_unbounded_or_incomplete_provider_input`, `prv_7_model_config_cannot_widen_runtime_output_memory`, `interrupt_and_shutdown_cancel_and_join_the_exact_provider_task`, `native_stream_cancellation_preserves_observed_usage` |

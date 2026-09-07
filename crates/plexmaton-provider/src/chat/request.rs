@@ -39,7 +39,7 @@ pub(crate) fn encode(
         "stream": true,
         "stream_options": { "include_usage": true },
     });
-    if model.reasoning_effort() != crate::ReasoningEffort::Default {
+    if model.reasoning_effort() != plexmaton_core::ReasoningEffort::Default {
         body["reasoning_effort"] = Value::String(model.reasoning_effort().as_str().to_owned());
     }
     if model.prompt_cache() == crate::PromptCache::Automatic {

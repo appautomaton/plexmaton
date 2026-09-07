@@ -43,7 +43,7 @@ Edit the copied configuration to select a provider and model you can access. Set
 PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmaton
 ```
 
-[Configuration reference](.agents/specs/provider-adapter.md#request-configuration)
+[Configuration and effort](.agents/specs/provider-adapter.md#request-configuration)
 
 The interface, tools and journals run locally. Model requests go to your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
 
@@ -56,9 +56,9 @@ The interface, tools and journals run locally. Model requests go to your configu
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
 | `$` | Find and complete a skill |
-| `/` | List Commands: `/new`, `/resume`, `/compact`, `/permissions` |
+| `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort` |
 
-The Drawer shows configuration and permissions. Rate limits offer Retry and Edit & retry.
+Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 

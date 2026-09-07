@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 and 11–15 complete; stage 10 branding remains |
+| Status | Active; stages 1–9 and 11–15 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -167,6 +167,12 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [60](../../crates/plexmaton-tui/frames/math/logits-60.svg), with pending frames alongside,
     were regenerated and inspected against `58c3f66`. TR-4 still moves bottom-aligned content as rows grow;
     this preparation optimization does not establish pixel-level flicker elimination.
+
+16. **Reasoning effort — in progress.** The [stage plan](../plans/phase-04-stage-16-reasoning-effort.md)
+    owns per-model allowed levels and the responsive RGB spectrum requested on 2026-09-06.
+    [EFF-1–EFF-5](../specs/reasoning-effort.md) implement the live selector, idle driver replacement,
+    shared RGB composer/selector colors and bounded four-shape max animation. Focused local checks
+    and the user's terminal test close the stage; no further standalone previews are planned.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

@@ -8,7 +8,9 @@
 use plexmaton_core::{AgentStatus, ToolCallStatus};
 use ratatui::style::{Color, Modifier, Style};
 
+mod effort;
 mod markdown;
+pub use effort::{EFFORT_COLOR_PHASES, EffortPalette};
 pub(crate) use markdown::MarkdownStyles;
 
 /// The named colours, as the user wrote them for the status line, on a dark terminal ground.

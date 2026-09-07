@@ -7,7 +7,7 @@ use super::{ViewState, drawer::Shown};
 pub struct ConfigurationSummary {
     pub provider: String,
     pub model: String,
-    pub reasoning_effort: String,
+    pub reasoning_effort: plexmaton_core::ReasoningEffort,
 }
 
 impl ConfigurationSummary {
@@ -16,7 +16,7 @@ impl ConfigurationSummary {
         [
             ("Provider", &self.provider),
             ("Model", &self.model),
-            ("Reasoning effort", &self.reasoning_effort),
+            ("Reasoning effort", self.reasoning_effort.as_str()),
         ]
     }
 

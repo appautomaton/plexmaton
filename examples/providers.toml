@@ -36,6 +36,8 @@ output_reserve_tokens = 4096
 [providers.openai.models.luna]
 id = "gpt-5.6-luna"
 reasoning_effort = "high"
+# Optional per-model declaration; provider default is separate from these explicit levels.
+allowed_reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
 context_window_tokens = 32768
 max_output_tokens = 4096
 output_reserve_tokens = 4096

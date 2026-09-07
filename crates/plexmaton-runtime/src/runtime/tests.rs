@@ -316,6 +316,7 @@ fn cancelled_report(
 
 mod cancellation;
 mod compaction;
+mod effort;
 mod lifecycle;
 mod persistence;
 mod presentation;

@@ -93,7 +93,7 @@ impl StatusLine {
     ) {
         let result = snapshot::Snapshot::capture(
             runtime,
-            &self.model,
+            runtime.configured_model().unwrap_or(&self.model),
             &self.cwd.to_string_lossy(),
             dimensions,
         )

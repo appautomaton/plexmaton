@@ -18,6 +18,13 @@ use super::{
 use crate::RuntimeError;
 
 pub(crate) trait ModelDriver: Send + Sync + 'static {
+    fn with_reasoning_effort(
+        &self,
+        _effort: plexmaton_core::ReasoningEffort,
+    ) -> Result<std::sync::Arc<dyn ModelDriver>, super::EffortChangeRefusal> {
+        Err(super::EffortChangeRefusal::Unavailable)
+    }
+
     fn request_environment(&self) -> &RequestEnvironment;
 
     /// Synthetic drivers have no configured model limits; production exposes its exact inputs.

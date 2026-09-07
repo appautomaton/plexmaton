@@ -51,6 +51,7 @@ where
         let note_deadline = workspace.note_deadline();
         let drag_deadline = workspace.drag_autoscroll_deadline();
         let frame_deadline = frames.deadline();
+        let effort_deadline = workspace.effort_animation_deadline(Instant::now());
 
         tokio::select! {
             prepared = preparation.next() => preparation.apply(prepared, workspace),
@@ -77,6 +78,7 @@ where
                 workspace.advance_drag_autoscroll(Instant::now());
             }
             () = wait_for_deadline(frame_deadline) => {}
+            () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
             runtime_update = runtime.next_update() => {
                 match runtime_update.context("receive live runtime update")? {
                     RuntimeUpdate::Event(event) => {
@@ -105,7 +107,7 @@ where
                         let outcome = frames.handle(workspace, &event);
                         picker.observe_closed(workspace);
                         permissions.observe_closed(workspace);
-                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker, permissions).await? {
+                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker, permissions, status_line).await? {
                             break;
                         }
                     }
@@ -125,9 +127,27 @@ async fn apply_workspace_outcome(
     clipboard: &mut TerminalClipboard<impl io::Write>,
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
+    status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<bool> {
+    if let Some(change) = &outcome.effort {
+        let result = runtime
+            .set_reasoning_effort(&change.agent, change.effort)
+            .map_err(|refusal| refusal.to_string())
+            .map(|model| crate::configuration_summary(&model));
+        if result.is_ok()
+            && let Some(status) = status_line
+        {
+            status.mark_dirty();
+        }
+        workspace.report_effort(result);
+    }
     if let Some(page) = outcome.page {
         open_page(page, workspace, picker, permissions);
+        if page == Page::Configuration
+            && let Some(model) = runtime.configured_model()
+        {
+            workspace.show_configuration(crate::configuration_summary(model));
+        }
     }
     match outcome.permission {
         Some(PermissionRequest::Refresh) => permissions.refresh(),
@@ -173,6 +193,7 @@ async fn run_command(
         Command::New => picker.new_conversation(workspace, runtime),
         Command::Resume => picker.open(workspace),
         Command::Permissions => permissions.refresh(),
+        Command::Effort => {}
         Command::Compact => {
             let note = match runtime
                 .request_compaction(run.target.agent.clone())
