@@ -7,6 +7,8 @@
 
 ## The lanes
 
+For workflow performance changes, read the [CI speed baseline](../spikes/ci-speed/README.md).
+
 Select checks per [AGENTS.md](../../AGENTS.md#working-discipline). CI runs on pull requests,
 pushes to `main`, or manual dispatch, not feature-branch pushes alone.
 
@@ -61,8 +63,10 @@ than raising it.
 The gates require ripgrep, Python 3 and Bash; the hook uses Perl for timing and the footer smoke
 needs jq. CI installs Bash, ripgrep and jq explicitly.
 
-The primary CI target is macOS Apple Silicon, matching local product development. One verification
-job runs the Rust, supply-chain and PTY gates above; it does not package or deploy releases.
+CI runs two macOS jobs concurrently: static/supply-chain/Python checks, and Rust/PTY verification.
+Checks omit target artifacts from caching; `verify` retains its existing target-cache key for
+Clippy, tests and smokes. The final `macOS Apple Silicon` check runs on Ubuntu and passes only if
+both macOS jobs succeed. CI does not package or deploy releases.
 Actions use verified stable releases pinned to commit IDs.
 Linux compatibility is not established: the current Bash grammar has a known native parser crash
 on Linux ([upstream report](https://github.com/tree-sitter/tree-sitter-bash/issues/337)).
