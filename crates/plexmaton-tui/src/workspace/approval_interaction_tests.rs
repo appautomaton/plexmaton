@@ -78,9 +78,9 @@ fn interaction_fixture(
     (workspace, terminal, next)
 }
 
-/// INV-3/APV-4: hover paints a pointer target without changing the keyboard decision or focus.
+/// INV-3/APV-4: mouse and arrows share one choice, without focus theft or automatic decisions.
 #[test]
-fn approval_hover_is_visual_only_and_repeated_motion_is_free() {
+fn approval_hover_and_arrows_share_selection_and_repeated_motion_is_free() {
     for width in [120, 88, 60] {
         let (mut workspace, mut terminal, _) = interaction_fixture(width, 30, "echo hello");
         let at = allow_button(&workspace, &terminal);
@@ -92,33 +92,36 @@ fn approval_hover_is_visual_only_and_repeated_motion_is_free() {
                 .is_none()
         );
         workspace.settled_draw(&mut terminal).expect("hover");
-        assert!(
-            workspace
-                .state
-                .approval_hovered(crate::ApprovalChoice::AllowOnce)
-        );
         assert_eq!(
             workspace.state.approval().expect("card").selected,
-            crate::ApprovalChoice::Deny
+            crate::ApprovalChoice::AllowOnce
         );
         assert_eq!(workspace.state.focused(workspace.surfaces()), focus);
-        assert_eq!(
-            terminal.backend().buffer()[(at.x + 5, at.y)].fg,
-            Palette::pastel()
-                .style(crate::Role::Accent)
-                .fg
-                .expect("accent")
-        );
         let frames = workspace.frames();
         workspace.handle(&mouse(MouseEventKind::Moved, at));
         workspace.settled_draw(&mut terminal).expect("unchanged");
         assert_eq!(workspace.frames(), frames);
-        workspace.handle(&mouse(MouseEventKind::Moved, Point { x: 0, y: 0 }));
-        assert!(
-            !workspace
-                .state
-                .approval_hovered(crate::ApprovalChoice::AllowOnce)
+        workspace.handle(&key(KeyCode::Down));
+        let choice = workspace.state.approval().expect("card").selected;
+        assert_ne!(choice, crate::ApprovalChoice::AllowOnce);
+        workspace.handle(&mouse(MouseEventKind::Moved, at));
+        assert_eq!(workspace.state.approval().expect("card").selected, choice);
+        workspace.handle(&key(KeyCode::Esc));
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("composer focus");
+        workspace.handle(&mouse(
+            MouseEventKind::Moved,
+            Point {
+                x: at.x + 1,
+                y: at.y,
+            },
+        ));
+        assert_eq!(
+            workspace.state.focused(workspace.surfaces()),
+            Some(SurfaceId::Composer)
         );
+        assert_eq!(workspace.state.approval().expect("card").selected, choice);
     }
 }
 

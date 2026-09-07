@@ -34,8 +34,9 @@ the supplied example omits unavailable segments rather than inventing zeros.
 
 **STL-4 — The footer never owns input or a system question.** Explicit output lines determine
 height within the configured and layout caps, without wrapping; clipping reserves a visible
-ellipsis cell, and equal output requests no frame. Global quit/Ctrl-P hints replace the last
-terminal row without changing footer height or focus; a script failure shows a bounded diagnostic.
+ellipsis cell, and equal output requests no frame. The quit question replaces the last
+terminal row; SEL-5 copy receipts overlay its right edge only when quit is quiet. Neither changes
+footer height or focus; a script failure shows a bounded diagnostic.
 
 ## Styled-output grammar
 

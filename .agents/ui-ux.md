@@ -132,6 +132,7 @@ other rule about input follows from this one.
   usable at once. This does not conflict with "background agents never steal focus": that rule
   constrains what agents do on their own, not what the user asks for. `Escape` closes the window and
   returns focus to the primary conversation. Rejected: focusing on look, which stops the arrows.
+- `Ctrl-J`, `Shift-Enter` and `Alt-Enter` insert a conversation newline; `Enter` submits.
 - **Every input sits directly under its conversation**, between two rules; the
   conversation runs into the top rule with no edge of its own. The top rule names the target and
   the [reasoning effort](./specs/reasoning-effort.md) for the message; neither rule carries other text. A
@@ -285,6 +286,9 @@ It is never an entry point for main-agent approvals.
   clipping or reflow (MTH-1). Rejected: partial or bare-body copy, and clipboard-only expansion.
 - The mouse reaches the terminal's own selection through a modifier escape hatch.
 - Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
+  A two-second bottom-right receipt reports `✓ Copied` after local helper acceptance or `Copy sent`
+  after terminal/tmux send. It overlays the status row without reflow or focus; quit takes priority.
+  Failure, cancellation and replaced work never produce success feedback (SEL-5).
 - Editable inputs take pointer placement and drag selection on grapheme boundaries; selected
   source is copied on release, and typing replaces it (COM-6).
 - Rejected: transcript selection reconstructed from terminal characters, which changes what is
@@ -337,7 +341,8 @@ Docked to the top edge at full width, height from content. It floats over the
 strips and the rows already read, and may cover everything but the status line, because it
 blocks input anyway. `Ctrl-P` opens it from any focus state, even over a waiting approval,
 and never touches a draft: it addresses the workspace, not a conversation. A page opens in place,
-and `Escape` returns one layer per press: page, list, then where it was opened from. Rejected: the
+and `Escape` returns one layer per press: page, list, then where it was opened from. A top-right
+`⌃` retracts the entire Drawer to that origin from any page. Rejected: the
 command palette, a centred overlay with three-cell margins, a dialog about nothing in particular.
 
 ### Shelf: overlay without occlusion
@@ -370,8 +375,11 @@ surface has a reason to be somewhere other than where the layout puts it.
 ## Input and event-routing contract
 
 - Pointer events route to the topmost visible surface whose clipped hit region contains the event.
-- Hover may accent an enabled action or foldable row; leaving clears it. It never changes keyboard
-  focus or selection, or takes pointer capture.
+- Actual mouse movement within the focused menu selects its enabled row; arrows continue from that
+  choice and Enter activates it. A stationary pointer never overrides keyboard navigation. Hover
+  elsewhere accents enabled actions without moving keyboard focus, selecting transcript content or
+  taking capture. Rejected: independent hover and keyboard choices in one menu, which showed two
+  apparent answers to one pending action.
 - Wheel events use hover routing: the topmost eligible viewport under the mouse scrolls without
   changing keyboard focus, and a consumed wheel event scrolls only its target.
 - Drag begins with pointer capture and continues to the captured surface until release or

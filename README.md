@@ -52,6 +52,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | Input | Action |
 | --- | --- |
 | `Ctrl-P` | Open the Drawer: configuration and permissions |
+| `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Newline in conversation input |
 | `Ctrl-C` | Clear a draft or interrupt its conversation |
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |
@@ -60,7 +61,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | `$` | Find and complete a skill |
 | `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort` |
 
-Rate limits offer Retry and Edit & retry.
+Mouse movement and arrows share the focused menu choice. The Drawer’s `⌃` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 

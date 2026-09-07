@@ -18,6 +18,7 @@ use super::{
 use crate::{Direction, surface::SurfaceId};
 
 mod grammar;
+mod navigation;
 mod session_permissions;
 mod skill_bindings;
 
@@ -484,34 +485,6 @@ impl ViewState {
         } else {
             listing.title().to_owned()
         }
-    }
-
-    pub(crate) fn close_composer_menu(&mut self) {
-        self.composer_menu.effort_feedback = None;
-        let text = self.composer().text().to_owned();
-        let cursor = self.composer().cursor();
-        if self.composer_menu.dismiss(&text, cursor) {
-            self.touch();
-        }
-        // A dismissed listing has no destination for what the composition root is loading.
-        if self.composer_menu.conversations.take().is_some()
-            | self.composer_menu.permissions.take().is_some()
-        {
-            self.touch();
-        }
-    }
-
-    pub(crate) fn step_composer_menu(&mut self, direction: Direction) {
-        let text = self.composer().text().to_owned();
-        let cursor = self.composer().cursor();
-        if self.composer_menu.step(&text, cursor, direction) {
-            self.touch();
-        }
-    }
-
-    /// The row `Enter` acts on.
-    pub(crate) fn menu_chosen(&self) -> Option<MenuRow> {
-        self.composer_menu.chosen().cloned()
     }
 
     /// The Command the whole draft is, if it is one (CMC-2).

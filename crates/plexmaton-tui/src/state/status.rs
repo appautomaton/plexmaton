@@ -18,6 +18,21 @@ pub enum StatusNote {
     QuitArmed { deadline: Instant },
 }
 
+/// Observed clipboard transport result; terminal delivery has no acceptance acknowledgment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CopyReceipt {
+    /// The local native helper accepted the source.
+    Copied,
+    /// The terminal or multiplexer accepted a send, without confirming the user's clipboard.
+    Sent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CopyNotice {
+    receipt: CopyReceipt,
+    deadline: Instant,
+}
+
 /// How long a first `Ctrl-D` remains eligible for confirmation (INV-7).
 pub const QUIT_CHORD_WINDOW: Duration = Duration::from_secs(1);
 
@@ -27,6 +42,7 @@ pub struct Status {
     working_directory: Option<String>,
     note: StatusNote,
     footer: Footer,
+    copy: Option<CopyNotice>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -65,11 +81,18 @@ impl Status {
 
     /// When whatever the line is saying expires, if it expires at all.
     #[must_use]
-    pub const fn deadline(&self) -> Option<Instant> {
-        match self.note {
+    pub fn deadline(&self) -> Option<Instant> {
+        let quit = match self.note {
             StatusNote::Quiet => None,
             StatusNote::QuitArmed { deadline } => Some(deadline),
-        }
+        };
+        quit.into_iter()
+            .chain(self.copy.map(|notice| notice.deadline))
+            .min()
+    }
+
+    pub(crate) fn copy_receipt(&self) -> Option<CopyReceipt> {
+        self.copy.map(|notice| notice.receipt)
     }
 
     pub(super) fn set_working_directory(&mut self, path: String) {
@@ -177,16 +200,37 @@ impl ViewState {
         target
     }
 
-    /// Expires whatever the line is saying at its monotonic deadline, reporting a screen change.
-    pub fn expire_note(&mut self, now: Instant) -> bool {
-        if matches!(
-            self.status.note(),
-            StatusNote::QuitArmed { deadline } if now >= deadline
-        ) && self.status.set_note(StatusNote::Quiet)
-        {
+    pub(crate) fn clear_copy_receipt(&mut self) {
+        if self.status.copy.take().is_some() {
             self.touch();
-            return true;
         }
-        false
+    }
+
+    pub(crate) fn report_copy(&mut self, receipt: CopyReceipt, now: Instant) {
+        self.status.copy = Some(CopyNotice {
+            receipt,
+            deadline: now + Duration::from_secs(2),
+        });
+        self.touch();
+    }
+
+    /// Expires owned status hints once at their monotonic deadlines.
+    pub fn expire_note(&mut self, now: Instant) -> bool {
+        let mut changed = false;
+        if matches!(self.status.note(), StatusNote::QuitArmed { deadline } if now >= deadline) {
+            changed |= self.status.set_note(StatusNote::Quiet);
+        }
+        if self
+            .status
+            .copy
+            .is_some_and(|notice| now >= notice.deadline)
+        {
+            self.status.copy = None;
+            changed = true;
+        }
+        if changed {
+            self.touch();
+        }
+        changed
     }
 }

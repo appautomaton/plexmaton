@@ -75,6 +75,7 @@ pub fn render(
             && let Some(viewport) = drawer_page(frame, palette, state, bounds, has_focus)
         {
             surfaces.set_viewport(id, viewport);
+            surfaces::drawer_retract(frame, palette, state, bounds);
             continue;
         }
         // The inspector's own input takes a strip out of the inspector's rectangle, never out of
@@ -208,12 +209,12 @@ pub fn render(
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
         surfaces.set_viewport(id, viewport);
-        if id == SurfaceId::Composer {
-            effort::composer_rules(frame, state, bounds, panel.edges);
-        }
         message_actions::render(frame, state, palette, metrics, id, bounds, viewport);
-        if id == SurfaceId::CommandInspection {
-            command_inspection::controls(frame, palette, bounds);
+        match id {
+            SurfaceId::Composer => effort::composer_rules(frame, state, bounds, panel.edges),
+            SurfaceId::Drawer => surfaces::drawer_retract(frame, palette, state, bounds),
+            SurfaceId::CommandInspection => command_inspection::controls(frame, palette, bounds),
+            _ => {}
         }
 
         // The cursor belongs to whichever surface the projection says owns it, which is the same

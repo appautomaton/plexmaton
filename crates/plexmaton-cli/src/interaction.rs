@@ -41,7 +41,8 @@ where
 {
     let mut frames = stream_frames::StreamFrames::new(Instant::now());
     loop {
-        deliver_copy(workspace.take_copy(), clipboard)?;
+        let copy = workspace.take_copy();
+        deliver_copy(copy, clipboard, workspace)?;
         frames
             .draw_with_native(workspace, terminal, Instant::now(), &mut native_output)
             .context("draw TUI frame")?;
@@ -55,7 +56,9 @@ where
 
         tokio::select! {
             prepared = preparation.next() => preparation.apply(prepared, workspace),
-            delivered = clipboard.next() => delivered.context("copy to the clipboard")?,
+            delivered = clipboard.next() => {
+                report_copy(delivered.context("copy to the clipboard")?, workspace);
+            },
             update = permissions.next() => {
                 frames.flush(workspace);
                 permission_controls::PermissionControls::publish(update, workspace);
@@ -176,7 +179,7 @@ async fn apply_workspace_outcome(
     if let Some(approval) = outcome.approval {
         dispatch_live(runtime, workspace, route_approval(approval)).await?;
     }
-    deliver_copy(outcome.copied, clipboard)?;
+    deliver_copy(outcome.copied, clipboard, workspace)?;
     Ok(outcome.flow == Flow::Quit)
 }
 
@@ -234,13 +237,22 @@ pub(super) fn open_page(
 fn deliver_copy(
     request: Option<plexmaton_tui::CopyRequest>,
     clipboard: &mut TerminalClipboard<impl io::Write>,
+    workspace: &mut Workspace,
 ) -> anyhow::Result<()> {
     if let Some(request) = request {
-        clipboard
+        let receipt = clipboard
             .submit(request.text)
             .context("copy to the clipboard")?;
+        workspace.clear_copy_receipt();
+        report_copy(receipt, workspace);
     }
     Ok(())
+}
+
+fn report_copy(receipt: Option<plexmaton_tui::CopyReceipt>, workspace: &mut Workspace) {
+    if let Some(receipt) = receipt {
+        workspace.report_copy(receipt, Instant::now());
+    }
 }
 
 /// Apply the footer owner's completion with the current terminal/runtime snapshot (STL-1).

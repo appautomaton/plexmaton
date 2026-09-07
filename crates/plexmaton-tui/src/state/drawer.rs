@@ -331,6 +331,35 @@ impl Drawer {
     }
 }
 
+impl super::ViewState {
+    pub(crate) fn hover_drawer_page(&mut self, page: Page) {
+        let Some(drawer) = self.drawer.as_mut() else {
+            return;
+        };
+        let Some(index) = drawer.pages().iter().position(|row| *row == page) else {
+            return;
+        };
+        if drawer.chosen != index {
+            drawer.set_chosen(index);
+            self.touch();
+        }
+    }
+
+    pub(crate) fn hover_drawer_permission(
+        &mut self,
+        choice: &super::permissions::PermissionChoice,
+    ) {
+        if self
+            .drawer
+            .as_mut()
+            .and_then(Drawer::permissions_mut)
+            .is_some_and(|panel| panel.choose(choice))
+        {
+            self.touch();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Drawer, Page};

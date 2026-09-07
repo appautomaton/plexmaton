@@ -578,3 +578,75 @@ fn per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied() {
         crate::test_support::assert_frame(&format!("project-permission-receipt-{name}"), &text);
     }
 }
+
+/// INV-3/PER-7: hover selects a revisioned permission without applying it, in both places.
+#[test]
+fn permission_hover_selects_without_granting_and_confirmation_starts_on_back() {
+    use crate::{
+        Point,
+        state::{MenuRow, permissions::PermissionChoice},
+    };
+    for drawer in [false, true] {
+        let (mut workspace, mut terminal) = menu_fixture(88, 30, split_view());
+        let (surface, grant) = if drawer {
+            workspace.handle(&key(KeyCode::Esc));
+            workspace.open_permissions();
+            workspace.update_permissions(Ok(split_view()), None);
+            (SurfaceId::Drawer, "fetch")
+        } else {
+            (SurfaceId::ComposerMenu, "ls")
+        };
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("permission list");
+        let bounds = workspace.surfaces.get(surface).expect("surface").bounds;
+        let choice = PermissionChoice::Review(PermissionAction::Revoke(
+            PermissionGrantId::new(grant).expect("grant"),
+        ));
+        let at = (bounds.y..bounds.bottom())
+            .map(|y| Point { x: bounds.x + 5, y })
+            .find(|at| {
+                if drawer {
+                    workspace.drawer_hit(*at)
+                        == Some(drawer::DrawerChoice::Permission(choice.clone()))
+                } else {
+                    workspace.menu_hit(*at) == Some(MenuRow::Permission(choice.clone()))
+                }
+            })
+            .expect("grant row");
+        let event = Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: at.x,
+            row: at.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(workspace.handle(&event).permission.is_none());
+        if drawer {
+            let panel = workspace
+                .state
+                .drawer()
+                .and_then(crate::state::Drawer::permissions)
+                .expect("panel");
+            assert_eq!(panel.choices()[panel.selected()].0, choice);
+        } else {
+            assert_eq!(
+                workspace.state.menu_chosen(),
+                Some(MenuRow::Permission(choice))
+            );
+        }
+        assert!(
+            workspace.handle(&key(KeyCode::Enter)).permission.is_none(),
+            "review grants nothing"
+        );
+        workspace.settled_draw(&mut terminal).expect("confirmation");
+        let text = region_text(
+            terminal.backend().buffer(),
+            workspace.surfaces.get(surface).expect("surface").bounds,
+        );
+        assert!(text.contains("> Back"), "{text}");
+        assert!(
+            workspace.handle(&key(KeyCode::Enter)).permission.is_none(),
+            "Back applies no change"
+        );
+    }
+}

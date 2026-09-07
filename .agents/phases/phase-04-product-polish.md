@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–18 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–19 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -192,6 +192,18 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Static corpus, formatting and dependency-direction checks passed. No CI or live model run was
     performed for this uncommitted branch.
 
+19. **Unified interaction — complete.** INV-3, DRW-3, COM-3 and SEL-5 cover shared focused-menu
+    hover/arrow choice, guarded Drawer retraction, conversation-only newline chords and transient
+    transport receipts. The user approved the rendered proposal. Actual wide/medium/narrow
+    [Drawer controls](../specs/drawer.md#rendered-controls),
+    [copy feedback and multiline drafts](../specs/selection-and-copy.md#rendered-feedback), and
+    APD approval frames were inspected. Local validation on `daee70c` plus this work passed
+    409 TUI, 95 CLI executable, 7 CLI library and 23 measurement tests; the final Drawer grammar
+    additionally passed 22 router tests. TUI/CLI all-target Clippy, 37 Python fixture tests,
+    formatting, citations, frame references, file length and diff checks passed. Terminal PTY
+    verified raw Ctrl-J and Copy sent; permission and status-line PTYs passed with isolated
+    loopback fixtures. Terra-max's read-only review has no remaining blockers. CI and live
+    desktop clipboard acceptance were not exercised locally.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

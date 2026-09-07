@@ -202,3 +202,41 @@ fn effort_xhigh_labels_remain_static_without_an_animation_deadline() {
     workspace.advance_effort_animation(now + std::time::Duration::from_secs(10));
     assert!(!workspace.needs_draw());
 }
+
+/// INV-3/EFF-2: hover previews only enabled levels; arrows start there and Enter still confirms.
+#[test]
+fn effort_hover_previews_without_applying_and_ignores_disabled_stops() {
+    let (mut workspace, mut terminal) = open(88, &[Effort::Low, Effort::High], Effort::High);
+    let bounds = workspace
+        .surfaces
+        .get(SurfaceId::ComposerMenu)
+        .expect("menu")
+        .bounds;
+    let row = bounds.y + 3;
+    let low = (bounds.x..bounds.right())
+        .map(|x| Point { x, y: row })
+        .find(|at| workspace.menu_hit(*at) == Some(crate::state::MenuRow::Effort(Effort::Low)))
+        .expect("low stop");
+    assert!(
+        workspace
+            .handle(&mouse(MouseEventKind::Moved, low))
+            .effort
+            .is_none()
+    );
+    assert_eq!(workspace.state.selected_effort(), Some(Effort::Low));
+    assert_eq!(workspace.state.reasoning_effort(), Some(Effort::High));
+    workspace.handle(&key(KeyCode::Right));
+    assert_eq!(workspace.state.selected_effort(), Some(Effort::High));
+    workspace.handle(&mouse(MouseEventKind::Moved, low));
+    assert_eq!(workspace.state.selected_effort(), Some(Effort::High));
+    let disabled = Point {
+        x: bounds.right() - 6,
+        y: row,
+    };
+    assert!(workspace.menu_hit(disabled).is_none());
+    workspace.handle(&mouse(MouseEventKind::Moved, disabled));
+    assert_eq!(workspace.state.selected_effort(), Some(Effort::High));
+    workspace
+        .settled_draw(&mut terminal)
+        .expect("unchanged selection");
+}

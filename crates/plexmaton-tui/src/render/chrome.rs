@@ -160,8 +160,7 @@ pub(super) fn activity_line(
 
 /// What a surface says about the selection it is holding.
 ///
-/// A copy leaves no trace of its own — OSC 52 is written and never answered — so the selection
-/// staying visible, and counted, is the whole of the feedback the user gets (SEL-5).
+/// The retained selection is separate from transient transport feedback in the status row (SEL-5).
 fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     if let Some(note) = state.copy_note(surface) {
         use crate::state::CopyNote;
@@ -305,6 +304,7 @@ pub(super) fn render_status(
     if status.note() == StatusNote::Quiet
         && !matches!(status.footer(), crate::state::Footer::Default)
     {
+        render_copy_receipt(frame, state, palette, area);
         return;
     }
     let area = Rect::new(
@@ -329,6 +329,25 @@ pub(super) fn render_status(
         Span::styled(text, palette.style(role)),
     ]);
     frame.render_widget(Paragraph::new(line), area);
+    render_copy_receipt(frame, state, palette, area);
+}
+
+fn render_copy_receipt(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
+    if state.status().note() != StatusNote::Quiet || area.is_empty() {
+        return;
+    }
+    let text = match state.status().copy_receipt() {
+        Some(crate::CopyReceipt::Copied) => " ✓ Copied ",
+        Some(crate::CopyReceipt::Sent) => " Copy sent ",
+        None => return,
+    };
+    let width = (Line::raw(text).width() as u16).min(area.width);
+    let badge = Rect::new(area.right() - width, area.bottom() - 1, width, 1);
+    frame.render_widget(ratatui::widgets::Clear, badge);
+    frame.render_widget(
+        Paragraph::new(text).style(palette.style(Role::Muted)),
+        badge,
+    );
 }
 
 pub(super) fn render_too_small(frame: &mut Frame<'_>, palette: &Palette, area: Rect) {

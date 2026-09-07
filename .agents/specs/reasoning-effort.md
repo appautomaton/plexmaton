@@ -16,7 +16,7 @@ persistence failure and shutdown refuse the change; historical request records r
 
 **EFF-2 — The selector keeps the full spectrum.** `none`, `low`, `medium`, `high`, `xhigh`, `max`
 stay in canonical positions; unavailable stops are dark gray and cannot be selected. Arrows skip
-disabled stops, a matching pointer press/release previews a level, Enter asks the runtime to apply
+disabled stops, pointer movement or a matching press/release previews a level (INV-3), Enter asks the runtime to apply
 it, and Escape cancels; only runtime acceptance updates the composer's confirmed effort.
 
 **EFF-3 — Effort has one RGB palette.** `theme/effort.rs` owns the selector and composer rule/label
@@ -50,7 +50,7 @@ capabilities, not an inferred full list. Saving a new configuration default rema
 | Invariant | Proven by |
 | --- | --- |
 | EFF-1 | `effort_replacement_updates_wire_and_environment_without_rewriting_history`, `effort_changes_refuse_active_and_queued_work`, `effort_command_changes_the_live_driver_without_submitting_a_message` |
-| EFF-2 | `effort_selection_confirms_only_after_runtime_acceptance_and_escape_cancels`, `effort_pointer_ignores_disabled_stops_and_drag_disarms_selection`, `effort_provider_default_does_not_preselect_an_explicit_level`; EFF-1's production loop test |
+| EFF-2 | `effort_hover_previews_without_applying_and_ignores_disabled_stops`; `effort_selection_confirms_only_after_runtime_acceptance_and_escape_cancels`, `effort_pointer_ignores_disabled_stops_and_drag_disarms_selection`, `effort_provider_default_does_not_preselect_an_explicit_level`; EFF-1's production loop test |
 | EFF-3 | `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden`, `effort_xhigh_labels_remain_static_without_an_animation_deadline`; user-reviewed precursor, followed by requested vertical-only ticks and removal of the pentagon |
 | EFF-4 | `effort_animation_changes_only_visible_max_cells_and_stops_when_hidden`, `effort_xhigh_labels_remain_static_without_an_animation_deadline`; physical-terminal/font fidelity remains unproven |
 | EFF-5 | `effort_command_changes_the_live_driver_without_submitting_a_message`; reset-on-replacement journey is unproven |

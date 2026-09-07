@@ -49,6 +49,10 @@ impl Workspace {
         self.pressed = None;
         self.drag_autoscroll = None;
         self.pressed_entry = None;
+        let moved = self.hover_point.replace(at) != Some(at);
+        if moved {
+            self.hover_choice(surface, at);
+        }
         let target = surface.and_then(|surface| self.entry_target_at(surface, at));
         let copy = target
             .as_ref()
@@ -64,7 +68,13 @@ impl Workspace {
             .then(|| self.approval_hit(at))
             .flatten()
             .and_then(|(id, choice)| self.state.approval().map(|view| (id, view.stage, choice)));
-        self.state.hover_controls(target, copy, retry, approval);
+        if surface == Some(SurfaceId::Drawer) && self.drawer_retract_hit(at) {
+            self.state.hover_drawer_retract();
+        } else {
+            let approval = approval
+                .filter(|_| self.state.focused(&self.surfaces) != Some(SurfaceId::Approval));
+            self.state.hover_controls(target, copy, retry, approval);
+        }
     }
 
     pub(super) fn cancel_pointer_click(&mut self) {

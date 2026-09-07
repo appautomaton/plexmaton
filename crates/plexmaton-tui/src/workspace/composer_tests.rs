@@ -206,3 +206,78 @@ fn the_wheel_over_the_composer_walks_the_draft_one_row_per_notch() {
         "without the caret the wheel over the composer moves nothing"
     );
 }
+
+/// COM-3, INV-2: Ctrl-J grows the conversation draft without sending; the Drawer stays single-line.
+#[test]
+fn ctrl_j_breaks_the_conversation_draft_but_not_the_drawer_filter() {
+    let (mut workspace, mut terminal) = drawn(88, 30);
+    focus_composer(&mut workspace, &mut terminal);
+    typed(&mut workspace, "first");
+    let outcome = workspace.handle(&key(KeyCode::Char('j'), KeyModifiers::CONTROL));
+    assert!(outcome.submitted.is_none());
+    typed(&mut workspace, "second");
+    draw(&mut workspace, &mut terminal);
+    let shown = painted(&terminal, composer(&workspace));
+    assert!(shown.contains("first") && shown.contains("second"));
+    assert_eq!(composer(&workspace).height, 4);
+    workspace.handle(&key(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    draw(&mut workspace, &mut terminal);
+    let revision = workspace.state.revision();
+    for (code, modifiers) in [
+        (KeyCode::Char('j'), KeyModifiers::CONTROL),
+        (KeyCode::Enter, KeyModifiers::SHIFT),
+        (KeyCode::Enter, KeyModifiers::ALT),
+    ] {
+        let outcome = workspace.handle(&key(code, modifiers));
+        assert!(outcome.submitted.is_none());
+        assert!(outcome.page.is_none());
+        assert_eq!(workspace.state.revision(), revision);
+    }
+}
+
+/// SEL-5, INV-7: copy overlays only the last row, retains focus and geometry, and expires once.
+#[test]
+fn copy_receipt_preserves_layout_and_quit_priority_at_three_widths() {
+    use std::time::Duration;
+    for width in [120, 88, 60] {
+        let (mut workspace, mut terminal) = drawn(width, 30);
+        workspace.set_working_directory("/workspace".into());
+        draw(&mut workspace, &mut terminal);
+        let before = terminal.backend().buffer().clone();
+        let focus = workspace.state.focused(&workspace.surfaces);
+        let bounds = composer(&workspace);
+        let started = Instant::now();
+        workspace.report_copy(crate::CopyReceipt::Copied, started);
+        draw(&mut workspace, &mut terminal);
+        for y in 0..29 {
+            assert_eq!(
+                region_text(&before, Rect::new(0, y, width, 1)),
+                painted(&terminal, Rect::new(0, y, width, 1))
+            );
+        }
+        assert!(painted(&terminal, Rect::new(0, 29, width, 1)).ends_with("✓ Copied "));
+        assert_eq!(workspace.state.focused(&workspace.surfaces), focus);
+        assert_eq!(composer(&workspace), bounds);
+        workspace.handle_at(&key(KeyCode::Char('d'), KeyModifiers::CONTROL), started);
+        workspace.report_copy(
+            crate::CopyReceipt::Sent,
+            started + Duration::from_millis(100),
+        );
+        assert_eq!(
+            workspace.note_deadline(),
+            Some(started + Duration::from_secs(1))
+        );
+        draw(&mut workspace, &mut terminal);
+        let row = painted(&terminal, Rect::new(0, 29, width, 1));
+        assert!(row.contains("press Ctrl-D again to quit") && !row.contains("Copy sent"));
+        assert!(workspace.expire_note(started + Duration::from_secs(1)));
+        draw(&mut workspace, &mut terminal);
+        assert!(painted(&terminal, Rect::new(0, 29, width, 1)).ends_with("Copy sent "));
+        assert!(!workspace.expire_note(started + Duration::from_millis(2099)));
+        assert!(workspace.expire_note(started + Duration::from_millis(2100)));
+        draw(&mut workspace, &mut terminal);
+        assert_eq!(terminal.backend().buffer(), &before);
+        assert_eq!(workspace.note_deadline(), None);
+        assert!(!workspace.expire_note(started + Duration::from_secs(3)));
+    }
+}

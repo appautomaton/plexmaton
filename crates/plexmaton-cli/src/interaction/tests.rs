@@ -225,3 +225,33 @@ async fn effort_command_changes_the_live_driver_without_submitting_a_message() {
     permissions.shutdown().await.expect("permissions");
     runtime.shutdown().await.expect("runtime");
 }
+
+/// SEL-5: the production admission boundary publishes only observed sends and withdraws old receipts.
+#[test]
+fn copy_admission_publishes_observed_delivery_without_a_timer_for_empty_requests() {
+    let mut workspace = Workspace::default();
+    let mut clipboard = TerminalClipboard::new(Vec::new(), ClipboardRoute::Direct);
+    deliver_copy(None, &mut clipboard, &mut workspace).expect("no copy");
+    assert_eq!(workspace.note_deadline(), None);
+    let started = Instant::now();
+    deliver_copy(
+        Some(plexmaton_tui::CopyRequest {
+            text: "source".into(),
+            entries: 1,
+        }),
+        &mut clipboard,
+        &mut workspace,
+    )
+    .expect("sent");
+    let deadline = workspace.note_deadline().expect("receipt deadline");
+    assert!(deadline >= started + Duration::from_secs(2));
+    assert!(deadline <= Instant::now() + Duration::from_secs(2));
+    let mut terminal = Terminal::new(TestBackend::new(88, 26)).expect("terminal");
+    workspace.draw(&mut terminal).expect("receipt frame");
+    let row: String = (0..88)
+        .map(|x| terminal.backend().buffer()[(x, 25)].symbol())
+        .collect();
+    assert!(row.ends_with(" Copy sent "));
+    workspace.clear_copy_receipt();
+    assert_eq!(workspace.note_deadline(), None);
+}

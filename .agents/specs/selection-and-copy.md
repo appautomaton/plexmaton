@@ -59,7 +59,12 @@ terminal is detected. Other direct terminals receive OSC 52; immediate tmux rece
 envelope and an owned, bounded `load-buffer -w` request. An embedded editor terminal keeps plain
 OSC 52 while retaining the tmux leg. No remote host clipboard is treated as the user's. A
 successful terminal write has no acknowledgement; helper success proves only that the helper
-accepted the request. Native helper failure is returned without a silent route change. All helper
+accepted the request. Native helper failure is returned without a silent route change. The CLI publishes `✓ Copied` only
+for native acceptance, or `Copy sent` for terminal/tmux send. A two-second receipt overlays the
+bottom-right status cells without layout or focus changes; quit has priority without extending
+its window. New admitted copies withdraw old receipts; cancellation, replacement and delivery
+failure produce none. The two tmux legs remain independent: a successful terminal send can report
+`Copy sent` even when the helper rejects; this does not claim clipboard acceptance. All helper
 operations bound both stdin writes and exit waits to 500 ms, kill and reap on failure, timeout or
 cancellation, and bound cleanup to another 500 ms. Cleanup failure prevents replacement; kill-on-drop
 is only a final guard. The screen claims no stronger delivery than the route establishes.
@@ -143,6 +148,23 @@ be selected while its input holds the cursor.
 | SEL-2 | `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `selected_text_waits_for_missing_preparation_and_emits_one_complete_copy`, `selected_text_capacity_refuses_a_complete_request_without_emitting_a_prefix`, `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state`, `mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown`, `text_drag_copies_wrapped_code_without_its_frame`, `mapped_markdown_has_width_independent_plain_text_and_exact_fragments`, `mapped_tables_copy_cell_text_without_alignment_padding` |
 | SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents`, `inspector_text_drag_survives_input_geometry_and_empty_drag_clears` |
 | SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome`, `direct_copy_writes_the_exact_terminated_osc_52_sequence` |
-| SEL-5 | `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52`, `native_copy_requires_an_unambiguous_local_macos_terminal`, `native_copy_uses_the_system_helper_with_utf8`, `clipboard_helper_receives_exact_unicode_source_and_eof`, `clipboard_helper_rejection_is_not_reported_as_delivery`, `clipboard_deadline_bounds_a_blocked_stdin_pipe`, `clipboard_deadline_also_bounds_waiting_after_eof`, `clipboard_delivery_keeps_route_failures_and_cleanup_separate`; local macOS/iTerm delivery manually confirmed on 2026-09-04 at `96917a4`; cleanup-timeout fault injection remains unproven |
+| SEL-5 | `copy_admission_publishes_observed_delivery_without_a_timer_for_empty_requests`, `status_footer_preserves_focus_and_uses_the_last_row_for_hints`, `python3 scripts/smoke-tui.py`, `copy_receipt_preserves_layout_and_quit_priority_at_three_widths`, `clipboard_receipts_require_native_acceptance_and_suppress_cancellation`, `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52`, `native_copy_requires_an_unambiguous_local_macos_terminal`, `native_copy_uses_the_system_helper_with_utf8`, `clipboard_helper_receives_exact_unicode_source_and_eof`, `clipboard_helper_rejection_is_not_reported_as_delivery`, `clipboard_deadline_bounds_a_blocked_stdin_pipe`, `clipboard_deadline_also_bounds_waiting_after_eof`, `clipboard_delivery_keeps_route_failures_and_cleanup_separate`; local macOS/iTerm delivery manually confirmed on 2026-09-04 at `96917a4`; cleanup-timeout fault injection remains unproven |
 | SEL-8 | `clipboard_replacement_reaps_before_delivering_only_the_latest_source`, `clipboard_shutdown_reaps_a_blocked_writer_and_never_starts_pending_copy`, `clipboard_shutdown_before_polling_starts_no_process`, `oversized_copy_preserves_the_admitted_pending_source_without_terminal_effects`, `clipboard_wait_never_holds_the_production_input_and_frame_loop`, `status_cleanup_error_does_not_hide_session_shutdown_failures`; reintroducing the inline helper wait fails the production-loop witness |
 | SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |
+
+
+## Rendered feedback
+
+SEL-5 composition and Ctrl-J drafts were inspected at
+[120](../../crates/plexmaton-tui/frames/interaction/copied-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/copied-88.svg) and
+[60](../../crates/plexmaton-tui/frames/interaction/copied-60.svg) columns.
+The other transport's final row is
+[120](../../crates/plexmaton-tui/frames/interaction/sent-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/sent-88.svg),
+[60](../../crates/plexmaton-tui/frames/interaction/sent-60.svg);
+quit precedence is
+[120](../../crates/plexmaton-tui/frames/interaction/quit-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/quit-88.svg),
+[60](../../crates/plexmaton-tui/frames/interaction/quit-60.svg).
+Reproduce with `cargo run -p plexmaton-tui --example interaction_preview -- target/interaction-review`.
