@@ -1,4 +1,4 @@
-┌ Workspace · Permissions ─────────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Workspace · Permissions ───────────────────────────────────────────────────────────────────────────────────────── ⌃ ─┐
 │                                                                                                                      │
 │  Project grants survive Sessions and restarts.                                                                       │
 │  Project Allow rules need explicit trust. Ask and Deny are active.                                                   │
@@ -11,7 +11,7 @@
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
-┌ Project configuration rules ─────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Project configuration rules ───────────────────────────────────────────────────────────────────────────────────── ⌃ ─┐
 │                                                                                                                      │
 │  Project: .plexmaton/config.toml                                                                                     │
 │  Allow rules inactive until personally trusted.                                                                      │
@@ -35,7 +35,7 @@
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 
-┌ Workspace · Permissions ─────────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Workspace · Permissions ───────────────────────────────────────────────────────────────────────────────────────── ⌃ ─┐
 │                                                                                                                      │
 │  Activate the reviewed project Allow rules?                                                                          │
 │  Configuration SHA-256: abababababababababababababababababababababababababababababababab                             │

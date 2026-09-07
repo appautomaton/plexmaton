@@ -19,10 +19,10 @@ indistinguishable from a routing defect.
 a text input holds keyboard focus; under navigation focus the same key is a command or unbound.
 There is no third case, because there is never more than one cursor.
 
-**INV-3 — Hover never redirects input.** Bare motion changes only the visual target under the
-topmost surface, takes no capture, and repeats for free. Wheel motion changes only the topmost
-eligible viewport; an immovable surface is transparent and an exhausted one still consumes the
-event. Neither path changes focus, selection, or semantic entries (`ui-ux.md` §nested scrolling).
+**INV-3 — Pointer and keyboard share the focused menu's choice.** Actual movement over an enabled
+row in the focused approval, Drawer or composer menu updates its one selected choice without
+activating it. Repeated coordinates cannot override keyboard navigation; hover outside that menu
+never changes focus or transcript selection. Wheel routing retains `ui-ux.md` §nested scrolling.
 
 **INV-4 — Capture wins for the drag gesture.** Captured button and motion events stay on their
 surface regardless of position; hit testing is not consulted. Wheels keep hover routing. Terminal
@@ -84,11 +84,11 @@ A focused approval sheet accepts its displayed `1`–`2` or `1`–`3` choices, p
 Modified digits, reported digit/Enter key repeats, unavailable rows and submitting choices do nothing; digits
 remain text under composer focus. Decisions bind to the request, stage and offered scopes in the
 last successfully delivered frame; a replacement or newly opened scope must be painted first. Numbered remembered grants use the same visible-scope guard as
-Enter and clicking (PER-10). Hover accents a choice without changing the keyboard-selected answer.
+Enter and clicking (PER-10). Mouse movement over the focused card selects the choice without deciding.
 [Command inspection](./approval-inspection.md) owns command-summary clicks, Ctrl-O, modal copy and
 close. Other tool details retain Ctrl-O's inline expansion.
 
-The `/effort` selector uses EFF-2: Left/Right or Up/Down skip disabled stops, pointer release
+The `/effort` selector uses EFF-2: Left/Right or Up/Down skip disabled stops, pointer movement or release
 previews a selectable level, Enter confirms, and Escape cancels a held press before closing.
 
 The primary composer's visible [composer menu](./composer-menu.md) owns Up/Down, Tab/Enter and Esc
@@ -118,7 +118,7 @@ ordinary bindings below apply.
 | `Ctrl/Alt-Left` / `Ctrl/Alt-Right` | Unbound | Move by word |
 | `Ctrl-A` / `Ctrl-E`, `Alt-B` / `Alt-F` | Unbound | Line-edge or word motion |
 | `Delete`, `Ctrl-W`, `Ctrl-U` / `Ctrl-K` | Unbound | Delete forward, previous word, or to the line's edge |
-| `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
+| `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
 
 Control chords are never text (INV-2); reducers decide whether their target exists. A focused
 decision region uses arrows to choose, `Enter` to decide and `Ctrl-O` to disclose. Matching button
@@ -127,7 +127,8 @@ without answering or hiding the card; a background modal closes. Allow and remem
 scope/lifetime review; `Esc` there returns to the decision step. PER-5 owns producer confirmation.
 
 The Drawer owns typing and editing while open (DRW-3): `↑` / `↓` chooses, `Enter` opens the row,
-and `Esc` returns one layer. Its filter uses the caret contract in COM-1. The Permissions page
+and `Esc` returns one layer. Modified `Enter` and `Ctrl-J` are unbound in the Drawer. Its filter
+uses the caret contract in COM-1. The Permissions page
 holds revisioned grant controls (PER-7): arrows or drawn-row clicks select a setting or grant,
 `Enter` reviews it, and a second confirmation applies it. Back starts selected; `Esc` returns from
 review, then to the list. Loading/submission accepts no duplicate mutation. The Configuration page
@@ -158,7 +159,7 @@ is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DR
 | INV-1, INV-11 | `retry_click_keyboard_and_drag_cancellation_share_one_action`, `retry_frames_keep_actions_with_the_failed_request_at_three_widths` with the `retry-*` frames, `a_press_on_one_surface_cannot_activate_a_release_on_another`, `a_press_a_drag_inside_the_same_row_and_a_release_activate_nothing` |
 | INV-1 | `every_terminal_event_is_translated_or_named_as_ignored` |
 | INV-2 | `approval_numbers_follow_focus_and_the_current_choice_stage`, `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
-| INV-3 | `approval_hover_is_visual_only_and_repeated_motion_is_free`, `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
+| INV-3 | `approval_hover_and_arrows_share_selection_and_repeated_motion_is_free`, `drawer_hover_and_arrows_share_one_choice_without_opening_pages`, `composer_menu_hover_preserves_draft_and_arrows_continue_from_the_hovered_row`, `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `focus_loss_suspends_motion_without_releasing_capture`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |

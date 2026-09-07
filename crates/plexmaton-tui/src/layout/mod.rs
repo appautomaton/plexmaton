@@ -484,6 +484,16 @@ pub(crate) fn command_inspection_controls(bounds: Rect) -> [Rect; 2] {
     ]
 }
 
+/// DRW-3: the retract control stays in the top-right border, clear of page content.
+pub(crate) fn drawer_retract_control(bounds: Rect) -> Rect {
+    Rect::new(
+        bounds.right().saturating_sub(5),
+        bounds.y,
+        3.min(bounds.width),
+        1,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use ratatui::layout::Rect;

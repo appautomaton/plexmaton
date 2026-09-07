@@ -229,10 +229,20 @@ def check_input_pointer(master: int, captured: bytearray) -> None:
     expected = b"]52;c;" + base64.b64encode("中X文".encode())
     read_until(master, captured, lambda: expected in bytes(captured[start:]),
                description="composer source copy")
+    # SEL-5: the actual event loop publishes a send receipt after the observed OSC write.
+    repaint(master, captured, ("中X文abc", "Copy sent"))
     os.write(master, b"z")
     repaint(master, captured, ("zabc",))
     os.write(master, b"\x03")
     repaint(master, captured, ("Message Plexmaton",), ("zabc",))
+
+
+def check_newline(master: int, captured: bytearray) -> None:
+    """COM-3: raw Ctrl-J creates two draft lines without a model request."""
+    os.write(master, b"first\x0asecond")
+    repaint(master, captured, ("first", "second"), exact_lines=("first", "second"))
+    os.write(master, b"\x03")
+    repaint(master, captured, ("Message Plexmaton",), ("first", "second"))
 
 
 def check_effort(master: int, captured: bytearray) -> None:
@@ -321,6 +331,7 @@ output_reserve_tokens = 5000
         os.write(master, f"\x1b[<0;{column + 1};{row + 1}m".encode())
         check_drawer(master, captured)
         check_input_pointer(master, captured)
+        check_newline(master, captured)
         check_effort(master, captured)
 
         question = "press Ctrl-D again to quit"
@@ -432,7 +443,8 @@ def main() -> int:
     print(
         f"smoke: painted the idle live runtime at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
-        "transcript and none to the status line, expired and re-armed the quit chord, and released "
+        "transcript and none to the status line, verified Ctrl-J draft lines and Copy sent feedback, "
+        "expired and re-armed the quit chord, and released "
         "mouse and focus reporting before the alternate screen, without creating an empty JSONL"
     )
     return 0

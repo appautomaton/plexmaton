@@ -187,6 +187,15 @@ impl PermissionPanel {
         }
     }
 
+    pub(crate) fn choose(&mut self, choice: &PermissionChoice) -> bool {
+        let Some(index) = self.choices().iter().position(|(row, _)| row == choice) else {
+            return false;
+        };
+        let changed = self.selected != index;
+        self.selected = index;
+        changed
+    }
+
     pub(crate) fn step(&mut self, forward: bool) -> bool {
         let last = self.choices().len().saturating_sub(1);
         let next = if forward {

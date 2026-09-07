@@ -41,6 +41,9 @@ mod drawer;
 mod effort;
 #[cfg(test)]
 mod effort_tests;
+mod hover;
+#[cfg(test)]
+mod hover_tests;
 #[cfg(test)]
 mod markdown_tests;
 #[cfg(test)]
@@ -60,6 +63,7 @@ mod pressed_tests;
 mod retry;
 #[cfg(test)]
 mod skill_menu_tests;
+mod status;
 mod text_selection;
 #[cfg(test)]
 mod text_selection_tests;
@@ -177,6 +181,8 @@ pub struct Workspace {
     /// Decisions bind to the request and scope in the last successfully delivered frame.
     painted_approval: Option<approval_pointer::PaintedApproval>,
     frames: u64,
+    /// Last reported mouse cell; identical reports cannot undo keyboard navigation.
+    hover_point: Option<crate::Point>,
     /// Foldable entry pressed most recently; drag/cancel clears it before release can disclose it.
     pressed_entry: Option<PressedEntry>,
     /// The one row a button press landed on, on any surface with rows.
@@ -201,16 +207,6 @@ impl Workspace {
         self.state
             .report_approval_refusal(agent, approval, feedback, offer);
     }
-    /// Replace one fully decoded script result. Equal output does not request another frame.
-    pub fn set_status_line(&mut self, text: crate::StatusLineText, max_rows: u16) {
-        self.state.set_status_line(text, max_rows);
-    }
-
-    /// A failed presentation command cannot take down the session or hide a quit question.
-    pub fn set_status_line_error(&mut self, error: String) {
-        self.state.set_status_line_error(error);
-    }
-
     /// Builds a workspace that paints with `palette`.
     ///
     /// The default workspace uses [`Palette::ansi`]. Widgets resolve semantic roles through this
@@ -336,20 +332,6 @@ impl Workspace {
     /// Translates one terminal event and applies whatever it asked for.
     pub fn handle(&mut self, event: &Event) -> Outcome {
         self.handle_at(event, Instant::now())
-    }
-
-    /// The monotonic deadline for a pending quit confirmation.
-    #[must_use]
-    pub fn note_deadline(&self) -> Option<Instant> {
-        self.state.status().deadline()
-    }
-
-    /// Clears a quit question whose monotonic deadline has passed.
-    ///
-    /// Returns whether the projection changed, so the event-loop owner can distinguish the one
-    /// deadline transition from a stale wakeup (FR-1).
-    pub fn expire_note(&mut self, now: Instant) -> bool {
-        self.state.expire_note(now)
     }
 
     /// Time-explicit event reduction keeps the chord deterministic under tests and at its boundary.

@@ -13,6 +13,8 @@ use std::{
     time::Duration,
 };
 
+use plexmaton_tui::CopyReceipt;
+
 use crossterm::{clipboard::CopyToClipboard, execute};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -135,7 +137,7 @@ impl<W: Write> TerminalClipboard<W> {
 
     /// Accept the newest exact source without waiting for a helper. At most one child and one
     /// pending source exist; replacement reaps the old child before any newer terminal write.
-    pub(crate) fn submit(&mut self, text: String) -> io::Result<()> {
+    pub(crate) fn submit(&mut self, text: String) -> io::Result<Option<CopyReceipt>> {
         if text.capacity() > MAX_COPY_BYTES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -147,15 +149,15 @@ impl<W: Write> TerminalClipboard<W> {
             Delivery::Active(active) => {
                 active.cancel.cancel();
                 active.pending = Some(text);
-                Ok(())
+                Ok(None)
             }
             Delivery::CleanupFailed => Err(io::Error::other("clipboard cleanup failed")),
         }
     }
 
-    fn start(&mut self, text: String) -> io::Result<()> {
+    fn start(&mut self, text: String) -> io::Result<Option<CopyReceipt>> {
         if self.route == ClipboardRoute::Direct {
-            return self.write_terminal(&text);
+            return self.write_terminal(&text).map(|()| Some(CopyReceipt::Sent));
         }
         let terminal =
             matches!(self.route, ClipboardRoute::Tmux { .. }).then(|| self.write_terminal(&text));
@@ -171,12 +173,12 @@ impl<W: Write> TerminalClipboard<W> {
             terminal,
             pending: None,
         });
-        Ok(())
+        Ok(None)
     }
 
     /// Cancellation-safe: the owned helper future survives losing the outer select to input.
-    /// Idle work has no wake; completion itself does not change the projection or request a frame.
-    pub(crate) async fn next(&mut self) -> io::Result<()> {
+    /// Idle work has no wake; only an observed delivery produces a receipt.
+    pub(crate) async fn next(&mut self) -> io::Result<Option<CopyReceipt>> {
         let result = match &mut self.delivery {
             Delivery::Active(active) => active.operation.as_mut().await,
             Delivery::Idle => std::future::pending().await,
@@ -193,7 +195,9 @@ impl<W: Write> TerminalClipboard<W> {
             return self.start(text);
         }
         match (active.terminal, result) {
-            (_, Ok(Completion::Accepted | Completion::Cancelled)) | (Some(Ok(())), _) => Ok(()),
+            (_, Ok(Completion::Cancelled)) => Ok(None),
+            (None, Ok(Completion::Accepted)) => Ok(Some(CopyReceipt::Copied)),
+            (Some(_), Ok(Completion::Accepted)) | (Some(Ok(())), _) => Ok(Some(CopyReceipt::Sent)),
             (Some(Err(error)), _) => Err(error),
             (None, Err(error)) => Err(error.into()),
         }
@@ -210,7 +214,7 @@ impl<W: Write> TerminalClipboard<W> {
                 active.cancel.cancel();
             }
         }
-        self.next().await
+        self.next().await.map(|_| ())
     }
 }
 
@@ -399,8 +403,11 @@ mod tests {
     fn direct_copy_writes_the_exact_terminated_osc_52_sequence() {
         let mut sink = TerminalClipboard::new(Vec::new(), ClipboardRoute::Direct);
 
-        sink.submit("plexmaton".into())
-            .unwrap_or_else(|error| panic!("writing to a vector cannot fail: {error}"));
+        assert_eq!(
+            sink.submit("plexmaton".into())
+                .unwrap_or_else(|error| panic!("writing to a vector cannot fail: {error}")),
+            Some(super::CopyReceipt::Sent)
+        );
 
         assert_eq!(sink.writer, b"\x1b]52;c;cGxleG1hdG9u\x1b\\");
     }

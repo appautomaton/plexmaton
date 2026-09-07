@@ -134,28 +134,7 @@ impl Router {
         // the rest is text is the kind it registered as (SURF-3): a page that is navigated takes
         // `j`/`k` and nothing else.
         if context.focused == Some(SurfaceId::Drawer) {
-            let typing = context.focus == KeyboardFocus::TextInput;
-            return match key.code {
-                KeyCode::Char('y') if typing && key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    Routed::Intent(TuiIntent::Selection(SelectionIntent::Copy))
-                }
-                KeyCode::Esc => self.escape(context),
-                KeyCode::Up => {
-                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
-                }
-                KeyCode::Down => {
-                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
-                }
-                KeyCode::Char('k') if !typing && key.modifiers.is_empty() => {
-                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
-                }
-                KeyCode::Char('j') if !typing && key.modifiers.is_empty() => {
-                    Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
-                }
-                KeyCode::Enter => Routed::Intent(TuiIntent::Drawer(DrawerIntent::Choose)),
-                _ if typing => text_key(key),
-                _ => Routed::Ignored(Ignored::Unbound),
-            };
+            return self.drawer_key(key, context);
         }
 
         // The completion list keeps keyboard focus and the caret in the primary composer.
@@ -226,6 +205,38 @@ impl Router {
                 KeyboardFocus::TextInput => text_key(key),
                 KeyboardFocus::Navigation => navigation_key(key, context),
             },
+        }
+    }
+
+    /// The Drawer consumes its navigation grammar and keeps its filter single-line (DRW-3).
+    fn drawer_key(&mut self, key: KeyEvent, context: &RouterContext<'_>) -> Routed {
+        let typing = context.focus == KeyboardFocus::TextInput;
+        match key.code {
+            KeyCode::Char('y') if typing && key.modifiers.contains(KeyModifiers::CONTROL) => {
+                Routed::Intent(TuiIntent::Selection(SelectionIntent::Copy))
+            }
+            KeyCode::Esc => self.escape(context),
+            KeyCode::Up => {
+                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
+            }
+            KeyCode::Down => {
+                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
+            }
+            KeyCode::Char('k') if !typing && key.modifiers.is_empty() => {
+                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
+            }
+            KeyCode::Char('j') if !typing && key.modifiers.is_empty() => {
+                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
+            }
+            KeyCode::Enter if key.modifiers.is_empty() => {
+                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Choose))
+            }
+            KeyCode::Enter => Routed::Ignored(Ignored::Unbound),
+            KeyCode::Char('j') if key.modifiers == KeyModifiers::CONTROL => {
+                Routed::Ignored(Ignored::Unbound)
+            }
+            _ if typing => text_key(key),
+            _ => Routed::Ignored(Ignored::Unbound),
         }
     }
 
@@ -377,6 +388,9 @@ fn text_key(key: KeyEvent) -> Routed {
         }
         KeyCode::Backspace if !commanded => {
             Routed::Intent(TuiIntent::Text(TextIntent::DeleteBackward))
+        }
+        KeyCode::Char('j') if key.modifiers == KeyModifiers::CONTROL => {
+            Routed::Intent(TuiIntent::Text(TextIntent::Newline))
         }
         KeyCode::Enter
             if key
@@ -1268,7 +1282,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_submits_and_shift_enter_breaks_the_line() {
+    fn enter_submits_and_modified_enter_or_ctrl_j_breaks_the_line() {
         let surfaces = tree();
         let context = context(&surfaces, KeyboardFocus::TextInput, false);
         let mut router = Router::default();
@@ -1277,10 +1291,17 @@ mod tests {
             router.translate(&key(KeyCode::Enter, KeyModifiers::NONE), &context),
             Routed::Intent(TuiIntent::Text(TextIntent::Submit))
         );
-        assert_eq!(
-            router.translate(&key(KeyCode::Enter, KeyModifiers::SHIFT), &context),
-            Routed::Intent(TuiIntent::Text(TextIntent::Newline))
-        );
+        // COM-3, INV-2: newline chords never submit or insert a control letter.
+        for (code, modifiers) in [
+            (KeyCode::Enter, KeyModifiers::SHIFT),
+            (KeyCode::Enter, KeyModifiers::ALT),
+            (KeyCode::Char('j'), KeyModifiers::CONTROL),
+        ] {
+            assert_eq!(
+                router.translate(&key(code, modifiers), &context),
+                Routed::Intent(TuiIntent::Text(TextIntent::Newline))
+            );
+        }
     }
 
     #[test]

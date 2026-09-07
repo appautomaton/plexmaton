@@ -102,9 +102,12 @@ async fn clipboard_replacement_reaps_before_delivering_only_the_latest_source() 
         owner.writer,
         osc52_sequence("first", owner.route).expect("first OSC")
     );
-    owner.next().await.expect("reap and start newest");
+    assert_eq!(owner.next().await.expect("reap and start newest"), None);
     gone(pid);
-    owner.next().await.expect("latest helper accepted");
+    assert_eq!(
+        owner.next().await.expect("latest helper accepted"),
+        Some(CopyReceipt::Sent)
+    );
     assert_eq!(calls.get(), 2);
     assert_eq!(std::fs::read_to_string(delivered).expect("source"), latest);
     let mut expected = osc52_sequence("first", owner.route).expect("first");
@@ -207,9 +210,12 @@ async fn clipboard_delivery_keeps_route_failures_and_cleanup_separate() {
     tmux.helper = Box::new(|| shell("/bin/cat > /dev/null", &[]));
     tmux.submit("source".into())
         .expect("helper can still accept");
-    tmux.next()
-        .await
-        .expect("helper accepted despite failed terminal");
+    assert_eq!(
+        tmux.next()
+            .await
+            .expect("helper accepted despite failed terminal"),
+        Some(CopyReceipt::Sent)
+    );
 
     let mut tmux = TerminalClipboard::new(
         Vec::new(),
@@ -219,7 +225,10 @@ async fn clipboard_delivery_keeps_route_failures_and_cleanup_separate() {
     );
     tmux.helper = Box::new(|| shell("/bin/cat > /dev/null; exit 7", &[]));
     tmux.submit("source".into()).expect("submit");
-    tmux.next().await.expect("OSC has already been written");
+    assert_eq!(
+        tmux.next().await.expect("OSC has already been written"),
+        Some(CopyReceipt::Sent)
+    );
     assert!(!tmux.writer.is_empty());
 
     let mut native = TerminalClipboard::new(Vec::new(), ClipboardRoute::LocalMacOs);
@@ -380,4 +389,29 @@ async fn clipboard_wait_never_holds_the_production_input_and_frame_loop() {
         );
         assert!(owner.writer.is_empty());
     }
+}
+
+/// SEL-5/SEL-8: native acceptance gets a receipt; explicit cancellation cannot borrow a terminal send.
+#[tokio::test]
+async fn clipboard_receipts_require_native_acceptance_and_suppress_cancellation() {
+    let mut native = TerminalClipboard::new(Vec::new(), ClipboardRoute::LocalMacOs);
+    native.helper = Box::new(|| shell("/bin/cat > /dev/null", &[]));
+    assert_eq!(native.submit("source".into()).expect("submit"), None);
+    assert_eq!(
+        native.next().await.expect("accepted"),
+        Some(CopyReceipt::Copied)
+    );
+    let mut tmux = TerminalClipboard::new(
+        Vec::new(),
+        ClipboardRoute::Tmux {
+            dcs_passthrough: true,
+        },
+    );
+    tmux.helper = Box::new(|| shell("exec /bin/sleep 30", &[]));
+    assert_eq!(tmux.submit("source".into()).expect("submit"), None);
+    let Delivery::Active(active) = &tmux.delivery else {
+        panic!("active copy")
+    };
+    active.cancel.cancel();
+    assert_eq!(tmux.next().await.expect("cancelled"), None);
 }

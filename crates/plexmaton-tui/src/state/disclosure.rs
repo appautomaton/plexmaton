@@ -54,6 +54,7 @@ pub(crate) struct DisclosureState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum HoverTarget {
+    DrawerRetract,
     Approval {
         approval: super::ApprovalTarget,
         stage: crate::ApprovalStage,
@@ -180,6 +181,17 @@ impl ViewState {
         if self.disclosure.hover(target, copy, retry, approval) {
             self.touch();
         }
+    }
+
+    pub(crate) fn hover_drawer_retract(&mut self) {
+        if self.disclosure.hovered != Some(HoverTarget::DrawerRetract) {
+            self.disclosure.hovered = Some(HoverTarget::DrawerRetract);
+            self.touch();
+        }
+    }
+
+    pub(crate) fn drawer_retract_hovered(&self) -> bool {
+        self.drawer().is_some() && self.disclosure.hovered == Some(HoverTarget::DrawerRetract)
     }
 
     pub(crate) fn approval_hovered(&self, choice: crate::ApprovalChoice) -> bool {

@@ -62,6 +62,23 @@ pub(super) fn drawer_panel(state: &ViewState, palette: &Palette, bounds: Rect) -
     }
 }
 
+pub(super) fn drawer_retract(
+    frame: &mut Frame<'_>,
+    palette: &Palette,
+    state: &ViewState,
+    bounds: Rect,
+) {
+    let style = palette.style(if state.drawer_retract_hovered() {
+        Role::Accent
+    } else {
+        Role::Muted
+    });
+    frame.render_widget(
+        ratatui::widgets::Paragraph::new(" ⌃ ").style(style),
+        layout::drawer_retract_control(bounds),
+    );
+}
+
 /// `Workspace`, the addressee, then the page that is open (ui-ux §product vocabulary).
 fn drawer_title(state: &ViewState) -> String {
     state

@@ -256,6 +256,23 @@ fn status_footer_preserves_focus_and_uses_the_last_row_for_hints() {
                 .expect("draw")
                 .is_none()
         );
+        // SEL-5: the receipt covers only the final right-edge cells, including with script output.
+        let baseline = terminal.backend().buffer().clone();
+        let now = std::time::Instant::now();
+        workspace.report_copy(crate::CopyReceipt::Sent, now);
+        workspace.settled_draw(&mut terminal).expect("copy frame");
+        for y in 0..26 {
+            for x in 0..width {
+                if y != 25 || x < width - 11 {
+                    assert_eq!(terminal.backend().buffer()[(x, y)], baseline[(x, y)]);
+                }
+            }
+        }
+        assert!(workspace.expire_note(now + std::time::Duration::from_secs(2)));
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("receipt expired");
+        assert_eq!(terminal.backend().buffer(), &baseline);
         workspace.handle(&Event::Key(KeyEvent::new(
             KeyCode::Char('d'),
             KeyModifiers::CONTROL,

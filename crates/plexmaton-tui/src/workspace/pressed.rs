@@ -32,6 +32,7 @@ pub(super) enum PressTarget {
         action: RetryAction,
     },
     Drawer(DrawerChoice),
+    DrawerRetract,
     Menu(MenuRow),
 }
 
@@ -40,6 +41,7 @@ impl Workspace {
     fn press_target(&self, surface: SurfaceId, at: Point) -> Option<PressTarget> {
         match surface {
             SurfaceId::ComposerMenu => self.menu_hit(at).map(PressTarget::Menu),
+            SurfaceId::Drawer if self.drawer_retract_hit(at) => Some(PressTarget::DrawerRetract),
             SurfaceId::Drawer => self.drawer_hit(at).map(PressTarget::Drawer),
             SurfaceId::Approval => self
                 .approval_hit(at)
@@ -76,6 +78,10 @@ impl Workspace {
             }
             PressTarget::Menu(row) => self.accept_menu(Some(row)),
             PressTarget::Drawer(choice) => self.choose_drawer_row(choice),
+            PressTarget::DrawerRetract => {
+                self.state.close_drawer();
+                Outcome::default()
+            }
             PressTarget::Approval { choice, .. } => {
                 self.state.choose_approval(choice);
                 Outcome {

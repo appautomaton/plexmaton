@@ -68,7 +68,7 @@ pub use scroll::ScrollPosition;
 pub(crate) use selection::{CopyNote, TextPoint};
 pub use selection::{CopyRequest, Selection};
 pub(crate) use status::Footer;
-pub use status::{QuitPress, Status, StatusNote};
+pub use status::{CopyReceipt, QuitPress, Status, StatusNote};
 pub(crate) use text_input::wrap_line;
 pub use text_input::{Caret, MAX_VISIBLE_LINES, Motion, TextInput};
 

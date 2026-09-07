@@ -157,6 +157,13 @@ impl Workspace {
         chosen.map_or_else(Outcome::default, |choice| self.choose_drawer_row(choice))
     }
 
+    pub(super) fn drawer_retract_hit(&self, at: Point) -> bool {
+        self.state.drawer().is_some()
+            && self.surfaces.get(SurfaceId::Drawer).is_some_and(|surface| {
+                crate::layout::drawer_retract_control(surface.bounds).contains((at.x, at.y).into())
+            })
+    }
+
     pub(super) fn drawer_hit(&self, at: Point) -> Option<DrawerChoice> {
         let bounds = self.surfaces.get(SurfaceId::Drawer)?.bounds;
         let insets = crate::surface::ContentInsets::for_surface(SurfaceId::Drawer, bounds.height);
