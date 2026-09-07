@@ -38,16 +38,23 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
     let mut y = Axis::new(&yp, 0.65)?;
     for item in &scene.items {
         if item.width > 0.0 {
-            x.require(item.x, item.x + item.width, natural_size(item).0)?;
+            let columns = if matches!(item.kind, Kind::Radical { .. }) {
+                // Keep a two-cell root reservation available. Short radicals use the existing
+                // double-size terminal primitive; tall roots use its spare roof cell below.
+                2
+            } else {
+                natural_size(item).0
+            };
+            x.require(item.x, item.x + item.width, columns)?;
         }
         if matches!(
             item.kind,
-            Kind::Vertical | Kind::Delimiter(_) | Kind::Radical
+            Kind::Vertical | Kind::Delimiter(_) | Kind::Radical { .. }
         ) {
             y.require(
                 item.top,
                 item.bottom,
-                if matches!(item.kind, Kind::Radical) {
+                if matches!(item.kind, Kind::Radical { .. }) {
                     2
                 } else {
                     1
@@ -71,11 +78,31 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
         })
         .collect::<Result<Vec<_>, MathError>>()?;
     place_rows(scene, &x, &mut y, &placements)?;
+    let (mut runs, rules, width, mut height) = emit_items(scene, &placements, &x, &y)?;
+    let axis = y.at(scene.axis)?;
+    height = height.max(axis + 1);
+    check_bounds(width, height, available)?;
+    paint::finish(width, height, &mut runs, &rules)?;
+    runs.sort_by_key(|run| (run.y, run.x));
+    Ok(Layout {
+        width: bounded(width)?,
+        height: bounded(height)?,
+        axis: bounded(axis)?,
+        runs,
+    })
+}
+
+fn emit_items(
+    scene: &Scene,
+    placements: &[Placement],
+    x: &Axis,
+    y: &Axis,
+) -> Result<(Vec<GlyphRun>, Vec<paint::Rule>, usize, usize), MathError> {
     let mut runs = Vec::new();
     let mut rules = Vec::new();
     let mut width = 0;
     let mut height = 0;
-    for (item, at) in scene.items.iter().zip(&placements) {
+    for (item, at) in scene.items.iter().zip(placements) {
         match &item.kind {
             Kind::Glyph {
                 text,
@@ -89,15 +116,16 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
                 if *scale != TextScale::Full && at.columns > 7 * at.rows {
                     return Err(MathError::Unsupported(crate::Unsupported::Scale));
                 }
+                let x = at.x;
                 let row = y
                     .at(item.y)?
                     .checked_sub(at.rows / 2)
                     .ok_or(MathError::Overlap)?;
-                let align = alignment(scene, &y, item, *baseline, *scale)?;
-                width = width.max(at.x + at.columns);
+                let align = alignment(scene, y, item, *baseline, *scale)?;
+                width = width.max(x + at.columns);
                 height = height.max(row + at.rows);
                 runs.push(GlyphRun {
-                    x: bounded(at.x)?,
+                    x: bounded(x)?,
                     y: bounded(row)?,
                     columns: bounded(at.columns)?,
                     rows: bounded(at.rows)?,
@@ -110,13 +138,17 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
             }
             Kind::Horizontal => {
                 let end = x.at(item.x + item.width)?.max(at.x + 1);
+                let start = radical_roof_start(scene, placements, y, item, at)?;
+                if start >= end {
+                    return Err(MathError::Overlap);
+                }
                 let row = y.at(item.y)?;
                 width = width.max(end);
                 height = height.max(row + 1);
                 rules.push(paint::Rule {
-                    x: at.x,
+                    x: start,
                     y: row,
-                    length: end - at.x,
+                    length: end - start,
                     horizontal: true,
                     paint: item.paint,
                 });
@@ -134,9 +166,9 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
                     paint: item.paint,
                 });
             }
-            Kind::Delimiter(_) | Kind::Radical => {
+            Kind::Delimiter(_) | Kind::Radical { .. } => {
                 let top = y.at(item.top)?;
-                let minimum = if matches!(item.kind, Kind::Radical) {
+                let minimum = if matches!(item.kind, Kind::Radical { .. }) {
                     2
                 } else {
                     1
@@ -147,28 +179,23 @@ pub(super) fn project(scene: &Scene, available: usize) -> Result<Layout, MathErr
                 if runs.len() + end - top > MAX_CELLS {
                     return Err(MathError::Limited(Limit::Cells));
                 }
-                for row in top..end {
-                    runs.push(plain_run(
-                        at.x,
-                        row,
-                        vertical_character(&item.kind, row - top, end - top),
-                        item.paint,
-                    )?);
+                if uses_large_radical(y, item)? {
+                    width = width.max(at.x + 2);
+                    runs.push(large_radical_run(at.x, top, item.paint)?);
+                } else {
+                    for row in top..end {
+                        runs.push(plain_run(
+                            at.x,
+                            row,
+                            vertical_character(&item.kind, row - top, end - top),
+                            item.paint,
+                        )?);
+                    }
                 }
             }
         }
     }
-    let axis = y.at(scene.axis)?;
-    height = height.max(axis + 1);
-    check_bounds(width, height, available)?;
-    paint::finish(width, height, &mut runs, &rules)?;
-    runs.sort_by_key(|run| (run.y, run.x));
-    Ok(Layout {
-        width: bounded(width)?,
-        height: bounded(height)?,
-        axis: bounded(axis)?,
-        runs,
-    })
+    Ok((runs, rules, width, height))
 }
 
 fn check_bounds(width: usize, height: usize, available: usize) -> Result<(), MathError> {
@@ -193,6 +220,45 @@ fn check_bounds(width: usize, height: usize, available: usize) -> Result<(), Mat
     Ok(())
 }
 
+fn radical_roof_start(
+    scene: &Scene,
+    placements: &[Placement],
+    y: &Axis,
+    roof: &Item,
+    roof_at: &Placement,
+) -> Result<usize, MathError> {
+    for (radical, at) in scene.items.iter().zip(placements) {
+        if !matches!(radical.kind, Kind::Radical { .. })
+            || radical.paint != roof.paint
+            || (roof.x - radical.x - radical.width).abs() >= 0.05
+            || (roof.y - radical.top).abs() >= 0.2
+        {
+            continue;
+        }
+        let columns = if uses_large_radical(y, radical)? {
+            2
+        } else {
+            1
+        };
+        return Ok(at.x + columns);
+    }
+    Ok(roof_at.x)
+}
+
+fn uses_large_radical(y: &Axis, radical: &Item) -> Result<bool, MathError> {
+    if !matches!(
+        radical.kind,
+        Kind::Radical {
+            scale: TextScale::Full
+        }
+    ) {
+        return Ok(false);
+    }
+    let top = y.at(radical.top)?;
+    let end = y.at(radical.bottom)?.max(top + 2);
+    Ok(end - top == 2)
+}
+
 fn place_rows(
     scene: &Scene,
     x: &Axis,
@@ -206,9 +272,9 @@ fn place_rows(
 fn vertical_character(kind: &Kind, row: usize, height: usize) -> char {
     match kind {
         Kind::Delimiter(character) => paint::delimiter(*character, row, height),
-        Kind::Radical if row + 1 == height => '√',
-        Kind::Radical if row == 0 => '┌',
-        Kind::Radical => '│',
+        Kind::Radical { .. } if row + 1 == height => '√',
+        Kind::Radical { .. } if row == 0 => '┌',
+        Kind::Radical { .. } => '│',
         _ => unreachable!("vertical text branch"),
     }
 }
@@ -222,7 +288,7 @@ fn enclose_baselines(
     for item in &scene.items {
         if !matches!(
             item.kind,
-            Kind::Vertical | Kind::Delimiter(_) | Kind::Radical
+            Kind::Vertical | Kind::Delimiter(_) | Kind::Radical { .. }
         ) {
             continue;
         }
@@ -394,6 +460,20 @@ fn plain_run(x: usize, y: usize, character: char, paint: Paint) -> Result<GlyphR
         columns: 1,
         rows: 1,
         scale: TextScale::Full,
+        align: VerticalAlign::Bottom,
+        style: FontStyle::Roman,
+        paint,
+    })
+}
+
+fn large_radical_run(x: usize, y: usize, paint: Paint) -> Result<GlyphRun, MathError> {
+    Ok(GlyphRun {
+        x: bounded(x)?,
+        y: bounded(y)?,
+        text: "√".into(),
+        columns: 2,
+        rows: 2,
+        scale: TextScale::Large,
         align: VerticalAlign::Bottom,
         style: FontStyle::Roman,
         paint,

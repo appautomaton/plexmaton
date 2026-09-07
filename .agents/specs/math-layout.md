@@ -43,10 +43,10 @@ capability from a terminal name.
 
 | Invariant | Proof |
 | --- | --- |
-| MTH-1 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `formula_hit_cells_are_atomic_and_preserve_original_delimiters`, `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `an_atomic_range_highlights_every_blank_and_edge_cell`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `real_preparation_worker_preserves_the_complete_native_math_reply` |
-| MTH-2 | `cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint`, `unsupported_group_accents_and_explicit_cjk_fonts_refuse_before_projection`, `logits_accents_preserve_prediction_and_gradient_at_three_widths`, `logits_cjk_labels_preserve_all_text_and_box_at_three_widths`, `real_preparation_worker_preserves_the_logits_math_reply`, `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `independent_native_overprint_is_refused` |
+| MTH-1 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `formula_hit_cells_are_atomic_and_preserve_original_delimiters`, `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `an_atomic_range_highlights_every_blank_and_edge_cell`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `reported_roots_and_log_sum_exp_loss_project_at_three_widths`, `real_preparation_worker_preserves_the_projection_reply`, `real_preparation_worker_preserves_the_complete_native_math_reply` |
+| MTH-2 | `cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint`, `unsupported_group_accents_and_explicit_cjk_fonts_refuse_before_projection`, `logits_accents_preserve_prediction_and_gradient_at_three_widths`, `logits_cjk_labels_preserve_all_text_and_box_at_three_widths`, `real_preparation_worker_preserves_the_logits_math_reply`, `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `tall_and_indexed_roots_keep_bounded_nonoverlapping_geometry`, `unrelated_nested_scripts_stay_in_the_numerator`, `compound_root_indices_keep_their_complete_group`, `script_roots_do_not_use_full_size_radicals`, `reported_roots_and_log_sum_exp_loss_project_at_three_widths`, `non_parenthesis_vector_paths_remain_a_typed_refusal`, `independent_native_overprint_is_refused` |
 | MTH-3 | `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths`; real partial-multicell pixel fidelity remains unproven |
-| MTH-4 | `source_and_native_limits_refuse_without_truncation_or_macro_leakage`, `aggregate_cell_bound_is_checked_before_paint_allocation`, `native_reply_roundtrip_validates_the_complete_corpus_and_rejects_forged_runs`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`; PRE-2 owns process timeout/replacement/shutdown evidence |
+| MTH-4 | `root_index_normalization_bounds_layout_nodes`, `source_and_native_limits_refuse_without_truncation_or_macro_leakage`, `aggregate_cell_bound_is_checked_before_paint_allocation`, `native_reply_roundtrip_validates_the_complete_corpus_and_rejects_forged_runs`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`; PRE-2 owns process timeout/replacement/shutdown evidence |
 | MTH-5 | `streaming_preparation_preserves_native_runs_without_rewriting_them`, `cells_native_math_and_clipboard_share_one_ordered_output_owner`, `native_encoder_rejects_invalid_scale_controls_and_capacity_before_output`, `native_capability_requires_the_complete_measured_cursor_sequence`, `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`; direct-Kitty CLI evidence below |
 
 ## Model and limits
@@ -62,11 +62,20 @@ unfinished recognized formulas in one pending row during native streaming, with 
 its atomic copy range. Finalization reveals incomplete source; completed formula refusals keep a
 local label and source. Dollar spans follow CommonMark's math-extension grammar. Inline boxes share the prose axis;
 display boxes occupy their own band. Table cells retain the same atomic ranges when a narrow
-grid becomes labelled values. Native runs carry full, 0.7, 0.5 or two-row operator sizing, font treatment and paint;
+grid becomes labelled values. Native runs carry full, 0.7, 0.5 or two-row large-glyph sizing, font treatment and paint;
 palette inheritance does not require geometry changes. Admission normalizes absent frame paint
 before upstream layout, keeping explicit black distinct. Only the verified private-use negation
-overlay plus equals pair maps to `≠`; arbitrary paths, fonts, scales, background fills and other
-unadmitted effects refuse explicitly.
+overlay plus equals pair maps to `≠`. A parser-labelled `\left(`/`\right)` pair is the one path
+exception: the pinned generator's tall-parenthesis command signature, fill, semantic count and
+bounded geometry must all agree before it becomes the existing delimiter projection. Any mismatch,
+other path, font, scale, background fill or unadmitted effect refuses explicitly.
+
+Root indices move as complete engine-owned layout subtrees into the engine's reserved index band
+before flattening. Internal index spacing, scale and paint remain intact. The layout-box traversal
+is bounded by `MAX_NODES`; full-size short roots may use the two-row radical glyph, while script
+roots retain the piecewise projection. Rejected: associating indices with roots by horizontal
+position and scriptscript size, which moved unrelated numerator scripts into denominator roots
+and collapsed compound indices onto one cell.
 
 Only parser-proven `\hat`/`\bar` accents over one atomic base combine before cell reservation;
 literal accent-marker glyphs and wide, multi-base or structural accents refuse before layout. CJK
@@ -98,6 +107,10 @@ state cover the full frame; failure exits through owned terminal restoration.
 ## Dependency admission
 
 The exact 0.1.14 parser/layout/types/font pins resolve a five-crate RaTeX core including its lexer.
+Its tall-parenthesis adapter is deliberately coupled to that release's stacked-delimiter command
+signature and 0.875 em box; a release change is a typed path refusal until this evidence is audited.
+The root-index adapter also depends on that release's `index_offset`, `index_scale` and 5/18-em
+index placement; an upgrade must audit the index reservation and compound/nested-script evidence.
 Published packages are MIT, edition 2021, without a declared MSRV; they build on workspace Rust
 1.98.0. The [source](https://github.com/erweixin/RaTeX/tree/c902516816cdc84519827d8b46d1cd40270d0451)
 was active on 2026-09-04. No browser, image backend, native library or font-file loader enters the
@@ -116,8 +129,8 @@ it does not implement another Markdown renderer. Its page boundaries keep formul
 Reviewed native-run projections at [120](../../crates/plexmaton-math/frames/native-120.svg),
 [88](../../crates/plexmaton-math/frames/native-88.svg),
 [60](../../crates/plexmaton-math/frames/native-60.svg) and
-[derivatives](../../crates/plexmaton-math/frames/native-derivatives-88.svg) show the current boundary:
-root joins and stretched delimiter pieces remain coarse. SVG is review evidence, never the
+[derivatives](../../crates/plexmaton-math/frames/native-derivatives-88.svg) show the native cell
+reservations. SVG is review evidence, never the
 application's formula transport, and is not a pixel capture of Kitty.
 
 The [logits fixture](../../crates/plexmaton-math/fixtures/logits.json) preserves the user's four
@@ -130,6 +143,17 @@ formulas. Reviewed actual workspace output at
 [60](../../crates/plexmaton-tui/frames/math/logits-pending-60.svg).
 `math_preview -- target/latex-review --logits` reproduces these frames, exact boxed-formula copy
 and stopped-stream source. These projections do not establish live physical-terminal flicker.
+`math_preview -- target/math-workspace-review --projection` renders the source-linked square-root
+and multiline-loss fixture with an exact-loss click-copy check. Inspected workspace projections at
+[120](../../crates/plexmaton-tui/frames/math/projection-120.svg),
+[88](../../crates/plexmaton-tui/frames/math/projection-88.svg), and
+[60](../../crates/plexmaton-tui/frames/math/projection-60.svg) show short-root joins and both loss sums.
+The same command exports root-index regressions at
+[120](../../crates/plexmaton-tui/frames/math/indices-120.svg),
+[88](../../crates/plexmaton-tui/frames/math/indices-88.svg), and
+[60](../../crates/plexmaton-tui/frames/math/indices-60.svg). Compound indices retain their terms and
+nested scripts stay above the fraction bar. Tall and script radicals remain coarse cell projections;
+these SVGs do not establish physical-terminal pixel fidelity.
 
 On 2026-09-05, direct Kitty 0.46.1 / Menlo 15 consumed eight full-reply pages at each width, with
 all 61 formula occurrences covered, explicit redraw and clean exit. The
@@ -148,7 +172,7 @@ Inspected actual workspace projections at [120](../../crates/plexmaton-tui/frame
 [88](../../crates/plexmaton-tui/frames/math/reply-88.svg) and
 [60](../../crates/plexmaton-tui/frames/math/reply-60.svg), with matching `selection-*`, `source-*`,
 `table-*` and `clipped-*` frames in that directory. These fifteen SVGs capture cells plus the same
-native frame scene, not a raster transport. Root/delimiter joins remain coarse. Non-reflowing
+native frame scene, not a raster transport. Non-reflowing
 source reveal with a keyboard path, broader terminal/font support, true partial-multicell pixels
 and saturated physical-terminal latency remain unproven; whole-entry keyboard source copy exists.
 
