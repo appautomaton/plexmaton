@@ -17,8 +17,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  checks:
+    name: Static and script checks
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install test prerequisites
+        run: brew install bash ripgrep
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          cache-targets: "false"
+      - uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
+        with:
+          tool: cargo-deny,cargo-machete,typos-cli
+      - run: cargo fmt --all --check
+      - run: ./scripts/check-file-length.sh
+      - run: ./scripts/check-crate-graph.sh
+      - run: ./scripts/check-citations.sh
+      - run: ./scripts/check-frames.sh
+      - run: ./scripts/check-doc-budget.sh
+      - run: cargo deny check
+      - run: cargo machete
+      - run: typos
+      - run: python3 -m unittest discover -s scripts/tests
+
   verify:
-    name: macOS Apple Silicon
+    name: Rust and terminal tests
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -27,22 +54,25 @@ jobs:
           persist-credentials: false
       - name: Install test prerequisites
         run: brew install bash ripgrep jq
+      # Keep this job ID and target cache together so existing main caches remain reusable.
       - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-      - uses: taiki-e/install-action@7b8d4719ee4aaa279bdf55df38dacb9ebfe12a6c # v2.87.6
-        with:
-          tool: cargo-deny,cargo-machete,typos-cli
-      - run: cargo fmt --all --check
-      - run: python3 -m unittest discover -s scripts/tests
-      - run: ./scripts/check-file-length.sh
-      - run: ./scripts/check-crate-graph.sh
-      - run: ./scripts/check-citations.sh
-      - run: ./scripts/check-frames.sh
-      - run: ./scripts/check-doc-budget.sh
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
-      - run: cargo deny check
-      - run: cargo machete
-      - run: typos
       - run: python3 scripts/smoke-tui.py
       - run: python3 scripts/smoke-statusline.py
       - run: python3 scripts/smoke-permissions.py
+
+  ci:
+    name: macOS Apple Silicon
+    if: ${{ always() }}
+    needs: [checks, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require both validation lanes
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+        run: |
+          test "$CHECKS_RESULT" = success
+          test "$VERIFY_RESULT" = success
