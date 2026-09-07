@@ -38,7 +38,8 @@ display names, wire IDs and provider names (case-insensitive substring matching)
 pointer movement choose; Enter confirms and
 Escape dismisses while retaining the draft; Tab never confirms a model row. A matching press/release
 also confirms the row by identity (INV-11). A failed selection keeps the menu and prior model;
-choosing another row clears the old refusal.
+choosing another row clears the old refusal. Refusal text uses the theme's Failure style, including
+wrapped lines; catalog-limit and empty-list explanations retain the Muted style.
 No configuration discovery or network request is made by opening the menu. The catalog retains at
 most 256 complete entries / 64 KiB of metadata and identifies a limited list explicitly. Empty and
 no-match lists remain open; no query becomes a provider prompt. Rows display provider/configured

@@ -229,7 +229,8 @@ Visual changes are reviewed against real frames before the contract adopts them.
     and `/new` reset. CI runs the new model journey. Sol-high review found no remaining blockers;
     its direct-click regression failed before the fix and passed afterward.
     Six actual [choice/refusal frames](../specs/model-selection.md#rendered-review) were inspected
-    at 120/88/60 columns. Live-provider acceptance is not claimed.
+    at 120/88/60 columns. Refusal frames use the requested Failure color; only error text styling
+    changes, with identical text and geometry. Live-provider acceptance is not claimed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

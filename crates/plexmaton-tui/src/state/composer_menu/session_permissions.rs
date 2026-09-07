@@ -40,6 +40,19 @@ impl ViewState {
         lines
     }
 
+    /// Only the leading refusal lines are failures; catalog and empty-list notes stay neutral.
+    pub(crate) fn menu_heading_failure_rows(&self, width: u16) -> usize {
+        if self.menu_listing() != Some(Listing::Models) {
+            return 0;
+        }
+        self.composer_menu
+            .model_feedback
+            .as_ref()
+            .map_or(0, |message| {
+                wrap_line(message, usize::from(width.saturating_sub(2).max(1))).len()
+            })
+    }
+
     /// The keys on the menu's last row; the Session permissions panel names its own phase.
     pub(crate) fn menu_keys(&self) -> String {
         match (self.menu_listing(), self.composer_menu.permissions.as_ref()) {

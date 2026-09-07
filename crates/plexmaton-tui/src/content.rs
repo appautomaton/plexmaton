@@ -267,10 +267,15 @@ pub(crate) fn composer_menu(
     let visible = budget.saturating_sub(heading.len());
     let window = menu.window(input.text(), input.cursor(), visible);
     let mut lines = Vec::with_capacity(window.len().saturating_add(2 + heading.len()));
-    lines.extend(heading.into_iter().map(|line| {
+    let failures = state.menu_heading_failure_rows(width);
+    lines.extend(heading.into_iter().enumerate().map(|(index, line)| {
         Line::styled(
             command_summary(&format!("  {line}"), usize::from(width)),
-            palette.style(Role::Muted),
+            palette.style(if index < failures {
+                Role::Failure
+            } else {
+                Role::Muted
+            }),
         )
     }));
     for row in rows.iter().skip(window.start).take(window.len()) {
