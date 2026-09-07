@@ -5,9 +5,15 @@ use unicode_width::UnicodeWidthStr as _;
 use super::{Item, Kind, Scene, geometry, paint};
 use crate::{FontStyle, MathError, TextScale, Unsupported};
 
+use super::paths::{PathAdmissions, tall_parenthesis};
+
 const EPSILON: f64 = 0.000_001;
 
-pub(super) fn scene(list: &DisplayList, axis_height: f64) -> Result<Scene, MathError> {
+pub(super) fn scene(
+    list: &DisplayList,
+    axis_height: f64,
+    mut paths: PathAdmissions,
+) -> Result<Scene, MathError> {
     let mut items = Vec::new();
     let mut cursor = 0;
     while let Some(item) = list.items.get(cursor) {
@@ -65,7 +71,15 @@ pub(super) fn scene(list: &DisplayList, axis_height: f64) -> Result<Scene, MathE
                     paint: paint(*color)?,
                 });
             }
-            DisplayItem::Path { .. } => return Err(MathError::Unsupported(Unsupported::Path)),
+            DisplayItem::Path {
+                x,
+                y,
+                commands,
+                fill,
+                color,
+            } => items.push(tall_parenthesis(
+                *x, *y, commands, *fill, *color, &mut paths,
+            )?),
         }
         cursor += 1;
     }
@@ -86,7 +100,7 @@ pub(super) fn scene(list: &DisplayList, axis_height: f64) -> Result<Scene, MathE
 fn align_radical_roofs(items: &mut [Item]) {
     for index in 0..items.len() {
         let item = &items[index];
-        if !matches!(item.kind, Kind::Radical) {
+        if !matches!(item.kind, Kind::Radical { .. }) {
             continue;
         }
         let roof = items
@@ -374,7 +388,7 @@ fn glyph(
         FontId::Size1Regular | FontId::Size2Regular | FontId::Size3Regular | FontId::Size4Regular
     );
     let kind = if ch == '√' {
-        Kind::Radical
+        Kind::Radical { scale: text_scale }
     } else if sized
         && matches!(
             ch,

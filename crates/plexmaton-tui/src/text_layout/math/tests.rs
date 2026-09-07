@@ -64,6 +64,48 @@ fn complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths() {
     }
 }
 
+/// MTH-1/MTH-2/MD-4: the reported loss crosses the Markdown preparation boundary unchanged.
+#[test]
+fn projection_fixture_composes_roots_and_multiline_loss_at_three_widths() {
+    let reply: Reply = serde_json::from_str(include_str!(
+        "../../../../plexmaton-math/fixtures/projection.json"
+    ))
+    .expect("source-linked projection fixture");
+    for width in [120, 88, 60] {
+        let layout = crate::markdown::render_layout(
+            &reply.text,
+            width,
+            MathPresentation::Native,
+            crate::markdown::Completion::Final,
+        )
+        .expect("projection reply");
+        assert_eq!(layout.formulas.len(), 4);
+        for (formula, span) in layout.formulas.iter().zip(&reply.math) {
+            assert!(matches!(formula.content, FormulaContent::Native(_)));
+            assert_eq!(
+                &layout.text[formula.text.clone()],
+                &reply.text[span.start..span.end]
+            );
+            for row in formula.row..formula.row + formula.height {
+                assert_eq!(
+                    layout.atom_at(row, formula.column),
+                    Some(formula.text.clone()),
+                    "atomic source at {width}"
+                );
+            }
+        }
+        let FormulaContent::Native(loss) = &layout.formulas[3].content else {
+            unreachable!("native loss was asserted")
+        };
+        let text: String = loss.runs().iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text.chars().filter(|ch| *ch == '∑').count(), 2);
+        assert!(
+            text.contains('⎛') && text.contains('⎠'),
+            "loss delimiters: {text}"
+        );
+    }
+}
+
 /// MTH-1/MD-4: refusing one formula preserves surrounding prose and its exact source, at every width.
 #[test]
 fn formula_failures_are_local_typed_and_keep_source_copy_independent_of_capability() {

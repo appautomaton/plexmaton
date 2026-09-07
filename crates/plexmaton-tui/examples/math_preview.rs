@@ -248,8 +248,10 @@ fn main() -> Result<()> {
         .ok_or("provide an output directory")?;
     let directory = Path::new(&directory);
     std::fs::create_dir_all(directory)?;
-    if std::env::args().nth(2).as_deref() == Some("--logits") {
-        return logits_review(directory);
+    match std::env::args().nth(2).as_deref() {
+        Some("--logits") => return logits_review(directory),
+        Some("--projection") => return projection_review(directory),
+        _ => {}
     }
     let document: serde_json::Value = serde_json::from_str(include_str!(
         "../../plexmaton-math/fixtures/attention-derivatives.json"
@@ -333,6 +335,58 @@ fn logits_review(directory: &Path) -> Result<()> {
             return Err("stopped formula must reveal its source".into());
         }
         pending.save(directory, "logits-stopped")?;
+    }
+    Ok(())
+}
+
+fn projection_review(directory: &Path) -> Result<()> {
+    let document: serde_json::Value = serde_json::from_str(include_str!(
+        "../../plexmaton-math/fixtures/projection.json"
+    ))?;
+    let source = document["text"].as_str().ok_or("projection reply")?;
+    let loss = &source[document["math"][3]["start"].as_u64().ok_or("loss start")? as usize
+        ..document["math"][3]["end"].as_u64().ok_or("loss end")? as usize];
+    for (width, height) in [(120, 40), (88, 42), (60, 46)] {
+        let mut review = Review::new(width, height, source, MathPresentation::Native)?;
+        let sums = review
+            .native
+            .iter()
+            .filter(|run| run.glyph.text == "∑")
+            .count();
+        if sums != 2 {
+            return Err("loss sums were not both visible".into());
+        }
+        let root = review
+            .native
+            .iter()
+            .find(|run| run.glyph.text == "√")
+            .ok_or("root missing")?;
+        if root.glyph.scale != TextScale::Large {
+            return Err("short root did not reserve a joined glyph".into());
+        }
+        let loss_run = review
+            .native
+            .iter()
+            .find(|run| run.glyph.text == "L")
+            .ok_or("loss missing")?;
+        let (x, y) = (loss_run.glyph.x, loss_run.glyph.y);
+        review.mouse(MouseEventKind::Down(MouseButton::Left), x, y);
+        let copied = review
+            .mouse(MouseEventKind::Up(MouseButton::Left), x, y)
+            .copied
+            .ok_or("loss click did not copy")?;
+        if copied.text != loss {
+            return Err("loss copy changed original source".into());
+        }
+        review.draw()?;
+        review.save(directory, "projection")?;
+        let indices = Review::new(
+            width,
+            height,
+            "## Compound root index\n\n\\[\\sqrt[n+1]{x}\\]\n\n## Nested script stays in numerator\n\n\\[\\frac{x_{a_b}}{x+\\sqrt{x}}\\]\n\n## Tall indexed root\n\n\\[\\sqrt[3]{\\frac{a}{b}}\\]\n\n## Script root\n\n\\[x^{\\sqrt{y}}\\]\n",
+            MathPresentation::Native,
+        )?;
+        indices.save(directory, "indices")?;
     }
     Ok(())
 }

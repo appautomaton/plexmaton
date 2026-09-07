@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9 and 11–15 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17 complete; stage 16 effort selection in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -173,6 +173,15 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [EFF-1–EFF-5](../specs/reasoning-effort.md) implement the live selector, idle driver replacement,
     shared RGB composer/selector colors and bounded four-shape max animation. Focused local checks
     and the user's terminal test close the stage; no further standalone previews are planned.
+
+17. **Math projection — complete.** MTH-1–MTH-5 and MD-1–MD-4 cover joined short radicals,
+    the exact multiline log-sum-exp loss and engine-owned compound root indices. Nested numerator
+    scripts retain their ownership; script roots do not use full-size large glyphs. Local validation
+    on `78c6e9c` plus this branch's changes passed 23 math tests, 389 TUI tests and three real-child
+    native-reply tests. Math/TUI/CLI all-target Clippy, formatting, citations, frame references,
+    file length and diff whitespace checks passed. The [MTH review evidence](../specs/math-layout.md#rendered-and-terminal-evidence) records
+    inspected 120/88/60-column formula and index frames. Tall/script roots remain coarse;
+    physical-terminal pixel fidelity and CI on this branch remain unverified.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

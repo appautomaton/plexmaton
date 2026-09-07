@@ -270,6 +270,16 @@ async fn real_preparation_worker_preserves_the_logits_math_reply() {
     assert_native_reply(include_str!("../../plexmaton-math/fixtures/logits.json"), 4).await;
 }
 
+/// PRE-1/MTH-1/MTH-2: corrected roots and the exact loss survive the real preparation child.
+#[tokio::test]
+async fn real_preparation_worker_preserves_the_projection_reply() {
+    assert_native_reply(
+        include_str!("../../plexmaton-math/fixtures/projection.json"),
+        4,
+    )
+    .await;
+}
+
 async fn assert_native_reply(fixture: &str, count: usize) {
     let fixture: serde_json::Value = serde_json::from_str(fixture).expect("source-linked reply");
     let source = fixture["text"].as_str().expect("source");
