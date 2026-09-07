@@ -27,8 +27,8 @@ old PR evidence ambiguous.
 ## Start or resume
 
 1. Inspect `git worktree list --porcelain`, branch tips and working-tree status. Resolve the primary
-   checkout from Git, even when starting inside a linked worktree; resolve `.worktrees/` and the
-   inherited `../AGENTS.md` against that primary path.
+   checkout from Git, even when starting inside a linked worktree; resolve `.worktrees/` against
+   that primary path.
 2. Resume an existing task in its own worktree. For new work, create a fresh task branch and
    `.worktrees/<name>/` under the primary checkout before editing, including small docs/CI fixes.
    Use explicit working directories for edits and checks. Do not switch the primary checkout to
