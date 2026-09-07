@@ -34,6 +34,7 @@ class GitIgnoreTests(unittest.TestCase):
             ".references/upstream/src/lib.rs", ".worktrees/review/Cargo.toml",
             "target/debug/plexmaton", "crates/example/target/debug/build.o",
             "target-review/debug/plexmaton", ".local/plexmaton/config.toml",
+            ".target-seed-owned/debug/deps/libexample.rlib",
             ".local/plexmaton/sessions/private.jsonl",
             ".plexmaton/sessions/private.jsonl",
             ".plexmaton/projects/private/permissions.jsonl",

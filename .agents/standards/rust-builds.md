@@ -8,8 +8,8 @@
 ## Artifact ownership
 
 Every task worktree uses its own default `target/`. Keep both Cargo's final target directory and
-intermediate build directory isolated. Do not share `CARGO_TARGET_DIR` or `build.build-dir`, copy
-another checkout's warm `target/`, or hardlink its mutable artifacts to seed a new worktree.
+intermediate build directory isolated. Do not share `CARGO_TARGET_DIR` or `build.build-dir`, copy a whole warm target, or hardlink mutable
+artifacts. The [dependency seeder](#dependency-seeding) is the supported selective-clone boundary.
 Two checkouts can produce the same member fingerprint and reuse the wrong code; see
 [cargo#12516](https://github.com/rust-lang/cargo/issues/12516). A compiler cache and a shared Cargo
 target are different mechanisms.
@@ -74,9 +74,9 @@ directory add lock contention. GitHub runners keep Cargo's runner-sized default 
 ## Build reuse
 
 Cargo reuses unchanged crate artifacts within the task's target directory. With incremental
-compilation enabled, rustc also reuses unaffected work inside a changed crate. A new worktree
-with an empty target builds its required artifacts independently; sharing downloaded sources
-through Cargo home does not share compiled output.
+compilation enabled, rustc also reuses unaffected work inside a changed crate. An empty target
+builds its required artifacts independently unless explicitly prewarmed below; sharing downloaded
+sources through Cargo home does not share compiled output.
 
 Use ordinary Cargo commands without an external compiler-cache wrapper. Retain the task's target
 through its edit loop, then retire it with the worktree. Focused builds and the dev profile reduce
@@ -88,3 +88,39 @@ savings did not justify additional configuration, lifecycle management and debug
 modes; sharing mutable Cargo targets, because another checkout's code can be reused; and disabling
 incremental compilation for every local edit, because the measured rebuild penalty outweighs
 its additional saving.
+
+## Dependency seeding
+
+[`seed-rust-deps.py`](../../scripts/seed-rust-deps.py) can prewarm an absent task target on macOS
+with Cargo 1.98 and a clone-capable filesystem. It clones eligible external Rust libraries and
+their fingerprint state into independent files. Local/path packages, build-script/native-link/
+proc-macro packages and their resolved dependents are excluded; Cargo rebuilds those normally.
+This conservative command has a smaller reuse set than the
+[initial prototype](../spikes/rust-dependency-seeding/README.md).
+
+Save a trusted ordinary-Cargo build's JSON stdout outside its target.
+Keep the owned source checkout and target available until seeding completes. For example,
+from that owned worktree (choose jobs from the shared CPU budget):
+
+```console
+cargo test -p plexmaton-tui --lib --no-run --offline --locked --jobs 6 --message-format=json > /private/tmp/owned-build.jsonl
+python3 scripts/seed-rust-deps.py --source "$PWD" --build-log /private/tmp/owned-build.jsonl --destination /absolute/path/to/new-worktree
+```
+
+Both workspaces must have equal lockfiles and external package identities/source locations.
+External sources must live outside both checkouts. Use local default target/build directories
+and installed Cargo 1.98. The destination target must be absent.
+Only host-debug build/test library logs are supported. Cargo remains responsible for unit freshness, including profile/feature changes;
+a seed is not proof that every cloned artifact will be reused. The tool does not attest the
+producer log's provenance or make arbitrary build inputs hermetic.
+
+The command takes existing Cargo source locks without waiting, refuses symlinked logs/artifacts and unknown
+output layouts, and publishes a private staging directory with no-replace atomic rename.
+A busy producer, unsupported input, clone failure or racing destination leaves existing output
+intact. Cancellation removes only the owned unpublished stage; committed targets remain complete. An uncatchable termination
+may leave ignored `.target-seed-*` output for its task owner to retire. No lock file, incremental
+state, executable or build-script output is seeded; there is no copy/hardlink fallback.
+
+Run the normal Cargo command in the new worktree after seeding. On refusal, use ordinary Cargo
+with its private target; do not delete an existing target just to make the prewarm command succeed.
+Worktree creation does not invoke this helper automatically, and it writes no global configuration or installs toolchains.
