@@ -71,55 +71,20 @@ Do not prebuild every fresh worktree or rerun the full workspace locally before 
 One Cargo command can already compile in parallel; simultaneous commands in the same target
 directory add lock contention. GitHub runners keep Cargo's runner-sized default job count.
 
-## Compiler cache boundary
+## Build reuse
 
-A shared compiler cache can reuse eligible compilation results while each worktree retains its
-own target. Copy-based restores write another artifact copy; an APFS-aware cache can instead
-share physical blocks. Neither makes mutable Cargo targets safe to share. Keep a separate cache
-budget and an owned daemon, and distinguish retained size from process I/O and SSD NAND writes.
+Cargo reuses unchanged crate artifacts within the task's target directory. With incremental
+compilation enabled, rustc also reuses unaffected work inside a changed crate. A new worktree
+with an empty target builds its required artifacts independently; sharing downloaded sources
+through Cargo home does not share compiled output.
 
-The [Kache trial](../spikes/kache-trial/README.md) supports an opt-in local mode for repeated fresh
-worktrees with Kache 0.17.0: preserve incremental compilation and disable executable caching.
-Both settings are required by the tested recipe. The default cache path lost application
-source-line backtraces on macOS; do not use a bare `RUSTC_WRAPPER=kache` or global `kache init`
-as this project's setup. Use explicit absolute cache/config/runtime paths, local-only storage,
-and the recipe's version/checksum. The repository's ordinary Cargo commands remain wrapper-free.
+Use ordinary Cargo commands without an external compiler-cache wrapper. Retain the task's target
+through its edit loop, then retire it with the worktree. Focused builds and the dev profile reduce
+its footprint; task retirement bounds its lifetime. Do not periodically clean active targets
+merely to shrink a directory: rebuilding them can increase writes.
 
-After preparing the pinned tool and `kache.toml` in an owned directory as the trial describes,
-set `PLEXMATON_KACHE_HOME` to that absolute directory. From the task worktree, use a subshell:
-
-```console
-(
-  export KACHE_CONFIG="$PLEXMATON_KACHE_HOME/kache.toml"
-  export KACHE_CACHE_DIR="$PLEXMATON_KACHE_HOME/cache"
-  export KACHE_RUNTIME_DIR="$PLEXMATON_KACHE_HOME/runtime"
-  export KACHE_LOCAL_ONLY=1 KACHE_MAX_SIZE=2GiB
-  export KACHE_PRESERVE_INCREMENTAL=1 KACHE_CACHE_EXECUTABLES=0
-  export KACHE_EVENT_ROOT="$PWD"
-  RUSTC_WRAPPER="$PLEXMATON_KACHE_HOME/tool/kache" cargo test -p plexmaton-tui --lib --locked --jobs 6
-)
-```
-
-Choose jobs from the shared CPU budget. The configured daemon idles out after 120 seconds;
-its owner can run `tool/kache daemon stop` with the same config/cache/runtime environment.
-
-That mode retains workspace/path-dependency incremental state beside the target's original
-incremental directory, so task retirement still owns it. Keep the tested incremental dev/test
-profile; non-incremental, release, other platforms and IDE integration need their own validation.
-Pass the worktree root explicitly as `KACHE_EVENT_ROOT` when collecting reports. A store GC
-threshold does not cap all disk blocks retained by live targets; retire those targets under their
-task owner. Do not periodically clean active targets merely to shrink a directory: rebuilding
-them can increase writes.
-
-Mozilla's [local cache](https://github.com/mozilla/sccache/blob/main/docs/Local.md) supports
-`SCCACHE_CACHE_SIZE`; concurrent servers sharing one local cache are unsupported. Its
-[Rust support](https://github.com/mozilla/sccache/blob/main/docs/Rust.md) excludes incremental
-compilation and linker outputs, and has caveats for file-reading procedural macros. Do not
-assume fresh-worktree cache hits or normalize checkout paths without proving artifact/fixture
-correctness. The Kache evidence does not establish sccache behavior. Keep cache experiments
-outside live user configuration.
-
-Rejected: a shared Cargo target to save disk, because it can reuse another checkout's code; and
-disabling incremental compilation for every local edit, because the measured rebuild penalty
-outweighs its additional saving. Task retirement bounds artifact lifetime; focused builds and
-the dev profile reduce each task's footprint.
+Rejected: adding compiler-cache infrastructure for fresh worktrees, because the measured startup
+savings did not justify additional configuration, lifecycle management and debug-info failure
+modes; sharing mutable Cargo targets, because another checkout's code can be reused; and disabling
+incremental compilation for every local edit, because the measured rebuild penalty outweighs
+its additional saving.
