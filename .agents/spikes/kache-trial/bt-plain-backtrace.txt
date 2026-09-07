@@ -1,0 +1,6 @@
+16:        <address> - leaf
+at <TRIAL>/fixtures/bt-plain/src/main.rs:2:13
+17:        <address> - middle
+at <TRIAL>/fixtures/bt-plain/src/main.rs:4:15
+18:        <address> - main
+at <TRIAL>/fixtures/bt-plain/src/main.rs:5:13
