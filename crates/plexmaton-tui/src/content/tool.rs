@@ -36,11 +36,19 @@ fn append_detail(lines: &mut Vec<Line>, heading: &str, detail: &ToolDetail) {
         ToolDetail::Text { omitted_bytes, .. } if *omitted_bytes > 0 => {
             format!(" · {omitted_bytes} bytes omitted")
         }
-        ToolDetail::Text { .. } | ToolDetail::Diff { .. } => String::new(),
+        ToolDetail::Text { .. } | ToolDetail::Diff { .. } | ToolDetail::Command(_) => String::new(),
     };
     let heading = Line::styled(format!("  {heading}{omitted}"), Role::Muted);
     lines.push(heading);
     match detail {
+        ToolDetail::Command(command) => {
+            let text = super::command_transcript_source(
+                &command.source,
+                &command.workspace_root,
+                command.timeout_ms,
+            );
+            append_source(lines, &text, Treatment::Content, |_| Role::Body);
+        }
         ToolDetail::Text { source, .. } => {
             append_source(lines, source, Treatment::Content, |_| Role::Body);
         }

@@ -16,10 +16,10 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 pulldown-cmark.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 plexmaton-sim = { path = "../plexmaton-sim" }
-serde_json.workspace = true
 # Selection is a range over content, and the claim is that nothing about the *presentation* changes
 # what it copies. Enumerating widths and endpoints by hand proves it for the cases someone thought
 # of; generating them is what proves it for the ones they did not.

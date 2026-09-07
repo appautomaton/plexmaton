@@ -10,13 +10,13 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
 };
 
-fn agent() -> AgentId {
+pub(super) fn agent() -> AgentId {
     AgentId::new("primary").expect("agent")
 }
-fn attention(index: usize) -> AttentionId {
+pub(super) fn attention(index: usize) -> AttentionId {
     AttentionId::new(format!("ask-{index}")).expect("attention")
 }
-fn request(index: usize) -> ConversationEvent {
+pub(super) fn request(index: usize) -> ConversationEvent {
     ConversationEvent::AttentionRequested {
         agent_id: agent(),
         attention_id: attention(index),
@@ -31,7 +31,7 @@ fn request(index: usize) -> ConversationEvent {
         },
     }
 }
-fn emit(workspace: &mut Workspace, next: &mut u64, event: ConversationEvent) {
+pub(super) fn emit(workspace: &mut Workspace, next: &mut u64, event: ConversationEvent) {
     workspace.emit(vec![ConversationEventEnvelope {
         sequence: EventSequence::new(*next),
         event,
@@ -120,10 +120,10 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
     }
 }
 
-fn key(code: KeyCode) -> Event {
+pub(super) fn key(code: KeyCode) -> Event {
     Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
 }
-fn mouse(kind: MouseEventKind, at: Point) -> Event {
+pub(super) fn mouse(kind: MouseEventKind, at: Point) -> Event {
     Event::Mouse(MouseEvent {
         kind,
         column: at.x,
@@ -131,7 +131,7 @@ fn mouse(kind: MouseEventKind, at: Point) -> Event {
         modifiers: KeyModifiers::NONE,
     })
 }
-fn allow_button(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> Point {
+pub(super) fn allow_button(workspace: &Workspace, terminal: &Terminal<TestBackend>) -> Point {
     let bounds = workspace
         .surfaces()
         .get(SurfaceId::Approval)
@@ -419,6 +419,18 @@ fn per_10_keyboard_and_pointer_cannot_confirm_a_scope_clipped_by_the_draft() {
             workspace.handle(&key(KeyCode::Enter))
         };
         assert!(outcome.approval.is_none());
+        assert!(
+            workspace
+                .handle(&key(KeyCode::Char('1')))
+                .approval
+                .is_none()
+        );
+        assert!(
+            workspace
+                .handle(&key(KeyCode::Char('2')))
+                .approval
+                .is_none()
+        );
         assert_eq!(
             workspace.state.approval().expect("still pending").stage,
             crate::ApprovalStage::Remember

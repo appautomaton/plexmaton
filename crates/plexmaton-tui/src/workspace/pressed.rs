@@ -11,6 +11,7 @@ pub(super) struct Pressed {
     surface: SurfaceId,
     at: Point,
     target: PressTarget,
+    focus: Option<SurfaceId>,
     /// A drag or a lost terminal disarms the press; the release still consumes it.
     armed: bool,
 }
@@ -18,8 +19,12 @@ pub(super) struct Pressed {
 /// The row a press landed on, by identity rather than by position (INV-1).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PressTarget {
+    Command {
+        approval: crate::state::ApprovalTarget,
+        action: crate::intent::CommandInspectionIntent,
+    },
     Approval {
-        approval: plexmaton_core::ApprovalId,
+        approval: crate::state::ApprovalTarget,
         choice: crate::ApprovalChoice,
     },
     Retry {
@@ -38,7 +43,17 @@ impl Workspace {
             SurfaceId::Drawer => self.drawer_hit(at).map(PressTarget::Drawer),
             SurfaceId::Approval => self
                 .approval_hit(at)
-                .map(|(approval, choice)| PressTarget::Approval { approval, choice }),
+                .map(|(approval, choice)| PressTarget::Approval { approval, choice })
+                .or_else(|| {
+                    self.command_summary_hit(at)
+                        .map(|approval| PressTarget::Command {
+                            approval,
+                            action: crate::intent::CommandInspectionIntent::Open,
+                        })
+                }),
+            SurfaceId::CommandInspection => self
+                .command_control_hit(at)
+                .map(|(approval, action)| PressTarget::Command { approval, action }),
             SurfaceId::Transcript => self
                 .retry_hit(surface, at)
                 .map(|(target, action)| PressTarget::Retry { target, action }),
@@ -54,6 +69,7 @@ impl Workspace {
     /// What the row does; the press and the release both resolved to it.
     fn activate(&mut self, target: PressTarget) -> Outcome {
         match target {
+            PressTarget::Command { action, .. } => self.inspect_command(action),
             PressTarget::Menu(MenuRow::Effort(effort)) => {
                 self.state.choose_effort(effort);
                 Outcome::default()
@@ -89,6 +105,7 @@ impl Workspace {
                     surface,
                     at,
                     target,
+                    focus: self.state.focused(&self.surfaces),
                     armed: true,
                 });
                 Some(Outcome::default())
@@ -98,6 +115,8 @@ impl Workspace {
                 let same_row = pressed.armed
                     && pressed.surface == surface
                     && pressed.at == at
+                    && pressed.focus == self.state.focused(&self.surfaces)
+                    && self.surfaces.hit_test(at) == Some(surface)
                     && self.press_target(surface, at).as_ref() == Some(&pressed.target);
                 Some(if same_row {
                     self.activate(pressed.target)

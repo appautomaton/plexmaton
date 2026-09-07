@@ -2,6 +2,7 @@ mod agent;
 mod approval;
 mod asking;
 mod attention;
+mod command_inspection;
 mod conversation_picker;
 mod drawer;
 pub(crate) mod permissions;
@@ -35,6 +36,7 @@ use std::collections::BTreeMap;
 use plexmaton_core::{AgentId, EventSequence};
 
 pub use agent::AgentView;
+pub(crate) use approval::ApprovalTarget;
 pub use approval::{
     ApprovalChoice, ApprovalFeedback, ApprovalStage, ApprovalSubmission, ApprovalView,
 };
@@ -108,6 +110,7 @@ pub struct ViewState {
     entry_owners: BTreeMap<plexmaton_core::TranscriptItemId, AgentId>,
     attention: AttentionQueue,
     approval: ApprovalSurface,
+    command_inspection: Option<ApprovalTarget>,
     notices: NoticeLog,
     focus: Focus,
     scroll: ScrollState,

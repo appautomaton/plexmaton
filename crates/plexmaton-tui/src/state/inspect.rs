@@ -87,6 +87,9 @@ impl ViewState {
         if self.permission_back() || self.drawer_back() {
             return true;
         }
+        if self.command_inspection_open() && self.close_command_inspection() {
+            return true;
+        }
         if self.focus.resolve(surfaces) == Some(SurfaceId::Approval) && self.approval.back() {
             self.touch();
             return true;

@@ -145,6 +145,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         has_notices: state.notices().next().is_some(),
         attention: state.attention_listed_count(),
         decision_rows: state.decision_rows(composer_width),
+        command_inspection: state.command_inspection_open(),
         decision_mode: if state.approval_in_primary() {
             layout::DecisionMode::Inline
         } else {

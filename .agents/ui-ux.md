@@ -144,10 +144,10 @@ other rule about input follows from this one.
   `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
   acceptable and zero costs too much screen on a small terminal.
-- **The conversation's last row is its activity line**: `Thinking`, `Responding`,
-  `Running <tool>`, or `Approval required`, directly above the composer's top rule. It is derived
-  from semantic state, action required outranks ambient work, idle draws nothing, and it owns no
-  animation clock.
+- **The conversation's last row is its activity line**, above the composer: `Thinking`,
+  `Responding`, `Running <tool>`, or `Approval required`. It follows semantic state; action required
+  outranks ambient work, idle is blank, and it owns no animation clock. Show the approval label in the visible primary card; otherwise in the activity line.
+  Rejected: duplicate labels on adjacent lines.
 - A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
   guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
@@ -200,11 +200,10 @@ scroll without moving the transcript behind it.
 
 ### Attention management
 
-The current runtime has one main agent. Its approval requests are handled inside its conversation,
-never in an Attention bar, and answering one never touches a draft: leaving the card grants
-nothing, and Deny starts selected. Allow and remember… reviews a backend-offered scope and
-lifetime before granting anything. ATT-1 and PER-5 own arrival order, focus return, duplicate
-submission and the card's anatomy.
+Main-agent approvals stay in their conversation, never the Attention bar, and preserve the draft.
+Leaving grants nothing; Deny starts selected. Allow and remember… reviews a backend-offered scope
+and lifetime before granting. ATT-1/PER-5 own card behavior;
+inspection/copy follows [APD](./specs/approval-inspection.md).
 
 Attention is reserved for future background-agent workflows, keeping ambient progress, new mail,
 action-required requests and failure distinct. Background requests cannot steal focus or open
@@ -371,8 +370,8 @@ surface has a reason to be somewhere other than where the layout puts it.
 ## Input and event-routing contract
 
 - Pointer events route to the topmost visible surface whose clipped hit region contains the event.
-- Bare pointer motion may change only a foldable row's visual accent; it never redirects input or
-  takes pointer capture, and leaving the row clears it.
+- Hover may accent an enabled action or foldable row; leaving clears it. It never changes keyboard
+  focus or selection, or takes pointer capture.
 - Wheel events use hover routing: the topmost eligible viewport under the mouse scrolls without
   changing keyboard focus, and a consumed wheel event scrolls only its target.
 - Drag begins with pointer capture and continues to the captured surface until release or

@@ -91,7 +91,34 @@ pub struct ApprovalView<'a> {
     pub expanded: bool,
 }
 
+/// A pointer/inspection target pins the complete request, including coalesced queue replacements.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ApprovalTarget {
+    approval: ApprovalId,
+    attention: AttentionId,
+    agent: AgentId,
+    call: ToolCallId,
+}
+
+impl ApprovalTarget {
+    pub(crate) fn matches(&self, view: &ApprovalView<'_>) -> bool {
+        view.approval_id == &self.approval
+            && view.attention_id == &self.attention
+            && view.agent_id == &self.agent
+            && view.call_id == &self.call
+    }
+}
+
 impl ApprovalView<'_> {
+    pub(crate) fn target(&self) -> ApprovalTarget {
+        ApprovalTarget {
+            approval: self.approval_id.clone(),
+            attention: self.attention_id.clone(),
+            agent: self.agent_id.clone(),
+            call: self.call_id.clone(),
+        }
+    }
+
     /// Only actions the producer's current offer can support.
     #[must_use]
     pub fn choices(&self) -> &'static [ApprovalChoice] {

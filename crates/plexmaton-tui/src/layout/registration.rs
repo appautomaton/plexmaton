@@ -100,6 +100,13 @@ pub(super) fn surface_tree(
         },
         MODAL_Z_INDEX,
     );
+    register_at(
+        &mut tree,
+        SurfaceId::CommandInspection,
+        regions.command_inspection,
+        SurfaceKind::Modal,
+        MODAL_Z_INDEX + 1,
+    );
     // Above the decision region, because layers stack: pulling the Drawer over a waiting approval
     // leaves the approval exactly where it was, and one `Escape` pops one layer.
     register_at(

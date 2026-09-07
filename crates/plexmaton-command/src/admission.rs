@@ -6,7 +6,7 @@ use std::{
 
 use plexmaton_agent::{
     AdmissionOutcome, AdmissionRefusal, AdmissionRequest, AdmittedToolCall,
-    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision, bounded_tool_text,
+    MAX_REQUESTED_TOOL_ARGUMENT_BYTES, ToolDefinitionRevision,
 };
 use plexmaton_agent::{CommandPermission, PermissionSubject};
 use plexmaton_core::{ToolCapability, ToolDefinitionId, ToolDetail};
@@ -396,19 +396,11 @@ fn approval_detail(arguments: &CanonicalArguments) -> String {
 }
 
 fn invocation_detail(arguments: &CanonicalArguments) -> ToolDetail {
-    let quoted_root = serde_json::to_string(&arguments.workspace_root).unwrap_or_else(|error| {
-        unreachable!("serializing an already-owned workspace root cannot fail: {error}")
-    });
-    let quoted_command = serde_json::to_string(&arguments.cmd).unwrap_or_else(|error| {
-        unreachable!("serializing an already-owned command string cannot fail: {error}")
-    });
-    bounded_tool_text(
-        &format!(
-            "Command {quoted_command}\ncwd: {quoted_root}\ntimeout_ms: {}",
-            arguments.timeout_ms
-        ),
-        0,
-    )
+    ToolDetail::Command(Box::new(plexmaton_core::CommandInvocation {
+        source: arguments.cmd.clone(),
+        workspace_root: arguments.workspace_root.clone(),
+        timeout_ms: arguments.timeout_ms,
+    }))
 }
 
 fn bounded_head_tail(text: &str, limit: usize) -> String {
@@ -557,20 +549,16 @@ mod tests {
             )
         );
         assert!(admitted.detail().len() <= plexmaton_agent::MAX_APPROVAL_DETAIL_BYTES);
-        assert!(matches!(
+        assert_eq!(
             admitted.invocation(),
-            Some(ToolDetail::Text { source, omitted_bytes: 0 })
-                if source.starts_with("Command \"printf hello\"\ncwd: ")
-                    && source.ends_with(&format!("\ntimeout_ms: {DEFAULT_TIMEOUT_MS}"))
-                    && source.contains(
-                        &serde_json::to_string(
-                            canonical_root
-                                .to_str()
-                                .unwrap_or_else(|| panic!("UTF-8 root"))
-                        )
-                        .unwrap_or_else(|error| panic!("serialize fixture root: {error}"))
-                    )
-        ));
+            Some(&ToolDetail::Command(Box::new(
+                plexmaton_core::CommandInvocation {
+                    source: "printf hello".into(),
+                    workspace_root: canonical_root.to_str().expect("UTF-8 root").into(),
+                    timeout_ms: DEFAULT_TIMEOUT_MS,
+                }
+            )))
+        );
         assert_eq!(
             admitted.capabilities().iter().collect::<Vec<_>>(),
             vec![
@@ -733,6 +721,35 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// CMD-1/ENT-4: full admitted command source survives serialization independently of its summary.
+    #[test]
+    fn cmd_1_command_detail_preserves_multiline_source_and_context() {
+        let source = format!(
+            "set -o pipefail\nprintf '%s' \"λ with spaces\"\n{}\necho done",
+            "# long line\n".repeat(400)
+        );
+        let arguments = CanonicalArguments {
+            cmd: source.clone(),
+            timeout_ms: DEFAULT_TIMEOUT_MS,
+            workspace_root: "/workspace/a b".into(),
+        };
+        let detail = super::invocation_detail(&arguments);
+        assert_eq!(
+            detail,
+            ToolDetail::Command(Box::new(plexmaton_core::CommandInvocation {
+                source,
+                workspace_root: arguments.workspace_root.clone(),
+                timeout_ms: DEFAULT_TIMEOUT_MS
+            }))
+        );
+        let wire = serde_json::to_string(&detail).expect("wire");
+        assert_eq!(
+            serde_json::from_str::<ToolDetail>(&wire).expect("restored"),
+            detail
+        );
+        assert!(approval_detail(&arguments).contains("bytes omitted"));
     }
 
     #[test]

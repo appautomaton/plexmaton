@@ -190,6 +190,8 @@ pub enum SurfaceId {
     Attention,
     /// A pending tool approval, inline for the main agent and modal for an explicitly opened background request.
     Approval,
+    /// User-opened, read-only inspection of the exact pending shell command.
+    CommandInspection,
     /// The Drawer, docked to the top edge over everything while it is open.
     ///
     /// Last in the ring because it is never a `Tab` destination: it is opened by its own chord and

@@ -1,6 +1,7 @@
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
 mod chrome;
+mod command_inspection;
 mod configuration;
 pub(crate) mod effort;
 mod message_actions;
@@ -111,6 +112,7 @@ pub fn render(
                     state,
                     palette,
                     inner_width(bounds.width),
+                    state.approval_in_primary() && surfaces.get(SurfaceId::Approval).is_some(),
                 )),
                 body: conversation_body(
                     state,
@@ -170,6 +172,7 @@ pub fn render(
                 badge: None,
                 edges: Edges::All,
             }),
+            SurfaceId::CommandInspection => Some(command_inspection::panel(state, palette, bounds)),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
             SurfaceId::ComposerMenu => Some(composer_menu_panel(state, palette, bounds)),
@@ -209,6 +212,9 @@ pub fn render(
             effort::composer_rules(frame, state, bounds, panel.edges);
         }
         message_actions::render(frame, state, palette, metrics, id, bounds, viewport);
+        if id == SurfaceId::CommandInspection {
+            command_inspection::controls(frame, palette, bounds);
+        }
 
         // The cursor belongs to whichever surface the projection says owns it, which is the same
         // answer routing and editing use (SURF-3, COM-1, INS-7) rather than a second one derived
@@ -405,7 +411,7 @@ mod tests {
             .map(|agent| agent.id.clone())
             .unwrap_or_else(|| panic!("the canonical scenario creates a primary agent"));
         let assert_activity = |state: &ViewState, expected: &str, role: Role| {
-            let line = activity_line(state, &palette, 80);
+            let line = activity_line(state, &palette, 80, false);
             assert!(
                 line.to_string().starts_with(expected),
                 "{expected:?} leads the activity line: {line}"
@@ -447,7 +453,7 @@ mod tests {
                 detail: "Change one file".to_owned(),
             },
         });
-        let line = activity_line(&approval.state, &palette, 80);
+        let line = activity_line(&approval.state, &palette, 80, false);
         assert!(line.to_string().starts_with("· Approval required"));
         assert_eq!(line.spans[1].style, palette.style(Role::ActionRequired));
         assert!(
@@ -461,7 +467,7 @@ mod tests {
             status: AgentStatus::Idle,
         });
         // Idle draws no label; the pill on the right is the canonical scenario's own request.
-        let idle_line = activity_line(&idle.state, &palette, 80);
+        let idle_line = activity_line(&idle.state, &palette, 80, false);
         assert!(
             idle_line.to_string().trim().starts_with('('),
             "idle draws nothing but what waits on the right: {idle_line}"
@@ -942,6 +948,7 @@ mod tests {
                 SurfaceId::Notices => "[drop]",
                 SurfaceId::Attention => "Attention",
                 SurfaceId::Approval => "Approval required",
+                SurfaceId::CommandInspection => "Command",
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::Drawer => "Workspace",

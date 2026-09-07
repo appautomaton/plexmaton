@@ -95,6 +95,12 @@ impl Drawer {
         }
     }
 
+    pub(super) fn replace_return_focus(&mut self, removed: SurfaceId, fallback: SurfaceId) {
+        if self.return_focus == removed {
+            self.return_focus = fallback;
+        }
+    }
+
     /// Where focus goes when the Drawer closes.
     #[must_use]
     pub const fn return_focus(&self) -> SurfaceId {

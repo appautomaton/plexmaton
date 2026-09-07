@@ -78,7 +78,7 @@ Foundation audited 2026-09-03; later admissions below.
 | `tokio` | Async task and event runtime | Direct defaults off; Plexmaton enables `rt`, `macros`, `sync`, `time`, `io-util`, and `process`, while reqwest's resolved HTTP graph additionally enables `fs` and `net`. Never `full`; `rt-multi-thread` and `signal` wait for an owner |
 | `tokio-util` | Hierarchical cancellation | Defaults are empty; `rt` only, for `CancellationToken` and child tokens |
 | `futures-util` | Stream combinators | The focused crate, not the `futures` umbrella; only the features `StreamExt` and the synthetic streams need |
-| `serde` / `serde_json` | Scenario, snapshot, journal and preparation data | `derive`; validated identity/replay/preparation. TUI reuses locked versions/features |
+| `serde` / `serde_json` | Scenario, snapshot, journal and preparation data | `derive`; validated identity/replay/preparation. TUI uses shared JSON quoting for command display/copy |
 | `sha2` | Request, command and project fingerprints | Defaults off; SHA-256; command scopes pin execution context |
 | `toml` | Typed configuration | Parser and Serde only; no formatting/preserve-order surface and no generic configuration framework |
 | `url` | URL parsing | `std`; rejects unsafe authority before `ResolvedModel` |

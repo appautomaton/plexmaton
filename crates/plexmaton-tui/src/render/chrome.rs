@@ -118,12 +118,18 @@ pub(super) fn attention_role(state: &ViewState) -> Role {
 ///
 /// Derived from the same facts the composer's divider used to carry, and drawn where the
 /// conversation ends rather than where the user types, so the two never read as one thing.
-pub(super) fn activity_line(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
+pub(super) fn activity_line(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    approval_visible: bool,
+) -> Line<'static> {
     let work = match state.current_work() {
         None => None,
         Some(CurrentWork::Thinking) => Some(("Thinking…".to_owned(), Role::Ambient)),
         Some(CurrentWork::Responding) => Some(("Responding…".to_owned(), Role::Ambient)),
         Some(CurrentWork::RunningTool(tool)) => Some((format!("Running {tool}…"), Role::Ambient)),
+        Some(CurrentWork::ApprovalRequired) if approval_visible => None,
         Some(CurrentWork::ApprovalRequired) => {
             Some(("Approval required".to_owned(), Role::ActionRequired))
         }

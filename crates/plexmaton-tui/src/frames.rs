@@ -901,8 +901,8 @@ mod tests {
                 "Approval required",
                 "edit",
                 "Allow once",
-                "> Deny",
-                "Enter decide",
+                "> 2. Deny",
+                "1–2 decide",
             ] {
                 assert!(
                     drawn.contains(signature),
@@ -1001,7 +1001,7 @@ mod tests {
                 "No current permission",
                 "Allow once",
                 "Allow and remember…",
-                "> Deny",
+                "> 3. Deny",
                 "cargo test",
             ] {
                 assert!(
@@ -1035,7 +1035,7 @@ mod tests {
                 "Scope:",
                 "cwd",
                 "environment",
-                "> This Session",
+                "> 1. This Session",
                 "Back",
                 "Esc back",
             ] {
@@ -1143,7 +1143,7 @@ mod tests {
         );
         let approval = region_text(&buffer, approval.bounds);
 
-        for signature in ["Allow once", "> Deny", "Command \"cargo test\""] {
+        for signature in ["Allow once", "> 3. Deny", "Command \"cargo test\""] {
             assert!(
                 approval.contains(signature),
                 "smallest approval card hid {signature:?}:\n{approval}"

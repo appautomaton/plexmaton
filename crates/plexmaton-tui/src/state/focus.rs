@@ -18,17 +18,16 @@ pub(super) struct Focus {
 }
 
 impl Focus {
+    pub(super) const fn preferred(self) -> Option<SurfaceId> {
+        self.preferred
+    }
     /// Resolves the surface that holds focus for the frame `surfaces` describes.
     ///
     /// A stored preference that is no longer a stop falls back to the first one, and the preference
     /// is left alone so the surface reclaims focus when it returns.
     pub(super) fn resolve(self, surfaces: &SurfaceTree) -> Option<SurfaceId> {
         self.preferred
-            .filter(|id| {
-                surfaces
-                    .get(*id)
-                    .is_some_and(|surface| surface.kind.is_focusable())
-            })
+            .filter(|id| surfaces.focus_ring().any(|eligible| eligible == *id))
             .or_else(|| surfaces.focus_ring().next())
     }
 

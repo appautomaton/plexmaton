@@ -3,10 +3,10 @@
    Command "git fetch 'team origin'" · cwd "/home/dev/pl…   
    Scope: git fetch …; same cwd/environment                 
                                                             
-   > This Session                                           
-     This Project                                           
-     Back                                                   
+   > 1. This Session                                        
+     2. This Project                                        
+     3. Back                                                
                                                             
-   ↑↓ choose · Enter confirm · Esc back                     
+   1–3 confirm · ↑↓ Enter · Esc back                        
    Until Plexmaton exits; kept across conversations.        
                                                             

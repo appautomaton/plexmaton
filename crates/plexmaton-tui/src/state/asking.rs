@@ -174,7 +174,16 @@ impl ViewState {
 
     /// Moves within or answers the user-opened approval surface.
     pub fn decide_approval(&mut self, intent: ApprovalIntent) -> Option<ApprovalSubmission> {
+        self.hover_entry(None);
         match intent {
+            ApprovalIntent::Shortcut(number) => {
+                let index = usize::from(number.checked_sub(1)?);
+                let choice = *self.approval()?.choices().get(index)?;
+                self.choose_approval(choice);
+                let submission = self.approval.submission(&self.attention);
+                self.touch();
+                submission
+            }
             ApprovalIntent::Move(direction) => {
                 if self.approval.move_selection(&self.attention, direction) {
                     self.touch();
@@ -182,6 +191,9 @@ impl ViewState {
                 None
             }
             ApprovalIntent::ToggleDetail => {
+                if self.open_command_inspection() {
+                    return None;
+                }
                 if self.approval.toggle_detail() {
                     self.touch();
                 }
