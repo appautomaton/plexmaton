@@ -60,6 +60,9 @@ pub(crate) fn encode(
 
 fn encode_input(model: &ResolvedModel, request: &ModelRequest) -> Result<Vec<Value>, EncodeError> {
     let mut input = Vec::new();
+    if !model.workspace_instructions().is_empty() {
+        input.push(json!({"role":"user", "content":model.workspace_instructions()}));
+    }
     for atom in &request.atoms {
         input.extend(encode_atom(model, atom)?);
     }

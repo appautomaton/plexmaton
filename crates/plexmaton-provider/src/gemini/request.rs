@@ -16,6 +16,9 @@ pub(crate) fn encode(
     max_output_tokens: Option<u32>,
 ) -> Result<Value, EncodeError> {
     let mut contents = Vec::new();
+    if !model.workspace_instructions().is_empty() {
+        contents.push(json!({"role":"user", "parts":[{"text":model.workspace_instructions()}]}));
+    }
     for atom in &request.atoms {
         contents.extend(encode_atom(model, atom)?);
     }

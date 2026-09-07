@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; journal, providers, compaction and permissions complete; branch interaction and MCP remain |
+| Status | Active; journal, providers, compaction, permissions and AGENTS.md complete; branch interaction remains; MCP optional |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -55,8 +55,10 @@ selection; XDG discovery, SQLite and redb are not introduced.
    names its cache-break cause.
 4. **Durable policy and remaining adapters.** Restored pending approvals rerun admission and current
    policy (APV-6); coding-session grants are runtime state retained across conversations, while
-   workspace grants have durable records. Remaining transports and MCP use the same boundaries
-   rather than adding another loop or transcript.
+   workspace grants have durable records. Remaining transports use the same boundaries rather
+   than adding another loop or transcript. MCP is optional later integration, not an exit gate.
+5. **Project instructions.** [Agent instructions](../specs/agent-instructions.md) load applicable
+   `AGENTS.md` files into the current request environment, with explicit scope and bounded reads.
 
 Each stage receives a sliced plan when it starts. Stage 1 delivered the journal foundation and the
 head mechanics in scope items 1–2. [Stage 2](../plans/phase-02-stage-02-context-projection.md)
@@ -64,7 +66,24 @@ finishes their production journey and owns scope item 3, constrained by the
 [compaction spike](../spikes/compaction/README.md). Stage 3 delivered the provider transports
 in scope item 4. Stage 4 delivered [permission policy](../specs/permission-policy.md)
 and the reviewed approval flow. Current-main integration and public readiness are verified;
-their consumed plans are removed. Branch interaction and MCP remain separate work.
+their consumed plans are removed. Stage 5 delivered [AGENTS.md support](../specs/agent-instructions.md).
+Branch interaction remains separate work; MCP is optional.
+
+### AGENTS.md instructions — complete
+
+AGI-1–AGI-5 define bounded, attributed instruction discovery and one immutable conversation
+environment across all four dialects. The [source comparison](../spikes/agent-instructions/README.md)
+records the local Codex, Grok, Pi and Kimi evidence. The consumed stage plan is removed.
+
+On 2026-09-07, the feature worktree based on `1393bcb` passed 244 provider/CLI tests, including
+15 new instruction regressions, and all-target Clippy. A three-request loopback journey proves
+stable instructions during an open Conversation, fresh instructions on JSONL resume, and no
+instruction text or replay-only mutations added to the journal. Startup failure is tested through
+the real executable before terminal acquisition or session creation. Formatting, citation, crate
+graph, file-length and typo checks passed; no dependency or rendered frame changed. Document
+budget warnings remain for the UI contract and root README. No live model, PTY smoke, performance
+benchmark or CI run was part of this stage. Nested instruction discovery is model-directed;
+actual model adherence remains unverified.
 
 ### Provider dialects — complete
 
@@ -189,4 +208,5 @@ database/index layer, themes, animation and layout configuration: later measured
 | Compaction preserves history and cache intent | Original entries remain reachable; repeated compaction is stable; the summarization request extends the prior prefix and later requests extend one new epoch |
 | Opaque replay survives safely | Lossless reload and explicit export/import preserve exact encrypted payload; Debug, transcript and default diagnostics contain none |
 | Permission lifetimes close APV-6 | Restored work reruns current admission/policy; conversation replacement retains coding-session grants, exit clears them, and workspace grants have durable revocation |
+| Project instructions are scoped and accounted for | AGI-1–AGI-5 discovery, four-dialect encoding, budget/compaction and conversation-open tests |
 | No second semantic spine appears | Conversation projections reduce from the journal; runtime permission state does not rebuild authority from history; crate-graph gate passes |

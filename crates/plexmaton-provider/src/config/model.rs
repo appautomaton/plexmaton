@@ -7,6 +7,21 @@ use plexmaton_agent::{
     ReplayCompatibility,
 };
 
+/// Complete rendered workspace guidance, including source attribution and scope (AGI-2).
+pub const MAX_WORKSPACE_INSTRUCTION_BYTES: usize = 64 * 1024;
+
+#[derive(Clone, Default, PartialEq)]
+struct WorkspaceInstructions(String);
+
+impl std::fmt::Debug for WorkspaceInstructions {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WorkspaceInstructions")
+            .field("bytes", &self.0.len())
+            .finish_non_exhaustive()
+    }
+}
+
 /// One credential-blind model profile after provider defaults and model overrides resolve.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedModel {
@@ -20,6 +35,7 @@ pub struct ResolvedModel {
     reasoning_effort: ReasoningEffort,
     allowed_reasoning_efforts: Option<Vec<ReasoningEffort>>,
     instructions: String,
+    workspace_instructions: WorkspaceInstructions,
     prompt_cache: PromptCache,
     context_window_tokens: u32,
     max_output_tokens: u32,
@@ -30,6 +46,17 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
+    /// Installs one immutable user-level workspace snapshot, separate from system instructions.
+    /// The caller owns discovery; codecs, budgeting and compaction consume the same bytes (AGI-4).
+    pub fn with_workspace_instructions(&self, text: String) -> Result<Self, ConfigError> {
+        if text.len() > MAX_WORKSPACE_INSTRUCTION_BYTES || text.contains('\0') {
+            return Err(self.invalid_option("workspace_instructions"));
+        }
+        let mut model = self.clone();
+        model.workspace_instructions = WorkspaceInstructions(text);
+        Ok(model)
+    }
+
     /// Replace only the effort after checking the model's declared subset and wire dialect.
     pub fn with_reasoning_effort(&self, effort: ReasoningEffort) -> Result<Self, ConfigError> {
         if effort != ReasoningEffort::Default
@@ -73,6 +100,7 @@ impl ResolvedModel {
             reasoning_effort: model.reasoning_effort,
             allowed_reasoning_efforts: model.allowed_reasoning_efforts,
             instructions: model.instructions,
+            workspace_instructions: WorkspaceInstructions::default(),
             prompt_cache: model.prompt_cache,
             context_window_tokens: model.context_window_tokens,
             max_output_tokens: model.max_output_tokens,
@@ -182,6 +210,12 @@ impl ResolvedModel {
     #[must_use]
     pub fn instructions(&self) -> &str {
         &self.instructions
+    }
+
+    /// Current workspace guidance encoded once before history, in the user role (AGI-3).
+    #[must_use]
+    pub fn workspace_instructions(&self) -> &str {
+        &self.workspace_instructions.0
     }
 
     #[must_use]

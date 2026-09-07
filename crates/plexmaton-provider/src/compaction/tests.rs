@@ -11,6 +11,7 @@ use plexmaton_agent::{
 use plexmaton_core::{AgentId, HeadName, TokenCounts, TokenUsage, TranscriptItemId};
 use serde_json::json;
 
+mod instructions;
 mod skills;
 
 fn model(api: &str) -> ResolvedModel {
@@ -276,7 +277,7 @@ fn cpl_3_recent_tail_target_is_capped_by_available_input() {
     let _prepared = assert_tail_budget(&agent, &model, available / 4);
 }
 
-/// CPL-1/CPL-2: one instruction extends exact history and leaves every wire-environment field intact.
+/// CPL-1/CPL-2/AGI-4: one instruction extends exact history and leaves the workspace prefix intact.
 #[test]
 fn cpl_2_compaction_appends_only_the_instruction_across_all_dialects() {
     for api in [
@@ -285,7 +286,9 @@ fn cpl_2_compaction_appends_only_the_instruction_across_all_dialects() {
         "anthropic_messages",
         "google_generate_content",
     ] {
-        let model = model(api);
+        let model = model(api)
+            .with_workspace_instructions("AGENTS.md fixture rules".into())
+            .expect("workspace snapshot");
         let tools = tools();
         let agent = history_with_native_output(&model, api);
         let before = agent.journal().clone();

@@ -90,6 +90,51 @@ fn invalid_configuration_never_takes_over_the_terminal() {
     );
 }
 
+/// AGI-2/AGI-5: the executable rejects unreadable instructions before credentials, storage or TUI.
+#[test]
+fn agi_5_invalid_instructions_fail_before_terminal_and_session_creation() {
+    let fixture = TestWorkspace::new();
+    let home = fixture.0.join("home");
+    let workspace = fixture.0.join("workspace");
+    fs::create_dir(&home).expect("fixture home");
+    fs::create_dir(&workspace).expect("fixture workspace");
+    fs::write(
+        home.join("config.toml"),
+        r#"
+active_model = { provider = "fixture", model = "test" }
+[providers.fixture]
+base_url = "http://127.0.0.1:9/v1"
+api_key_env = "UNUSED_AGI_KEY"
+api = "openai_responses"
+[providers.fixture.models.test]
+id = "fixture-model"
+context_window_tokens = 10000
+max_output_tokens = 2000
+output_reserve_tokens = 1000
+"#,
+    )
+    .expect("fixture configuration");
+    fs::write(workspace.join("AGENTS.md"), [0xff]).expect("invalid instructions");
+    let output = Command::new(env!("CARGO_BIN_EXE_plexmaton"))
+        .env_clear()
+        .env("PLEXMATON_HOME", &home)
+        .current_dir(workspace)
+        .args(["create", "must-not-exist"])
+        .output()
+        .expect("run executable");
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("load AGENTS.md instructions"), "{error}");
+    assert!(error.contains("UTF-8"), "{error}");
+    assert!(
+        !output
+            .stdout
+            .windows(8)
+            .any(|bytes| bytes == b"\x1b[?1049h")
+    );
+    assert!(!home.join("sessions").exists());
+}
+
 /// WFS-1 and LIVE-6: the installed executable can become the descriptor-rooted search driver
 /// before configuration or terminal ownership, so no uninstalled companion binary is assumed.
 #[test]

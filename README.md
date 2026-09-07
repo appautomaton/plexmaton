@@ -45,6 +45,10 @@ PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmato
 
 [Configuration and effort](.agents/specs/provider-adapter.md#request-configuration)
 
+Project guidance loads from `PLEXMATON_HOME/AGENTS.md` (default `~/.plexmaton/AGENTS.md`), then
+`AGENTS.md` from the checkout root to your working directory. Opening a conversation refreshes
+this snapshot; deeper files are read through ordinary tools. [Scope and limits](.agents/specs/agent-instructions.md).
+
 UI, tools and journals are local; model requests use your configured endpoint. Commands are **not OS-sandboxed**. File tools stay within the workspace and refuse symlinks.
 
 ## Everyday controls

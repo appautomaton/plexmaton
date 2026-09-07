@@ -11,6 +11,8 @@ use plexmaton_core::{
 };
 use serde_json::json;
 
+mod instructions;
+
 fn model(api: &str) -> ResolvedModel {
     ModelRegistry::parse(&format!(
         r#"

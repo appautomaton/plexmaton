@@ -57,6 +57,13 @@ pub fn request_environment(
         b"instructions_v1",
         model.instructions().as_bytes(),
     );
+    if !model.workspace_instructions().is_empty() {
+        field(
+            &mut digest,
+            b"workspace_instructions_v1",
+            model.workspace_instructions().as_bytes(),
+        );
+    }
     field(
         &mut digest,
         b"prompt_cache",

@@ -28,8 +28,8 @@ pub use compaction::{
     plan_compaction, validate_compaction_output, validate_replacement,
 };
 pub use config::{
-    ApiKey, ConfigError, ModelApi, ModelCost, ModelRegistry, ModelSelection, PromptCache,
-    ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
+    ApiKey, ConfigError, MAX_WORKSPACE_INSTRUCTION_BYTES, ModelApi, ModelCost, ModelRegistry,
+    ModelSelection, PromptCache, ResolvedModel, TokenEstimator, resolve_api_key, resolve_home,
 };
 pub use cost::request_cost;
 pub use environment::request_environment;

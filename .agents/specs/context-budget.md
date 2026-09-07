@@ -36,6 +36,7 @@ errors; no wrapped count or missing measurement appears as zero.
 ## Model
 
 The environment is included once: in the measurement when anchored, otherwise in the estimate.
+The current [AGI-4 instruction snapshot](./agent-instructions.md) is part of that environment.
 The configured context window minus output reserve is input capacity; the default soft limit is
 80% of that capacity. Maximum output remains a separate provider setting (PRV-6).
 Per-atom estimates remain available for later compaction planning even under a measured prefix;

@@ -295,31 +295,38 @@ impl Launcher {
         key: plexmaton_provider::ApiKey,
     ) -> anyhow::Result<OpenedConversation> {
         let permissions = self.permissions.clone();
-        let model = self.model.clone();
         let root = self.root.clone();
         let selected = selection.clone();
-        let (journal, tools, key) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-            anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
-            let project_root = project_config::discover_project_root(&self.workspace)?;
-            let tools = NativeToolCatalog::open(
-                &self.workspace,
-                self.model.api_key_env(),
-                self.ripgrep,
-                self.driver,
-                vec![OsString::from(INTERNAL_RG_DRIVER)],
-            )?
-            .with_skill_roots(&self.root, &project_root, &cancel.files)?;
-            let journal = match selected {
-                ConversationSelection::Resume(id) => {
-                    Some(ConversationDirectory::under(self.root)?.resume(&id)?)
-                }
-                _ => None,
-            };
-            anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
-            Ok((journal, tools, key))
-        })
-        .await
-        .context("join session file reader")??;
+        let (journal, tools, key, model) =
+            tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+                anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
+                let project_root = project_config::discover_project_root(&self.workspace)?;
+                let model = agent_instructions::resolve_model(
+                    &self.model,
+                    &self.root,
+                    &project_root,
+                    &self.workspace,
+                    &cancel.files,
+                )?;
+                let tools = NativeToolCatalog::open(
+                    &self.workspace,
+                    self.model.api_key_env(),
+                    self.ripgrep,
+                    self.driver,
+                    vec![OsString::from(INTERNAL_RG_DRIVER)],
+                )?
+                .with_skill_roots(&self.root, &project_root, &cancel.files)?;
+                let journal = match selected {
+                    ConversationSelection::Resume(id) => {
+                        Some(ConversationDirectory::under(self.root)?.resume(&id)?)
+                    }
+                    _ => None,
+                };
+                anyhow::ensure!(!cancel.is_cancelled(), "session load cancelled");
+                Ok((journal, tools, key, model))
+            })
+            .await
+            .context("join session file reader")??;
         let Some(journal) = journal else {
             let mut opened =
                 open_selected_conversation(&root, selection, agent, model, key, tools).await?;

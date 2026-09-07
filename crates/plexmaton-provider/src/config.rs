@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, fmt};
 mod environment;
 mod model;
 pub use environment::{resolve_api_key, resolve_home};
-pub use model::ResolvedModel;
+pub use model::{MAX_WORKSPACE_INSTRUCTION_BYTES, ResolvedModel};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
