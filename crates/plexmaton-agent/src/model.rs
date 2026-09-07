@@ -17,7 +17,8 @@ mod replay;
 pub use context::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
     ContextError, MAX_ASSISTANT_TEXT_BYTES, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
-    MAX_TOOL_IDENTITY_BYTES, ModelOutputPosition, ToolBatch, ToolBatchResult,
+    MAX_TOOL_IDENTITY_BYTES, MAX_TOOL_OUTCOME_BYTES, ModelOutputPosition, ToolBatch,
+    ToolBatchResult,
 };
 pub use replay::{
     MAX_PROVIDER_REPLAY_BYTES, ProviderCodecId, ProviderCodecRevision, ProviderModelFamilyId,

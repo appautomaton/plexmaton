@@ -319,6 +319,7 @@ impl Agent {
 #[cfg(test)]
 mod tests {
     mod permissions;
+    mod tool_outcome;
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, AttentionRequest, ConversationEvent,
         ConversationId, HeadName, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId,

@@ -54,10 +54,10 @@ pub use journal::{
 pub use model::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,
     ContextError, MAX_ASSISTANT_TEXT_BYTES, MAX_ASSISTANT_TOOL_ARGUMENT_BYTES,
-    MAX_PROVIDER_REPLAY_BYTES, MAX_TOOL_IDENTITY_BYTES, ModelCall, ModelError, ModelEvent,
-    ModelOutputPosition, ModelRequest, ModelStepId, ProviderCodecId, ProviderCodecRevision,
-    ProviderModelFamilyId, ProviderReplay, ProviderReplayError, ProviderReplayOwnerId,
-    ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
+    MAX_PROVIDER_REPLAY_BYTES, MAX_TOOL_IDENTITY_BYTES, MAX_TOOL_OUTCOME_BYTES, ModelCall,
+    ModelError, ModelEvent, ModelOutputPosition, ModelRequest, ModelStepId, ProviderCodecId,
+    ProviderCodecRevision, ProviderModelFamilyId, ProviderReplay, ProviderReplayError,
+    ProviderReplayOwnerId, ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
 };
 pub use skill::{
     MAX_SKILL_INSTRUCTION_BYTES, MAX_SKILL_LOCATION_BYTES, MAX_SKILL_NAME_BYTES,
