@@ -1,0 +1,41 @@
+[
+  {
+    "case": "full-incremental",
+    "debug": "2",
+    "incremental": true,
+    "cold": {
+      "seconds": 11.519,
+      "target_bytes": 647782400
+    },
+    "edit": {
+      "seconds": 1.138,
+      "target_bytes": 740294656
+    }
+  },
+  {
+    "case": "lines-incremental",
+    "debug": "line-tables-only",
+    "incremental": true,
+    "cold": {
+      "seconds": 11.61,
+      "target_bytes": 545984512
+    },
+    "edit": {
+      "seconds": 1.007,
+      "target_bytes": 634437632
+    }
+  },
+  {
+    "case": "lines-no-incremental",
+    "debug": "line-tables-only",
+    "incremental": false,
+    "cold": {
+      "seconds": 10.782,
+      "target_bytes": 427155456
+    },
+    "edit": {
+      "seconds": 4.682,
+      "target_bytes": 443867136
+    }
+  }
+]

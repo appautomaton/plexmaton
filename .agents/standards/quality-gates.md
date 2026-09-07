@@ -117,16 +117,9 @@ Terminal-boundary pitfalls:
 ## Parallel checkouts
 
 [Git workflow](./git-workflow.md) owns checkout placement, task branches and retirement.
-This section owns build isolation, including when a harness supplies its own worktree defaults.
-
-After a move, rebuild packages whose fixtures embed old absolute paths (`cargo clean -p <package>`).
-
-**Never share `CARGO_TARGET_DIR` between worktrees.** Sharing it can silently run the wrong code. Two checkouts of this workspace
-produce the same fingerprint for a member crate, so the second build overwrites the first's
-artifact, and the first checkout's older source files then pass the freshness check against it.
-The shared-target failure is tracked in
-[cargo#12516](https://github.com/rust-lang/cargo/issues/12516). Use a separate target directory per
-worktree.
+Read [Rust builds](./rust-builds.md) before building in a task worktree or changing Cargo profiles,
+artifact paths, caches or concurrency. It owns build isolation even when a harness supplies its
+own worktree defaults.
 
 ## Claiming a result
 
