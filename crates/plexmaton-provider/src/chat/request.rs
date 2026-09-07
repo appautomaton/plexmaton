@@ -110,6 +110,7 @@ pub(crate) fn encode_atom(
 ) -> Result<Vec<Value>, EncodeError> {
     let mut messages = Vec::new();
     match atom.value() {
+        ContextAtomValue::Collaboration(_) => return Err(EncodeError::UnsupportedCollaboration),
         ContextAtomValue::User { text } | ContextAtomValue::CompactionSummary { text } => {
             messages.push(json!({ "role": "user", "content": text }));
         }

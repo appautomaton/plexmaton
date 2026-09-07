@@ -3,8 +3,10 @@
 //! This reducer performs no I/O or effects. A runtime authenticates incoming actors; a storage
 //! adapter acknowledges the exact prepared record before publishing its derived views.
 
+mod context;
 mod error;
 mod ledger;
+mod turn;
 mod types;
 
 #[cfg(test)]
@@ -17,4 +19,13 @@ pub use types::{
     CollaborationSequence, CollaborationText, DelegationAuthor, DelegationRevision, DelegationView,
     ItemReceipt, MAX_COLLABORATION_ID_BYTES, MAX_COLLABORATION_ITEMS, MAX_COLLABORATION_TEXT_BYTES,
     MAX_DELEGATIONS, MAX_MAIL_ARTIFACTS, MAX_RETAINED_MAIL_BYTES, MailEndpoint, MailEnvelope,
+};
+
+pub use turn::{
+    CollaborationItemRef, MAX_TURN_SOURCE_BYTES, MAX_TURN_SOURCE_ITEMS, ResolvedCollaborationItem,
+    ResolvedTurnAdmission, TurnAdmission, TurnBoundary,
+};
+
+pub use context::{
+    CollaborationContext, MAX_RESOLVED_CONTEXT_BYTES, MAX_RESOLVED_TURNS, ResolvedContext,
 };

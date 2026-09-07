@@ -66,6 +66,9 @@ impl FakeDriver {
 }
 
 impl ModelDriver for FakeDriver {
+    fn supports_collaboration(&self) -> bool {
+        true
+    }
     fn request_environment(&self) -> &RequestEnvironment {
         &self.environment
     }

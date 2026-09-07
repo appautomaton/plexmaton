@@ -449,7 +449,8 @@ async fn explicit_user_only_skill_allows_resource_but_not_unprompted_body() {
         .iter()
         .flat_map(|atom| match atom.value() {
             ContextAtomValue::ToolBatch(batch) => batch.results(),
-            ContextAtomValue::User { .. }
+            ContextAtomValue::Collaboration(_)
+            | ContextAtomValue::User { .. }
             | ContextAtomValue::Skill(_)
             | ContextAtomValue::Assistant(_)
             | ContextAtomValue::CompactionSummary { .. } => &[],

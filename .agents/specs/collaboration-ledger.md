@@ -88,9 +88,9 @@ provider, tool or UI effects.
 
 Runtime ingress authentication is unproven: the runtime must establish authorship before
 constructing events; a serialized author is not a credential. Accepted means present in this log,
-not included in a model request or completed. Session inclusion must later retain a canonical item
-reference and exact execution boundary. The delegator's next turn must include all effective
-amendments or be held; this barrier remains unproven.
+not included in a model request or completed. [CIN-1–CIN-4](./collaboration-inclusion.md) own frozen
+turn admission, session inclusion references and the narrow collaboration-turn dispatch barrier.
+Ordinary user-input turn admission still requires the future collaboration owner.
 
 Scheduling, stop policy, depth/concurrency bounds and per-operation terminal capacity reservations
 are not implemented here. Provider projection must preserve a distinct semantic mail atom, with an

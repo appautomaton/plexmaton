@@ -85,6 +85,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> ConversationEvent {
         | JournalEntryPayload::CompactionCheckpoint { .. }
         | JournalEntryPayload::TurnStatusChanged { .. }
         | JournalEntryPayload::TurnStarted { .. }
+        | JournalEntryPayload::CollaborationTurnStarted { .. }
         | JournalEntryPayload::TurnRetried { .. }
         | JournalEntryPayload::SteeringAccepted { .. }
         | JournalEntryPayload::SkillActivated { .. }
@@ -190,6 +191,7 @@ impl Projector {
             }
             JournalEntryPayload::TurnStatusChanged { .. }
             | JournalEntryPayload::TurnStarted { .. }
+            | JournalEntryPayload::CollaborationTurnStarted { .. }
             | JournalEntryPayload::TurnRetried { .. }
             | JournalEntryPayload::SteeringAccepted { .. }
             | JournalEntryPayload::SkillActivated { .. }

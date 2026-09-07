@@ -4,6 +4,17 @@ use std::fmt;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CollaborationError {
     InvalidLimits,
+    InvalidReference,
+    ForeignReference,
+    InvalidTurnBoundary,
+    DuplicateTurnAdmission,
+    StaleTurnAdmission,
+    NoPendingItems,
+    TurnSourceCapacity,
+    ContextCapacity,
+    UnresolvedContext,
+    UnsupportedContext,
+    PersistenceRequired,
     EmptyText,
     TextTooLarge,
     IdentityTooLarge,

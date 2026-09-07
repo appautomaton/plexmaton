@@ -46,7 +46,7 @@ impl AutomaticJournal {
         &self.metadata
     }
 
-    /// Retains one announcement; the first user turn writes it and the turn before returning.
+    /// Retains one announcement; the first user or collaboration turn writes it and the turn before returning.
     /// Other pre-turn mutations are rejected, so this never grows a second in-memory transcript.
     pub fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
         if let State::File(file) = &mut self.state {
@@ -80,5 +80,5 @@ fn is_bootstrap(record: &JournalRecord) -> bool {
     matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(entry.payload, JournalEntryPayload::AgentCreated { .. }))
 }
 fn is_first_turn(record: &JournalRecord) -> bool {
-    matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(entry.payload, JournalEntryPayload::TurnStarted { .. }))
+    matches!(record, JournalRecord::AppendEntry { entry, .. } if matches!(entry.payload, JournalEntryPayload::TurnStarted { .. } | JournalEntryPayload::CollaborationTurnStarted { .. }))
 }

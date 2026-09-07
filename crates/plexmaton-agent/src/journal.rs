@@ -21,6 +21,7 @@ mod accounting_tests;
 mod attempt_tests;
 mod attempts;
 mod budget;
+mod collaboration;
 mod compaction;
 mod error;
 mod heads;
@@ -33,6 +34,7 @@ mod retry;
 #[cfg(test)]
 mod skill_tests;
 mod turns;
+mod validation;
 #[cfg(test)]
 mod validation_tests;
 
@@ -256,6 +258,9 @@ impl ConversationJournal {
                 }
                 | JournalEntryPayload::TurnRetried {
                     agent_id, turn_id, ..
+                }
+                | JournalEntryPayload::CollaborationTurnStarted {
+                    agent_id, turn_id, ..
                 } = &entry.payload
                 {
                     self.turn_starts.insert(
@@ -276,6 +281,7 @@ impl ConversationJournal {
                 self.entry_sequences.insert(entry.id.clone(), *sequence);
                 let next_open_turn = match &entry.payload {
                     JournalEntryPayload::TurnStarted { turn_id, .. }
+                    | JournalEntryPayload::CollaborationTurnStarted { turn_id, .. }
                     | JournalEntryPayload::TurnRetried { turn_id, .. } => Some(turn_id.clone()),
                     _ => prior_open_turn,
                 };
@@ -381,170 +387,6 @@ impl ConversationJournal {
     /// Validates the exact next record without changing this journal.
     pub fn validate_record(&self, record: &JournalRecord) -> Result<(), JournalError> {
         self.validate(record).map(|_| ())
-    }
-
-    fn validate_envelope(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
-        if record.sequence() != self.next_sequence {
-            return Err(JournalError::UnexpectedSequence {
-                expected: self.next_sequence,
-                actual: record.sequence(),
-            });
-        }
-        if self.record_ids.contains(record.record_id()) {
-            return Err(JournalError::DuplicateRecord(record.record_id().clone()));
-        }
-        let next_sequence = self
-            .next_sequence
-            .get()
-            .checked_add(1)
-            .map(JournalSequence::new)
-            .ok_or(JournalError::SequenceExhausted)?;
-        Ok(next_sequence)
-    }
-
-    fn validate(&self, record: &JournalRecord) -> Result<JournalSequence, JournalError> {
-        let next_sequence = self.validate_envelope(record)?;
-        match record {
-            JournalRecord::AppendEntry {
-                head,
-                expected_head_revision,
-                entry,
-                ..
-            } => {
-                if self.entries.contains_key(&entry.id) {
-                    return Err(JournalError::DuplicateEntry(entry.id.clone()));
-                }
-                self.validate_target(entry.parent_id.as_ref())?;
-                let state = self.validate_head(head, *expected_head_revision)?;
-                if entry.parent_id != state.target {
-                    return Err(JournalError::ParentMismatch {
-                        head: head.clone(),
-                        expected: state.target.clone(),
-                        actual: entry.parent_id.clone(),
-                    });
-                }
-                match &entry.payload {
-                    JournalEntryPayload::AgentCreated {
-                        agent_id, status, ..
-                    } if *status != plexmaton_core::AgentStatus::Idle => {
-                        return Err(JournalError::InvalidInitialAgentStatus(agent_id.clone()));
-                    }
-                    JournalEntryPayload::TurnStarted { turn_id, .. } => {
-                        if self.turn_starts.contains_key(turn_id) {
-                            return Err(JournalError::DuplicateTurn(turn_id.clone()));
-                        }
-                        if let Some(open_turn) = &state.open_turn {
-                            return Err(JournalError::UnstableTurnTarget(open_turn.clone()));
-                        }
-                    }
-                    JournalEntryPayload::TurnRetried {
-                        source_turn_id,
-                        turn_id,
-                        agent_id,
-                        ..
-                    } => self.validate_retry(head, agent_id, source_turn_id, turn_id)?,
-                    JournalEntryPayload::SteeringAccepted {
-                        agent_id, turn_id, ..
-                    } => self.validate_steering(agent_id, turn_id, state.open_turn.as_ref())?,
-                    JournalEntryPayload::SkillActivated {
-                        agent_id, turn_id, ..
-                    } => {
-                        self.validate_skill_activation(agent_id, turn_id, state.open_turn.as_ref())?
-                    }
-                    JournalEntryPayload::TurnStatusChanged {
-                        agent_id, turn_id, ..
-                    } => self.validate_turn_status(agent_id, turn_id, state.open_turn.as_ref())?,
-                    JournalEntryPayload::AssistantOutput {
-                        agent_id, step_id, ..
-                    } => {
-                        if self.model_steps.contains(step_id) {
-                            return Err(JournalError::DuplicateModelStep(step_id.clone()));
-                        }
-                        let expected = self.expected_model_step_index(step_id.turn_id())?;
-                        if step_id.index() != expected {
-                            return Err(JournalError::UnexpectedModelStep {
-                                turn_id: step_id.turn_id().clone(),
-                                expected,
-                                actual: step_id.index(),
-                            });
-                        }
-                        self.validate_steering(
-                            agent_id,
-                            step_id.turn_id(),
-                            state.open_turn.as_ref(),
-                        )?;
-                    }
-                    JournalEntryPayload::CompactionCheckpoint {
-                        agent_id,
-                        checkpoint,
-                    } => self.validate_compaction_checkpoint(head, agent_id, checkpoint)?,
-                    _ => {}
-                }
-                self.validate_revision_increment(head, state.revision)?;
-            }
-            JournalRecord::CreateHead { head, at, .. } => {
-                self.validate_available_head(head)?;
-                self.validate_target(at.as_ref())?;
-                self.validate_stable_target(at.as_ref())?;
-            }
-            JournalRecord::MoveHead {
-                head,
-                expected_head_revision,
-                to,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_target(to.as_ref())?;
-                self.validate_stable_target(to.as_ref())?;
-                self.validate_revision_increment(head, state.revision)?;
-            }
-            JournalRecord::RenameHead {
-                head,
-                expected_head_revision,
-                renamed,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_available_head(renamed)?;
-                self.validate_revision_increment(head, state.revision)?;
-            }
-            JournalRecord::AbandonHead {
-                head,
-                expected_head_revision,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_stable_target(state.target.as_ref())?;
-            }
-            JournalRecord::TurnFinished {
-                head,
-                expected_head_revision,
-                fact,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                if state.target.as_ref() != Some(&fact.semantic_boundary) {
-                    return Err(JournalError::InvalidTurnBoundary {
-                        turn_id: fact.turn_id.clone(),
-                        boundary: fact.semantic_boundary.clone(),
-                    });
-                }
-                self.validate_turn_finished(fact, state.open_turn.as_ref())?;
-            }
-            JournalRecord::RequestAttemptAuthorized {
-                head,
-                expected_head_revision,
-                fact,
-                ..
-            } => self.validate_request_authorization(head, *expected_head_revision, fact)?,
-            JournalRecord::RequestAttemptFinished { fact, .. } => {
-                self.validate_request_terminal(fact)?
-            }
-            JournalRecord::CompactionAttemptFinished { fact, .. } => {
-                self.validate_compaction_attempt_finished(fact)?
-            }
-        }
-        Ok(next_sequence)
     }
 }
 

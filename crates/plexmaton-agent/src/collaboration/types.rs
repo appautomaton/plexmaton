@@ -171,6 +171,8 @@ pub struct CollaborationSequence(pub u64);
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CollaborationEvent {
+    /// Logical turn-admission ordering point; actual inclusion belongs to the session journal.
+    TurnAdmitted { admission: super::TurnAdmission },
     /// Accepted cross-session mail; inclusion in a provider request is a separate future fact.
     MailAccepted { mail: MailEnvelope },
     /// Fixes endpoints and the initial task; worker assignment and ancestry must be consistent.

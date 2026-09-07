@@ -150,7 +150,7 @@ impl CollaborationFile {
             self.state = WriterState::Poisoned;
             return Err(CollaborationStoreError::WriteUncertain(error));
         }
-        self.ledger.apply(record).map_err(|error| {
+        self.ledger.apply(*record).map_err(|error| {
             self.state = WriterState::Poisoned;
             CollaborationStoreError::ReductionUncertain(error)
         })

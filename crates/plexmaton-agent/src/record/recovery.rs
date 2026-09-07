@@ -98,6 +98,7 @@ impl Record {
             matches!(
                 entry.payload,
                 JournalEntryPayload::TurnStarted { .. }
+                    | JournalEntryPayload::CollaborationTurnStarted { .. }
                     | JournalEntryPayload::TurnRetried { .. }
                     | JournalEntryPayload::SteeringAccepted { .. }
             )

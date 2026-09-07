@@ -126,6 +126,8 @@ pub enum FunctionToolError {
 /// Why an authoritative semantic record could not be encoded for the selected dialect.
 #[derive(Debug, Error)]
 pub enum EncodeError {
+    #[error("collaboration context is not supported by this provider codec")]
+    UnsupportedCollaboration,
     #[error("plaintext Chat reasoning cannot be replayed through the Responses codec")]
     PlainReasoningInResponses,
     #[error("thinking replay requires a complete signature")]

@@ -11,6 +11,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 pub(crate) trait ModelDriver: Send + Sync + 'static {
+    /// Drivers explicitly opt in to receiving resolved collaboration context.
+    fn supports_collaboration(&self) -> bool {
+        false
+    }
+
     fn with_model(
         &self,
         _model: plexmaton_provider::ResolvedModel,

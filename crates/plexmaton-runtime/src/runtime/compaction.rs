@@ -36,7 +36,7 @@ impl LiveRuntime {
         operation.continuation = Continuation::Cancelled;
     }
 
-    pub(super) fn route_model_call(&mut self, call: ModelCall) -> Result<(), RuntimeError> {
+    pub(super) fn route_model_call(&mut self, mut call: ModelCall) -> Result<(), RuntimeError> {
         // A queued next turn can be opened while the prior terminal delivery is still committing.
         // Preserve that existing deferral before consulting context or starting another provider.
         if self.active.is_some() {
@@ -44,6 +44,12 @@ impl LiveRuntime {
         }
         if self.compaction.is_some() {
             return Err(RuntimeError::CompactionAlreadyActive);
+        }
+        if let Err(reason) = self.resolve_collaboration_call(&mut call) {
+            let reaction =
+                self.agent
+                    .fail_collaboration_request(&call.step_id, &reason, self.clock.now())?;
+            return self.begin_transition(reaction, Vec::new(), AfterCommit::None);
         }
         let Some((model, tools)) = self.driver.budget_inputs() else {
             return self.authorize_model(call);

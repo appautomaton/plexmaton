@@ -4,6 +4,20 @@ use super::{ConversationJournal, JournalEntryPayload, JournalError, JournalRecor
 use crate::{TurnFinished, TurnFinishedAt, TurnOutcome};
 
 impl ConversationJournal {
+    pub(super) fn validate_new_turn(
+        &self,
+        turn: &TurnId,
+        open: Option<&TurnId>,
+    ) -> Result<(), JournalError> {
+        if self.turn_starts.contains_key(turn) {
+            return Err(JournalError::DuplicateTurn(turn.clone()));
+        }
+        if let Some(open) = open {
+            return Err(JournalError::UnstableTurnTarget(open.clone()));
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_skill_activation(
         &self,
         agent_id: &AgentId,

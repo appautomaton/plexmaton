@@ -15,7 +15,7 @@ use super::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Preparation {
     Existing(ItemReceipt),
-    Append(CollaborationRecord),
+    Append(Box<CollaborationRecord>),
 }
 
 /// Pure reduction of one bounded collaboration log; indexes are disposable projections (COL-1).
@@ -112,7 +112,7 @@ impl CollaborationLedger {
             event,
         };
         self.validate_record(&record)?;
-        Ok(Preparation::Append(record))
+        Ok(Preparation::Append(Box::new(record)))
     }
 
     /// Validates replay and new records through the same boundary, without changing state.
@@ -128,6 +128,9 @@ impl CollaborationLedger {
             return Err(CollaborationError::ItemCapacity);
         }
         match &record.event {
+            CollaborationEvent::TurnAdmitted { admission } => {
+                self.validate_turn_admission(admission)
+            }
             CollaborationEvent::MailAccepted { mail } => self.validate_mail(mail),
             CollaborationEvent::DelegationCreated {
                 delegation,
@@ -197,6 +200,7 @@ impl CollaborationLedger {
     ) -> Result<ItemReceipt, CollaborationError> {
         self.validate_record(&record)?;
         match &record.event {
+            CollaborationEvent::TurnAdmitted { .. } => {}
             CollaborationEvent::MailAccepted { mail } => {
                 self.mail_bytes += mail.retained_bytes();
                 self.mails
@@ -249,6 +253,14 @@ impl CollaborationLedger {
         self.items.insert(record.id.clone(), self.records.len());
         self.records.push(record);
         Ok(receipt)
+    }
+
+    pub(super) fn record_by_id(&self, id: &CollaborationItemId) -> Option<&CollaborationRecord> {
+        self.items.get(id).map(|index| &self.records[*index])
+    }
+
+    pub(super) fn has_endpoint(&self, endpoint: &MailEndpoint) -> bool {
+        self.endpoints.get(&endpoint.conversation) == Some(&endpoint.agent)
     }
 
     fn validate_mail(&self, mail: &MailEnvelope) -> Result<(), CollaborationError> {

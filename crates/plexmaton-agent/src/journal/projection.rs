@@ -306,7 +306,8 @@ impl ConversationJournal {
                 });
             ordered.push((sequence, SelectedFact::Entry(entry)));
             if let JournalEntryPayload::TurnStarted { turn_id, .. }
-            | JournalEntryPayload::TurnRetried { turn_id, .. } = &entry.payload
+            | JournalEntryPayload::TurnRetried { turn_id, .. }
+            | JournalEntryPayload::CollaborationTurnStarted { turn_id, .. } = &entry.payload
                 && let Some(finished) = self.turn_finishes.get(turn_id)
                 && selected.contains(&finished.fact.semantic_boundary)
             {

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; durable admission complete; owned scheduling next |
+| Status | Active; turn inclusion complete; owned scheduling next |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
@@ -23,19 +23,26 @@ undoing that instruction. Existing session journals remain authoritative for the
    append, uncertain-write freeze, corruption, writer exclusion and process exit without Drop.
    Source review tightened final-tail recovery to reject impossible JSON and invalid UTF-8.
    This component starts no provider and changes no executable behavior.
-2. **Owned scheduling and inclusion.** Two scripted agents exercise asynchronous delegation,
-   bounded runners, accepted/included/completed distinctions, reserved control capacity, wake/stop
-   policy and joined cancellation. Session inclusion records reference canonical items and bind the
-   pre-turn amendment barrier. Branches retain references; replay never repeats effects.
-3. **Provider and projection boundary.** Decide an explicit mail representation for every supported
+2. **Turn admission and inclusion (complete).** [CIN-1–CIN-4](../specs/collaboration-inclusion.md)
+   freeze the eligible prefix, retain canonical session references, and resolve bounded immutable
+   context before dispatch. Tests cover amendment ordering, branch-local cursors, reopen between
+   the two logs, both acknowledgement barriers, cancelled waits, unknown writes and preparation
+   failure settlement. Two scripted LiveRuntime owners retain independent context and shutdown.
+   All four production codecs explicitly refuse collaboration atoms; driver capability is checked
+   before session mutation. This is a narrow backend path, not enabled product orchestration.
+3. **Owned scheduling.** Compose bounded runners, normal/control/update channels, wake/stop policy
+   and joined cancellation. The owner must intercept every turn-opening path before the pre-turn
+   amendment guarantee applies to ordinary user input. Two scripted agents prove independent
+   progress and stop under backpressure, with reserved completion/control capacity.
+4. **Provider and projection boundary.** Decide an explicit mail representation for every supported
    dialect before advertising collaboration. A typed internal atom does not establish provider
    acceptance. Unsupported representation is a typed refusal; synthesized user input is excluded.
    Integrate a thin inbox/Attention projection and explicit stop/amend intents early enough to test
    ownership, then review wide, medium and narrow frames under the unchanged UI/UX contract.
-4. **Product integration.** Wire native delegation/mail tools and the interaction journey, prove
+5. **Product integration.** Wire native delegation/mail tools and the interaction journey, prove
    responsiveness under saturation, then complete layout and interaction polish.
 
-Stages 2–4 remain unimplemented gates; each receives a sliced plan when its work starts. Initial
+Stages 1–2 are complete; stages 3–5 receive sliced plans when their work starts. Initial
 admission adds no crate or external dependency: semantic reduction stays in the agent crate,
 blocking storage in session-store, and later orchestration in runtime. LIVE-1 remains one runner
 per agent; the collaboration owner composes runners rather than widening one into a global loop.
@@ -52,7 +59,7 @@ per agent; the collaboration owner composes runners rather than widening one int
 | User can inspect and steer | Canonical journey and reviewed frames at three widths |
 
 Validation is local: ledger tests, the session-store suite, affected all-target Clippy and static
-corpus/dependency gates passed. CI and runtime/provider/UI integration remain unverified.
+corpus/dependency gates passed. GitHub PR checks own head-specific CI results; runtime/provider/UI integration remains unproven.
 
 Power-loss durability is not promised by JRN-4. Admission uses the same process-death boundary;
 stronger storage semantics require a separately justified contract change. Phase 02 branch

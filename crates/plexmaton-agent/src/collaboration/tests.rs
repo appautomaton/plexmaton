@@ -1,3 +1,4 @@
+mod inclusion;
 use plexmaton_core::{
     AgentId, ArtifactId, CollaborationId, CollaborationItemId, ConversationId, DelegationId, MailId,
 };
@@ -65,7 +66,7 @@ fn ledger(limits: CollaborationLimits) -> CollaborationLedger {
 fn accept(ledger: &mut CollaborationLedger, id: &str, event: CollaborationEvent) -> ItemReceipt {
     match ledger.prepare(item(id), event).expect("fixture admission") {
         Preparation::Existing(receipt) => receipt,
-        Preparation::Append(record) => ledger.apply(record).expect("validated fixture"),
+        Preparation::Append(record) => ledger.apply(*record).expect("validated fixture"),
     }
 }
 

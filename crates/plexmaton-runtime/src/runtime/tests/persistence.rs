@@ -424,6 +424,7 @@ async fn drive_until_gate(runtime: &mut LiveRuntime, gate: &Gate) {
 
 mod barriers;
 mod cancellation;
+mod collaboration;
 mod failures;
 mod permissions;
 mod retry;
