@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Product | A responsive, durable, multi-agent coding harness with a distinctive terminal interface |
-| Open phases | Phase 02, Phase 04 |
+| Open phases | Phase 02, Phase 03, Phase 04 |
 | UI/UX contract | [UI/UX](./ui-ux.md) |
 | Mechanism specs | [specs/](./specs/) |
 
@@ -33,7 +33,7 @@ table in `AGENTS.md` allows.
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, provider transports, context projection and project instructions | Active; journal, providers, compaction, permissions and AGENTS.md complete; branch interaction remains; MCP optional |
-| 03 | Durable multi-agent mailbox and runtime ownership | Not opened |
+| 03 | Durable multi-agent mailbox and runtime ownership | Active; durable admission complete; owned scheduling next |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9, 11–15 and 17–22 complete; stage 16 effort selection in progress; stage 10 branding remains |
 
 ## Locked
@@ -62,7 +62,7 @@ Tracks run beside phases because their exit conditions are comparisons, not deli
 | Track | Purpose | Status |
 | --- | --- | --- |
 | [Math rendering](./research/math-rendering.md) | Evaluate semantic math layout and terminal presentation | Native RaTeX conversation path approved; portability and source-reveal gates open |
-| [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source spike and finite model complete; production integration unproven |
+| [Multi-agent mailbox spike](./spikes/multi-agent-mailbox/README.md) | Compare local harness orchestration and test durable-mail semantics for Phase 03 | Source evidence retained; COL-1–COL-5 admission verified locally; runtime integration unproven |
 | [Provider adapter parity spike](./spikes/provider-adapter-parity/README.md) | Compare harness wire/replay and token accounting | Six-source comparison; four dialects verified hermetically, live compatibility unverified |
 | [Agent Skills spike](./spikes/agent-skills/README.md) | Compare skill discovery, project configuration and durable activation | Implemented and verified offline; live model behavior unverified |
 | [Permission policy spike](./spikes/permission-policy/README.md) | Compare scoped grants, rule precedence and durable authority | Source comparison retained; PER-1–PER-10 and PGR-1–PGR-5 implemented and verified locally |
