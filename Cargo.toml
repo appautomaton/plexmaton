@@ -60,6 +60,11 @@ pulldown-cmark = { version = "0.13.4", default-features = false }
 url = { version = "2.5.8", default-features = false, features = ["std"] }
 uuid = { version = "1.26.0", default-features = false, features = ["std", "v7"] }
 
+# Keep filename/line backtraces without duplicating full debugger data in every worktree.
+# Test inherits dev; overrides and measurements live in .agents/standards/rust-builds.md.
+[profile.dev]
+debug = "line-tables-only"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 unused_qualifications = "deny"
