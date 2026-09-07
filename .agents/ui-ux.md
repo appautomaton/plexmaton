@@ -154,9 +154,9 @@ other rule about input follows from this one.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
   are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
-  `/compact`, `/effort`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
+  `/compact`, `/effort`, `/model`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
   `Tab` completes without running; `Escape` keeps the draft. A token no row matches is text.
-  Rejected: settings as slash commands, which made the composer's title lie about the addressee;
+  Rejected: workspace settings as slash commands, which made the composer's title lie about the addressee;
   and conversations as a Drawer page, which hid what users type by habit behind a chord.
 - **The status line sits below every pane.** By default it shows the working directory; an explicitly
   configured user script may supply several styled rows, bounded to preserve typing and readable

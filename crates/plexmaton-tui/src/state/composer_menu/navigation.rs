@@ -4,6 +4,7 @@ use super::{Direction, MenuRow, ViewState};
 impl ViewState {
     pub(crate) fn close_composer_menu(&mut self) {
         self.composer_menu.effort_feedback = None;
+        self.composer_menu.model_feedback = None;
         let text = self.composer().text().to_owned();
         let cursor = self.composer().cursor();
         if self.composer_menu.dismiss(&text, cursor) {
@@ -27,6 +28,7 @@ impl ViewState {
         let cursor = self.composer().cursor();
         self.composer_menu.choose(&text, cursor, row);
         if self.menu_chosen() != before {
+            self.composer_menu.model_feedback = None;
             self.touch();
         }
     }
@@ -35,6 +37,7 @@ impl ViewState {
         let text = self.composer().text().to_owned();
         let cursor = self.composer().cursor();
         if self.composer_menu.step(&text, cursor, direction) {
+            self.composer_menu.model_feedback = None;
             self.touch();
         }
     }

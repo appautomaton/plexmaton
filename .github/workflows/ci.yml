@@ -61,6 +61,7 @@ jobs:
       - run: python3 scripts/smoke-tui.py
       - run: python3 scripts/smoke-statusline.py
       - run: python3 scripts/smoke-permissions.py
+      - run: python3 scripts/smoke-model.py
 
   ci:
     name: macOS Apple Silicon

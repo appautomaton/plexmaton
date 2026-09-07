@@ -55,7 +55,7 @@ pub enum NativeToolSetupError {
 pub struct NativeToolCatalog {
     file: Arc<Mutex<FileTools>>,
     command: Arc<CommandTool>,
-    api_key_environment: OsString,
+    api_key_environments: std::collections::BTreeSet<OsString>,
     definitions: Arc<[FunctionTool]>,
     skills: Option<Arc<plexmaton_skills::SkillCatalog>>,
 }
@@ -131,7 +131,7 @@ impl NativeToolCatalog {
         Ok(Self {
             file: Arc::new(Mutex::new(file)),
             command: Arc::new(command),
-            api_key_environment,
+            api_key_environments: [api_key_environment].into_iter().collect(),
             definitions: definitions.into(),
             skills: None,
         })
@@ -171,8 +171,24 @@ impl NativeToolCatalog {
         skill::explicit_resource_authorized(self.skills.as_deref(), request, agent)
     }
 
-    pub(crate) fn matches_api_key_environment(&self, expected: &str) -> bool {
-        self.api_key_environment == OsStr::new(expected)
+    /// Exclude every switchable provider credential before creating permission compilers.
+    /// Tool ownership and captured environment values stay unchanged; only named keys are removed.
+    #[must_use]
+    pub fn with_provider_credentials<I, S>(mut self, names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        for name in names {
+            let name = name.as_ref();
+            Arc::make_mut(&mut self.command).exclude_environment(name);
+            self.api_key_environments.insert(name.to_os_string());
+        }
+        self
+    }
+
+    pub(crate) fn excludes_api_key_environment(&self, expected: &str) -> bool {
+        self.api_key_environments.contains(OsStr::new(expected))
     }
 
     pub(crate) fn provider_definitions(&self) -> Arc<[FunctionTool]> {

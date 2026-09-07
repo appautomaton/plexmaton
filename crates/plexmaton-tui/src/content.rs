@@ -301,6 +301,22 @@ pub(crate) fn composer_menu(
                 menu.permission_label(choice).unwrap_or_default(),
                 String::new(),
             ),
+            MenuRow::Model(identity) => (
+                inert_inline(&format!(
+                    "{}/{}{}",
+                    identity.provider,
+                    identity.model,
+                    if state.is_current_model(identity) {
+                        " · current"
+                    } else {
+                        ""
+                    }
+                )),
+                menu.model_choice(identity)
+                    .map_or_else(String::new, |choice| {
+                        inert_inline(&format!("{} · {}", choice.display_name, choice.wire_id))
+                    }),
+            ),
             MenuRow::Effort(effort) => (effort.as_str().to_owned(), String::new()),
         };
         let text = if detail.is_empty() {
@@ -311,7 +327,10 @@ pub(crate) fn composer_menu(
         lines.push(if chosen {
             chosen_row(vec![Span::raw(text)], palette, width)
         } else {
-            let split = text.len().min(marker.len() + 1 + name.len());
+            let mut split = text.len().min(marker.len() + 1 + name.len());
+            while !text.is_char_boundary(split) {
+                split -= 1;
+            }
             Line::from(vec![
                 Span::styled(text[..split].to_owned(), palette.style(Role::Body)),
                 Span::styled(text[split..].to_owned(), palette.style(Role::Muted)),

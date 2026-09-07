@@ -7,6 +7,7 @@ use super::{ViewState, drawer::Shown};
 pub struct ConfigurationSummary {
     pub provider: String,
     pub model: String,
+    pub configured_name: String,
     pub reasoning_effort: plexmaton_core::ReasoningEffort,
 }
 

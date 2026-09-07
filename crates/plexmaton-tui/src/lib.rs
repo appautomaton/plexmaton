@@ -39,11 +39,11 @@ pub use state::{
     CleanupNotice, Command, CompactRefusal, CompactionNote, ConfigurationSummary,
     ConversationChoice, ConversationPickerStatus, ConversationRequest, ConversationRestoration,
     ConversationTailRepair, CopyReceipt, CopyRequest, Drawer, InspectorView, Listing,
-    MAX_CONVERSATION_CHOICES, MailView, NoticeView, Page, PermissionRequest, PersistenceNotice,
-    ReduceError, RetryAction, RetryActions, RetrySubmission, RetryTarget, ScrollPosition,
-    Selection, SkillChoice, SkillChoiceSource, Submission, SubmissionKind, SwitchRefusal,
-    ToolCallView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision,
-    ViewState,
+    MAX_CONVERSATION_CHOICES, MailView, ModelChoice, ModelIdentity, NoticeView, Page,
+    PermissionRequest, PersistenceNotice, ReduceError, RetryAction, RetryActions, RetrySubmission,
+    RetryTarget, ScrollPosition, Selection, SkillChoice, SkillChoiceSource, Submission,
+    SubmissionKind, SwitchRefusal, ToolCallView, TranscriptEntryView, TranscriptItemView,
+    TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
 pub use statusline::{StatusLineText, StatusLineTextError};
@@ -54,5 +54,7 @@ pub use theme::{
     EFFORT_COLOR_PHASES, EffortPalette, MarkdownTheme, Palette, Role, agent_role, tool_role,
 };
 pub use transcript::TranscriptMetrics;
-pub use workspace::{CommandRun, CommandTarget, EffortChange, Flow, FrameWork, Outcome, Workspace};
+pub use workspace::{
+    CommandRun, CommandTarget, EffortChange, Flow, FrameWork, ModelChange, Outcome, Workspace,
+};
 pub mod math;

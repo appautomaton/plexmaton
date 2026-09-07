@@ -14,16 +14,18 @@ pub enum Command {
     Compact,
     Permissions,
     Effort,
+    Model,
 }
 
 impl Command {
     /// Every Command, in the order the menu lists them.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::New,
         Self::Resume,
         Self::Compact,
         Self::Permissions,
         Self::Effort,
+        Self::Model,
     ];
 
     /// The name after the slash.
@@ -35,6 +37,7 @@ impl Command {
             Self::Compact => "compact",
             Self::Permissions => "permissions",
             Self::Effort => "effort",
+            Self::Model => "model",
         }
     }
 
@@ -45,6 +48,7 @@ impl Command {
             Self::Resume => Some(Listing::Conversations),
             Self::Permissions => Some(Listing::Permissions),
             Self::Effort => Some(Listing::Effort),
+            Self::Model => Some(Listing::Models),
             Self::New | Self::Compact => None,
         }
     }
@@ -58,6 +62,7 @@ impl Command {
             Self::Compact => "Compact this conversation's context now",
             Self::Permissions => "Review this Session's permissions",
             Self::Effort => "Adjust this conversation's reasoning effort",
+            Self::Model => "Choose this conversation's model",
         }
     }
 

@@ -57,7 +57,7 @@ pub(super) async fn execute(
     config: &StatusLineConfig,
     input: Vec<u8>,
     cwd: &Path,
-    credential_env: &str,
+    credential_envs: &[String],
     cancel: CancellationToken,
 ) -> Result<StatusLineText, Failure> {
     if cancel.is_cancelled() {
@@ -66,11 +66,14 @@ pub(super) async fn execute(
     if input.len() > 64 * 1024 {
         return Err(Failure::Overflow);
     }
-    let child = Command::new("/bin/sh")
+    let mut command = Command::new("/bin/sh");
+    for name in credential_envs {
+        command.env_remove(name);
+    }
+    let child = command
         .arg("-c")
         .arg(&config.command)
         .current_dir(cwd)
-        .env_remove(credential_env)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -1,5 +1,7 @@
 //! One production interaction loop: input, revision-gated frames and owned external completions.
 
+mod model;
+use model::apply_model;
 use std::{io, time::Instant};
 
 use anyhow::Context as _;
@@ -132,6 +134,16 @@ async fn apply_workspace_outcome(
     permissions: &mut permission_controls::PermissionControls,
     status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<bool> {
+    if let Some(change) = &outcome.model {
+        let result = apply_model(change, runtime, picker);
+        if let Ok(model) = &result {
+            workspace.set_effort_choices(model.allowed_reasoning_efforts().map(<[_]>::to_vec));
+            if let Some(status) = status_line {
+                status.mark_dirty();
+            }
+        }
+        workspace.report_model(result.map(|model| crate::configuration_summary(&model)));
+    }
     if let Some(change) = &outcome.effort {
         let result = runtime
             .set_reasoning_effort(&change.agent, change.effort)
@@ -196,7 +208,7 @@ async fn run_command(
         Command::New => picker.new_conversation(workspace, runtime),
         Command::Resume => picker.open(workspace),
         Command::Permissions => permissions.refresh(),
-        Command::Effort => {}
+        Command::Effort | Command::Model => {}
         Command::Compact => {
             let note = match runtime
                 .request_compaction(run.target.agent.clone())

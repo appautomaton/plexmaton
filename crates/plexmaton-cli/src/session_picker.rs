@@ -16,6 +16,7 @@ pub(super) struct Launcher {
     pub root: PathBuf,
     pub workspace: PathBuf,
     pub model: ResolvedModel,
+    pub models: plexmaton_provider::ModelRegistry,
     pub ripgrep: PathBuf,
     pub driver: PathBuf,
     pub permissions: plexmaton_runtime::CodingSessionPermissions,
@@ -72,6 +73,10 @@ impl ConversationPicker {
             job: None,
             cancel: JobCancellation::new(),
         }
+    }
+
+    pub fn models(&self) -> &plexmaton_provider::ModelRegistry {
+        &self.launcher.models
     }
 
     pub fn configuration(&self) -> ConfigurationSummary {
@@ -315,6 +320,7 @@ impl Launcher {
                     self.driver,
                     vec![OsString::from(INTERNAL_RG_DRIVER)],
                 )?
+                .with_provider_credentials(self.models.models().map(|model| model.api_key_env()))
                 .with_skill_roots(&self.root, &project_root, &cancel.files)?;
                 let journal = match selected {
                     ConversationSelection::Resume(id) => {

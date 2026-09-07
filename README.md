@@ -43,6 +43,9 @@ Select your provider/model in that file, set its `api_key_env` variable, then la
 PLEXMATON_HOME="$PWD/.local/plexmaton" cargo run -p plexmaton-cli --bin plexmaton
 ```
 
+`/model` chooses a configured model for the open conversation while idle; new/resumed conversations
+use your configured default. [Model selection](.agents/specs/model-selection.md).
+
 [Configuration and effort](.agents/specs/provider-adapter.md#request-configuration)
 
 Project guidance loads from `PLEXMATON_HOME/AGENTS.md` (default `~/.plexmaton/AGENTS.md`), then
@@ -63,7 +66,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | `1`–`3` | Choose an approval option while focused |
 | Approval: `Ctrl-O` / command click | Inspect; `c` / ⧉ copy, `Esc` / × close |
 | `$` | Find and complete a skill |
-| `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort` |
+| `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort`, `/model` |
 
 Mouse movement and arrows share the focused menu choice. The Drawer’s bottom-center `︽` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
 

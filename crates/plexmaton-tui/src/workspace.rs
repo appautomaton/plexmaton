@@ -48,6 +48,8 @@ mod hover_tests;
 mod markdown_tests;
 #[cfg(test)]
 mod math_tests;
+#[cfg(test)]
+mod model_tests;
 mod paint;
 #[cfg(test)]
 mod palette_tests;
@@ -111,6 +113,15 @@ pub struct Outcome {
     pub command: Option<CommandRun>,
     /// An explicit effort selected for the addressed conversation.
     pub effort: Option<EffortChange>,
+    /// An exact model selection captured for this conversation.
+    pub model: Option<ModelChange>,
+}
+
+/// Model selection captured at explicit confirmation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModelChange {
+    pub agent: AgentId,
+    pub identity: crate::ModelIdentity,
 }
 
 /// Effort selection captured at acceptance; only the runtime can apply it.
@@ -148,6 +159,7 @@ impl Outcome {
             permission: None,
             command: None,
             effort: None,
+            model: None,
         }
     }
 }

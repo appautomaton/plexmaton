@@ -35,6 +35,7 @@ pub(super) enum Update {
 pub(super) struct StatusLine {
     config: StatusLineConfig,
     model: ResolvedModel,
+    credential_envs: Vec<String>,
     cwd: PathBuf,
     active: Option<Active>,
     due: Option<Instant>,
@@ -48,6 +49,7 @@ impl StatusLine {
     pub fn new(config: StatusLineConfig, model: ResolvedModel, cwd: PathBuf) -> Self {
         Self {
             config,
+            credential_envs: vec![model.api_key_env().to_owned()],
             model,
             cwd,
             active: None,
@@ -57,6 +59,13 @@ impl StatusLine {
             force_refresh: true,
             cleanup_failed: false,
         }
+    }
+
+    pub fn with_provider_credentials(mut self, names: impl Iterator<Item = String>) -> Self {
+        self.credential_envs.extend(names);
+        self.credential_envs.sort();
+        self.credential_envs.dedup();
+        self
     }
 
     /// Capture semantic status/accounting changes, not text streaming deltas (STL-1).
@@ -114,14 +123,14 @@ impl StatusLine {
         self.last_input = Some(input.clone());
         let config = self.config.clone();
         let cwd = self.cwd.clone();
-        let credential_env = self.model.api_key_env().to_owned();
+        let credential_envs = self.credential_envs.clone();
         let cancel = CancellationToken::new();
         let child_cancel = cancel.clone();
         self.active = Some(Active {
             generation: self.generation,
             cancel,
             task: tokio::spawn(async move {
-                process::execute(&config, input, &cwd, &credential_env, child_cancel).await
+                process::execute(&config, input, &cwd, &credential_envs, child_cancel).await
             }),
         });
     }

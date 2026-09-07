@@ -11,7 +11,7 @@ pub(crate) fn empty_session(
     Workspace,
     u64,
 ) {
-    let model = plexmaton_provider::ModelRegistry::parse(
+    let models = plexmaton_provider::ModelRegistry::parse(
         r#"
 active_model = { provider = "fixture", model = "test" }
 [providers.fixture]
@@ -26,9 +26,8 @@ max_output_tokens = 1000
 output_reserve_tokens = 1000
 "#,
     )
-    .expect("model")
-    .active_model()
-    .clone();
+    .expect("model");
+    let model = models.active_model().clone();
     let tools = NativeToolCatalog::open(
         root,
         model.api_key_env(),
@@ -51,6 +50,7 @@ output_reserve_tokens = 1000
         root: root.into(),
         workspace: root.into(),
         model,
+        models,
         ripgrep: "/bin/false".into(),
         driver: "/bin/false".into(),
         permissions: runtime.coding_session(),

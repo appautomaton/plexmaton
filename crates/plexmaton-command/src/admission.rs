@@ -169,6 +169,12 @@ impl CommandTool {
         })
     }
 
+    /// Remove another provider credential from the captured environment before compiling scopes.
+    /// This never rereads or expands the environment; permission fingerprints use the reduced map.
+    pub fn exclude_environment(&mut self, name: &OsStr) {
+        self.environment.exclude(name);
+    }
+
     /// Returns the canonical directory fixed for every call this instance admits.
     #[must_use]
     pub fn workspace_root(&self) -> &Path {

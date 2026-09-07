@@ -26,7 +26,7 @@ impl LiveRuntime {
         key: ApiKey,
         tools: NativeToolCatalog,
     ) -> Result<Self, RuntimeError> {
-        if !tools.matches_api_key_environment(model.api_key_env()) {
+        if !tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
@@ -99,7 +99,7 @@ impl LiveRuntime {
         metadata: ConversationMetadata,
         store: Box<dyn JournalStore>,
     ) -> Result<Self, RuntimeError> {
-        if !tools.matches_api_key_environment(model.api_key_env()) {
+        if !tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();
@@ -122,7 +122,7 @@ impl LiveRuntime {
         tools: NativeToolCatalog,
         journal: JournalFile,
     ) -> Result<(Self, ConversationRecovery), RuntimeError> {
-        if !tools.matches_api_key_environment(model.api_key_env()) {
+        if !tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
         }
         let definitions = tools.provider_definitions();

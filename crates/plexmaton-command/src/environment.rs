@@ -40,6 +40,10 @@ impl CommandEnvironment {
         Self { inherited }
     }
 
+    pub(crate) fn exclude(&mut self, name: &OsStr) {
+        self.inherited.remove(name);
+    }
+
     pub(crate) fn fingerprint(&self, hash: &mut Sha256) {
         for (key, value) in &self.inherited {
             for bytes in [key.as_encoded_bytes(), value.as_encoded_bytes()] {
@@ -111,6 +115,29 @@ mod tests {
     use std::ffi::OsString;
 
     use super::CommandEnvironment;
+
+    /// MDL-3/CMD-2: named credentials are removed from the captured child environment and scope.
+    #[test]
+    fn model_credentials_are_removed_before_install_and_fingerprinting() {
+        use sha2::{Digest as _, Sha256};
+        let mut environment = CommandEnvironment::from_pairs([
+            ("OTHER_LOGIN".into(), "fixture-secret".into()),
+            ("VISIBLE".into(), "keep".into()),
+        ]);
+        let mut before = Sha256::new();
+        environment.fingerprint(&mut before);
+        environment.exclude(std::ffi::OsStr::new("OTHER_LOGIN"));
+        let mut after = Sha256::new();
+        environment.fingerprint(&mut after);
+        assert_ne!(before.finalize(), after.finalize());
+        let mut command = tokio::process::Command::new("/usr/bin/env");
+        environment.install(&mut command, std::path::Path::new("/"));
+        let entries: Vec<_> = command.as_std().get_envs().collect();
+        assert!(!entries.iter().any(|(name, _)| *name == "OTHER_LOGIN"));
+        assert!(entries.iter().any(
+            |(name, value)| *name == "VISIBLE" && *value == Some(std::ffi::OsStr::new("keep"))
+        ));
+    }
 
     #[test]
     fn cmd_2_environment_snapshot_preserves_non_unicode_entries() {

@@ -148,7 +148,7 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
         &config,
         serde_json::to_vec(&after).expect("snapshot stdin"),
         root.path(),
-        model.api_key_env(),
+        &[model.api_key_env().to_owned()],
         tokio_util::sync::CancellationToken::new(),
     )
     .await

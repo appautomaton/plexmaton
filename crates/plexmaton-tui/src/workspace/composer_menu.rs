@@ -12,6 +12,16 @@ impl Workspace {
         self.state.set_skills(choices);
     }
 
+    /// Supply bounded configured choices without resolving provider credentials.
+    pub fn set_model_choices(&mut self, choices: impl Iterator<Item = crate::ModelChoice>) {
+        self.state.set_model_choices(choices);
+    }
+
+    /// Publish a runtime decision; a refusal retains the draft and previous model.
+    pub fn report_model(&mut self, result: Result<crate::ConfigurationSummary, String>) {
+        self.state.report_model(result);
+    }
+
     pub(super) fn apply_menu(&mut self, intent: MenuIntent) -> Outcome {
         match intent {
             MenuIntent::Step(direction) => {
@@ -28,6 +38,7 @@ impl Workspace {
             MenuIntent::Complete => match self.state.menu_chosen() {
                 // Completing a Command writes `/name ` and runs nothing (CMC-2).
                 Some(MenuRow::Command(command)) => self.complete_command(command),
+                Some(MenuRow::Model(_)) => Outcome::default(),
                 other => self.accept_menu(other),
             },
             MenuIntent::Accept => self.accept_menu(None),
@@ -39,7 +50,7 @@ impl Workspace {
         match command {
             Command::Resume => self.list_conversations(),
             Command::Permissions => self.list_session_permissions(),
-            Command::Effort => Outcome::default(),
+            Command::Effort | Command::Model => Outcome::default(),
             Command::New | Command::Compact => Outcome::default(),
         }
     }
@@ -74,7 +85,10 @@ impl Workspace {
                 }
             }
             MenuRow::Command(
-                command @ (Command::Resume | Command::Permissions | Command::Effort),
+                command @ (Command::Resume
+                | Command::Permissions
+                | Command::Effort
+                | Command::Model),
             ) => self.complete_command(command),
             MenuRow::Command(Command::Compact) => {
                 let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
@@ -99,6 +113,18 @@ impl Workspace {
                     permission: intent.map(PermissionRequest::Change).or_else(|| {
                         matches!(choice, crate::state::permissions::PermissionChoice::Reload)
                             .then_some(PermissionRequest::Refresh)
+                    }),
+                    ..Outcome::default()
+                }
+            }
+            MenuRow::Model(identity) => {
+                // A click need not have a preceding hover. Refusal and Enter retry must name
+                // the clicked identity, not the previously highlighted keyboard choice.
+                self.state.choose_menu_row(MenuRow::Model(identity.clone()));
+                Outcome {
+                    model: self.state.primary_agent().map(|agent| ModelChange {
+                        agent: agent.id.clone(),
+                        identity,
                     }),
                     ..Outcome::default()
                 }
