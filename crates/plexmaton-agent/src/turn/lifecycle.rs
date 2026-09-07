@@ -154,7 +154,7 @@ impl Agent {
     /// A stopped turn does not roll into the next one: that would make cancellation start work.
     /// Pending input instead returns through [`Reaction::undelivered`] with its exact text and the
     /// transition that prevented its boundary from opening (LOOP-6).
-    fn abort_turn(
+    pub(super) fn abort_turn(
         &mut self,
         reason: UndeliveredReason,
         cancellation: ToolCancellationReason,
@@ -321,7 +321,7 @@ impl Agent {
         self.record.emit(reaction, event);
     }
 
-    fn error(&mut self, reaction: &mut Reaction, message: &str) {
+    pub(super) fn error(&mut self, reaction: &mut Reaction, message: &str) {
         let item_id = self.record.next_item_id();
         self.record.commit(
             JournalEntryPayload::RuntimeError {

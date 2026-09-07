@@ -253,7 +253,8 @@ impl<'a> Snapshot<'a> {
         }
         if let Some(turn_id) = path.iter().rev().find_map(|entry| match &entry.payload {
             JournalEntryPayload::TurnStarted { turn_id, .. }
-            | JournalEntryPayload::TurnRetried { turn_id, .. } => Some(turn_id),
+            | JournalEntryPayload::TurnRetried { turn_id, .. }
+            | JournalEntryPayload::CollaborationTurnStarted { turn_id, .. } => Some(turn_id),
             _ => None,
         }) {
             let accounting = journal.turn_accounting(turn_id)?;

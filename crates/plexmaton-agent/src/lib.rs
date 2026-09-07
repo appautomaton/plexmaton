@@ -11,6 +11,7 @@
 
 mod admission;
 mod budget;
+pub mod collaboration;
 mod compaction;
 mod interface;
 mod journal;

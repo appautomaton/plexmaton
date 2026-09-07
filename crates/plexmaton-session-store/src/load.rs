@@ -28,7 +28,7 @@ pub(crate) struct Loaded {
     pub(crate) recovery: JournalRecovery,
 }
 
-enum Repair {
+pub(crate) enum Repair {
     None,
     AddNewline,
     Isolate { valid_bytes: u64, tail: Vec<u8> },
@@ -41,7 +41,17 @@ pub(crate) fn load(file: &mut File, path: &Path) -> Result<Loaded, StoreError> {
         let mut reader = BufReader::new(&mut *file);
         decode(&mut reader)?
     };
-    let recovery = match repair {
+    let recovery = repair_tail(file, path, repair)?;
+    Ok(Loaded { journal, recovery })
+}
+
+// Shared physical recovery; each journal owns its own typed decoding and semantic validation.
+pub(crate) fn repair_tail(
+    file: &mut File,
+    path: &Path,
+    repair: Repair,
+) -> Result<JournalRecovery, StoreError> {
+    Ok(match repair {
         Repair::None => JournalRecovery::Clean,
         Repair::AddNewline => {
             file.seek(SeekFrom::End(0))
@@ -59,8 +69,7 @@ pub(crate) fn load(file: &mut File, path: &Path) -> Result<Loaded, StoreError> {
                 bytes: u64::try_from(tail.len()).unwrap_or(u64::MAX),
             }
         }
-    };
-    Ok(Loaded { journal, recovery })
+    })
 }
 
 fn decode(reader: &mut impl BufRead) -> Result<(ConversationJournal, Repair), StoreError> {
@@ -123,7 +132,7 @@ fn decode(reader: &mut impl BufRead) -> Result<(ConversationJournal, Repair), St
     }
 }
 
-fn without_newline(bytes: &[u8], terminated: bool) -> &[u8] {
+pub(crate) fn without_newline(bytes: &[u8], terminated: bool) -> &[u8] {
     if terminated {
         &bytes[..bytes.len().saturating_sub(1)]
     } else {

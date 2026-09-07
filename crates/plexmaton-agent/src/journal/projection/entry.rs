@@ -12,6 +12,23 @@ pub(super) fn project_entry(
     let source = entry.id.clone();
     let activation_owner = projector.activation_owner.take();
     match &entry.payload {
+        JournalEntryPayload::CollaborationTurnStarted {
+            agent_id,
+            turn_id,
+            reference,
+            ..
+        } => {
+            projector.finish_batch(false)?;
+            projector.require_agent(agent_id)?;
+            projector.turns.insert(turn_id.clone(), agent_id.clone());
+            projector
+                .atoms
+                .push(crate::ContextAtom::collaboration(source, reference.clone()));
+            projector.emit(ConversationEvent::AgentStatusChanged {
+                agent_id: agent_id.clone(),
+                status: plexmaton_core::AgentStatus::Running,
+            })
+        }
         JournalEntryPayload::TurnRetried {
             agent_id, turn_id, ..
         } => {

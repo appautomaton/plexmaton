@@ -12,6 +12,13 @@ pub(crate) const PROCESS_RECOVERY_MESSAGE: &str = "The previous turn didn't fini
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JournalEntryPayload {
+    /// One collaboration-started turn and its canonical admission reference (CIN-2).
+    CollaborationTurnStarted {
+        agent_id: AgentId,
+        turn_id: TurnId,
+        reference: crate::collaboration::CollaborationItemRef,
+        opened_at: crate::UnixMillis,
+    },
     /// A new agent became visible.
     AgentCreated {
         agent_id: AgentId,

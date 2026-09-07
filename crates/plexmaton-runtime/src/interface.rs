@@ -169,6 +169,9 @@ pub enum CleanupFailure {
 /// A live-runtime ownership or routing failure.
 #[derive(Debug, Error)]
 pub enum RuntimeError {
+    /// Cross-session admission or context was refused before model dispatch.
+    #[error(transparent)]
+    Collaboration(#[from] plexmaton_agent::collaboration::CollaborationError),
     /// A Session owner failed; authority cannot be silently reconstructed.
     #[error("the coding Session permission owner is unavailable")]
     PermissionOwnerUnavailable,

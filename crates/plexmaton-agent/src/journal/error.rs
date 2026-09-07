@@ -6,6 +6,8 @@ use crate::{CompactionPlanError, ModelStepId, RequestAttemptId, RequestTimingErr
 /// Why a record was refused without changing journal state (JRN-2).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum JournalError {
+    /// A collaboration reference or its session boundary was invalid.
+    Collaboration(crate::collaboration::CollaborationError),
     /// The selected tail no longer identifies a safe unanswered rate-limited execution.
     RetryUnavailable,
     /// The record did not carry the stream's exact next sequence.

@@ -283,6 +283,7 @@ fn payload_agent_id(payload: &JournalEntryPayload) -> &AgentId {
         JournalEntryPayload::AgentCreated { agent_id, .. }
         | JournalEntryPayload::TurnStatusChanged { agent_id, .. }
         | JournalEntryPayload::TurnStarted { agent_id, .. }
+        | JournalEntryPayload::CollaborationTurnStarted { agent_id, .. }
         | JournalEntryPayload::TurnRetried { agent_id, .. }
         | JournalEntryPayload::SteeringAccepted { agent_id, .. }
         | JournalEntryPayload::SkillActivated { agent_id, .. }

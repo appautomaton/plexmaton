@@ -195,6 +195,7 @@ impl LiveRuntime {
             signal_rx,
             active: None,
             pending_model_start: None,
+            collaboration_context: Default::default(),
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,
@@ -243,6 +244,7 @@ impl LiveRuntime {
             signal_rx,
             active: None,
             pending_model_start: None,
+            collaboration_context: Default::default(),
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,
@@ -268,7 +270,7 @@ impl LiveRuntime {
         Ok(runtime)
     }
 
-    async fn with_resumed_driver_and_store(
+    pub(super) async fn with_resumed_driver_and_store(
         agent_id: AgentId,
         mut agent: Agent,
         driver: Arc<dyn ModelDriver>,
@@ -292,6 +294,7 @@ impl LiveRuntime {
             signal_rx,
             active: None,
             pending_model_start: None,
+            collaboration_context: Default::default(),
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,

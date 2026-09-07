@@ -13,6 +13,7 @@ use crate::{CleanupFailure, DispatchReport, RuntimeError, RuntimeUpdate};
 
 mod budget;
 mod clock;
+mod collaboration;
 mod compaction;
 mod construction;
 mod model_settings;
@@ -83,6 +84,7 @@ pub struct LiveRuntime {
     agent_id: AgentId,
     agent: Agent,
     driver: Arc<dyn ModelDriver>,
+    collaboration_context: plexmaton_agent::collaboration::ResolvedContext,
     pending: VecDeque<ConversationEventEnvelope>,
     signals: mpsc::Sender<ModelSignal>,
     signal_rx: mpsc::Receiver<ModelSignal>,

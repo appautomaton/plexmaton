@@ -54,11 +54,19 @@ impl ConversationJournal {
             return None;
         }
         let path = self.path(head).ok()?;
-        let turn_id = path.iter().rev().find_map(|entry| match &entry.payload {
-            JournalEntryPayload::TurnStarted { turn_id, .. }
-            | JournalEntryPayload::TurnRetried { turn_id, .. } => Some(turn_id),
-            _ => None,
+        let latest = path.iter().rev().find(|entry| {
+            matches!(
+                entry.payload,
+                JournalEntryPayload::TurnStarted { .. }
+                    | JournalEntryPayload::TurnRetried { .. }
+                    | JournalEntryPayload::CollaborationTurnStarted { .. }
+            )
         })?;
+        let turn_id = match &latest.payload {
+            JournalEntryPayload::TurnStarted { turn_id, .. }
+            | JournalEntryPayload::TurnRetried { turn_id, .. } => turn_id,
+            _ => return None,
+        };
         if self.turn_finishes.get(turn_id)?.fact.outcome != TurnOutcome::Failed {
             return None;
         }

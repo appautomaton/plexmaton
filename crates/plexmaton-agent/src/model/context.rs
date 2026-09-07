@@ -9,6 +9,7 @@ use crate::{SkillActivation, ToolCall, ToolOutcome};
 #[cfg(test)]
 mod tests;
 
+mod collaboration;
 mod error;
 pub use error::ContextError;
 
@@ -440,9 +441,15 @@ pub struct ContextAtom {
 /// Semantic value retained by one context atom.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ContextAtomValue {
-    User { text: String },
+    /// Canonical cross-session input, unresolved until the collaboration owner supplies its source.
+    Collaboration(crate::collaboration::CollaborationContext),
+    User {
+        text: String,
+    },
     Skill(SkillActivation),
-    CompactionSummary { text: String },
+    CompactionSummary {
+        text: String,
+    },
     Assistant(AssistantOutput),
     ToolBatch(ToolBatch),
 }

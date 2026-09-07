@@ -20,6 +20,7 @@ use crate::step::Step;
 use crate::tools::{Batch, PendingApproval};
 
 mod batch;
+mod collaboration;
 mod compaction;
 mod input;
 mod lifecycle;
@@ -549,7 +550,8 @@ mod tests {
             .iter()
             .flat_map(|atom| match atom.value() {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
-                ContextAtomValue::User { .. }
+                ContextAtomValue::Collaboration(_)
+                | ContextAtomValue::User { .. }
                 | ContextAtomValue::Skill(_)
                 | ContextAtomValue::CompactionSummary { .. }
                 | ContextAtomValue::Assistant(_) => &[],
@@ -570,7 +572,8 @@ mod tests {
             .iter()
             .flat_map(|atom| match atom.value() {
                 ContextAtomValue::ToolBatch(batch) => batch.results(),
-                ContextAtomValue::User { .. }
+                ContextAtomValue::Collaboration(_)
+                | ContextAtomValue::User { .. }
                 | ContextAtomValue::Skill(_)
                 | ContextAtomValue::CompactionSummary { .. }
                 | ContextAtomValue::Assistant(_) => &[],
@@ -1409,7 +1412,8 @@ mod tests {
                         | ContextAtomValue::Skill(_)
                         | ContextAtomValue::CompactionSummary { .. } => true,
                         ContextAtomValue::Assistant(output) => output.tool_calls().next().is_none(),
-                        ContextAtomValue::ToolBatch(_) => false,
+                        ContextAtomValue::Collaboration(_) | ContextAtomValue::ToolBatch(_) =>
+                            false,
                     })
             );
         }
@@ -2237,7 +2241,7 @@ mod tests {
             assert_eq!(projection.request().atoms.len(), 1);
             assert!(matches!(
                 projection.request().atoms[0].value(),
-                ContextAtomValue::User { .. }
+                ContextAtomValue::Collaboration(_) | ContextAtomValue::User { .. }
             ));
         }
     }

@@ -17,6 +17,7 @@ mod automatic;
 #[cfg(test)]
 mod automatic_tests;
 mod codec;
+pub mod collaboration;
 pub use automatic::AutomaticJournal;
 mod error;
 mod fork;

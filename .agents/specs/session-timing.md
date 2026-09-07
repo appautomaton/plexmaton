@@ -16,7 +16,9 @@ wall time or separately named recovery-observed wall time. These boundary facts 
 lifecycle authority and project the starting/terminal agent status. Idle emits no time record;
 sequence and ancestry, never time, decide order.
 An explicit retry starts a separately timed execution through `TurnRetried` without another user
-item (JRN-8); prior turn and request accounting remain unchanged.
+item (JRN-8); prior turn and request accounting remain unchanged. CIN-2 collaboration turns record
+the runner-opened wall time with their canonical reference and no user item; CIN-1 owns their
+earlier logical admission order in the collaboration log.
 
 Intra-turn status facts may still project current work, but cannot independently start or finish a
 turn; no separate terminal status append follows `TurnFinished`. Recovery of every valid prefix is
@@ -131,7 +133,7 @@ For one selected head, a projector admits audit facts only when their owning `Tu
 path and their semantic boundary is on that path. Whole-session cost instead folds every unique
 attempt once.
 
-`CreateHead` and `MoveHead` may target only a stable semantic boundary: no `TurnStarted` on its path
+`CreateHead` and `MoveHead` may target only a stable semantic boundary: no user or collaboration turn start on its path
 lacks a canonical `TurnFinished`, and no context atom is split. Checked semantic appends are the
 owned live-progress exception; abandoning a partial live head is refused, while rename preserves
 its ownership. Rewinding to a user item moves the new head to the boundary before that turn and

@@ -2,50 +2,39 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Source comparison and finite model complete; production design unproven |
+| Status | Source evidence retained; COL-1–COL-5 own admission; runtime integration unproven |
 | Read when | Designing Phase 03 mail admission, scheduling, recovery, or amendments |
 | Contract | [Roadmap](../../roadmap.md) §Locked; LIVE-1/LIVE-3, LOOP-2/LOOP-6, JRN-4/JRN-5/JRN-7 |
 | Decision gate | Crash-safe attributed mail, bounded work, responsive primary, user amendments before dependent turns |
 
 ## Corpus
 
-Inspected local source on 2026-09-04, without network or live model calls:
+Source inspection on 2026-09-07, without network, live model calls or test execution:
 
-- Codex: `316795b3cf2a45e90d121d9f46499d4658b2645c`, clean checkout.
-- Grok Build: `72a61251fcffb464bcc687aeb5a998e5a98ec0c9`, clean checkout.
-- Plexmaton: base `11f5d6ee70fb2832417f1991948a7ea35e3cf7bf`, with existing session/UI
-  modifications. Findings describe the working tree.
+- Codex: `316795b3cf2a45e90d121d9f46499d4658b2645c`, clean at inspection.
+- Grok Build: `72a61251fcffb464bcc687aeb5a998e5a98ec0c9`, clean at inspection.
+- Plexmaton: `1393bcb0e2c0f68634a792408cf9f551342f02ff`, clean at inspection.
 
-Scope: local Codex `MultiAgentV2`, not legacy `send_input` or installed binaries.
-Reference tests were inspected, not run.
-
-Entrypoints: Codex [dispatch][c-message], [queue][c-queue], [control][c-control];
-Grok [coordinator][g-coordinator], [admission][g-message], [completion][g-completion].
+Reference paths below are relative to each source repository at that revision, not to a task
+worktree. Local reference checkouts may advance independently. Scope is Codex `MultiAgentV2`;
+legacy behavior is distinguished explicitly. The historical DSH, Kimi and Claude Code summaries
+were not reverified in this pass and do not establish comparative absence claims.
 
 ## Comparison
 
-| Dimension | Codex v2 | Grok Build |
+| Dimension | Codex V2 | Grok Build |
 | --- | --- | --- |
-| Delegation | Independent session; sending and waking differ | Task defaults to awaiting result; background returns after registration; deadline can auto-background |
-| Messaging | Typed mail; delivery respects step/turn phases | Root tool targets owned active descendants with `Steer` or later-turn `Queue`, not general peer mail |
-| Waiting | `wait_agent` reports activity/timeout, not child output | Actor owns result waiters/deadlines |
-| Completion | Detached watcher sends direct-parent mail, `trigger_turn=false` | Gate checks cancellation, backgrounding, waiter delivery, kill, goal loop and parent channel |
-| Bounds | Execution/residency limits separate; mailbox enqueue has no explicit bound | Active messages: 64 ingress, 8 per child, 32 KiB; completed cache: 1024; other channels include unbounded ones |
-| Recovery | Consumed mail enters rollout; pending enqueue is in memory | Child metadata/output and attempt recovery; orphan repair for terminal presentation |
+| Delegation shape | Independent session; sending and waking differ | Foreground task awaits output; 600-second budget can background it |
+| Message transport | Typed `ResponseItem::AgentMessage`, with author and recipient | Owned-child `Steer` or `Queue`; completion uses internally attributed synthetic user input |
+| Durability | Pending mail is memory-only; inclusion records it in rollout | Admission commits memory insertion; persistence occurs at a later safe point |
+| Wake semantics | Activity-only wait; delivery and turn triggering differ | Background completion eligibility plus suppression gates inject a prompt |
+| Ownership + cancellation | Session terminal events notify parent; normal V2 skips legacy watcher | Coordinator authorizes active owned child; receiver rechecks delivery capability |
+| Bounds | Execution/residency limits do not bound mailbox depth | 64 active admissions, 8 per child, 32 KiB text; several transports unbounded |
+| Amendments + user authority | This pass establishes no shared dual-writer delegation record | Delivery capability is not a user/delegator amendment conflict model |
+| Projection to user | Typed rollout reconstruction; Attention equivalence unproven | Internal completion origin retained; provider projection becomes `role: user` |
 
-Codex `session/handlers.rs::inter_agent_communication` queues, then considers starting pending
-work for triggering mail **or outstanding durable sleep**. Queue-only does not prevent a sleeping
-task from resuming. `context/inter_agent_message.rs` and its completion counterpart render
-attributed `assistant` fragments. `session/mod.rs::record_inter_agent_communication` persists
-response items and metadata when included in history; this does not prove pending-mail durability.
-The detached completion watcher discards send errors.
-
-Grok `task/active_message.rs` uses `Open → Claimed → Committed` admission; revocation succeeds
-before claim. Protected insertion cannot cross an await. Timeout after claim can yield
-`AdmissionUncertain`; finalization drains admissions and records uncertainty. `Accepted` means
-admitted, not model-consumed. The shell verifies `OwnedActiveDescendantGrant`, identity, content
-and operation before forwarding `ParentAgentMessage`. Completion auto-wake injects a prompt.
-
+[Source evidence](./source-evidence.md) records the pinned code paths, admission transitions,
+completion gates, transport bounds and limits of these claims.
 
 ## Plexmaton fit
 
@@ -53,25 +42,21 @@ and operation before forwarding `ParentAgentMessage`. Completion auto-wake injec
 and summary. Its projection validates both visible agents and emits an event, but creates no mail
 context atom. `Input` has no mail variant; `LiveRuntime` owns one agent. Reusing the existing mail
 event in a recipient-only journal also needs a solution for its both-endpoints validation.
+`journal/projection/events.rs:169` assigns mail transcript ownership to `from`, while
+`journal/compaction.rs:281` selects `to`; resolve that semantic discrepancy before reuse.
+Both paths are in `crates/plexmaton-agent/src/`.
 
-```text
-Agent effect / user intent
-          │
-          ▼
-CollaborationRuntime ── append/ack ── canonical cross-session item log
-          │                                 │
-          │ bounded owned session runners   ├─ inbox / Attention projections
-          ▼                                 │
-recipient LiveRuntime ◀─ pending MailId ─────┘
-          │
-          └─ append boundary + MailId reference ── ack ── model request
-```
+The runtime already gates effects on append acknowledgement
+(`crates/plexmaton-runtime/src/runtime/transition.rs:204`), but JRN-4 makes no fsync promise.
+`ContextAtomValue` has no mail variant (`crates/plexmaton-agent/src/model/context.rs:440`).
+All four provider codecs need an explicit representation decision; existing parity does not prove
+mail wire support.
 
-Proposed rules, unproven in production:
+Admission is defined by [COL-1–COL-5](../../specs/collaboration-ledger.md). Remaining runtime
+integration proposals are unproven:
 
-1. **Acceptance:** one log owns each envelope. `Accepted(MailId)` follows append ack; inclusion
-   and completion are different facts. Retry a sender-scoped identity; refuse conflicting content.
-   Unknown append freezes effects until reopen; preserve JRN-4.
+1. **Acceptance integration:** COL-1/COL-4 own retry and append acknowledgement. Runtime
+   effects must remain behind that boundary under JRN-7; admission alone proves no recipient work.
 2. **Consumption:** recipient journals retain references and exact context boundaries, not payload
    copies. Append boundary and reference atomically before model dispatch. Derive pending delivery
    on recovery; at-least-once retry has idempotent inclusion per execution lineage. This does not
@@ -88,10 +73,9 @@ Proposed rules, unproven in production:
 5. **Bounds:** bound payload, pending bytes, queues, spawn depth and execution independently.
    Reserve completion capacity at delegation admission; progress saturation must not lose
    completion or amendments. Generations reject callbacks from retired executions.
-6. **Amendments:** one revisioned delegation record retains authorship. Refuse stale delegator
-   writes and preserve user authority; revision checks alone do not implement precedence. Include
-   amendments before the delegator's next turn, or hold it. Objections share the item log and
-   Attention projection. No inspected source proves this requirement.
+6. **Amendments:** task authority follows COL-3. Authenticate incoming authors and include
+   amendments before the delegator's next turn, or hold it. Objections must reach Attention from
+   the same item log. Runtime authentication and the pre-turn barrier remain unproven.
 
 ## Prototype and next gate
 
@@ -102,27 +86,25 @@ rustc --edition=2024 --test .agents/spikes/multi-agent-mailbox/mailbox-model.rs 
 /tmp/plexmaton-mailbox-model
 ```
 
-Eight tests passed: handoff crash cuts, recovery without retry, deduplication at capacity,
+The prior prototype run recorded eight passing tests (not rerun in this source-only pass):
+handoff crash cuts, recovery without retry, deduplication at capacity,
 identity conflict, wake/stop, acceptance ordering, close/send order, and lost notification.
-Removing inclusion deduplication makes the crash-cut test fail (mutation check).
+The prior mutation check made the crash-cut test fail by removing inclusion deduplication.
 Assumptions: atomic acknowledged records, one recipient/lineage, two bounded mails. No filesystem,
 Tokio concurrency, provider, UI or production API is exercised.
 
-Next implementation evidence, ordered by dependency:
+Next design gate: settle the durability contract, provider representation and dual-writer authority
+together before fixing implementation order. Authority affects the foundational record schema.
+Distinguish process-crash recovery from power-loss durability, and accepted/included/completed facts.
+Required implementation evidence remains:
 
 - **Storage:** real journals with crash cuts, uncertain writes, retention and branch scope.
 - **Scheduling:** A/B scripted providers, saturation and joined shutdown; responsive primary.
   Decide parent-turn stop versus subtree shutdown and reserved capacity.
 - **Amendments:** race both authors and turn opening, including context-budget failure; prove
   attribution, user precedence and the pre-turn barrier.
-- **Projection:** both codecs preserve provenance; resume adds no synthetic user turn; inbox and
-  Attention share source items. Review three widths when UI changes.
+- **Projection:** all four provider codecs preserve provenance; resume adds no synthetic user
+  turn; inbox and Attention share source items. Review three widths when UI changes.
 
-Phase 03 stays unopened; these questions should slice its implementation.
-
-[c-message]: ../../../../codex/codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs
-[c-queue]: ../../../../codex/codex-rs/core/src/session/input_queue.rs
-[c-control]: ../../../../codex/codex-rs/core/src/agent/control.rs
-[g-coordinator]: ../../../../grok-build/crates/codegen/xai-grok-tools/src/implementations/grok_build/task/coordinator.rs
-[g-message]: ../../../../grok-build/crates/codegen/xai-grok-tools/src/implementations/grok_build/task/coordinator/active_message.rs
-[g-completion]: ../../../../grok-build/crates/codegen/xai-grok-shell/src/agent/subagent/spawn.rs
+[Phase 03](../../phases/phase-03-collaboration.md) has delivered durable admission; scheduling,
+provider projection and the pre-turn authority barrier remain separate implementation gates.

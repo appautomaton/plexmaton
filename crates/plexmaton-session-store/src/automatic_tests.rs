@@ -81,3 +81,85 @@ fn automatic_journal_rejects_extra_bootstrap_without_creating_storage() {
     ));
     assert!(!root.path().join("home").exists());
 }
+
+/// CIN-2/JRN-4: the first collaboration input materializes the same exact bootstrap boundary.
+#[test]
+fn cin_2_automatic_journal_materializes_first_collaboration_turn() {
+    use plexmaton_agent::collaboration::{
+        CollaborationEvent, CollaborationLedger, CollaborationLimits, CollaborationText,
+        MailEndpoint, Preparation,
+    };
+    use plexmaton_core::{
+        CollaborationId, CollaborationItemId, ConversationId, DelegationId, TurnId,
+    };
+    let (root, mut journal, mut agent) = fixture();
+    for record in agent.announce("Plexmaton").records {
+        journal.append(record).expect("bootstrap");
+    }
+    assert!(!root.path().join("home").exists());
+    let mut ledger = CollaborationLedger::new(
+        CollaborationId::new("collaboration").expect("id"),
+        CollaborationLimits::default(),
+    )
+    .expect("ledger");
+    let Preparation::Append(record) = ledger
+        .prepare(
+            CollaborationItemId::new("create").expect("id"),
+            CollaborationEvent::DelegationCreated {
+                delegation: DelegationId::new("task").expect("id"),
+                delegator: MailEndpoint {
+                    conversation: agent.journal().conversation_id().clone(),
+                    agent: AgentId::new("primary").expect("id"),
+                },
+                worker: MailEndpoint {
+                    conversation: ConversationId::new("worker-session").expect("id"),
+                    agent: AgentId::new("worker").expect("id"),
+                },
+                task: CollaborationText::new("Inspect files").expect("task"),
+            },
+        )
+        .expect("create delegation")
+    else {
+        panic!("new record")
+    };
+    ledger.apply(*record).expect("apply creation");
+    let id = CollaborationItemId::new("admitted").expect("id");
+    let boundary = agent
+        .collaboration_boundary(TurnId::new("collaboration-turn").expect("id"))
+        .expect("boundary");
+    let Preparation::Append(record) = ledger
+        .prepare_turn(id.clone(), boundary, None)
+        .expect("prepare")
+    else {
+        panic!("new turn")
+    };
+    ledger.apply(*record).expect("admit");
+    let source = ledger
+        .resolve_turn(&ledger.item_reference(&id).expect("ref"))
+        .expect("source");
+    let reaction = agent
+        .start_collaboration_turn(&source, UnixMillis::new(2345))
+        .expect("start");
+    for record in reaction.records {
+        journal.append(record).expect("persist inclusion");
+    }
+    let path = journal.path().to_path_buf();
+    drop(journal);
+    let reopened = JournalFile::open(&path).expect("reopen");
+    assert_eq!(reopened.journal(), agent.journal());
+    assert!(matches!(
+        reopened
+            .journal()
+            .project(agent.selected_head())
+            .expect("projection")
+            .request()
+            .atoms[0]
+            .value(),
+        plexmaton_agent::ContextAtomValue::Collaboration(_)
+    ));
+    assert!(
+        !std::fs::read_to_string(&path)
+            .expect("session bytes")
+            .contains("Inspect files")
+    );
+}
