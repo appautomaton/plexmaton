@@ -11,6 +11,8 @@ use super::{BodyRegions, COLLAPSED_COMPOSER_HEIGHT};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct InputBlock {
     pub(super) queue: u16,
+    /// Rows below which the band is dropped rather than divided down to a height it cannot use.
+    pub(super) queue_floor: u16,
     pub(super) decision: u16,
     pub(super) composer: u16,
 }
@@ -41,7 +43,10 @@ pub(super) fn split_input(regions: &mut BodyRegions, block: InputBlock) {
         height
     };
     let decision = claim(block.decision);
-    let queue = claim(block.queue);
+    // Floored, not merely clamped. The column can be shorter than the block bid for, and this is
+    // where the band would be cut: chrome cannot scroll, so a band under its floor keeps its title
+    // and loses the messages and the key underneath it. Those rows go to the composer instead.
+    let queue = super::granted(block.queue, block.queue_floor, claim(block.queue));
     let mut top = whole.y;
     let mut place = |height: u16| -> Option<Rect> {
         if height == 0 {

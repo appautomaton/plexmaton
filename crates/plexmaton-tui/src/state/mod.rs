@@ -58,7 +58,7 @@ pub use entry::{
     TranscriptTextKind,
 };
 pub use ingest::{ApplyOutcome, ReduceError};
-pub(crate) use input_queue::queued_lines;
+pub(crate) use input_queue::{QUEUE_RULE_ROWS, queued_lines};
 pub use input_queue::{QueuedBoundary, QueuedInput};
 pub use inspector::InspectorView;
 pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};

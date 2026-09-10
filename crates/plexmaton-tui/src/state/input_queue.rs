@@ -16,6 +16,12 @@ use crate::theme::{Palette, Role};
 /// from the conversation to repeat text the user typed and can still scroll back to.
 pub(crate) const LISTED: usize = 3;
 
+/// The rule the band draws above its body, which is a row of its height but not of its content.
+///
+/// Named once so the height the band asks for and the rows the renderer builds a body into cannot
+/// drift apart by one.
+pub(crate) const QUEUE_RULE_ROWS: u16 = 1;
+
 /// When one waiting message will be sent.
 ///
 /// Named for when it is sent rather than for which queue is holding it: the same message moves
@@ -92,19 +98,48 @@ impl ViewState {
         if self.queued.is_empty() {
             return 0;
         }
-        let lines = queued_lines(self, &Palette::default(), super::inner_width(width)).len();
-        u16::try_from(lines.saturating_add(1)).unwrap_or(u16::MAX)
+        let body = queued_lines(
+            self,
+            &Palette::default(),
+            super::inner_width(width),
+            u16::MAX,
+        );
+        u16::try_from(body.len())
+            .unwrap_or(u16::MAX)
+            .saturating_add(QUEUE_RULE_ROWS)
+    }
+
+    /// Rows below which the band would rather not appear at all.
+    ///
+    /// Its rule, one sending time, one message, the count of the rest and the way back. The band is
+    /// chrome, so rows its content overflows are not somewhere the user can scroll to: a band given
+    /// fewer rows than this would drop the very key it exists to advertise, and go on counting in
+    /// its title messages it had stopped showing.
+    pub(crate) fn queued_floor(&self, width: u16) -> u16 {
+        self.queued_rows(width).min(QUEUE_RULE_ROWS + 4)
     }
 }
 
-/// The band's body: a heading for each sending time, then the messages waiting for it.
-pub(crate) fn queued_lines(state: &ViewState, palette: &Palette, width: u16) -> Vec<Line<'static>> {
+/// The band's body, built to fit `rows`: a heading for each sending time it lists a message for,
+/// then those messages, then a count of every message it did not list, then the way back.
+///
+/// `rows` is what the band was actually granted, which layout may cut below what it asked for. The
+/// band is chrome, so it has no scrollback: content that does not fit is content the user cannot
+/// reach. It therefore lists fewer messages rather than letting the rows below the fold fall off,
+/// and the count keeps covering every message it stopped listing.
+pub(crate) fn queued_lines(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+    rows: u16,
+) -> Vec<Line<'static>> {
     let width = usize::from(width).max(1);
+    let listed = listed_within(&state.queued, rows);
     let mut lines = Vec::new();
     let mut heading: Option<QueuedBoundary> = None;
-    let mut listed = 0;
-    let mut held = 0;
-    for entry in &state.queued {
+    // Only above a message that is listed: a sending time with nothing under it names a queue the
+    // band is not showing, and would take the row that would have shown one of its messages.
+    for entry in state.queued.iter().take(listed) {
         if heading != Some(entry.boundary) {
             heading = Some(entry.boundary);
             lines.push(Line::from(Span::styled(
@@ -112,21 +147,18 @@ pub(crate) fn queued_lines(state: &ViewState, palette: &Palette, width: u16) -> 
                 palette.style(Role::SectionHeading),
             )));
         }
-        if listed >= LISTED {
-            held += 1;
-            continue;
-        }
-        listed += 1;
         lines.push(entry_line(&entry.text, palette, width));
     }
+    let held = state.queued.len().saturating_sub(listed);
     if held > 0 {
         lines.push(Line::from(Span::styled(
             format!("… {held} more waiting"),
             palette.style(Role::Muted),
         )));
     }
-    // The way back, printed where the messages are. A queue the user can read but cannot undo is
-    // worse than one they never see: showing it is what makes them expect to be able to act on it.
+    // The way back, printed where the messages are, and the last row the band gives up. A queue the
+    // user can read but cannot undo is worse than one they never see: showing it is what makes them
+    // expect to be able to act on it.
     lines.push(Line::from(vec![
         Span::styled("Alt-↑".to_owned(), palette.style(Role::KeyHint)),
         Span::styled(
@@ -135,6 +167,35 @@ pub(crate) fn queued_lines(state: &ViewState, palette: &Palette, width: u16) -> 
         ),
     ]));
     lines
+}
+
+/// The most messages the band can list in `rows` and still say what it left out.
+///
+/// Tried longest first over at most [`LISTED`] candidates, because a heading is only paid for by
+/// the run of messages under it: dropping one message can free two rows or none.
+fn listed_within(queued: &[QueuedInput], rows: u16) -> usize {
+    // Its row comes off the top: the way back is the one line the band never trades for a message.
+    let budget = usize::from(rows).saturating_sub(1);
+    (0..=LISTED.min(queued.len()))
+        .rev()
+        .find(|&listed| body_rows(queued, listed) <= budget)
+        .unwrap_or(0)
+}
+
+/// Rows a body listing the first `listed` messages needs, the way back excluded.
+///
+/// Walked the way the body is built, so the two cannot disagree about what a heading costs.
+fn body_rows(queued: &[QueuedInput], listed: usize) -> usize {
+    let mut heading: Option<QueuedBoundary> = None;
+    let mut rows = 0;
+    for entry in queued.iter().take(listed) {
+        if heading != Some(entry.boundary) {
+            heading = Some(entry.boundary);
+            rows += 1;
+        }
+        rows += 1;
+    }
+    rows + usize::from(listed < queued.len())
 }
 
 /// One message on one row: a marker, then as much of its exact text as the row holds.
@@ -188,7 +249,7 @@ mod tests {
             6,
             "rule, heading, three entries and the way back"
         );
-        let lines: Vec<_> = super::queued_lines(&many, &Palette::default(), 78)
+        let lines: Vec<_> = super::queued_lines(&many, &Palette::default(), 78, u16::MAX)
             .iter()
             .map(ToString::to_string)
             .collect();
@@ -211,7 +272,7 @@ mod tests {
             boundary: QueuedBoundary::Turn,
         }]);
 
-        let lines = super::queued_lines(&state, &Palette::default(), 40);
+        let lines = super::queued_lines(&state, &Palette::default(), 40, u16::MAX);
         assert_eq!(lines.len(), 3, "one heading, one entry and the way back");
         assert_eq!(lines[1].to_string(), "↳ first second");
         assert_eq!(state.queued_rows(42), 4);
@@ -225,7 +286,7 @@ mod tests {
         queued.extend(waiting(1, QueuedBoundary::Turn));
         state.set_queued_input(queued);
 
-        let lines: Vec<_> = super::queued_lines(&state, &Palette::default(), 60)
+        let lines: Vec<_> = super::queued_lines(&state, &Palette::default(), 60, u16::MAX)
             .iter()
             .map(ToString::to_string)
             .collect();
@@ -240,6 +301,80 @@ mod tests {
                 "Alt-↑ takes back the last one",
             ]
         );
+    }
+
+    /// IQU-2: a sending time is named only above a message the band is actually showing.
+    ///
+    /// Emit the heading before the listing guard and this fails: a queue whose messages run out
+    /// mid-band prints a sending time with nothing under it, and the count beneath that heading
+    /// then covers messages belonging to the heading above.
+    #[test]
+    fn a_sending_time_the_band_stopped_listing_is_counted_rather_than_named() {
+        let mut state = ViewState::default();
+        let mut queued = waiting(LISTED + 1, QueuedBoundary::Turn);
+        queued.extend(waiting(1, QueuedBoundary::Admission));
+        state.set_queued_input(queued);
+
+        let lines: Vec<_> = super::queued_lines(&state, &Palette::default(), 60, u16::MAX)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "Sends when this turn ends",
+                "↳ message 0",
+                "↳ message 1",
+                "↳ message 2",
+                "… 2 more waiting",
+                "Alt-↑ takes back the last one",
+            ],
+            "no heading without a message, and the count covers both queues"
+        );
+    }
+
+    /// IQU-2: cut below what it asked for, the band lists less rather than losing its bottom rows.
+    ///
+    /// The band is chrome, so nothing it paints past its rectangle can be scrolled to. Build the
+    /// body without consulting the rows it was granted and this fails at every height: the way back
+    /// is the first line off the bottom, and the title goes on counting messages nobody can see.
+    #[test]
+    fn a_band_cut_short_drops_messages_before_it_drops_the_way_back() {
+        let mut state = ViewState::default();
+        state.set_queued_input(waiting(4, QueuedBoundary::Turn));
+        let asked = state.queued_rows(80);
+        assert_eq!(
+            asked, 7,
+            "the rule, a heading, three messages, the count and the way back"
+        );
+
+        for granted in state.queued_floor(80)..=asked {
+            let body = granted.saturating_sub(super::QUEUE_RULE_ROWS);
+            let lines: Vec<_> = super::queued_lines(&state, &Palette::default(), 78, body)
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            assert!(
+                lines.len() <= usize::from(body),
+                "granted {granted}: {} lines do not fit {body} rows",
+                lines.len()
+            );
+            assert_eq!(
+                lines.last().map(String::as_str),
+                Some("Alt-↑ takes back the last one"),
+                "granted {granted}: the way back is the row the band never gives up"
+            );
+            let listed = lines.iter().filter(|line| line.starts_with('↳')).count();
+            let counted: usize = lines
+                .iter()
+                .find_map(|line| line.strip_prefix("… ")?.split_once(' ')?.0.parse().ok())
+                .unwrap_or(0);
+            assert_eq!(
+                listed + counted,
+                4,
+                "granted {granted}: every waiting message is listed or counted"
+            );
+        }
     }
 
     /// IQU-4: the key is inert with nothing waiting, and it names the conversation it belongs to.

@@ -1333,4 +1333,47 @@ mod tests {
             crate::test_support::assert_frame(name, &drawn);
         }
     }
+
+    /// IQU-2: wherever the band appears, everything it is for is on screen.
+    ///
+    /// The band is chrome, so a row past its rectangle is a row with no way to reach it. Let layout
+    /// hand it whatever is spare and this fails from 13 rows up: the band keeps its title, counting
+    /// four waiting messages over a body clipped to a heading and the key that takes them back.
+    #[test]
+    fn a_registered_band_shows_every_waiting_message_and_the_way_back() {
+        for width in [60u16, 80, 120, 160] {
+            for height in crate::layout::MIN_HEIGHT..=44 {
+                let mut state = current_responding_state();
+                state.set_queued_input(
+                    (0..4)
+                        .map(|index| crate::QueuedInput {
+                            text: format!("waiting message number {index}"),
+                            boundary: crate::QueuedBoundary::Turn,
+                        })
+                        .collect(),
+                );
+                let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+                let Some(band) = surfaces.get(SurfaceId::QueuedInput) else {
+                    continue;
+                };
+                let at = format!("{width}x{height}");
+                let painted = region_text(&buffer, band.bounds);
+                assert!(
+                    painted.contains("takes back the last one"),
+                    "{at}: the band advertises a key it then clipped\n{painted}"
+                );
+                let listed = painted.matches('↳').count();
+                let counted: usize = painted
+                    .split_once("… ")
+                    .and_then(|(_, rest)| rest.split_once(' '))
+                    .and_then(|(count, _)| count.parse().ok())
+                    .unwrap_or(0);
+                assert_eq!(
+                    listed + counted,
+                    4,
+                    "{at}: the band showed {listed} and counted {counted} of four\n{painted}"
+                );
+            }
+        }
+    }
 }

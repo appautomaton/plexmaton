@@ -98,6 +98,8 @@ pub struct WorkspaceInput {
     pub decision_rows: u16,
     /// Rows the waiting-input band asks for, divider included. Zero registers no region at all.
     pub queue_rows: u16,
+    /// Rows below which the band would rather not be registered than be registered too short.
+    pub queue_floor: u16,
     /// Primary approvals are inline inputs; a user-opened background request can be modal.
     pub decision_mode: DecisionMode,
     /// A user-opened command inspection overlays the approval without deciding it.
@@ -124,6 +126,7 @@ impl Default for WorkspaceInput {
             attention: 0,
             decision_rows: 0,
             queue_rows: 0,
+            queue_floor: 0,
             decision_mode: DecisionMode::Inline,
             command_inspection: false,
             drawer_rows: 0,
@@ -196,7 +199,9 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     // and a draft is typed, while this reports what the user already said. It takes its rows from
     // the conversation rather than from the top of the screen because the user's own `Enter` is
     // what puts it there, and it belongs beside the composer they pressed it in.
-    let queue_height = input.queue_rows.min(
+    let queue_height = granted(
+        input.queue_rows,
+        input.queue_floor,
         budget.saturating_sub(
             composer_height
                 .saturating_add(decision_height)
@@ -242,6 +247,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
             composer: composer_height,
             decision: decision_height,
             queue: queue_height,
+            queue_floor: input.queue_floor,
         },
         input.rail,
     );
@@ -298,6 +304,7 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
         inspector,
         InputBlock {
             queue: 0,
+            queue_floor: 0,
             decision: 0,
             composer: MIN_PANEL_HEIGHT,
         },
@@ -464,6 +471,16 @@ fn body_regions(
     };
     split_input(&mut placed, block);
     placed
+}
+
+/// Rows a band that cannot scroll may have: what fits in `room`, or none if that is below `floor`.
+///
+/// Chrome has no scrollback, so a band handed fewer rows than it can say anything in does not
+/// degrade — it goes on titling a queue whose messages and whose way back have both fallen off the
+/// bottom. Below its floor the honest answer is the rows back, and the band absent.
+pub(super) const fn granted(want: u16, floor: u16, room: u16) -> u16 {
+    let height = if want < room { want } else { room };
+    if height < floor { 0 } else { height }
 }
 
 /// Takes `want` rows if what remains still clears `floor`, and none at all otherwise.
@@ -924,6 +941,9 @@ mod tests {
                 WorkspaceInput {
                     decision_rows: 6,
                     queue_rows: 5,
+                    // Paired the way the projection pairs them, so a band that fits nothing is
+                    // absent here as it is on screen rather than present at whatever was spare.
+                    queue_floor: 5,
                     ..input(false)
                 },
             );

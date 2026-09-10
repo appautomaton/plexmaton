@@ -184,6 +184,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         attention: state.attention_listed_count(),
         decision_rows: state.decision_rows(composer_width),
         queue_rows: state.queued_rows(composer_width),
+        queue_floor: state.queued_floor(composer_width),
         command_inspection: state.command_inspection_open(),
         decision_mode: if state.approval_in_primary() {
             layout::DecisionMode::Inline
@@ -228,7 +229,16 @@ pub(super) fn queued_input_panel(state: &ViewState, palette: &Palette, bounds: R
         body: Body::Whole {
             // Straight from the state that owns the queue: this band has no presentation of
             // its own to add, and `content` describes regions whose text is assembled here.
-            lines: crate::state::queued_lines(state, palette, inner_width(bounds.width)),
+            //
+            // Built to the rows the band was granted rather than to what it asked for. Chrome has
+            // no scrollback, so a body longer than its rectangle is a body with rows nobody can
+            // reach; the band lists fewer messages instead and keeps counting the rest.
+            lines: crate::state::queued_lines(
+                state,
+                palette,
+                inner_width(bounds.width),
+                bounds.height.saturating_sub(crate::state::QUEUE_RULE_ROWS),
+            ),
             // Oldest first: the top line is the message that will be sent next.
             follows_tail: false,
         },

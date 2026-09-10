@@ -25,8 +25,15 @@ conversation and the decision region, in the same box as the composer, because t
 `Enter` put it there. It bids for rows after both inputs and takes none from either; its rows come
 out of the conversation, and it takes none at all rather than leave a conversation too short to
 read. Its height follows what it lists, not what is waiting or how much was typed: one row per
-entry, at most three listed, one heading per place a message is waiting, and a count of whatever is
-not listed.
+entry, at most three listed, one heading per place a message it lists is waiting, and a count of
+every entry it did not list.
+
+Cut below what it asked for, it lists fewer entries rather than losing the rows off its bottom, and
+the count grows to cover them; below its floor — its rule, one heading, one entry, that count and
+the way back — it takes no rows at all. It is chrome, so a row past its rectangle is a row with no
+way to reach it: what it cannot show it must count, and the way back is the last row it gives up.
+Rejected: letting the rows it was granted simply clip its content, which drops the key in IQU-3
+first and leaves the title counting messages the band has stopped showing.
 
 **IQU-3 — The way back is a key on the composer, not a surface.** The band stays chrome: never a
 focus stop, never a pointer target (SURF-3). `Alt-↑`, pressed with the cursor in the composer, is
@@ -51,10 +58,10 @@ them at once.
 
 | Invariant | Proven by |
 | --- | --- |
-| IQU-1 | `a_message_typed_mid_turn_is_reported_until_its_boundary_claims_it`, `every_boundary_names_itself_once_above_its_own_entries`, `waiting_input_is_reported_above_the_composer_at_every_width` with the `input-queue-*` frames |
-| IQU-2 | `the_waiting_band_yields_to_both_inputs_and_to_a_readable_conversation`, `height_is_bounded_by_what_is_listed_rather_than_by_what_is_waiting`, `a_multiline_message_occupies_one_row_without_joining_its_lines`, `waiting_input_is_reported_above_the_composer_at_every_width` |
+| IQU-1 | `a_message_typed_mid_turn_is_reported_until_its_boundary_claims_it`, `input_held_by_an_owned_operation_is_reported_and_taken_back_newest_first`, `every_boundary_names_itself_once_above_its_own_entries`, `waiting_input_is_reported_above_the_composer_at_every_width` with the `input-queue-*` frames |
+| IQU-2 | `the_waiting_band_yields_to_both_inputs_and_to_a_readable_conversation`, `height_is_bounded_by_what_is_listed_rather_than_by_what_is_waiting`, `a_multiline_message_occupies_one_row_without_joining_its_lines`, `a_sending_time_the_band_stopped_listing_is_counted_rather_than_named`, `a_band_cut_short_drops_messages_before_it_drops_the_way_back`, `a_registered_band_shows_every_waiting_message_and_the_way_back`, `waiting_input_is_reported_above_the_composer_at_every_width` |
 | IQU-3 | `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `every_registered_surface_is_drawn_inside_its_own_bounds`, `alt_up_takes_back_the_last_waiting_message_and_a_bare_arrow_still_moves_the_caret`, `the_way_back_is_inert_until_something_waits_and_then_names_the_primary` |
-| IQU-4 | `the_newest_waiting_message_comes_back_with_its_exact_text`, `taking_a_message_back_leaves_the_running_turn_alone`, `the_way_back_is_inert_until_something_waits_and_then_names_the_primary`, `a_live_dispatch_restores_undelivered_user_text` for the composer it lands in |
+| IQU-4 | `the_newest_waiting_message_comes_back_with_its_exact_text`, `input_held_by_an_owned_operation_is_reported_and_taken_back_newest_first`, `taking_a_message_back_leaves_the_running_turn_alone`, `the_way_back_is_inert_until_something_waits_and_then_names_the_primary`, `a_live_dispatch_restores_undelivered_user_text` for the composer it lands in |
 
 Reviewed frames: [wide](../../crates/plexmaton-tui/frames/input-queue-wide.txt),
 [medium](../../crates/plexmaton-tui/frames/input-queue-medium.txt),
@@ -68,3 +75,9 @@ mid-turn `Enter` should steer instead is a contract question, not an implementat
 
 Reordering the queue, and sending a waiting message early. Both need the band to become a surface
 the user can point at a row of, which IQU-3 declines until a queue that deep is real.
+
+The one message a skill file read is running for. It waits apart from the queue the runtime reports,
+so between its `Enter` and the read settling it is not in the band and `Alt-↑` does not reach it;
+messages submitted behind it do appear, as waiting on that operation. Showing it without being able
+to take it back would break IQU-4, and taking it back means cancelling a read this mechanism does
+not own.

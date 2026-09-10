@@ -17,7 +17,10 @@ pub enum QueuedBoundary {
     Step,
     /// As a new turn, once this one ends (LOOP-6).
     Turn,
-    /// Not yet given to the agent: a compaction or a skill file read is still running (CPL-9).
+    /// Not yet given to the agent, because an operation this runtime owns is running (CPL-9).
+    ///
+    /// The one message a skill file read is being performed *for* is not here: it is held apart
+    /// until the read settles, and only the messages queued behind it wait in this queue.
     Admission,
 }
 

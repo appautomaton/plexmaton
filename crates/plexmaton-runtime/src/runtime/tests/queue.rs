@@ -170,3 +170,98 @@ async fn taking_a_message_back_leaves_the_running_turn_alone() {
         "the answer the user was waiting for still arrives"
     );
 }
+
+/// IQU-1/IQU-4: input this runtime is still holding is reported, and taken back, as its own place.
+///
+/// A compaction the user asked for owns the agent until its checkpoint, so everything submitted
+/// meanwhile waits here rather than in a queue the agent has (CPL-9). Read only the agent's two
+/// queues and this fails: the band reports nothing while two messages wait, and `Alt-↑` has
+/// nothing to take back.
+#[tokio::test]
+async fn input_held_by_an_owned_operation_is_reported_and_taken_back_newest_first() {
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let driver = super::compaction::CompactionDriver::new(
+        [Script::Events(vec![
+            text_delta(&super::compaction::large_answer()),
+            ModelEvent::Stopped(StopReason::EndOfTurn),
+        ])],
+        [super::compaction::SummaryScript::WaitForCancellation(
+            std::sync::Arc::clone(&cancelled),
+        )],
+    );
+    let mut runtime = runtime(driver.clone());
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "seed".to_owned(),
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("seed: {error}"));
+    let _events = finish_active(&mut runtime).await;
+    driver.enable();
+    match runtime
+        .request_compaction(agent_id())
+        .await
+        .unwrap_or_else(|error| panic!("request compaction: {error}"))
+    {
+        crate::CompactionRequest::Started { .. } => {}
+        crate::CompactionRequest::Refused(refusal) => panic!("idle request refused: {refusal:?}"),
+    }
+
+    for text in ["older waiting", "newest waiting"] {
+        runtime
+            .submit(
+                agent_id(),
+                Input::Submitted {
+                    text: text.to_owned(),
+                },
+            )
+            .await
+            .unwrap_or_else(|error| panic!("submit {text}: {error}"));
+    }
+    assert_eq!(
+        runtime
+            .queued_input()
+            .map(|queued| (queued.text.to_owned(), queued.boundary))
+            .collect::<Vec<_>>(),
+        [
+            ("older waiting".to_owned(), QueuedBoundary::Admission),
+            ("newest waiting".to_owned(), QueuedBoundary::Admission),
+        ],
+        "held input is reported in arrival order, as waiting on the operation"
+    );
+
+    let report = runtime
+        .withdraw_queued(&agent_id())
+        .unwrap_or_else(|error| panic!("withdraw: {error}"));
+    assert_eq!(
+        report
+            .undelivered
+            .iter()
+            .map(|input| (input.text.clone(), input.reason))
+            .collect::<Vec<_>>(),
+        [(
+            "newest waiting".to_owned(),
+            plexmaton_agent::UndeliveredReason::Withdrawn
+        )]
+    );
+    assert_eq!(
+        runtime
+            .queued_input()
+            .map(|queued| queued.text.to_owned())
+            .collect::<Vec<_>>(),
+        ["older waiting".to_owned()],
+        "the operation still holds the one the user did not name"
+    );
+
+    runtime
+        .shutdown()
+        .await
+        .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    assert!(
+        cancelled.load(std::sync::atomic::Ordering::SeqCst),
+        "the compaction that was holding the input is cancelled and joined"
+    );
+}
