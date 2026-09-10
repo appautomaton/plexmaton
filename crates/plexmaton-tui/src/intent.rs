@@ -205,6 +205,8 @@ pub enum TuiIntent {
     Approval(ApprovalIntent),
     /// Read or copy the exact pending command without changing its approval.
     InspectCommand(CommandInspectionIntent),
+    /// `Alt-↑`: take the most recently submitted waiting message back into the composer (IQU-4).
+    WithdrawQueued,
     /// Act on the selection.
     Selection(SelectionIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.

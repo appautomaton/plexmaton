@@ -18,6 +18,7 @@ pub(super) fn beside_conversation(body: Rect, rail: u16) -> BodyRegions {
         inspector_floats: false,
         composer: Rect::default(),
         decision: None,
+        queue: None,
         drawer: None,
         command_inspection: None,
     }

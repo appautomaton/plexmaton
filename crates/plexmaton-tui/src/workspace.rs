@@ -44,6 +44,7 @@ mod effort_tests;
 mod hover;
 #[cfg(test)]
 mod hover_tests;
+mod input_queue;
 #[cfg(test)]
 mod markdown_tests;
 #[cfg(test)]
@@ -115,6 +116,9 @@ pub struct Outcome {
     pub effort: Option<EffortChange>,
     /// An exact model selection captured for this conversation.
     pub model: Option<ModelChange>,
+    /// The conversation whose most recent waiting message the user took back (IQU-4). Only the
+    /// runtime owns that queue, so the workspace asks rather than removing anything itself.
+    pub withdrawn: Option<AgentId>,
 }
 
 /// Model selection captured at explicit confirmation.
@@ -160,6 +164,7 @@ impl Outcome {
             command: None,
             effort: None,
             model: None,
+            withdrawn: None,
         }
     }
 }
@@ -498,6 +503,7 @@ impl Workspace {
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::InspectCommand(action) => return self.inspect_command(action),
+            TuiIntent::WithdrawQueued => return self.withdraw_queued(),
             TuiIntent::Approval(approval) => {
                 return Outcome {
                     approval: self.decide_visible_approval(approval),

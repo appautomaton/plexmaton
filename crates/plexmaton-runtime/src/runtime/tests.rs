@@ -323,6 +323,7 @@ mod effort;
 mod lifecycle;
 mod persistence;
 mod presentation;
+mod queue;
 mod requested_compaction;
 mod retry;
 mod skill_control;

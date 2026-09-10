@@ -177,7 +177,8 @@ impl Agent {
             | UndeliveredReason::StepBudgetReached
             | UndeliveredReason::QueueFull
             | UndeliveredReason::SkillUnavailable
-            | UndeliveredReason::PersistenceFailed => {
+            | UndeliveredReason::PersistenceFailed
+            | UndeliveredReason::Withdrawn => {
                 unreachable!("only terminal abort reasons reach this transition")
             }
         };

@@ -19,6 +19,7 @@ mod effort;
 mod entry;
 mod focus;
 mod ingest;
+mod input_queue;
 mod inspect;
 mod inspector;
 mod notices;
@@ -57,6 +58,8 @@ pub use entry::{
     TranscriptTextKind,
 };
 pub use ingest::{ApplyOutcome, ReduceError};
+pub(crate) use input_queue::queued_lines;
+pub use input_queue::{QueuedBoundary, QueuedInput};
 pub use inspector::InspectorView;
 pub use notices::{CleanupNotice, NoticeView, PersistenceNotice};
 pub use permissions::PermissionRequest;
@@ -139,6 +142,8 @@ pub struct ViewState {
     model: Option<ConfigurationSummary>,
     /// The agent whose requested compaction the runtime owns right now (CPL-9).
     compacting: Option<AgentId>,
+    /// Submitted input no request carries yet; the composition root replaces it whole.
+    queued: Vec<QueuedInput>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.

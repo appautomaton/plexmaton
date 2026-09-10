@@ -5,11 +5,13 @@
 //! painting and hit testing cannot disagree about where a region is.
 
 mod column;
+mod input_block;
 mod inspector;
 mod registration;
 
 use ratatui::layout::{Constraint, Layout, Rect};
 
+use input_block::{InputBlock, split_input};
 pub use inspector::{InspectorRequest, SteerSplit, steer_split};
 
 use crate::surface::SurfaceTree;
@@ -94,6 +96,8 @@ pub struct WorkspaceInput {
     pub attention: usize,
     /// Rows the decision region asks for, divider included. Zero registers no region at all.
     pub decision_rows: u16,
+    /// Rows the waiting-input band asks for, divider included. Zero registers no region at all.
+    pub queue_rows: u16,
     /// Primary approvals are inline inputs; a user-opened background request can be modal.
     pub decision_mode: DecisionMode,
     /// A user-opened command inspection overlays the approval without deciding it.
@@ -119,6 +123,7 @@ impl Default for WorkspaceInput {
             has_notices: false,
             attention: 0,
             decision_rows: 0,
+            queue_rows: 0,
             decision_mode: DecisionMode::Inline,
             command_inspection: false,
             drawer_rows: 0,
@@ -186,7 +191,21 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     let decision_height = input
         .decision_rows
         .min(budget.saturating_sub(composer_height.saturating_add(MIN_PANEL_HEIGHT)));
-    let input_height = composer_height.saturating_add(decision_height);
+    // The waiting-input band is the third section of the same box, above the decision. It bids
+    // last of the three because it is the only one that is not an input: an approval is answered
+    // and a draft is typed, while this reports what the user already said. It takes its rows from
+    // the conversation rather than from the top of the screen because the user's own `Enter` is
+    // what puts it there, and it belongs beside the composer they pressed it in.
+    let queue_height = input.queue_rows.min(
+        budget.saturating_sub(
+            composer_height
+                .saturating_add(decision_height)
+                .saturating_add(TRANSCRIPT_COMFORT),
+        ),
+    );
+    let input_height = composer_height
+        .saturating_add(decision_height)
+        .saturating_add(queue_height);
     let mut rest = budget.saturating_sub(input_height);
 
     let notice_height = if input.has_notices {
@@ -219,8 +238,11 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         area,
         body,
         input.inspector,
-        composer_height,
-        decision_height,
+        InputBlock {
+            composer: composer_height,
+            decision: decision_height,
+            queue: queue_height,
+        },
         input.rail,
     );
     // Over the body rather than carved from it: the Drawer belongs to the workspace, blocks
@@ -270,9 +292,19 @@ pub fn composer_cap(height: u16) -> u16 {
 pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) -> u16 {
     // `rail: true` is the narrower of the two answers and the one the composer has to survive: a
     // draft wrapped for the wider column would reflow the moment a sub-agent appeared.
-    body_regions(area, area, inspector, MIN_PANEL_HEIGHT, 0, true)
-        .composer
-        .width
+    body_regions(
+        area,
+        area,
+        inspector,
+        InputBlock {
+            queue: 0,
+            decision: 0,
+            composer: MIN_PANEL_HEIGHT,
+        },
+        true,
+    )
+    .composer
+    .width
 }
 
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
@@ -320,6 +352,8 @@ pub(super) struct BodyRegions {
     pub(super) composer: Rect,
     /// The decision region, directly above the composer, while a tool call is waiting on an answer.
     pub(super) decision: Option<Rect>,
+    /// The waiting-input band, above the decision region, while any input has yet to be sent.
+    pub(super) queue: Option<Rect>,
     /// The Drawer, docked to the top edge over the body while it is open.
     pub(super) drawer: Option<Rect>,
     pub(super) command_inspection: Option<Rect>,
@@ -342,14 +376,13 @@ fn body_regions(
     area: Rect,
     body: Rect,
     inspector: Option<InspectorRequest>,
-    composer_height: u16,
-    decision_height: u16,
+    block: InputBlock,
     rail: bool,
 ) -> BodyRegions {
-    // Both inputs are carved from the conversation's column as one block, so the second window's
-    // give-back and the shelf's guarantee are measured against the rows the conversation actually
-    // keeps. The block is split into its two sections once every region has been placed.
-    let input_height = composer_height.saturating_add(decision_height);
+    // All three sections are carved from the conversation's column as one block, so the second
+    // window's give-back and the shelf's guarantee are measured against the rows the conversation
+    // actually keeps. The block is divided once every region has been placed.
+    let input_height = block.total();
     let class = LayoutClass::for_size(area.width, area.height);
     // A roster of nobody is a bordered box saying so, in the column the conversation wanted. The
     // rail earns its rectangle by having something in it; until then the conversation is the
@@ -362,6 +395,7 @@ fn body_regions(
             inspector_floats: false,
             composer: Rect::default(),
             decision: None,
+            queue: None,
             drawer: None,
             command_inspection: None,
         }
@@ -378,6 +412,7 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
+                    queue: None,
                     drawer: None,
                     command_inspection: None,
                 }
@@ -397,6 +432,7 @@ fn body_regions(
                     inspector_floats: false,
                     composer: Rect::default(),
                     decision: None,
+                    queue: None,
                     drawer: None,
                     command_inspection: None,
                 }
@@ -426,35 +462,8 @@ fn body_regions(
         Some(request) => inspector::place_inspector(base, request, class),
         None => base,
     };
-    split_input(&mut placed, decision_height);
+    split_input(&mut placed, block);
     placed
-}
-
-/// Divides the conversation's input block into the decision region and the composer beneath it.
-///
-/// Last, after every region has been placed, because the two sections share one rectangle for
-/// every purpose but painting: one column, one guarantee, one give-back to the second window.
-fn split_input(regions: &mut BodyRegions, decision_height: u16) {
-    let block = regions.composer;
-    let decision_height = decision_height.min(
-        block
-            .height
-            .saturating_sub(COLLAPSED_COMPOSER_HEIGHT)
-            .min(decision_height),
-    );
-    if decision_height == 0 {
-        regions.decision = None;
-        return;
-    }
-    regions.decision = Some(Rect {
-        height: decision_height,
-        ..block
-    });
-    regions.composer = Rect {
-        y: block.y.saturating_add(decision_height),
-        height: block.height.saturating_sub(decision_height),
-        ..block
-    };
 }
 
 /// Takes `want` rows if what remains still clears `floor`, and none at all otherwise.
@@ -529,6 +538,7 @@ mod tests {
             inspector_floats: false,
             composer: Rect::new(0, 4, 60, 3),
             decision: Some(Rect::new(0, 2, 60, 2)),
+            queue: None,
             drawer: None,
             command_inspection: None,
         };
@@ -892,5 +902,56 @@ mod tests {
             degraded.get(SurfaceId::Agents).is_none(),
             "the rail is what yields, and it returns as soon as the rows do"
         );
+    }
+
+    /// IQU-2: the band bids last of the three sections and never takes a row from either input.
+    ///
+    /// Shrink `queue_rows`' clamp so it bids before the decision region and this fails at the
+    /// crowded sizes: the approval loses rows to a report of input that is merely waiting.
+    #[test]
+    fn the_waiting_band_yields_to_both_inputs_and_to_a_readable_conversation() {
+        for (width, height) in SIZES {
+            let area = Rect::new(0, 0, width, height);
+            let quiet = workspace(
+                area,
+                WorkspaceInput {
+                    decision_rows: 6,
+                    ..input(false)
+                },
+            );
+            let crowded = workspace(
+                area,
+                WorkspaceInput {
+                    decision_rows: 6,
+                    queue_rows: 5,
+                    ..input(false)
+                },
+            );
+            let at = |tree: &crate::surface::SurfaceTree, id| tree.get(id).map(|s| s.bounds);
+            assert_eq!(
+                at(&crowded, SurfaceId::Composer),
+                at(&quiet, SurfaceId::Composer),
+                "{width}x{height}: the composer keeps its rows"
+            );
+            assert_eq!(
+                at(&crowded, SurfaceId::Approval),
+                at(&quiet, SurfaceId::Approval),
+                "{width}x{height}: the decision region keeps its rows"
+            );
+            let Some(band) = at(&crowded, SurfaceId::QueuedInput) else {
+                continue;
+            };
+            let conversation = at(&crowded, SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: conversation"));
+            assert_eq!(
+                conversation.bottom(),
+                band.y,
+                "{width}x{height}: the band's rows come out of the conversation"
+            );
+            assert!(
+                conversation.height >= MIN_PANEL_HEIGHT,
+                "{width}x{height}: a band never leaves an unreadable conversation"
+            );
+        }
     }
 }

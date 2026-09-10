@@ -14,8 +14,9 @@ use plexmaton_tui::{
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
-    clipboard::TerminalClipboard, dispatch_live, permission_controls, restore_undelivered, retry,
-    route_approval, route_interrupt, route_submission, session_picker, statusline, stream_frames,
+    clipboard::TerminalClipboard, dispatch_live, input_queue, permission_controls,
+    restore_undelivered, retry, route_approval, route_interrupt, route_submission, session_picker,
+    statusline, stream_frames,
 };
 
 #[cfg(test)]
@@ -43,6 +44,7 @@ where
 {
     let mut frames = stream_frames::StreamFrames::new(Instant::now());
     loop {
+        input_queue::sync(runtime, workspace);
         let copy = workspace.take_copy();
         deliver_copy(copy, clipboard, workspace)?;
         frames
@@ -155,6 +157,14 @@ async fn apply_workspace_outcome(
             status.mark_dirty();
         }
         workspace.report_effort(result);
+    }
+    if let Some(agent) = &outcome.withdrawn {
+        // The queue belongs to the runtime; the workspace only asked. The text comes back through
+        // the same `undelivered` path that already returns messages nothing claimed (IQU-4).
+        match runtime.withdraw_queued(agent) {
+            Ok(report) => restore_undelivered(workspace, agent.clone(), report),
+            Err(error) => return Err(error).context("take back a waiting message"),
+        }
     }
     if let Some(page) = outcome.page {
         open_page(page, workspace, picker, permissions);

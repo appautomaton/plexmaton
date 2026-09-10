@@ -22,6 +22,8 @@ mod journal;
 mod model;
 mod permissions;
 pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
+mod queue;
+pub use queue::{QueuedBoundary, QueuedInput};
 mod owned_future;
 mod retry;
 mod skills;

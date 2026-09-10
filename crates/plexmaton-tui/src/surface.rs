@@ -188,6 +188,11 @@ pub enum SurfaceId {
     /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
     /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
     Attention,
+    /// Submitted input no request carries yet, above the decision region (IQU-3).
+    ///
+    /// Chrome, not a panel: it reports what the user already said and offers nothing to do with it,
+    /// so making it a focus stop and a pointer target would advertise actions it does not have.
+    QueuedInput,
     /// A pending tool approval, inline for the main agent and modal for an explicitly opened background request.
     Approval,
     /// User-opened, read-only inspection of the exact pending shell command.

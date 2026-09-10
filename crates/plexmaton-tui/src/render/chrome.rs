@@ -210,6 +210,20 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'sta
     )
 }
 
+/// The title counts everything waiting, because the list below it shows at most three.
+///
+/// A heading rather than an action-required colour: the user already acted, and the band is
+/// reporting that, not asking for anything.
+pub(super) fn queued_input_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+    let waiting = state.queued_input().len();
+    title(
+        palette,
+        "Waiting to send",
+        Role::SectionHeading,
+        format!(" · {waiting}"),
+    )
+}
+
 pub(super) fn notices_title(state: &ViewState, palette: &Palette) -> Line<'static> {
     let retained = state.notices().count();
     let dropped = state.notices_dropped();

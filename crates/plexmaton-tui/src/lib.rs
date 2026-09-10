@@ -40,10 +40,10 @@ pub use state::{
     ConversationChoice, ConversationPickerStatus, ConversationRequest, ConversationRestoration,
     ConversationTailRepair, CopyReceipt, CopyRequest, Drawer, InspectorView, Listing,
     MAX_CONVERSATION_CHOICES, MailView, ModelChoice, ModelIdentity, NoticeView, Page,
-    PermissionRequest, PersistenceNotice, ReduceError, RetryAction, RetryActions, RetrySubmission,
-    RetryTarget, ScrollPosition, Selection, SkillChoice, SkillChoiceSource, Submission,
-    SubmissionKind, SwitchRefusal, ToolCallView, TranscriptEntryView, TranscriptItemView,
-    TranscriptTextKind, ViewRevision, ViewState,
+    PermissionRequest, PersistenceNotice, QueuedBoundary, QueuedInput, ReduceError, RetryAction,
+    RetryActions, RetrySubmission, RetryTarget, ScrollPosition, Selection, SkillChoice,
+    SkillChoiceSource, Submission, SubmissionKind, SwitchRefusal, ToolCallView,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
 pub use statusline::{StatusLineText, StatusLineTextError};

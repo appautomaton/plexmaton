@@ -64,6 +64,7 @@ impl Workspace {
             | SurfaceId::Composer
             | SurfaceId::Notices
             | SurfaceId::Attention
+            | SurfaceId::QueuedInput
             | SurfaceId::Status => None,
         }
     }

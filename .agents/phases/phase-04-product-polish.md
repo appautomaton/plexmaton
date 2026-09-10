@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–22 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–22 complete; stage 16 effort selection and stage 23 waiting input await the user's review; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -231,6 +231,23 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Six actual [choice/refusal frames](../specs/model-selection.md#rendered-review) were inspected
     at 120/88/60 columns. Refusal frames use the requested Failure color; only error text styling
     changes, with identical text and geometry. Live-provider acceptance is not claimed.
+
+23. **Waiting input — implemented; contract pending.** [IQU-1–IQU-4](../specs/input-queue.md)
+    project the producer's own queues into a band between the conversation and the decision region,
+    so a message submitted while the agent is answering is visible instead of only safe, and
+    `Alt-↑` takes the most recent one back into the composer with its exact text. The queue itself
+    is unchanged: LOOP-6 still owns the boundaries and CPL-9 the admission door, the projection is
+    a snapshot rather than a new event, and a withdrawal writes no record and leaves the running
+    turn alone. Before this, the only way back was `Ctrl-C`, which returns every waiting message
+    but stops the turn to do it. Agent, runtime, router, layout, state and frame tests pass with
+    affected all-target Clippy and the corpus gates. Reviewed frames at
+    [wide](../../crates/plexmaton-tui/frames/input-queue-wide.txt),
+    [medium](../../crates/plexmaton-tui/frames/input-queue-medium.txt) and
+    [narrow](../../crates/plexmaton-tui/frames/input-queue-narrow.txt).
+    The contract has no grammar or state-matrix entry for a waiting message yet; this stage closes
+    when the user has reviewed those frames and [ui-ux](../ui-ux.md) adopts them. Recovering a
+    waiting message into the composer, and whether mid-turn `Enter` should steer the current turn
+    instead of opening the next one, are separate contract questions the spec names and defers.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

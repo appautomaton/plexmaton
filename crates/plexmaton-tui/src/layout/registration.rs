@@ -86,6 +86,15 @@ pub(super) fn surface_tree(
         attention,
         SurfaceKind::Panel,
     );
+    // Above the decision region and below the conversation: the user's own `Enter` put it there,
+    // so it sits beside the composer they pressed it in rather than at the top of the screen with
+    // the strips that arrive on their own.
+    register(
+        &mut tree,
+        SurfaceId::QueuedInput,
+        regions.queue,
+        SurfaceKind::Chrome,
+    );
     // Its own section between the conversation and the composer, not over either: the decision is
     // an input addressed to this conversation, so it lives in that conversation's box
     // (`ui-ux.md` §input) — but answering a tool call and typing the next instruction are two
