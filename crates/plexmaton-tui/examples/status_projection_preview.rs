@@ -1,8 +1,8 @@
 //! Offline review of the supplied script's partial snapshot in the real footer renderer.
 //! cargo run -p plexmaton-tui --example status_projection_preview -- <output-directory>
 use plexmaton_core::{
-    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
-    TranscriptItemId, TranscriptRole,
+    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TranscriptRole,
 };
 use plexmaton_tui::{Palette, StatusLineText, Workspace};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
@@ -80,6 +80,26 @@ fn combined_frame(
         label: "Plexmaton".into(),
         status: AgentStatus::Idle,
     }];
+    for label in ["read_file", "check_layout"] {
+        for (revision, status) in [
+            ToolCallStatus::Queued,
+            ToolCallStatus::Running,
+            ToolCallStatus::Succeeded,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            events.push(ConversationEvent::ToolCallChanged {
+                agent_id: agent.clone(),
+                item_id: TranscriptItemId::new(label)?,
+                item_revision: revision as u64,
+                call_id: ToolCallId::new(label)?,
+                label: label.into(),
+                status,
+                presentation: ToolPresentation::default(),
+            });
+        }
+    }
     for (id, role, text) in [
         (
             "reasoning",
@@ -129,13 +149,31 @@ fn combined_frame(
         .position(|line| line.contains("Answer follows."))
         .ok_or("answer not visible")?;
     assert_eq!(answer, thought + 2, "only one inter-entry blank row");
+    let tool = lines
+        .iter()
+        .position(|line| line.contains("check_layout"))
+        .ok_or("tool not visible")?;
+    assert_eq!(
+        thought,
+        tool + 3,
+        "one tool-group separator before reasoning heading"
+    );
     assert!(
         lines
             .iter()
             .any(|line| line.contains("History incompatible with model · /model"))
     );
     assert!(lines.iter().any(|line| line.contains("↑24.8k")));
-    let top = u16::try_from(thought.saturating_sub(1))?;
+    use ratatui::crossterm::event::{Event, KeyModifiers, MouseEvent, MouseEventKind};
+    workspace.handle(&Event::Mouse(MouseEvent {
+        kind: MouseEventKind::Moved,
+        column: 3,
+        row: u16::try_from(thought)?,
+        modifiers: KeyModifiers::NONE,
+    }));
+    prepared_frame::draw(workspace, terminal)?;
+    let buffer = terminal.backend().buffer();
+    let top = u16::try_from(tool.saturating_sub(1))?;
     let mut crop = Buffer::empty(Rect::new(0, 0, width, 30 - top));
     for y in top..30 {
         for x in 0..width {

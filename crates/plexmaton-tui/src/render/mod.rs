@@ -537,19 +537,14 @@ mod tests {
         viewport: crate::Viewport,
         height: u16,
     ) -> String {
-        let lines: Vec<_> = state
+        let agent = state
             .primary_agent()
-            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"))
-            .entries()
-            .flat_map(|item| {
-                crate::content::transcript_entry(
-                    item,
-                    palette,
-                    crate::state::EntryAppearance::compact(false),
-                    crate::state::inner_width(bounds.width),
-                )
-            })
-            .collect();
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
+        let lines = crate::test_support::conversation_lines(
+            agent,
+            palette,
+            crate::state::inner_width(bounds.width),
+        );
         // The conversation is bare and open at the bottom, so the reference reserves the same
         // blank top row and side columns a box would have spent, and leaves the activity row out.
         let bounds = Rect {

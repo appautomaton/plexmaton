@@ -127,7 +127,7 @@ pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option
     let heading = heading.map_or(0, |(label, _)| {
         crate::text_layout::wrap::count(label, usize::from(width), false)
     });
-    Some(body + heading + 1)
+    Some(body + heading)
 }
 
 #[cfg(test)]
@@ -179,7 +179,6 @@ fn transcript_text_with_prefix(
                         line.treatment = Treatment::SelectionWidth(reserved);
                     }
                 }
-                layout.decoration(Line::default());
                 return (layout, rendered.checkpoint, rendered.reused_prefix);
             }
             Err(reason) => fallback = Some(reason),
@@ -220,7 +219,6 @@ fn transcript_text_with_prefix(
     for line in &mut layout.lines {
         line.treatment = Treatment::SelectionWidth(reserved + usize::from(gutter));
     }
-    layout.decoration(Line::default());
     (layout, None, false)
 }
 

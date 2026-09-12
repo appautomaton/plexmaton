@@ -12,6 +12,7 @@ use std::{collections::BTreeMap, ops::Range};
 mod feedback;
 mod native;
 mod preparation;
+pub(crate) mod spacing;
 mod window;
 pub(crate) use window::Window;
 use window::trim_scroll_prefix;
@@ -66,6 +67,7 @@ struct Measured {
     retry: Option<crate::RetryTarget>,
     compact_rows: usize,
     body_rows: usize,
+    spacing: spacing::Spacing,
     rows: usize,
     origin: preparation::HeightOrigin,
 }
@@ -153,7 +155,8 @@ impl TranscriptMetrics {
             return 0;
         };
         let mut count = 0_usize;
-        for item in agent.entries() {
+        let mut items = agent.entries().peekable();
+        while let Some(item) = items.next() {
             let open = disclosure.is_open(item.id());
             let note = agent.note_for(item.id());
             let permission_saved = item.saved_project_permission().is_some();
@@ -197,6 +200,7 @@ impl TranscriptMetrics {
                     leading_rows,
                     compact_rows,
                     body_rows,
+                    spacing: spacing::Spacing::default(),
                     origin,
                     rows: body_rows.saturating_add(feedback_rows),
                 };
@@ -212,6 +216,18 @@ impl TranscriptMetrics {
                     Some(slot) => *slot = measured,
                     None => entries.push(measured),
                 }
+            }
+            if let Some(entry) = entries.get_mut(count) {
+                let spacing = spacing::Spacing::between(
+                    item,
+                    items.peek().copied(),
+                    retry.is_some()
+                        || permission_saved
+                        || matches!(note, Some((FeedbackPlacement::After, _))),
+                    width,
+                );
+                entry.rows = entry.rows - entry.spacing.rows() + spacing.rows();
+                entry.spacing = spacing;
             }
             count = count.saturating_add(1);
         }
@@ -300,7 +316,9 @@ impl TranscriptMetrics {
     ) -> Option<&TranscriptItemId> {
         let (index, inside) = self.locate(agent_id, width, row)?;
         let measured = self.items(agent_id, width).get(index)?;
-        (measured.retry.is_some() && inside == measured.leading_rows + measured.compact_rows)
+        (measured.retry.is_some()
+            && inside
+                == measured.leading_rows + measured.compact_rows + measured.spacing.before_feedback)
             .then_some(&measured.id)
     }
 
@@ -328,7 +346,7 @@ impl TranscriptMetrics {
             .map(|entry| entry.rows)
             .sum::<usize>()
             + entry.leading_rows;
-        Some(start..start.saturating_add(entry.compact_rows))
+        Some(start..start.saturating_add(entry.compact_rows + entry.spacing.before_feedback))
     }
 
     /// The row a position resolves to at `width`.
@@ -397,11 +415,17 @@ impl TranscriptMetrics {
                     .saturating_sub(body_start),
             };
             start = start.saturating_add(measured.rows);
+            let spacing = measured.spacing;
             let feedback =
                 feedback::EntryFeedback::new(agent, item, palette, state.retry_hovered(item.id()));
             lines.extend(feedback.before);
             lines.extend(self.paint_entry(item, palette, window, state, surface, position));
+            lines.extend(std::iter::repeat_n(
+                Line::default(),
+                spacing.before_feedback,
+            ));
             lines.extend(feedback.after);
+            lines.extend(std::iter::repeat_n(Line::default(), spacing.after_feedback));
         }
         self.built = self.built.saturating_add(lines.len());
         let skip_rows = trim_scroll_prefix(&mut lines, window.skip_rows, window.width);
@@ -505,8 +529,8 @@ mod tests {
 
     use super::{MEASURED_WIDTHS, TranscriptMetrics, TranscriptPosition};
     use crate::{
-        AgentView, ViewState, content,
-        state::{EntryAppearance, EntryTarget},
+        AgentView, ViewState,
+        state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
         test_support::Conversation,
         theme::Palette,
@@ -727,9 +751,7 @@ mod tests {
 
     /// TR-1's arithmetic premise: per-item heights sum to the height of the whole.
     ///
-    /// Wrapping is per logical line, so an item's rows do not depend on its neighbours. That is what
-    /// lets a frame measure items separately and still know the true content height — if it were
-    /// false, every offset in the workspace would be off by the error.
+    /// Body wrapping is independent of neighbours; TR-6 adds the composition-owned separators.
     #[test]
     fn item_heights_sum_to_the_height_of_the_whole_conversation() {
         let palette = Palette::default();
@@ -739,17 +761,7 @@ mod tests {
 
         for width in [24_u16, 46, 118] {
             metrics.measure(agent(state), &palette, width);
-            let whole: Vec<_> = agent(state)
-                .entries()
-                .flat_map(|item| {
-                    content::transcript_entry(
-                        item,
-                        &palette,
-                        EntryAppearance::compact(false),
-                        width,
-                    )
-                })
-                .collect();
+            let whole = crate::test_support::conversation_lines(agent(state), &palette, width);
             let together = Paragraph::new(whole)
                 .wrap(Wrap { trim: false })
                 .line_count(width);

@@ -42,6 +42,7 @@ pub(super) struct PaintedEntry {
     pub(super) surface: SurfaceId,
     pub(super) index: usize,
     pub(super) start: usize,
+    pub(super) separator_rows: usize,
     pub(super) layout: Arc<Layout>,
 }
 
@@ -60,6 +61,11 @@ pub(super) fn measure_entry(
     prepared: Result<Option<&PreparedEntry>, Refusal>,
     previous: Option<&Measured>,
 ) -> (usize, usize, HeightOrigin) {
+    let placeholder = if matches!(item, TranscriptEntryView::Text(_)) {
+        1
+    } else {
+        2
+    };
     let rich = matches!(item, TranscriptEntryView::Text(text)
         if text.role == plexmaton_core::TranscriptRole::Assistant
             && text.kind == crate::TranscriptTextKind::Message
@@ -75,23 +81,23 @@ pub(super) fn measure_entry(
                     let compact = if !open {
                         rows
                     } else if rich {
-                        2
+                        placeholder
                     } else {
                         wrap_rows(item, palette, width, false)
                     };
                     (compact, rows, origin)
                 }
-                Err(_) => (2, 2, origin),
+                Err(_) => (placeholder, placeholder, origin),
             };
         }
-        Err(_) => return (2, 2, HeightOrigin::Unadmitted),
+        Err(_) => return (placeholder, placeholder, HeightOrigin::Unadmitted),
         Ok(None) => {}
     }
     if matches!(item, TranscriptEntryView::Text(text) if text.source.len() > 192 * 1024) {
-        return (2, 2, HeightOrigin::Estimated);
+        return (placeholder, placeholder, HeightOrigin::Estimated);
     }
     let compact = if rich {
-        2
+        placeholder
     } else {
         wrap_rows(item, palette, width, false)
     };
@@ -100,14 +106,14 @@ pub(super) fn measure_entry(
         // height across an evicted stream revision avoids collapsing its visible placeholder.
         let rows = previous
             .filter(|old| &old.id == item.id())
-            .map_or(2, |old| old.body_rows);
+            .map_or(placeholder, |old| old.body_rows);
         (
             if open { compact } else { rows },
             rows,
             HeightOrigin::Estimated,
         )
     } else if compact > crate::markdown::MAX_LINES + 1 {
-        (2, 2, HeightOrigin::Estimated)
+        (placeholder, placeholder, HeightOrigin::Estimated)
     } else {
         (compact, compact, HeightOrigin::Literal)
     }
@@ -194,8 +200,8 @@ impl TranscriptMetrics {
             (entry.surface == surface
                 && &entry.key.agent == agent
                 && entry.key.width == width
-                && inside < entry.layout.rows.len())
-            .then_some((entry.index, &entry.key, inside, entry.layout.as_ref()))
+                && inside < entry.layout.rows.len() + entry.separator_rows)
+                .then_some((entry.index, &entry.key, inside, entry.layout.as_ref()))
         })
     }
 
@@ -219,6 +225,7 @@ impl TranscriptMetrics {
         );
         let measured = &self.items(&agent, window.width)[position.index];
         let rows = measured.body_rows;
+        let separator_rows = measured.spacing.rows();
         let prepared = self.layouts.mapped(&agent, item, window.width, appearance);
         let failure = match prepared {
             Ok(Some(PreparedEntry {
@@ -250,6 +257,7 @@ impl TranscriptMetrics {
                         surface,
                         index: position.index,
                         start: position.start,
+                        separator_rows,
                         layout: layout.clone(),
                     });
                     self.drawing_text.bytes += bytes;

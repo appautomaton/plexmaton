@@ -41,6 +41,8 @@ mod drawer;
 mod effort;
 #[cfg(test)]
 mod effort_tests;
+#[cfg(test)]
+mod group_spacing_tests;
 mod hover;
 #[cfg(test)]
 mod hover_tests;
@@ -2342,17 +2344,7 @@ mod tests {
             .state
             .agent(agent)
             .unwrap_or_else(|| panic!("the fixture created {agent}"));
-        let lines: Vec<_> = agent
-            .entries()
-            .flat_map(|item| {
-                crate::content::transcript_entry(
-                    item,
-                    &palette,
-                    crate::state::EntryAppearance::compact(false),
-                    width,
-                )
-            })
-            .collect();
+        let lines = crate::test_support::conversation_lines(agent, &palette, width);
         ratatui::widgets::Paragraph::new(lines)
             .wrap(ratatui::widgets::Wrap { trim: false })
             .line_count(width)

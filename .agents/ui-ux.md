@@ -475,6 +475,10 @@ carries identity and status but is never the only carrier:
 Waiting input is separate conversation chrome under IQU-1–IQU-4, not a transcript entry; it
 becomes history only when its delivery boundary accepts it.
 
+Consecutive compact tools form one tight group. A tool group and a message, or two messages,
+are separated by one standard blank row; reasoning follows the same group boundary. Hover rules
+use that space without changing it. TR-6 owns the measured composition.
+
 ## State matrix
 
 Each applicable surface has an intentional representation for: empty, loading, streaming, idle,

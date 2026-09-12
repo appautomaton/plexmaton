@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–24 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–25 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -286,6 +286,21 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [narrow](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg).
     The user confirmed the status repair on `d19d449`; manual confirmation of the combined
     version remains pending. PR 25 checks own final-head CI evidence. The consumed plan is removed.
+
+25. **Transcript group boundaries — complete.** TR-6 makes group spacing a measured composition
+    rule, shared by height, scrolling and hover boundaries. The user approved one standard gap
+    between tool groups and messages, including reasoning; consecutive compact tools remain tight.
+    Local validation on `30527f7` plus this change passed 432 TUI tests, then the five group
+    witnesses after strengthening the disclosed-tool fixture, and affected all-target Clippy.
+    The missing-boundary and neighbour-append witnesses failed before the implementation.
+    Both-direction separator drags preserve visible copy, every mixed-group window round-trips
+    its anchor, and expanded tool recovery feedback supplies one closing separator. Reviewed
+    actual same-frame tool/reasoning/answer/footer cells at
+    [120](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg),
+    [95](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
+    [60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg) columns.
+    No semantic source, dependency, journal or provider contract changed. PR 25 owns final-head CI;
+    live-terminal confirmation is not claimed. The consumed plan is removed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
