@@ -263,6 +263,7 @@ It is never an entry point for main-agent approvals.
 - Explicit plaintext reasoning is named and visually quiet; system text is named and muted;
   warnings and errors are named before colour adds action-required or failure emphasis. Opaque
   provider replay is never a visible transcript entry (PRV-3).
+  Reasoning's trailing empty lines do not expand the gap before the next entry (ENT-1).
 - A canonical diff keeps its source `+`/`-` markers. Added lines use new-information, removed lines
   use failure, hunk headers use accent, and the patch envelope is muted. Selecting the entry adds the
   selection treatment without erasing those roles; unknown diff text remains undecorated source.

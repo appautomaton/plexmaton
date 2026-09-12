@@ -455,7 +455,7 @@ mod tests {
             &agent,
             "visible-reasoning",
             TranscriptRole::Reasoning,
-            "The retained patch matches the requested change.",
+            "The retained patch matches the requested change.\n\n\n",
         );
         append_frame_text(
             &mut state,

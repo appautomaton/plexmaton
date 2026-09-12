@@ -1,5 +1,9 @@
 //! Offline review of the supplied script's partial snapshot in the real footer renderer.
 //! cargo run -p plexmaton-tui --example status_projection_preview -- <output-directory>
+use plexmaton_core::{
+    AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+    TranscriptItemId, TranscriptRole,
+};
 use plexmaton_tui::{Palette, StatusLineText, Workspace};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, layout::Rect};
 use std::{
@@ -58,7 +62,90 @@ fn main() -> Result<()> {
             directory.join(format!("partial-{width}.svg")),
             frame_svg::svg(&crop),
         )?;
+        combined_frame(&mut workspace, &mut terminal, directory, width)?;
     }
+    Ok(())
+}
+
+fn combined_frame(
+    workspace: &mut Workspace,
+    terminal: &mut Terminal<TestBackend>,
+    directory: &Path,
+    width: u16,
+) -> Result<()> {
+    // ENT-1/STL-3: the same rendered version must retain the footer and compact reasoning.
+    let agent = AgentId::new("primary")?;
+    let mut events = vec![ConversationEvent::AgentCreated {
+        agent_id: agent.clone(),
+        label: "Plexmaton".into(),
+        status: AgentStatus::Idle,
+    }];
+    for (id, role, text) in [
+        (
+            "reasoning",
+            TranscriptRole::Reasoning,
+            "Checking once.\n\n\n",
+        ),
+        ("answer", TranscriptRole::Assistant, "Answer follows."),
+    ] {
+        let item = TranscriptItemId::new(id)?;
+        events.push(ConversationEvent::TranscriptItemStarted {
+            agent_id: agent.clone(),
+            item_id: item.clone(),
+            role,
+        });
+        events.push(ConversationEvent::TranscriptDelta {
+            agent_id: agent.clone(),
+            item_id: item,
+            item_revision: 1,
+            text: text.into(),
+        });
+    }
+    workspace.emit(
+        events
+            .into_iter()
+            .enumerate()
+            .map(|(index, event)| ConversationEventEnvelope {
+                sequence: EventSequence::new(index as u64 + 1),
+                event,
+            })
+            .collect(),
+    );
+    prepared_frame::draw(workspace, terminal)?;
+    let buffer = terminal.backend().buffer();
+    let lines = (0..30)
+        .map(|y| {
+            (0..width)
+                .map(|x| buffer[(x, y)].symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    let thought = lines
+        .iter()
+        .position(|line| line.contains("Checking once."))
+        .ok_or("reasoning not visible")?;
+    let answer = lines
+        .iter()
+        .position(|line| line.contains("Answer follows."))
+        .ok_or("answer not visible")?;
+    assert_eq!(answer, thought + 2, "only one inter-entry blank row");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("History incompatible with model · /model"))
+    );
+    assert!(lines.iter().any(|line| line.contains("↑24.8k")));
+    let top = u16::try_from(thought.saturating_sub(1))?;
+    let mut crop = Buffer::empty(Rect::new(0, 0, width, 30 - top));
+    for y in top..30 {
+        for x in 0..width {
+            crop[(x, y - top)] = buffer[(x, y)].clone();
+        }
+    }
+    std::fs::write(
+        directory.join(format!("combined-{width}.svg")),
+        frame_svg::svg(&crop),
+    )?;
     Ok(())
 }
 

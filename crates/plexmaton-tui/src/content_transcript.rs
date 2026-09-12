@@ -97,6 +97,15 @@ pub(crate) fn transcript_layout_with_prefix(
 /// grammar).
 const GUTTER: &str = "▌";
 
+/// ENT-1: terminal reasoning newlines are source, not additional inter-entry spacing.
+fn literal_display_source(item: &TranscriptItemView) -> &str {
+    if item.kind == TranscriptTextKind::Message && item.role == TranscriptRole::Reasoning {
+        item.source.trim_end_matches('\n')
+    } else {
+        &item.source
+    }
+}
+
 /// TR-1: literal height consumes the same row breaks as drawing, without preparing hidden text.
 pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option<usize> {
     if item.kind == TranscriptTextKind::Message
@@ -111,8 +120,7 @@ pub(crate) fn literal_text_rows(item: &TranscriptItemView, width: u16) -> Option
     let (heading, _) = text_treatment(item);
     let gutter = item.kind == TranscriptTextKind::Message && item.role == TranscriptRole::User;
     let reserved = usize::from(width).saturating_sub(4 + usize::from(gutter));
-    let body: usize = item
-        .source
+    let body: usize = literal_display_source(item)
         .split('\n')
         .map(|line| crate::text_layout::wrap::count(line, reserved, false))
         .sum();
@@ -196,7 +204,7 @@ fn transcript_text_with_prefix(
         literal = crate::markdown::inert(&item.source);
         literal.as_str()
     } else {
-        &item.source
+        literal_display_source(item)
     };
     for line in source.split('\n') {
         layout.logical(
@@ -304,6 +312,37 @@ mod tests {
                             Some(expected),
                             "{source:?} / {role:?} / {kind:?} at {width}"
                         );
+                    }
+                }
+            }
+        }
+    }
+
+    /// ENT-1/TR-1: terminal newlines add no reasoning rows; internal paragraphs keep their maps.
+    #[test]
+    fn reasoning_terminal_newlines_share_measurement_and_paint() {
+        for width in [60, 88, 120] {
+            for finalized in [false, true] {
+                for body in ["", "A short thought.", "\nFirst paragraph.\n\n再检查一次。"] {
+                    let mut item = TranscriptItemView {
+                        id: TranscriptItemId::new("reasoning-gap").expect("id"),
+                        role: TranscriptRole::Reasoning,
+                        kind: TranscriptTextKind::Message,
+                        source: body.into(),
+                        revision: 0,
+                        finalized,
+                    };
+                    let baseline = transcript_text(&item, width, Default::default());
+                    for ending in ["\n", "\n\n", "\n\n\n"] {
+                        item.source = format!("{body}{ending}");
+                        let layout = transcript_text(&item, width, Default::default());
+                        assert_eq!(layout.lines, baseline.lines);
+                        assert_eq!(layout.rows, baseline.rows);
+                        assert_eq!(
+                            layout.text, baseline.text,
+                            "pointer copy follows visible text"
+                        );
+                        assert_eq!(literal_text_rows(&item, width), Some(layout.lines.len()));
                     }
                 }
             }
