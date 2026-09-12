@@ -147,7 +147,13 @@ impl LiveRuntime {
         result: Result<SkillActivation, ExplicitSkillError>,
     ) -> Result<(), RuntimeError> {
         self.settle_skill_input(result)?;
-        self.finish_pending_inputs().await
+        self.finish_pending_inputs().await?;
+        // Queued skill input has no transcript event. Wake the projection when completion
+        // leaves waiting input, including movement between admission and agent queues (IQU-1).
+        // An initial skill turn instead publishes its ordinary conversation events.
+        let has_waiting_input = self.queued_input().next().is_some();
+        self.report.queued_input_changed |= has_waiting_input;
+        Ok(())
     }
 
     pub(super) fn prepare_skill_retry(&mut self, target: RetryTarget, text: String, name: String) {

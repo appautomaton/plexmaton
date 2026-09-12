@@ -245,6 +245,16 @@ def check_newline(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("Message Plexmaton",), ("first", "second"))
 
 
+def check_waiting_input(master: int, captured: bytearray) -> None:
+    """IQU-4: with nothing waiting, `Alt-\u2191` disturbs neither the band nor the draft."""
+    os.write(master, b"a draft")
+    repaint(master, captured, ("a draft",), ("Waiting to send",))
+    os.write(master, b"\x1b[1;3A")
+    repaint(master, captured, ("a draft",), ("Waiting to send",), exact_lines=("a draft",))
+    os.write(master, b"\x03")
+    repaint(master, captured, ("Message Plexmaton",), ("a draft",))
+
+
 def check_model_menu(master: int, captured: bytearray) -> None:
     """MDL-2: opening, filtering and dismissing remain a blank conversation."""
     os.write(master, b"/model ")
@@ -345,6 +355,7 @@ output_reserve_tokens = 5000
         check_drawer(master, captured)
         check_input_pointer(master, captured)
         check_newline(master, captured)
+        check_waiting_input(master, captured)
         check_effort(master, captured)
         check_model_menu(master, captured)
 
@@ -458,6 +469,7 @@ def main() -> int:
         f"smoke: painted the idle live runtime at {INITIAL_SIZE[0]}x{INITIAL_SIZE[1]}, "
         f"repainted on resize to {RESIZED[0]}x{RESIZED[1]}, routed an SGR click to the "
         "transcript and none to the status line, verified Ctrl-J draft lines and Copy sent feedback, "
+        "left the draft and the absent waiting band untouched under Alt-\u2191, "
         "expired and re-armed the quit chord, and released "
         "mouse and focus reporting before the alternate screen, without creating an empty JSONL"
     )

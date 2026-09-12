@@ -12,7 +12,7 @@ mod surfaces;
 use panel::{Body, Chrome, Edges, Panel, draw_panel};
 use surfaces::{
     Stacking, approval_panel, collapsed_composer_panel, composer_menu_panel, composer_panel,
-    draw_cursor, drawer_page, drawer_panel, workspace_input,
+    draw_cursor, drawer_page, drawer_panel, queued_input_panel, workspace_input,
 };
 
 use chrome::{
@@ -173,6 +173,7 @@ pub fn render(
                 badge: None,
                 edges: Edges::All,
             }),
+            SurfaceId::QueuedInput => Some(queued_input_panel(state, palette, bounds)),
             SurfaceId::CommandInspection => Some(command_inspection::panel(state, palette, bounds)),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
@@ -954,6 +955,7 @@ mod tests {
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::Drawer => "Workspace",
                 SurfaceId::ComposerMenu => "Skills",
+                SurfaceId::QueuedInput => "Waiting to send",
             };
             let painted = region_text(&buffer, surface.bounds);
             assert!(

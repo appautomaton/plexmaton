@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–22 complete; stage 16 effort selection in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–23 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -120,10 +120,9 @@ Visual changes are reviewed against real frames before the contract adopts them.
     permissions are typed where the user types, which moved Conversations out of the Drawer after
     they had landed there. Rejected: settings as slash commands, which put workspace pages in the
     composer and made its title lie about the addressee; and conversations as a Drawer page, which
-    hid what users type by habit behind a chord. Not done, each its own stage: `/model`, which
-    needs the runtime to change a conversation's model mid-flight; a visible sign of messages
-    queued for the next turn; the User rules snapshot, which the permission view does not
-    project; and a loopback run of `/compact` through the executable, unproven in CMC-1.
+    hid what users type by habit behind a chord. Stages 22 and 23 own model selection and waiting
+    input. Remaining follow-ups: the User rules snapshot, which the permission view does not
+    project, and a loopback run of `/compact` through the executable, unproven in CMC-1.
 
 12. **Streaming continuity — complete.** MD-4, PRE-3/PRE-4, FR-3/FR-4 and MTH-5 cover retained text
     prefixes, exact painted-source copy, explicit cached refusal identity and bounded capture.
@@ -231,6 +230,26 @@ Visual changes are reviewed against real frames before the contract adopts them.
     Six actual [choice/refusal frames](../specs/model-selection.md#rendered-review) were inspected
     at 120/88/60 columns. Refusal frames use the requested Failure color; only error text styling
     changes, with identical text and geometry. Live-provider acceptance is not claimed.
+
+23. **Waiting input — complete.** [IQU-1–IQU-4](../specs/input-queue.md) project the owned
+    queues above the composer. `Alt-↑` restores the newest message and its explicit skill only
+    into an empty primary draft; an occupied draft preserves both messages and advertises the
+    precondition. Completed skill preparation wakes the projection without requiring provider
+    output or another key. The activity row meets the waiting rule without an extra blank row.
+    The user delegated completion on 2026-09-12; the agent reviewed the existing design and these
+    fixes, and [ui-ux](../ui-ux.md) adopts the resulting input/state grammar. Reviewed frames at
+    [wide](../../crates/plexmaton-tui/frames/input-queue-wide.txt),
+    [medium](../../crates/plexmaton-tui/frames/input-queue-medium.txt) and
+    [narrow](../../crates/plexmaton-tui/frames/input-queue-narrow.txt).
+    The [executable journey](../../scripts/smoke-input-queue.py) uses a paused loopback stream to
+    exercise the actual key, draft guard, exact multiline/numeric-skill return, unchanged journal,
+    continued response and explicit resubmission. On base `54bed6e` plus the completion changes,
+    425 TUI tests, 10 runtime/skill tests, 38 Python tests, affected all-target Clippy and corpus
+    gates passed locally. The executable journey passed at 120/88/60 columns and 60×12; the draft
+    and activity-row regressions failed before their fixes. Sol-high review found no remaining
+    code blockers. PR 24 checks own final-head CI evidence. The consumed plan is removed.
+    No user manual terminal test or live model is claimed. Changing mid-turn Enter into steering
+    and cancelling a skill read already in progress remain separate work.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

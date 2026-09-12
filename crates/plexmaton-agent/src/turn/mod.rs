@@ -12,7 +12,7 @@ use plexmaton_core::{AgentId, AgentStatus, ConversationEvent, TurnId};
 
 use crate::UnixMillis;
 use crate::admission::ApprovalPolicy;
-use crate::interface::{Effect, Input, Reaction};
+use crate::interface::{Effect, Input, Reaction, UndeliveredInput, UndeliveredReason};
 use crate::journal::{ConversationJournal, JournalEntryPayload};
 use crate::model::{ModelCall, ModelStepId};
 use crate::record::Record;
@@ -237,6 +237,27 @@ impl Agent {
     /// Steering waiting for the current turn's next step, in arrival order (LOOP-6).
     pub fn queued_for_next_step(&self) -> impl Iterator<Item = &str> {
         self.input.pending(DeliveryBoundary::NextStep)
+    }
+
+    /// Takes back the most recently accepted waiting message, text and skill unchanged (IQU-4).
+    ///
+    /// It appends nothing to the journal and starts no work: the message was never put in a model
+    /// request, so the only thing to undo is its place in the queue. It comes back through the
+    /// same `undelivered` path as any message whose boundary never claimed it.
+    pub fn withdraw_last_queued(&mut self) -> Reaction {
+        let mut reaction = Reaction::default();
+        if let Some(withdrawn) = self.input.withdraw_last() {
+            let selected = withdrawn
+                .skill
+                .as_ref()
+                .map(|skill| skill.name().to_owned());
+            reaction.undelivered.push(UndeliveredInput::with_skill(
+                withdrawn.text,
+                selected,
+                UndeliveredReason::Withdrawn,
+            ));
+        }
+        reaction
     }
 
     /// Approval records owned by the current turn (LOOP-5).

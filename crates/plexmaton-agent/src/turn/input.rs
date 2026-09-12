@@ -97,6 +97,22 @@ impl InputQueue {
         claimed
     }
 
+    /// Removes the most recently accepted message, wherever it was waiting to be sent.
+    ///
+    /// By arrival order, not by queue: the user is undoing one `Enter`, and which queue this agent
+    /// routed that message to is not something they chose.
+    pub(super) fn withdraw_last(&mut self) -> Option<QueuedInput> {
+        let index = self
+            .pending
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, input)| input.order)
+            .map(|(index, _)| index)?;
+        let withdrawn = self.pending.remove(index);
+        self.refresh_bytes();
+        withdrawn
+    }
+
     /// Removes every pending input in arrival order.
     pub(super) fn drain_all(&mut self) -> Vec<QueuedInput> {
         self.bytes = 0;

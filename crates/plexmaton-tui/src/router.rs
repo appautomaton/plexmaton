@@ -400,6 +400,8 @@ fn text_key(key: KeyEvent) -> Routed {
             Routed::Intent(TuiIntent::Text(TextIntent::Newline))
         }
         KeyCode::Enter => Routed::Intent(TuiIntent::Text(TextIntent::Submit)),
+        // Under a cursor because that is where the message came from and where it goes back to.
+        KeyCode::Up if alt && !control => Routed::Intent(TuiIntent::WithdrawQueued),
         _ => Routed::Ignored(Ignored::Unbound),
     }
 }
@@ -1315,5 +1317,35 @@ mod tests {
             Routed::Ignored(Ignored::OutsideWorkspace)
         );
         assert_eq!(router.capture(), None);
+    }
+
+    /// IQU-4: `Alt-↑` is the way back, and it does not disturb the caret grammar around it.
+    ///
+    /// Route it without the `alt` guard and this fails on the bare arrow: taking a message back
+    /// would happen every time the user moved the caret up a row (COM-2).
+    #[test]
+    fn alt_up_takes_back_the_last_waiting_message_and_a_bare_arrow_still_moves_the_caret() {
+        let mut router = Router::default();
+        let surfaces = tree();
+        let context = focused_on(
+            SurfaceId::Composer,
+            &surfaces,
+            KeyboardFocus::TextInput,
+            false,
+        );
+
+        assert_eq!(
+            router.translate(&key(KeyCode::Up, KeyModifiers::ALT), &context),
+            Routed::Intent(TuiIntent::WithdrawQueued)
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Up, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Text(TextIntent::MoveRow(Direction::Backward)))
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Down, KeyModifiers::ALT), &context),
+            Routed::Ignored(Ignored::Unbound),
+            "only the way back is bound; the other direction stays free"
+        );
     }
 }

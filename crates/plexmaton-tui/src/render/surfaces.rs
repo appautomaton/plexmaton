@@ -11,7 +11,7 @@ use ratatui::{
 };
 
 use super::{
-    chrome::{composer_title, title},
+    chrome::{composer_title, queued_input_title, title},
     configuration::render_configuration,
     panel::{Body, Chrome, Edges, Panel, place_cursor, render_steer},
     permission_review,
@@ -183,6 +183,8 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         has_notices: state.notices().next().is_some(),
         attention: state.attention_listed_count(),
         decision_rows: state.decision_rows(composer_width),
+        queue_rows: state.queued_rows(composer_width),
+        queue_floor: state.queued_floor(composer_width),
         command_inspection: state.command_inspection_open(),
         decision_mode: if state.approval_in_primary() {
             layout::DecisionMode::Inline
@@ -209,6 +211,38 @@ pub(super) fn composer_menu_panel(state: &ViewState, palette: &Palette, bounds: 
             follows_tail: false,
         },
         title: title(palette, state.menu_title(), Role::SectionHeading, ""),
+        badge: None,
+        edges: Edges::Upper,
+    }
+}
+
+/// The waiting-input band is a section of the same conversation, above the decision region.
+///
+/// A section rather than a strip at the top of the screen: the user's own `Enter` put it there, so
+/// it belongs beside the composer they pressed it in. It stays chrome (SURF-3) — never a focus stop
+/// or a pointer target — because `Alt-↑` in the composer is what acts on it (IQU-3).
+pub(super) fn queued_input_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    Panel {
+        insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Rules,
+        footer: None,
+        body: Body::Whole {
+            // Straight from the state that owns the queue: this band has no presentation of
+            // its own to add, and `content` describes regions whose text is assembled here.
+            //
+            // Built to the rows the band was granted rather than to what it asked for. Chrome has
+            // no scrollback, so a body longer than its rectangle is a body with rows nobody can
+            // reach; the band lists fewer messages instead and keeps counting the rest.
+            lines: crate::state::queued_lines(
+                state,
+                palette,
+                inner_width(bounds.width),
+                bounds.height.saturating_sub(crate::state::QUEUE_RULE_ROWS),
+            ),
+            // Oldest first: the top line is the message that will be sent next.
+            follows_tail: false,
+        },
+        title: queued_input_title(state, palette),
         badge: None,
         edges: Edges::Upper,
     }
@@ -281,9 +315,13 @@ impl Stacking {
                 }
                 _ => false,
             };
-        // The decision region, when open, is between them: the conversation is still the section
-        // with something beneath it, and the composer is still the one that closes the box.
-        let below = |id| stacked(id, SurfaceId::Approval) || stacked(id, SurfaceId::Composer);
+        // Waiting input and the decision region can sit between them. They share the outline,
+        // so the conversation must not reserve another bottom row above their first rule (IQU-2).
+        let below = |id| {
+            stacked(id, SurfaceId::QueuedInput)
+                || stacked(id, SurfaceId::Approval)
+                || stacked(id, SurfaceId::Composer)
+        };
         let composer_under = if below(SurfaceId::Transcript) {
             Some(SurfaceId::Transcript)
         } else if below(SurfaceId::Inspector) {

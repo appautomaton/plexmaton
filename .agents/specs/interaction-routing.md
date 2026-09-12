@@ -119,6 +119,7 @@ ordinary bindings below apply.
 | `Ctrl-A` / `Ctrl-E`, `Alt-B` / `Alt-F` | Unbound | Line-edge or word motion |
 | `Delete`, `Ctrl-W`, `Ctrl-U` / `Ctrl-K` | Unbound | Delete forward, previous word, or to the line's edge |
 | `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Unbound | Newline |
+| `Alt-↑` | Unbound | Take the most recent waiting message into the empty primary composer; an occupied draft leaves the queue unchanged (IQU-4) |
 
 Control chords are never text (INV-2); reducers decide whether their target exists. A focused
 decision region uses arrows to choose, `Enter` to decide and `Ctrl-O` to disclose. Matching button

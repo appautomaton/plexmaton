@@ -8,6 +8,24 @@ MAX_REQUEST_BYTES = 1024 * 1024
 MAX_RESPONSES = 12
 
 
+class PausedResponse:
+    """An SSE prefix followed by an explicitly released, bounded remainder."""
+
+    def __init__(self, data):
+        boundary = data.index(b"\n\n") + 2
+        self.prefix, self.remainder = data[:boundary], data[boundary:]
+        self.release = threading.Event()
+
+    def __len__(self):
+        return len(self.prefix) + len(self.remainder)
+
+    def write(self, stream):
+        stream.write(self.prefix)
+        stream.flush()
+        assert self.release.wait(timeout=30), "paused fixture was not released"
+        stream.write(self.remainder)
+
+
 def response(delta, finish, identity):
     def event(choices, **extra):
         return {"id": identity, "object": "chat.completion.chunk", "choices": choices, **extra}
@@ -64,7 +82,10 @@ class ScriptedProvider:
                     self.send_header("Content-Type", "text/event-stream")
                     self.send_header("Content-Length", str(len(data)))
                     self.end_headers()
-                    self.wfile.write(data)
+                    if isinstance(data, PausedResponse):
+                        data.write(self.wfile)
+                    else:
+                        self.wfile.write(data)
                 except (AssertionError, ValueError, OSError) as error:
                     with owner.lock:
                         if len(owner.errors) < MAX_RESPONSES:
@@ -87,6 +108,10 @@ class ScriptedProvider:
 
     def __exit__(self, error_type, _error, _traceback):
         try:
+            # A failed terminal assertion must not strand a handler at the stream barrier.
+            for data in self.responses:
+                if isinstance(data, PausedResponse):
+                    data.release.set()
             self.server.shutdown()
             self.worker.join(timeout=3)
             assert not self.worker.is_alive(), "fixture worker did not stop"

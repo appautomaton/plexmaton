@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import socket
+import select
 import os
 import threading
 import sys
@@ -98,6 +99,9 @@ class SmokeBoundaryTests(unittest.TestCase):
             with support.NoModelRequests() as fixture:
                 with socket.create_connection(fixture.listener.getsockname(), timeout=1) as client:
                     client.sendall(b"GET /v1 HTTP/1.1\r\nHost: fixture\r\n\r\n")
+                    # Client connect/send can finish before the listener becomes readable.
+                    # Establish arrival without accepting or reading request content.
+                    self.assertEqual(select.select([fixture.listener], [], [], 1)[0], [fixture.listener])
         self.assertEqual(fixture.listener.fileno(), -1)
 
     def test_failure_still_closes_the_endpoint(self):

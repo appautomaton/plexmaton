@@ -43,6 +43,27 @@ class PermissionFixtureTests(unittest.TestCase):
         self.assertFalse(provider.worker.is_alive())
         self.assertEqual(provider.server.socket.fileno(), -1)
 
+    def test_failed_journey_releases_a_paused_stream_and_joins_its_handler(self):
+        paused = fixture.PausedResponse(fixture.response(
+            {"role": "assistant", "content": "stream prefix"}, "stop", "paused"))
+        client = None
+        try:
+            with self.assertRaisesRegex(ValueError, "journey failed after prefix"):
+                with fixture.ScriptedProvider([paused]) as provider:
+                    client = http.client.HTTPConnection("127.0.0.1", provider.server.server_port, timeout=3)
+                    client.request("POST", "/v1/chat/completions", b'{"stream":true}',
+                                   {"Authorization": "Bearer fixture-only"})
+                    reply = client.getresponse()
+                    self.assertEqual(reply.read(len(paused.prefix)), paused.prefix)
+                    self.assertFalse(paused.release.is_set())
+                    raise ValueError("journey failed after prefix")
+            self.assertTrue(paused.release.is_set())
+            self.assertFalse(provider.worker.is_alive())
+            self.assertEqual(provider.server.socket.fileno(), -1)
+        finally:
+            if client is not None:
+                client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

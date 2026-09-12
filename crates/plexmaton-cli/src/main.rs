@@ -17,6 +17,7 @@ use plexmaton_tui::{ConfigurationSummary, MarkdownTheme, Palette, Workspace};
 mod agent_instructions;
 mod clipboard;
 mod input;
+mod input_queue;
 #[cfg(test)]
 use input::AddressedInput;
 use input::{

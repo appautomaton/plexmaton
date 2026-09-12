@@ -39,6 +39,7 @@ Supply-chain and corpus lanes, selected by dependency or document changes:
 | `./scripts/smoke-tui.py` | Terminal lifecycle `TestBackend` cannot represent |
 | `python3 scripts/smoke-statusline.py` | Configured shell footer, three widths, last-row hints and cleanup in a real PTY; no model request |
 | `python3 scripts/smoke-model.py` | Model selection across two loopback endpoints, history/guidance retention, credential isolation and default reset through a real PTY |
+| `python3 scripts/smoke-input-queue.py` | Paused loopback stream, waiting-input display, occupied-draft guard, exact text/skill withdrawal, continuation and resubmission through a real PTY |
 | `python3 scripts/smoke-permissions.py` | Project trust, real command execution, a remembered prefix across restart, revoke/deny and three widths in a real PTY; eight bounded local fixture requests |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the frames under `crates/plexmaton-tui/frames/`; the diff is the review |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |

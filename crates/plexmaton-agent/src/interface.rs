@@ -118,6 +118,8 @@ pub enum UndeliveredReason {
     PersistenceFailed,
     /// The runtime shut down before the named boundary opened.
     Shutdown,
+    /// The user took it back before it was sent (IQU-4).
+    Withdrawn,
 }
 
 /// Why a typed approval decision changed no pending call.

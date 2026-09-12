@@ -87,6 +87,13 @@ mod tests {
         ("transcript-grammar-narrow", 60, 40),
     ];
 
+    /// Input the user submitted while the primary agent was still answering.
+    const INPUT_QUEUE_FRAMES: [(&str, u16, u16); 3] = [
+        ("input-queue-wide", 120, 40),
+        ("input-queue-medium", 95, 40),
+        ("input-queue-narrow", 60, 40),
+    ];
+
     /// Compact composer-only frames for work states absent from the canonical frames.
     const CURRENT_WORK_FRAMES: [(&str, u16, u16); 3] =
         [("wide", 120, 40), ("medium", 95, 40), ("narrow", 60, 40)];
@@ -1272,6 +1279,109 @@ mod tests {
                         "{label} at {width}x{height} says {word:?}:\n{text}"
                     );
                 }
+            }
+        }
+    }
+
+    /// IQU-1/IQU-2: a section of the conversation's box, above the composer, reporting
+    /// what the user already said and when it will be said.
+    #[test]
+    fn waiting_input_is_reported_above_the_composer_at_every_width() {
+        for (name, width, height) in INPUT_QUEUE_FRAMES {
+            let mut state = current_responding_state();
+            state.set_queued_input(vec![
+                crate::QueuedInput {
+                    text: "Also check the compaction path while you are in there".to_owned(),
+                    boundary: crate::QueuedBoundary::Turn,
+                },
+                crate::QueuedInput {
+                    text: "and then summarize what changed".to_owned(),
+                    boundary: crate::QueuedBoundary::Turn,
+                },
+            ]);
+            let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+            let band = surfaces
+                .get(SurfaceId::QueuedInput)
+                .unwrap_or_else(|| panic!("{name}: the band is registered while input waits"));
+            let composer = surfaces
+                .get(SurfaceId::Composer)
+                .unwrap_or_else(|| panic!("{name}: composer"));
+            let transcript = surfaces
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{name}: conversation"));
+            assert!(!band.kind.accepts_pointer() && !band.kind.is_focusable());
+            assert!(
+                region_text(
+                    &buffer,
+                    Rect::new(band.bounds.x, band.bounds.y - 1, band.bounds.width, 1),
+                )
+                .contains("Responding"),
+                "{name}: the activity row must meet the waiting rule without an extra blank row"
+            );
+            assert_eq!(
+                band.bounds.bottom(),
+                composer.bounds.y,
+                "{name}: the band sits directly on the composer"
+            );
+            assert_eq!(
+                transcript.bounds.bottom(),
+                band.bounds.y,
+                "{name}: the band takes its rows from the conversation, not from the composer"
+            );
+            let drawn = crate::test_support::snapshot_text(&buffer, *buffer.area());
+            for signature in ["Waiting to send · 2", "Sends when this turn ends", "↳ "] {
+                assert!(drawn.contains(signature), "{name}: {signature:?} is absent");
+            }
+            // A waiting message has no journal fact behind it, so the conversation must not show
+            // one: painting it there would put a row in the transcript that no entry owns, and
+            // that row would be anchored, selected and copied as if it were history.
+            assert!(
+                !region_text(&buffer, transcript.bounds).contains("summarize what changed"),
+                "{name}: waiting input is not a transcript entry"
+            );
+            crate::test_support::assert_frame(name, &drawn);
+        }
+    }
+
+    /// IQU-2: wherever the band appears, everything it is for is on screen.
+    ///
+    /// The band is chrome, so a row past its rectangle is a row with no way to reach it. Let layout
+    /// hand it whatever is spare and this fails from 13 rows up: the band keeps its title, counting
+    /// four waiting messages over a body clipped to a heading and the key that takes them back.
+    #[test]
+    fn a_registered_band_shows_every_waiting_message_and_the_way_back() {
+        for width in [60u16, 80, 120, 160] {
+            for height in crate::layout::MIN_HEIGHT..=44 {
+                let mut state = current_responding_state();
+                state.set_queued_input(
+                    (0..4)
+                        .map(|index| crate::QueuedInput {
+                            text: format!("waiting message number {index}"),
+                            boundary: crate::QueuedBoundary::Turn,
+                        })
+                        .collect(),
+                );
+                let (surfaces, buffer) = draw_frame(&state, &Palette::default(), width, height);
+                let Some(band) = surfaces.get(SurfaceId::QueuedInput) else {
+                    continue;
+                };
+                let at = format!("{width}x{height}");
+                let painted = region_text(&buffer, band.bounds);
+                assert!(
+                    painted.contains("takes back the last one"),
+                    "{at}: the band advertises a key it then clipped\n{painted}"
+                );
+                let listed = painted.matches('↳').count();
+                let counted: usize = painted
+                    .split_once("… ")
+                    .and_then(|(_, rest)| rest.split_once(' '))
+                    .and_then(|(count, _)| count.parse().ok())
+                    .unwrap_or(0);
+                assert_eq!(
+                    listed + counted,
+                    4,
+                    "{at}: the band showed {listed} and counted {counted} of four\n{painted}"
+                );
             }
         }
     }

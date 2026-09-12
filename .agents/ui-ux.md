@@ -133,8 +133,17 @@ other rule about input follows from this one.
   constrains what agents do on their own, not what the user asks for. `Escape` closes the window and
   returns focus to the primary conversation. Rejected: focusing on look, which stops the arrows.
 - `Ctrl-J`, `Shift-Enter` and `Alt-Enter` insert a conversation newline; `Enter` submits.
-- **Every input sits directly under its conversation**, between two rules; the
-  conversation runs into the top rule with no edge of its own. The top rule names the target and
+- **Waiting input remains visible beside its conversation.** A bounded band above the decision
+  region and composer names when submitted messages will be sent. It takes no focus or pointer
+  input and yields to both composers and readable conversation space; below its usable height it
+  disappears. `Alt-↑` from an empty primary composer takes the newest waiting message back with
+  its text and skill, leaving current work running. An occupied draft keeps both messages in
+  place and shows the empty-draft requirement. [IQU-1–IQU-4](./specs/input-queue.md) own the band.
+  Rejected: merging a returned message into an existing draft, which loses separate intent and
+  can lose its skill binding.
+- **Every input sits under the conversation it addresses**, between two rules; optional waiting
+  and decision sections sit above the composer. The conversation has no edge of its own and,
+  without those sections, runs into the top rule. The top rule names the target and
   the [reasoning effort](./specs/reasoning-effort.md) for the message; neither rule carries other text. A
   sub-agent's input is the bottom of its window. There is no input anywhere else, and `Tab` from
   a sub-agent's input lands on the primary composer, which is what the collapsed row's
@@ -462,13 +471,17 @@ carries identity and status but is never the only carrier:
 - Warning and error, each named before colour adds emphasis
 - Typeset display math and source reveal
 
+Waiting input is separate conversation chrome under IQU-1–IQU-4, not a transcript entry; it
+becomes history only when its delivery boundary accepts it.
+
 ## State matrix
 
 Each applicable surface has an intentional representation for: empty, loading, streaming, idle,
 waiting on a tool, model, permission or descendant, paused, completed, failed, cancelled,
 disconnected or reconnecting, stale or unavailable persisted content, a capability-degraded
 terminal, a delegation amended by the user with the delegator not yet informed, a delegating agent
-objecting, steering queued for a worker's next turn boundary, and steering undeliverable with its
+objecting, primary input waiting for delivery with an empty or occupied draft, steering queued for
+a worker's next turn boundary, and steering undeliverable with its
 payload retained.
 
 ## Performance budgets
