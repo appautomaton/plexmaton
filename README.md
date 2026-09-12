@@ -19,7 +19,7 @@ Plexmaton is an AI coding assistant for the terminal, built in Rust by App Autom
 - **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
 - **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it in the Drawer.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
-- **Read comfortably.** Pastel Markdown and native math with hats and Chinese labels. Unfinished math stays compact; copy follows your selection.
+- **Read comfortably.** Pastel Markdown and native math with hats and Chinese labels. Reasoning and unfinished math stay compact; tool groups and messages share one consistent gap. Copy follows your selection.
 
 <p align="center">
 <img src="crates/plexmaton-tui/frames/math/reply-88.svg" width="640" alt="Plexmaton terminal workspace displaying a formatted assistant response and native mathematical notation">
@@ -72,6 +72,9 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 Mouse movement and arrows share the focused menu choice. The Drawer’s bottom-center `︽` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
+
+A model/history mismatch leaves available status statistics visible. The pastel example points
+to `/model`; it does not convert incompatible history.
 
 ## History and development
 

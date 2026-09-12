@@ -162,6 +162,49 @@ fn mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown() {
     }
 }
 
+/// ENT-1/SEL-2: hidden reasoning rows stay out of pointer copy, but message copy keeps source.
+#[test]
+fn reasoning_spacing_keeps_pointer_copy_visible_and_message_copy_exact() {
+    let source = "First paragraph.\n\nCheck once.\n\n\n";
+    for width in [60, 95, 120] {
+        let (mut workspace, mut terminal, _) = fixture(
+            width,
+            &[
+                (TranscriptRole::Reasoning, source),
+                (TranscriptRole::Assistant, "Answer follows."),
+            ],
+        );
+        let start = point(&terminal, "First paragraph.");
+        let last = point(&terminal, "Check once.");
+        let answer = point(&terminal, "Answer follows.");
+        assert_eq!(answer.y, last.y + 2, "one inter-entry blank row");
+        let end = Point {
+            x: answer.x + 6,
+            ..answer
+        };
+        for (from, to) in [(start, end), (end, start)] {
+            assert_eq!(
+                drag(&mut workspace, &mut terminal, from, to),
+                "First paragraph.\n\nCheck once.\n\nAnswer"
+            );
+        }
+        workspace.handle(&mouse(MouseEventKind::Moved, start));
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("hover message");
+        let icon = point(&terminal, "󰆏");
+        workspace.handle(&mouse(MouseEventKind::Down(MouseButton::Left), icon));
+        assert_eq!(
+            workspace
+                .handle(&mouse(MouseEventKind::Up(MouseButton::Left), icon))
+                .copied
+                .expect("original message copy")
+                .text,
+            source
+        );
+    }
+}
+
 /// SEL-1/SEL-3: reverse and forward drags share exact partial endpoints across roles and entries.
 #[test]
 fn text_drag_crosses_entries_without_selecting_their_uncovered_text() {

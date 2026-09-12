@@ -263,6 +263,7 @@ It is never an entry point for main-agent approvals.
 - Explicit plaintext reasoning is named and visually quiet; system text is named and muted;
   warnings and errors are named before colour adds action-required or failure emphasis. Opaque
   provider replay is never a visible transcript entry (PRV-3).
+  Reasoning's trailing empty lines do not expand the gap before the next entry (ENT-1).
 - A canonical diff keeps its source `+`/`-` markers. Added lines use new-information, removed lines
   use failure, hunk headers use accent, and the patch envelope is muted. Selecting the entry adds the
   selection treatment without erasing those roles; unknown diff text remains undecorated source.
@@ -473,6 +474,10 @@ carries identity and status but is never the only carrier:
 
 Waiting input is separate conversation chrome under IQU-1–IQU-4, not a transcript entry; it
 becomes history only when its delivery boundary accepts it.
+
+Consecutive compact tools form one tight group. A tool group and a message, or two messages,
+are separated by one standard blank row; reasoning follows the same group boundary. Hover rules
+use that space without changing it. TR-6 owns the measured composition.
 
 ## State matrix
 

@@ -19,6 +19,31 @@ use crate::{
     theme::Palette,
 };
 
+/// Unvirtualized compact bodies and TR-6 separators, for differential geometry witnesses.
+pub(crate) fn conversation_lines(
+    agent: &crate::AgentView,
+    palette: &Palette,
+    width: u16,
+) -> Vec<ratatui::text::Line<'static>> {
+    let mut items = agent.entries().peekable();
+    let mut lines = Vec::new();
+    while let Some(item) = items.next() {
+        lines.extend(crate::content::transcript_entry(
+            item,
+            palette,
+            crate::state::EntryAppearance::compact(false),
+            width,
+        ));
+        let spacing =
+            crate::transcript::spacing::Spacing::between(item, items.peek().copied(), false, width);
+        lines.extend(std::iter::repeat_n(
+            ratatui::text::Line::default(),
+            spacing.rows(),
+        ));
+    }
+    lines
+}
+
 /// A runtime holding the canonical A-delegates-to-B timeline, with nothing emitted yet.
 pub fn canonical_runtime() -> ScriptedRuntime {
     ScriptedRuntime::new(

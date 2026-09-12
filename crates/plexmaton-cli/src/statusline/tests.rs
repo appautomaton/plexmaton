@@ -213,6 +213,53 @@ async fn status_owner_replacement_and_shutdown_join_before_returning() {
     assert!(owner.active.is_none());
 }
 
+/// STL-3: bounded projection diagnostics do not surface error payloads or warn on pending work.
+#[tokio::test]
+async fn status_script_context_diagnostics_are_content_free_and_pending_is_quiet() {
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/statusline-pastel.sh");
+    let mut config = config(&format!("bash '{}'", script.display()));
+    config.timeout_ms = 5000;
+    for (reason, expected) in [
+        ("encoding_failed", Some("encoding failed")),
+        ("projection_failed", Some("projection failed")),
+        ("arithmetic_overflow", Some("arithmetic overflow")),
+        ("invalid_budget", Some("invalid budget")),
+        ("pending_commit", None),
+        ("incomplete_tool_batch", None),
+        ("unrecognized-secret-marker", None),
+    ] {
+        let input = serde_json::json!({
+            "model":{"display_name":"Luna"},
+            "context_window":{"context_window_size":272000},
+            "plexmaton":{"terminal":{"columns":60},
+                "context":{"availability":"unavailable","reason":reason},
+                "latest_request":{"terminal":{"usage":{"counts":{"input":100}}}}}
+        });
+        let text = process::execute(
+            &config,
+            serde_json::to_vec(&input).expect("JSON"),
+            std::path::Path::new("/"),
+            &[],
+            CancellationToken::new(),
+        )
+        .await
+        .expect("script");
+        let output = plain(&text);
+        assert!(output.contains("Luna"));
+        assert_eq!(output.contains(""), expected.is_none());
+        if let Some(expected) = expected {
+            assert!(
+                output.contains(&format!("Context unavailable · {expected}")),
+                "{output}"
+            );
+        } else {
+            assert!(!output.contains("Context unavailable"), "{output}");
+        }
+        assert!(!output.contains("unrecognized-secret-marker"));
+    }
+}
+
 pub(super) fn model() -> ResolvedModel {
     plexmaton_provider::ModelRegistry::parse(CONFIG)
         .expect("fixture config")

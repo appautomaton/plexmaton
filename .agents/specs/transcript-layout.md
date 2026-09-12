@@ -9,7 +9,7 @@
 
 ## Invariants
 
-**TR-1 — A height is measured once per entry, revision, disclosure, feedback, and width.** An entry's height comes from the
+**TR-1 — A body is measured once per entry, revision, disclosure, feedback, and width.** An entry's body height comes from the
 same wrapper that paints it (surface-model §viewports) and is recomputed only when that entry's
 revision, open state, anchored restoration feedback/retry actions, or the panel's width changes: a delta re-measures one entry, disclosure
 re-measures one entry at each retained width, a resize invalidates that width's heights, a tool lifecycle
@@ -20,7 +20,8 @@ and height while newer source is pending; adopting a newer layout updates that h
 measurement and painting compose the same before/after rows. A palette change
 invalidates neither prepared text nor height geometry (MD-4). Text, tool, artifact and mail entries use
 the same ordered height cache. Markdown's separately bounded layout cache follows MD-4; evicting
-prepared rows does not discard heights or anchors. Width is part of the key,
+prepared rows does not discard heights or anchors. TR-6 adds neighbour-dependent separators
+without repeating body measurement. Width is part of the key,
 because a conversation changes
 width when the second window opens beside it at ultrawide and comes back; a conversation keeps one
 set of heights per width, bounded at two, evicting the width least recently measured.
@@ -54,6 +55,15 @@ position, so selecting another agent and returning restores where its reader was
 Disclosure is a reading action. Before an entry changes height, the viewport's current semantic top
 anchor is parked and tail-follow is dropped; resolving that anchor after measurement keeps the
 content the reader was on rather than jumping to the newly enlarged tail.
+
+**TR-6 — Composition owns group separators.** Consecutive compact tools have no gap; a tool group
+followed by text, or text followed by another entry, has one standard blank separator under
+[ui-ux](../ui-ux.md#transcript-grammar). Text retains its closing separator at the tail and before
+entry-local feedback; a tool's trailing feedback already supplies the group-closing separator.
+Separators participate in measured height, windows, anchors and painted caret edges, but not in
+prepared source; appending a neighbour updates spacing without rewrapping the old body.
+Artifact/mail adjacency is unchanged. Rejected: padding reasoning source or inserting hover-only
+rows, which gives measurement, scrolling and message actions different boundaries.
 
 ## Model
 
@@ -115,3 +125,4 @@ without changing projection, selection or anchors; assigning the same palette do
 | TR-3 | `restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy`, `an_empty_restoration_stays_before_the_first_new_message`, `an_anchor_round_trips_through_the_row_it_names`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `a_conversation_resized_away_and_back_paints_the_frame_it_had`, `an_anchor_survives_a_width_change_and_a_row_number_does_not`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, `a_wheel_notch_moves_the_conversation_the_same_distance_with_an_inspector_open` |
 | TR-4 | `a_followed_viewport_moves_with_its_content_and_a_parked_one_does_not`, `a_conversation_scrolled_back_to_the_end_keeps_up_and_a_parked_one_stays_put`, `scrolling_clamps_to_the_content_and_reports_a_boundary_as_no_movement` |
 | TR-5 | `each_conversation_keeps_its_own_reading_position` |
+| TR-6 | `transcript_group_boundaries_share_spacing_and_hover_geometry`, `closing_a_tool_group_changes_spacing_without_rewrapping_its_body`, `group_separator_drag_copies_visible_text_in_both_directions`, `mixed_group_windows_and_anchors_share_the_composed_rows`, `tool_feedback_closes_the_group_without_a_second_separator` |

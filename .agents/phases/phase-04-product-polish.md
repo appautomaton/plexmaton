@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–23 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–25 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -145,6 +145,15 @@ Visual changes are reviewed against real frames before the contract adopts them.
     the Markdown SVGs. The Drawer, the rail and the strips keep their boxes. Rejected: the box,
     chrome that said nothing; and current work on the composer's rule, which mixed the agent's
     doing with the user's typing.
+    ENT-1's reasoning-spacing correction preserves source while hiding terminal newline-only
+    rows. Spacing and cross-entry pointer copy regressions failed before their fixes; the two
+    focused tests, grammar-frame witness and affected all-target Clippy pass on the combined
+    stage-24 version. Original-message copy stays exact. Reviewed
+    unchanged [wide](../../crates/plexmaton-tui/frames/transcript-grammar-wide.txt),
+    [medium](../../crates/plexmaton-tui/frames/transcript-grammar-medium.txt) and
+    [narrow](../../crates/plexmaton-tui/frames/transcript-grammar-narrow.txt) frames now exercise a
+    three-newline reasoning suffix. PR 25 includes this correction alongside the status repair;
+    its checks own final-head CI evidence. No live-provider validation is claimed for this fix.
 
 14. **Math LaTeX support — complete.** The user’s logits/softmax examples exercise accents,
     Chinese text and boxed mixed-language formulas. MTH-1–MTH-4 cover engine admission, real
@@ -250,6 +259,48 @@ Visual changes are reviewed against real frames before the contract adopts them.
     code blockers. PR 24 checks own final-head CI evidence. The consumed plan is removed.
     No user manual terminal test or live model is claimed. Changing mid-turn Enter into steering
     and cancelling a skill read already in progress remain separate work.
+
+24. **Independent status projections — complete.** The retained reasoning correction is
+    included in the same testable PR. STL-3 separates prospective context
+    errors, acknowledged accounting/path facts and status-command execution.
+    Resume keeps MDL-4's configured default; MDL-1 and BUD-3 retain codec admission.
+    Local validation on base `fdb3b7e` plus this change: 21 status tests, affected CLI/TUI
+    all-target Clippy and the existing status-line PTY smoke passed. The offline HTTP/journal
+    resume witness proves incompatible model replacement is refused, partial status reaches
+    the real shell at 120/95/60 columns, a compatible model restores available context, and
+    inspection leaves journal bytes unchanged. No live provider or user configuration was used.
+    Reviewed actual Workspace footer cells from the
+    [preview](../../crates/plexmaton-tui/examples/status_projection_preview.rs):
+    [wide](../../crates/plexmaton-tui/frames/status-projection/partial-120.svg),
+    [medium](../../crates/plexmaton-tui/frames/status-projection/partial-95.svg),
+    [narrow](../../crates/plexmaton-tui/frames/status-projection/partial-60.svg).
+    The core regression failed before the change. Independent Sol-high review caught an
+    overly broad arithmetic-error category; explicit budget-error cases and regression coverage
+    now distinguish invalid budgets from overflow; final review found no remaining blockers.
+    Corpus gates passed; advisory README/UI-UX byte-budget warnings already existed at the base.
+    The combined version also passes the reasoning-spacing, copy and grammar-frame witnesses,
+    retains the original primary-checkout files, and has no remaining targeted-review findings.
+    Reviewed same-frame evidence at
+    [wide](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg),
+    [medium](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
+    [narrow](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg).
+    The user confirmed the status repair on `d19d449`; manual confirmation of the combined
+    version remains pending. PR 25 checks own final-head CI evidence. The consumed plan is removed.
+
+25. **Transcript group boundaries — complete.** TR-6 makes group spacing a measured composition
+    rule, shared by height, scrolling and hover boundaries. The user approved one standard gap
+    between tool groups and messages, including reasoning; consecutive compact tools remain tight.
+    Local validation on `30527f7` plus this change passed 432 TUI tests, then the five group
+    witnesses after strengthening the disclosed-tool fixture, and affected all-target Clippy.
+    The missing-boundary and neighbour-append witnesses failed before the implementation.
+    Both-direction separator drags preserve visible copy, every mixed-group window round-trips
+    its anchor, and expanded tool recovery feedback supplies one closing separator. Reviewed
+    actual same-frame tool/reasoning/answer/footer cells at
+    [120](../../crates/plexmaton-tui/frames/status-projection/combined-120.svg),
+    [95](../../crates/plexmaton-tui/frames/status-projection/combined-95.svg) and
+    [60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg) columns.
+    No semantic source, dependency, journal or provider contract changed. PR 25 owns final-head CI;
+    live-terminal confirmation is not claimed. The consumed plan is removed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

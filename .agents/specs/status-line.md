@@ -29,8 +29,12 @@ explicitly configured periodic refresh.
 **STL-3 — Script input is an allowlisted projection of acknowledged facts.** JSON schema version 1
 separates BUD-1 occupancy from TIM-3 incurred accounting and selected-path request/turn measurements;
 missing values remain null or typed unavailable, with no prompt, tool content, replay payload or
-credentials serialized. Resuming the same acknowledged journal produces the same durable fields;
-the supplied example omits unavailable segments rather than inventing zeros.
+credentials serialized. Context encoding, session accounting and selected-path projection fail
+independently: a refusal cannot erase facts owned by another section, and partial snapshots still
+reach the command. Resuming the same acknowledged journal produces the same durable fields.
+
+Rejected: requiring next-request encodability before observing historical facts; MDL-1 admission
+owns that refusal, not snapshot construction.
 
 **STL-4 — The footer never owns input or a system question.** Explicit output lines determine
 height within the configured and layout caps, without wrapping; clipping reserves a visible
@@ -87,17 +91,28 @@ keys describe matching facts; this is not a promise that every Claude extension 
 | `plexmaton.context` | Available input/reserve, measured prefix, estimated remainder, opaque heuristic bytes and estimator; otherwise an unavailable reason |
 | `plexmaton.latest_request` | Attempt ID, typed owner and terminal timing/outcome/usage/cost, or null; no request content |
 | `plexmaton.turn` | Latest selected turn ID, incurred usage/cost and sum of request durations; duration is null if any attempt is unresolved, and excludes idle, tools and approval wait |
+| `plexmaton.issues` | Content-free projection errors by section; empty object when none. Accounting keys `session_accounting` / `turn_accounting` are `usage_overflow` or `cost_overflow`; `selected_path` is `invalid_selected_path`. No error message or payload |
 | `plexmaton.terminal.columns`, `.rows` | Current terminal size; the script decides its explicit lines |
+
+Unavailable context reasons are `model_not_configured`, `pending_commit`, `persistence_failed`,
+`incomplete_tool_batch`, `history_incompatible`, `encoding_failed`, `projection_failed`,
+`arithmetic_overflow` or `invalid_budget`. The last five represent a refused projection, not an
+estimate of zero.
+Accounting overflow leaves that section's usage/cost unavailable; turn identity and independently
+summed duration remain available. A path refusal leaves latest-request/turn fields null without
+discarding whole-journal accounting.
 
 The pastel example requires Bash, jq and a Nerd Font. Its `` segment shows the latest selected-path
 request's API-reported input count and percentage of configured capacity. Without a reported count,
-including a fresh session, the segment is absent. It never displays a context estimate or a `ctx`/`~`
+including a fresh session, or after a refused context projection, the segment is absent. It never displays a context estimate or a `ctx`/`~`
 label; BUD-1 estimates remain separate snapshot data. It labels partial traffic as `reported`, omits
 missing cost/cache values, and paints path components in successive pastel colors with Powerline
 separators. Model, branch, cache, traffic, cost and path use ``, ``, ``, ``, `` and
 ``/`` respectively; `` precedes a configured reasoning level, input/output retain directional
 arrows and cost retains its currency.
-It queries local Git without optional locks.
+It queries local Git without optional locks. A refused context projection adds a content-free
+diagnostic while retaining available model, traffic, cost, cache and path segments;
+`history_incompatible` points to `/model`. Ordinary pending states add no warning.
 
 ## Evidence
 
@@ -105,5 +120,5 @@ It queries local Git without optional locks.
 | --- | --- |
 | STL-1 | `statusline_styles_and_resets_preserve_text`; `statusline_rejects_terminal_effects_and_malformed_styles`; `statusline_bounds_bytes_rows_and_parameters`; `statusline_preserves_explicit_rows_and_spaces`; `statusline_resets_restore_the_renderers_base_style`; `statusline_arbitrary_bytes_never_escape_as_controls`; `statusline_generated_valid_styles_preserve_every_text_fragment`; `statusline_generated_control_injection_rejects_the_whole_result` |
 | STL-2 | `status_command_reads_snapshot_eof_and_returns_only_styled_text`; `status_command_failure_timeout_overflow_and_cancellation_are_bounded`; `status_shutdown_joins_descendants_after_a_dropped_poll`; `status_refresh_coalesces_without_cancelling_inflight_work`; `status_cleanup_waits_through_permission_denial_until_group_disappears`; `status_cleanup_never_accepts_persistent_permission_denial_as_disappearance`; `status_stale_cleanup_failure_blocks_replacement_and_remains_visible`; `status_configuration_stays_outside_the_model_registry`; `status_cleanup_error_does_not_hide_session_shutdown_failures`; `python3 scripts/smoke-statusline.py` |
-| STL-3 | `status_snapshot_default_thinking_is_explicitly_null`, `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `status_script_context_uses_reported_input_with_a_glyph_at_each_width`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
+| STL-3 | `status_snapshot_default_thinking_is_explicitly_null`, `status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_identically`; `status_snapshot_keeps_unknown_cache_subsets_and_measurements_null`; `status_snapshot_isolates_accounting_overflow`; `status_snapshot_isolates_invalid_selected_path`; `status_context_refusals_are_typed_and_content_free`; `status_script_context_diagnostics_are_content_free_and_pending_is_quiet`; `status_resume_isolates_context_refusal_without_weakening_model_admission`; `recorded_luna_cache_usage_survives_http_journal_resume_and_shell`; `status_script_omits_null_fields_and_keeps_rainbow_path`; `status_script_context_uses_reported_input_with_a_glyph_at_each_width`; `cancelled_model_end_during_attempt_terminal_append_keeps_the_active_owner` |
 | STL-4 | `status_footer_preserves_focus_and_uses_the_last_row_for_hints`; `status_footer_clipping_reserves_a_cell_before_a_wide_grapheme`; visual frames at 120/95/60 columns approved by the user; `python3 scripts/smoke-statusline.py` |

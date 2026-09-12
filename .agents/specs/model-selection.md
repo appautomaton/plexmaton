@@ -29,7 +29,9 @@ snapshot and native tool owners, and computes the destination model's request en
 **MDL-4 — Overrides belong to the open conversation.** A selected model uses its configured effort
 default and persists while that conversation remains open. New, resume and restart use the
 configured default. Model selection writes neither user/project configuration nor historical
-request metadata; EFF-5 owns the corresponding effort lifetime.
+request metadata; EFF-5 owns the corresponding effort lifetime. Opening saved history does not
+assert that the default model can encode it; STL-3 keeps historical status available when its
+prospective context is unavailable.
 
 ## Grammar
 
@@ -49,7 +51,7 @@ name, display name and wire ID, with the exact accepted pair marked current.
 
 | Invariant | Proven by |
 | --- | --- |
-| MDL-1 | `model_replacement_is_atomic_and_preserves_workspace_instructions`, `model_replacement_refuses_busy_and_incompatible_replay_without_mutation`; shared EFF-1 admission witnesses |
+| MDL-1 | `model_replacement_is_atomic_and_preserves_workspace_instructions`, `model_replacement_refuses_busy_and_incompatible_replay_without_mutation`; `status_resume_isolates_context_refusal_without_weakening_model_admission`; shared EFF-1 admission witnesses |
 | MDL-2 | `model_menu_filters_exact_pairs_and_retains_refusal_until_acceptance`, `model_menu_empty_and_dismissed_queries_never_submit_messages`, `model_catalog_bounds_are_visible_and_preserve_complete_identities`, `model_refusal_does_not_follow_keyboard_pointer_or_filter_to_another_choice`, `model_click_without_hover_retains_clicked_identity_after_refusal`; `scripts/smoke-tui.py` and `scripts/smoke-model.py` |
 | MDL-3 | `model_replacement_is_atomic_and_preserves_workspace_instructions`, `model_credentials_are_removed_before_install_and_fingerprinting`; `scripts/smoke-model.py` verifies both custom credential names are absent in real command and status children, with retained history/guidance at the second endpoint |
 | MDL-4 | `model_override_expires_on_new_resume_and_restart`; `scripts/smoke-model.py` proves `/new` restores the configured default without rewriting configuration |

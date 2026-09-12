@@ -72,10 +72,8 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
         columns: 95,
         rows: 30,
     };
-    let before = serde_json::to_value(
-        Snapshot::capture(&opened.runtime, &model, cwd, dimensions).expect("snapshot"),
-    )
-    .expect("JSON");
+    let before = serde_json::to_value(Snapshot::capture(&opened.runtime, &model, cwd, dimensions))
+        .expect("JSON");
     assert_eq!(
         before["plexmaton"]["latest_request"]["terminal"]["usage"]["counts"]["cached_input"],
         3840
@@ -126,9 +124,12 @@ async fn recorded_luna_cache_usage_survives_http_journal_resume_and_shell() {
     )
     .await
     .expect("resume without another HTTP request");
-    let after = serde_json::to_value(
-        Snapshot::capture(&reopened.runtime, &model, cwd, dimensions).expect("restored snapshot"),
-    )
+    let after = serde_json::to_value(Snapshot::capture(
+        &reopened.runtime,
+        &model,
+        cwd,
+        dimensions,
+    ))
     .expect("JSON");
     reopened
         .runtime
