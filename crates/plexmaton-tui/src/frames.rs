@@ -1309,6 +1309,15 @@ mod tests {
             let transcript = surfaces
                 .get(SurfaceId::Transcript)
                 .unwrap_or_else(|| panic!("{name}: conversation"));
+            assert!(!band.kind.accepts_pointer() && !band.kind.is_focusable());
+            assert!(
+                region_text(
+                    &buffer,
+                    Rect::new(band.bounds.x, band.bounds.y - 1, band.bounds.width, 1),
+                )
+                .contains("Responding"),
+                "{name}: the activity row must meet the waiting rule without an extra blank row"
+            );
             assert_eq!(
                 band.bounds.bottom(),
                 composer.bounds.y,

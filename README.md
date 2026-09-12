@@ -60,7 +60,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | --- | --- |
 | `Ctrl-P` | Open the Drawer: configuration and permissions |
 | `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Newline in conversation input |
-| `Alt-↑` | Take the most recent waiting message back into the composer |
+| `Alt-↑` | Take the most recent waiting message into the empty primary composer |
 | `Ctrl-C` | Clear a draft or interrupt its conversation |
 | `Ctrl-D` twice within one second | Quit |
 | `Esc` | Back out one layer |

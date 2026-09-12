@@ -79,7 +79,7 @@ impl ViewState {
         &self,
         surfaces: &crate::surface::SurfaceTree,
     ) -> Option<plexmaton_core::AgentId> {
-        if self.queued.is_empty() {
+        if self.queued.is_empty() || !self.composer().text().is_empty() {
             return None;
         }
         match self.focus.resolve(surfaces)? {
@@ -162,7 +162,12 @@ pub(crate) fn queued_lines(
     lines.push(Line::from(vec![
         Span::styled("Alt-↑".to_owned(), palette.style(Role::KeyHint)),
         Span::styled(
-            " takes back the last one".to_owned(),
+            if state.composer().text().is_empty() {
+                " takes back the last one"
+            } else {
+                " needs an empty draft"
+            }
+            .to_owned(),
             palette.style(Role::Muted),
         ),
     ]));
@@ -377,7 +382,7 @@ mod tests {
         }
     }
 
-    /// IQU-4: the key is inert with nothing waiting, and it names the conversation it belongs to.
+    /// IQU-3/IQU-4: the key is inert with nothing waiting and never crosses worker focus.
     ///
     /// Drop the emptiness guard and this fails: `Alt-↑` would cross the composition boundary on
     /// every press, asking the runtime to take back something nobody queued.
@@ -401,5 +406,16 @@ mod tests {
             "the message goes back to the input it was typed in"
         );
         assert!(state.withdraw_target(&surfaces).is_some());
+
+        state.move_selection(crate::intent::Direction::Forward);
+        let (surfaces, _) = crate::test_support::draw_frame(&state, &Palette::default(), 120, 40);
+        state.inspect(&surfaces, crate::intent::InspectorIntent::Open);
+        let (surfaces, _) = crate::test_support::draw_frame(&state, &Palette::default(), 120, 40);
+        assert_eq!(state.focused(&surfaces), Some(crate::SurfaceId::Inspector));
+        assert_eq!(
+            state.withdraw_target(&surfaces),
+            None,
+            "the worker owns this cursor"
+        );
     }
 }

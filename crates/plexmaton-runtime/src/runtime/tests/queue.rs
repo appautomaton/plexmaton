@@ -5,6 +5,109 @@ use plexmaton_agent::{Input, ModelEvent, StopReason};
 use super::{FakeDriver, Script, agent_id, complete_usage, finish_active, runtime, text_delta};
 use crate::QueuedBoundary;
 
+/// IQU-1: owned skill completion wakes the projection even when the model emits no further data.
+#[tokio::test]
+async fn completed_skill_input_wakes_the_waiting_projection_without_a_model_delta() {
+    use super::{Script, tools::TestWorkspace};
+    use crate::{LiveRuntime, RuntimeUpdate};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration;
+    use tokio::sync::Notify;
+
+    let files = TestWorkspace::new("waiting-skill-wake");
+    let directory = files.0.join(".agents/skills/review");
+    std::fs::create_dir_all(&directory).expect("skill directory");
+    std::fs::write(
+        directory.join("SKILL.md"),
+        "---\nname: review\ndescription: Review code\n---\nKeep the queue exact.\n",
+    )
+    .expect("skill fixture");
+    let tools = files
+        .catalog()
+        .with_skill_roots(
+            &files.0,
+            &files.0,
+            &plexmaton_file_tools::FileCancellation::new(),
+        )
+        .expect("skill catalog");
+    let started = Arc::new(Notify::new());
+    let finished = Arc::new(AtomicBool::new(false));
+    let driver = FakeDriver::new([Script::WaitForCancellation {
+        started: started.clone(),
+        finished: finished.clone(),
+    }]);
+    let mut runtime =
+        LiveRuntime::with_driver(agent_id(), "Plexmaton".to_owned(), driver.clone(), tools)
+            .expect("runtime");
+    runtime
+        .submit(
+            agent_id(),
+            Input::Submitted {
+                text: "first".to_owned(),
+            },
+        )
+        .await
+        .expect("first turn");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let RuntimeUpdate::Event(event) = runtime.next_update().await.expect("model update")
+                && matches!(
+                    event.event,
+                    plexmaton_core::ConversationEvent::TranscriptDelta { .. }
+                )
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("model emitted its only delta");
+    runtime
+        .submit_skill(
+            agent_id(),
+            Input::Submitted {
+                text: "$review inspect the queue".to_owned(),
+            },
+            "review".to_owned(),
+        )
+        .await
+        .expect("prepare explicit skill");
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match runtime.next_update().await.expect("owned update") {
+                RuntimeUpdate::Report(report) if report.queued_input_changed => break,
+                RuntimeUpdate::Finished => panic!("the provider is still waiting"),
+                RuntimeUpdate::Report(_) | RuntimeUpdate::Event(_) => {}
+            }
+        }
+    })
+    .await
+    .expect("skill completion must wake the projection without another event");
+    assert_eq!(
+        runtime
+            .queued_input()
+            .map(|input| (input.text, input.boundary))
+            .collect::<Vec<_>>(),
+        [("$review inspect the queue", QueuedBoundary::Turn)]
+    );
+    assert!(!finished.load(Ordering::SeqCst));
+    assert_eq!(driver.calls().await.len(), 1);
+    let report = runtime
+        .withdraw_queued(&agent_id())
+        .expect("withdraw prepared skill");
+    assert_eq!(report.undelivered[0].text, "$review inspect the queue");
+    assert_eq!(report.undelivered[0].skill.as_deref(), Some("review"));
+    runtime
+        .shutdown()
+        .await
+        .expect("join the still-running model");
+    assert!(finished.load(Ordering::SeqCst));
+}
+
 /// IQU-1: a message typed while the model answers is waiting, and says which boundary claims it.
 ///
 /// Drop the `queued_for_next_turn` source from the projection and this fails: the runtime reports

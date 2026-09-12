@@ -315,9 +315,13 @@ impl Stacking {
                 }
                 _ => false,
             };
-        // The decision region, when open, is between them: the conversation is still the section
-        // with something beneath it, and the composer is still the one that closes the box.
-        let below = |id| stacked(id, SurfaceId::Approval) || stacked(id, SurfaceId::Composer);
+        // Waiting input and the decision region can sit between them. They share the outline,
+        // so the conversation must not reserve another bottom row above their first rule (IQU-2).
+        let below = |id| {
+            stacked(id, SurfaceId::QueuedInput)
+                || stacked(id, SurfaceId::Approval)
+                || stacked(id, SurfaceId::Composer)
+        };
         let composer_under = if below(SurfaceId::Transcript) {
             Some(SurfaceId::Transcript)
         } else if below(SurfaceId::Inspector) {

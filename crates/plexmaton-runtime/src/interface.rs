@@ -97,6 +97,9 @@ pub enum RequestedCompactionOutcome {
 /// Non-event results retained when an input could not enter the loop boundary it named.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
+    /// Owned input preparation may have changed the waiting-input snapshot (IQU-1).
+    /// This wakes the composition root to read it again; no queue copy or journal event is carried.
+    pub queued_input_changed: bool,
     /// A committed branch selection replaces the conversation projection atomically in the UI.
     pub projection_reset: Option<Vec<ConversationEventEnvelope>>,
     /// User input returned with its exact text and reason.
@@ -122,7 +125,8 @@ pub struct DispatchReport {
 
 impl DispatchReport {
     pub(crate) fn is_empty(&self) -> bool {
-        self.projection_reset.is_none()
+        !self.queued_input_changed
+            && self.projection_reset.is_none()
             && self.undelivered.is_empty()
             && self.unresolved_approvals.is_empty()
             && self.undelivered_model.is_empty()

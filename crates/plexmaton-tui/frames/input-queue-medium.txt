@@ -21,6 +21,7 @@
 │                        │
 │                        │
 │                        │
+│                        │
 │                        │ I will inspect the workspace and delegate the focused UI
 │                        │ study. Agent B is running independently; this transcript
 │                        │ remains interactive.
@@ -28,7 +29,6 @@
 │                        │
 │                        │
 │                        │ · Responding…                                               ( !1 )
-│                        │
 │                        │── Waiting to send · 2 ──────────────────────────────────────────────
 │                        │ Sends when this turn ends
 │                        │ ↳ Also check the compaction path while you are in there
