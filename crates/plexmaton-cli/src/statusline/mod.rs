@@ -100,13 +100,14 @@ impl StatusLine {
         dimensions: Dimensions,
         workspace: &mut Workspace,
     ) {
-        let result = snapshot::Snapshot::capture(
+        let cwd = self.cwd.to_string_lossy();
+        let snapshot = snapshot::Snapshot::capture(
             runtime,
             runtime.configured_model().unwrap_or(&self.model),
-            &self.cwd.to_string_lossy(),
+            &cwd,
             dimensions,
-        )
-        .and_then(|snapshot| serde_json::to_vec(&snapshot).map_err(Into::into));
+        );
+        let result = serde_json::to_vec(&snapshot);
         let input = match result {
             Ok(input) => input,
             Err(_) => {

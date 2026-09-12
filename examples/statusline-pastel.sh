@@ -16,7 +16,7 @@ values=$(jq -r '
       then (.input_tokens + .cache_read_input_tokens + .cache_creation_input_tokens) as $n |
         if $n > 0 then (.cache_read_input_tokens * 100 / $n | round) else null end
       else null end else null end),
-   .plexmaton.usage.coverage] | .[] | clean
+   .plexmaton.usage.coverage, .plexmaton.context.reason] | .[] | clean
 ') || exit 1
 fields=()
 while IFS= read -r value; do fields+=("$value"); done <<< "$values"
@@ -25,6 +25,17 @@ model=${fields[0]:-}; effort=${fields[1]:-}; cwd=${fields[2]:-}
 columns=${fields[3]:-80}; occupancy=${fields[4]:-}; capacity=${fields[5]:-}
 input=${fields[6]:-}; output=${fields[7]:-}; cost=${fields[8]:-}; cache=${fields[9]:-}
 coverage=${fields[10]:-unavailable}
+context_reason=${fields[11]:-}
+diagnostic=""
+case "$context_reason" in
+  history_incompatible) diagnostic="History incompatible with model · /model" ;;
+  encoding_failed) diagnostic="Context unavailable · encoding failed" ;;
+  projection_failed) diagnostic="Context unavailable · projection failed" ;;
+  arithmetic_overflow) diagnostic="Context unavailable · arithmetic overflow" ;;
+  invalid_budget) diagnostic="Context unavailable · invalid budget" ;;
+esac
+# Historical input cannot describe occupancy for a model that cannot encode this history.
+[[ -z "$diagnostic" ]] || occupancy=""
 
 format_tokens() {
   awk -v n="$1" 'BEGIN { if (n >= 1000000) printf "%.1fM", n/1000000;
@@ -108,4 +119,8 @@ if [[ -n "$cwd" ]]; then
   done
   if (( index == 0 )); then fg '255;154;144'; printf '/'; reset; fi
   printf '\n'
+fi
+
+if [[ -n "$diagnostic" ]]; then
+  fg '255;196;102'; printf '%s' "$diagnostic"; reset; printf '\n'
 fi

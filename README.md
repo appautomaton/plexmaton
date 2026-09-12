@@ -73,6 +73,9 @@ Mouse movement and arrows share the focused menu choice. The Drawer’s bottom-c
 
 [Full key guide](.agents/specs/interaction-routing.md#key-grammar) · [Skills](.agents/specs/agent-skills.md) · [Selection and copy](.agents/specs/selection-and-copy.md) · [Optional status line](.agents/specs/status-line.md)
 
+A model/history mismatch leaves available status statistics visible. The pastel example points
+to `/model`; it does not convert incompatible history.
+
 ## History and development
 
 Conversations save on the first message; blank launches save nothing. Use `--ephemeral` to opt out. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.

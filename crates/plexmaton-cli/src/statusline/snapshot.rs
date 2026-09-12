@@ -1,19 +1,21 @@
 //! Explicit allowlist for script stdin. Never serialize the journal, model config or budget atoms.
 
-use plexmaton_agent::{
-    JournalEntryPayload, RequestAttemptOwner, RequestAttemptTerminalState, RequestCost,
-    USD_COST_TICKS_PER_DOLLAR,
-};
+use plexmaton_agent::{RequestAttemptOwner, RequestAttemptTerminalState, RequestCost};
 use plexmaton_core::TokenUsage;
 use plexmaton_provider::ResolvedModel;
-use plexmaton_runtime::{ContextBudgetSnapshot, LiveRuntime};
+use plexmaton_runtime::LiveRuntime;
 use serde::Serialize;
 
 #[cfg(test)]
 mod cache_tests;
+mod context;
+mod history;
+#[cfg(test)]
+mod resume_tests;
 #[cfg(test)]
 mod tests;
-use std::collections::BTreeSet;
+use context::Context;
+use history::Issues;
 
 #[derive(Serialize)]
 pub(super) struct Snapshot<'a> {
@@ -77,27 +79,13 @@ struct Facts {
     context: Context,
     latest_request: Option<Request>,
     turn: Option<Turn>,
+    issues: Issues,
 }
 
 #[derive(Clone, Copy, Serialize)]
 pub(crate) struct Dimensions {
     pub columns: u16,
     pub rows: u16,
-}
-#[derive(Serialize)]
-#[serde(tag = "availability", rename_all = "snake_case")]
-enum Context {
-    Available {
-        input_tokens: u64,
-        output_reserve_tokens: u64,
-        measured_prefix_tokens: Option<u64>,
-        estimated_tokens: u64,
-        opaque_replay_bytes: u64,
-        estimator: &'static str,
-    },
-    Unavailable {
-        reason: &'static str,
-    },
 }
 #[derive(Serialize)]
 struct Request {
@@ -119,36 +107,17 @@ impl<'a> Snapshot<'a> {
         model: &'a ResolvedModel,
         cwd: &'a str,
         dimensions: Dimensions,
-    ) -> anyhow::Result<Self> {
-        let context = match runtime.context_budget()? {
-            ContextBudgetSnapshot::Available(ledger) => Context::Available {
-                input_tokens: ledger.input_tokens,
-                output_reserve_tokens: ledger.limits.output_reserve_tokens(),
-                measured_prefix_tokens: ledger.anchor.as_ref().map(|anchor| anchor.input_tokens()),
-                estimated_tokens: ledger.estimated_remainder.tokens,
-                opaque_replay_bytes: ledger.estimated_remainder.opaque_replay_bytes,
-                estimator: ledger.estimator.as_str(),
-            },
-            ContextBudgetSnapshot::Unavailable(reason) => Context::Unavailable {
-                reason: match reason {
-                    plexmaton_runtime::ContextBudgetUnavailable::ModelNotConfigured => {
-                        "model_not_configured"
-                    }
-                    plexmaton_runtime::ContextBudgetUnavailable::PendingCommit => "pending_commit",
-                    plexmaton_runtime::ContextBudgetUnavailable::PersistenceFailed => {
-                        "persistence_failed"
-                    }
-                    plexmaton_runtime::ContextBudgetUnavailable::IncompleteToolBatch => {
-                        "incomplete_tool_batch"
-                    }
-                },
-            },
-        };
-        let mut result = Self::base(model, cwd, dimensions, context);
+    ) -> Self {
+        let mut result = Self::base(
+            model,
+            cwd,
+            dimensions,
+            Context::capture(runtime.context_budget()),
+        );
         if let Some((journal, head)) = runtime.acknowledged_conversation() {
-            result.enrich(journal, head)?;
+            result.enrich(journal, head);
         }
-        Ok(result)
+        result
     }
 
     fn base(
@@ -203,87 +172,9 @@ impl<'a> Snapshot<'a> {
                 context,
                 latest_request: None,
                 turn: None,
+                issues: Issues::default(),
             },
         }
-    }
-
-    fn enrich(
-        &mut self,
-        journal: &plexmaton_agent::ConversationJournal,
-        head: &plexmaton_core::HeadName,
-    ) -> anyhow::Result<()> {
-        let result = self;
-        result.session_id = Some(journal.conversation_id().to_string());
-        result.plexmaton.head = Some(head.to_string());
-        result.plexmaton.created_at_unix_ms = Some(journal.created_at_unix_ms().get());
-        let accounting = journal.incurred_accounting()?;
-        if let Some(counts) = accounting.usage.counts() {
-            result.context_window.total_input_tokens = Some(counts.input);
-            result.context_window.total_output_tokens = Some(counts.output);
-        }
-        if let RequestCost::Known { usd_ticks } = accounting.cost {
-            result.cost.total_cost_usd =
-                Some(usd_ticks.get() as f64 / USD_COST_TICKS_PER_DOLLAR as f64);
-        }
-        result.plexmaton.usage = accounting.usage;
-        result.plexmaton.cost = accounting.cost;
-        let path = journal
-            .path(head)
-            .map_err(|_| anyhow::anyhow!("invalid selected session path"))?;
-        let selected: BTreeSet<_> = path.iter().map(|entry| &entry.id).collect();
-        if let Some(attempt) = journal
-            .request_attempts()
-            .filter(|attempt| {
-                selected.contains(attempt.authorization().semantic_boundary())
-                    && attempt.authorization().owner().agent_step().is_some()
-            })
-            .last()
-        {
-            let terminal = attempt
-                .terminal()
-                .map(|terminal| terminal.terminal().clone());
-            if let Some(RequestAttemptTerminalState::Dispatched { usage, .. }) = &terminal {
-                result.context_window.current_usage = claude_usage(usage);
-            }
-            result.plexmaton.latest_request = Some(Request {
-                id: attempt.authorization().attempt_id().to_string(),
-                owner: attempt.authorization().owner().clone(),
-                terminal,
-            });
-        }
-        if let Some(turn_id) = path.iter().rev().find_map(|entry| match &entry.payload {
-            JournalEntryPayload::TurnStarted { turn_id, .. }
-            | JournalEntryPayload::TurnRetried { turn_id, .. }
-            | JournalEntryPayload::CollaborationTurnStarted { turn_id, .. } => Some(turn_id),
-            _ => None,
-        }) {
-            let accounting = journal.turn_accounting(turn_id)?;
-            let api_duration_ms = journal
-                .request_attempts()
-                .filter(|attempt| {
-                    attempt
-                        .authorization()
-                        .owner()
-                        .agent_step()
-                        .is_some_and(|step| step.turn_id() == turn_id)
-                })
-                .try_fold(0_u64, |sum, attempt| {
-                    match attempt.terminal().map(|terminal| terminal.terminal()) {
-                        Some(RequestAttemptTerminalState::Dispatched { timing, .. }) => {
-                            sum.checked_add(timing.terminal_after_ms().get())
-                        }
-                        Some(RequestAttemptTerminalState::NotDispatched { .. }) => Some(sum),
-                        None => None,
-                    }
-                });
-            result.plexmaton.turn = Some(Turn {
-                id: turn_id.to_string(),
-                usage: accounting.usage,
-                cost: accounting.cost,
-                api_duration_ms,
-            });
-        }
-        Ok(())
     }
 }
 

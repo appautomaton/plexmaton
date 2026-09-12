@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–23 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–24 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -250,6 +250,25 @@ Visual changes are reviewed against real frames before the contract adopts them.
     code blockers. PR 24 checks own final-head CI evidence. The consumed plan is removed.
     No user manual terminal test or live model is claimed. Changing mid-turn Enter into steering
     and cancelling a skill read already in progress remain separate work.
+
+24. **Independent status projections — complete.** STL-3 separates prospective context
+    errors, acknowledged accounting/path facts and status-command execution.
+    Resume keeps MDL-4's configured default; MDL-1 and BUD-3 retain codec admission.
+    Local validation on base `fdb3b7e` plus this change: 21 status tests, affected CLI/TUI
+    all-target Clippy and the existing status-line PTY smoke passed. The offline HTTP/journal
+    resume witness proves incompatible model replacement is refused, partial status reaches
+    the real shell at 120/95/60 columns, a compatible model restores available context, and
+    inspection leaves journal bytes unchanged. No live provider or user configuration was used.
+    Reviewed actual Workspace footer cells from the
+    [preview](../../crates/plexmaton-tui/examples/status_projection_preview.rs):
+    [wide](../../crates/plexmaton-tui/frames/status-projection/partial-120.svg),
+    [medium](../../crates/plexmaton-tui/frames/status-projection/partial-95.svg),
+    [narrow](../../crates/plexmaton-tui/frames/status-projection/partial-60.svg).
+    The core regression failed before the change. Independent Sol-high review caught an
+    overly broad arithmetic-error category; explicit budget-error cases and regression coverage
+    now distinguish invalid budgets from overflow; final review found no remaining blockers.
+    Corpus gates passed; advisory README/UI-UX byte-budget warnings already existed at the base.
+    The consumed plan is removed. No CI or manual user test is claimed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is

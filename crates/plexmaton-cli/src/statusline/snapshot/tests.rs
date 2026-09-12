@@ -131,7 +131,7 @@ fn status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_iden
     // STL-3: real journal mutations, not a status-line copy of usage or source text.
     let (journal, head, model) = fixture();
     let mut value = snapshot(&model);
-    value.enrich(&journal, &head).expect("snapshot");
+    value.enrich(&journal, &head);
     let json = serde_json::to_value(&value).expect("JSON");
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["context_window"]["total_input_tokens"], 1000);
@@ -160,7 +160,7 @@ fn status_snapshot_projects_accounting_without_prompt_or_config_and_reloads_iden
         restored.apply(decoded).expect("replay record");
     }
     let mut reopened = snapshot(&model);
-    reopened.enrich(&restored, &head).expect("snapshot");
+    reopened.enrich(&restored, &head);
     assert_eq!(encoded, serde_json::to_string(&reopened).expect("JSON"));
 }
 
@@ -189,11 +189,156 @@ fn status_snapshot_keeps_unknown_cache_subsets_and_measurements_null() {
             rows: 20,
         },
         Context::Unavailable {
-            reason: "pending_commit",
+            reason: context::Reason::PendingCommit,
         },
     );
     let absent = serde_json::to_value(absent).expect("JSON");
     assert!(absent["session_id"].is_null());
     assert!(absent["context_window"]["used_percentage"].is_null());
     assert!(absent["cost"]["total_cost_usd"].is_null());
+}
+
+/// STL-3/TIM-3: canonical accounting refusal cannot erase metadata, requests or duration.
+#[test]
+fn status_snapshot_isolates_accounting_overflow() {
+    for (usage_overflow, expected) in [(true, "usage_overflow"), (false, "cost_overflow")] {
+        let (mut journal, head, model) = fixture();
+        let prior = journal
+            .request_attempts()
+            .next()
+            .expect("fixture attempt")
+            .authorization()
+            .clone();
+        let id = RequestAttemptId::new("overflow-attempt").expect("id");
+        journal
+            .apply(JournalRecord::RequestAttemptAuthorized {
+                sequence: journal.next_sequence(),
+                record_id: record_id(&journal),
+                head: head.clone(),
+                expected_head_revision: journal.head_revision(&head).expect("revision"),
+                fact: RequestAttemptAuthorized::new(
+                    id.clone(),
+                    prior.owner().clone(),
+                    prior.semantic_boundary().clone(),
+                    prior.environment().clone(),
+                    UnixMillis::new(50),
+                ),
+            })
+            .expect("second authorization");
+        journal
+            .apply(JournalRecord::RequestAttemptFinished {
+                sequence: journal.next_sequence(),
+                record_id: record_id(&journal),
+                fact: RequestAttemptTerminal::new(
+                    id,
+                    RequestAttemptTerminalState::Dispatched {
+                        timing: DispatchedRequestTiming::new(
+                            UnixMillis::new(51),
+                            None,
+                            None,
+                            ElapsedMillis::new(5),
+                        )
+                        .expect("timing"),
+                        outcome: RequestDispatchedOutcome::Completed {
+                            stop_reason: StopReason::EndOfTurn,
+                        },
+                        usage: TokenUsage::Complete(TokenCounts {
+                            input: if usage_overflow { u64::MAX } else { 1 },
+                            output: 0,
+                            total: if usage_overflow { u64::MAX } else { 1 },
+                            cached_input: Some(0),
+                            cache_write_input: Some(0),
+                            reasoning_output: Some(0),
+                        }),
+                        cost: RequestCost::Known {
+                            usd_ticks: UsdCostTicks::new(if usage_overflow { 0 } else { u64::MAX }),
+                        },
+                    },
+                )
+                .expect("terminal"),
+            })
+            .expect("second terminal");
+        assert!(journal.incurred_accounting().is_err());
+        let mut value = snapshot(&model);
+        value.enrich(&journal, &head);
+        let json = serde_json::to_value(value).expect("JSON");
+        assert_eq!(json["session_id"], journal.conversation_id().as_str());
+        assert_eq!(json["plexmaton"]["context"]["availability"], "available");
+        assert_eq!(json["plexmaton"]["issues"]["session_accounting"], expected);
+        assert_eq!(json["plexmaton"]["issues"]["turn_accounting"], expected);
+        assert!(json["cost"]["total_cost_usd"].is_null());
+        assert!(json["context_window"]["total_input_tokens"].is_null());
+        assert_eq!(json["plexmaton"]["usage"]["coverage"], "unavailable");
+        assert_eq!(
+            json["plexmaton"]["turn"]["usage"]["coverage"],
+            "unavailable"
+        );
+        assert_eq!(json["plexmaton"]["turn"]["api_duration_ms"], 35);
+        assert_eq!(
+            json["plexmaton"]["latest_request"]["id"],
+            "overflow-attempt"
+        );
+        assert!(!json["context_window"]["current_usage"].is_null());
+    }
+}
+
+/// STL-3: a selected-path failure does not invalidate whole-journal accounting.
+#[test]
+fn status_snapshot_isolates_invalid_selected_path() {
+    let (journal, _, model) = fixture();
+    let mut value = snapshot(&model);
+    value.enrich(&journal, &HeadName::new("missing-head").expect("head"));
+    let json = serde_json::to_value(value).expect("JSON");
+    assert_eq!(
+        json["plexmaton"]["issues"]["selected_path"],
+        "invalid_selected_path"
+    );
+    assert_eq!(json["session_id"], journal.conversation_id().as_str());
+    assert_eq!(json["context_window"]["total_input_tokens"], 1000);
+    assert_eq!(json["cost"]["total_cost_usd"], 0.01);
+    assert!(json["plexmaton"]["latest_request"].is_null());
+    assert!(json["plexmaton"]["turn"].is_null());
+    assert_eq!(json["plexmaton"]["context"]["availability"], "available");
+}
+
+/// STL-3/BUD-3: diagnostic categories never serialize provider error contents.
+#[test]
+fn status_context_refusals_are_typed_and_content_free() {
+    use plexmaton_provider::{ContextBudgetError, EncodeError};
+    for (error, reason) in [
+        (
+            EncodeError::PlainReasoningInResponses,
+            "history_incompatible",
+        ),
+        (EncodeError::OpaqueReplayInChat, "history_incompatible"),
+        (
+            EncodeError::MissingThinkingSignature,
+            "history_incompatible",
+        ),
+        (
+            EncodeError::UnrepresentableChatOrder,
+            "history_incompatible",
+        ),
+        (
+            EncodeError::OrphanToolResult("secret-tool-marker".into()),
+            "encoding_failed",
+        ),
+    ] {
+        let context = Context::capture(Err(ContextBudgetError::Encoding(error)));
+        assert_eq!(
+            serde_json::to_value(context).expect("JSON"),
+            serde_json::json!({"availability":"unavailable","reason":reason})
+        );
+    }
+    for (error, reason) in [
+        (BudgetError::Overflow, "arithmetic_overflow"),
+        (BudgetError::InvalidLimits, "invalid_budget"),
+        (BudgetError::InvalidAnchor, "invalid_budget"),
+    ] {
+        let context = Context::capture(Err(ContextBudgetError::Arithmetic(error)));
+        assert_eq!(
+            serde_json::to_value(context).expect("JSON"),
+            serde_json::json!({"availability":"unavailable","reason":reason})
+        );
+    }
 }
