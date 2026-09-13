@@ -34,7 +34,9 @@ mod tree_tests;
 pub use codec::{MAX_JOURNAL_LINE_BYTES, SCHEMA_EPOCH};
 pub use error::{AppendFailure, StoreError};
 pub use load::JournalRecovery;
-pub use paths::ConversationDirectory;
+pub use paths::{
+    ConversationDirectory, DelegatedConversationDirectory, DelegatedJournalFile, RootJournalFile,
+};
 
 use codec::{encode_header, encode_line};
 

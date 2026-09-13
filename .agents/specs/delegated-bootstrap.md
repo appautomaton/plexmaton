@@ -1,0 +1,62 @@
+# Spec — Delegated child bootstrap
+
+| Field | Value |
+| --- | --- |
+| Status | Implemented backend boundary; provider and product activation unproven |
+| Owns | Read-only child capability floor, child journal placement and bound fresh/resumed runtime construction |
+| Depends on | COL-3; CIN-2/CIN-4; APV-1–APV-3; JRN-3–JRN-5; PRV-6 |
+| Proven by | Native catalog, real-file provenance/directory and direct runtime-constructor tests |
+
+## Invariants
+
+**CHB-1 — Child capabilities have a hard floor.** A V1 delegated child always has native
+`read_file` and `search`. When the root binds an authenticated collaboration owner, it adds only
+the child-specific typed `send_mail` definition, whose recipient is fixed by canonical provenance.
+Skills, file mutation, command execution, delegation, task control, permission memory and prompt
+text cannot widen that set; execution rechecks the profile even for a call admitted by another
+catalog.
+
+**CHB-2 — Child construction is exact and closed.** Fresh and resumed child constructors require
+one binding whose collaboration, delegation, worker Agent and child Conversation identities agree
+before the runtime is exposed. The child mail catalog is crate-private and must carry the same full
+canonical provenance as the runtime binding. They force CHB-1 and accept only a `ResolvedModel`, whose configured
+reasoning effort has already passed model-local validation. Control is installed before any
+bootstrap or recovery append; a fresh constructor refuses a journal that already has records.
+
+**CHB-3 — Root resume never activates a child.** User-selectable root journals and delegated child
+journals have separate owner-only directories that issue distinct, non-interconvertible runtime
+tokens. Root constructors accept only a root token and delegated constructors accept only a child
+token. Child history activates only through the delegated path and CHB-2; recovery dispatches no
+provider or tool, and interrupted work needs a fresh explicit Main admission rather than automatic
+restart. Explicit target resume may reconstruct a canonical Main-controlled child but does not wake it.
+
+## Model
+
+```text
+root selection ──▶ root conversations/ ──▶ user runtime
+
+collaboration owner ──▶ delegated-sessions/ ──▶ storage-issued journal token
+                                                └─ exact canonical binding
+                                                   ├─ read/search + fixed-parent mail profile
+                                                   └─ child runtime
+```
+
+Directory tokens close runtime routing, while COL-3 owns durable Controller and execution authority.
+A raw path or journal cannot enter a public runtime constructor. Handoff changes input ownership and
+does not change the CHB-1 profile.
+
+## Evidence
+
+| Invariant | Proven by |
+| --- | --- |
+| CHB-1 | `chb_1_read_only_catalog_cannot_be_widened_by_an_admitted_call`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_ingress_derives_mail_endpoints_and_current_task_revision`, `ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision` |
+| CHB-2 | `chb_2_delegated_control_retains_all_creation_provenance_across_reopen`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation` |
+| CHB-3 | `chb_3_delegated_journals_require_their_explicit_directory`, `chb_3_resumed_child_settles_interruption_without_redispatch`, `ctl_1_explicit_resume_recovers_a_canonical_child_missing_its_journal`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation` |
+
+## Integration boundary
+
+[SCH-1–SCH-5](./owned-scheduling.md) validate canonical provenance, restore selected-branch
+collaboration context and expose a bounded runner while keeping child history out of ordinary root
+selection. The storage token proves directory origin; canonical provenance and COL-3 prove runtime
+authority. Passive UI history projection, tree/compaction routing and provider collaboration
+encoding remain later Phase 03 stages.

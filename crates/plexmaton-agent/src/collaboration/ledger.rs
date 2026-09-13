@@ -7,7 +7,7 @@ use plexmaton_core::{
 use super::types::validate_id;
 use super::{
     CollaborationError, CollaborationEvent, CollaborationLimits, CollaborationRecord,
-    CollaborationSequence, DelegationAuthor, DelegationRevision, DelegationView, ItemReceipt,
+    CollaborationSequence, DelegationController, DelegationRevision, DelegationView, ItemReceipt,
     MailEndpoint, MailEnvelope,
 };
 
@@ -65,13 +65,13 @@ impl CollaborationLedger {
         self.limits
     }
 
-    /// The canonical append order, including amendments and objections.
+    /// The canonical append order, including task updates and handoff.
     #[must_use]
     pub fn records(&self) -> &[CollaborationRecord] {
         &self.records
     }
 
-    /// Current task derived from creation and successful amendments, never from an objection.
+    /// Current task and controller derived from acknowledged delegation records.
     #[must_use]
     pub fn delegation(&self, id: &DelegationId) -> Option<&DelegationView> {
         self.delegations.get(id)
@@ -138,43 +138,9 @@ impl CollaborationLedger {
                 worker,
                 ..
             } => self.validate_creation(delegation, delegator, worker),
-            CollaborationEvent::TaskAmended {
+            CollaborationEvent::TaskUpdated {
                 delegation,
                 expected,
-                author,
-                ..
-            } => {
-                let view = self
-                    .delegations
-                    .get(delegation)
-                    .ok_or(CollaborationError::UnknownDelegation)?;
-                match author {
-                    DelegationAuthor::User => {
-                        if *expected > view.revision
-                            || view
-                                .last_user_revision
-                                .is_some_and(|revision| *expected < revision)
-                        {
-                            return Err(CollaborationError::StaleRevision);
-                        }
-                    }
-                    DelegationAuthor::Agent(endpoint) => {
-                        if endpoint != &view.delegator {
-                            return Err(CollaborationError::WrongAuthor);
-                        }
-                        if *expected != view.revision {
-                            return Err(CollaborationError::StaleRevision);
-                        }
-                        if view.last_user_revision.is_some() {
-                            return Err(CollaborationError::UserAuthority);
-                        }
-                    }
-                }
-                Ok(())
-            }
-            CollaborationEvent::ObjectionRaised {
-                delegation,
-                revision,
                 author,
                 ..
             } => {
@@ -185,11 +151,19 @@ impl CollaborationLedger {
                 if author != &view.delegator {
                     return Err(CollaborationError::WrongAuthor);
                 }
-                if *revision != view.revision {
+                if *expected != view.revision {
                     return Err(CollaborationError::StaleRevision);
+                }
+                if view.controller != DelegationController::Main {
+                    return Err(CollaborationError::HandoffCompleted);
                 }
                 Ok(())
             }
+            CollaborationEvent::HandoffCompleted {
+                delegation,
+                expected,
+                author,
+            } => self.validate_main_control(delegation, *expected, author),
         }
     }
 
@@ -225,16 +199,12 @@ impl CollaborationLedger {
                         worker: worker.clone(),
                         task: task.clone(),
                         revision: DelegationRevision(0),
-                        author: DelegationAuthor::Agent(delegator.clone()),
-                        last_user_revision: None,
+                        controller: DelegationController::Main,
                     },
                 );
             }
-            CollaborationEvent::TaskAmended {
-                delegation,
-                author,
-                task,
-                ..
+            CollaborationEvent::TaskUpdated {
+                delegation, task, ..
             } => {
                 let view = self
                     .delegations
@@ -242,12 +212,15 @@ impl CollaborationLedger {
                     .expect("validated delegation exists");
                 view.revision.0 += 1; // COL-2 caps all records far below revision exhaustion.
                 view.task = task.clone();
-                view.author = author.clone();
-                if *author == DelegationAuthor::User {
-                    view.last_user_revision = Some(view.revision);
-                }
             }
-            CollaborationEvent::ObjectionRaised { .. } => {}
+            CollaborationEvent::HandoffCompleted { delegation, .. } => {
+                let view = self
+                    .delegations
+                    .get_mut(delegation)
+                    .expect("validated delegation exists");
+                view.revision.0 += 1;
+                view.controller = DelegationController::User;
+            }
         }
         let receipt = record.receipt();
         self.items.insert(record.id.clone(), self.records.len());
@@ -328,6 +301,28 @@ impl CollaborationLedger {
                 break;
             };
             ancestor = &parent.delegator.conversation;
+        }
+        Ok(())
+    }
+
+    fn validate_main_control(
+        &self,
+        delegation: &DelegationId,
+        expected: DelegationRevision,
+        author: &MailEndpoint,
+    ) -> Result<(), CollaborationError> {
+        let view = self
+            .delegations
+            .get(delegation)
+            .ok_or(CollaborationError::UnknownDelegation)?;
+        if author != &view.delegator {
+            return Err(CollaborationError::WrongAuthor);
+        }
+        if expected != view.revision {
+            return Err(CollaborationError::StaleRevision);
+        }
+        if view.controller != DelegationController::Main {
+            return Err(CollaborationError::HandoffCompleted);
         }
         Ok(())
     }

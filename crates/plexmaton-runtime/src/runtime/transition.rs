@@ -209,6 +209,7 @@ impl LiveRuntime {
                 if let Some(call) = self.deferred_model_call.take() {
                     self.route_model_call(call)?;
                 } else {
+                    self.release_collaboration_permit_if_quiescent();
                     return Ok(());
                 }
             }
@@ -269,11 +270,24 @@ impl LiveRuntime {
         match after {
             AfterCommit::None => {}
             AfterCommit::Interrupt | AfterCommit::Shutdown => {
-                self.cancel_active().await?;
-                self.cancel_compaction().await?;
-                self.tools
+                let mut failure = self.cancel_active().await.err();
+                if let Err(error) = self.cancel_compaction().await {
+                    failure.get_or_insert(error);
+                }
+                if let Err(error) = self
+                    .tools
                     .cancel_and_join(&mut self.report.saved_project_permissions)
-                    .await?;
+                    .await
+                {
+                    failure.get_or_insert(error);
+                }
+                if self.after_commit == Some(after) {
+                    self.after_commit = None;
+                }
+                self.release_collaboration_permit_if_quiescent();
+                if let Some(error) = failure {
+                    return Err(error);
+                }
             }
             AfterCommit::StartModel => self.start_authorized_model()?,
             AfterCommit::SettleModel => self.settle_model_completion().await?,

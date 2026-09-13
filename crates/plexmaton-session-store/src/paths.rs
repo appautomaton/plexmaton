@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
-use plexmaton_agent::UnixMillis;
+use plexmaton_agent::{ConversationJournal, JournalRecord, UnixMillis};
 use plexmaton_core::ConversationId;
 use uuid::Uuid;
 
-use crate::{JournalFile, StoreError};
+use crate::{AppendFailure, JournalFile, StoreError};
 
 /// Maximum UTF-8 bytes in the portable session name used as a file stem.
 const MAX_SESSION_FILE_NAME_BYTES: usize = 128;
@@ -18,19 +18,77 @@ pub struct ConversationDirectory {
     path: PathBuf,
 }
 
+/// Storage-issued root journal token accepted by user-owned runtime constructors.
+pub struct RootJournalFile {
+    journal: JournalFile,
+}
+
+impl RootJournalFile {
+    /// Canonical in-memory reduction of the root journal.
+    #[must_use]
+    pub fn journal(&self) -> &ConversationJournal {
+        self.journal.journal()
+    }
+
+    /// Recovery performed while opening this root file.
+    #[must_use]
+    pub const fn recovery(&self) -> &crate::JournalRecovery {
+        self.journal.recovery()
+    }
+
+    /// Filesystem path held by this root writer.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.journal.path()
+    }
+
+    /// Appends through the acknowledged JSONL boundary while retaining root provenance.
+    pub fn append(&mut self, record: JournalRecord) -> Result<(), AppendFailure> {
+        self.journal.append(record)
+    }
+}
+
+/// Owner-only home for delegated journals excluded from ordinary root conversation selection.
+pub struct DelegatedConversationDirectory {
+    path: PathBuf,
+}
+
+/// Storage-issued child journal token that cannot originate from the root conversation directory.
+pub struct DelegatedJournalFile {
+    journal: JournalFile,
+}
+
+impl DelegatedJournalFile {
+    /// Canonical in-memory reduction of the delegated journal.
+    #[must_use]
+    pub fn journal(&self) -> &ConversationJournal {
+        self.journal.journal()
+    }
+
+    /// Filesystem path held by this delegated writer.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.journal.path()
+    }
+
+    /// Recovery performed while opening this delegated file.
+    #[must_use]
+    pub const fn recovery(&self) -> &crate::JournalRecovery {
+        self.journal.recovery()
+    }
+
+    /// Appends through the same acknowledged JSONL boundary while retaining delegated provenance.
+    pub fn append(&mut self, record: JournalRecord) -> Result<(), AppendFailure> {
+        self.journal.append(record)
+    }
+}
+
 impl ConversationDirectory {
     /// Creates or opens `PLEXMATON_HOME/sessions` without consulting process-global configuration.
     pub fn under(plexmaton_home: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let path = plexmaton_home.as_ref().join("sessions");
-        let mut builder = std::fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        builder.mode(0o700);
-        builder
-            .create(&path)
-            .map_err(|source| StoreError::io("create sessions directory", source))?;
-        ensure_owner_only_directory(&path)?;
-        Ok(Self { path })
+        Ok(Self {
+            path: open_owner_only_directory(plexmaton_home.as_ref(), "sessions")?,
+        })
     }
 
     /// Creates and exclusively owns a new named session.
@@ -38,15 +96,16 @@ impl ConversationDirectory {
         &self,
         session_id: ConversationId,
         created_at_unix_ms: UnixMillis,
-    ) -> Result<JournalFile, StoreError> {
+    ) -> Result<RootJournalFile, StoreError> {
         JournalFile::create(self.path_for(&session_id)?, session_id, created_at_unix_ms)
+            .map(|journal| RootJournalFile { journal })
     }
 
     /// Creates one collision-safe session whose generated identity remains a portable file name.
     pub fn create_automatic(
         &self,
         created_at_unix_ms: UnixMillis,
-    ) -> Result<(ConversationId, JournalFile), StoreError> {
+    ) -> Result<(ConversationId, RootJournalFile), StoreError> {
         self.create_automatic_with(created_at_unix_ms, Uuid::now_v7)
     }
 
@@ -54,7 +113,7 @@ impl ConversationDirectory {
         &self,
         created_at_unix_ms: UnixMillis,
         mut next_id: impl FnMut() -> Uuid,
-    ) -> Result<(ConversationId, JournalFile), StoreError> {
+    ) -> Result<(ConversationId, RootJournalFile), StoreError> {
         for _attempt in 0..AUTOMATIC_NAME_ATTEMPTS {
             let name = format!("session-{}", next_id());
             let session_id = ConversationId::new(name)
@@ -70,28 +129,19 @@ impl ConversationDirectory {
     }
 
     /// Opens and exclusively owns an existing named session.
-    pub fn resume(&self, session_id: &ConversationId) -> Result<JournalFile, StoreError> {
+    pub fn resume(&self, session_id: &ConversationId) -> Result<RootJournalFile, StoreError> {
         let path = self.path_for(session_id)?;
         let metadata = std::fs::symlink_metadata(&path)
             .map_err(|source| StoreError::io("inspect session path", source))?;
         if metadata.file_type().is_symlink() {
             return Err(StoreError::SymlinkPath);
         }
-        JournalFile::open(path)
+        JournalFile::open(path).map(|journal| RootJournalFile { journal })
     }
 
     /// Deterministic JSONL location for a portable session identity.
     pub fn path_for(&self, session_id: &ConversationId) -> Result<PathBuf, StoreError> {
-        let name = session_id.as_str();
-        let valid = !name.is_empty()
-            && name.len() <= MAX_SESSION_FILE_NAME_BYTES
-            && name.bytes().enumerate().all(|(index, byte)| {
-                byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'-' | b'_'))
-            });
-        if !valid {
-            return Err(StoreError::InvalidSessionFileName);
-        }
-        Ok(self.path.join(format!("{name}.jsonl")))
+        journal_path(&self.path, session_id)
     }
 
     /// The owner-only directory containing session files.
@@ -99,6 +149,73 @@ impl ConversationDirectory {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+impl DelegatedConversationDirectory {
+    /// Creates or opens `PLEXMATON_HOME/delegated-sessions` without entering the root picker path.
+    pub fn under(plexmaton_home: impl AsRef<Path>) -> Result<Self, StoreError> {
+        Ok(Self {
+            path: open_owner_only_directory(plexmaton_home.as_ref(), "delegated-sessions")?,
+        })
+    }
+
+    /// Creates and exclusively owns one child journal at its fixed delegation identity.
+    pub fn create(
+        &self,
+        session_id: ConversationId,
+        created_at_unix_ms: UnixMillis,
+    ) -> Result<DelegatedJournalFile, StoreError> {
+        JournalFile::create(self.path_for(&session_id)?, session_id, created_at_unix_ms)
+            .map(|journal| DelegatedJournalFile { journal })
+    }
+
+    /// Opens one child journal only through the delegated storage path.
+    pub fn resume(&self, session_id: &ConversationId) -> Result<DelegatedJournalFile, StoreError> {
+        let path = self.path_for(session_id)?;
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|source| StoreError::io("inspect delegated session path", source))?;
+        if metadata.file_type().is_symlink() {
+            return Err(StoreError::SymlinkPath);
+        }
+        JournalFile::open(path).map(|journal| DelegatedJournalFile { journal })
+    }
+
+    /// Deterministic JSONL location excluded from the ordinary root directory.
+    pub fn path_for(&self, session_id: &ConversationId) -> Result<PathBuf, StoreError> {
+        journal_path(&self.path, session_id)
+    }
+
+    /// The owner-only directory containing delegated child journals.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+fn open_owner_only_directory(root: &Path, name: &str) -> Result<PathBuf, StoreError> {
+    let path = root.join(name);
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder
+        .create(&path)
+        .map_err(|source| StoreError::io("create conversation directory", source))?;
+    ensure_owner_only_directory(&path)?;
+    Ok(path)
+}
+
+fn journal_path(directory: &Path, session_id: &ConversationId) -> Result<PathBuf, StoreError> {
+    let name = session_id.as_str();
+    let valid = !name.is_empty()
+        && name.len() <= MAX_SESSION_FILE_NAME_BYTES
+        && name.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'-' | b'_'))
+        });
+    if !valid {
+        return Err(StoreError::InvalidSessionFileName);
+    }
+    Ok(directory.join(format!("{name}.jsonl")))
 }
 
 fn ensure_owner_only_directory(path: &Path) -> Result<(), StoreError> {
@@ -129,7 +246,7 @@ mod tests {
     use plexmaton_core::ConversationId;
     use uuid::{Uuid, Version};
 
-    use super::ConversationDirectory;
+    use super::{ConversationDirectory, DelegatedConversationDirectory};
     use crate::{JournalFile, StoreError};
 
     #[test]
@@ -155,6 +272,36 @@ mod tests {
                 & 0o777;
             assert_eq!(mode, 0o700);
         }
+    }
+
+    /// CHB-3: root selection cannot discover a child journal in delegated storage.
+    #[test]
+    fn chb_3_delegated_journals_require_their_explicit_directory() {
+        let home_owner = crate::test_support::TestDir::new("delegated-directory");
+        let roots = ConversationDirectory::under(home_owner.path()).expect("root directory");
+        let children =
+            DelegatedConversationDirectory::under(home_owner.path()).expect("child directory");
+        let child_id = ConversationId::new("child-one").expect("child id");
+        let child = children
+            .create(child_id.clone(), UnixMillis::EPOCH)
+            .expect("create child journal");
+        assert_eq!(
+            child.path(),
+            children.path_for(&child_id).expect("child path")
+        );
+        assert_ne!(
+            children.path_for(&child_id).expect("child path"),
+            roots.path_for(&child_id).expect("root path")
+        );
+        drop(child);
+
+        assert!(matches!(
+            roots.resume(&child_id),
+            Err(StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound
+        ));
+        let reopened = children.resume(&child_id).expect("explicit child resume");
+        assert_eq!(reopened.journal().conversation_id(), &child_id);
     }
 
     #[test]

@@ -46,6 +46,12 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
+    /// Whether this exact adapter can preserve typed collaboration order, attribution and authority.
+    #[must_use]
+    pub const fn supports_typed_collaboration_context(&self) -> bool {
+        self.api.supports_typed_collaboration_context()
+    }
+
     /// Installs one immutable user-level workspace snapshot, separate from system instructions.
     /// The caller owns discovery; codecs, budgeting and compaction consume the same bytes (AGI-4).
     pub fn with_workspace_instructions(&self, text: String) -> Result<Self, ConfigError> {

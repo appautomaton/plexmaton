@@ -29,7 +29,7 @@ pub enum CollaborationError {
     DelegationCycle,
     WrongAuthor,
     StaleRevision,
-    UserAuthority,
+    HandoffCompleted,
     ItemIdentityConflict,
     MailIdentityConflict,
     UnexpectedSequence,

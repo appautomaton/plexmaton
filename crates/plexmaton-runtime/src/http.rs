@@ -286,6 +286,10 @@ async fn failed_response_report(
 }
 
 impl ModelDriver for ProviderHttp {
+    fn supports_collaboration(&self) -> bool {
+        self.model.supports_typed_collaboration_context()
+    }
+
     fn with_model(
         &self,
         model: ResolvedModel,

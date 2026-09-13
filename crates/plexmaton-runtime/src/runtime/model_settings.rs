@@ -1,6 +1,6 @@
 //! Idle-boundary model settings. Active turns retain their driver and request environment.
 
-use super::{LiveRuntime, ShutdownState};
+use super::{LiveRuntime, ShutdownState, collaboration::UserControlRefusal};
 use plexmaton_core::{AgentId, ReasoningEffort};
 use plexmaton_provider::{ApiKey, ResolvedModel};
 
@@ -25,6 +25,10 @@ pub enum ModelChangeRefusal {
     InvalidModel,
     #[error("This conversation contains history the selected model cannot replay.")]
     IncompatibleHistory,
+    #[error("Main controls this delegated Conversation until handoff.")]
+    ControlledByMain,
+    #[error("Reopen the collaboration before changing this delegated Conversation.")]
+    ControlUnavailable,
 }
 
 impl LiveRuntime {
@@ -99,6 +103,12 @@ impl LiveRuntime {
     fn validate_model_change(&self, to: &AgentId) -> Result<(), ModelChangeRefusal> {
         if to != &self.agent_id {
             return Err(ModelChangeRefusal::WrongAgent);
+        }
+        if let Some(refusal) = self.user_control_refusal() {
+            return Err(match refusal {
+                UserControlRefusal::Main => ModelChangeRefusal::ControlledByMain,
+                UserControlRefusal::Unavailable => ModelChangeRefusal::ControlUnavailable,
+            });
         }
         if self.shutdown_state != ShutdownState::Open {
             return Err(ModelChangeRefusal::ShuttingDown);

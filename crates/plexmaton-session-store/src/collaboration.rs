@@ -6,23 +6,35 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use plexmaton_agent::collaboration::{
-    CollaborationEvent, CollaborationLedger, CollaborationLimits, ItemReceipt, Preparation,
+    CollaborationError, CollaborationEvent, CollaborationLedger, CollaborationLimits, ItemReceipt,
+    MailEndpoint, Preparation, ResolvedTurnAdmission,
 };
-use plexmaton_core::{CollaborationId, CollaborationItemId};
+use plexmaton_core::{CollaborationId, CollaborationItemId, DelegationId};
 
 use crate::{
     JournalRecovery, WriterState, ensure_owner_only, lock_writer, reject_symlink,
     secure_open_options,
 };
 
+mod authority;
 mod codec;
 mod error;
 #[cfg(test)]
 mod tests;
 
+pub use authority::{
+    CollaborationControl, DelegatedConversationControl, DelegatedConversationProvenance,
+    ExecutionPermit, ExecutionReservation, ExecutionTicket,
+};
 pub use error::{CollaborationAppendFailure, CollaborationAttempt, CollaborationStoreError};
+
+use authority::{
+    AuthorityGate, WriterLease, WriterOwner, begin_release, complete_release, freeze_authority,
+    register_delegation, require_all_quiescent, writer_authority,
+};
 
 /// One locked collaboration file and its reduction; no independent mailbox or delegation file.
 pub struct CollaborationFile {
@@ -31,6 +43,9 @@ pub struct CollaborationFile {
     ledger: CollaborationLedger,
     recovery: JournalRecovery,
     state: WriterState,
+    owner: Arc<WriterOwner>,
+    lease: Arc<WriterLease>,
+    authority: Arc<Mutex<AuthorityGate>>,
 }
 
 impl CollaborationFile {
@@ -60,12 +75,23 @@ impl CollaborationFile {
             let _cleanup = std::fs::remove_file(path);
             return Err(CollaborationStoreError::Io(error));
         }
+        let (owner, lease, authority) = match writer_authority(&file, &ledger) {
+            Ok(authority) => authority,
+            Err(error) => {
+                drop(file);
+                let _cleanup = std::fs::remove_file(path);
+                return Err(error);
+            }
+        };
         Ok(Self {
             path: path.to_path_buf(),
             file,
             ledger,
             recovery: JournalRecovery::Clean,
             state: WriterState::Ready,
+            owner,
+            lease,
+            authority,
         })
     }
 
@@ -82,12 +108,16 @@ impl CollaborationFile {
         ensure_owner_only(&file)?;
         lock_writer(&file)?;
         let (ledger, recovery) = codec::load(&mut file, path)?;
+        let (owner, lease, authority) = writer_authority(&file, &ledger)?;
         Ok(Self {
             path: path.to_path_buf(),
             file,
             ledger,
             recovery,
             state: WriterState::Ready,
+            owner,
+            lease,
+            authority,
         })
     }
 
@@ -95,6 +125,32 @@ impl CollaborationFile {
     #[must_use]
     pub const fn ledger(&self) -> &CollaborationLedger {
         &self.ledger
+    }
+
+    /// Projects acknowledged mail only while this file owner can prove its canonical prefix.
+    pub fn project_mail(
+        &self,
+        endpoint: &MailEndpoint,
+    ) -> Result<plexmaton_agent::collaboration::CollaborationMailProjection, CollaborationStoreError>
+    {
+        if self.state == WriterState::Poisoned {
+            return Err(CollaborationStoreError::WriterPoisoned);
+        }
+        self.ledger.project_mail(endpoint).map_err(Into::into)
+    }
+
+    /// Resolves exact session references only while the canonical prefix remains provable.
+    pub fn resolve_turns(
+        &self,
+        references: &[plexmaton_agent::collaboration::CollaborationItemRef],
+    ) -> Result<Vec<Arc<ResolvedTurnAdmission>>, CollaborationStoreError> {
+        if self.state == WriterState::Poisoned {
+            return Err(CollaborationStoreError::WriterPoisoned);
+        }
+        references
+            .iter()
+            .map(|reference| self.ledger.resolve_turn(reference).map_err(Into::into))
+            .collect()
     }
 
     /// Physical tail repair performed by this open; callers can surface the isolated evidence.
@@ -107,6 +163,73 @@ impl CollaborationFile {
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Shared authority handle used by the owned runtime boundary, never by presentation.
+    #[must_use]
+    pub fn control(&self) -> CollaborationControl {
+        authority::control(&self.owner, &self.lease, &self.authority)
+    }
+
+    /// Binds controller inspection and Main execution to one canonical child Conversation.
+    pub fn delegated_control(
+        &self,
+        delegation: &DelegationId,
+    ) -> Result<DelegatedConversationControl, CollaborationStoreError> {
+        let (record, delegator, worker) = self
+            .ledger
+            .records()
+            .iter()
+            .find_map(|record| match &record.event {
+                CollaborationEvent::DelegationCreated {
+                    delegation: created,
+                    delegator,
+                    worker,
+                    ..
+                } if created == delegation => Some((record, delegator, worker)),
+                _ => None,
+            })
+            .ok_or(CollaborationError::UnknownDelegation)?;
+        let provenance = DelegatedConversationProvenance::new(
+            self.ledger.id().clone(),
+            delegation.clone(),
+            self.ledger.item_reference(&record.id)?,
+            delegator.clone(),
+            worker.clone(),
+        );
+        Ok(authority::delegated_control(self.control(), provenance))
+    }
+
+    /// Validates one canonical worker admission without granting execution authority.
+    pub fn execution_ticket(
+        &self,
+        delegation: &DelegationId,
+        admission: &ResolvedTurnAdmission,
+    ) -> Result<ExecutionTicket, CollaborationStoreError> {
+        let canonical = self.ledger.resolve_turn(admission.reference())?;
+        let view = self
+            .ledger
+            .delegation(delegation)
+            .ok_or(CollaborationError::UnknownDelegation)?;
+        if canonical.as_ref() != admission
+            || admission.admission().boundary.recipient != view.worker
+        {
+            return Err(CollaborationStoreError::InvalidExecutionTicket);
+        }
+        authority::ensure_ticket_available(&self.authority, delegation, admission.reference())?;
+        Ok(authority::ticket(
+            &self.authority,
+            delegation.clone(),
+            Arc::new(admission.clone()),
+        ))
+    }
+
+    /// Refuses owner shutdown while any reservation or permit still retains execution authority.
+    pub fn require_quiescent(&self) -> Result<(), CollaborationStoreError> {
+        if self.state == WriterState::Poisoned {
+            return Err(CollaborationStoreError::WriterPoisoned);
+        }
+        require_all_quiescent(&self.authority)
     }
 
     /// Returns the canonical original receipt on exact retry, including after reopen.
@@ -146,20 +269,39 @@ impl CollaborationFile {
             Preparation::Append(record) => record,
         };
         let bytes = crate::codec::encode_line(&record)?;
+        if let CollaborationEvent::HandoffCompleted { delegation, .. } = &record.event {
+            begin_release(&self.authority, delegation)?;
+        }
         if let Err(error) = write(&mut self.file, &bytes) {
             self.state = WriterState::Poisoned;
+            freeze_authority(&self.authority);
             return Err(CollaborationStoreError::WriteUncertain(error));
         }
-        self.ledger.apply(*record).map_err(|error| {
+        let event = record.event.clone();
+        let receipt = self.ledger.apply(*record).map_err(|error| {
             self.state = WriterState::Poisoned;
+            freeze_authority(&self.authority);
             CollaborationStoreError::ReductionUncertain(error)
-        })
+        })?;
+        match event {
+            CollaborationEvent::DelegationCreated { delegation, .. } => {
+                register_delegation(&self.authority, delegation)?;
+            }
+            CollaborationEvent::HandoffCompleted { delegation, .. } => {
+                complete_release(&self.authority, &delegation)?;
+            }
+            _ => {}
+        }
+        Ok(receipt)
     }
 }
 
 impl Drop for CollaborationFile {
     fn drop(&mut self) {
-        // COL-5: an inherited duplicate descriptor must not prolong this owner's authority.
-        let _release = self.file.unlock();
+        // COL-5: release an unretained writer before an inherited duplicate can prolong its flock.
+        // A live reservation or permit owns another lease reference and must keep the lock instead.
+        if Arc::strong_count(&self.lease) == 1 {
+            let _release = self.file.unlock();
+        }
     }
 }

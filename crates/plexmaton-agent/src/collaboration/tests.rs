@@ -44,13 +44,29 @@ fn mail(name: &str) -> CollaborationEvent {
     }
 }
 
-fn amendment(author: DelegationAuthor, expected: u64, task: &str) -> CollaborationEvent {
-    CollaborationEvent::TaskAmended {
+fn update_by(author: MailEndpoint, expected: u64, task: &str) -> CollaborationEvent {
+    CollaborationEvent::TaskUpdated {
         delegation: delegation(),
         expected: DelegationRevision(expected),
         author,
         task: text(task),
     }
+}
+
+fn update(expected: u64, task: &str) -> CollaborationEvent {
+    update_by(endpoint("a"), expected, task)
+}
+
+fn release_by(author: MailEndpoint, expected: u64) -> CollaborationEvent {
+    CollaborationEvent::HandoffCompleted {
+        delegation: delegation(),
+        expected: DelegationRevision(expected),
+        author,
+    }
+}
+
+fn handoff(expected: u64) -> CollaborationEvent {
+    release_by(endpoint("a"), expected)
 }
 
 fn ledger(limits: CollaborationLimits) -> CollaborationLedger {
@@ -84,17 +100,14 @@ fn col_1_exact_retry_and_replay_preserve_original_admission() {
         control_items: 0,
         ..CollaborationLimits::default()
     });
-    let event = amendment(DelegationAuthor::User, 0, "Only inspect tests");
-    let receipt = accept(&mut ledger, "amend", event.clone());
+    let event = update(0, "Only inspect tests");
+    let receipt = accept(&mut ledger, "update", event.clone());
     assert_eq!(
-        ledger.prepare(item("amend"), event),
+        ledger.prepare(item("update"), event),
         Ok(Preparation::Existing(receipt))
     );
     assert_eq!(
-        ledger.prepare(
-            item("amend"),
-            amendment(DelegationAuthor::User, 0, "Change files")
-        ),
+        ledger.prepare(item("update"), update(0, "Change files")),
         Err(CollaborationError::ItemIdentityConflict)
     );
     refuses(&mut ledger, mail("new"), CollaborationError::ItemCapacity);
@@ -132,11 +145,7 @@ fn col_2_mail_saturation_preserves_control_admission() {
         mail("second"),
         CollaborationError::ItemCapacity,
     );
-    accept(
-        &mut ledger,
-        "user",
-        amendment(DelegationAuthor::User, 0, "Stop the search at tests"),
-    );
+    accept(&mut ledger, "update", update(0, "Stop the search at tests"));
     assert_eq!(
         ledger.prepare(item("mail"), event),
         Ok(Preparation::Existing(receipt))
@@ -244,61 +253,99 @@ fn col_1_mail_identity_and_endpoint_projection_are_canonical() {
     assert_eq!(projected[0].0.id, item("reverse"));
 }
 
-/// COL-3: the user wins either serialization order; observing the new revision is not permission to revert.
+/// CMP-1: Incoming and Sent mail preserve canonical order, attribution and artifact pointers.
 #[test]
-fn col_3_user_wins_both_writer_orders_and_objections_preserve_task() {
-    for agent_first in [false, true] {
+fn cmp_1_mail_projection_merges_both_directions_in_first_appearance_order() {
+    let mut ledger = ledger(CollaborationLimits::default());
+    let incoming = MailEnvelope {
+        id: MailId::new("shared").expect("fixture identity"),
+        from: endpoint("b"),
+        to: endpoint("a"),
+        summary: text("Incoming evidence"),
+        artifacts: vec![ArtifactReference {
+            conversation: endpoint("b").conversation,
+            artifact: ArtifactId::new("finding").expect("artifact"),
+        }],
+    };
+    let sent = MailEnvelope {
+        id: MailId::new("shared").expect("sender-scoped identity"),
+        from: endpoint("a"),
+        to: endpoint("b"),
+        summary: text("Sent follow-up"),
+        artifacts: Vec::new(),
+    };
+    accept(
+        &mut ledger,
+        "incoming",
+        CollaborationEvent::MailAccepted {
+            mail: incoming.clone(),
+        },
+    );
+    accept(
+        &mut ledger,
+        "sent",
+        CollaborationEvent::MailAccepted { mail: sent.clone() },
+    );
+
+    let projection = ledger.project_mail(&endpoint("a")).expect("known endpoint");
+    assert_eq!(projection.endpoint(), &endpoint("a"));
+    assert_eq!(projection.items().len(), 2);
+    assert_eq!(projection.items()[0].direction(), MailDirection::Incoming);
+    assert_eq!(projection.items()[0].envelope(), &incoming);
+    assert_eq!(projection.items()[0].reference().item, item("incoming"));
+    assert_eq!(projection.items()[1].direction(), MailDirection::Sent);
+    assert_eq!(projection.items()[1].envelope(), &sent);
+    assert_eq!(projection.items()[1].reference().item, item("sent"));
+    assert!(
+        projection.items()[0].reference().sequence < projection.items()[1].reference().sequence
+    );
+    assert_eq!(
+        ledger.project_mail(&endpoint("unknown")),
+        Err(CollaborationError::UnknownEndpoint)
+    );
+}
+
+/// COL-3: Main may update across turns; Handoff is explicit, durable and one-way.
+#[test]
+fn col_3_update_and_handoff_races_preserve_one_controller() {
+    for update_first in [false, true] {
         let mut ledger = ledger(CollaborationLimits::default());
-        let agent = amendment(
-            DelegationAuthor::Agent(endpoint("a")),
-            0,
-            "Inspect all files",
-        );
-        if agent_first {
-            accept(&mut ledger, "agent", agent.clone());
-        }
-        accept(
-            &mut ledger,
-            "user",
-            amendment(DelegationAuthor::User, 0, "Inspect tests only"),
-        );
-        if !agent_first {
-            refuses(&mut ledger, agent, CollaborationError::StaleRevision);
+        if update_first {
+            accept(&mut ledger, "update", update(0, "Inspect tests only"));
+            refuses(&mut ledger, handoff(0), CollaborationError::StaleRevision);
+            accept(&mut ledger, "handoff", handoff(1));
+        } else {
+            accept(&mut ledger, "handoff", handoff(0));
+            refuses(
+                &mut ledger,
+                update(0, "Inspect tests only"),
+                CollaborationError::StaleRevision,
+            );
         }
         let view = ledger
             .delegation(&delegation())
             .expect("task exists")
             .clone();
-        assert_eq!(view.task.as_str(), "Inspect tests only");
-        assert_eq!(view.author, DelegationAuthor::User);
+        assert_eq!(
+            view.task.as_str(),
+            if update_first {
+                "Inspect tests only"
+            } else {
+                "Inspect files"
+            }
+        );
+        assert_eq!(view.controller, DelegationController::User);
         refuses(
             &mut ledger,
-            amendment(
-                DelegationAuthor::Agent(endpoint("a")),
-                view.revision.0,
-                "Inspect all files",
-            ),
-            CollaborationError::UserAuthority,
+            update(view.revision.0, "Inspect all files"),
+            CollaborationError::HandoffCompleted,
         );
         refuses(
             &mut ledger,
-            amendment(DelegationAuthor::User, 0, "Unseen concurrent user edit"),
-            CollaborationError::StaleRevision,
-        );
-        accept(
-            &mut ledger,
-            "objection",
-            CollaborationEvent::ObjectionRaised {
-                delegation: delegation(),
-                revision: view.revision,
-                author: endpoint("a"),
-                summary: text("The dependency may be outside tests"),
-            },
+            handoff(view.revision.0),
+            CollaborationError::HandoffCompleted,
         );
         assert_eq!(ledger.delegation(&delegation()), Some(&view));
-        assert!(
-            matches!(&ledger.records().last().expect("objection exists").event, CollaborationEvent::ObjectionRaised { author, .. } if author == &endpoint("a"))
-        );
     }
 }
 
@@ -308,30 +355,18 @@ fn col_3_wrong_authors_cycles_and_stale_tasks_are_refused() {
     let mut ledger = ledger(CollaborationLimits::default());
     refuses(
         &mut ledger,
-        amendment(
-            DelegationAuthor::Agent(endpoint("b")),
-            0,
-            "Worker cannot redefine task",
-        ),
+        update_by(endpoint("b"), 0, "Worker cannot redefine task"),
         CollaborationError::WrongAuthor,
     );
     refuses(
         &mut ledger,
-        amendment(DelegationAuthor::User, 1, "Future revision"),
+        update(1, "Future revision"),
         CollaborationError::StaleRevision,
     );
-    accept(
-        &mut ledger,
-        "agent-edit",
-        amendment(
-            DelegationAuthor::Agent(endpoint("a")),
-            0,
-            "Inspect Rust files",
-        ),
-    );
+    accept(&mut ledger, "main-update", update(0, "Inspect Rust files"));
     refuses(
         &mut ledger,
-        amendment(DelegationAuthor::Agent(endpoint("a")), 0, "Stale task"),
+        update(0, "Stale task"),
         CollaborationError::StaleRevision,
     );
     refuses(
@@ -346,12 +381,7 @@ fn col_3_wrong_authors_cycles_and_stale_tasks_are_refused() {
     );
     refuses(
         &mut ledger,
-        CollaborationEvent::ObjectionRaised {
-            delegation: delegation(),
-            revision: DelegationRevision(1),
-            author: endpoint("b"),
-            summary: text("Wrong author"),
-        },
+        release_by(endpoint("b"), 1),
         CollaborationError::WrongAuthor,
     );
 }

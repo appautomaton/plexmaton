@@ -26,13 +26,25 @@ use super::{
 };
 use crate::NativeToolCatalog;
 
-enum Script {
+pub(crate) enum Script {
     Events(Vec<ModelEvent>),
     Fail(ModelError),
     OutputThenFail(ModelEvent, ModelError),
     WaitForCancellation {
         started: Arc<Notify>,
         finished: Arc<AtomicBool>,
+    },
+    WaitForCancellationAndRelease {
+        started: Arc<Notify>,
+        cancelled: Arc<Notify>,
+        release: Arc<Notify>,
+    },
+    WaitForRelease {
+        started: Arc<Notify>,
+        release: Arc<Notify>,
+    },
+    PanicAfterCancellation {
+        started: Arc<Notify>,
     },
     TerminalReady(Arc<Notify>),
     TerminalThenWaitForCancellation {
@@ -42,22 +54,35 @@ enum Script {
     EndWithoutTerminal,
 }
 
-struct FakeDriver {
+pub(crate) struct FakeDriver {
     scripts: Arc<Mutex<VecDeque<Script>>>,
     calls: Arc<StdMutex<Vec<ModelCall>>>,
     environment: RequestEnvironment,
+    collaboration_supported: bool,
 }
 
 impl FakeDriver {
-    fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
+    pub(crate) fn new(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
+        Self::with_collaboration(scripts, true)
+    }
+
+    pub(crate) fn without_collaboration(scripts: impl IntoIterator<Item = Script>) -> Arc<Self> {
+        Self::with_collaboration(scripts, false)
+    }
+
+    fn with_collaboration(
+        scripts: impl IntoIterator<Item = Script>,
+        collaboration_supported: bool,
+    ) -> Arc<Self> {
         Arc::new(Self {
             scripts: Arc::new(Mutex::new(scripts.into_iter().collect())),
             calls: Arc::new(StdMutex::new(Vec::new())),
             environment: test_request_environment(),
+            collaboration_supported,
         })
     }
 
-    async fn calls(&self) -> Vec<ModelCall> {
+    pub(crate) async fn calls(&self) -> Vec<ModelCall> {
         self.calls
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -67,7 +92,7 @@ impl FakeDriver {
 
 impl ModelDriver for FakeDriver {
     fn supports_collaboration(&self) -> bool {
-        true
+        self.collaboration_supported
     }
     fn request_environment(&self) -> &RequestEnvironment {
         &self.environment
@@ -165,30 +190,40 @@ impl ModelDriver for FakeDriver {
                     false,
                 ),
                 Script::WaitForCancellation { started, finished } => {
-                    let output = ModelOutput::from_event(text_delta("partial"))
-                        .unwrap_or_else(|_| unreachable!("text is nonterminal model output"));
-                    let _closed = signals
-                        .send(ModelSignal {
-                            attempt_id: attempt_id.clone(),
-                            step_id: call.step_id.clone(),
-                            output,
-                        })
-                        .await;
-                    started.notify_one();
-                    cancellation.cancelled().await;
-                    finished.store(true, Ordering::SeqCst);
-                    cancelled_report(attempt_id, call.step_id, TokenUsage::Unavailable)
-                }
-                Script::TerminalReady(ready) => {
-                    ready.notify_one();
-                    completed_report(
+                    wait_for_cancellation(
                         attempt_id,
                         call.step_id,
-                        StopReason::EndOfTurn,
-                        usage_value(8, 2),
-                        false,
+                        signals,
+                        cancellation,
+                        started,
+                        finished,
                     )
+                    .await
                 }
+                Script::WaitForCancellationAndRelease {
+                    started,
+                    cancelled,
+                    release,
+                } => {
+                    wait_for_cancellation_and_release(
+                        attempt_id,
+                        call.step_id,
+                        cancellation,
+                        started,
+                        cancelled,
+                        release,
+                    )
+                    .await
+                }
+                Script::WaitForRelease { started, release } => {
+                    wait_for_release(attempt_id, call.step_id, started, release).await
+                }
+                Script::PanicAfterCancellation { started } => {
+                    started.notify_one();
+                    cancellation.cancelled().await;
+                    panic!("injected provider future failure after cancellation")
+                }
+                Script::TerminalReady(ready) => terminal_ready(attempt_id, call.step_id, ready),
                 Script::TerminalThenWaitForCancellation { ready, finished } => {
                     ready.notify_one();
                     cancellation.cancelled().await;
@@ -214,6 +249,76 @@ impl ModelDriver for FakeDriver {
         }
         .boxed()
     }
+}
+
+async fn wait_for_release(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+) -> ModelTerminalReport {
+    started.notify_one();
+    release.notified().await;
+    completed_report(
+        attempt_id,
+        step_id,
+        StopReason::EndOfTurn,
+        TokenUsage::Unavailable,
+        false,
+    )
+}
+
+async fn wait_for_cancellation(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    signals: mpsc::Sender<ModelSignal>,
+    cancellation: CancellationToken,
+    started: Arc<Notify>,
+    finished: Arc<AtomicBool>,
+) -> ModelTerminalReport {
+    let output = ModelOutput::from_event(text_delta("partial"))
+        .unwrap_or_else(|_| unreachable!("text is nonterminal model output"));
+    let _closed = signals
+        .send(ModelSignal {
+            attempt_id: attempt_id.clone(),
+            step_id: step_id.clone(),
+            output,
+        })
+        .await;
+    started.notify_one();
+    cancellation.cancelled().await;
+    finished.store(true, Ordering::SeqCst);
+    cancelled_report(attempt_id, step_id, TokenUsage::Unavailable)
+}
+
+async fn wait_for_cancellation_and_release(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    cancellation: CancellationToken,
+    started: Arc<Notify>,
+    cancelled: Arc<Notify>,
+    release: Arc<Notify>,
+) -> ModelTerminalReport {
+    started.notify_one();
+    cancellation.cancelled().await;
+    cancelled.notify_one();
+    release.notified().await;
+    cancelled_report(attempt_id, step_id, TokenUsage::Unavailable)
+}
+
+fn terminal_ready(
+    attempt_id: RequestAttemptId,
+    step_id: ModelStepId,
+    ready: Arc<Notify>,
+) -> ModelTerminalReport {
+    ready.notify_one();
+    completed_report(
+        attempt_id,
+        step_id,
+        StopReason::EndOfTurn,
+        usage_value(8, 2),
+        false,
+    )
 }
 
 fn test_request_environment() -> RequestEnvironment {
@@ -321,6 +426,7 @@ mod cancellation;
 mod compaction;
 mod effort;
 mod lifecycle;
+mod owned_scheduling;
 mod persistence;
 mod presentation;
 mod queue;

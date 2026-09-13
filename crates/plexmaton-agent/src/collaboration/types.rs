@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::CollaborationError;
 
-/// Maximum UTF-8 bytes in each summary, task or objection; no truncation is performed.
+/// Maximum UTF-8 bytes in each summary or task; no truncation is performed.
 pub const MAX_COLLABORATION_TEXT_BYTES: usize = 32 * 1024;
 /// Maximum bytes in identities admitted to the collaboration domain.
 pub const MAX_COLLABORATION_ID_BYTES: usize = 256;
@@ -143,24 +143,17 @@ impl MailEnvelope {
     }
 }
 
-/// Attribution supplied by a trusted runtime; serialized authors do not authenticate themselves.
-/// The reducer checks agent ownership and user precedence under COL-3.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(
-    tag = "kind",
-    content = "endpoint",
-    rename_all = "snake_case",
-    deny_unknown_fields
-)]
-pub enum DelegationAuthor {
-    User,
-    Agent(MailEndpoint),
-}
-
-/// Task revision, distinct from the sequence of items in the containing collaboration.
+/// Delegation revision, distinct from the sequence of items in the containing collaboration.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct DelegationRevision(pub u64);
+
+/// The sole actor allowed to open a delegated Conversation turn (COL-3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DelegationController {
+    Main,
+    User,
+}
 
 /// Contiguous position in one collaboration log; the reducer validates one-based ordering.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -182,19 +175,18 @@ pub enum CollaborationEvent {
         worker: MailEndpoint,
         task: CollaborationText,
     },
-    /// Replaces the effective task under COL-3; `expected` is the author's observed task revision.
-    TaskAmended {
+    /// Replaces the effective task while Main retains control.
+    TaskUpdated {
         delegation: DelegationId,
         expected: DelegationRevision,
-        author: DelegationAuthor,
+        author: MailEndpoint,
         task: CollaborationText,
     },
-    /// Records a delegator objection without advancing task revision or changing the task.
-    ObjectionRaised {
+    /// Durably transfers conversation input from Main to the user after quiescence.
+    HandoffCompleted {
         delegation: DelegationId,
-        revision: DelegationRevision,
+        expected: DelegationRevision,
         author: MailEndpoint,
-        summary: CollaborationText,
     },
 }
 
@@ -229,7 +221,7 @@ impl CollaborationRecord {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CollaborationLimits {
-    /// Total retained items, including mail, task edits and objections.
+    /// Total retained items, including mail, task updates and handoff.
     pub items: usize,
     /// Retained delegation count; this is not a concurrent runner limit.
     pub delegations: usize,
@@ -266,15 +258,14 @@ impl CollaborationLimits {
     }
 }
 
-/// Reconstructed effective task; amendments and objections remain in the canonical item log.
+/// Reconstructed effective task and controller; mutations remain in the canonical item log.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DelegationView {
     pub delegator: MailEndpoint,
     pub worker: MailEndpoint,
     pub task: CollaborationText,
     pub revision: DelegationRevision,
-    pub author: DelegationAuthor,
-    pub(super) last_user_revision: Option<DelegationRevision>,
+    pub controller: DelegationController,
 }
 
 pub(super) fn validate_id(value: &str) -> Result<(), CollaborationError> {

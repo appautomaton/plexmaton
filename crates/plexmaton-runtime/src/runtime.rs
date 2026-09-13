@@ -2,10 +2,9 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{
-    Agent, Input, ModelCall, ModelStepId, RequestAttemptId, UndeliveredInput, UndeliveredReason,
-};
+use plexmaton_agent::{Agent, Input, ModelCall, ModelStepId, RequestAttemptId, UndeliveredReason};
 use plexmaton_core::{AgentId, ConversationEventEnvelope};
+use plexmaton_session_store::collaboration::{DelegatedConversationControl, ExecutionPermit};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -24,6 +23,7 @@ mod navigation;
 mod permissions;
 pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
 mod queue;
+pub(super) use queue::rejected_user_input;
 pub use queue::{QueuedBoundary, QueuedInput};
 mod owned_future;
 mod retry;
@@ -84,12 +84,19 @@ struct ActiveModel {
     settlement: ModelSettlement,
 }
 
+pub(super) enum RuntimeInputControl {
+    User,
+    AwaitingDelegatedControl,
+    Delegated(Box<DelegatedConversationControl>),
+}
+
 /// Owner of one live agent and every asynchronous operation it starts (LIVE-1).
 pub struct LiveRuntime {
     agent_id: AgentId,
     agent: Agent,
     driver: Arc<dyn ModelDriver>,
     collaboration_context: plexmaton_agent::collaboration::ResolvedContext,
+    input_control: RuntimeInputControl,
     pending: VecDeque<ConversationEventEnvelope>,
     signals: mpsc::Sender<ModelSignal>,
     signal_rx: mpsc::Receiver<ModelSignal>,
@@ -111,6 +118,9 @@ pub struct LiveRuntime {
     journal_failed: bool,
     shutdown_state: ShutdownState,
     clock: Arc<dyn WallClock>,
+    collaboration_identity: Arc<crate::collaboration_ingress::RuntimeCollaborationIdentity>,
+    // Keep this last: field drop must release every runtime owner before collaboration authority.
+    collaboration_permit: Option<ExecutionPermit>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,6 +175,9 @@ impl LiveRuntime {
                 return Ok(self.take_report());
             }
             return Err(RuntimeError::ShuttingDown);
+        }
+        if let Some(refusal) = self.refuse_direct_input(&input, selected_skill.as_deref()) {
+            return refusal;
         }
         if matches!(&input, Input::Interrupted) {
             self.interrupt_prepared_inputs();
@@ -385,6 +398,7 @@ impl LiveRuntime {
                 .cleanup_failures
                 .push(CleanupFailure::JournalWriter);
         }
+        self.collaboration_permit = None;
     }
 
     /// Whether this runtime still owns a provider operation.
@@ -397,6 +411,12 @@ impl LiveRuntime {
     #[must_use]
     pub const fn agent_id(&self) -> &AgentId {
         &self.agent_id
+    }
+
+    /// Durable Conversation identity owned by this runtime.
+    #[must_use]
+    pub fn conversation_id(&self) -> &plexmaton_core::ConversationId {
+        self.agent.journal().conversation_id()
     }
 
     /// Whether this runtime still owns a durable transition, provider, admission, or execution.
@@ -412,6 +432,7 @@ impl LiveRuntime {
             || self.active.is_some()
             || self.compaction.is_some()
             || !self.tools.is_empty()
+            || self.collaboration_permit.is_some()
     }
 
     /// Takes non-event delivery results accumulated while provider traffic was processed.
@@ -489,25 +510,6 @@ impl LiveRuntime {
     }
 }
 
-fn rejected_user_input(
-    input: &Input,
-    selected: Option<&str>,
-    reason: UndeliveredReason,
-) -> Option<UndeliveredInput> {
-    let (text, skill) = match input {
-        Input::Submitted { text } | Input::Steered { text } => (text, selected),
-        Input::SkillSubmitted { text, skill } | Input::SkillSteered { text, skill } => {
-            (text, Some(skill.name()))
-        }
-        _ => return None,
-    };
-    Some(UndeliveredInput::with_skill(
-        text.clone(),
-        skill.map(str::to_owned),
-        reason,
-    ))
-}
-
 impl Drop for LiveRuntime {
     fn drop(&mut self) {
         if let Some(active) = self.active.take() {
@@ -529,4 +531,4 @@ enum WaitOutcome {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

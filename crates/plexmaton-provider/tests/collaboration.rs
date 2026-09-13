@@ -96,6 +96,10 @@ fn cin_3_all_codecs_refuse_collaboration_context_explicitly() {
         "google_generate_content",
     ] {
         let model = model(api);
+        assert!(
+            !model.supports_typed_collaboration_context(),
+            "{api}: production preflight must remain fail-closed"
+        );
         for atom in [&unresolved, &resolved] {
             let request = ModelRequest {
                 session_id: endpoint("b").conversation,

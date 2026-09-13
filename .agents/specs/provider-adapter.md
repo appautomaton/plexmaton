@@ -14,7 +14,10 @@ GenerateContent encode the same ordered `ContextAtom`s and produce position-bear
 transcript, tool scheduler or approval path. API selection is explicit and never changes
 mid-turn. CIN-3 collaboration atoms are currently unsupported: all four codecs and their budget
 paths return `UnsupportedCollaboration`, for both reference and resolved states, without role
-fallback.
+fallback. A future adapter may opt in only through a native typed collaboration field that
+preserves canonical atom order, attribution and peer authority. Rejected: encoding mail as user,
+tool or assistant history, which fabricates its source; and system/developer text, which elevates
+peer authority and cannot preserve interleaving in Messages or GenerateContent.
 
 **PRV-2 — Streaming assembly is bounded and finality is explicit.** Text deltas pass through in
 order; tool identity and argument fragments assemble under per-call, aggregate-step and count bounds,

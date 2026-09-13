@@ -5,6 +5,9 @@ use plexmaton_agent::{
     UnresolvedApprovalDecision,
 };
 use plexmaton_core::{AgentId, ConversationEventEnvelope, ToolCallId, TreeOrigin};
+use plexmaton_session_store::collaboration::{
+    DelegatedConversationControl, DelegatedConversationProvenance,
+};
 use thiserror::Error;
 
 /// User-facing skill metadata projected from the winning runtime catalog.
@@ -41,6 +44,26 @@ impl ConversationRecovery {
     #[must_use]
     pub const fn is_clean(&self) -> bool {
         self.tail.is_none() && !self.interrupted_turn
+    }
+}
+
+/// Exact durable identity and control required to construct a delegated Conversation runtime.
+#[derive(Clone)]
+pub struct DelegatedRuntimeBinding {
+    pub(crate) control: DelegatedConversationControl,
+}
+
+impl DelegatedRuntimeBinding {
+    /// Captures the unforgeable control handle derived from canonical delegation creation.
+    #[must_use]
+    pub fn new(control: DelegatedConversationControl) -> Self {
+        Self { control }
+    }
+
+    /// Canonical immutable origin that the child constructor will validate.
+    #[must_use]
+    pub fn provenance(&self) -> &DelegatedConversationProvenance {
+        self.control.provenance()
     }
 }
 
@@ -219,6 +242,27 @@ pub enum RuntimeError {
     /// Cross-session admission or context was refused before model dispatch.
     #[error(transparent)]
     Collaboration(#[from] plexmaton_agent::collaboration::CollaborationError),
+    /// The collaboration storage owner refused or could not prove current controller authority.
+    #[error(transparent)]
+    CollaborationAuthority(#[from] plexmaton_session_store::collaboration::CollaborationStoreError),
+    /// Direct input belongs to Main until acknowledged handoff.
+    #[error("Main controls direct input for this delegated Conversation")]
+    ControlledByMain,
+    /// A delegated control binding named a different Conversation or Agent.
+    #[error("delegated control does not belong to this runtime")]
+    DelegatedControlMismatch,
+    /// Runtime construction fixes whether direct input is user-owned or delegated.
+    #[error("this runtime's input control is already bound")]
+    InputControlAlreadyBound,
+    /// A fresh constructor received a journal that already contains canonical records.
+    #[error("a fresh runtime requires an empty journal")]
+    FreshJournalNotEmpty,
+    /// Durable controller state cannot be read until the collaboration is reopened.
+    #[error("delegated control is unavailable; reopen the collaboration")]
+    DelegatedControlUnavailable,
+    /// Controller binding is allowed only at a fully idle durable boundary.
+    #[error("delegated control cannot attach while the runtime owns work")]
+    DelegatedControlBusy,
     /// A Session owner failed; authority cannot be silently reconstructed.
     #[error("the coding Session permission owner is unavailable")]
     PermissionOwnerUnavailable,

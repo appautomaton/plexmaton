@@ -36,6 +36,15 @@ impl ModelApi {
             Self::GoogleGenerateContent => "google_generate_content",
         }
     }
+
+    const fn supports_typed_collaboration_context(self) -> bool {
+        match self {
+            Self::OpenaiResponses
+            | Self::OpenaiChatCompletions
+            | Self::AnthropicMessages
+            | Self::GoogleGenerateContent => false,
+        }
+    }
 }
 
 /// Explicit cache intent; no provider cache retention is promised by this setting.
@@ -125,6 +134,7 @@ pub struct ModelRegistry {
 }
 
 /// Provider bearer credential whose ordinary debug representation is always redacted.
+#[derive(Clone)]
 pub struct ApiKey(String);
 
 impl ApiKey {

@@ -120,6 +120,10 @@ pub enum UndeliveredReason {
     Shutdown,
     /// The user took it back before it was sent (IQU-4).
     Withdrawn,
+    /// Main still owns direct input for this delegated Conversation (COL-3).
+    ControlledByMain,
+    /// Durable controller state was unavailable, so input failed closed (COL-3).
+    ControlUnavailable,
 }
 
 /// Why a typed approval decision changed no pending call.

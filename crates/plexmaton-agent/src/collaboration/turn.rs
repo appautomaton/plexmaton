@@ -62,7 +62,7 @@ pub struct TurnAdmission {
 pub struct ResolvedCollaborationItem {
     pub reference: CollaborationItemRef,
     pub event: CollaborationEvent,
-    pub task_revision: Option<DelegationRevision>,
+    pub delegation_revision: Option<DelegationRevision>,
 }
 
 /// Materialized context derived only from a validated canonical admission; never serialized.
@@ -79,7 +79,7 @@ impl ResolvedTurnAdmission {
     pub fn reference(&self) -> &CollaborationItemRef {
         &self.reference
     }
-    /// Original boundary and selected references, unaffected by later amendments.
+    /// Original boundary and selected references, unaffected by later updates or Handoff.
     pub fn admission(&self) -> &TurnAdmission {
         &self.admission
     }
@@ -182,10 +182,10 @@ impl CollaborationLedger {
                 CollaborationEvent::DelegationCreated {
                     delegator, worker, ..
                 } => delegator == recipient || worker == recipient,
-                CollaborationEvent::TaskAmended { delegation, .. } => self
+                CollaborationEvent::TaskUpdated { delegation, .. }
+                | CollaborationEvent::HandoffCompleted { delegation, .. } => self
                     .delegation(delegation)
                     .is_some_and(|task| &task.delegator == recipient || &task.worker == recipient),
-                CollaborationEvent::ObjectionRaised { author, .. } => author == recipient,
                 CollaborationEvent::TurnAdmitted { .. } => false,
             };
             if !relevant {
@@ -200,7 +200,7 @@ impl CollaborationLedger {
         Ok(items)
     }
 
-    /// Resolves the immutable prefix even if later mail or amendments have arrived.
+    /// Resolves the immutable prefix even if later mail or delegation mutations have arrived.
     pub fn resolve_turn(
         &self,
         reference: &CollaborationItemRef,
@@ -223,14 +223,14 @@ impl CollaborationLedger {
                     revisions.insert(delegation.clone(), DelegationRevision(0));
                     Some(DelegationRevision(0))
                 }
-                CollaborationEvent::TaskAmended { delegation, .. } => {
+                CollaborationEvent::TaskUpdated { delegation, .. }
+                | CollaborationEvent::HandoffCompleted { delegation, .. } => {
                     let value = revisions
                         .get_mut(delegation)
-                        .expect("canonical amendment follows creation");
+                        .expect("canonical delegation mutation follows creation");
                     value.0 += 1;
                     Some(*value)
                 }
-                CollaborationEvent::ObjectionRaised { revision, .. } => Some(*revision),
                 _ => None,
             };
             if selected.contains(&source.id) {
@@ -238,7 +238,7 @@ impl CollaborationLedger {
                 items.push(ResolvedCollaborationItem {
                     reference: self.reference(source),
                     event: source.event.clone(),
-                    task_revision: revision,
+                    delegation_revision: revision,
                 });
             }
         }
@@ -294,24 +294,15 @@ fn source_bytes(record: &CollaborationRecord) -> usize {
             } => {
                 delegation.as_str().len() + delegator.bytes() + worker.bytes() + task.as_str().len()
             }
-            CollaborationEvent::TaskAmended {
+            CollaborationEvent::TaskUpdated {
                 delegation,
                 task,
                 author,
                 ..
-            } => {
-                let author_bytes = match author {
-                    super::DelegationAuthor::User => 0,
-                    super::DelegationAuthor::Agent(endpoint) => endpoint.bytes(),
-                };
-                delegation.as_str().len() + task.as_str().len() + author_bytes
-            }
-            CollaborationEvent::ObjectionRaised {
-                delegation,
-                author,
-                summary,
-                ..
-            } => delegation.as_str().len() + author.bytes() + summary.as_str().len(),
+            } => delegation.as_str().len() + task.as_str().len() + author.bytes(),
+            CollaborationEvent::HandoffCompleted {
+                delegation, author, ..
+            } => delegation.as_str().len() + author.bytes(),
             CollaborationEvent::TurnAdmitted { .. } => 0,
         }
 }

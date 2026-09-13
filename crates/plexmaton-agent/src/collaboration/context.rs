@@ -27,7 +27,7 @@ impl CollaborationContext {
 }
 
 /// Bounded disposable materialization; canonical data remains in the collaboration log.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ResolvedContext {
     turns: BTreeMap<CollaborationItemRef, Arc<ResolvedTurnAdmission>>,
     bytes: usize,

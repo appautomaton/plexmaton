@@ -3,7 +3,9 @@
 use std::thread::{self, JoinHandle};
 
 use plexmaton_agent::JournalRecord;
-use plexmaton_session_store::{AutomaticJournal, JournalFile, StoreError};
+use plexmaton_session_store::{
+    AutomaticJournal, DelegatedJournalFile, JournalFile, RootJournalFile, StoreError,
+};
 use tokio::sync::{mpsc, oneshot};
 
 const COMMAND_CAPACITY: usize = 1;
@@ -21,6 +23,18 @@ impl JournalStore for JournalFile {
 impl JournalStore for AutomaticJournal {
     fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
         AutomaticJournal::append(self, record)
+    }
+}
+
+impl JournalStore for DelegatedJournalFile {
+    fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
+        DelegatedJournalFile::append(self, record).map_err(|failure| failure.into_parts().0)
+    }
+}
+
+impl JournalStore for RootJournalFile {
+    fn append(&mut self, record: JournalRecord) -> Result<(), StoreError> {
+        RootJournalFile::append(self, record).map_err(|failure| failure.into_parts().0)
     }
 }
 
@@ -42,6 +56,8 @@ pub(super) struct JournalWriter {
     sender: Option<mpsc::Sender<Command>>,
     worker: Option<JoinHandle<()>>,
     finished: Option<oneshot::Receiver<()>>,
+    #[cfg(test)]
+    drop_probe: Option<std::sync::mpsc::Sender<()>>,
 }
 
 impl JournalWriter {
@@ -73,7 +89,14 @@ impl JournalWriter {
             sender: Some(sender),
             worker: Some(worker),
             finished: Some(finished),
+            #[cfg(test)]
+            drop_probe: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_drop_probe(&mut self, probe: std::sync::mpsc::Sender<()>) {
+        self.drop_probe = Some(probe);
     }
 
     pub(super) fn begin_append(
@@ -116,6 +139,10 @@ impl JournalWriter {
 impl Drop for JournalWriter {
     fn drop(&mut self) {
         self.sender.take();
+        #[cfg(test)]
+        if let Some(probe) = self.drop_probe.take() {
+            let _receiver_dropped = probe.send(()).is_err();
+        }
         if let Some(worker) = self.worker.take() {
             let _worker_failed = worker.join().is_err();
         }

@@ -12,7 +12,7 @@ use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_runtime::{
     ConversationRecovery, JournalTailRecovery, LiveRuntime, NativeToolCatalog,
 };
-use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, JournalFile};
+use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, RootJournalFile};
 use plexmaton_tui::{ConversationRestoration, ConversationTailRepair};
 
 pub(super) const USAGE: &str =
@@ -163,7 +163,7 @@ async fn open_fresh_conversation(
     key: ApiKey,
     tools: NativeToolCatalog,
     session_id: ConversationId,
-    journal: JournalFile,
+    journal: RootJournalFile,
 ) -> anyhow::Result<OpenedConversation> {
     let path = journal.path().to_path_buf();
     let runtime = match LiveRuntime::provider_with_fresh_journal(
