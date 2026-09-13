@@ -34,12 +34,14 @@ pub(super) enum PressTarget {
     Drawer(DrawerChoice),
     DrawerRetract,
     Menu(MenuRow),
+    Tree(crate::render::conversation_tree::Hit),
 }
 
 impl Workspace {
     /// The row under `at` on the surface the press names; every other surface has none.
     fn press_target(&self, surface: SurfaceId, at: Point) -> Option<PressTarget> {
         match surface {
+            SurfaceId::ConversationTree => self.tree_hit(at).map(PressTarget::Tree),
             SurfaceId::ComposerMenu => self.menu_hit(at).map(PressTarget::Menu),
             SurfaceId::Drawer if self.drawer_retract_hit(at) => Some(PressTarget::DrawerRetract),
             SurfaceId::Drawer => self.drawer_hit(at).map(PressTarget::Drawer),
@@ -72,6 +74,7 @@ impl Workspace {
     /// What the row does; the press and the release both resolved to it.
     fn activate(&mut self, target: PressTarget) -> Outcome {
         match target {
+            PressTarget::Tree(hit) => self.activate_tree(&hit),
             PressTarget::Command { action, .. } => self.inspect_command(action),
             PressTarget::Menu(MenuRow::Effort(effort)) => {
                 self.state.choose_effort(effort);

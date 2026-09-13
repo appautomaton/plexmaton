@@ -4,7 +4,7 @@ use plexmaton_agent::{
     CompactionFailure, CompactionId, ModelStepId, UndeliveredInput, UndeliveredModelInput,
     UnresolvedApprovalDecision,
 };
-use plexmaton_core::{AgentId, ConversationEventEnvelope, ToolCallId};
+use plexmaton_core::{AgentId, ConversationEventEnvelope, ToolCallId, TreeOrigin};
 use thiserror::Error;
 
 /// User-facing skill metadata projected from the winning runtime catalog.
@@ -94,6 +94,43 @@ pub enum RequestedCompactionOutcome {
     },
 }
 
+/// The result of admitting a conversation-tree navigation or metadata edit (TRE-4/TRE-8).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TreeAdmission {
+    /// The journal mutation is owned; its receipt arrives after writer acknowledgement.
+    Started,
+    /// The request already named the selected head and produced no mutation.
+    NoOp,
+    /// No work started and the caller retains its draft and current projection.
+    Refused(TreeRequestRefusal),
+}
+
+/// Why the runtime did not admit a tree request (TRE-4/TRE-8).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TreeRequestRefusal {
+    /// The request came from another agent's tree.
+    Navigation(plexmaton_agent::TreeNavigationRefusal),
+    /// The agent rejected a metadata-only mutation.
+    Edit(plexmaton_agent::TreeEditRefusal),
+    /// The accepted journal owner is shutting down.
+    ShuttingDown,
+    /// A journal failure requires reopening this session before navigation.
+    PersistenceFailed,
+    /// This runtime has no durable writer to acknowledge the navigation.
+    PersistenceUnavailable,
+    /// Agent or runtime work, including queued input, is still owned.
+    Busy,
+    /// A navigation receipt or projection reset is still waiting for the caller to consume it.
+    PendingReport,
+    /// The requested tree origin is not the current acknowledged tree origin.
+    StaleOrigin {
+        /// Acknowledged tree origin the caller addressed.
+        expected: Box<TreeOrigin>,
+        /// Current acknowledged tree origin.
+        actual: Box<TreeOrigin>,
+    },
+}
+
 /// Non-event results retained when an input could not enter the loop boundary it named.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
@@ -102,6 +139,10 @@ pub struct DispatchReport {
     pub queued_input_changed: bool,
     /// A committed branch selection replaces the conversation projection atomically in the UI.
     pub projection_reset: Option<Vec<ConversationEventEnvelope>>,
+    /// Result of a navigation whose journal mutation has been acknowledged (TRE-4).
+    pub tree_navigation: Option<plexmaton_agent::TreeNavigationResult>,
+    /// Metadata edit acknowledged by the journal writer; the caller can now refresh the tree.
+    pub tree_edit: Option<plexmaton_agent::TreeEditResult>,
     /// User input returned with its exact text and reason.
     pub undelivered: Vec<UndeliveredInput>,
     /// Approval decisions that named no pending request.
@@ -127,6 +168,8 @@ impl DispatchReport {
     pub(crate) fn is_empty(&self) -> bool {
         !self.queued_input_changed
             && self.projection_reset.is_none()
+            && self.tree_navigation.is_none()
+            && self.tree_edit.is_none()
             && self.undelivered.is_empty()
             && self.unresolved_approvals.is_empty()
             && self.undelivered_model.is_empty()
@@ -287,6 +330,12 @@ pub enum RuntimeError {
     /// A cancelled or terminal provider future panicked instead of settling normally.
     #[error("provider future `{0:?}` terminated unexpectedly")]
     ProviderFutureFailed(ModelStepId),
+    /// The agent prepared a tree navigation without its one journal mutation or reset projection.
+    #[error("the agent returned an incomplete conversation-tree navigation transition")]
+    TreeNavigationTransitionInvalid,
+    /// A metadata edit returned effects, a projection reset or an inconsistent receipt.
+    #[error("the agent returned an incomplete conversation-tree metadata transition")]
+    TreeEditTransitionInvalid,
     /// The system wall clock cannot be represented by the durable millisecond type.
     #[error("the system wall clock is before the Unix epoch")]
     WallClockBeforeUnixEpoch,

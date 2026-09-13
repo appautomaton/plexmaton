@@ -123,4 +123,11 @@ pub enum JournalError {
     InvalidTurnFinishTime(TurnId),
     /// A branch operation targeted semantic work whose turn is not terminal there.
     UnstableTurnTarget(TurnId),
+    /// Fork or select named a selected origin other than the durable selection.
+    SelectedHeadMismatch {
+        expected: HeadName,
+        actual: HeadName,
+    },
+    /// The durable selection cannot be abandoned until another head is selected.
+    CannotAbandonSelectedHead(HeadName),
 }

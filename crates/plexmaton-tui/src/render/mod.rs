@@ -3,6 +3,7 @@ use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 mod chrome;
 mod command_inspection;
 mod configuration;
+pub(crate) mod conversation_tree;
 pub(crate) mod effort;
 mod message_actions;
 mod panel;
@@ -15,9 +16,7 @@ use surfaces::{
     draw_cursor, drawer_page, drawer_panel, queued_input_panel, workspace_input,
 };
 
-use chrome::{
-    agents_title, attention_title, inspector_title, notices_title, render_status, render_too_small,
-};
+use chrome::{agents_title, attention_title, inspector_title, render_status, render_too_small};
 
 use crate::{
     ViewState, content,
@@ -147,18 +146,7 @@ pub fn render(
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
-            SurfaceId::Notices => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: None,
-                body: Body::Whole {
-                    lines: content::notices(state, palette),
-                    follows_tail: true,
-                },
-                title: notices_title(state, palette),
-                badge: None,
-                edges: Edges::All,
-            }),
+            SurfaceId::Notices => Some(surfaces::notices_panel(state, palette)),
             SurfaceId::Attention => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
@@ -175,6 +163,7 @@ pub fn render(
             }),
             SurfaceId::QueuedInput => Some(queued_input_panel(state, palette, bounds)),
             SurfaceId::CommandInspection => Some(command_inspection::panel(state, palette, bounds)),
+            SurfaceId::ConversationTree => Some(conversation_tree::panel(state, palette, bounds)),
             SurfaceId::Approval => Some(approval_panel(state, palette, bounds, &stacking)),
             SurfaceId::Drawer => Some(drawer_panel(state, palette, bounds)),
             SurfaceId::ComposerMenu => Some(composer_menu_panel(state, palette, bounds)),
@@ -946,6 +935,7 @@ mod tests {
                 SurfaceId::Attention => "Attention",
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::CommandInspection => "Command",
+                SurfaceId::ConversationTree => "Conversation tree",
                 SurfaceId::Inspector => "Agent B",
                 SurfaceId::Status => "~/plexmaton",
                 SurfaceId::Drawer => "Workspace",

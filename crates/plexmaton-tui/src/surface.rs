@@ -202,6 +202,8 @@ pub enum SurfaceId {
     /// Last in the ring because it is never a `Tab` destination: it is opened by its own chord and
     /// closed by `Escape`, and while it is open SURF-4 leaves it the only stop anyway.
     Drawer,
+    /// Full-screen conversation-tree navigation, above the workspace and below the Drawer.
+    ConversationTree,
     /// The status line: the last row of the screen, under every pane.
     Status,
 }

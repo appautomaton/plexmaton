@@ -18,6 +18,9 @@ use crate::{
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
 };
 
+mod drawer;
+mod tree;
+
 /// Read-only view facts the router reads but does not own.
 ///
 /// Copying focus or the dismissible stack into the router would create the second source of truth
@@ -37,6 +40,14 @@ pub struct RouterContext<'a> {
     pub dismissible: bool,
     /// Whether the user has a selection, which is a rung of the `Escape` ladder above that layer.
     pub selecting: bool,
+    /// A conversation-tree modal is open, even if a too-small terminal has no surface registry.
+    pub conversation_tree_open: bool,
+    /// The tree currently owns a metadata prompt (or its abandon confirmation).
+    pub tree_editing: bool,
+    /// The current tree editor is a text prompt rather than a confirmation.
+    pub tree_text_input: bool,
+    /// A Drawer sits above the tree and already owns keyboard input.
+    pub drawer_open: bool,
     /// The composer menu is showing the horizontal effort selector.
     pub effort_selector: bool,
 }
@@ -92,6 +103,14 @@ impl Router {
                 }),
                 |surface| Routed::Intent(TuiIntent::Pointer(PointerIntent::Suspend { surface })),
             ),
+            Event::Paste(_)
+                if context.drawer_open && context.focused != Some(SurfaceId::Drawer) =>
+            {
+                Routed::Ignored(Ignored::Unbound)
+            }
+            Event::Paste(ref text) if context.conversation_tree_open && !context.drawer_open => {
+                tree::paste(text, context)
+            }
             Event::Paste(ref text) if context.focus == KeyboardFocus::TextInput => {
                 Routed::Intent(TuiIntent::Text(TextIntent::Paste(text.clone())))
             }
@@ -115,7 +134,9 @@ impl Router {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('d') => return Routed::Intent(TuiIntent::Quit),
-                KeyCode::Char('c') => return Routed::Intent(TuiIntent::Interrupt),
+                KeyCode::Char('c') => {
+                    return Routed::Intent(TuiIntent::Interrupt);
+                }
                 _ => {}
             }
         }
@@ -124,7 +145,7 @@ impl Router {
         // unclaimed and reaches no text input: a control chord under a cursor is never the letter.
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('p')
-            && context.focused != Some(SurfaceId::Drawer)
+            && !context.drawer_open
         {
             return Routed::Intent(TuiIntent::Drawer(DrawerIntent::Open));
         }
@@ -135,6 +156,22 @@ impl Router {
         // `j`/`k` and nothing else.
         if context.focused == Some(SurfaceId::Drawer) {
             return self.drawer_key(key, context);
+        }
+        // TRE-1/INV-6: below minimum geometry the retained topmost Drawer still owns Escape.
+        // No invisible control may edit or navigate until a usable frame returns.
+        if context.drawer_open {
+            return if key.code == KeyCode::Esc {
+                self.escape(context)
+            } else {
+                Routed::Ignored(Ignored::Unbound)
+            };
+        }
+
+        // The tree blocks every lower keyboard grammar, including the hidden composer's interrupt,
+        // selection, retry, and inspector shortcuts. Global quit controls and Ctrl-P resolve as
+        // deliberate process-wide actions.
+        if context.conversation_tree_open {
+            return self.tree_key(key, context);
         }
 
         // The completion list keeps keyboard focus and the caret in the primary composer.
@@ -205,38 +242,6 @@ impl Router {
                 KeyboardFocus::TextInput => text_key(key),
                 KeyboardFocus::Navigation => navigation_key(key, context),
             },
-        }
-    }
-
-    /// The Drawer consumes its navigation grammar and keeps its filter single-line (DRW-3).
-    fn drawer_key(&mut self, key: KeyEvent, context: &RouterContext<'_>) -> Routed {
-        let typing = context.focus == KeyboardFocus::TextInput;
-        match key.code {
-            KeyCode::Char('y') if typing && key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Routed::Intent(TuiIntent::Selection(SelectionIntent::Copy))
-            }
-            KeyCode::Esc => self.escape(context),
-            KeyCode::Up => {
-                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
-            }
-            KeyCode::Down => {
-                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
-            }
-            KeyCode::Char('k') if !typing && key.modifiers.is_empty() => {
-                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Backward)))
-            }
-            KeyCode::Char('j') if !typing && key.modifiers.is_empty() => {
-                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Step(Direction::Forward)))
-            }
-            KeyCode::Enter if key.modifiers.is_empty() => {
-                Routed::Intent(TuiIntent::Drawer(DrawerIntent::Choose))
-            }
-            KeyCode::Enter => Routed::Ignored(Ignored::Unbound),
-            KeyCode::Char('j') if key.modifiers == KeyModifiers::CONTROL => {
-                Routed::Ignored(Ignored::Unbound)
-            }
-            _ if typing => text_key(key),
-            _ => Routed::Ignored(Ignored::Unbound),
         }
     }
 
@@ -341,6 +346,12 @@ impl Router {
 /// eligible and still consumes the event: a gesture whose target changes with scroll position is
 /// the spatial-memory failure the contract exists to prevent (ui-ux §nested scrolling).
 fn scroll(at: Point, direction: ScrollDirection, context: &RouterContext<'_>) -> Routed {
+    if context.surfaces.hit_test(at) == Some(SurfaceId::ConversationTree) {
+        return Routed::Intent(TuiIntent::Scroll {
+            surface: SurfaceId::ConversationTree,
+            direction,
+        });
+    }
     if context.surfaces.hit_test(at) == Some(SurfaceId::ComposerMenu) {
         return Routed::Intent(TuiIntent::Menu(MenuIntent::Step(match direction {
             ScrollDirection::Up => Direction::Backward,
@@ -606,6 +617,10 @@ mod tests {
             focused: Some(focused),
             dismissible,
             selecting: false,
+            conversation_tree_open: false,
+            tree_editing: false,
+            tree_text_input: false,
+            drawer_open: false,
             effort_selector: false,
         }
     }

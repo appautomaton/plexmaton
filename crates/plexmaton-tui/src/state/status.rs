@@ -178,6 +178,14 @@ impl ViewState {
     /// Clearing consumes the key, so one press never both discards text and stops work. Either
     /// path withdraws a pending quit question, and neither path ends the session (INV-7).
     pub fn interrupt(&mut self, surfaces: &SurfaceTree) -> Option<plexmaton_core::AgentId> {
+        // TRE-1/INV-7: a modal blocks hidden conversation actions, not withdrawal of the
+        // process-wide quit question. An admitted history write also remains owned.
+        if self.conversation_tree_open() {
+            if self.status.set_note(StatusNote::Quiet) {
+                self.touch();
+            }
+            return None;
+        }
         let target = match self.focus.resolve(surfaces) {
             Some(crate::surface::SurfaceId::Inspector) => {
                 self.inspector().map(|inspector| inspector.agent)

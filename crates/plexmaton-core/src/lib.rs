@@ -12,11 +12,16 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod conversation_tree;
 mod permissions;
 mod reasoning;
 mod transcript;
+mod tree_edit;
+mod tree_snapshot;
+mod tree_source;
 mod usage;
 
+pub use conversation_tree::{TreeNavigation, TreeNavigationTarget, TreeOrigin, TreeRevision};
 pub use permissions::{
     ApprovalDecision, ApprovalReason, PermissionChangeError, PermissionOfferId, PermissionRevision,
     PermissionScope, PermissionScopes, RememberPermissionOffer,
@@ -26,6 +31,12 @@ pub use permissions::{
     PermissionRuleAction, PermissionRuleView, PermissionStateView, ProjectConfigurationView,
     ProjectPermissionSource, SavedProjectPermission,
 };
+pub use tree_edit::{MAX_TREE_LABEL_BYTES, TreeEdit, TreeEditAction, TreeLabel, TreeLabelError};
+pub use tree_snapshot::{
+    TreeHead, TreePreview, TreeRewindEligibility, TreeRow, TreeRowKind, TreeSnapshot,
+    TreeSnapshotError, TreeSnapshotLimit,
+};
+pub use tree_source::{MAX_TREE_SOURCE_BYTES, TreeSourceError, TreeSourceRequest};
 
 pub use reasoning::ReasoningEffort;
 pub use transcript::{

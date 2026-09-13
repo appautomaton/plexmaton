@@ -20,6 +20,7 @@ mod model_settings;
 pub use model_settings::ModelChangeRefusal;
 mod journal;
 mod model;
+mod navigation;
 mod permissions;
 pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
 mod queue;
@@ -30,6 +31,8 @@ mod skills;
 mod terminal;
 mod tools;
 mod transition;
+mod tree_admission;
+mod tree_edit;
 
 #[cfg(test)]
 pub(crate) use clock::FixedWallClock;

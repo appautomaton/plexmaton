@@ -10,7 +10,7 @@ use crate::admission::{AdmissionOutcome, AdmissionRequest, AdmittedToolCall};
 use crate::journal::JournalRecord;
 use crate::model::{ModelCall, ModelError, ModelEvent, ModelStepId};
 use crate::tools::ToolExecutionResult;
-use crate::{RequestAttemptId, SkillActivation, UnixMillis};
+use crate::{RequestAttemptId, SkillActivation, TreeEditResult, TreeNavigationResult, UnixMillis};
 
 /// Something the loop is told.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -276,6 +276,10 @@ pub struct Reaction {
     pub events: Vec<ConversationEventEnvelope>,
     /// A rare explicit branch selection replaces the UI projection after persistence acknowledgement.
     pub projection_reset: Option<Vec<ConversationEventEnvelope>>,
+    /// Receipt for a pure conversation-tree navigation, published only after its records are acknowledged.
+    pub tree_navigation: Option<TreeNavigationResult>,
+    /// Metadata-only completion; the runtime publishes it after its journal record is acknowledged.
+    pub tree_edit: Option<TreeEditResult>,
     /// Work for whoever owns the outside world.
     pub effects: Vec<Effect>,
     /// User input whose intended boundary cannot claim it. Ownership returns to the caller with
@@ -301,6 +305,8 @@ impl Reaction {
             released_inputs: Vec::new(),
             events: Vec::new(),
             projection_reset: None,
+            tree_navigation: None,
+            tree_edit: None,
             effects: Vec::new(),
             undelivered: Vec::new(),
             unresolved_approvals: Vec::new(),

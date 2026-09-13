@@ -22,14 +22,15 @@ use crate::{
     RequestAttemptTerminal, RequestEnvironment, UnixMillis,
 };
 
+mod navigation;
 mod recovery;
 mod retry;
+mod tree_edit;
 
 /// One agent's canonical journal plus its transient live-event delivery cursor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Record {
     agent_id: AgentId,
-    head: HeadName,
     journal: ConversationJournal,
     announced: bool,
     next_event: u64,
@@ -54,8 +55,6 @@ impl Record {
     pub(crate) fn for_conversation(agent_id: AgentId, metadata: ConversationMetadata) -> Self {
         Self {
             agent_id,
-            head: HeadName::new("main")
-                .unwrap_or_else(|error| unreachable!("the main head is valid: {error}")),
             journal: ConversationJournal::with_metadata(metadata),
             announced: false,
             next_event: 1,
@@ -66,9 +65,7 @@ impl Record {
         agent_id: AgentId,
         journal: ConversationJournal,
     ) -> Result<Self, crate::JournalProjectionError> {
-        let head = HeadName::new("main")
-            .unwrap_or_else(|error| unreachable!("the main head is valid: {error}"));
-        let projection = journal.project(&head)?;
+        let projection = journal.project(journal.selected_head())?;
         let announced = projection.events().iter().any(|envelope| {
             matches!(
                 &envelope.event,
@@ -87,7 +84,6 @@ impl Record {
         });
         Ok(Self {
             agent_id,
-            head,
             journal,
             announced,
             next_event,
@@ -103,7 +99,7 @@ impl Record {
     }
 
     pub(crate) fn selected_head(&self) -> &HeadName {
-        &self.head
+        self.journal.selected_head()
     }
 
     pub(crate) const fn is_announced(&self) -> bool {
@@ -113,7 +109,7 @@ impl Record {
     /// The conversation rebuilt from the same journal path persistence receives (JRN-5).
     pub(crate) fn request(&self) -> ModelRequest {
         self.journal
-            .project(&self.head)
+            .project(self.selected_head())
             .unwrap_or_else(|error| unreachable!("live facts must remain projectable: {error:?}"))
             .into_request()
     }
@@ -124,7 +120,7 @@ impl Record {
 
     pub(crate) fn contains_tool_call(&self, call_id: &ToolCallId) -> bool {
         self.journal
-            .path(&self.head)
+            .path(self.selected_head())
             .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"))
             .iter()
             .any(|entry| {
@@ -139,7 +135,7 @@ impl Record {
     pub(crate) fn rebuild_projection(&mut self) -> JournalProjection {
         let projection = self
             .journal
-            .project(&self.head)
+            .project(self.selected_head())
             .unwrap_or_else(|error| unreachable!("live facts must remain projectable: {error:?}"));
         self.next_event = projection.events().last().map_or(1, |event| {
             event
@@ -166,17 +162,17 @@ impl Record {
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         let parent_id = self
             .journal
-            .head_target(&self.head)
+            .head_target(self.selected_head())
             .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"))
             .cloned();
         let expected_head_revision = self
             .journal
-            .head_revision(&self.head)
+            .head_revision(self.selected_head())
             .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"));
         let record = JournalRecord::AppendEntry {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision,
             entry: Box::new(ConversationEntry {
                 id: entry_id,
@@ -204,18 +200,18 @@ impl Record {
             .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         let semantic_boundary = self
             .journal
-            .head_target(&self.head)
+            .head_target(self.selected_head())
             .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"))
             .cloned()
             .unwrap_or_else(|| unreachable!("a started turn has a semantic entry"));
         let expected_head_revision = self
             .journal
-            .head_revision(&self.head)
+            .head_revision(self.selected_head())
             .unwrap_or_else(|error| unreachable!("the live head remains valid: {error:?}"));
         let record = JournalRecord::TurnFinished {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision,
             fact: crate::TurnFinished {
                 agent_id: self.agent_id.clone(),
@@ -231,7 +227,7 @@ impl Record {
         reaction.records.push(record);
         if let Some(event) = self
             .journal
-            .unfinished_turn_usage_event(&self.head, &turn_id)
+            .unfinished_turn_usage_event(self.selected_head(), &turn_id)
             .unwrap_or_else(|error| unreachable!("accepted attempts have valid totals: {error:?}"))
         {
             self.emit(reaction, event);
@@ -254,7 +250,7 @@ impl Record {
     }
 
     pub(crate) fn compaction_source(&self) -> Result<CompactionSource, crate::JournalError> {
-        self.journal.compaction_source(&self.head)
+        self.journal.compaction_source(self.selected_head())
     }
 
     pub(crate) fn authorize_compaction_attempt(
@@ -277,7 +273,7 @@ impl Record {
         let record = JournalRecord::RequestAttemptAuthorized {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision: plan.source().head_revision(),
             fact: RequestAttemptAuthorized::new(
                 attempt_id,
@@ -311,14 +307,14 @@ impl Record {
         .unwrap_or_else(|error| unreachable!("a formatted identity is valid: {error}"));
         let semantic_boundary = self
             .journal
-            .head_target(&self.head)?
+            .head_target(self.selected_head())?
             .cloned()
             .ok_or_else(|| crate::JournalError::MissingTurn(owner_turn_id(&owner)))?;
-        let expected_head_revision = self.journal.head_revision(&self.head)?;
+        let expected_head_revision = self.journal.head_revision(self.selected_head())?;
         let record = JournalRecord::RequestAttemptAuthorized {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision,
             fact: RequestAttemptAuthorized::new(
                 attempt_id,
@@ -355,7 +351,7 @@ impl Record {
             .map_err(RequestAttemptCommitError::Journal)?;
         let usage_event = self
             .journal
-            .preview_cumulative_usage_event(&self.head, terminal)
+            .preview_cumulative_usage_event(self.selected_head(), terminal)
             .map_err(RequestAttemptCommitError::Projection)?;
         self.journal
             .apply(record.clone())
@@ -405,7 +401,7 @@ impl Record {
         let record = JournalRecord::AppendEntry {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision: plan.source().head_revision(),
             entry: Box::new(ConversationEntry {
                 id: entry_id,
@@ -484,7 +480,7 @@ impl Record {
         let approval = ApprovalId::new(format!(
             "{}-{}-{turn_id}-{}-{}-approval-{call_id}",
             self.journal.conversation_id(),
-            self.head,
+            self.selected_head(),
             self.journal.next_sequence().get(),
             self.agent_id
         ))
@@ -492,7 +488,7 @@ impl Record {
         let attention = AttentionId::new(format!(
             "{}-{}-{turn_id}-{}-{}-attention-{call_id}",
             self.journal.conversation_id(),
-            self.head,
+            self.selected_head(),
             self.journal.next_sequence().get(),
             self.agent_id
         ))
@@ -606,5 +602,52 @@ mod tests {
             record.atoms().as_slice(),
             [atom] if atom.value() == &ContextAtomValue::User { text: "hello".to_owned() }
         ));
+    }
+
+    /// TRE-3: reopen uses the durable selected head, not a hardcoded `main`.
+    #[test]
+    fn tre_3_from_journal_projects_the_durable_selected_head() {
+        use crate::journal::{HeadRevision, JournalRecord};
+        use plexmaton_core::{HeadName, JournalRecordId};
+
+        let mut live = record();
+        let mut reaction = Reaction::default();
+        live.commit(
+            JournalEntryPayload::AgentCreated {
+                agent_id: live.agent_id().clone(),
+                label: "Plexmaton".to_owned(),
+                status: AgentStatus::Idle,
+            },
+            &mut reaction,
+        );
+        let at = live
+            .journal()
+            .head_target(live.selected_head())
+            .unwrap_or_else(|error| panic!("selected target: {error:?}"))
+            .cloned();
+        let mut journal = live.journal().clone();
+        let destination =
+            HeadName::new("rewound").unwrap_or_else(|error| panic!("destination: {error}"));
+        journal
+            .apply(JournalRecord::ForkAndSelectHead {
+                sequence: journal.next_sequence(),
+                record_id: JournalRecordId::new("record-fork")
+                    .unwrap_or_else(|error| panic!("record id: {error}")),
+                source: live.selected_head().clone(),
+                expected_source_revision: journal
+                    .head_revision(live.selected_head())
+                    .unwrap_or_else(|error| panic!("source revision: {error:?}")),
+                destination: destination.clone(),
+                at,
+            })
+            .unwrap_or_else(|error| panic!("fork and select: {error:?}"));
+
+        let restored = Record::from_journal(live.agent_id().clone(), journal)
+            .unwrap_or_else(|error| panic!("from_journal: {error:?}"));
+        assert_eq!(restored.selected_head(), &destination);
+        assert_eq!(
+            restored.journal().head_revision(&destination),
+            Ok(HeadRevision::new(0))
+        );
     }
 }

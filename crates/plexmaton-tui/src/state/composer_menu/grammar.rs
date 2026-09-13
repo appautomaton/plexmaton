@@ -15,17 +15,20 @@ pub enum Command {
     Permissions,
     Effort,
     Model,
+    /// Browse the current conversation's saved messages and named heads.
+    Tree,
 }
 
 impl Command {
     /// Every Command, in the order the menu lists them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::New,
         Self::Resume,
         Self::Compact,
         Self::Permissions,
         Self::Effort,
         Self::Model,
+        Self::Tree,
     ];
 
     /// The name after the slash.
@@ -38,6 +41,16 @@ impl Command {
             Self::Permissions => "permissions",
             Self::Effort => "effort",
             Self::Model => "model",
+            Self::Tree => "tree",
+        }
+    }
+
+    /// Additional truthful completion names for the same typed command action.
+    #[must_use]
+    pub(super) const fn aliases(self) -> &'static [&'static str] {
+        match self {
+            Self::Tree => &["rewind"],
+            _ => &[],
         }
     }
 
@@ -49,7 +62,7 @@ impl Command {
             Self::Permissions => Some(Listing::Permissions),
             Self::Effort => Some(Listing::Effort),
             Self::Model => Some(Listing::Models),
-            Self::New | Self::Compact => None,
+            Self::New | Self::Compact | Self::Tree => None,
         }
     }
 
@@ -63,11 +76,15 @@ impl Command {
             Self::Permissions => "Review this Session's permissions",
             Self::Effort => "Adjust this conversation's reasoning effort",
             Self::Model => "Choose this conversation's model",
+            Self::Tree => "Browse branches or rewind to a saved message",
         }
     }
 
     pub(super) fn parse(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|command| command.name() == name)
+        Self::ALL
+            .into_iter()
+            .find(|command| command.name() == name)
+            .or_else(|| (name == "rewind").then_some(Self::Tree))
     }
 }
 

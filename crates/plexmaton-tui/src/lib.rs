@@ -30,7 +30,7 @@ mod workspace;
 
 pub use intent::{
     ApprovalIntent, AttentionIntent, Direction, InspectorIntent, MenuIntent, PointerIntent,
-    ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
+    ScrollDirection, SelectionIntent, TextIntent, TreeIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
@@ -55,6 +55,7 @@ pub use theme::{
 };
 pub use transcript::TranscriptMetrics;
 pub use workspace::{
-    CommandRun, CommandTarget, EffortChange, Flow, FrameWork, ModelChange, Outcome, Workspace,
+    CommandRun, CommandTarget, EffortChange, Flow, FrameWork, ModelChange, Outcome, TreeRequest,
+    Workspace,
 };
 pub mod math;

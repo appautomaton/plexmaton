@@ -24,8 +24,9 @@ UP, DOWN, ENTER, ESC = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b"
 
 
 class Terminal:
-    def __init__(self, project, environment, name):
+    def __init__(self, project, environment, name, arguments=()):
         self.project, self.environment, self.name = project, environment, name
+        self.arguments = tuple(arguments)
         self.size = (30, 120)
         self.capture = bytearray()
         self.frame_start = 0
@@ -35,7 +36,7 @@ class Terminal:
         try:
             smoke.set_size(slave, self.size)
             self.process = subprocess.Popen(
-                [str(ROOT / "target/debug/plexmaton")], cwd=self.project, env=self.environment,
+                [str(ROOT / "target/debug/plexmaton"), *self.arguments], cwd=self.project, env=self.environment,
                 stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
                 preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
         except BaseException:

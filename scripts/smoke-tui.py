@@ -278,6 +278,27 @@ def check_effort(master: int, captured: bytearray) -> None:
     repaint(master, captured, ("Message Plexmaton", "none"), ("Enter confirm",))
 
 
+def check_tree(master: int, captured: bytearray) -> None:
+    """TRE-1/TRE-5: both aliases open one modal; hidden input stays untouched, even below min size."""
+    for command in (b"/tree\r", b"/rewind\r"):
+        os.write(master, command)
+        await_screen(master, captured, RESIZED, ("Conversation tree",), complete=False)
+        os.write(master, b"qzv\x03")
+        for size in (REPAINT_PROBE_SIZE, RESIZED):
+            start = len(captured)
+            set_size(master, size)
+            await_screen(master, captured, size, ("Conversation tree",), start=start, complete=False)
+        os.write(master, b"\x1b")
+        repaint(master, captured, ("Message Plexmaton",), ("Conversation tree", "qzv"))
+    os.write(master, b"/tree\r")
+    await_screen(master, captured, RESIZED, ("Conversation tree",), complete=False)
+    start = len(captured)
+    set_size(master, (8, 40))
+    await_screen(master, captured, (8, 40), start=start, complete=False)
+    os.write(master, b"\x1b")
+    repaint(master, captured, ("Message Plexmaton",), ("Conversation tree",))
+
+
 def run_smoke(model_url: str) -> int:
     if sys.argv[1:]:
         print("usage: smoke-tui.py", file=sys.stderr)
@@ -358,6 +379,7 @@ output_reserve_tokens = 5000
         check_waiting_input(master, captured)
         check_effort(master, captured)
         check_model_menu(master, captured)
+        check_tree(master, captured)
 
         question = "press Ctrl-D again to quit"
         armed_start = len(captured)

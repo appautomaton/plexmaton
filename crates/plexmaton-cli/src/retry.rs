@@ -33,13 +33,13 @@ pub(super) async fn execute(
     match result {
         Ok(mut report) => {
             retain_owned_edit(&mut report, edited_text.as_deref());
-            restore_undelivered(workspace, runtime.agent_id().clone(), report);
+            input::apply_report(runtime, workspace, runtime.agent_id().clone(), report);
         }
         Err(plexmaton_runtime::RuntimeError::RetryUnavailable) => {}
         Err(error) => {
             let mut report = runtime.take_report();
             retain_owned_edit(&mut report, edited_text.as_deref());
-            restore_undelivered(workspace, runtime.agent_id().clone(), report);
+            input::apply_report(runtime, workspace, runtime.agent_id().clone(), report);
             return Err(error).context("retry request");
         }
     }

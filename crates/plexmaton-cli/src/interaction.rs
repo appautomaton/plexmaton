@@ -14,9 +14,9 @@ use plexmaton_tui::{
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
-    clipboard::TerminalClipboard, dispatch_live, input_queue, permission_controls,
-    restore_undelivered, retry, route_approval, route_interrupt, route_submission, session_picker,
-    statusline, stream_frames,
+    clipboard::TerminalClipboard, conversation_tree, dispatch_live, input::apply_report,
+    input_queue, permission_controls, retry, route_approval, route_interrupt, route_submission,
+    session_picker, statusline, stream_frames,
 };
 
 #[cfg(test)]
@@ -67,7 +67,7 @@ where
                 frames.flush(workspace);
                 permission_controls::PermissionControls::publish(update, workspace);
                 let report = runtime.permissions_changed().await.context("apply current permissions to waiting calls")?;
-                restore_undelivered(workspace, runtime.agent_id().clone(), report);
+                apply_report(runtime, workspace, runtime.agent_id().clone(), report);
             }
             update = picker.next() => {
                 frames.flush(workspace);
@@ -96,7 +96,7 @@ where
                     RuntimeUpdate::Report(report) => {
                         frames.flush(workspace);
                         if let Some(status) = status_line { status.mark_dirty(); }
-                        restore_undelivered(workspace, runtime.agent_id().clone(), report);
+                        apply_report(runtime, workspace, runtime.agent_id().clone(), report);
                         retry::sync_actions(runtime, workspace);
                     }
                     RuntimeUpdate::Finished => {
@@ -162,7 +162,7 @@ async fn apply_workspace_outcome(
         // The queue belongs to the runtime; the workspace only asked. The text comes back through
         // the same `undelivered` path that already returns messages nothing claimed (IQU-4).
         match runtime.withdraw_queued(agent) {
-            Ok(report) => restore_undelivered(workspace, agent.clone(), report),
+            Ok(report) => apply_report(runtime, workspace, agent.clone(), report),
             Err(error) => return Err(error).context("take back a waiting message"),
         }
     }
@@ -190,6 +190,23 @@ async fn apply_workspace_outcome(
     }
     if let Some(retry) = outcome.retry {
         retry::execute(runtime, workspace, retry).await?;
+    }
+    if let Some(request) = outcome.tree {
+        match request {
+            plexmaton_tui::TreeRequest::Refresh(agent) => {
+                conversation_tree::open(runtime, workspace, &agent);
+            }
+            plexmaton_tui::TreeRequest::Navigate(navigation) => {
+                conversation_tree::navigate(runtime, workspace, navigation)?;
+            }
+            plexmaton_tui::TreeRequest::Edit(edit) => {
+                conversation_tree::edit(runtime, workspace, edit)?;
+            }
+            plexmaton_tui::TreeRequest::Copy(request) => {
+                let copy = conversation_tree::copy(runtime, workspace, &request);
+                deliver_copy(copy, clipboard, workspace)?;
+            }
+        }
     }
     if let Some(submission) = outcome.submitted {
         dispatch_live(runtime, workspace, route_submission(submission)).await?;
@@ -219,6 +236,7 @@ async fn run_command(
         Command::Resume => picker.open(workspace),
         Command::Permissions => permissions.refresh(),
         Command::Effort | Command::Model => {}
+        Command::Tree => conversation_tree::open(runtime, workspace, &run.target.agent),
         Command::Compact => {
             let note = match runtime
                 .request_compaction(run.target.agent.clone())

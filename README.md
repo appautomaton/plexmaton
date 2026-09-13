@@ -67,7 +67,8 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 | `1`–`3` | Choose an approval option while focused |
 | Approval: `Ctrl-O` / command click | Inspect; `c` / ⧉ copy, `Esc` / × close |
 | `$` | Find and complete a skill |
-| `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort`, `/model` |
+| `/` | Commands: `/new`, `/resume`, `/compact`, `/permissions`, `/effort`, `/model`, `/tree` (`/rewind`) |
+| Tree: `↑↓`, `Enter`, `b`, `f` | Select, rewind/select branch, switch messages/branches, fold |
 
 Mouse movement and arrows share the focused menu choice. The Drawer’s bottom-center `︽` retracts it; `Esc` goes back one layer. Copy briefly shows `✓ Copied` after local acceptance or `Copy sent` after terminal delivery. Rate limits offer Retry and Edit & retry.
 
@@ -78,7 +79,7 @@ to `/model`; it does not convert incompatible history.
 
 ## History and development
 
-Conversations save on the first message; blank launches save nothing. Use `--ephemeral` to opt out. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.
+Conversations save on the first message; blank launches save nothing. `/tree` revisits saved history on a new branch without replaying effects; the original branch remains selectable. Use `--ephemeral` to opt out of saving. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.
 
 One live agent is available today. Multi-agent collaboration is on the [roadmap](.agents/roadmap.md). Linux compatibility is not yet established.
 

@@ -210,23 +210,31 @@ fn jrn_2_head_names_are_never_reused() {
     );
 
     journal
-        .apply(JournalRecord::AbandonHead {
+        .apply(JournalRecord::CreateHead {
             sequence: JournalSequence::new(2),
-            record_id: record("record-abandon"),
-            head: head("main"),
-            expected_head_revision: HeadRevision::new(1),
+            record_id: record("record-side"),
+            head: head("side"),
+            at: Some(root_id.clone()),
         })
-        .unwrap_or_else(|error| panic!("abandon main: {error:?}"));
+        .unwrap_or_else(|error| panic!("create side: {error:?}"));
+    journal
+        .apply(JournalRecord::AbandonHead {
+            sequence: JournalSequence::new(3),
+            record_id: record("record-abandon"),
+            head: head("side"),
+            expected_head_revision: HeadRevision::new(0),
+        })
+        .unwrap_or_else(|error| panic!("abandon side: {error:?}"));
     let retired_state = journal.clone();
     let retired = JournalRecord::CreateHead {
-        sequence: JournalSequence::new(3),
+        sequence: JournalSequence::new(4),
         record_id: record("record-retired"),
-        head: head("main"),
+        head: head("side"),
         at: Some(root_id),
     };
     assert_eq!(
         journal.apply(retired),
-        Err(JournalError::UnavailableHeadName(head("main")))
+        Err(JournalError::UnavailableHeadName(head("side")))
     );
     assert_eq!(journal, retired_state);
 }

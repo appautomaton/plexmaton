@@ -37,6 +37,9 @@ fn append_payloads(reaction: &Reaction) -> Vec<&JournalEntryPayload> {
             | JournalRecord::MoveHead { .. }
             | JournalRecord::RenameHead { .. }
             | JournalRecord::AbandonHead { .. }
+            | JournalRecord::ForkAndSelectHead { .. }
+            | JournalRecord::SelectHead { .. }
+            | JournalRecord::SetEntryLabel { .. }
             | JournalRecord::TurnFinished { .. }
             | JournalRecord::RequestAttemptAuthorized { .. }
             | JournalRecord::CompactionAttemptFinished { .. }

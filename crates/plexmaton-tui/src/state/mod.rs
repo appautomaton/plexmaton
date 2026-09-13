@@ -4,6 +4,7 @@ mod asking;
 mod attention;
 mod command_inspection;
 mod conversation_picker;
+mod conversation_tree;
 mod drawer;
 pub(crate) mod permissions;
 pub use conversation_picker::{
@@ -49,6 +50,7 @@ pub use composer_menu::{
 };
 pub(crate) use composer_menu::{MenuRow, VISIBLE_ROWS};
 pub use configuration::ConfigurationSummary;
+pub(crate) use conversation_tree::{ConversationTree, TreeEditor, TreeMode, TreePending};
 pub(crate) use current_work::CurrentWork;
 pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
 pub(crate) use drawer::Shown;
@@ -137,6 +139,8 @@ pub struct ViewState {
     status: Status,
     /// The Drawer, present only while it is open (SURF-4).
     drawer: Option<Drawer>,
+    /// One retained conversation-tree overlay, including dismissed writes (TRE-4).
+    conversation_tree: Option<ConversationTree>,
     retry_edit: Option<retry::RetryEdit>,
     /// The model this process resolved, named on the composer's rule; the composition root sets it.
     model: Option<ConfigurationSummary>,
@@ -422,8 +426,14 @@ impl ViewState {
     /// Resolves where typed text would go (SURF-3), and whether that input is on screen (INS-7).
     #[must_use]
     pub fn keyboard_focus(&self, surfaces: &SurfaceTree) -> KeyboardFocus {
-        self.focus
-            .keyboard(surfaces, self.steer_input(surfaces).is_some())
+        if self.focus.resolve(surfaces) == Some(SurfaceId::ConversationTree)
+            && self.tree_text_editor_open()
+        {
+            KeyboardFocus::TextInput
+        } else {
+            self.focus
+                .keyboard(surfaces, self.steer_input(surfaces).is_some())
+        }
     }
 
     /// Returns where the user last put this panel, if they ever moved it.

@@ -4,6 +4,16 @@ use std::time::Instant;
 use super::Workspace;
 
 impl Workspace {
+    /// Shows a session-writer failure that cannot itself enter the failed durable stream.
+    pub fn report_persistence_failure(&mut self, failure: crate::PersistenceNotice) {
+        self.state.report_persistence_failure(failure);
+    }
+
+    /// Shows an owner that could not be joined cleanly after session persistence failed.
+    pub fn report_cleanup_failure(&mut self, failure: crate::CleanupNotice) {
+        self.state.report_cleanup_failure(failure);
+    }
+
     /// Replace one fully decoded script result. Equal output does not request another frame.
     pub fn set_status_line(&mut self, text: crate::StatusLineText, max_rows: u16) {
         self.state.set_status_line(text, max_rows);

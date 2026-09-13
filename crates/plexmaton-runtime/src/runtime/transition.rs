@@ -14,6 +14,7 @@ pub(super) struct PendingCommit {
     reply: CommitReply,
     rejected_inputs: Vec<UndeliveredInput>,
     after: AfterCommit,
+    report_persistence_failure: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,10 +133,18 @@ impl LiveRuntime {
         rejected_inputs: Vec<UndeliveredInput>,
         after: AfterCommit,
     ) -> Result<(), RuntimeError> {
+        let report_persistence_failure = reaction
+            .tree_navigation
+            .as_ref()
+            .is_some_and(|navigation| navigation.mutation_sequence.is_some())
+            || reaction
+                .tree_edit
+                .as_ref()
+                .is_some_and(|edit| edit.mutation_sequence.is_some());
         // CPL-4 advances between acknowledged phases; only an outstanding write blocks the next.
         if self.pending_commit.is_some() {
             return self
-                .fail_before_queue(rejected_inputs)
+                .fail_before_queue(rejected_inputs, report_persistence_failure)
                 .map_err(|error| permission_audit_failure(&reaction, error));
         }
         if self.journal_failed {
@@ -152,7 +161,7 @@ impl LiveRuntime {
                 Ok(reply) => reply,
                 Err(_) => {
                     return self
-                        .fail_before_queue(rejected_inputs)
+                        .fail_before_queue(rejected_inputs, report_persistence_failure)
                         .map_err(|error| permission_audit_failure(&reaction, error));
                 }
             };
@@ -161,6 +170,7 @@ impl LiveRuntime {
                 reply,
                 rejected_inputs,
                 after,
+                report_persistence_failure,
             });
             return Ok(());
         }
@@ -174,8 +184,12 @@ impl LiveRuntime {
     fn fail_before_queue(
         &mut self,
         rejected_inputs: Vec<UndeliveredInput>,
+        report_persistence_failure: bool,
     ) -> Result<(), RuntimeError> {
         self.journal_failed = true;
+        if report_persistence_failure {
+            self.report.persistence_failure = Some(PersistenceFailure::NotWritten);
+        }
         if rejected_inputs.is_empty() {
             return Err(RuntimeError::JournalWriterUnavailable);
         }
@@ -223,7 +237,7 @@ impl LiveRuntime {
                 }
                 Err(failure) => {
                     self.journal_failed = true;
-                    if !pending.rejected_inputs.is_empty() {
+                    if !pending.rejected_inputs.is_empty() || pending.report_persistence_failure {
                         self.report.undelivered.extend(pending.rejected_inputs);
                         self.report.persistence_failure = Some(match &failure {
                             CommitFailure::Store(error) if !error.outcome_unknown => {
@@ -284,6 +298,12 @@ impl LiveRuntime {
         if let Some(projection) = reaction.projection_reset.take() {
             self.pending.clear();
             self.report.projection_reset = Some(projection);
+        }
+        if let Some(navigation) = reaction.tree_navigation.take() {
+            self.report.tree_navigation = Some(navigation);
+        }
+        if let Some(edit) = reaction.tree_edit.take() {
+            self.report.tree_edit = Some(edit);
         }
         self.pending.extend(reaction.events);
         self.report.undelivered.append(&mut reaction.undelivered);
