@@ -655,3 +655,6 @@ fn tre_1_minimum_size_escape_closes_drawer_before_tree_and_blocks_hidden_input()
     assert_eq!(workspace.state.composer().text(), draft);
     assert_eq!(workspace.state.selected_skill(&agent), Some("research"));
 }
+
+#[path = "conversation_tree_presentation_tests.rs"]
+mod presentation;

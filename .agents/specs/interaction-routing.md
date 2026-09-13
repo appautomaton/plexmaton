@@ -97,10 +97,12 @@ ordinary bindings below apply.
 
 The [conversation tree](./conversation-tree.md) owns a modal grammar under TRE-1/TRE-6: `/tree`
 and `/rewind` open the same view; Up/Down or j/k move one cursor, Home/End choose an edge,
-Enter rewinds a message or selects a branch, b switches messages/branches, f folds the selected
-message's descendants, r refreshes, y/Ctrl-Y copies exact source, l edits a message label,
+Enter rewinds an eligible message or selects a branch, b switches messages/branches, f toggles the selected
+message's displayed descendants, r refreshes, y/Ctrl-Y copies exact source, l edits a message label,
 n renames a branch and x opens its retirement confirmation. Mouse movement and row clicks select
-without navigating; clicking the fold marker toggles it. Enter and mutation shortcuts accept
+without navigating; clicking any cell of `[+]` expands and `[−]` collapses.
+Intermediate ineligible tool rows have no control in this list; read-only rows do nothing on Enter.
+Connector and collapsed-summary lines are inert; movement advances by message, not physical row. Enter and mutation shortcuts accept
 presses, not repeats. A child text prompt uses ordinary single-line editing; Enter submits and
 Escape cancels that child before closing browsing. Escape first cancels any held pointer capture;
 the close button dismisses the whole tree. Hidden composer shortcuts and paste are blocked.
