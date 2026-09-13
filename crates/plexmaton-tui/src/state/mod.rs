@@ -2,6 +2,7 @@ mod agent;
 mod approval;
 mod asking;
 mod attention;
+mod child_control;
 mod command_inspection;
 mod conversation_picker;
 mod conversation_tree;
@@ -43,6 +44,7 @@ pub use approval::{
     ApprovalChoice, ApprovalFeedback, ApprovalStage, ApprovalSubmission, ApprovalView,
 };
 pub use attention::AttentionView;
+pub use child_control::{ChildControl, ChildControlRefusal, ChildControlSnapshot};
 pub(crate) use composer::apply_text;
 pub(crate) use composer::input_window;
 pub use composer_menu::{
@@ -170,9 +172,9 @@ pub struct Submission {
 /// Whether submitted text starts a later turn or steers the current one.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SubmissionKind {
-    /// Text from the primary composer, for the agent's next turn.
+    /// Text for the addressed agent's next turn, including an idle User-controlled child.
     Message,
-    /// Text from a worker's entered window, for that turn's next step.
+    /// Text from a running User-controlled child's entered window, for its next step.
     Steering,
 }
 
@@ -370,23 +372,19 @@ impl ViewState {
         }
     }
 
-    /// Whether the primary composer is collapsed to its single row (INS-5).
-    ///
-    /// Read from the stored preference rather than from resolved focus, because laying out the
-    /// workspace is what needs the answer and there is no tree yet when it asks.
+    /// Normal primary composer height, before an eligible child input returns its spare rows.
     ///
     /// `width` is the composer rectangle layout will register; the draft wraps inside its borders.
     /// A height asked for without that width is a height for a draft nobody paints. `cap` is the
     /// most lines the column lets a draft take before its window scrolls (ui-ux §input).
     #[must_use]
     pub fn composer_rows(&self, width: u16, cap: u16) -> u16 {
-        if self.agents.peeked().is_some() && self.focus.prefers(SurfaceId::Inspector) {
-            // One row, not none. A composer that vanishes costs the affordance and jumps the tail
-            // of the transcript by three rows; one row of jump is what INS-5 accepts.
-            1
-        } else {
-            self.composer().requested_rows(inner_width(width), cap)
-        }
+        self.composer().requested_rows(inner_width(width), cap)
+    }
+
+    pub(crate) fn inspector_input_requested(&self) -> bool {
+        self.agents.peeked().is_some_and(AgentView::user_controls)
+            && self.focus.prefers(SurfaceId::Inspector)
     }
 
     /// Returns the selected agent projection, when one exists.

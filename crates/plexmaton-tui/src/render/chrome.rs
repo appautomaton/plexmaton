@@ -186,7 +186,7 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 }
 
 /// The title names the agent and the way out.
-pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
     // The surface is registered only while an agent is open, so this is no title rather than a
     // word the user would otherwise never see (phase 01 §scope 1).
     let Some(open) = state.inspector() else {
@@ -202,12 +202,23 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'sta
     };
     let counts = content::entry_counts(agent);
     let selected = selected_suffix(state, SurfaceId::Inspector);
-    title(
+    let lifecycle = super::child_control::lifecycle(agent);
+    let detailed = title(
         palette,
         agent.label.clone(),
         Role::SectionHeading,
-        format!("{counts}{selected} · esc"),
-    )
+        format!(" · {lifecycle}{counts}{selected} · esc"),
+    );
+    if detailed.width() <= usize::from(width) {
+        detailed
+    } else {
+        title(
+            palette,
+            agent.label.clone(),
+            Role::SectionHeading,
+            format!(" · {lifecycle}{selected} · esc"),
+        )
+    }
 }
 
 /// The title counts everything waiting, because the list below it shows at most three.

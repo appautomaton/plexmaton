@@ -1,5 +1,6 @@
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
+mod child_control;
 mod chrome;
 mod command_inspection;
 mod configuration;
@@ -132,7 +133,12 @@ pub fn render(
             SurfaceId::Inspector => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
-                footer: None,
+                footer: Some(child_control::footer(
+                    state,
+                    palette,
+                    inner_width(bounds.width),
+                    has_focus,
+                )),
                 body: conversation_body(
                     state,
                     palette,
@@ -140,9 +146,9 @@ pub fn render(
                     bounds,
                     id,
                     stacking.over_composer(SurfaceId::Inspector),
-                    0,
+                    1,
                 ),
-                title: inspector_title(state, palette),
+                title: inspector_title(state, palette, inner_width(bounds.width)),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),

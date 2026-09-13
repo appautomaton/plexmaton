@@ -34,8 +34,11 @@ terminal events when only the router may (INV-1); and the projection appending i
 which puts two writers on one numbered stream.
 
 **COM-4 — The route is on screen.** The primary composer names its agent and submits a message for
-the next turn; an entered worker window names that worker and submits steering for its next step.
-Selection alone changes neither route (ui-ux §input).
+the next turn. A Main-controlled worker window has no input route. After acknowledged Handoff, an
+entered worker window names that worker and submits ordinary user input at the boundary its
+lifecycle accepts. Selection alone changes neither route (ui-ux §input).
+[CCV-1–CCV-4](./child-control-view.md) own controller-aware rendering and routing; authenticated
+production snapshot delivery remains unproven.
 
 **COM-5 — Current work is derived and static.** The conversation's activity line, its last row
 above the composer's top rule, shows at most one label: `Approval required` outranks
@@ -105,6 +108,6 @@ Ctrl-C ──▶ non-empty draft ──▶ clear
 | COM-1 | `the_cursor_exists_only_while_a_text_input_holds_focus`, `no_kind_puts_a_cursor_on_screen_before_the_composer_exists`, `a_wrapped_draft_puts_the_caret_at_the_end_of_the_text_not_on_the_border`, `the_caret_reports_the_row_and_column_it_is_painted_on`, `a_wide_glyph_advances_the_caret_by_two_cells`, `a_click_lands_on_the_boundary_under_it`, `a_draft_reserves_the_rows_it_needs_in_an_ultrawide_split`, `the_drawer_filter_paints_its_own_caret_while_editing`, `a_long_drawer_filter_keeps_the_caret_inside_its_row` |
 | COM-2 | `backspace_removes_a_whole_grapheme_cluster`, `deleting_an_empty_draft_changes_nothing`, `editing_happens_at_the_caret_rather_than_at_the_end`, `motion_steps_over_whole_clusters_and_stops_at_the_ends`, `word_deletion_takes_the_trailing_space_and_the_word`, `killing_binds_to_the_logical_line_the_caret_is_on`, `the_visible_window_follows_the_caret_above_the_tail`, `a_draft_grows_to_a_third_of_the_column_then_its_window_follows_the_caret` with the `composer-grown-*` and `composer-windowed-*` frames, `the_wheel_over_the_composer_walks_the_draft_one_row_per_notch` |
 | COM-3 | `ctrl_j_breaks_the_conversation_draft_but_not_the_drawer_filter`, `enter_submits_and_modified_enter_or_ctrl_j_breaks_the_line`, `a_blank_draft_submits_nothing_and_is_left_alone`, `taking_the_draft_returns_it_exactly_and_clears_it`, `returned_text_lands_after_the_existing_draft`, `a_typed_message_reaches_the_transcript_by_way_of_the_runtime`, `a_submitted_message_is_a_finished_user_item`, `a_live_dispatch_restores_undelivered_user_text`, `persistence_failure_restores_the_draft_and_opens_one_notice` |
-| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_inspectors_input_submits_steering_for_that_agents_next_step`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
+| COM-4 | `the_composer_names_its_target_while_another_agent_is_selected`, `the_user_controlled_child_input_submits_a_message_when_finished`, `ccv_2_user_child_input_uses_its_lifecycle_without_primary_commands`, `production_mapping_preserves_message_steering_interrupt_and_approval`; CCV-2/CCV-4 |
 | COM-5 | `current_work_priority_is_derived_from_semantic_facts`, `parallel_running_tools_use_stable_first_appearance_order`, `the_activity_line_names_each_current_work_state_and_the_rule_carries_none`, `current_work_does_not_move_input_and_repeated_facts_cost_no_frame`, `the_current_work_frames_match_their_fixtures` with the `current-work-*` frames |
 | COM-6 | `pointer_clicks_place_the_caret_in_each_input`, `edits_that_join_clusters_restore_the_grapheme_boundary`, `a_full_input_row_never_places_the_caret_on_the_border`, `terminal_paste_edits_the_focused_input_without_submitting`; `scripts/smoke-tui.py` drives Chinese paste, pointer insertion, selection replacement and source copying |

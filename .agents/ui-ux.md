@@ -14,8 +14,8 @@ medium, and narrow has been looked at.
 ## Experience promise
 
 Plexmaton is an interactive multi-agent workspace. The user converses with the primary agent,
-observes delegated work, inspects evidence, and steers or stops agents without losing spatial
-context, scroll position, or control of the active conversation.
+observes delegated work, inspects evidence, stops work, and converses after handoff without losing
+spatial context, scroll position, or control of the active conversation.
 
 Detail is revealed progressively:
 
@@ -49,6 +49,8 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Step | One request to the model and the tool calls it comes back with. A turn is one or more steps, and a turn's budget is counted in them |
 | Tool call | One invocation the model asked for, with a declared effect, a lifecycle, and bounded output |
 | Mail | A typed, durable message delivered between Conversations |
+| Controller | The sole actor currently allowed to send conversation input |
+| Handoff | An explicit, durable transfer from main-agent control to user control |
 | Artifact | Durable work product or evidence, referenced by identity or path rather than copied into mail |
 | Surface | A rendered interactive region that participates in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
@@ -77,6 +79,23 @@ sending creates no file. Exit offers a resume command only for a selected saved 
 Only explicit `--ephemeral` declines Conversation
 persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
 without the user choosing that behavior.
+
+### Delegated conversation control
+
+The controller rule is [Roadmap §Locked](./roadmap.md#locked). A main-controlled child remains
+inspectable and stoppable, with attributed mail and tool/artifact entries, but no direct user
+composer or model-setting actions. Running and idle both retain the controller indication.
+
+After acknowledged handoff, the composer becomes available without taking keyboard focus or
+sending a message. History, selection/scroll anchors and the capability indication remain intact;
+stop is independent of handoff. These rendered excerpts show the three control states without
+freezing a new full-workspace layout:
+
+| State | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Controller: Main; child running | [120](../crates/plexmaton-tui/frames/ownership/main-running-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/main-running-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/main-running-60.svg) |
+| Controller: Main; child idle | [120](../crates/plexmaton-tui/frames/ownership/main-idle-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/main-idle-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/main-idle-60.svg) |
+| Controller: User | [120](../crates/plexmaton-tui/frames/ownership/user-controlled-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/user-controlled-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/user-controlled-60.svg) |
 
 ### Context epochs and branch selection
 
@@ -124,14 +143,15 @@ other rule about input follows from this one.
   names its target. Selecting, inspecting, or scrolling another agent does not change where typing
   goes. Rejected: one composer whose target follows the selection. The target is invisible state,
   and a misdirected instruction to a running worker is not undone by sending another.
-- A sub-agent's input **does not render at all** unless that agent's surface holds keyboard focus.
-  There is nothing to mistarget because there is nothing there.
+- A sub-agent's input **does not render at all** unless its Controller is User and its surface holds
+  keyboard focus. A Main-controlled surface remains inspectable and stoppable without an input
+  region, whether the child is running or idle.
 - **Entering a sub-agent's window focuses it; looking at one does not.** Selecting a sub-agent in
   the list opens its window and leaves the keyboard in the list, so the arrows keep moving through
-  it. `Enter`, or a click in the window, moves the keyboard in, and its input appears then and is
-  usable at once. This does not conflict with "background agents never steal focus": that rule
-  constrains what agents do on their own, not what the user asks for. `Escape` closes the window and
-  returns focus to the primary conversation. Rejected: focusing on look, which stops the arrows.
+  it. `Enter`, or a click in the window, moves the keyboard into its available controls. After an
+  acknowledged Handoff, the same action also reveals and focuses its input; before Handoff there is
+  no direct-input target. `Escape` closes the window and returns focus to the primary conversation.
+  Rejected: focusing on look, which stops the arrows.
 - `Ctrl-J`, `Shift-Enter` and `Alt-Enter` insert a conversation newline; `Enter` submits.
 - **Waiting input remains visible beside its conversation.** A bounded band above the decision
   region and composer names when submitted messages will be sent. It takes no focus or pointer
@@ -141,25 +161,25 @@ other rule about input follows from this one.
   place and shows the empty-draft requirement. [IQU-1–IQU-4](./specs/input-queue.md) own the band.
   Rejected: merging a returned message into an existing draft, which loses separate intent and
   can lose its skill binding.
-- **Every input sits under the conversation it addresses**, between two rules; optional waiting
-  and decision sections sit above the composer. The conversation has no edge of its own and,
+- **Every rendered input sits under the conversation it addresses**, between two rules; optional
+  waiting and decision sections sit above the composer. The conversation has no edge of its own and,
   without those sections, runs into the top rule. The top rule names the target and
   the [reasoning effort](./specs/reasoning-effort.md) for the message; neither rule carries other text. A
-  sub-agent's input is the bottom of its window. There is no input anywhere else, and `Tab` from
-  a sub-agent's input lands on the primary composer, which is what the collapsed row's
-  `⇥ to return` promises. Rejected: a box around conversation and input, chrome that said
+  User-controlled sub-agent's input is the bottom of its window; a Main-controlled window has no
+  input region. There is no input anywhere else, and `Tab` from a sub-agent's input lands on the
+  primary composer, which is what the collapsed row's `⇥ to return` promises. Rejected: a box around conversation and input, chrome that said
   nothing; and current work on the composer's rule, mixing the agent's doing with the user's
   typing.
-- While a sub-agent's input is active, the primary composer **collapses to a single row** reading
-  `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
+- While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
+  row** reading `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
   acceptable and zero costs too much screen on a small terminal.
 - **The conversation's last row is its activity line**, above the composer: `Thinking`,
   `Responding`, `Running <tool>`, or `Approval required`. It follows semantic state; action required
   outranks ambient work, idle is blank, and it owns no animation clock. Show the approval label in the visible primary card; otherwise in the activity line.
   Rejected: duplicate labels on adjacent lines.
-- A sub-agent's input takes its rows from its **own** surface. It may never consume the rows
-  guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
+- A User-controlled sub-agent's input takes its rows from its **own** surface. It may never consume
+  the rows guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
   are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
@@ -320,9 +340,11 @@ The product areas, arranged without assuming they are all permanently visible:
 - The Drawer: configuration, Project and User permissions
 - Permission, approval, and confirmation surfaces
 
-The inspector is the inspected agent's **conversation**. Tool activity, mail and artifacts are
-entries in the conversation of the agent that produced them, in first-appearance order; there is
-no separate Activity surface. A composed status-and-artifact surface is Phase 03's, and the other
+The inspector is the inspected agent's **conversation**. Tool activity and artifacts belong to
+their producer. It shows both incoming and outgoing mail with sender/recipient attribution, as
+projections of canonical items rather than copied transcripts. Mail status distinguishes queued
+input from inclusion in a model turn. Entries retain first-appearance order; there is no separate
+Activity surface. A composed status-and-artifact surface is Phase 03's, and the other
 areas are placed provisionally until the phase that builds them.
 
 ## Surface model
@@ -418,7 +440,9 @@ grammar, never assigned widget by widget.
 9. B sends typed mail to A; ambient status changes without automatic navigation.
 10. The user goes to the request, follows an artifact, copies evidence, and returns to the exact
     prior viewport positions.
-11. The user steers, stops, dismisses, reopens, or maximizes B through explicit actions.
+11. While A controls B, the user can stop, dismiss, reopen or maximize B, but cannot send B input.
+12. A explicitly hands B over after quiescence. The user may then converse with B directly;
+    permissions and history remain unchanged.
 
 Every layout class preserves the meaning of this journey even when it changes where surfaces go.
 
@@ -464,9 +488,8 @@ carries identity and status but is never the only carrier:
   `[x] denied`, or `[-] cancelled`; retained invocation and outcome disclose beneath the same row
 - Diff with original `+`/`-` markers, and artifact
 - Agent mail
-- Delegation amendment: the user redirected a worker, shown in the delegator's transcript so the
-  user and the delegating agent read the same story
-- Agent objection: the delegating agent disputes an amendment, shown as action required
+- Main-authored task update, attributed in the child's conversation
+- Handoff: an explicit change of controller, distinct from task completion or idle
 - Undelivered steering: a message that never reached its worker, with its original text intact
 - System text, named and muted
 - Warning and error, each named before colour adds emphasis
@@ -484,10 +507,10 @@ use that space without changing it. TR-6 owns the measured composition.
 Each applicable surface has an intentional representation for: empty, loading, streaming, idle,
 waiting on a tool, model, permission or descendant, paused, completed, failed, cancelled,
 disconnected or reconnecting, stale or unavailable persisted content, a capability-degraded
-terminal, a delegation amended by the user with the delegator not yet informed, a delegating agent
-objecting, primary input waiting for delivery with an empty or occupied draft, steering queued for
-a worker's next turn boundary, and steering undeliverable with its
-payload retained.
+terminal, a child controlled by Main while running or idle, handoff pending acknowledgement,
+a user-controlled child ready for input, primary input waiting for delivery with an empty or
+occupied draft, steering queued for a User-controlled worker's next step boundary, and input undeliverable with
+its payload retained.
 
 ## Performance budgets
 

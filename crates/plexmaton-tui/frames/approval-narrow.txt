@@ -6,8 +6,7 @@
 │                                                          │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent B · UI study · 1 tool · 1 artifact · 1 mail · esc ─┐
-│                                                          │
+┌ Agent B · UI study · Completed · esc ────────────────────┐
 │                                                          │
 │                                                          │
 │                                                          │
@@ -23,6 +22,7 @@
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
 │-> agent-a · Routing stays centralized and z-ordered.     │
+│Controller unavailable | Input locked                     │
 ── Approval required · edit ────────────────────────────────
                                                             
    Change crates/plexmaton-core/src/lib.rs and preserve …   

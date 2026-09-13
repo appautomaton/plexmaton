@@ -30,6 +30,7 @@ mod approval_interaction_tests;
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+mod child_control;
 mod composer_menu;
 #[cfg(test)]
 mod composer_menu_tests;
@@ -585,6 +586,20 @@ mod tests {
             .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         (workspace, terminal)
+    }
+
+    /// CCV-2: input geometry fixtures explicitly start after acknowledged Handoff.
+    fn acknowledge_user_control(workspace: &mut Workspace) {
+        let child = AgentId::new("agent-b").expect("fixture child identity");
+        workspace
+            .set_child_control(
+                &child,
+                crate::ChildControlSnapshot {
+                    revision: 1,
+                    control: crate::ChildControl::User,
+                },
+            )
+            .expect("known non-primary fixture child");
     }
 
     struct FoldableTool {
@@ -2217,6 +2232,7 @@ mod tests {
     #[test]
     fn the_inspector_takes_the_cursor_and_the_composer_keeps_one_row() {
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         let tab = press(KeyCode::Tab, KeyModifiers::NONE);
 
         // Walk to the composer and leave a draft there.
@@ -2463,6 +2479,7 @@ mod tests {
     fn an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor() {
         let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let draft = |workspace: &Workspace| workspace.state.draft(&agent_b).text().to_owned();
@@ -2516,6 +2533,11 @@ mod tests {
             cursor(&terminal),
             None,
             "and nothing owns a cursor, least of all the conversation"
+        );
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Composer).height,
+            3,
+            "CCV-2/INS-5: an invisible child input cannot collapse the primary composer"
         );
         assert!(
             !painted(&terminal, &workspace, SurfaceId::Inspector).contains("Message Agent B"),
@@ -2661,6 +2683,7 @@ mod tests {
     #[test]
     fn a_wheel_over_the_inspector_input_scrolls_that_inspectors_conversation() {
         let (mut workspace, mut terminal) = two_conversations();
+        acknowledge_user_control(&mut workspace);
         step(
             &mut workspace,
             &mut terminal,
@@ -3492,8 +3515,9 @@ mod tests {
 
     /// COM-4: the visible input names both the recipient and the boundary the loop must claim.
     #[test]
-    fn the_inspectors_input_submits_steering_for_that_agents_next_step() {
+    fn the_user_controlled_child_input_submits_a_message_when_finished() {
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         step(
             &mut workspace,
             &mut terminal,
@@ -3514,7 +3538,7 @@ mod tests {
             .unwrap_or_else(|| panic!("the entered worker input must submit"));
 
         assert_eq!(submission.to.as_str(), "agent-b");
-        assert_eq!(submission.kind, SubmissionKind::Steering);
+        assert_eq!(submission.kind, SubmissionKind::Message);
         assert_eq!(submission.text, "check the cache");
     }
 
@@ -3566,6 +3590,7 @@ mod tests {
     fn pointer_clicks_place_the_caret_in_each_input() {
         for surface in [SurfaceId::Composer, SurfaceId::Inspector, SurfaceId::Drawer] {
             let (mut workspace, mut terminal) = drawn(95, 40);
+            acknowledge_user_control(&mut workspace);
             match surface {
                 SurfaceId::Composer => tab_to(&mut workspace, &mut terminal, surface),
                 SurfaceId::Inspector => {

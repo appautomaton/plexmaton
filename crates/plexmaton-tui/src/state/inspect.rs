@@ -29,7 +29,7 @@ impl ViewState {
 
     /// The inspector's steer input and who it addresses, if it has one on screen right now.
     ///
-    /// `None` in three cases that mean the same thing to everyone downstream: nothing is open,
+    /// `None` when nothing is open, control does not permit user input (CCV-2),
     /// something else holds focus (INS-5), or the rectangle the user dragged to is too short
     /// to hold a conversation and an input at once (INS-7). The renderer draws from this, the caret
     /// follows it, and [`Self::text_target`] refuses without it, so a draft can never be typed into
@@ -41,6 +41,9 @@ impl ViewState {
         }
         let bounds = surfaces.get(SurfaceId::Inspector)?.bounds;
         let agent = self.inspector()?.agent;
+        if !self.agent(&agent)?.user_controls() {
+            return None;
+        }
         let wanted = self
             .draft(&agent)
             .requested_rows(inner_width(bounds.width), crate::state::MAX_VISIBLE_LINES);

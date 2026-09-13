@@ -18,6 +18,7 @@ pub struct AgentView {
     pub id: AgentId,
     pub label: String,
     pub status: AgentStatus,
+    pub(super) control: Option<super::ChildControlSnapshot>,
     entries: OrderedById<TranscriptItemId, TranscriptEntryView>,
     tool_entries: std::collections::BTreeMap<ToolCallId, TranscriptItemId>,
     usage: Option<(TurnId, TokenUsage)>,
@@ -39,12 +40,31 @@ impl AgentView {
             id,
             label,
             status,
+            control: None,
             entries: OrderedById::default(),
             tool_entries: std::collections::BTreeMap::new(),
             usage: None,
             note: None,
             retry: None,
         }
+    }
+
+    /// The last accepted delegated-control snapshot; absence leaves child input unavailable.
+    #[must_use]
+    pub const fn control(&self) -> Option<super::ChildControlSnapshot> {
+        self.control
+    }
+
+    /// Whether an acknowledged control snapshot permits direct child input (CCV-2).
+    #[must_use]
+    pub const fn user_controls(&self) -> bool {
+        matches!(
+            self.control,
+            Some(super::ChildControlSnapshot {
+                control: super::ChildControl::User,
+                ..
+            })
+        )
     }
 
     /// Iterates transcript items in arrival order.
