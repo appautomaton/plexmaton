@@ -96,7 +96,7 @@ context epoch belongs to the target path; the source branch's latest checkpoint 
 
 Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
 historical forks, because the original continuation and the target ancestry must remain independent.
-CPL-5 proves checkpoint ancestry. Branch and rewind interaction remains unproven;
+CPL-5 proves checkpoint ancestry. Branch and rewind interaction is locally verified;
 [Phase 02 stage 2](./plans/phase-02-stage-02-context-projection.md) owns that journey and review.
 
 ### Screen ownership: full alternate screen
@@ -163,7 +163,7 @@ other rule about input follows from this one.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
   are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
-  `/compact`, `/effort`, `/model`, and `/permissions` for the Session. `Enter` accepts with the effect the row states;
+  `/compact`, `/effort`, `/model`, `/tree` (also `/rewind`), and `/permissions` for the Session. `Enter` accepts with the effect the row states;
   `Tab` completes without running; `Escape` keeps the draft. A token no row matches is text.
   Rejected: workspace settings as slash commands, which made the composer's title lie about the addressee;
   and conversations as a Drawer page, which hid what users type by habit behind a chord.

@@ -6,7 +6,7 @@ use plexmaton_core::{
     TranscriptRole, TurnId,
 };
 
-use super::{ConversationEntry, ConversationJournal, JournalEntryPayload};
+use super::{ConversationEntry, ConversationJournal, JournalEntryPayload, JournalError};
 use crate::timing::UsageAccumulator;
 use crate::{
     AssistantBlock, AssistantOutput, CompactionAttemptFinished, ContextAtom, ContextEpoch,
@@ -292,8 +292,32 @@ impl Projector {
 impl ConversationJournal {
     /// Rebuilds both consumers from one selected immutable path (JRN-5).
     pub fn project(&self, head: &HeadName) -> Result<JournalProjection, JournalProjectionError> {
+        self.project_path(self.path(head)?)
+    }
+
+    /// Rebuilds both consumers from one canonical entry ancestry before a head is changed.
+    pub(crate) fn project_at(
+        &self,
+        target: Option<&ConversationEntryId>,
+    ) -> Result<JournalProjection, JournalProjectionError> {
+        let mut cursor = target;
+        let mut path = Vec::new();
+        while let Some(id) = cursor {
+            let entry = self.entries.get(id).ok_or_else(|| {
+                JournalProjectionError::Journal(JournalError::MissingEntry(id.clone()))
+            })?;
+            path.push(entry);
+            cursor = entry.parent_id.as_ref();
+        }
+        path.reverse();
+        self.project_path(path)
+    }
+
+    fn project_path(
+        &self,
+        path: Vec<&ConversationEntry>,
+    ) -> Result<JournalProjection, JournalProjectionError> {
         let mut projector = Projector::new();
-        let path = self.path(head)?;
         let selected: BTreeSet<_> = path.iter().map(|entry| entry.id.clone()).collect();
         let mut ordered = Vec::with_capacity(path.len().saturating_mul(2));
         for entry in path {

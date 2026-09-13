@@ -173,6 +173,41 @@ pub enum SelectionIntent {
     Copy,
 }
 
+/// One key or button action addressed to the conversation-tree modal (TRE-6).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TreeIntent {
+    /// Move the shared entry/head cursor by one row.
+    Move(Direction),
+    /// Move to the first row.
+    Home,
+    /// Move to the last row.
+    End,
+    /// Switch between message history and the separate list of named heads.
+    ToggleBranches,
+    /// Fold or unfold the selected message's descendants.
+    ToggleFold,
+    /// Rewind to the selected message or select the selected head.
+    Navigate,
+    /// Request a fresh acknowledged snapshot.
+    Refresh,
+    /// Copy the exact source for the selected semantic entry.
+    CopySource,
+    /// Start renaming the selected branch.
+    RenameHead,
+    /// Start changing the selected message label.
+    EditLabel,
+    /// Ask for confirmation before retiring the selected branch.
+    AbandonHead,
+    /// Edit a branch name or message label in the tree's single-line editor.
+    EditInput(TextIntent),
+    /// Submit the tree metadata editor.
+    SubmitEdit,
+    /// Discard the tree metadata editor without changing history.
+    CancelEdit,
+    /// Dismiss only the overlay; an admitted write continues.
+    Close,
+}
+
 /// One thing the user asked the workspace to do.
 ///
 /// This is deliberately not a universal application event: semantic runtime transitions arrive as
@@ -209,6 +244,8 @@ pub enum TuiIntent {
     WithdrawQueued,
     /// Act on the selection.
     Selection(SelectionIntent),
+    /// Navigate or dismiss the blocking conversation tree.
+    Tree(TreeIntent),
     /// Scroll the viewport under the pointer. Hover routing never changes focus.
     Scroll {
         /// Surface resolved from the pointer position.

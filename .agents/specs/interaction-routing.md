@@ -95,6 +95,21 @@ The primary composer's visible [composer menu](./composer-menu.md) owns Up/Down,
 under SKP-3; completing a name edits the draft without submitting it. Outside that surface the
 ordinary bindings below apply.
 
+The [conversation tree](./conversation-tree.md) owns a modal grammar under TRE-1/TRE-6: `/tree`
+and `/rewind` open the same view; Up/Down or j/k move one cursor, Home/End choose an edge,
+Enter rewinds a message or selects a branch, b switches messages/branches, f folds the selected
+message's descendants, r refreshes, y/Ctrl-Y copies exact source, l edits a message label,
+n renames a branch and x opens its retirement confirmation. Mouse movement and row clicks select
+without navigating; clicking the fold marker toggles it. Enter and mutation shortcuts accept
+presses, not repeats. A child text prompt uses ordinary single-line editing; Enter submits and
+Escape cancels that child before closing browsing. Escape first cancels any held pointer capture;
+the close button dismisses the whole tree. Hidden composer shortcuts and paste are blocked.
+Ctrl-P still opens the Drawer above the tree, Ctrl-D remains global, and Ctrl-C withdraws its quit
+question without clearing or interrupting the hidden conversation. An admitted write continues
+after dismissal; acknowledgement never reopens the view or steals focus from the Drawer.
+Below the minimum terminal size, Escape still dismisses the retained tree, but editing and
+navigation are disabled. Native proof and rendered review status remain in the tree spec.
+
 | Input | Navigation focus | Text focus |
 | --- | --- | --- |
 | `Ctrl-D` | Quit chord: arm one second, then leave on a timely second press | The same |

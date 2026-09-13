@@ -17,6 +17,7 @@ use super::{
 };
 use crate::{Direction, surface::SurfaceId};
 
+mod commands;
 mod grammar;
 mod models;
 pub use models::{ModelChoice, ModelIdentity};
@@ -26,7 +27,9 @@ mod skill_bindings;
 
 pub use grammar::Command;
 pub(super) use grammar::binding_matches;
-use grammar::{Completion, completion, exact_command, initial_token};
+#[cfg(test)]
+use grammar::exact_command;
+use grammar::{Completion, completion, initial_token};
 
 /// Rows the menu shows before it scrolls.
 pub(crate) const VISIBLE_ROWS: usize = 5;
@@ -114,6 +117,10 @@ impl Listing {
 pub(crate) enum MenuRow {
     Skill(String),
     Command(Command),
+    CommandAlias {
+        command: Command,
+        name: &'static str,
+    },
     Conversation(ConversationId),
     Permission(PermissionChoice),
     Effort(ReasoningEffort),
@@ -265,8 +272,23 @@ impl ComposerMenu {
                 .collect(),
             Listing::Commands => Command::ALL
                 .into_iter()
-                .filter(|command| command.name().starts_with(completion.query))
-                .map(MenuRow::Command)
+                .flat_map(|command| {
+                    std::iter::once((command, command.name())).chain(
+                        command
+                            .aliases()
+                            .iter()
+                            .copied()
+                            .map(move |name| (command, name)),
+                    )
+                })
+                .filter(|(_, name)| name.starts_with(completion.query))
+                .map(|(command, name)| {
+                    if name == command.name() {
+                        MenuRow::Command(command)
+                    } else {
+                        MenuRow::CommandAlias { command, name }
+                    }
+                })
                 .collect(),
             Listing::Conversations => self.conversations.as_ref().map_or_else(Vec::new, |picker| {
                 picker
@@ -501,35 +523,6 @@ impl ViewState {
             listing.title().to_owned()
         }
     }
-
-    /// The Command the whole draft is, if it is one (CMC-2).
-    pub(crate) fn exact_command(&self) -> Option<Command> {
-        exact_command(self.composer().text())
-    }
-
-    /// Completes the draft to `/name ` without running it (CMC-2).
-    pub(crate) fn complete_command(&mut self, command: Command) {
-        let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) else {
-            return;
-        };
-        let input = self.inputs.entry(primary).or_default();
-        if !input.text().starts_with(&format!("/{} ", command.name())) {
-            input.replace_all(&format!("/{} ", command.name()));
-        }
-        self.composer_menu.reopen();
-        self.sync_composer_menu();
-        self.touch();
-    }
-
-    /// Takes the composer's draft for a Command that consumed it, and closes the menu.
-    pub(crate) fn take_command_draft(&mut self) {
-        if let Some(primary) = self.primary_agent().map(|agent| agent.id.clone()) {
-            self.inputs.entry(primary.clone()).or_default().take();
-            self.take_skill_binding(&primary);
-        }
-        self.composer_menu.close();
-        self.touch();
-    }
 }
 
 pub(super) type SkillBindings = BTreeMap<AgentId, String>;
@@ -579,6 +572,8 @@ mod tests {
         assert_eq!(exact_command("/new"), Some(Command::New));
         assert_eq!(exact_command("/resume"), Some(Command::Resume));
         assert_eq!(exact_command("/resume proj"), Some(Command::Resume));
+        assert_eq!(exact_command("/tree"), Some(Command::Tree));
+        assert_eq!(exact_command("/rewind"), Some(Command::Tree));
         assert_eq!(exact_command("/compact please"), None);
         assert_eq!(exact_command("/config"), None);
         assert_eq!(exact_command("see /compact"), None);
@@ -605,6 +600,13 @@ mod tests {
             vec![MenuRow::Command(Command::Compact)]
         );
         assert_eq!(
+            menu.rows("/rew", 4),
+            vec![MenuRow::CommandAlias {
+                command: Command::Tree,
+                name: "rewind",
+            }]
+        );
+        assert_eq!(
             menu.rows("/", 1),
             vec![
                 MenuRow::Command(Command::New),
@@ -613,6 +615,11 @@ mod tests {
                 MenuRow::Command(Command::Permissions),
                 MenuRow::Command(Command::Effort),
                 MenuRow::Command(Command::Model),
+                MenuRow::Command(Command::Tree),
+                MenuRow::CommandAlias {
+                    command: Command::Tree,
+                    name: "rewind",
+                },
             ]
         );
         assert!(menu.rows("/zzz", 4).is_empty());

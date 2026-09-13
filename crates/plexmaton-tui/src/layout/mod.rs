@@ -108,6 +108,8 @@ pub struct WorkspaceInput {
     pub drawer_rows: u16,
     /// Whether the Drawer's open view is typed into or navigated, which decides its kind.
     pub drawer_focus: crate::KeyboardFocus,
+    /// Whether the conversation tree covers the workspace above Status.
+    pub conversation_tree: bool,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
     pub composer_menu_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
@@ -131,6 +133,7 @@ impl Default for WorkspaceInput {
             command_inspection: false,
             drawer_rows: 0,
             drawer_focus: crate::KeyboardFocus::TextInput,
+            conversation_tree: false,
             composer_menu_rows: 0,
             rail: false,
             // Two borders and one line: an empty composer is still a place to type.
@@ -271,15 +274,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         )
     });
 
-    registration::surface_tree(
-        status,
-        notices,
-        attention,
-        regions,
-        input.decision_mode,
-        input.composer_menu_rows,
-        input.drawer_focus,
-    )
+    registration::surface_tree(area, status, notices, attention, regions, &input)
 }
 
 /// The most lines the primary composer may take at this terminal height: a third of it, never
@@ -510,6 +505,14 @@ pub(crate) fn command_inspection_controls(bounds: Rect) -> [Rect; 2] {
     ]
 }
 
+/// TRE-6: the right-aligned `×` badge and its pointer hit region share one cell rectangle.
+pub(crate) fn conversation_tree_close_control(bounds: Rect) -> Rect {
+    if bounds.width < 5 || bounds.height == 0 {
+        return Rect::default();
+    }
+    Rect::new(bounds.right().saturating_sub(4), bounds.y, 3, 1)
+}
+
 /// DRW-3: one centered bottom-border row owns both the handle and its padded hit region.
 pub(crate) fn drawer_retract_control(bounds: Rect) -> Rect {
     const WIDTH: u16 = 8;
@@ -560,13 +563,17 @@ mod tests {
             command_inspection: None,
         };
         let tree = super::registration::surface_tree(
+            Rect::new(0, 0, 60, 10),
             Rect::new(0, 8, 60, 1),
             None,
             None,
             regions,
-            DecisionMode::Inline,
-            8,
-            crate::KeyboardFocus::TextInput,
+            &WorkspaceInput {
+                decision_mode: DecisionMode::Inline,
+                composer_menu_rows: 8,
+                drawer_focus: crate::KeyboardFocus::TextInput,
+                ..WorkspaceInput::default()
+            },
         );
         assert!(tree.get(SurfaceId::ComposerMenu).is_none());
     }

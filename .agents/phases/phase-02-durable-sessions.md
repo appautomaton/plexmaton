@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; journal, providers, compaction, permissions and AGENTS.md complete; branch interaction remains; MCP optional |
+| Status | Active; journal, providers, compaction, permissions and AGENTS.md complete; rewind locally verified, PR CI pending; MCP optional |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01's live loop, replay-authoritative model record, provider codecs, transcript reducer and native-tool lifecycle |
@@ -187,7 +187,10 @@ The real agent/TUI renderer produced inspected failure frames at three widths:
 [Source](../spikes/compaction/render-review.rs) stages the same semantic outcomes without HTTP;
 runtime tests separately prove their automatic triggers and commit barriers.
 Validation is offline by policy; paid provider calls are not an exit gate. No claim is made about
-realized cache hits or generated summary quality. Slice 10's branch management and rewind interaction is still pending.
+realized cache hits or generated summary quality. Slice 10 has proven durable head selection,
+destination navigation, acknowledged runtime results, bounded tree snapshots, labels and exact
+source copy. Native interaction and executable acceptance pass locally; PR CI remains pending in the
+[stage plan](../plans/phase-02-stage-02-context-projection.md).
 
 ## Not in this phase
 

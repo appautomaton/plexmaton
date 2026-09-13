@@ -151,12 +151,27 @@ impl ViewState {
         let inputs = self.inputs.clone();
         let skill_bindings = self.skill_bindings.clone();
         let composer_menu = self.composer_menu.clone();
+        let conversation_tree = self.conversation_tree.clone();
+        // TRE-4/INV-6: admitted navigation can finish beneath a newly opened Drawer. Keep that
+        // workspace interaction and the unchanged resolved model until the receipt arrives. Ordinary retry
+        // resets retain their existing policy; runtime admission excludes concurrent navigation.
+        let (drawer, model) = if self
+            .tree()
+            .is_some_and(|tree| tree.pending() == Some(super::TreePending::Navigation))
+        {
+            (self.drawer.clone(), self.model.clone())
+        } else {
+            (None, None)
+        };
         let focus = self.focus;
         *self = Self {
             status,
             inputs,
             skill_bindings,
             composer_menu,
+            conversation_tree,
+            drawer,
+            model,
             focus,
             ..Self::default()
         };

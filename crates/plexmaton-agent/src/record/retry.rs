@@ -22,7 +22,7 @@ impl Record {
             head: archived,
             at: self
                 .journal
-                .head_target(&self.head)
+                .head_target(self.selected_head())
                 .expect("selected head")
                 .cloned(),
         };
@@ -32,7 +32,7 @@ impl Record {
         self.journal.validate_record(&JournalRecord::MoveHead {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision: candidate.target.head_revision,
             to: candidate.before_question.clone(),
         })?;
@@ -48,7 +48,7 @@ impl Record {
         let movement = JournalRecord::MoveHead {
             sequence,
             record_id,
-            head: self.head.clone(),
+            head: self.selected_head().clone(),
             expected_head_revision: candidate.target.head_revision,
             to: candidate.before_question.clone(),
         };

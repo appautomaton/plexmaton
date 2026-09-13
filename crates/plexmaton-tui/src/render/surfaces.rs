@@ -24,6 +24,21 @@ use crate::{
     theme::{Palette, Role},
 };
 
+pub(super) fn notices_panel(state: &ViewState, palette: &Palette) -> Panel {
+    Panel {
+        insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Box,
+        footer: None,
+        body: Body::Whole {
+            lines: content::notices(state, palette),
+            follows_tail: true,
+        },
+        title: super::chrome::notices_title(state, palette),
+        badge: None,
+        edges: Edges::All,
+    }
+}
+
 /// The Configuration and Permissions pages, which paint themselves; `None` for the page list.
 pub(super) fn drawer_page(
     frame: &mut Frame<'_>,
@@ -122,6 +137,12 @@ pub(super) fn draw_cursor(
     panel: &Panel,
     steer: Option<&(layout::SteerSplit, plexmaton_core::AgentId)>,
 ) {
+    if id == SurfaceId::ConversationTree
+        && let Some(caret) = super::conversation_tree::editor_caret(state, bounds)
+    {
+        place_cursor(frame, panel.insets.inset(bounds), caret, panel.edges);
+        return;
+    }
     match steer {
         Some((split, agent_id)) if id == SurfaceId::Inspector => {
             render_steer(frame, palette, state, agent_id, split.input);
@@ -193,6 +214,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         },
         drawer_rows: state.drawer_rows(area.width),
         drawer_focus: state.drawer_focus(),
+        conversation_tree: state.conversation_tree_open(),
         composer_menu_rows: state.composer_menu_rows(inner_width(composer_width)),
         rail: state.sub_agents().next().is_some(),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),

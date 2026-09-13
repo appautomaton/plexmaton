@@ -9,6 +9,11 @@ impl Workspace {
         }
         let focus = self.state.focused(&self.surfaces);
         match surface {
+            Some(SurfaceId::ConversationTree) if focus == surface => {
+                if let Some(hit) = self.tree_hit(at) {
+                    self.hover_tree(&hit);
+                }
+            }
             Some(SurfaceId::Approval) if focus == surface => {
                 if let Some((_, choice)) = self.approval_hit(at) {
                     self.state.choose_approval(choice);

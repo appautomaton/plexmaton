@@ -63,6 +63,7 @@ jobs:
       - run: python3 scripts/smoke-permissions.py
       - run: python3 scripts/smoke-model.py
       - run: python3 scripts/smoke-input-queue.py
+      - run: python3 scripts/smoke-tree.py
 
   ci:
     name: macOS Apple Silicon

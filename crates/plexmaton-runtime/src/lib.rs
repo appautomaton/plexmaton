@@ -13,7 +13,7 @@ pub use http::HttpSetupError;
 pub use interface::{
     CleanupFailure, CompactionRequest, CompactionRequestRefusal, ConversationRecovery,
     DispatchReport, JournalTailRecovery, PersistenceFailure, RequestedCompactionOutcome,
-    RuntimeError, RuntimeUpdate, SkillSummary,
+    RuntimeError, RuntimeUpdate, SkillSummary, TreeAdmission, TreeRequestRefusal,
 };
 pub use native::{NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError};
 pub use runtime::{

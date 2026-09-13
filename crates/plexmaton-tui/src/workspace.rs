@@ -17,9 +17,8 @@ use crate::{
     intent::{Direction, DrawerIntent, SelectionIntent, TextIntent, TuiIntent},
     router::{Routed, Router, RouterContext},
     state::{
-        ApprovalSubmission, CleanupNotice, ConversationRequest, ConversationRestoration,
-        CopyRequest, Page, PermissionRequest, PersistenceNotice, QuitPress, Submission,
-        ViewRevision, ViewState,
+        ApprovalSubmission, ConversationRequest, ConversationRestoration, CopyRequest, Page,
+        PermissionRequest, QuitPress, Submission, ViewRevision, ViewState,
     },
     surface::SurfaceTree,
     theme::Palette,
@@ -36,6 +35,9 @@ mod composer_menu;
 mod composer_menu_tests;
 #[cfg(test)]
 mod composer_tests;
+mod conversation_tree;
+#[cfg(test)]
+mod conversation_tree_tests;
 mod copy;
 mod drawer;
 mod effort;
@@ -73,6 +75,7 @@ mod text_selection;
 #[cfg(test)]
 mod text_selection_tests;
 
+pub use conversation_tree::TreeRequest;
 use pointer::{DragAutoScroll, PressedEntry};
 
 /// Whether the event loop continues after an intent.
@@ -121,6 +124,8 @@ pub struct Outcome {
     /// The conversation whose most recent waiting message the user took back (IQU-4). Only the
     /// runtime owns that queue, so the workspace asks rather than removing anything itself.
     pub withdrawn: Option<AgentId>,
+    /// A bounded tree refresh or stable-identity navigation request for the composition root.
+    pub tree: Option<TreeRequest>,
 }
 
 /// Model selection captured at explicit confirmation.
@@ -167,6 +172,7 @@ impl Outcome {
             effort: None,
             model: None,
             withdrawn: None,
+            tree: None,
         }
     }
 }
@@ -314,16 +320,6 @@ impl Workspace {
         self.state.hover_entry(None);
     }
 
-    /// Shows a session-writer failure that cannot itself enter the failed durable stream.
-    pub fn report_persistence_failure(&mut self, failure: PersistenceNotice) {
-        self.state.report_persistence_failure(failure);
-    }
-
-    /// Shows an owner that could not be joined cleanly after session persistence failed.
-    pub fn report_cleanup_failure(&mut self, failure: CleanupNotice) {
-        self.state.report_cleanup_failure(failure);
-    }
-
     /// Anchors a saved-grant receipt beside its tool without changing semantic copy or events.
     pub fn report_saved_project_permission(
         &mut self,
@@ -371,8 +367,14 @@ impl Workspace {
             // layer the user can see (FR-3).
             dismissible: surfaces.has_dismissible()
                 || state.editing_retry()
-                || state.focused(surfaces) == Some(crate::SurfaceId::Approval),
+                || state.focused(surfaces) == Some(crate::SurfaceId::Approval)
+                || state.conversation_tree_open()
+                || state.drawer().is_some(),
             selecting: state.selection().is_some() || state.copy_input(surfaces).is_some(),
+            conversation_tree_open: state.conversation_tree_open(),
+            tree_editing: state.tree_editor_open(),
+            tree_text_input: state.tree_text_editor_open(),
+            drawer_open: state.drawer().is_some(),
         };
         let routed = router.translate(event, &context);
         if let Event::Key(key) = event
@@ -492,6 +494,7 @@ impl Workspace {
                 };
             }
             TuiIntent::MoveSelection(direction) => self.state.move_selection(direction),
+            TuiIntent::Tree(intent) => return self.apply_tree(intent),
             TuiIntent::CycleFocus(direction) => self.state.cycle_focus(&self.surfaces, direction),
             TuiIntent::Pointer(pointer) => {
                 if let Some(outcome) = self.button_pointer(pointer) {
@@ -527,6 +530,10 @@ impl Workspace {
             // Hover routing: the wheel moves the viewport under the pointer and never touches focus
             // (INV-3). Which surface that is was already decided by viewport eligibility.
             TuiIntent::Scroll { surface, direction } => {
+                if surface == crate::SurfaceId::ConversationTree {
+                    self.tree_scroll(direction);
+                    return Outcome::default();
+                }
                 // The row under a stationary pointer may change when its viewport moves. Clear the
                 // old semantic target rather than highlighting it at its new location.
                 self.state.hover_entry(None);

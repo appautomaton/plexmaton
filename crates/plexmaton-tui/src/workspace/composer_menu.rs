@@ -37,7 +37,10 @@ impl Workspace {
             }
             MenuIntent::Complete => match self.state.menu_chosen() {
                 // Completing a Command writes `/name ` and runs nothing (CMC-2).
-                Some(MenuRow::Command(command)) => self.complete_command(command),
+                Some(MenuRow::Command(command)) => self.complete_command(command, command.name()),
+                Some(MenuRow::CommandAlias { command, name }) => {
+                    self.complete_command(command, name)
+                }
                 Some(MenuRow::Model(_)) => Outcome::default(),
                 other => self.accept_menu(other),
             },
@@ -45,13 +48,13 @@ impl Workspace {
         }
     }
 
-    fn complete_command(&mut self, command: Command) -> Outcome {
-        self.state.complete_command(command);
+    fn complete_command(&mut self, command: Command, name: &str) -> Outcome {
+        self.state.complete_command_named(name);
         match command {
             Command::Resume => self.list_conversations(),
             Command::Permissions => self.list_session_permissions(),
             Command::Effort | Command::Model => Outcome::default(),
-            Command::New | Command::Compact => Outcome::default(),
+            Command::New | Command::Compact | Command::Tree => Outcome::default(),
         }
     }
 
@@ -73,6 +76,9 @@ impl Workspace {
             return Outcome::default();
         };
         match row {
+            MenuRow::CommandAlias { command, .. } => {
+                self.accept_menu(Some(MenuRow::Command(command)))
+            }
             MenuRow::Skill(name) => {
                 self.state.accept_skill(Some(name));
                 Outcome::default()
@@ -89,7 +95,7 @@ impl Workspace {
                 | Command::Permissions
                 | Command::Effort
                 | Command::Model),
-            ) => self.complete_command(command),
+            ) => self.complete_command(command, command.name()),
             MenuRow::Command(Command::Compact) => {
                 let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
                     return Outcome::default();
@@ -100,6 +106,16 @@ impl Workspace {
                         command: Command::Compact,
                         target: CommandTarget { agent },
                     }),
+                    ..Outcome::default()
+                }
+            }
+            MenuRow::Command(Command::Tree) => {
+                let Some(agent) = self.state.primary_agent().map(|agent| agent.id.clone()) else {
+                    return Outcome::default();
+                };
+                self.state.take_command_draft();
+                Outcome {
+                    tree: Some(TreeRequest::Refresh(agent)),
                     ..Outcome::default()
                 }
             }

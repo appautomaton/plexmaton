@@ -28,6 +28,8 @@ mod paths;
 mod test_support;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tree_tests;
 
 pub use codec::{MAX_JOURNAL_LINE_BYTES, SCHEMA_EPOCH};
 pub use error::{AppendFailure, StoreError};

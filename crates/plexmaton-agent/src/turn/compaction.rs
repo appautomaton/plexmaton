@@ -89,7 +89,7 @@ impl Agent {
 mod tests {
     use plexmaton_core::{
         AgentId, ConversationEntryId, ConversationEvent, HeadName, JournalRecordId, TokenCounts,
-        TokenUsage,
+        TokenUsage, TreeNavigation, TreeNavigationTarget,
     };
 
     use super::Agent;
@@ -506,6 +506,101 @@ mod tests {
             current.request().atoms[0].value(),
             ContextAtomValue::CompactionSummary { text } if text == "second checkpoint summary"
         ));
+    }
+
+    /// TRE-7/CPL-5: a source checkpoint newer than the addressed assistant stays on the source
+    /// ancestry and cannot leak into the navigation destination's model or screen projection.
+    #[test]
+    fn tre_7_rewind_projection_excludes_a_newer_source_checkpoint() {
+        let (mut agent, current_step, plan) = open_compactable_turn();
+        let source_head = agent.selected_head().clone();
+        let first_assistant = agent
+            .journal()
+            .path(&source_head)
+            .expect("source path")
+            .iter()
+            .find_map(|entry| {
+                matches!(
+                    entry.payload,
+                    crate::journal::JournalEntryPayload::AssistantOutput { .. }
+                )
+                .then(|| entry.id.clone())
+            })
+            .expect("first completed assistant output");
+
+        let (attempt_id, _) = agent
+            .authorize_compaction_attempt(&plan, UnixMillis::new(10))
+            .expect("authorize source compaction");
+        let _finished = agent
+            .finish_compaction_attempt(complete_attempt(
+                attempt_id.clone(),
+                "source-only checkpoint summary",
+            ))
+            .expect("finish source compaction");
+        let checkpoint = agent
+            .commit_compaction_checkpoint(plan, attempt_id)
+            .expect("commit newer source checkpoint");
+        let [JournalRecord::AppendEntry { entry, .. }] = checkpoint.records.as_slice() else {
+            panic!("checkpoint is one semantic append")
+        };
+        let checkpoint_id = entry.id.clone();
+
+        let _text = agent.handle(Input::Streamed {
+            step_id: current_step.clone(),
+            event: ModelEvent::TextDelta {
+                position: ModelOutputPosition::new(0, 0),
+                delta: "current answer".to_owned(),
+            },
+        });
+        let _stopped = agent.handle(Input::Streamed {
+            step_id: current_step,
+            event: ModelEvent::Stopped(StopReason::EndOfTurn),
+        });
+
+        let origin = agent.tree_origin();
+        let reaction = agent
+            .navigate(&TreeNavigation {
+                origin,
+                target: TreeNavigationTarget::Rewind(first_assistant.clone()),
+            })
+            .expect("older completed assistant target is eligible");
+        let destination = agent.selected_head().clone();
+        assert!(matches!(
+            reaction.records.as_slice(),
+            [JournalRecord::ForkAndSelectHead { source, at: Some(at), .. }]
+                if source == &source_head && at == &first_assistant
+        ));
+
+        let source_projection = agent
+            .journal()
+            .project(&source_head)
+            .expect("unchanged source still projects");
+        assert_eq!(
+            source_projection.context_epoch(),
+            &ContextEpoch::Checkpoint(checkpoint_id)
+        );
+        assert!(source_projection.request().atoms.iter().any(|atom| matches!(
+            atom.value(),
+            ContextAtomValue::CompactionSummary { text } if text == "source-only checkpoint summary"
+        )));
+        let destination_projection = agent
+            .journal()
+            .project(&destination)
+            .expect("navigation destination projects");
+        assert_eq!(
+            destination_projection.context_epoch(),
+            &ContextEpoch::Original
+        );
+        assert!(destination_projection.request().atoms.iter().all(|atom| !matches!(
+            atom.value(),
+            ContextAtomValue::CompactionSummary { text } if text == "source-only checkpoint summary"
+        )));
+        assert_eq!(
+            reaction.projection_reset.as_deref(),
+            Some(destination_projection.events())
+        );
+        assert!(reaction.effects.is_empty());
+        assert!(reaction.events.is_empty());
     }
 
     fn huge_tool_context() -> (Agent, Vec<crate::ContextAtom>) {

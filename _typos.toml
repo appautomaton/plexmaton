@@ -4,6 +4,9 @@
 [default.extend-words]
 Ratatui = "Ratatui"
 ratatui = "ratatui"
+# Conversation tree invariant prefix and matching test names.
+TRE = "TRE"
+tre = "tre"
 
 [default.extend-identifiers]
 # Pinned upstream math AST field; not first-party prose.

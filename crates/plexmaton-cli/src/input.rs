@@ -87,8 +87,21 @@ pub(super) async fn dispatch_live(
         None => runtime.submit(addressed.to, addressed.input).await,
     }
     .context("dispatch user input")?;
-    restore_undelivered(workspace, to, report);
+    apply_report(runtime, workspace, to, report);
     Ok(())
+}
+
+/// All live report paths consume metadata acknowledgements against the runtime's durable snapshot.
+pub(super) fn apply_report(
+    runtime: &LiveRuntime,
+    workspace: &mut Workspace,
+    to: AgentId,
+    report: DispatchReport,
+) {
+    if let Some(edit) = &report.tree_edit {
+        crate::conversation_tree::complete_edit(runtime, workspace, &edit.origin.agent_id);
+    }
+    restore_undelivered(workspace, to, report);
 }
 
 pub(super) fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report: DispatchReport) {
@@ -98,6 +111,16 @@ pub(super) fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report
     if let Some(projection) = report.projection_reset {
         workspace.complete_retry_edit();
         workspace.replace_projection(projection);
+    }
+    // TRE-4/TRE-5: this receipt is published only after the writer acknowledges the selection.
+    // Replace history first; the tree owner then restores an empty draft and dismisses the modal.
+    if let Some(navigation) = report.tree_navigation {
+        workspace.complete_tree_navigation(
+            &to,
+            navigation
+                .returned_draft
+                .map(|draft| (draft.text, draft.skill_name)),
+        );
     }
     for refusal in report.unresolved_approvals {
         use plexmaton_agent::{
@@ -155,6 +178,7 @@ pub(super) fn restore_undelivered(workspace: &mut Workspace, to: AgentId, report
         workspace.report_cleanup_failure(notice);
     }
     if let Some(failure) = report.persistence_failure {
+        workspace.report_tree_persistence_failure();
         let notice = match failure {
             PersistenceFailure::NotWritten => PersistenceNotice::NotWritten,
             PersistenceFailure::OutcomeUnknown => PersistenceNotice::OutcomeUnknown,

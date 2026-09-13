@@ -25,6 +25,7 @@ mod collaboration;
 mod compaction;
 mod error;
 mod heads;
+mod navigation;
 mod payload;
 #[cfg(test)]
 mod payload_tests;
@@ -33,6 +34,11 @@ mod record;
 mod retry;
 #[cfg(test)]
 mod skill_tests;
+mod tree;
+mod tree_edit;
+mod tree_source;
+#[cfg(test)]
+mod tree_tests;
 mod turns;
 mod validation;
 #[cfg(test)]
@@ -46,7 +52,6 @@ pub(crate) use payload::PROCESS_RECOVERY_MESSAGE;
 pub use projection::{JournalProjection, JournalProjectionError, RecoveryProjection};
 pub use record::{ConversationEntry, HeadRevision, JournalRecord, JournalSequence};
 pub use retry::{RetryCandidate, RetryTarget};
-
 /// Immutable identity and chronology shared by every projection of one session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConversationMetadata {
@@ -104,10 +109,12 @@ pub struct ConversationJournal {
     records: Vec<JournalRecord>,
     record_ids: BTreeSet<JournalRecordId>,
     entries: BTreeMap<ConversationEntryId, ConversationEntry>,
+    tree_labels: BTreeMap<ConversationEntryId, plexmaton_core::TreeLabel>,
     entry_sequences: BTreeMap<ConversationEntryId, JournalSequence>,
     stable_entries: BTreeSet<ConversationEntryId>,
     unstable_entry_turns: BTreeMap<ConversationEntryId, TurnId>,
     heads: BTreeMap<HeadName, HeadState>,
+    selected: HeadName,
     retired_heads: BTreeSet<HeadName>,
     turn_starts: BTreeMap<TurnId, TurnStartState>,
     turn_finishes: BTreeMap<TurnId, TurnFinishState>,
@@ -143,17 +150,19 @@ impl ConversationJournal {
             records: Vec::new(),
             record_ids: BTreeSet::new(),
             entries: BTreeMap::new(),
+            tree_labels: BTreeMap::new(),
             entry_sequences: BTreeMap::new(),
             stable_entries: BTreeSet::new(),
             unstable_entry_turns: BTreeMap::new(),
             heads: BTreeMap::from([(
-                main,
+                main.clone(),
                 HeadState {
                     target: None,
                     revision: HeadRevision::new(0),
                     open_turn: None,
                 },
             )]),
+            selected: main,
             retired_heads: BTreeSet::new(),
             turn_starts: BTreeMap::new(),
             turn_finishes: BTreeMap::new(),
@@ -193,6 +202,12 @@ impl ConversationJournal {
     /// Current revision of a named head.
     pub fn head_revision(&self, head: &HeadName) -> Result<HeadRevision, JournalError> {
         self.head(head).map(|state| state.revision)
+    }
+
+    /// Durable selected head reconstructed from records; old journals default to `main` (TRE-3).
+    #[must_use]
+    pub const fn selected_head(&self) -> &HeadName {
+        &self.selected
     }
 
     /// Current entry selected by a named head.
@@ -299,37 +314,20 @@ impl ConversationJournal {
                 state.revision = HeadRevision::new(state.revision.get() + 1);
                 state.open_turn = next_open_turn;
             }
-            JournalRecord::CreateHead { head, at, .. } => {
-                self.heads.insert(
-                    head.clone(),
-                    HeadState {
-                        target: at.clone(),
-                        revision: HeadRevision::new(0),
-                        open_turn: None,
-                    },
-                );
-            }
-            JournalRecord::MoveHead { head, to, .. } => {
-                let state = self
-                    .heads
-                    .get_mut(head)
-                    .unwrap_or_else(|| unreachable!("validated head must remain present"));
-                state.target = to.clone();
-                state.revision = HeadRevision::new(state.revision.get() + 1);
-                state.open_turn = None;
-            }
-            JournalRecord::RenameHead { head, renamed, .. } => {
-                let mut state = self
-                    .heads
-                    .remove(head)
-                    .unwrap_or_else(|| unreachable!("validated head must remain present"));
-                state.revision = HeadRevision::new(state.revision.get() + 1);
-                self.retired_heads.insert(head.clone());
-                self.heads.insert(renamed.clone(), state);
-            }
-            JournalRecord::AbandonHead { head, .. } => {
-                self.heads.remove(head);
-                self.retired_heads.insert(head.clone());
+            JournalRecord::CreateHead { .. }
+            | JournalRecord::MoveHead { .. }
+            | JournalRecord::RenameHead { .. }
+            | JournalRecord::AbandonHead { .. }
+            | JournalRecord::ForkAndSelectHead { .. }
+            | JournalRecord::SelectHead { .. } => self.apply_named_head(&record),
+            JournalRecord::SetEntryLabel {
+                entry_id, label, ..
+            } => {
+                if let Some(label) = label {
+                    self.tree_labels.insert(entry_id.clone(), label.clone());
+                } else {
+                    self.tree_labels.remove(entry_id);
+                }
             }
             JournalRecord::TurnFinished {
                 sequence,
@@ -1213,6 +1211,21 @@ mod tests {
                 record_id: self::record("abandon"),
                 head: head("main"),
                 expected_head_revision: HeadRevision::new(0),
+            },
+            JournalRecord::ForkAndSelectHead {
+                sequence: JournalSequence::new(1),
+                record_id: self::record("fork-select"),
+                source: head("main"),
+                expected_source_revision: HeadRevision::new(0),
+                destination: head("rewound"),
+                at: None,
+            },
+            JournalRecord::SelectHead {
+                sequence: JournalSequence::new(1),
+                record_id: self::record("select"),
+                expected_selected: head("main"),
+                destination: head("rewound"),
+                expected_destination_revision: HeadRevision::new(0),
             },
             JournalRecord::TurnFinished {
                 sequence: JournalSequence::new(1),

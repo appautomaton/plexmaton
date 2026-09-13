@@ -27,10 +27,10 @@ pub(crate) struct InterruptedTurnRecovery {
 
 impl Record {
     pub(crate) fn interrupted_turn(&self) -> Option<InterruptedTurnRecovery> {
-        let open_turn = self.journal.open_turn_on_path(&self.head);
+        let open_turn = self.journal.open_turn_on_path(self.selected_head());
         let projection = self
             .journal
-            .project(&self.head)
+            .project(self.selected_head())
             .unwrap_or_else(|error| unreachable!("loaded journal remains projectable: {error:?}"));
         let mut status = None;
         let mut order = Vec::new();
@@ -92,7 +92,7 @@ impl Record {
         }
         let path = self
             .journal
-            .path(&self.head)
+            .path(self.selected_head())
             .unwrap_or_else(|error| unreachable!("loaded head remains valid: {error:?}"));
         let last_user = path.iter().rposition(|entry| {
             matches!(

@@ -25,12 +25,14 @@ mod compaction;
 mod input;
 mod lifecycle;
 mod model_input;
+mod navigation;
 mod permission;
 mod request_attempt;
 mod retry;
 #[cfg(test)]
 mod skill_tests;
 mod tool_projection;
+mod tree_edit;
 mod user_input;
 
 use input::{DeliveryBoundary, InputQueue};

@@ -1,4 +1,4 @@
-use plexmaton_core::{ConversationEntryId, HeadName, JournalRecordId};
+use plexmaton_core::{ConversationEntryId, HeadName, JournalRecordId, TreeLabel};
 use serde::{Deserialize, Serialize};
 
 use super::payload::JournalEntryPayload;
@@ -120,6 +120,45 @@ pub enum JournalRecord {
         /// Compare-and-set revision read when this retirement was prepared.
         expected_head_revision: HeadRevision,
     },
+    /// Create a fresh head at a stable entry and select it in one mutation (TRE-3).
+    ForkAndSelectHead {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Currently selected head whose revision must match.
+        source: HeadName,
+        /// Compare-and-set revision of `source` read when this fork was prepared.
+        expected_source_revision: HeadRevision,
+        /// Fresh name for the destination head.
+        destination: HeadName,
+        /// Existing entry to point at, or the empty root.
+        at: Option<ConversationEntryId>,
+    },
+    /// Move the durable selection to an existing head without creating content (TRE-3).
+    SelectHead {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Selected head observed when this mutation was prepared.
+        expected_selected: HeadName,
+        /// Existing destination to select.
+        destination: HeadName,
+        /// Compare-and-set revision of `destination` read when this selection was prepared.
+        expected_destination_revision: HeadRevision,
+    },
+    /// Annotate an immutable node without changing ancestry, head revision or model context (TRE-8).
+    SetEntryLabel {
+        /// Position in this session's record stream.
+        sequence: JournalSequence,
+        /// Stable record identity.
+        record_id: JournalRecordId,
+        /// Existing immutable node to annotate.
+        entry_id: ConversationEntryId,
+        /// Bounded single-line annotation, or an explicit clear operation.
+        label: Option<TreeLabel>,
+    },
     /// Finish one turn without changing semantic ancestry or a head revision (TIM-1, TIM-4).
     TurnFinished {
         /// Position in this session's record stream.
@@ -173,6 +212,9 @@ impl JournalRecord {
             | Self::MoveHead { sequence, .. }
             | Self::RenameHead { sequence, .. }
             | Self::AbandonHead { sequence, .. }
+            | Self::ForkAndSelectHead { sequence, .. }
+            | Self::SelectHead { sequence, .. }
+            | Self::SetEntryLabel { sequence, .. }
             | Self::TurnFinished { sequence, .. }
             | Self::RequestAttemptAuthorized { sequence, .. }
             | Self::RequestAttemptFinished { sequence, .. }
@@ -187,6 +229,9 @@ impl JournalRecord {
             | Self::MoveHead { record_id, .. }
             | Self::RenameHead { record_id, .. }
             | Self::AbandonHead { record_id, .. }
+            | Self::ForkAndSelectHead { record_id, .. }
+            | Self::SelectHead { record_id, .. }
+            | Self::SetEntryLabel { record_id, .. }
             | Self::TurnFinished { record_id, .. }
             | Self::RequestAttemptAuthorized { record_id, .. }
             | Self::RequestAttemptFinished { record_id, .. }

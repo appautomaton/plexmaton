@@ -16,13 +16,12 @@ use plexmaton_tui::{ConfigurationSummary, MarkdownTheme, Palette, Workspace};
 
 mod agent_instructions;
 mod clipboard;
+mod conversation_tree;
 mod input;
 mod input_queue;
 #[cfg(test)]
-use input::AddressedInput;
-use input::{
-    dispatch_live, restore_undelivered, route_approval, route_interrupt, route_submission,
-};
+use input::{AddressedInput, restore_undelivered};
+use input::{dispatch_live, route_approval, route_interrupt, route_submission};
 mod interaction;
 mod output;
 mod permission_config;

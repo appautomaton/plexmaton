@@ -108,39 +108,14 @@ impl ConversationJournal {
                 }
                 self.validate_revision_increment(head, state.revision)?;
             }
-            JournalRecord::CreateHead { head, at, .. } => {
-                self.validate_available_head(head)?;
-                self.validate_target(at.as_ref())?;
-                self.validate_stable_target(at.as_ref())?;
-            }
-            JournalRecord::MoveHead {
-                head,
-                expected_head_revision,
-                to,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_target(to.as_ref())?;
-                self.validate_stable_target(to.as_ref())?;
-                self.validate_revision_increment(head, state.revision)?;
-            }
-            JournalRecord::RenameHead {
-                head,
-                expected_head_revision,
-                renamed,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_available_head(renamed)?;
-                self.validate_revision_increment(head, state.revision)?;
-            }
-            JournalRecord::AbandonHead {
-                head,
-                expected_head_revision,
-                ..
-            } => {
-                let state = self.validate_head(head, *expected_head_revision)?;
-                self.validate_stable_target(state.target.as_ref())?;
+            JournalRecord::CreateHead { .. }
+            | JournalRecord::MoveHead { .. }
+            | JournalRecord::RenameHead { .. }
+            | JournalRecord::AbandonHead { .. }
+            | JournalRecord::ForkAndSelectHead { .. }
+            | JournalRecord::SelectHead { .. } => self.validate_named_head(record)?,
+            JournalRecord::SetEntryLabel { entry_id, .. } => {
+                self.validate_target(Some(entry_id))?;
             }
             JournalRecord::TurnFinished {
                 head,

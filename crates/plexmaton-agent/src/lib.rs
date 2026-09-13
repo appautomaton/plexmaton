@@ -16,12 +16,14 @@ mod compaction;
 mod interface;
 mod journal;
 mod model;
+mod navigation;
 mod permissions;
 mod record;
 mod skill;
 mod step;
 mod timing;
 mod tools;
+mod tree_edit;
 mod turn;
 
 #[cfg(test)]
@@ -60,6 +62,7 @@ pub use model::{
     ProviderCodecRevision, ProviderModelFamilyId, ProviderReplay, ProviderReplayError,
     ProviderReplayOwnerId, ReplayCompatibility, StopReason, ToolBatch, ToolBatchResult,
 };
+pub use navigation::{ReturnedDraft, TreeNavigationRefusal, TreeNavigationResult};
 pub use skill::{
     MAX_SKILL_INSTRUCTION_BYTES, MAX_SKILL_LOCATION_BYTES, MAX_SKILL_NAME_BYTES,
     MAX_SKILL_NAME_CHARS, SkillActivation, SkillActivationError, SkillSource,
@@ -75,6 +78,7 @@ pub use tools::{
     MAX_TOOL_PRESENTATION_TEXT_BYTES, PendingApproval, ToolCall, ToolCancellationReason,
     ToolExecutionResult, ToolOutcome, bounded_tool_text,
 };
+pub use tree_edit::{TreeEditRefusal, TreeEditResult};
 pub use turn::{Agent, ProjectionRebuildError, TurnBudget};
 
 pub use permissions::{

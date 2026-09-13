@@ -6,24 +6,24 @@
 
 use ratatui::layout::Rect;
 
-use super::{BodyRegions, DecisionMode};
+use super::{BodyRegions, DecisionMode, WorkspaceInput};
 use crate::surface::{Surface, SurfaceId, SurfaceKind, SurfaceTree};
 
 const BASE_Z_INDEX: u32 = 0;
 const FLOATING_Z_INDEX: u32 = 1;
 const POPUP_Z_INDEX: u32 = 5;
 const MODAL_Z_INDEX: u32 = 10;
+const TREE_Z_INDEX: u32 = 15;
 const DRAWER_Z_INDEX: u32 = 20;
 
 /// Registers the complete supported workspace from rectangles computed by layout.
 pub(super) fn surface_tree(
+    area: Rect,
     status: Rect,
     notices: Option<Rect>,
     attention: Option<Rect>,
     regions: BodyRegions,
-    decision_mode: DecisionMode,
-    composer_menu_rows: u16,
-    drawer_focus: crate::KeyboardFocus,
+    input: &WorkspaceInput,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
@@ -62,7 +62,9 @@ pub(super) fn surface_tree(
     let picker_bottom = regions
         .decision
         .map_or(regions.composer.y, |decision| decision.y);
-    let picker_height = composer_menu_rows.min(picker_bottom.saturating_sub(picker_top));
+    let picker_height = input
+        .composer_menu_rows
+        .min(picker_bottom.saturating_sub(picker_top));
     // A titled rule, one choice and the key line: less than that hides the choice or the keys.
     let picker = (picker_height >= 3).then_some(Rect::new(
         regions.composer.x,
@@ -103,7 +105,7 @@ pub(super) fn surface_tree(
         &mut tree,
         SurfaceId::Approval,
         regions.decision,
-        match decision_mode {
+        match input.decision_mode {
             DecisionMode::Inline => SurfaceKind::Panel,
             DecisionMode::Modal => SurfaceKind::Modal,
         },
@@ -116,13 +118,23 @@ pub(super) fn surface_tree(
         SurfaceKind::Modal,
         MODAL_Z_INDEX + 1,
     );
+    let tree_bounds = input
+        .conversation_tree
+        .then(|| Rect::new(area.x, area.y, area.width, status.y.saturating_sub(area.y)));
+    register_at(
+        &mut tree,
+        SurfaceId::ConversationTree,
+        tree_bounds,
+        SurfaceKind::Modal,
+        TREE_Z_INDEX,
+    );
     // Above the decision region, because layers stack: pulling the Drawer over a waiting approval
     // leaves the approval exactly where it was, and one `Escape` pops one layer.
     register_at(
         &mut tree,
         SurfaceId::Drawer,
         regions.drawer,
-        match drawer_focus {
+        match input.drawer_focus {
             crate::KeyboardFocus::TextInput => SurfaceKind::Drawer,
             crate::KeyboardFocus::Navigation => SurfaceKind::Modal,
         },
