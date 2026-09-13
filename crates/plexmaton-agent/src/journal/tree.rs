@@ -9,7 +9,6 @@ use plexmaton_core::{
 };
 
 use super::{ConversationJournal, JournalEntryPayload, JournalRecord, PROCESS_RECOVERY_MESSAGE};
-use crate::AssistantBlock;
 
 const MAX_TREE_HEAD_COUNT: usize = 64;
 const MAX_TREE_HEAD_NAME_BYTES: usize = plexmaton_core::MAX_TREE_LABEL_BYTES;
@@ -18,7 +17,9 @@ const MAX_TREE_SCANNED_RECORD_COUNT: usize = 65_536;
 const MAX_TREE_NODE_COUNT: usize = 2_048;
 const MAX_TREE_PREVIEW_BYTES_PER_ROW: usize = 512;
 const MAX_TREE_AGGREGATE_PREVIEW_BYTES: usize = 256 * 1024;
-const PREVIEW_ELLIPSIS: &str = "…";
+
+mod preview;
+use preview::PreviewBuilder;
 
 #[cfg(test)]
 mod tests;
@@ -239,30 +240,7 @@ fn semantic_row(
             agent_id: owner,
             output,
             ..
-        } if owner == agent_id => {
-            let has_tool_calls = output
-                .blocks()
-                .iter()
-                .any(|block| matches!(block, AssistantBlock::ToolCall { .. }));
-            let mut builder = PreviewBuilder::default();
-            for block in output.blocks() {
-                match block {
-                    AssistantBlock::Text { text, .. } | AssistantBlock::Reasoning { text, .. } => {
-                        builder.append(text)
-                    }
-                    AssistantBlock::ToolCall { call, .. } => builder.append(&call.name),
-                    AssistantBlock::ReplayOnly { .. } => {}
-                }
-            }
-            (
-                if has_tool_calls {
-                    TreeRowKind::ToolBatch
-                } else {
-                    TreeRowKind::Assistant
-                },
-                builder,
-            )
-        }
+        } if owner == agent_id => preview::assistant(output),
         JournalEntryPayload::CompactionCheckpoint {
             agent_id: owner, ..
         } if owner == agent_id => (TreeRowKind::Checkpoint, PreviewBuilder::default()),
@@ -298,70 +276,6 @@ fn semantic_row(
         _ => return None,
     };
     Some((kind, preview.finish()))
-}
-
-#[derive(Default)]
-struct PreviewBuilder {
-    text: String,
-    truncated: bool,
-}
-
-impl PreviewBuilder {
-    fn from_text(text: &str) -> Self {
-        let mut builder = Self::default();
-        builder.append(text);
-        builder
-    }
-
-    fn append(&mut self, source: &str) {
-        if self.truncated || source.is_empty() {
-            return;
-        }
-        let separator = if self.text.is_empty() { "" } else { " " };
-        let full_length = self
-            .text
-            .len()
-            .saturating_add(separator.len())
-            .saturating_add(source.len());
-        if full_length <= MAX_TREE_PREVIEW_BYTES_PER_ROW {
-            self.text.push_str(separator);
-            self.text.push_str(source);
-            return;
-        }
-
-        while self
-            .text
-            .len()
-            .saturating_add(usize::from(!self.text.is_empty()))
-            .saturating_add(PREVIEW_ELLIPSIS.len())
-            > MAX_TREE_PREVIEW_BYTES_PER_ROW
-        {
-            let _ = self.text.pop();
-        }
-        let separator = if self.text.is_empty() { "" } else { " " };
-        self.text.push_str(separator);
-        for character in source.chars() {
-            if self
-                .text
-                .len()
-                .saturating_add(character.len_utf8())
-                .saturating_add(PREVIEW_ELLIPSIS.len())
-                > MAX_TREE_PREVIEW_BYTES_PER_ROW
-            {
-                break;
-            }
-            self.text.push(character);
-        }
-        self.text.push_str(PREVIEW_ELLIPSIS);
-        self.truncated = true;
-    }
-
-    fn finish(self) -> TreePreview {
-        TreePreview {
-            text: self.text,
-            truncated: self.truncated,
-        }
-    }
 }
 
 fn limit_error(limit: TreeSnapshotLimit, maximum: usize, observed: usize) -> TreeSnapshotError {

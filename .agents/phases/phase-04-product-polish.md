@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–25 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–26 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
@@ -301,6 +301,20 @@ Visual changes are reviewed against real frames before the contract adopts them.
     [60](../../crates/plexmaton-tui/frames/status-projection/combined-60.svg) columns.
     No semantic source, dependency, journal or provider contract changed. PR 25 owns final-head CI;
     live-terminal confirmation is not claimed. The consumed plan is removed.
+
+26. **Conversation tree readability — complete.**
+    TRE-2/TRE-6 derive node links, folding and head anchors from the retained message tree,
+    omitting intermediate non-rewindable tools. Explicit vertical edges distinguish sequential
+    ancestry from siblings. `[+]`/`[−]` controls and current-head markers retain Accent;
+    a folded node reports its full retained-descendant count and hidden heads, independently of
+    nested folds. Canonical entries, copy and head positions are unchanged. The
+    user accepted the native interaction on 2026-09-13; the consumed stage plan is removed.
+    On base `e5e8e0b` plus this change, 473 TUI tests and affected all-target Clippy passed.
+    The rebuilt executable passed the six-request loopback rewind/resume journey. Reviewed
+    [native frames](../specs/conversation-tree.md#native-validation) include expanded/collapsed
+    six-head ancestry at 120/88/60 columns; an isolated copy of the user's JSONL was also rendered
+    at those widths without providers or original-state writes. Targeted review found no actionable
+    issue. The PR owns head-specific CI evidence.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Independent lossless session export/import belongs to this phase as unstarted follow-up work.

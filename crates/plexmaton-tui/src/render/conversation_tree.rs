@@ -1,6 +1,6 @@
 //! The native conversation-tree panel (TRE-1/TRE-6).
 
-use plexmaton_core::{ConversationEntryId, HeadName, TreeRow, TreeRowKind};
+use plexmaton_core::{ConversationEntryId, HeadName};
 use ratatui::{layout::Rect, text::Line};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -14,6 +14,9 @@ use crate::{
     surface::Viewport,
     theme::Role,
 };
+
+mod rows;
+use rows::{continuation_line, entry_line, head_line};
 
 /// A hit in the tree, always returned as a stable identity rather than a row number (TRE-6).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,7 +32,15 @@ pub(crate) enum Hit {
 pub(crate) fn row_capacity(state: &ViewState, bounds: Rect) -> usize {
     let physical_rows = usize::from(bounds.height.saturating_sub(3));
     let static_rows = state.tree().map_or(1, static_rows);
-    physical_rows.saturating_sub(static_rows).max(1)
+    (physical_rows.saturating_sub(static_rows) / state.tree().map_or(1, row_stride)).max(1)
+}
+
+fn row_stride(tree: &ConversationTree) -> usize {
+    if tree.mode() == TreeMode::Entries {
+        2
+    } else {
+        1
+    }
 }
 
 fn static_rows(tree: &ConversationTree) -> usize {
@@ -135,6 +146,7 @@ pub(super) fn panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel
                         for row in rows.iter().skip(offset).take(end.saturating_sub(offset)) {
                             let selected = tree.selected_entry() == Some(&row.entry_id);
                             lines.push(entry_line(tree, row, width, selected, palette));
+                            lines.push(continuation_line(tree, row, width, palette));
                         }
                     }
                 }
@@ -173,13 +185,17 @@ pub(super) fn panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel
         static_rows = 1;
     }
 
-    let actual_lines = static_rows.saturating_add(tree_rows);
-    let visible_rows = actual_lines.min(physical_rows).max(1);
+    let stride = tree.map_or(1, row_stride);
+    // Fixed headings are painted with the window but do not scroll. Metadata describes only
+    // complete node/connector pairs (or one-line branch rows), never a spare partial row.
+    let content_rows = tree_rows.saturating_mul(stride).max(1);
+    let capacity = physical_rows.saturating_sub(static_rows) / stride;
+    let visible_rows = capacity.saturating_mul(stride).min(content_rows).max(1);
     let viewport = Viewport {
-        content_rows: actual_lines.max(lines.len()),
+        content_rows,
         content_width: width,
         visible_rows: u16::try_from(visible_rows).unwrap_or(u16::MAX),
-        offset: static_rows.saturating_add(offset),
+        offset: offset.saturating_mul(stride),
     };
     let footer = footer(tree, width, palette);
     Panel {
@@ -224,17 +240,18 @@ fn footer(tree: Option<&ConversationTree>, width: u16, palette: &Palette) -> Lin
             "Enter save · Esc/× close",
             "Esc/× close",
         ],
+        Some(tree) if tree.notice().is_some() && tree.mode() == TreeMode::Heads => &[
+            "↑↓ move · r refresh · b messages · Esc/× close",
+            "r refresh · Esc/× close",
+            "Esc/× close",
+        ],
         Some(tree) if tree.notice().is_some() => &[
-            "↑↓ move · Enter retry · Esc/× close",
-            "↵ retry · Esc/× close",
+            "↑↓ move · r refresh · b branches · Esc/× close",
+            "r refresh · Esc/× close",
             "Esc/× close",
         ],
         Some(tree) => match tree.mode() {
-            TreeMode::Entries => &[
-                "↑↓ move · Enter rewind · f fold · b branches · l label · y copy · r refresh · Esc/× close",
-                "↑↓ · ↵ rewind · f fold · b branches · l label · Esc/× close",
-                "↵ rewind · b branches · Esc/× close",
-            ],
+            TreeMode::Entries => return message_footer(tree, width, palette),
             TreeMode::Heads => &[
                 "↑↓ move · Enter select · n rename · x retire · y copy · b messages · r refresh · Esc/× close",
                 "↑↓ · ↵ select · n rename · x retire · b messages · Esc/× close",
@@ -250,6 +267,45 @@ fn footer(tree: Option<&ConversationTree>, width: u16, palette: &Palette) -> Lin
         .or_else(|| candidates.last().copied())
         .unwrap_or("Esc/×");
     Line::styled(truncate(message, width), palette.style(Role::Muted))
+}
+
+fn message_footer(tree: &ConversationTree, width: u16, palette: &Palette) -> Line<'static> {
+    let row = tree.selected_entry_row();
+    if row.is_none() {
+        return Line::styled(
+            truncate("No messages · b branches · Esc/× close", width),
+            palette.style(Role::Muted),
+        );
+    }
+    let action = match row {
+        Some(row) if row.rewind == plexmaton_core::TreeRewindEligibility::Eligible => {
+            "Enter rewind"
+        }
+        Some(_) => "Read-only",
+        None => "No messages",
+    };
+    let fold = row
+        .filter(|row| tree.has_children(&row.entry_id))
+        .map_or("", |row| {
+            if tree.is_folded(&row.entry_id) {
+                " · f expand"
+            } else {
+                " · f collapse"
+            }
+        });
+    let candidates = [
+        format!(
+            "↑↓ move · {action}{fold} · b branches · l label · y copy · r refresh · Esc/× close"
+        ),
+        format!("↑↓ · {action}{fold} · b branches · Esc/× close"),
+        format!("{action} · b branches · Esc/× close"),
+        "b branches · Esc/× close".to_owned(),
+    ];
+    let text = candidates
+        .iter()
+        .find(|text| UnicodeWidthStr::width(text.as_str()) <= usize::from(width))
+        .unwrap_or(&candidates[3]);
+    Line::styled(truncate(text, width), palette.style(Role::Muted))
 }
 
 fn branch_count(count: usize) -> String {
@@ -297,169 +353,6 @@ fn visible_offset(tree: &ConversationTree, count: usize, visible_rows: usize) ->
         }
     }
     offset.min(count.saturating_sub(visible_rows))
-}
-
-fn entry_line(
-    tree: &ConversationTree,
-    row: &TreeRow,
-    width: u16,
-    selected: bool,
-    palette: &Palette,
-) -> Line<'static> {
-    let prefix = ancestry_prefix(tree, row);
-    let kind = match row.kind {
-        TreeRowKind::User => "you",
-        TreeRowKind::Steering => "steer",
-        TreeRowKind::Assistant => "assistant",
-        TreeRowKind::ToolBatch => "tool batch",
-        TreeRowKind::Checkpoint => "checkpoint",
-        TreeRowKind::Notice => "notice",
-    };
-    let eligibility = match row.rewind {
-        plexmaton_core::TreeRewindEligibility::Eligible => "↶",
-        plexmaton_core::TreeRewindEligibility::Ineligible => "·",
-    };
-    let heads = if row.head_markers.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " [{}]",
-            row.head_markers
-                .iter()
-                .map(|name| single_line(name.as_str()))
-                .collect::<Vec<_>>()
-                .join(",")
-        )
-    };
-    let label = row.label.as_ref().map_or_else(String::new, |label| {
-        format!(" · {}", single_line(label.as_str()))
-    });
-    let preview = single_line(&row.preview.text);
-    let text = format!("{prefix}{eligibility} {kind}{label}{heads}  {preview}");
-    Line::styled(
-        truncate(&text, width),
-        palette.style(if selected {
-            Role::Chosen
-        } else if row.active_ancestry {
-            Role::Body
-        } else {
-            Role::Muted
-        }),
-    )
-}
-
-fn head_line(
-    tree: &ConversationTree,
-    name: HeadName,
-    target: Option<&ConversationEntryId>,
-    width: u16,
-    selected: bool,
-    palette: &Palette,
-) -> Line<'static> {
-    let active = tree.active_head_name() == name.as_str();
-    let semantic_target = tree
-        .rows()
-        .iter()
-        .find(|row| row.head_markers.contains(&name));
-    let summary = semantic_target.map_or_else(
-        || {
-            if target.is_none() {
-                "empty root".to_owned()
-            } else {
-                "No message row".to_owned()
-            }
-        },
-        |row| {
-            format!(
-                "{}: {}",
-                kind_name(row.kind),
-                single_line(&row.preview.text)
-            )
-        },
-    );
-    let text = format!(
-        "{} {}{}  {summary}",
-        if active { "●" } else { "○" },
-        single_line(name.as_str()),
-        if active { " · current" } else { "" },
-    );
-    Line::styled(
-        truncate(&text, width),
-        palette.style(if selected { Role::Chosen } else { Role::Body }),
-    )
-}
-
-fn kind_name(kind: TreeRowKind) -> &'static str {
-    match kind {
-        TreeRowKind::User => "you",
-        TreeRowKind::Steering => "steer",
-        TreeRowKind::Assistant => "assistant",
-        TreeRowKind::ToolBatch => "tool batch",
-        TreeRowKind::Checkpoint => "checkpoint",
-        TreeRowKind::Notice => "notice",
-    }
-}
-
-fn ancestry_prefix(tree: &ConversationTree, row: &TreeRow) -> String {
-    const MAX_DEPTH: usize = 8;
-    let mut chain = vec![row];
-    let mut parent = row.parent_id.as_ref();
-    while let Some(parent_id) = parent {
-        let Some(ancestor) = tree
-            .rows()
-            .iter()
-            .find(|candidate| &candidate.entry_id == parent_id)
-        else {
-            break;
-        };
-        chain.push(ancestor);
-        parent = ancestor.parent_id.as_ref();
-        if chain.len() > tree.rows().len() {
-            break;
-        }
-    }
-    chain.reverse();
-    let truncated = chain.len() > MAX_DEPTH;
-    let visible = chain
-        .iter()
-        .skip(chain.len().saturating_sub(MAX_DEPTH))
-        .copied()
-        .collect::<Vec<_>>();
-    let mut prefix = String::new();
-    if truncated {
-        prefix.push_str("… ");
-    }
-    for ancestor in visible.iter().take(visible.len().saturating_sub(1)) {
-        let is_last = last_sibling(tree, ancestor);
-        prefix.push_str(if is_last { "   " } else { "│  " });
-    }
-    if visible.len() > 1 {
-        prefix.push_str(if last_sibling(tree, row) {
-            "└─"
-        } else {
-            "├─"
-        });
-    }
-    let fold = if tree.has_children(&row.entry_id) {
-        if tree.is_folded(&row.entry_id) {
-            "▸"
-        } else {
-            "▾"
-        }
-    } else {
-        " "
-    };
-    prefix.push_str(fold);
-    prefix.push(' ');
-    prefix
-}
-
-fn last_sibling(tree: &ConversationTree, row: &TreeRow) -> bool {
-    tree.rows()
-        .iter()
-        .rev()
-        .find(|candidate| candidate.parent_id == row.parent_id)
-        .is_some_and(|last| last.entry_id == row.entry_id)
 }
 
 fn single_line(text: &str) -> String {
@@ -523,17 +416,25 @@ pub(crate) fn hit(state: &ViewState, bounds: Rect, at: crate::surface::Point) ->
     let item = local.checked_sub(header)?;
     match tree.mode() {
         TreeMode::Entries => {
+            if item % row_stride(tree) != 0 {
+                return None;
+            }
+            let item = item / row_stride(tree);
+            if item >= row_capacity(state, bounds) {
+                return None;
+            }
             let rows = tree.visible_entries();
             let offset = visible_offset(tree, rows.len(), row_capacity(state, bounds));
             let row = rows.get(offset.saturating_add(item))?;
             if !tree.has_children(&row.entry_id) {
                 return Some(Hit::Entry(row.entry_id.clone()));
             }
-            let prefix = ancestry_prefix(tree, row);
-            let fold_x = bounds.x.saturating_add(1).saturating_add(
-                u16::try_from(prefix.chars().count().saturating_sub(2)).unwrap_or(u16::MAX),
-            );
-            Some(if at.x == fold_x {
+            let prefix = tree.ancestry_prefix(&row.entry_id);
+            let fold_x = bounds
+                .x
+                .saturating_add(1)
+                .saturating_add(u16::try_from(UnicodeWidthStr::width(prefix)).unwrap_or(u16::MAX));
+            Some(if (fold_x..fold_x.saturating_add(3)).contains(&at.x) {
                 Hit::Fold(row.entry_id.clone())
             } else {
                 Hit::Entry(row.entry_id.clone())

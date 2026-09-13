@@ -88,6 +88,9 @@ output_reserve_tokens = 4096
             before = journal.read_bytes()
 
             terminal.prompt("/rewind", "Conversation tree", SECOND)
+            screen = terminal.wait("Conversation tree", SECOND)
+            assert " tools " not in screen, "intermediate tool steps leaked into the rewind list"
+            assert "[−]" in screen and "Enter rewind" in screen, "displayed fold/action grammar missing"
             capture_widths(terminal)
             terminal.send(journey.ESC, "SECOND_DONE", "Message Plexmaton", absent=("Conversation tree",))
             assert journal.read_bytes() == before, "browsing/cancellation mutated history"
