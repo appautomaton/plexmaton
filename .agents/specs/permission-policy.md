@@ -185,3 +185,29 @@ New transitive packages are `tree-sitter-language` 0.1.7 (MIT, Rust 1.77) and `s
 0.1.9 (MIT/Apache-2.0, Rust 1.56). Existing regex, JSON and build dependencies keep their locked
 versions. `cargo tree -d`/`-e features` were inspected and the offline cached-advisory `cargo deny`
 audit passed. This does not claim a freshly fetched advisory database.
+
+## Reviewed production evidence
+
+The completed production journey and reviewed frames are retained below.
+
+The [permission executable journey](../../scripts/smoke-permissions.py) activates reviewed project
+rules before the first Conversation, verifies the actual command effect, saves an `ls` Project
+prefix, restarts, reuses it for a different argument, revokes it and observes a denied tool result.
+It makes exactly eight local fixture requests. Its captured terminal frames were inspected at
+120, 95 and 60 columns; only the random temporary-directory suffix is normalized below.
+
+| Actual executable surface | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Project rule review | [frame](../spikes/permission-policy/frames/cli-trust-wide.txt) | [frame](../spikes/permission-policy/frames/cli-trust-medium.txt) | [frame](../spikes/permission-policy/frames/cli-trust-narrow.txt) |
+| Remember prefix | [frame](../spikes/permission-policy/frames/cli-prefix-wide.txt) | [frame](../spikes/permission-policy/frames/cli-prefix-medium.txt) | [frame](../spikes/permission-policy/frames/cli-prefix-narrow.txt) |
+
+Other reviewed Ratatui frames retain their owning component evidence:
+
+| Surface | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Native approval | [frame](../../crates/plexmaton-tui/frames/native-approval-wide.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-medium.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-narrow.txt) |
+| Exact fallback | [frame](../../crates/plexmaton-tui/frames/remember-permission-wide.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-medium.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-narrow.txt) |
+| Permission controls | [frame](../../crates/plexmaton-tui/frames/permission-controls-wide.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-medium.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-narrow.txt) |
+| Drawer | [frame](../../crates/plexmaton-tui/frames/drawer-wide.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-medium.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-narrow.txt) |
+| Trust confirmation | [frame](../../crates/plexmaton-tui/frames/project-trust-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-narrow.txt) |
+| Saved grant after audit failure | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-narrow.txt) |

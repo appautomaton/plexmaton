@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Status | Source comparison and offline probes complete; production evidence lives in CPL-1–CPL-8 |
-| Read when | Implementing Phase 02 stage 2 slices 7–9, checkpoint projection, or compaction cache identity |
+| Read when | Implementing checkpoint projection or compaction cache identity |
 | Question | Can compaction preserve request-prefix eligibility, original history, and consistent context after reopening? |
-| Contract | [Stage 2](../../plans/phase-02-stage-02-context-projection.md); BUD-2, JRN-1/JRN-3/JRN-5/JRN-7, PRV-3/PRV-4, TIM-3/TIM-4 |
+| Contract | [Compaction](../../specs/compaction.md); BUD-2, JRN-1/JRN-3/JRN-5/JRN-7, PRV-3/PRV-4, TIM-3/TIM-4 |
 | Decision | [Compaction](../../specs/compaction.md) implements [the context-epoch contract](../../ui-ux.md#context-epochs-and-branch-selection) |
 
 ## Corpus
@@ -105,7 +105,15 @@ makes the epoch/prefix witness fail (mutation checked); CPL-5 owns the implement
 
 ## Production evidence
 
-CPL-1–CPL-8 own the implementation and named regression tests. The
-[stage record](../../phases/phase-02-durable-sessions.md#compaction--complete) owns validation
-receipts and the three-width failure frames produced by [the real renderer](./render-review.rs).
+[CPL-1–CPL-8](../../specs/compaction.md) own the implementation and named regression tests.
+
+The real agent/TUI renderer produced inspected failure frames at three widths:
+[soft failure](./frames/soft-compaction-failure-wide.txt)
+([medium](./frames/soft-compaction-failure-medium.txt),
+[narrow](./frames/soft-compaction-failure-narrow.txt)) and
+[hard failure](./frames/hard-compaction-failure-wide.txt)
+([medium](./frames/hard-compaction-failure-medium.txt),
+[narrow](./frames/hard-compaction-failure-narrow.txt)).
+[Source](./render-review.rs) stages the same semantic outcomes without HTTP;
+runtime tests separately prove their automatic triggers and commit barriers.
 Summary quality, exact token sufficiency and realized provider cache hits remain unverified.

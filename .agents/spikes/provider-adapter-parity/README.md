@@ -89,9 +89,12 @@ fields are present. Aggregate partial usage is never a context anchor.
 ## Evidence and limits
 
 On base `3983bca`, 795 parallel tests and static/corpus gates pass, including the JRN-4
-inherited-descriptor lock regression. Review fixes retain interrupted reasoning, permit continuation,
-request native summaries and tolerate empty wire additions. The
-[stage record](../../phases/phase-02-durable-sessions.md#provider-dialects--complete) owns the receipt and frames.
+inherited-descriptor lock regression.
+
+Reviewed real-renderer frames: provider failure at [wide](./frames/provider-failure-wide.txt),
+[medium](./frames/provider-failure-medium.txt), [narrow](./frames/provider-failure-narrow.txt);
+interrupted thinking at [wide](./frames/interrupted-thinking-wide.txt),
+[medium](./frames/interrupted-thinking-medium.txt), [narrow](./frames/interrupted-thinking-narrow.txt).
 Hermetic evidence includes decoded tool round trips, Responses phase and part grouping, native
 signatures through real JSONL write/reopen, session cache-key stability, scoped Gemini IDs,
 unsupported-content failures, native HTTP headers, typed provider errors, rate limits and cancellation. The
@@ -103,8 +106,7 @@ cargo test -p plexmaton-runtime --test provider_replay
 cargo test --workspace
 ```
 
-Use this worktree's own `target/`. HTTP tests bind scripted loopback servers; they need permission
-to bind locally when the execution sandbox restricts it. They never contact a real model service.
+HTTP fixtures use loopback servers, never real model services.
 Live model compatibility, realized cache hits and provider billing remain unverified. This scope
 covers API-key text/thinking/local-function tools; it does not claim hosted tools, media, OAuth,
 Vertex/Bedrock or arbitrary vendor-option parity. Older journals cannot recover metadata that their
