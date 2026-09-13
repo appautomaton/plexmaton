@@ -303,6 +303,11 @@ Visual changes are reviewed against real frames before the contract adopts them.
     live-terminal confirmation is not claimed. The consumed plan is removed.
 
 The status-line adapter does not bundle the approval repair or logo animation.
+Independent lossless session export/import belongs to this phase as unstarted follow-up work.
+JRN-3/PRV-3 prove JSONL save, reopen and exact compatible replay only; an export/import journey
+and its replay disclosure policy remain unproven. MCP remains optional later integration.
+Rejected: treating JSONL round trips as independent export/import acceptance.
+
 Other roadmap work in performance, math and extensibility receives a stage when its evidence is
 ready; this phase opening does not claim those capabilities have started.
 

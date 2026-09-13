@@ -96,8 +96,8 @@ context epoch belongs to the target path; the source branch's latest checkpoint 
 
 Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
 historical forks, because the original continuation and the target ancestry must remain independent.
-CPL-5 proves checkpoint ancestry. Branch and rewind interaction is locally verified;
-[Phase 02 stage 2](./plans/phase-02-stage-02-context-projection.md) owns that journey and review.
+CPL-5 proves checkpoint ancestry. [Conversation tree](./specs/conversation-tree.md#native-validation) owns branch and rewind
+interaction evidence and review.
 
 ### Screen ownership: full alternate screen
 

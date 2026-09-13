@@ -6,6 +6,7 @@
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
+| Inherits | Phase 02 JSONL recovery (JRN-1–JRN-8), four provider dialects (PRV-1–PRV-7), compaction (CPL-1–CPL-8), permissions (PER-1–PER-10/PGR-1–PGR-5), instructions (AGI-1–AGI-5) and durable tree navigation (TRE-1–TRE-8); unproven acceptance: real CLI kill→resume with equal projections (JRN-4/JRN-5), and pending-request readmission (APV-6); JRN-5 currently cancels orphaned calls on recovery |
 
 ## Outcome
 
@@ -62,6 +63,6 @@ Validation is local: ledger tests, the session-store suite, affected all-target 
 corpus/dependency gates passed. GitHub PR checks own head-specific CI results; runtime/provider/UI integration remains unproven.
 
 Power-loss durability is not promised by JRN-4. Admission uses the same process-death boundary;
-stronger storage semantics require a separately justified contract change. Phase 02 branch
-interaction and MCP may proceed independently, but collaboration activation must settle reference
+stronger storage semantics require a separately justified contract change. Tree navigation is delivered;
+MCP remains optional. Collaboration activation must settle reference
 retention across branch/export/delete before exposing those operations together.

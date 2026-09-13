@@ -90,5 +90,5 @@ updated appearance directly; no additional screenshots were captured.
 This self-contained HTML/SVG mockup reproduces the current TUI's visual vocabulary and cell sizes;
 it is not output from Ratatui. It has no external resources, model calls, tool execution or saved
 authority. Its event handlers are a finite presentation fixture, not the future permission backend.
-The audit’s diagnostic frames describe the pinned base. [Phase 02](../../phases/phase-02-durable-sessions.md)
+The audit’s diagnostic frames describe the pinned base. [production evidence](./README.md#production-work)
 records reviewed production frames and the real executable journey.

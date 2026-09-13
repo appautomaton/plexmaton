@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and locally verified; PR CI pending |
+| Status | Implemented; PR #26 merged as `6fde843`, all three CI checks passed |
 | Owns | Semantic tree projection, durable navigation, tree modal and draft return |
 | Depends on | JRN-1–JRN-8, TIM-1, CPL-5, COM-3/COM-6, CMC-2, INV-1/INV-3/INV-6; [context epochs](../ui-ux.md#context-epochs-and-branch-selection) |
 | Proven by | Agent, runtime, store, TUI and CLI tests below; real PTY smoke |
@@ -173,6 +173,10 @@ UI control. Introduce an abstraction only when an implemented boundary earns it 
 ## Acceptance coverage
 
 ### Native validation
+
+[PR #26 CI](https://github.com/appautomaton/plexmaton/actions/runs/34726953698) passed
+Static and script checks, Rust and terminal tests, and macOS Apple Silicon on the PR head
+merged as `6fde843`. These results cover the implementation, not subsequent documentation edits.
 
 Actual native frames were locally inspected at 120×30, 88×30, 60×30 and 48×12, including the label editor and branch selector. No preview generator or design mockup is shipped. `scripts/smoke-tree.py` separately proves actual terminal switching with Chinese text, exact destination context, original-branch return, selected-head restart and one command effect across six loopback requests.
 
