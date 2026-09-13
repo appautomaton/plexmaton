@@ -85,6 +85,9 @@ One live agent is available today. Multi-agent collaboration is on the [roadmap]
 
 Use the [quality gates](.agents/standards/quality-gates.md) for local checks and CI coverage. Model fixtures stay local; private state goes in ignored `.local/`.
 
+For an offline native UI preview in Kitty, run `cargo run --locked -p plexmaton-tui --example native_preview`.
+`F6` advances fixture control states; this is not production collaboration. [Scope and controls](.agents/spikes/kitty-native-preview/README.md).
+
 ## More from App Automaton
 
 [Website](https://appautomaton.renocrypt.com/) · [GitHub](https://github.com/appautomaton) · [Hugging Face](https://huggingface.co/appautomaton)
