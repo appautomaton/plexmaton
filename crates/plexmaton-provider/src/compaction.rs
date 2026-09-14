@@ -118,12 +118,13 @@ pub fn plan_compaction(
     head: &HeadName,
     model: &ResolvedModel,
     tools: &[FunctionTool],
+    collaboration: &plexmaton_agent::collaboration::ResolvedContext,
     id: CompactionId,
 ) -> Result<PreparedCompaction, CompactionPreparationError> {
     let source = journal
         .compaction_source(head)
         .map_err(CompactionPreparationError::Source)?;
-    let budgeted = budgeted_context(journal, head, model, tools)?;
+    let budgeted = budgeted_context(journal, head, model, tools, collaboration)?;
     prepare(source, budgeted, model, tools, id)
 }
 

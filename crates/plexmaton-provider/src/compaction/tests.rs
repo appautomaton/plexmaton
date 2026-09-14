@@ -202,10 +202,12 @@ fn assert_tail_budget(
         &head(),
         model,
         &tools,
+        &Default::default(),
         CompactionId::new("retained-tail-plan").expect("id"),
     )
     .expect("plan");
-    let basis = budgeted_context(agent.journal(), &head(), model, &tools).expect("basis");
+    let basis = budgeted_context(agent.journal(), &head(), model, &tools, &Default::default())
+        .expect("basis");
     let first = prepared
         .plan()
         .cut()
@@ -271,7 +273,14 @@ fn cpl_3_configured_recent_tail_changes_only_the_checkpoint_cut() {
 fn cpl_3_recent_tail_target_is_capped_by_available_input() {
     let agent = long_history(4, 4_000);
     let model = model("openai_responses");
-    let basis = budgeted_context(agent.journal(), &head(), &model, &tools()).expect("basis");
+    let basis = budgeted_context(
+        agent.journal(),
+        &head(),
+        &model,
+        &tools(),
+        &Default::default(),
+    )
+    .expect("basis");
     let available = input_capacity(&model) - basis.ledger.environment_estimate.tokens;
     assert!(available / 4 < u64::from(model.compaction_keep_recent_tokens()));
     let _prepared = assert_tail_budget(&agent, &model, available / 4);
@@ -297,6 +306,7 @@ fn cpl_2_compaction_appends_only_the_instruction_across_all_dialects() {
             &head(),
             &model,
             &tools,
+            &Default::default(),
             CompactionId::new(format!("compact-{api}")).expect("id"),
         )
         .expect("plan");
@@ -358,6 +368,7 @@ fn cpl_3_replacement_preview_rejects_oversized_summary_without_mutating_source()
         &head(),
         &model,
         &tools,
+        &Default::default(),
         CompactionId::new("compact-preview").expect("id"),
     )
     .expect("plan");
@@ -432,12 +443,20 @@ fn cpl_2_measured_overflow_refuses_compaction_without_rewriting_history() {
             &head(),
             &model,
             &tools,
+            &Default::default(),
             CompactionId::new("anchored-compaction").expect("id")
         ),
         Err(CompactionPreparationError::NoFittingInput)
     ));
     assert_eq!(agent.journal(), &before);
-    let basis = budgeted_context(agent.journal(), &head(), &model, &tools).expect("basis");
+    let basis = budgeted_context(
+        agent.journal(),
+        &head(),
+        &model,
+        &tools,
+        &Default::default(),
+    )
+    .expect("basis");
     let estimated = estimate_request(&model, &basis.request, &tools).expect("estimate");
     let units = basis
         .ledger
@@ -467,6 +486,7 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &head(),
             &tiny,
             &huge_tools,
+            &Default::default(),
             CompactionId::new("environment-refusal").expect("id"),
         ),
         Err(CompactionPreparationError::UnfittableEnvironment)
@@ -487,6 +507,7 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &head(),
             &tiny,
             &tools(),
+            &Default::default(),
             CompactionId::new("user-refusal").expect("id"),
         ),
         Err(CompactionPreparationError::OversizedRequiredUser)
@@ -508,6 +529,7 @@ fn cpl_3_planning_refusals_are_typed_and_leave_source_unchanged() {
             &head(),
             &model("openai_responses"),
             &tools(),
+            &Default::default(),
             CompactionId::new("single-refusal").expect("id"),
         ),
         Err(CompactionPreparationError::NoUsefulReduction)
@@ -526,6 +548,7 @@ fn cpl_3_replacement_preview_rejects_token_non_progress() {
         &head(),
         &model,
         &tools,
+        &Default::default(),
         CompactionId::new("non-progress").expect("id"),
     )
     .expect("plan");

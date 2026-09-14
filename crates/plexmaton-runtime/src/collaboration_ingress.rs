@@ -58,6 +58,12 @@ impl RegisteredCollaborationTarget {
     pub fn child_ingress(&self) -> ChildCollaborationIngress {
         self.child.clone()
     }
+
+    /// The child this target addresses, so a runner update can be matched back to it.
+    #[must_use]
+    pub fn worker(&self) -> &MailEndpoint {
+        self.child.worker()
+    }
 }
 
 impl ChildCollaborationIngress {

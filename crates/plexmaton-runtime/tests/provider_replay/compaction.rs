@@ -83,6 +83,7 @@ fn checkpoint(
         agent.selected_head(),
         model,
         tools,
+        &Default::default(),
         CompactionId::new(format!("compact-{ordinal}")).expect("operation"),
     )
     .expect("source can compact");
@@ -308,6 +309,7 @@ fn cpl_5_retention_config_change_preserves_checkpoint_and_continuation_bytes() {
                     &main,
                     model,
                     &tools,
+                    &Default::default(),
                     CompactionId::new("verify-effective-setting").expect("operation"),
                 )
                 .expect("source fits both settings")

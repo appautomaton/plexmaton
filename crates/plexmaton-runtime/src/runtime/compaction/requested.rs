@@ -67,6 +67,7 @@ impl LiveRuntime {
             self.agent.selected_head(),
             model,
             tools,
+            &self.collaboration_context,
             id.clone(),
         ) {
             Ok(prepared) => prepared,

@@ -83,6 +83,7 @@ fn bud_1_both_codecs_produce_redacted_deterministic_ledgers_without_writes() {
             &head(),
             &model,
             &[tool("private schema prose")],
+            &Default::default(),
         )
         .expect("ledger");
         assert!(ledger.anchor.is_none());
@@ -96,7 +97,8 @@ fn bud_1_both_codecs_produce_redacted_deterministic_ledgers_without_writes() {
                 agent.journal(),
                 &head(),
                 &model,
-                &[tool("private schema prose")]
+                &[tool("private schema prose")],
+                &Default::default(),
             )
             .expect("again")
         );
@@ -113,6 +115,7 @@ fn bud_1_both_codecs_produce_redacted_deterministic_ledgers_without_writes() {
             &head(),
             &model,
             &[tool(&"long schema".repeat(100))],
+            &Default::default(),
         )
         .expect("ledger");
         assert!(bigger.environment_estimate.tokens > ledger.environment_estimate.tokens);
@@ -162,7 +165,14 @@ fn bud_2_codec_environment_controls_measurement_reuse() {
     agent
         .finish_request_attempt(&terminal)
         .expect("record terminal");
-    let measured = budget_ledger(agent.journal(), &head(), &model, &tools).expect("ledger");
+    let measured = budget_ledger(
+        agent.journal(),
+        &head(),
+        &model,
+        &tools,
+        &Default::default(),
+    )
+    .expect("ledger");
     assert_eq!(measured.input_tokens, 100);
     assert_eq!(measured.estimated_remainder.tokens, 0);
     agent.handle_at(
@@ -182,7 +192,14 @@ fn bud_2_codec_environment_controls_measurement_reuse() {
         },
         UnixMillis::new(4),
     );
-    let extended = budget_ledger(agent.journal(), &head(), &model, &tools).expect("ledger");
+    let extended = budget_ledger(
+        agent.journal(),
+        &head(),
+        &model,
+        &tools,
+        &Default::default(),
+    )
+    .expect("ledger");
     assert_eq!(
         extended.input_tokens,
         100 + extended.atoms[1].estimate.tokens
@@ -192,6 +209,7 @@ fn bud_2_codec_environment_controls_measurement_reuse() {
         &head(),
         &model,
         &[tool("different instructions")],
+        &Default::default(),
     )
     .expect("ledger");
     assert!(changed.anchor.is_none());
@@ -354,7 +372,13 @@ fn bud_1_incomplete_tool_batch_cannot_produce_a_fit_snapshot() {
         UnixMillis::new(3),
     );
     assert!(matches!(
-        budget_ledger(agent.journal(), &head(), &model("openai_responses"), &[]),
+        budget_ledger(
+            agent.journal(),
+            &head(),
+            &model("openai_responses"),
+            &[],
+            &Default::default()
+        ),
         Err(ContextBudgetError::IncompleteToolBatch)
     ));
 }

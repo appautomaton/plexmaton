@@ -24,7 +24,10 @@ record does not consume mail; missing, foreign and duplicate references fail clo
 exact immutable admitted source items and their delegation revisions at those source positions, with
 bounded transient retention. A provider codec renders those sources in canonical order with each
 sender named, or refuses explicitly where it cannot; an unresolved reference is never rendered,
-because a pointer would wake the recipient for a message it cannot read.
+because a pointer would wake the recipient for a message it cannot read. The context budget resolves
+the same sources against its own projection: it re-reads the journal rather than the request about
+to be sent, so estimating without resolving would measure pointers and refuse a turn the codec
+would have encoded.
 
 **CIN-4 — Session acknowledgement precedes driver dispatch.** The collaboration-turn path publishes
 no model call before its session inclusion and request authorization appends are acknowledged;

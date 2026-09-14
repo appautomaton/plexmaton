@@ -58,6 +58,7 @@ fn cpl_3_skill_invocation_survives_compaction_in_every_dialect() {
                 &head(),
                 &model,
                 &[],
+                &Default::default(),
                 CompactionId::new("compact-skill").expect("id"),
             )
             .expect("complete input fits");

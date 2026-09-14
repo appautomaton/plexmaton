@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; a delegated child is created by the real executable and appears on the roster. Its transcript, mail and control are not yet on screen |
+| Status | Active; the real executable delegates, the child answers, and the roster follows its lifecycle. The child's own transcript, its mail and control over it are not yet on screen |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
@@ -17,9 +17,10 @@ Default resume activates only the main runner, retaining child history and canon
 
 ## What exists, and what stops it running
 
-`delegate` is in the model's tools, a call creates a real child, and the roster shows it. What is
-missing is everything after that first moment: the child's own work, its mail, and control over it.
-The right-hand column is the whole gap.
+`delegate` is in the model's tools, a call creates a real child, the child runs its task against a
+real provider, and the roster follows it from `running` to `idle`. What is missing is everything the
+child produces: its transcript, its mail, and control over it. The right-hand column is the whole
+gap.
 
 | Part | Owns | Missing |
 | --- | --- | --- |
@@ -32,7 +33,7 @@ The right-hand column is the whole gap.
 | Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning | A child is named by its opaque target, because `delegate` carries no name and the runtime picks the model |
 | Provider | Four dialects render mail as an attributed turn ([PRV-1](../specs/provider-adapter.md)) | Attribution is text the model reads, not a type the runtime enforces |
 | Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source; the fixtures supply control facts by hand |
-| Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking | Every child reads `Delegated`, and its status never leaves `running` |
+| Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking, lifecycle from the child's own events | Every child reads `Delegated`: `delegate` carries no name and the runtime picks the model |
 
 Semantics stay in the agent crate, storage in session-store, orchestration in runtime; no second
 agent engine or journal format is planned.

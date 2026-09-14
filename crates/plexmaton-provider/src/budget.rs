@@ -5,6 +5,7 @@ use std::io;
 use plexmaton_agent::{
     AtomBudget, BudgetError, BudgetLedger, BudgetLimits, ContextAtom, ContextAtomValue,
     ConversationJournal, JournalProjectionError, ModelRequest, TokenEstimate, TokenEstimator,
+    collaboration::ResolvedContext,
 };
 use plexmaton_core::HeadName;
 use serde::Serialize;
@@ -31,8 +32,9 @@ pub fn budget_ledger(
     head: &HeadName,
     model: &ResolvedModel,
     tools: &[FunctionTool],
+    collaboration: &ResolvedContext,
 ) -> Result<BudgetLedger, ContextBudgetError> {
-    Ok(budgeted_context(journal, head, model, tools)?.ledger)
+    Ok(budgeted_context(journal, head, model, tools, collaboration)?.ledger)
 }
 
 /// Builds the journal projection and its one matching codec-derived ledger together.
@@ -41,14 +43,21 @@ pub fn budgeted_context(
     head: &HeadName,
     model: &ResolvedModel,
     tools: &[FunctionTool],
+    collaboration: &ResolvedContext,
 ) -> Result<BudgetedContext, ContextBudgetError> {
     let environment = request_environment(model, tools, Some(model.max_output_tokens()));
-    let basis = journal
+    let mut basis = journal
         .budget_basis(head, &environment)
         .map_err(ContextBudgetError::Projection)?;
     if basis.recovery.is_some() {
         return Err(ContextBudgetError::IncompleteToolBatch);
     }
+    // The basis is a fresh projection, so its collaboration atoms are references again even when
+    // the caller already resolved the request it is about to send. Estimating a reference is
+    // estimating nothing, so resolve here too and let the same failure surface as a budget error.
+    collaboration
+        .resolve(&mut basis.request, journal)
+        .map_err(ContextBudgetError::Collaboration)?;
     let capacity =
         u64::from(model.context_window_tokens()) - u64::from(model.output_reserve_tokens());
     let limits = BudgetLimits::new(
@@ -191,6 +200,8 @@ pub enum ContextBudgetError {
     Encoding(#[from] EncodeError),
     #[error(transparent)]
     Arithmetic(#[from] BudgetError),
+    #[error("collaboration context could not be resolved: {0}")]
+    Collaboration(plexmaton_agent::collaboration::CollaborationError),
 }
 
 #[cfg(test)]

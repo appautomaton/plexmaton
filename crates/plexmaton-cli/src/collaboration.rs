@@ -11,11 +11,13 @@ use std::{collections::BTreeSet, path::Path};
 use anyhow::Context as _;
 use plexmaton_agent::collaboration::CollaborationLimits;
 use plexmaton_core::{
-    AgentId, AgentStatus, CollaborationId, ConversationEventEnvelope, ConversationId,
+    AgentId, AgentStatus, CollaborationId, ConversationEvent, ConversationEventEnvelope,
+    ConversationId,
 };
 use plexmaton_runtime::{
     CollaborationIngressOutcome, CollaborationWriter, DelegatedChildFactory, LiveRuntime,
-    MainCollaborationIngress, OwnedCollaboration, OwnedCollaborationActivity, SchedulerLimits,
+    MainCollaborationIngress, OwnedCollaboration, OwnedCollaborationActivity, OwnedRunnerUpdate,
+    RuntimeUpdate, SchedulerLimits,
 };
 use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::CollaborationFile};
 
@@ -25,9 +27,9 @@ const RUNNERS: usize = 4;
 /// One root's collaboration log, its owner, and the Main tool lane bound to this executable.
 pub(crate) struct Collaboration {
     owner: OwnedCollaboration,
-    /// Targets already on the roster. A second `AgentCreated` for one agent is a reduce error, and
-    /// restore and a fresh settlement can name the same delegation if a resume races a retry.
-    announced: BTreeSet<String>,
+    /// Children already on the roster, keyed by the conversation a runner update names. A second
+    /// `AgentCreated` for one agent is a reduce error, and resume and a settlement both announce.
+    announced: BTreeSet<ConversationId>,
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -97,18 +99,30 @@ impl Collaboration {
         &mut self,
         runtime: &mut LiveRuntime,
     ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+        self.sync_roster(runtime, AgentStatus::Idle).await
+    }
+
+    /// Puts every canonical delegation this root owns on the roster, announcing only the new ones.
+    ///
+    /// Both resume and a fresh settlement land here, because a delegation's identity on the roster
+    /// is its child conversation and only the registry knows which conversation a target addresses.
+    async fn sync_roster(
+        &mut self,
+        runtime: &mut LiveRuntime,
+        status: AgentStatus,
+    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
         let targets = self
             .owner
             .register_collaboration_targets()
             .await
-            .map_err(|error| anyhow::anyhow!("restore delegated targets: {error}"))?;
-        let selectors: Vec<String> = targets
+            .map_err(|error| anyhow::anyhow!("register delegated targets: {error}"))?;
+        let children: Vec<ConversationId> = targets
             .iter()
-            .map(|target| target.selector().as_str().to_owned())
+            .map(|target| target.worker().conversation.clone())
             .collect();
         let mut events = Vec::new();
-        for selector in &selectors {
-            events.extend(self.announce(runtime, selector, AgentStatus::Idle)?);
+        for child in children {
+            events.extend(self.announce(runtime, child, status)?);
         }
         Ok(events)
     }
@@ -122,23 +136,56 @@ impl Collaboration {
     ///
     /// The collaboration log is the durable record; these events are a projection over it, which is
     /// why nothing here writes to the session journal.
-    pub(crate) fn apply(
+    pub(crate) async fn apply(
         &mut self,
         runtime: &mut LiveRuntime,
         activity: OwnedCollaborationActivity,
     ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
         match activity {
             OwnedCollaborationActivity::Ingress(settlement) => match settlement.result() {
-                Ok(CollaborationIngressOutcome::Delegated { target }) => {
-                    let target = target.as_str().to_owned();
-                    self.announce(runtime, &target, AgentStatus::Running)
+                Ok(CollaborationIngressOutcome::Delegated { .. }) => {
+                    self.sync_roster(runtime, AgentStatus::Running).await
                 }
                 Ok(_) | Err(_) => Ok(Vec::new()),
             },
-            // A runner update carries the child's own lifecycle. Its transcript stays in the child's
-            // journal; the roster only needs to know the agent is still working.
-            OwnedCollaborationActivity::Runner(_) => Ok(Vec::new()),
+            // A child's own transcript belongs to its own journal, but its lifecycle belongs on the
+            // roster: an agent stuck at `running` forever is the panel lying about what it knows.
+            OwnedCollaborationActivity::Runner(update) => self.project_runner(runtime, update),
         }
+    }
+
+    /// Moves one child's roster status, which is all of a runner update the root can show today.
+    fn project_runner(
+        &mut self,
+        runtime: &mut LiveRuntime,
+        update: OwnedRunnerUpdate,
+    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+        let (identity, status) = match &update {
+            // A child reports its own lifecycle in its own conversation's events. Re-addressing
+            // that one event is how the roster learns a child stopped; nothing else in a child's
+            // stream belongs to the root, because its transcript is its own conversation's.
+            OwnedRunnerUpdate::Runtime { identity, update } => (
+                identity,
+                match update.as_ref() {
+                    RuntimeUpdate::Event(envelope) => match &envelope.event {
+                        ConversationEvent::AgentStatusChanged { status, .. } => *status,
+                        _ => return Ok(Vec::new()),
+                    },
+                    RuntimeUpdate::Report(_) => return Ok(Vec::new()),
+                    RuntimeUpdate::Finished => AgentStatus::Completed,
+                },
+            ),
+            OwnedRunnerUpdate::Failed { identity, .. }
+            | OwnedRunnerUpdate::WorkerFailed { identity }
+            | OwnedRunnerUpdate::WakeRejected { identity, .. } => (identity, AgentStatus::Failed),
+            _ => return Ok(Vec::new()),
+        };
+        if !self.announced.contains(&identity.endpoint().conversation) {
+            return Ok(Vec::new());
+        }
+        let agent_id = AgentId::new(identity.endpoint().conversation.as_str())
+            .context("build a delegated agent identity")?;
+        Ok(runtime.project_delegated(ConversationEvent::AgentStatusChanged { agent_id, status }))
     }
 
     /// Settles retained work before joining every runner and then the writer.
@@ -153,16 +200,20 @@ impl Collaboration {
     fn announce(
         &mut self,
         runtime: &mut LiveRuntime,
-        target: &str,
+        child: ConversationId,
         status: AgentStatus,
     ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
-        if !self.announced.insert(target.to_owned()) {
+        if !self.announced.insert(child.clone()) {
             return Ok(Vec::new());
         }
-        let agent_id = AgentId::new(target).context("build a delegated agent identity")?;
+        let agent_id = AgentId::new(child.as_str()).context("build a delegated agent identity")?;
         // The runtime chose this child, so the roster shows what it is rather than who it is: the
         // delegate tool carries no name, and a target selector is not one (CTL-1).
-        Ok(runtime.announce_delegated(agent_id, "Delegated", status))
+        Ok(runtime.project_delegated(ConversationEvent::AgentCreated {
+            agent_id,
+            label: "Delegated".to_owned(),
+            status,
+        }))
     }
 }
 

@@ -63,7 +63,7 @@ where
             // A root with no collaboration never yields here, so the arm is inert rather than a
             // branch the loop has to skip.
             activity = next_collaboration(collaboration.as_deref_mut()) => {
-                apply_collaboration(activity, collaboration.as_deref_mut(), runtime, workspace, &mut frames)?;
+                apply_collaboration(activity, collaboration.as_deref_mut(), runtime, workspace, &mut frames).await?;
             }
             prepared = preparation.next() => preparation.apply(prepared, workspace),
             delivered = clipboard.next() => {
@@ -366,7 +366,7 @@ fn apply_runtime_update(
 }
 
 /// Projects one settled collaboration activity, keeping the select arm a single call.
-fn apply_collaboration(
+async fn apply_collaboration(
     activity: Option<plexmaton_runtime::OwnedCollaborationActivity>,
     collaboration: Option<&mut crate::collaboration::Collaboration>,
     runtime: &mut LiveRuntime,
@@ -377,7 +377,7 @@ fn apply_collaboration(
         return Ok(());
     };
     frames.flush(workspace);
-    workspace.emit(collaboration.apply(runtime, activity)?);
+    workspace.emit(collaboration.apply(runtime, activity).await?);
     Ok(())
 }
 

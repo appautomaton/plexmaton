@@ -57,7 +57,9 @@ impl Context {
                 ContextBudgetUnavailable::IncompleteToolBatch => Reason::IncompleteToolBatch,
             },
             Err(ContextBudgetError::IncompleteToolBatch) => Reason::IncompleteToolBatch,
-            Err(ContextBudgetError::Projection(_)) => Reason::ProjectionFailed,
+            Err(ContextBudgetError::Projection(_) | ContextBudgetError::Collaboration(_)) => {
+                Reason::ProjectionFailed
+            }
             Err(ContextBudgetError::Arithmetic(error)) => match error {
                 BudgetError::Overflow => Reason::ArithmeticOverflow,
                 BudgetError::InvalidLimits | BudgetError::InvalidAnchor => Reason::InvalidBudget,
