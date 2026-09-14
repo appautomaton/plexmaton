@@ -58,6 +58,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 
 | Input | Action |
 | --- | --- |
+| `Ctrl-B` | Show or hide the agent roster |
 | `Ctrl-P` | Open the Drawer: configuration and permissions |
 | `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Newline in conversation input |
 | `Alt-↑` | Take the most recent waiting message into the empty primary composer |
@@ -84,6 +85,9 @@ Conversations save on the first message; blank launches save nothing. `/tree` re
 One live agent is available today. Multi-agent collaboration is on the [roadmap](.agents/roadmap.md). Linux compatibility is not yet established.
 
 Use the [quality gates](.agents/standards/quality-gates.md) for local checks and CI coverage. Model fixtures stay local; private state goes in ignored `.local/`.
+
+For an offline native UI preview in Kitty, run `cargo run --locked -p plexmaton-tui --example native_preview`.
+`F6` advances fixture control states; this is not production collaboration. [Scope and controls](.agents/spikes/kitty-native-preview/README.md).
 
 ## More from App Automaton
 

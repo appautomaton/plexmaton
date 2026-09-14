@@ -138,10 +138,23 @@ impl Scenario {
                     pointer: "artifact://agent-b/interaction-findings".into(),
                 },
             ),
+            // One letter, both sides: what B sent, and what arrived for A.
             (
                 16,
                 ConversationEvent::MailDelivered {
+                    agent_id: agent_b.clone(),
                     item_id: TranscriptItemId::new("item-b-mail-1")?,
+                    mail_id: MailId::new("mail-b-a-1")?,
+                    from: agent_b.clone(),
+                    to: agent_a.clone(),
+                    summary: "Routing stays centralized and z-ordered.".into(),
+                },
+            ),
+            (
+                16,
+                ConversationEvent::MailDelivered {
+                    agent_id: agent_a.clone(),
+                    item_id: TranscriptItemId::new("item-a-mail-1")?,
                     mail_id: MailId::new("mail-b-a-1")?,
                     from: agent_b.clone(),
                     to: agent_a.clone(),

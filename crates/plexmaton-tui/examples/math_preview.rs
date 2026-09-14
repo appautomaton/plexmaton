@@ -36,7 +36,7 @@ struct Review {
 impl Review {
     fn new(width: u16, height: u16, source: &str, math: MathPresentation) -> Result<Self> {
         let mut workspace = Workspace::with_presentation(
-            Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel),
+            Palette::pastel().with_markdown_theme(MarkdownTheme::Pastel),
             math,
         );
         workspace.set_working_directory("~/plexmaton".into());

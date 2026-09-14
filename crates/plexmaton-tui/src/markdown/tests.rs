@@ -12,7 +12,7 @@ fn text(lines: &[ratatui::text::Line<'_>]) -> String {
 #[test]
 fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
     let source = "# Blue heading\n\n## Green heading\n\n### Lavender heading\n\n**bold `command` and [link](https://example.com)**\n\n> A gentle quote.\n\n- 中文 e\u{301}\n\n```rust\n    let x = \"literal **text**\";\n```\n\n| Name | Value |\n| --- | --- |\n| result | **ready** |";
-    let base = Palette::ansi();
+    let base = Palette::pastel();
     let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
     for width in [12, 60, 88, 120] {
         let prepared = render_layout(source, width, MathPresentation::Native, Completion::Final)
@@ -44,13 +44,6 @@ fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
         style("A gentle quote.")
             .add_modifier
             .contains(Modifier::ITALIC)
-    );
-    let monochrome = render(source, &Palette::monochrome(), 120).expect("monochrome");
-    assert!(
-        monochrome
-            .iter()
-            .flat_map(|line| &line.spans)
-            .all(|span| span.style.fg.is_none() && span.style.bg.is_none())
     );
 }
 
@@ -150,7 +143,7 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
         "# 你好\n\n**hello 👩‍💻 e\u{301}**\n\n1. one\n   - nested\n\n```rs\n  let a = 42;\n```";
     for end in source.char_indices().map(|(i, _)| i).chain([source.len()]) {
         for width in [12, 45] {
-            let rows = render(&source[..end], &Palette::monochrome(), width)
+            let rows = render(&source[..end], &Palette::pastel(), width)
                 .unwrap_or_else(|reason| panic!("prefix {end}, width {width}: {reason:?}"));
             assert!(
                 rows.iter().all(|line| line.width() <= width),
@@ -160,16 +153,16 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
         }
     }
     let open =
-        render("```rust\n    let x = **literal**;", &Palette::ansi(), 45).expect("open fence");
+        render("```rust\n    let x = **literal**;", &Palette::pastel(), 45).expect("open fence");
     assert!(text(&open).contains("│     let x = **literal**;"));
     for width in [1, 4] {
-        let rows = render("**你好 👩‍💻 e\u{301}**", &Palette::monochrome(), width)
+        let rows = render("**你好 👩‍💻 e\u{301}**", &Palette::pastel(), width)
             .expect("wide graphemes are replaced, not rejected");
         assert!(rows.iter().all(|line| line.width() <= width));
     }
     // MD-3: structural prefixes that consume the viewport explicitly fall back to source.
     assert_eq!(
-        render("1. one", &Palette::monochrome(), 1),
+        render("1. one", &Palette::pastel(), 1),
         Err(PlainReason::Complexity)
     );
 }
@@ -179,18 +172,18 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
 fn markdown_controls_and_limits_are_explicit() {
     let rows = render(
         "[click](https://example.com)\n\n<script>\u{1b}]52;c;payload\u{7}</script>",
-        &Palette::ansi(),
+        &Palette::pastel(),
         60,
     )
     .expect("inert");
     assert!(!text(&rows).contains('\u{1b}') && !text(&rows).contains('\u{7}'));
     assert!(text(&rows).contains("<script>"));
     assert_eq!(
-        render(&"a".repeat(MAX_SOURCE_BYTES + 1), &Palette::ansi(), 60),
+        render(&"a".repeat(MAX_SOURCE_BYTES + 1), &Palette::pastel(), 60),
         Err(PlainReason::Size)
     );
     assert_eq!(
-        render(&format!("{}text", "> ".repeat(40)), &Palette::ansi(), 120),
+        render(&format!("{}text", "> ".repeat(40)), &Palette::pastel(), 120),
         Err(PlainReason::Complexity)
     );
 }

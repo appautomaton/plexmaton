@@ -118,6 +118,7 @@ navigation are disabled. Native proof and rendered review status remain in the t
 | `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
+| `Ctrl-B` | Put the roster away, or bring it back | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | `↑` / `↓` move the caret one painted row and the window follows (COM-2); `k` / `j` insert |
@@ -184,4 +185,4 @@ is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DR
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
 | INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | INV-9 | `resize_is_an_intent` |
-| INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `the_queues_cursor_moves_without_touching_the_agent_selection`, `approval_keys_stay_inside_the_blocking_surface` |
+| INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request`, `approval_keys_stay_inside_the_blocking_surface` |

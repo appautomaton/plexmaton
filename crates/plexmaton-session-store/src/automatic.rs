@@ -1,5 +1,5 @@
 //! A file is materialized only when the first user turn reaches the journal writer.
-use crate::{ConversationDirectory, JournalFile, StoreError};
+use crate::{ConversationDirectory, RootJournalFile, StoreError};
 use plexmaton_agent::{ConversationMetadata, JournalEntryPayload, JournalRecord, UnixMillis};
 use plexmaton_core::ConversationId;
 use std::path::{Path, PathBuf};
@@ -17,7 +17,7 @@ pub struct AutomaticJournal {
 enum State {
     Empty,
     Announced(Box<JournalRecord>),
-    File(Box<JournalFile>),
+    File(Box<RootJournalFile>),
     Failed,
 }
 

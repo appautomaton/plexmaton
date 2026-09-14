@@ -199,10 +199,9 @@ pub(super) fn collapsed_composer_panel(
 pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
     let inspector = state.inspector_request();
     let composer_width = layout::composer_width(area, inspector);
-    WorkspaceInput {
+    let mut input = WorkspaceInput {
         status_rows: state.status().rows(),
         has_notices: state.notices().next().is_some(),
-        attention: state.attention_listed_count(),
         decision_rows: state.decision_rows(composer_width),
         queue_rows: state.queued_rows(composer_width),
         queue_floor: state.queued_floor(composer_width),
@@ -217,9 +216,27 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         conversation_tree: state.conversation_tree_open(),
         composer_menu_rows: state.composer_menu_rows(inner_width(composer_width)),
         rail: state.sub_agents().next().is_some(),
+        roster: state.roster_open(),
+        roster_rows: state.roster_rows(area.width),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),
         inspector,
+    };
+    // INS-5/INS-7: reserve the normal primary composer before asking whether the child can
+    // actually paint an input. Collapse is returned space, not a focus-only promise.
+    if state.inspector_input_requested() {
+        let expanded = layout::workspace(area, input);
+        if state.steer_input(&expanded).is_some() {
+            input.composer_rows = 1;
+            // Returning composer rows must not turn an automatically maximized short window
+            // into a shelf that can no longer hold the input which earned those rows.
+            if expanded.get(SurfaceId::Transcript).is_none()
+                && let Some(inspector) = input.inspector.as_mut()
+            {
+                inspector.maximized = true;
+            }
+        }
     }
+    input
 }
 
 /// The menu is a titled rule and its rows above the composer's top rule, which closes it.

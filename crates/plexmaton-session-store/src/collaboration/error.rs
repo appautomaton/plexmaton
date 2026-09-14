@@ -32,6 +32,18 @@ pub enum CollaborationStoreError {
     ReductionUncertain(CollaborationError),
     #[error("collaboration writer is poisoned; reopen before continuing")]
     WriterPoisoned,
+    #[error("collaboration execution ticket does not name the current authority")]
+    InvalidExecutionTicket,
+    #[error("collaboration already has queued or active execution")]
+    ExecutionBusy,
+    #[error("collaboration admission already issued execution authority")]
+    ExecutionAlreadyIssued,
+    #[error("collaboration control cannot change until owned work is quiescent")]
+    ControlNotQuiescent,
+    #[error("collaboration control state is poisoned")]
+    ControlPoisoned,
+    #[error("collaboration control owner is closed")]
+    ControlOwnerClosed,
     #[error("collaboration parent directory must be owner-only and not a symbolic link")]
     InsecureDirectory,
 }

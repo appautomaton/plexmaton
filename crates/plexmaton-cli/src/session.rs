@@ -12,7 +12,7 @@ use plexmaton_provider::{ApiKey, ResolvedModel};
 use plexmaton_runtime::{
     ConversationRecovery, JournalTailRecovery, LiveRuntime, NativeToolCatalog,
 };
-use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, JournalFile};
+use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, RootJournalFile};
 use plexmaton_tui::{ConversationRestoration, ConversationTailRepair};
 
 pub(super) const USAGE: &str =
@@ -82,13 +82,21 @@ pub(super) fn parse_startup_action(arguments: &[OsString]) -> anyhow::Result<Sta
     }
 }
 
-pub(super) async fn open_selected_conversation(
+/// Opens the selected conversation, giving the caller its identity before the runtime exists.
+///
+/// `collaboration` receives the conversation's own identity and returns the tool catalog the
+/// runtime is built with. A root's collaboration log is named by that identity, and the Main tool
+/// lane must already be installed when the runtime is constructed, so the two cannot be ordered the
+/// other way round. An ephemeral session has no durable identity and therefore no delegation: the
+/// closure is never called for one, and `delegate` is absent from its tools.
+pub(super) async fn open_selected_conversation_with(
     root: &Path,
     selection: ConversationSelection,
     agent_id: AgentId,
     model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
+    collaboration: impl FnOnce(&ConversationId, NativeToolCatalog) -> anyhow::Result<NativeToolCatalog>,
 ) -> anyhow::Result<OpenedConversation> {
     Ok(match selection {
         ConversationSelection::Automatic => {
@@ -97,6 +105,7 @@ pub(super) async fn open_selected_conversation(
                 id: journal.metadata().conversation_id().clone(),
                 path: journal.path().to_path_buf(),
             };
+            let tools = collaboration(&persisted.id, tools)?;
             let runtime = LiveRuntime::provider_with_automatic_journal(
                 agent_id,
                 "Plexmaton",
@@ -124,6 +133,7 @@ pub(super) async fn open_selected_conversation(
                 .context("open sessions directory")?
                 .create(session_id.clone(), created_at_now()?)
                 .context("create session")?;
+            let tools = collaboration(&session_id, tools)?;
             open_fresh_conversation(agent_id, model, key, tools, session_id, journal).await?
         }
         ConversationSelection::Resume(session_id) => {
@@ -132,6 +142,7 @@ pub(super) async fn open_selected_conversation(
                 .resume(&session_id)
                 .context("resume session")?;
             let path = journal.path().to_path_buf();
+            let tools = collaboration(&session_id, tools)?;
             let (runtime, recovery) =
                 LiveRuntime::provider_with_resumed_journal(agent_id, model, key, tools, journal)
                     .await
@@ -146,6 +157,21 @@ pub(super) async fn open_selected_conversation(
             }
         }
     })
+}
+
+/// Opens a conversation with no collaboration, for callers that own no root composition.
+pub(super) async fn open_selected_conversation(
+    root: &Path,
+    selection: ConversationSelection,
+    agent_id: AgentId,
+    model: ResolvedModel,
+    key: ApiKey,
+    tools: NativeToolCatalog,
+) -> anyhow::Result<OpenedConversation> {
+    open_selected_conversation_with(root, selection, agent_id, model, key, tools, |_, tools| {
+        Ok(tools)
+    })
+    .await
 }
 
 fn created_at_now() -> anyhow::Result<UnixMillis> {
@@ -163,7 +189,7 @@ async fn open_fresh_conversation(
     key: ApiKey,
     tools: NativeToolCatalog,
     session_id: ConversationId,
-    journal: JournalFile,
+    journal: RootJournalFile,
 ) -> anyhow::Result<OpenedConversation> {
     let path = journal.path().to_path_buf();
     let runtime = match LiveRuntime::provider_with_fresh_journal(

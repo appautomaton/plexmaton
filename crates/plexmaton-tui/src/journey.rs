@@ -299,16 +299,14 @@ mod tests {
                 .contains("Message Agent A")
         );
 
-        // 8. B asks for a decision. It queues, and it takes nothing.
+        // 8. B asks for a decision. It is announced on B's roster row, and it takes nothing:
+        // no focus, no selection, no surface of its own.
         let before = journey.focused();
         journey.advance(2);
         assert_eq!(journey.workspace.state().attention_pending(), 1);
         assert!(
-            journey
-                .workspace
-                .surfaces()
-                .get(SurfaceId::Attention)
-                .is_some()
+            journey.painted(SurfaceId::Agents).contains("ask"),
+            "the roster says which agent is asking"
         );
         assert_eq!(journey.focused(), before);
         assert_eq!(journey.selected(), "agent-b");
@@ -333,8 +331,12 @@ mod tests {
             "the producer's conversation retains the delivered mail"
         );
 
-        // The user chooses to go to the agent that asked. Nothing before this moved them there.
-        journey.focus(SurfaceId::Attention).key(KeyCode::Enter);
+        // The user chooses to go to the agent that asked. Nothing before this moved them there,
+        // and the roster row they press `Enter` on is where they found it (ATT-2).
+        journey
+            .focus(SurfaceId::Agents)
+            .key(KeyCode::Down)
+            .key(KeyCode::Enter);
         assert_eq!(journey.selected(), "agent-b");
         assert!(
             journey

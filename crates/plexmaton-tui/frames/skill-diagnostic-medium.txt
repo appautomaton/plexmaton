@@ -2,12 +2,11 @@
 │[skill] Skills · Skill unavailable · input returned to the composer; SKILL.md could not be   │
 │read                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ────────────────┐                                                                     
-│○ Agent B · UI study    │                                                                     
-│done · 1 tool @1 1 mail │                                                                     
+│○ Agent B · UI study ask│                                                                     
+│  Choose whether the ov…│                                                                     
+│                        │                                                                     
+│                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     
@@ -32,6 +31,7 @@
 │                        │ study. Agent B is running independently; this transcript            
 │                        │ remains interactive.                                                
 │                        │                                                                     
+│                        │ received from agent-b · Routing stays centralized and z-ordered.    
 │                        │ [!] skill · failed                                                  
 │                        │ · Thinking…                                                 ( !1 )  
 │                        │── Message Agent A · primary ────────────────────────────────────────

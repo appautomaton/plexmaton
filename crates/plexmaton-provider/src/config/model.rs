@@ -46,6 +46,12 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
+    /// Whether this dialect has a turn that is not the assistant's, where attributed mail goes.
+    #[must_use]
+    pub const fn carries_collaboration_context(&self) -> bool {
+        self.api.carries_collaboration_context()
+    }
+
     /// Installs one immutable user-level workspace snapshot, separate from system instructions.
     /// The caller owns discovery; codecs, budgeting and compaction consume the same bytes (AGI-4).
     pub fn with_workspace_instructions(&self, text: String) -> Result<Self, ConfigError> {

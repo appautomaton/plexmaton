@@ -78,8 +78,19 @@ fn parallel_primary_approvals_stay_inline_and_advance_in_arrival_order() {
         );
         for index in 0..3 {
             workspace.settled_draw(&mut terminal).expect("inline card");
-            assert!(workspace.surfaces().get(SurfaceId::Attention).is_none());
-            assert_eq!(workspace.state().attention_listed_count(), 0);
+            assert!(
+                workspace
+                    .surfaces()
+                    .get(SurfaceId::Agents)
+                    .is_none_or(|roster| {
+                        !crate::test_support::region_text(
+                            terminal.backend().buffer(),
+                            roster.bounds,
+                        )
+                        .contains("approval")
+                    }),
+                "a primary approval is never announced on the roster"
+            );
             let approval = workspace.state().approval().expect("pending inline");
             assert_eq!(approval.attention_id, &attention(index));
             if index > 0 {
@@ -181,8 +192,16 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
             Some(SurfaceId::Composer)
         );
         assert!(workspace.state().approval().is_some());
-        assert_eq!(workspace.state().attention_listed_count(), 0);
-        assert!(workspace.surfaces().get(SurfaceId::Attention).is_none());
+        assert!(
+            workspace
+                .surfaces()
+                .get(SurfaceId::Agents)
+                .is_none_or(|roster| {
+                    !crate::test_support::region_text(terminal.backend().buffer(), roster.bounds)
+                        .contains("approval")
+                }),
+            "a primary approval is never announced on the roster"
+        );
         workspace.handle(&Event::Paste("draft while approval waits".into()));
         workspace.settled_draw(&mut terminal).expect("draft");
         workspace.handle(&key(KeyCode::Tab));
@@ -223,7 +242,6 @@ fn primary_approval_escape_returns_to_composer_without_creating_attention_ui() {
             workspace.state().composer().text(),
             "draft while approval waits"
         );
-        assert!(workspace.surfaces().get(SurfaceId::Attention).is_none());
     }
 }
 
@@ -328,14 +346,20 @@ fn attention_keyboard_activates_the_visible_worker_and_escape_restores_primary_c
     assert_eq!(
         workspace
             .state()
-            .attention_listed()
-            .map(|item| &item.agent_id)
-            .collect::<Vec<_>>(),
-        [&worker]
+            .agent_request(&worker)
+            .map(|item| &item.agent_id),
+        Some(&worker),
+        "the worker's request is announced on the worker's row"
     );
+    // Entering the worker opens the worker's request, even though the primary's is queued first:
+    // the primary's stays in the primary's own conversation and never enters the roster (ATT-1).
     workspace
         .state
-        .attend(&workspace.surfaces, crate::AttentionIntent::GoTo);
+        .select_agent(&worker)
+        .expect("the worker is in the roster");
+    workspace
+        .state
+        .inspect(&workspace.surfaces, crate::InspectorIntent::Open);
     assert_eq!(
         workspace
             .state()

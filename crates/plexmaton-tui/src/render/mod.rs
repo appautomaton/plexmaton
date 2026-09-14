@@ -1,5 +1,6 @@
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
+mod child_control;
 mod chrome;
 mod command_inspection;
 mod configuration;
@@ -16,7 +17,7 @@ use surfaces::{
     draw_cursor, drawer_page, drawer_panel, queued_input_panel, workspace_input,
 };
 
-use chrome::{agents_title, attention_title, inspector_title, render_status, render_too_small};
+use chrome::{agents_title, inspector_title, render_status, render_too_small};
 
 use crate::{
     ViewState, content,
@@ -95,7 +96,10 @@ pub fn render(
                 chrome: Chrome::Box,
                 footer: None,
                 body: Body::Whole {
-                    lines: content::agents(state, palette),
+                    // Width-aware: the rows right-align their lifecycle word and clip their own
+                    // detail, because a roster that lets the panel wrap it loses the column the
+                    // eye scans down.
+                    lines: content::roster(state, palette, inner_width(bounds.width)).lines,
                     follows_tail: false,
                 },
                 title: agents_title(palette),
@@ -132,7 +136,12 @@ pub fn render(
             SurfaceId::Inspector => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
                 chrome: Chrome::Box,
-                footer: None,
+                footer: Some(child_control::footer(
+                    state,
+                    palette,
+                    inner_width(bounds.width),
+                    has_focus,
+                )),
                 body: conversation_body(
                     state,
                     palette,
@@ -140,27 +149,13 @@ pub fn render(
                     bounds,
                     id,
                     stacking.over_composer(SurfaceId::Inspector),
-                    0,
+                    1,
                 ),
-                title: inspector_title(state, palette),
+                title: inspector_title(state, palette, inner_width(bounds.width)),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Notices => Some(surfaces::notices_panel(state, palette)),
-            SurfaceId::Attention => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: None,
-                body: Body::Whole {
-                    lines: content::attention(state, palette, inner_width(bounds.width)),
-                    // Oldest first, and the oldest unanswered request is the one that has been
-                    // waiting longest: this band opens at its head, not at its tail.
-                    follows_tail: false,
-                },
-                title: attention_title(state, palette),
-                badge: None,
-                edges: Edges::All,
-            }),
             SurfaceId::QueuedInput => Some(queued_input_panel(state, palette, bounds)),
             SurfaceId::CommandInspection => Some(command_inspection::panel(state, palette, bounds)),
             SurfaceId::ConversationTree => Some(conversation_tree::panel(state, palette, bounds)),
@@ -330,7 +325,7 @@ mod tests {
 
     fn ink(style: Style) -> Ink {
         // An unset colour and an explicit reset paint the same thing; the buffer stores the second
-        // where a palette stores the first, and monochrome sets neither.
+        // where a palette stores the first.
         (
             style.fg.filter(|colour| *colour != Color::Reset),
             style.add_modifier,
@@ -567,8 +562,12 @@ mod tests {
     /// content and what reaches the screen are one computation.
     #[test]
     fn the_transcript_opens_at_its_tail_and_the_wheel_moves_it() {
-        // Narrow enough that the conversation wraps past the rows it is given.
+        // Narrow enough that the conversation wraps past the rows it is given. The roster takes
+        // none of them at this height — the ten-row guarantee outranks it — so the overflow has to
+        // come from the conversation itself.
         let mut session = RenderFixture::canonical(48, 12);
+        session.conversation.extend(4);
+        session.draw();
         let viewport = session.viewport(SurfaceId::Transcript);
 
         assert!(
@@ -604,7 +603,7 @@ mod tests {
         let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(10);
         session.draw();
-        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 10);
 
         let narrow = session.viewport(SurfaceId::Transcript);
         let reading = markers(&session.region(SurfaceId::Transcript));
@@ -857,14 +856,14 @@ mod tests {
     ///
     /// Reading it back from painted cells is what makes this more than a state assertion: a focus
     /// model the renderer ignores would leave the user with no way to tell where `Tab` went. Run
-    /// against every palette, because a monochrome terminal must show focus too.
+    /// against every palette, because focus must be visible whichever one is active.
     #[test]
     fn only_the_focused_panel_carries_the_focused_border() {
         for palette in [
-            Palette::ansi(),
             Palette::pastel(),
-            Palette::truecolor(),
-            Palette::monochrome(),
+            Palette::pastel(),
+            Palette::inverted(),
+            Palette::pastel(),
         ] {
             let mut state = canonical_state();
 
@@ -920,8 +919,8 @@ mod tests {
 
         assert_eq!(
             surfaces.len(),
-            6,
-            "a degraded workspace registers its six visible surfaces"
+            5,
+            "a degraded workspace registers its five visible surfaces"
         );
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
@@ -932,7 +931,6 @@ mod tests {
                 SurfaceId::Transcript => "Thinking…",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
-                SurfaceId::Attention => "Attention",
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::CommandInspection => "Command",
                 SurfaceId::ConversationTree => "Conversation tree",
@@ -995,15 +993,18 @@ mod tests {
             "the rail names the rail and nothing else"
         );
         assert!(rendered.contains("remains interactive"));
+        // A is the recipient, and the inspector shows incoming as well as outgoing mail, so the
+        // letter is here — pointing back at whoever wrote it, never attributed to A.
+        assert!(rendered.contains("Routing stays"), "A received this letter");
         assert!(
-            !rendered.contains("Routing stays"),
-            "B's outgoing mail must not be projected as mail owned by A"
+            rendered.contains("received from agent-b"),
+            "A is the recipient, and the row says so in a word rather than a glyph"
         );
     }
 
-    /// ENT-1: warning and error remain visibly distinct without relying on colour.
+    /// ENT-1: warning and error are each named, so the two read apart in a busy transcript.
     #[test]
-    fn monochrome_transcript_names_warning_and_error_separately() {
+    fn the_transcript_names_warning_and_error_separately() {
         let mut conversation = Conversation::canonical();
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         conversation.emit(ConversationEvent::RuntimeWarning {
@@ -1019,7 +1020,7 @@ mod tests {
             message: "request failed".to_owned(),
         });
 
-        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        let rendered = draw_with(&conversation.state, &Palette::pastel(), 120, 40);
         assert!(rendered.contains("warning"));
         assert!(rendered.contains("error"));
         assert!(rendered.contains("retrying the request"));
@@ -1108,7 +1109,7 @@ mod tests {
             conversation.emit(event);
         }
 
-        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        let rendered = draw_with(&conversation.state, &Palette::pastel(), 120, 40);
         let first = rendered
             .find("first tool")
             .unwrap_or_else(|| panic!("first tool is visible:\n{rendered}"));
@@ -1134,9 +1135,18 @@ mod tests {
             !rendered.contains("Activity"),
             "domain entries have no second panel"
         );
-        assert!(rendered.contains("1 tool"));
-        assert!(rendered.contains("@1"), "compact artifact count");
-        assert!(rendered.contains("1 mail"));
+        // Agent B is asking, and an ask outranks a tally: its detail row carries the request
+        // rather than its counts. Resolving the request hands the row back to the counts.
+        assert!(rendered.contains("overlap study"), "the ask is the detail");
+        let mut answered = Conversation::canonical();
+        answered.emit(ConversationEvent::AttentionResolved {
+            agent_id: AgentId::new("agent-b").expect("fixture agent"),
+            attention_id: AttentionId::new("attention-b-1").expect("fixture request"),
+        });
+        let counted = draw(&answered.state, 60, 30);
+        assert!(counted.contains("1 tool"));
+        assert!(counted.contains("@1"), "compact artifact count");
+        assert!(counted.contains("1 mail"));
         assert!(rendered.contains("Message Agent A"));
         assert!(
             rendered.contains("~/plexmaton"),
@@ -1158,14 +1168,12 @@ mod tests {
         // Swapping the palette must change styling only. A palette that alters which characters
         // reach the buffer would mean colour is carrying meaning that the glyphs do not.
         let state = canonical_state();
-        let ansi = draw_with(&state, &Palette::ansi(), 120, 24);
+        let ansi = draw_with(&state, &Palette::pastel(), 120, 24);
         let pastel = draw_with(&state, &Palette::pastel(), 120, 24);
-        let truecolor = draw_with(&state, &Palette::truecolor(), 120, 24);
-        let monochrome = draw_with(&state, &Palette::monochrome(), 120, 24);
+        let inverted = draw_with(&state, &Palette::inverted(), 120, 24);
 
         assert_eq!(ansi, pastel);
-        assert_eq!(ansi, truecolor);
-        assert_eq!(ansi, monochrome);
+        assert_eq!(pastel, inverted);
     }
 
     /// The pill is the number that is unanswered, coloured, on the conversation being read.
@@ -1176,10 +1184,10 @@ mod tests {
     #[test]
     fn the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row() {
         for palette in [
-            Palette::ansi(),
             Palette::pastel(),
-            Palette::truecolor(),
-            Palette::monochrome(),
+            Palette::pastel(),
+            Palette::inverted(),
+            Palette::pastel(),
         ] {
             let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
             let conversation = surfaces

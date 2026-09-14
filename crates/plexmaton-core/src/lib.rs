@@ -44,6 +44,33 @@ pub use transcript::{
 };
 pub use usage::{TokenCounts, TokenUsage};
 
+impl ConversationEvent {
+    /// The conversation whose projection holds this fact, so a reader can re-address it.
+    ///
+    /// A delegated child numbers its own conversation and names itself by its own agent identity.
+    /// A root that shows what that child did is showing it inside the root's projection, under the
+    /// name the roster gave it, so every forwarded fact is re-addressed here rather than at each
+    /// call site — and a new variant is a compile error until it says which conversation it is in.
+    pub fn agent_mut(&mut self) -> &mut AgentId {
+        match self {
+            Self::AgentCreated { agent_id, .. }
+            | Self::AgentStatusChanged { agent_id, .. }
+            | Self::TurnUsageUpdated { agent_id, .. }
+            | Self::TranscriptItemStarted { agent_id, .. }
+            | Self::TranscriptDelta { agent_id, .. }
+            | Self::TranscriptItemFinalized { agent_id, .. }
+            | Self::ToolCallChanged { agent_id, .. }
+            | Self::AttentionRequested { agent_id, .. }
+            | Self::AttentionResolved { agent_id, .. }
+            | Self::TaskAssigned { agent_id, .. }
+            | Self::MailDelivered { agent_id, .. }
+            | Self::ArtifactAnnounced { agent_id, .. }
+            | Self::RuntimeWarning { agent_id, .. }
+            | Self::RuntimeError { agent_id, .. } => agent_id,
+        }
+    }
+}
+
 /// Rejected stable identifier input.
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum IdError {
@@ -191,6 +218,8 @@ pub enum AgentStatus {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolCapability {
+    /// Mutate the authenticated collaboration owner through its bounded command boundary.
+    Collaboration,
     /// Read files through the workspace filesystem boundary.
     FileRead,
     /// Create, replace or remove files through the workspace filesystem boundary.
@@ -362,15 +391,40 @@ pub enum ConversationEvent {
         /// Exact queued request to remove.
         attention_id: AttentionId,
     },
+    /// Main assigned or reassigned the standing task of one delegated session.
+    ///
+    /// Announced once per side, like mail: the delegator's conversation shows what it asked for and
+    /// the worker's shows what it was asked. A revision of the same delegation is a new item rather
+    /// than an update, because what the child was asked at the time is what the reader is looking
+    /// for — the current task alone would erase the history of having changed it.
+    TaskAssigned {
+        /// Whose conversation this item belongs to: the delegator's copy, or the worker's.
+        agent_id: AgentId,
+        /// Transcript position assigned to this assignment.
+        item_id: TranscriptItemId,
+        /// The session that assigned it, named on both sides.
+        from: AgentId,
+        /// The delegated session it was assigned to.
+        to: AgentId,
+        /// The task as written. Bounded by the collaboration log that holds it.
+        task: String,
+    },
     /// Typed mail was delivered from one session to another.
+    ///
+    /// One letter reaches both conversations, so it is announced once per side: the sender's
+    /// conversation shows what it sent and the recipient's shows what arrived, each its own
+    /// transcript item over the same `mail_id`. Without `agent_id` the owner could only be read
+    /// off `from`, and a recipient's conversation had no way to say a letter had come at all.
     MailDelivered {
+        /// Whose conversation this item belongs to: the sender's copy, or the recipient's.
+        agent_id: AgentId,
         /// Transcript position assigned to this delivery.
         item_id: TranscriptItemId,
-        /// Identity of the delivered mail.
+        /// Identity of the delivered mail, shared by both sides' items.
         mail_id: MailId,
-        /// Sending agent and owner of this transcript item.
+        /// Sending agent, named on both sides because attribution is the letter's, not the item's.
         from: AgentId,
-        /// Receiving agent retained as the delivery endpoint; the sender owns this transcript item.
+        /// Receiving agent.
         to: AgentId,
         /// Bounded summary. Bulk findings stay in artifacts or the sender's session.
         summary: String,
@@ -544,6 +598,7 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             },
             ConversationEvent::MailDelivered {
+                agent_id: agent("agent-b"),
                 item_id: TranscriptItemId::new("item-mail-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 mail_id: MailId::new("mail-1")

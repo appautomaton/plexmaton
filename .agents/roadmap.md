@@ -33,25 +33,29 @@ table in `AGENTS.md` allows.
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, provider transports, context projection and project instructions | Closed 2026-09-12 by scoped evidence: delivered JSONL sessions and recovery, four provider dialects, compaction, durable permissions, AGENTS.md and conversation tree/rewind; unproven recovery/readmission acceptance inherited by Phase 03, independent export/import by Phase 04; MCP optional |
-| 03 | Durable multi-agent mailbox and runtime ownership | Active; turn inclusion complete; owned scheduling next |
+| 03 | Durable multi-agent mailbox and runtime ownership | Active; the delegation round trip runs in the executable and both directions are on screen, observed rather than tested; Stop and Handoff remain |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 
 ## Locked
 
 Product invariants no phase may trade away, and no other document owns:
 
-- Delegation is asynchronous, and agent-to-agent communication is typed mail between sessions:
-  never a synthesized user message, never a blocking tool result. Bulk findings stay in artifacts
-  or the delegated session; mail carries a bounded summary and durable pointers.
-- A delegation is one record owned by the runtime with two writers, the delegating agent and the
-  user. Every amendment is attributed and reaches the delegator before its next turn; the user's
-  wins on conflict, and the delegator may object but not silently revert. Everything that moves
-  between sessions travels through one item log, and the inbox and the Attention queue are
+- Delegation is asynchronous, and mail between sessions is a typed atom rather than a turn, so the
+  inspector can show it on its own and revisions reconcile against one log. A dialect with no native
+  form for it renders mail as an attributed message naming its sender; an unattributed one, or a
+  blocking tool result, is not delegation. Bulk findings stay where they were produced; mail carries
+  a bounded summary and durable pointers.
+- A delegated Conversation has one controller. While the main agent controls it, the user may
+  inspect its attributed mail and stop work, but cannot send conversation input. An explicit,
+  durable handoff after quiescence enables user input without expanding tool capabilities or
+  replacing history; idle, completion and surface closure do not transfer control. Everything
+  that moves between Conversations travels through one item log; inbox and Attention are
   projections over it.
 - Mathematical content has one semantic source and one typeset layout. Raw LaTeX is never the
   routine presentation, on any terminal; the invariants are the math track's.
-- User configuration and runtime state belong to `~/.plexmaton/`; project configuration and skills
-  must not redirect that ownership. `.agents/` is the shared project corpus; an optional project
+- User configuration and runtime state belong to one home the user owns, `~/.plexmaton/` by default
+  and wherever `PLEXMATON_HOME` points otherwise, which is how a development profile stays out of
+  the real one. Project configuration and skills must not redirect that ownership. `.agents/` is the shared project corpus; an optional project
   `.plexmaton/` holds client-specific settings and skills under [SKL-1–SKL-6](./specs/agent-skills.md).
   Claude Code remains the compatibility north star for external formats, through explicit adapters.
 

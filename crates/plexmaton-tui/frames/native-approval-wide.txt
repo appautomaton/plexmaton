@@ -1,9 +1,8 @@
-┌ Attention · 1 ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.                                           │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ──────────────────┐                                                                                                
-│○ Agent B · UI study  done│                                                                                                
-│· 1 tool @1 1 mail        │                                                                                                
+│○ Agent B · UI study   ask│                                                                                                
+│  Choose whether the over…│                                                                                                
+│                          │                                                                                                
+│                          │                                                                                                
 │                          │                                                                                                
 │                          │                                                                                                
 │                          │                                                                                                
@@ -20,6 +19,7 @@
 │                          │ I will inspect the workspace and delegate the focused UI study. Agent B is running             
 │                          │ independently; this transcript remains interactive.                                            
 │                          │                                                                                                
+│                          │ received from agent-b · Routing stays centralized and z-ordered.                               
 │                          │ [?] exec_command · approval required                                                           
 │                          │                                                                                        ( !2 )  
 │                          │── Approval required · exec_command ────────────────────────────────────────────────────────────

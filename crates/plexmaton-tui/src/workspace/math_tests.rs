@@ -9,7 +9,6 @@ use plexmaton_core::{
 use ratatui::{
     backend::TestBackend,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
-    style::Modifier,
 };
 use unicode_width::UnicodeWidthStr as _;
 
@@ -44,7 +43,7 @@ fn events(source: &str) -> Vec<ConversationEventEnvelope> {
 }
 
 fn fixture(width: u16, source: &str, math: MathPresentation) -> (Workspace, Terminal<TestBackend>) {
-    let mut workspace = Workspace::with_presentation(Palette::ansi(), math);
+    let mut workspace = Workspace::with_presentation(Palette::pastel(), math);
     workspace.emit(events(source));
     let mut terminal = Terminal::new(TestBackend::new(width, 24)).expect("terminal");
     paint(&mut workspace, &mut terminal);
@@ -206,10 +205,10 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
             for at in cells.iter().copied() {
                 assert_eq!(click(&mut workspace, &mut terminal, at), formula);
                 for cell in &cells {
-                    assert!(
-                        terminal.backend().buffer()[(cell.x, cell.y)]
-                            .modifier
-                            .contains(Modifier::REVERSED)
+                    assert_eq!(
+                        terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                        crate::theme::tokens::BAR,
+                        "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
                 assert_eq!(
@@ -233,10 +232,10 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
                 };
                 assert_eq!(copied.text, format!("{separator}{formula}"));
                 for cell in &cells {
-                    assert!(
-                        terminal.backend().buffer()[(cell.x, cell.y)]
-                            .modifier
-                            .contains(Modifier::REVERSED)
+                    assert_eq!(
+                        terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                        crate::theme::tokens::BAR,
+                        "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
             }
@@ -261,10 +260,10 @@ fn formula_source_fallback_and_reflow_preserve_atomic_selection_without_reprepar
                 original
             );
             for cell in atoms(&mut workspace) {
-                assert!(
-                    terminal.backend().buffer()[(cell.x, cell.y)]
-                        .modifier
-                        .contains(Modifier::REVERSED)
+                assert_eq!(
+                    terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                    crate::theme::tokens::BAR,
+                    "a selected formula cell carries the shipped palette's selection ground"
                 );
             }
         }
@@ -284,7 +283,7 @@ fn formula_source_fallback_and_reflow_preserve_atomic_selection_without_reprepar
 /// PRE-3/MTH-4: same-ID projection replacement revokes old work and retains the terminal capability.
 #[test]
 fn replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical() {
-    let mut workspace = Workspace::with_presentation(Palette::ansi(), MathPresentation::Native);
+    let mut workspace = Workspace::with_presentation(Palette::pastel(), MathPresentation::Native);
     workspace.emit(events(r"\(x_i\)"));
     let mut terminal = Terminal::new(TestBackend::new(88, 24)).expect("terminal");
     workspace.draw(&mut terminal).expect("pending");
@@ -445,7 +444,8 @@ fn failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity() {
     use ratatui::{TerminalOptions, Viewport, backend::CrosstermBackend, layout::Rect};
 
     for width in [120, 88, 60] {
-        let mut workspace = Workspace::with_presentation(Palette::ansi(), MathPresentation::Native);
+        let mut workspace =
+            Workspace::with_presentation(Palette::pastel(), MathPresentation::Native);
         workspace.emit(events(r"\(x_{ij}^2\)"));
         let mut terminal = Terminal::with_options(
             CrosstermBackend::new(Vec::<u8>::new()),

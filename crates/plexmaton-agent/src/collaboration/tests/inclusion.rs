@@ -47,9 +47,9 @@ fn admitted(
         .expect("resolve")
 }
 
-/// CIN-1: prepared-before-amendment is stale; admitted-before-amendment stays immutable on retry.
+/// CIN-1: prepared-before-update is stale; admitted sources remain immutable across Handoff.
 #[test]
-fn cin_1_admission_orders_amendments_and_freezes_original_revision() {
+fn cin_1_admission_orders_updates_and_handoff_and_freezes_original_revision() {
     let mut ledger = ledger(CollaborationLimits::default());
     let mut agent = agent();
     let boundary = agent
@@ -61,25 +61,18 @@ fn cin_1_admission_orders_amendments_and_freezes_original_revision() {
     else {
         panic!("new admission")
     };
-    accept(
-        &mut ledger,
-        "user-one",
-        amendment(DelegationAuthor::User, 0, "Read tests only"),
-    );
+    accept(&mut ledger, "update-one", update(0, "Read tests only"));
     assert_eq!(
         ledger.prepare(prepared.id, prepared.event),
         Err(CollaborationError::StaleTurnAdmission)
     );
     let first = admitted(&mut ledger, &agent, "first");
     assert_eq!(
-        first.items().last().expect("amendment").task_revision,
+        first.items().last().expect("update").delegation_revision,
         Some(DelegationRevision(1))
     );
-    accept(
-        &mut ledger,
-        "user-two",
-        amendment(DelegationAuthor::User, 1, "Read only Rust tests"),
-    );
+    accept(&mut ledger, "update-two", update(1, "Read only Rust tests"));
+    accept(&mut ledger, "handoff", handoff(2));
     assert!(matches!(
         ledger
             .prepare_turn(item("first"), boundary, None)
@@ -95,9 +88,17 @@ fn cin_1_admission_orders_amendments_and_freezes_original_revision() {
         .expect("include admitted turn");
     agent.handle_at(Input::Interrupted, UnixMillis::EPOCH);
     let second = admitted(&mut ledger, &agent, "second");
-    assert_eq!(second.items().len(), 1);
-    assert_eq!(second.items()[0].reference.item, item("user-two"));
-    assert_eq!(second.items()[0].task_revision, Some(DelegationRevision(2)));
+    assert_eq!(second.items().len(), 2);
+    assert_eq!(second.items()[0].reference.item, item("update-two"));
+    assert_eq!(
+        second.items()[0].delegation_revision,
+        Some(DelegationRevision(2))
+    );
+    assert_eq!(second.items()[1].reference.item, item("handoff"));
+    assert_eq!(
+        second.items()[1].delegation_revision,
+        Some(DelegationRevision(3))
+    );
 }
 
 /// CIN-1/CIN-2: a gate that never reached the session consumes nothing; branch ancestry owns the cursor.
@@ -155,6 +156,33 @@ fn cin_2_unincluded_admission_and_branch_retain_pending_sources() {
         )
         .expect("resolve fork");
     assert_eq!(fork_source.items(), explicit.items());
+}
+
+/// CIN-2: foreign cursors and duplicate turn boundaries fail closed with typed refusals.
+#[test]
+fn cin_2_foreign_and_duplicate_references_fail_closed() {
+    let mut ledger = ledger(CollaborationLimits::default());
+    let agent = agent();
+    let first = admitted(&mut ledger, &agent, "first");
+
+    let duplicate_boundary = agent
+        .collaboration_boundary(turn("first"))
+        .expect("same uncommitted session boundary");
+    assert_eq!(
+        ledger.prepare_turn(item("duplicate"), duplicate_boundary, None),
+        Err(CollaborationError::DuplicateTurnAdmission)
+    );
+
+    let mut foreign = first.reference().clone();
+    foreign.collaboration =
+        CollaborationId::new("foreign-collaboration").expect("foreign collaboration");
+    let next_boundary = agent
+        .collaboration_boundary(turn("next"))
+        .expect("next session boundary");
+    assert_eq!(
+        ledger.prepare_turn(item("next"), next_boundary, Some(foreign)),
+        Err(CollaborationError::ForeignReference)
+    );
 }
 
 /// CIN-2/CIN-3: session bytes carry only a reference; resolution is typed and bound to its exact source.
@@ -227,7 +255,7 @@ fn cin_3_session_reference_resolves_without_synthetic_user_content() {
     );
 }
 
-/// CIN-1: all required source items must fit; admission never truncates an amendment or mail tail.
+/// CIN-1: all required source items must fit; admission never truncates an update or mail tail.
 #[test]
 fn cin_1_source_capacity_holds_the_turn_without_advancing_log() {
     let mut ledger = ledger(CollaborationLimits::default());
@@ -303,12 +331,8 @@ fn large_authored_prefix() -> (CollaborationLedger, TurnBoundary, MailEndpoint) 
     for index in 0..7 {
         accept(
             &mut ledger,
-            &format!("amend-{index}"),
-            amendment(
-                DelegationAuthor::Agent(author.clone()),
-                index,
-                &"x".repeat(32600),
-            ),
+            &format!("update-{index}"),
+            update_by(author.clone(), index, &"x".repeat(32600)),
         );
     }
     let boundary = TurnBoundary {
@@ -331,11 +355,11 @@ fn cin_1_source_bytes_include_attributed_agent_identities() {
             .is_ok()
     );
     // Without the eight 512-byte authors, these source records fit below 256 KiB.
-    // Counting preserved attribution pushes the eighth amendment above the cap.
+    // Counting preserved attribution pushes the eighth update above the cap.
     accept(
         &mut ledger,
-        "amend-7",
-        amendment(DelegationAuthor::Agent(author), 7, &"x".repeat(32600)),
+        "update-7",
+        update_by(author, 7, &"x".repeat(32600)),
     );
     let before = ledger.clone();
     assert_eq!(

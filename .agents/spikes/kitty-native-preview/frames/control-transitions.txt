@@ -1,0 +1,47 @@
+main-running / 120x36 / primary input focused
+│● Luna / max  running · 1 │ ┌ Luna / max · Running · 1 tool · 1 artifact · 1 mail · esc ─────────────────────────────┐
+│                          │ │Controller: Main | Read-only files | No shell                                           │
+
+main-running / 88x36 / primary input focused
+│● Luna / max  running · │ ┌ Luna / max · Running · esc ──────────────────────────────┐
+│                        │ │Controller: Main | Read-only files | No shell             │
+
+main-running / 60x36 / primary input focused
+┌ Luna / max · Running · esc ──────────────────────────────┐
+│Controller: Main | Read-only files | No shell             │
+
+main-idle / 120x36 / primary input focused
+│● Luna / max  idle · 1    │ ┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ────────────────────────────────┐
+│                          │ │Controller: Main | Read-only files | No shell                                           │
+
+main-idle / 88x36 / primary input focused
+│● Luna / max  idle · 1  │ ┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ──┐
+│                        │ │Controller: Main | Read-only files | No shell             │
+
+main-idle / 60x36 / primary input focused
+┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ──┐
+│Controller: Main | Read-only files | No shell             │
+
+handoff-pending / 120x36 / primary input focused
+│● Luna / max  idle · 1    │ ┌ Luna / max · Handoff pending · 1 tool · 1 artifact · 1 mail · esc ─────────────────────┐
+│                          │ │Controller: Main | Read-only files | No shell                                           │
+
+handoff-pending / 88x36 / primary input focused
+│● Luna / max  idle · 1  │ ┌ Luna / max · Handoff pending · esc ──────────────────────┐
+│                        │ │Controller: Main | Read-only files | No shell             │
+
+handoff-pending / 60x36 / primary input focused
+┌ Luna / max · Handoff pending · esc ──────────────────────┐
+│Controller: Main | Read-only files | No shell             │
+
+user-idle / 120x36 / primary input focused
+│● Luna / max  idle · 1    │ ┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ────────────────────────────────┐
+│                          │ │Controller: User | Read-only files | No shell                                           │
+
+user-idle / 88x36 / primary input focused
+│● Luna / max  idle · 1  │ ┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ──┐
+│                        │ │Controller: User | Read-only files | No shell             │
+
+user-idle / 60x36 / primary input focused
+┌ Luna / max · Idle · 1 tool · 1 artifact · 1 mail · esc ──┐
+│Controller: User | Read-only files | No shell             │

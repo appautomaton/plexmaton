@@ -141,15 +141,11 @@ fn syntax_workspace_selection_preserves_colors_copy_and_cached_geometry() {
             workspace.copy_selection().expect("source copy").text,
             SOURCE
         );
-        workspace.set_palette(Palette::monochrome());
+        // One palette ships now, so what this repaint proves is that drawing the selection again
+        // changes neither the cached layouts nor the source a copy returns.
         workspace
             .settled_draw(&mut terminal)
-            .expect("selected monochrome frame");
-        let cell = &terminal.backend().buffer()[keyword(terminal.backend().buffer())];
-        assert!(
-            cell.modifier
-                .contains(ratatui::style::Modifier::REVERSED | ratatui::style::Modifier::BOLD)
-        );
+            .expect("selected repaint");
         assert_eq!(workspace.metrics().text_layouts(), layouts);
         assert_eq!(
             workspace.copy_selection().expect("same source copy").text,

@@ -12,10 +12,11 @@ use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{ConversationRecovery, DispatchReport, LiveRuntime, NativeToolCatalog};
-use plexmaton_tui::{ConfigurationSummary, MarkdownTheme, Palette, Workspace};
+use plexmaton_tui::{ConfigurationSummary, Palette, Workspace};
 
 mod agent_instructions;
 mod clipboard;
+mod collaboration;
 mod conversation_tree;
 mod input;
 mod input_queue;
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         std::env::current_exe().context("locate preparation executable")?,
     );
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (opened, workspace_root, mut picker, status_line) =
+    let (opened, workspace_root, mut picker, status_line, collaboration) =
         live_runtime_from_process(selection).await?;
     let OpenedConversation {
         runtime,
@@ -100,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         picker,
         status_line,
         render_preparation,
+        collaboration,
     )
     .await;
     drop(restore_terminal);
@@ -210,20 +212,11 @@ async fn run(
     mut picker: session_picker::ConversationPicker,
     mut status_line: Option<statusline::StatusLine>,
     mut render_preparation: preparation::LivePreparation,
+    mut collaboration: Option<collaboration::Collaboration>,
 ) -> anyhow::Result<Option<PersistedConversation>> {
-    // The designed palette needs 24-bit colour. A terminal without it keeps its own slots for
-    // the chrome and the designed Markdown, which is the most that can be asked of it (MD-5).
-    // The script footer retains its independent colors; neither choice rethemes the other.
-    let designed = std::env::var("COLORTERM")
-        .is_ok_and(|value| matches!(value.as_str(), "truecolor" | "24bit"));
-    let mut workspace = Workspace::with_presentation(
-        if designed {
-            Palette::pastel()
-        } else {
-            Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel)
-        },
-        output.math,
-    );
+    // One palette, no capability probe: a 24-bit terminal is assumed (ui-ux §readability).
+    // The script footer retains its independent colors and is not rethemed by this choice.
+    let mut workspace = Workspace::with_presentation(Palette::pastel(), output.math);
     workspace.set_model(picker.configuration());
     workspace.set_model_choices(
         picker
@@ -257,6 +250,13 @@ async fn run(
         }
         workspace.report_conversation_recovery(recovery);
     }
+    // A resumed root puts every delegation it already created back on the roster without waking
+    // any of them (CHB-3).
+    if let Some(collaboration) = collaboration.as_mut() {
+        // The restored roster and correspondence queue on the runtime, which the loop below
+        // publishes in the order it numbered them.
+        collaboration.restore(&mut runtime).await?;
+    }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
     let loop_result = drive_session(
@@ -269,9 +269,13 @@ async fn run(
         &mut permissions,
         &mut EventStream::new(),
         &mut render_preparation,
+        collaboration.as_mut(),
         output::write_native,
     )
     .await;
+    if let Some(collaboration) = collaboration.as_mut() {
+        collaboration.shutdown().await;
+    }
     let clipboard_shutdown = output
         .clipboard
         .shutdown()

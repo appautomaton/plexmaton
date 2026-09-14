@@ -17,7 +17,7 @@ use crate::codec::{encode_line, read_line};
 use crate::load::{Repair, repair_tail, without_newline};
 
 const FORMAT: &str = "plexmaton.collaboration";
-const SCHEMA: &str = "2026-09-07";
+const SCHEMA: &str = "2026-09-12";
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

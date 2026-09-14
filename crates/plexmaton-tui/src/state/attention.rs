@@ -3,7 +3,6 @@
 use plexmaton_core::{AgentId, AttentionId, AttentionKind, AttentionRequest};
 
 use super::ordered::OrderedById;
-use crate::intent::Direction;
 
 /// One queued background request.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -108,20 +107,6 @@ impl AttentionQueue {
         self.cursor.min(self.items.len().saturating_sub(1))
     }
 
-    /// Moves the cursor one request, clamped at both ends like every other list here.
-    pub(super) fn move_cursor(&mut self, visible: &[AttentionId], direction: Direction) -> bool {
-        let current = self.items.key_at(self.cursor());
-        let index = visible
-            .iter()
-            .position(|id| Some(id) == current)
-            .unwrap_or(0);
-        let next = match direction {
-            Direction::Forward => index.saturating_add(1).min(visible.len().saturating_sub(1)),
-            Direction::Backward => index.saturating_sub(1),
-        };
-        visible.get(next).is_some_and(|id| self.select(id))
-    }
-
     pub(super) fn select(&mut self, id: &AttentionId) -> bool {
         let Some(index) = self.items.iter().position(|item| &item.id == id) else {
             return false;
@@ -164,18 +149,21 @@ mod tests {
     use plexmaton_core::{AgentId, ApprovalId, AttentionId, AttentionRequest, ToolCallId};
 
     use super::{AttentionQueue, AttentionView};
-    use crate::intent::Direction;
 
-    fn request(id: &str, summary: &str) -> AttentionView {
+    fn id(name: &str) -> AttentionId {
+        AttentionId::new(name).unwrap_or_else(|error| panic!("fixture: {error}"))
+    }
+
+    fn request(name: &str, summary: &str) -> AttentionView {
         AttentionView {
-            id: AttentionId::new(id).unwrap_or_else(|error| panic!("fixture: {error}")),
+            id: id(name),
             agent_id: AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
             request: AttentionRequest::Approval {
                 reason: plexmaton_core::ApprovalReason::PermissionRequired,
                 remember: None,
-                approval_id: ApprovalId::new(format!("approval-{id}"))
+                approval_id: ApprovalId::new(format!("approval-{name}"))
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
-                call_id: ToolCallId::new(format!("call-{id}"))
+                call_id: ToolCallId::new(format!("call-{name}"))
                     .unwrap_or_else(|error| panic!("fixture: {error}")),
                 tool: "edit".to_owned(),
                 capabilities: Vec::new(),
@@ -230,41 +218,34 @@ mod tests {
         );
     }
 
+    /// ATT-2/ATT-3: the cursor is where `acknowledge` acts, and it is moved by naming a request
+    /// rather than by walking a list — the roster is the list now, and it is ordered by attention.
     #[test]
-    fn the_cursor_clamps_at_both_ends_and_survives_an_empty_queue() {
+    fn the_cursor_follows_the_named_request_and_survives_an_empty_queue() {
         let mut queue = AttentionQueue::default();
         assert_eq!(queue.cursor(), 0);
-        assert!(!queue.move_cursor(
-            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            Direction::Forward
-        ));
-        assert_eq!(queue.acknowledge(), None);
+        assert_eq!(queue.acknowledge(), None, "nothing queued is nothing seen");
+        assert!(
+            !queue.select(&id("ask-1")),
+            "an absent request moves nothing"
+        );
 
         queue.request(request("ask-1", "first"));
         queue.request(request("ask-2", "other"));
-        assert!(queue.move_cursor(
-            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            Direction::Forward
-        ));
+        assert_eq!(queue.cursor(), 0);
+        assert!(queue.select(&id("ask-2")));
         assert_eq!(queue.cursor(), 1);
         assert!(
-            !queue.move_cursor(
-                &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-                Direction::Forward
-            ),
-            "clamped at the end"
+            !queue.select(&id("ask-2")),
+            "naming it twice changes nothing"
         );
-        assert!(queue.move_cursor(
-            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            Direction::Backward
-        ));
-        assert!(
-            !queue.move_cursor(
-                &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-                Direction::Backward
-            ),
-            "clamped at the start"
+        assert_eq!(
+            queue.acknowledge().map(|target| target.id),
+            Some(id("ask-2")),
+            "acknowledging acts on the named request, not on arrival order"
         );
+        assert!(queue.select(&id("ask-1")));
+        assert_eq!(queue.cursor(), 0);
     }
 
     #[test]
@@ -273,22 +254,14 @@ mod tests {
         queue.request(request("ask-1", "first"));
         queue.request(request("ask-2", "second"));
         queue.request(request("ask-3", "third"));
-        queue.move_cursor(
-            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            Direction::Forward,
-        );
-        queue.move_cursor(
-            &queue.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            Direction::Forward,
-        );
+        queue.select(&id("ask-3"));
 
-        let second = AttentionId::new("ask-2").unwrap_or_else(|error| panic!("fixture: {error}"));
-        assert!(queue.resolve(&second));
+        assert!(queue.resolve(&id("ask-2")));
         assert_eq!(queue.cursor(), 1);
         assert_eq!(
             queue.iter().map(AttentionView::summary).collect::<Vec<_>>(),
             ["first", "third"]
         );
-        assert!(!queue.resolve(&second));
+        assert!(!queue.resolve(&id("ask-2")));
     }
 }

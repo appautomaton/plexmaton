@@ -60,6 +60,8 @@ pub enum TranscriptEntryView {
     Artifact(ArtifactView),
     /// One delivered mail summary.
     Mail(MailView),
+    /// One task Main assigned to a delegated session.
+    Task(TaskView),
 }
 
 impl TranscriptEntryView {
@@ -71,6 +73,7 @@ impl TranscriptEntryView {
             Self::Tool(tool) => &tool.entry_id,
             Self::Artifact(artifact) => &artifact.entry_id,
             Self::Mail(mail) => &mail.entry_id,
+            Self::Task(task) => &task.entry_id,
         }
     }
 
@@ -82,6 +85,7 @@ impl TranscriptEntryView {
             Self::Tool(tool) => tool.revision,
             Self::Artifact(artifact) => artifact.revision,
             Self::Mail(mail) => mail.revision,
+            Self::Task(task) => task.revision,
         }
     }
 }
@@ -109,13 +113,17 @@ pub struct ArtifactView {
     pub revision: u64,
 }
 
-/// Typed mail delivered between sessions.
+/// Typed mail delivered between sessions, as one of its two conversations holds it.
 ///
-/// Sender identity is part of the product contract, so it is retained rather than reduced away.
+/// Both endpoints are retained because they are the letter's attribution. `owner` is which side
+/// this item is, which the row does depend on: the same letter is an outbox entry in the
+/// conversation that wrote it and an inbox entry in the one it reached, and a reader needs telling
+/// which they are looking at.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailView {
     pub entry_id: TranscriptItemId,
     pub id: MailId,
+    pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
     pub summary: String,
@@ -129,4 +137,19 @@ impl TranscriptEntryView {
             _ => None,
         }
     }
+}
+
+/// One task assigned to a delegated session, as one of its two conversations holds it.
+///
+/// Shaped like [`MailView`] because it is the same kind of fact: something one session addressed to
+/// another. `owner` is which side this item is — what the delegator asked for, or what the worker
+/// was asked.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct TaskView {
+    pub entry_id: TranscriptItemId,
+    pub owner: AgentId,
+    pub from: AgentId,
+    pub to: AgentId,
+    pub task: String,
+    pub revision: u64,
 }

@@ -66,7 +66,8 @@ pub(super) fn agents_title(palette: &Palette) -> Line<'static> {
 /// Chrome, not a surface — it takes no rows, no focus and no pointer target, which is what lets it
 /// sit on a border at all (ATT-1). It counts what is still unanswered rather than what is queued: a
 /// queue of five the user has already been to is not five things demanding them (ATT-3). The
-/// brackets are the shape, `!` is the word, and the colour is third, so it survives monochrome.
+/// brackets are the shape, `!` is the word, and the colour is third, so the pill is found by
+/// shape while scanning and read by colour once the eye lands on it.
 ///
 /// The request open in the decision region counts too, even though it is on screen below. The pill
 /// is the workspace's one answer to "is anything waiting on me", and a status indicator that goes
@@ -90,27 +91,6 @@ pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Lin
         Span::styled(format!(" !{pending} "), lit(Role::ActionRequired)),
         Span::styled(") ", lit(Role::Muted)),
     ]))
-}
-
-/// The band names both numbers, because it is the surface that can show the difference.
-pub(super) fn attention_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    let queued = state.attention_listed_count();
-    let pending = state.attention_listed_pending();
-    let rest = if pending == queued {
-        format!(" · {queued}")
-    } else {
-        format!(" · {queued} · {pending} unanswered")
-    };
-    title(palette, "Attention", attention_role(state), rest)
-}
-
-/// An unanswered request must read as action required, not as ambient decoration.
-pub(super) fn attention_role(state: &ViewState) -> Role {
-    if state.attention_listed_pending() == 0 {
-        Role::SectionHeading
-    } else {
-        Role::ActionRequired
-    }
 }
 
 /// The conversation's last row: what the agent is doing on the left; what the reader has
@@ -186,7 +166,7 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 }
 
 /// The title names the agent and the way out.
-pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
     // The surface is registered only while an agent is open, so this is no title rather than a
     // word the user would otherwise never see (phase 01 §scope 1).
     let Some(open) = state.inspector() else {
@@ -202,12 +182,23 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette) -> Line<'sta
     };
     let counts = content::entry_counts(agent);
     let selected = selected_suffix(state, SurfaceId::Inspector);
-    title(
+    let lifecycle = super::child_control::lifecycle(agent);
+    let detailed = title(
         palette,
         agent.label.clone(),
         Role::SectionHeading,
-        format!("{counts}{selected} · esc"),
-    )
+        format!(" · {lifecycle}{counts}{selected} · esc"),
+    );
+    if detailed.width() <= usize::from(width) {
+        detailed
+    } else {
+        title(
+            palette,
+            agent.label.clone(),
+            Role::SectionHeading,
+            format!(" · {lifecycle}{selected} · esc"),
+        )
+    }
 }
 
 /// The title counts everything waiting, because the list below it shows at most three.

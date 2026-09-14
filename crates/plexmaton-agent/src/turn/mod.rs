@@ -166,6 +166,18 @@ impl Agent {
         reaction.into_output()
     }
 
+    /// Puts one fact about a delegated child on this conversation's live projection.
+    ///
+    /// A child is a separate Conversation with its own journal; what belongs here is only the fact
+    /// that the user has one to look at. The collaboration log is that fact's durable home, so this
+    /// numbers a transient event from the same sequence the conversation's own events use and
+    /// commits nothing (COL-3).
+    pub fn project_delegated(&mut self, event: ConversationEvent) -> Reaction {
+        let mut reaction = Reaction::default();
+        self.record.emit(&mut reaction, event);
+        reaction.into_output()
+    }
+
     fn announce_into(&mut self, label: String, reaction: &mut Reaction) {
         if self.record.is_announced() {
             return;

@@ -431,7 +431,7 @@ mod tests {
             finalized: true,
         });
         let mut cache = Cache::default();
-        let base = Palette::ansi();
+        let base = Palette::pastel().with_markdown_theme(crate::MarkdownTheme::Inherited);
         let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
         let plain = prepared(&mut cache, &agent, &item, 60)
             .expect("base")

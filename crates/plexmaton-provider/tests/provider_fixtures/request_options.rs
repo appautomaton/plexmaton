@@ -237,6 +237,18 @@ fn prv_5_chat_rejects_structured_or_conflicting_reasoning() {
     for delta in [
         serde_json::json!({"reasoning_details":[{"type":"reasoning.encrypted","data":"private"}]}),
         serde_json::json!({"reasoning":"one","reasoning_text":"two"}),
+        // A signature travels with the text it signs; keeping only the text would strip it.
+        serde_json::json!({
+            "reasoning":"weigh",
+            "reasoning_details":[{"type":"reasoning.text","text":"weigh","signature":"sig"}]
+        }),
+        // Details that say more than the plain field carry reasoning nothing else retains.
+        serde_json::json!({
+            "reasoning":"weigh",
+            "reasoning_details":[{"type":"reasoning.text","text":"weigh more"}]
+        }),
+        // Details with no plain sibling are the only copy, in a shape the codec cannot replay.
+        serde_json::json!({"reasoning_details":[{"type":"reasoning.text","text":"weigh"}]}),
     ] {
         let mut codec = ProviderCodec::new(
             &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
@@ -245,11 +257,42 @@ fn prv_5_chat_rejects_structured_or_conflicting_reasoning() {
             DecodeLimits::production(),
         );
         let chunk = serde_json::json!({"choices":[{"index":0,"delta":delta,"finish_reason":null}]});
-        assert!(matches!(
-            codec.push_sse("message", &chunk.to_string()),
-            Err(DecodeError::UnsupportedEvent(_))
-        ));
+        assert!(
+            matches!(
+                codec.push_sse("message", &chunk.to_string()),
+                Err(DecodeError::UnsupportedEvent(_))
+            ),
+            "{delta}"
+        );
     }
+}
+
+/// PRV-3: gateways that restate one reasoning delta as `reasoning.text` alongside it add no
+/// content, so the plain field is decoded once and the restatement is not a second event.
+#[test]
+fn prv_3_chat_accepts_reasoning_details_that_only_restate_the_plain_delta() {
+    let model = profile(ModelApi::OpenaiChatCompletions);
+    let mut codec = ProviderCodec::new(
+        &plexmaton_agent::RequestAttemptId::new("fixture-attempt")
+            .unwrap_or_else(|error| panic!("attempt: {error}")),
+        &model,
+        DecodeLimits::production(),
+    );
+    // The observed gateway shape: one entry, a `format` label, an `index`, and identical text.
+    let chunk = serde_json::json!({"choices":[{"index":0,"delta":{
+        "reasoning":"17*23 = ",
+        "reasoning_details":[
+            {"type":"reasoning.text","text":"17*23 = ","format":"unknown","index":0}
+        ]
+    },"finish_reason":null}]});
+    let events = codec
+        .push_sse("message", &chunk.to_string())
+        .unwrap_or_else(|error| panic!("restated reasoning: {error}"));
+    let reasoning = events
+        .iter()
+        .filter(|event| matches!(event, ModelEvent::ReasoningDelta { delta, .. } if delta == "17*23 = "))
+        .count();
+    assert_eq!(reasoning, 1, "{events:?}");
 }
 
 /// PRV-6/TIM-3: unspecified effort is omitted, and stable instructions participate in identity.

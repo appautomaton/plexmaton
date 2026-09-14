@@ -60,11 +60,11 @@ fn main() -> Result<()> {
         (
             "current",
             "what ran before: ANSI slots resolved by your kitty theme on black, Catppuccin Markdown",
-            Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel),
+            Palette::pastel().with_markdown_theme(MarkdownTheme::Pastel),
         ),
         (
             "designed",
-            "the new default on truecolor terminals: your named tokens. Sky where you are, teal working, mint done, orange needs you, coral failed, violet who speaks, gold what Enter acts on",
+            "the palette: your named tokens. Sky where you are, teal working, mint done, orange needs you, coral failed, violet who speaks, gold what Enter acts on",
             Palette::pastel(),
         ),
     ];
@@ -170,7 +170,7 @@ fn render(palette: Palette, frame: &str) -> Result<Buffer> {
         }
         "approval" => {
             for _ in 0..8 {
-                if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Attention) {
+                if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Agents) {
                     break;
                 }
                 workspace.handle(&key(KeyCode::Tab, KeyModifiers::NONE));

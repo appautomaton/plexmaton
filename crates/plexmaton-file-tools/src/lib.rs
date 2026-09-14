@@ -34,6 +34,12 @@ pub struct FileTools {
 }
 
 impl FileTools {
+    /// Whether an admitted call is one exact native read/search definition.
+    #[must_use]
+    pub fn is_inspection_call(call: &AdmittedToolCall) -> bool {
+        catalog::is_inspection_call(call)
+    }
+
     /// Pins one existing directory as the only root these tools may inspect.
     pub fn open(
         root: impl AsRef<std::path::Path>,

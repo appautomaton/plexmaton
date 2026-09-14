@@ -33,6 +33,18 @@ pub(crate) fn definitions() -> [FileToolDefinition; 4] {
     definitions::definitions()
 }
 
+pub(crate) fn is_inspection_call(call: &AdmittedToolCall) -> bool {
+    call.definition_revision().get() == DEFINITION_REVISION
+        && matches!(
+            (
+                call.definition_id().as_str(),
+                call.requested().name.as_str()
+            ),
+            (READ_DEFINITION_ID, READ_TOOL_NAME) | (SEARCH_DEFINITION_ID, SEARCH_TOOL_NAME)
+        )
+        && call.capabilities().iter().eq([ToolCapability::FileRead])
+}
+
 pub(crate) fn admit(
     tools: &FileTools,
     request: AdmissionRequest,

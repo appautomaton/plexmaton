@@ -17,11 +17,13 @@ use crate::{
 mod accounting;
 #[cfg(test)]
 mod accounting_tests;
+mod artifact;
 #[cfg(test)]
 mod attempt_tests;
 mod attempts;
 mod budget;
 mod collaboration;
+pub use collaboration::CollaborationInclusionOrigin;
 mod compaction;
 mod error;
 mod heads;
@@ -45,6 +47,7 @@ mod validation;
 mod validation_tests;
 
 pub use accounting::{RequestAccounting, RequestAccountingError};
+pub use artifact::ArtifactAnnouncementOrigin;
 pub use budget::BudgetBasis;
 pub use error::JournalError;
 pub use payload::JournalEntryPayload;

@@ -25,7 +25,7 @@ mod tests {
     use crate::{
         CleanupNotice, ConversationRestoration, ConversationTailRepair, PersistenceNotice,
         SkillChoice, SkillChoiceSource, TranscriptMetrics, ViewState, Workspace,
-        intent::{AttentionIntent, Direction, InspectorIntent},
+        intent::{Direction, InspectorIntent},
         state::EntryTarget,
         surface::{SurfaceId, SurfaceTree},
         test_support::{
@@ -776,7 +776,7 @@ mod tests {
     /// ENT-2/TR-2: every compact state reaches a real drawn frame at all three widths.
     ///
     /// Deliberately not a fixture family. The compact grammar itself — marker, word, one logical
-    /// line, monochrome legibility — is proven per state by
+    /// line, marker-column legibility — is proven per state by
     /// `content::tool::every_tool_status_is_one_named_logical_line`, and the chrome around the row
     /// is frozen by the canonical frames. Seven full-screen snapshots at three widths each froze
     /// 819 lines to assert seven, and the row's text is identical at every width, so twenty-one of
@@ -892,10 +892,15 @@ mod tests {
             .state
             .set_working_directory("~/plexmaton".to_owned());
         let (surfaces, _) = draw_frame(&conversation.state, &Palette::default(), width, height);
+        // The user's route to a background approval: the roster says agent-b is asking, and
+        // entering agent-b is going to the request (ATT-2).
         conversation
             .state
-            .attend(&surfaces, AttentionIntent::Move(Direction::Forward));
-        conversation.state.attend(&surfaces, AttentionIntent::GoTo);
+            .select_agent(
+                &AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}")),
+            )
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.state.inspect(&surfaces, InspectorIntent::Open);
         conversation.state
     }
 

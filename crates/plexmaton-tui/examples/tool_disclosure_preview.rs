@@ -187,7 +187,7 @@ fn fixture(diff: bool) -> Result<Workspace> {
         }
     }
     let mut workspace =
-        Workspace::with_palette(Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel));
+        Workspace::with_palette(Palette::pastel().with_markdown_theme(MarkdownTheme::Pastel));
     workspace.emit(
         events
             .into_iter()

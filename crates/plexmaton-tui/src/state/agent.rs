@@ -18,6 +18,7 @@ pub struct AgentView {
     pub id: AgentId,
     pub label: String,
     pub status: AgentStatus,
+    pub(super) control: Option<super::ChildControlSnapshot>,
     entries: OrderedById<TranscriptItemId, TranscriptEntryView>,
     tool_entries: std::collections::BTreeMap<ToolCallId, TranscriptItemId>,
     usage: Option<(TurnId, TokenUsage)>,
@@ -39,6 +40,7 @@ impl AgentView {
             id,
             label,
             status,
+            control: None,
             entries: OrderedById::default(),
             tool_entries: std::collections::BTreeMap::new(),
             usage: None,
@@ -47,13 +49,32 @@ impl AgentView {
         }
     }
 
+    /// The last accepted delegated-control snapshot; absence leaves child input unavailable.
+    #[must_use]
+    pub const fn control(&self) -> Option<super::ChildControlSnapshot> {
+        self.control
+    }
+
+    /// Whether an acknowledged control snapshot permits direct child input (CCV-2).
+    #[must_use]
+    pub const fn user_controls(&self) -> bool {
+        matches!(
+            self.control,
+            Some(super::ChildControlSnapshot {
+                control: super::ChildControl::User,
+                ..
+            })
+        )
+    }
+
     /// Iterates transcript items in arrival order.
     pub fn transcript(&self) -> impl Iterator<Item = &TranscriptItemView> {
         self.entries.iter().filter_map(|entry| match entry {
             TranscriptEntryView::Text(item) => Some(item),
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
-            | TranscriptEntryView::Mail(_) => None,
+            | TranscriptEntryView::Mail(_)
+            | TranscriptEntryView::Task(_) => None,
         })
     }
 
@@ -285,6 +306,7 @@ impl AgentView {
         &mut self,
         entry_id: TranscriptItemId,
         id: MailId,
+        owner: AgentId,
         from: AgentId,
         to: AgentId,
         summary: String,
@@ -294,12 +316,42 @@ impl AgentView {
             TranscriptEntryView::Mail(MailView {
                 entry_id,
                 id,
+                owner,
                 from,
                 to,
                 summary,
                 revision: 0,
             }),
         )
+    }
+
+    pub(super) fn assign_task(
+        &mut self,
+        entry_id: TranscriptItemId,
+        owner: AgentId,
+        from: AgentId,
+        to: AgentId,
+        task: String,
+    ) -> Result<bool, ReduceError> {
+        self.insert_terminal(
+            entry_id.clone(),
+            TranscriptEntryView::Task(super::TaskView {
+                entry_id,
+                owner,
+                from,
+                to,
+                task,
+                revision: 0,
+            }),
+        )
+    }
+
+    /// Iterates assigned tasks in arrival order.
+    pub fn tasks(&self) -> impl Iterator<Item = &super::TaskView> {
+        self.entries.iter().filter_map(|entry| match entry {
+            TranscriptEntryView::Task(task) => Some(task),
+            _ => None,
+        })
     }
 
     pub(super) fn runtime_message(
@@ -346,7 +398,8 @@ impl AgentView {
             TranscriptEntryView::Text(item) => Ok(item),
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
-            | TranscriptEntryView::Mail(_) => Err(ReduceError::EntryKindChanged(item_id.clone())),
+            | TranscriptEntryView::Mail(_)
+            | TranscriptEntryView::Task(_) => Err(ReduceError::EntryKindChanged(item_id.clone())),
         }
     }
 }

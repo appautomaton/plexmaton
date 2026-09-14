@@ -198,17 +198,12 @@ fn syntax_paint_selection_and_monochrome_share_exact_code_geometry() {
         );
         assert!(layout.text_fragments_within_width(width));
         let pastel = layout.painted_lines(&Palette::pastel());
-        let mono = layout.painted_lines(&Palette::monochrome());
         let selected = layout.painted_entry(
             &Palette::pastel(),
             crate::state::EntryAppearance {
                 selected: true,
                 ..Default::default()
             },
-        );
-        assert_eq!(
-            pastel.iter().map(ToString::to_string).collect::<Vec<_>>(),
-            mono.iter().map(ToString::to_string).collect::<Vec<_>>()
         );
         assert_eq!(
             pastel.iter().map(ToString::to_string).collect::<Vec<_>>(),
@@ -225,14 +220,6 @@ fn syntax_paint_selection_and_monochrome_share_exact_code_geometry() {
         assert_eq!(token(&pastel).fg, Some(crate::theme::tokens::SKY));
         assert_eq!(token(&selected).fg, token(&pastel).fg);
         assert_eq!(token(&selected).bg, Some(crate::theme::tokens::BAR));
-        assert!(mono.iter().all(|line| {
-            line.style.fg.is_none()
-                && line.style.bg.is_none()
-                && line
-                    .spans
-                    .iter()
-                    .all(|span| span.style.fg.is_none() && span.style.bg.is_none())
-        }));
     }
 }
 

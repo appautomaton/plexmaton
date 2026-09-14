@@ -19,6 +19,7 @@ fn agi_4_workspace_instructions_remain_outside_the_compaction_cut() {
             &head(),
             &model,
             &[],
+            &Default::default(),
             CompactionId::new("workspace-compaction").expect("id"),
         )
         .expect("plan");

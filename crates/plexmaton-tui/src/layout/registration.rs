@@ -21,17 +21,21 @@ pub(super) fn surface_tree(
     area: Rect,
     status: Rect,
     notices: Option<Rect>,
-    attention: Option<Rect>,
     regions: BodyRegions,
     input: &WorkspaceInput,
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
-    register(
+    register_at(
         &mut tree,
         SurfaceId::Agents,
         regions.agents,
         SurfaceKind::Panel,
+        if regions.agents_floats {
+            FLOATING_Z_INDEX
+        } else {
+            BASE_Z_INDEX
+        },
     );
     register(
         &mut tree,
@@ -82,12 +86,6 @@ pub(super) fn surface_tree(
     // A panel, not chrome: its tail can outgrow the strip, and a region the wheel can move must
     // also be reachable by keyboard -- every mouse interaction has a keyboard equivalent.
     register(&mut tree, SurfaceId::Notices, notices, SurfaceKind::Panel);
-    register(
-        &mut tree,
-        SurfaceId::Attention,
-        attention,
-        SurfaceKind::Panel,
-    );
     // Above the decision region and below the conversation: the user's own `Enter` put it there,
     // so it sits beside the composer they pressed it in rather than at the top of the screen with
     // the strips that arrive on their own.

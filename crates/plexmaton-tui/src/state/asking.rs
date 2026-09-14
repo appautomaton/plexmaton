@@ -6,11 +6,7 @@
 //! workspace's view of both, which is what layout, chrome and routing consume.
 
 use super::{ApprovalSubmission, ApprovalView, AttentionView, ViewState};
-use crate::{
-    content,
-    intent::{ApprovalIntent, AttentionIntent},
-    surface::{SurfaceId, SurfaceTree},
-};
+use crate::{content, intent::ApprovalIntent, surface::SurfaceId};
 
 impl ViewState {
     /// Number of background requests awaiting attention.
@@ -25,59 +21,38 @@ impl ViewState {
         self.attention.pending()
     }
 
-    /// Which queued request the user is on.
-    #[must_use]
-    pub fn attention_cursor(&self) -> usize {
-        self.attention.cursor()
-    }
-
     /// Returns queued attention items in arrival order.
     pub fn attention(&self) -> impl Iterator<Item = &AttentionView> {
         self.attention.iter()
     }
 
-    /// Queued items the band still has something to say about.
+    /// What this agent is waiting on the user for, if anything.
     ///
-    /// Main-agent requests stay in their conversation, including when the composer holds focus.
-    /// Only future background requests belong here; the open background card is also excluded.
-    pub fn attention_listed(&self) -> impl Iterator<Item = &AttentionView> {
-        let open = self.approval();
+    /// The roster asks this per row: a request is announced beside the agent that raised it, which
+    /// is the only place the user can act on it. Excluding the primary keeps ATT-1 — its approvals
+    /// belong to its own conversation, which is the screen the user is already looking at.
+    ///
+    /// An acknowledged request is still here, because ATT-3 says being seen is not being answered
+    /// and only the owning loop resolves one. Dropping it would leave a user who looked at a card
+    /// and closed it with no way back to it; what changes when it is seen is how loudly the row
+    /// says so, not whether it says so.
+    ///
+    /// An approval outranks a clarification, because one agent is blocked and the other is not.
+    /// Within a kind it is arrival order, so the oldest thing waiting is the one answered first.
+    pub(crate) fn agent_request(&self, agent: &plexmaton_core::AgentId) -> Option<&AttentionView> {
         let primary = self.agents.primary().map(|agent| &agent.id);
-        self.attention.iter().filter(move |item| {
-            open.as_ref()
-                .is_none_or(|approval| &item.id != approval.attention_id)
-                && Some(&item.agent_id) != primary
-        })
-    }
-
-    pub(crate) fn listed_attention_cursor(&self) -> Option<&plexmaton_core::AttentionId> {
-        let current = self
+        let mut outstanding = self
             .attention
             .iter()
-            .nth(self.attention.cursor())
-            .map(|item| &item.id);
-        self.attention_listed()
-            .find(|item| Some(&item.id) == current)
-            .or_else(|| self.attention_listed().next())
-            .map(|item| &item.id)
-    }
-
-    /// How many the band would list, which is what decides whether it takes any rows.
-    #[must_use]
-    pub fn attention_listed_count(&self) -> usize {
-        self.attention_listed().count()
-    }
-
-    /// How many of those are still unanswered, which is what the pill counts.
-    ///
-    /// The request the decision region is showing is not among them at either number: it is being
-    /// answered, in front of the user, and a count that included it would send them looking for a
-    /// second thing that does not exist.
-    #[must_use]
-    pub fn attention_listed_pending(&self) -> usize {
-        self.attention_listed()
-            .filter(|item| !item.acknowledged)
-            .count()
+            .filter(|item| &item.agent_id == agent && Some(agent) != primary);
+        let mut first = None;
+        for item in &mut outstanding {
+            if item.kind() == plexmaton_core::AttentionKind::Approval {
+                return Some(item);
+            }
+            first.get_or_insert(item);
+        }
+        first
     }
 
     /// The user-opened approval presentation, if its loop-owned request is still pending.
@@ -117,59 +92,38 @@ impl ViewState {
         false
     }
 
+    /// Going to an agent is going to what it is asking, when it is asking something.
+    ///
+    /// ATT-2 made this a keypress on a band listing requests. The roster is that list now — a
+    /// request is announced on its agent's row — so entering the agent *is* going to the request,
+    /// and it stays the user's move: no producer path reaches here. ATT-3 still holds, because
+    /// this marks the request seen and leaves it queued; only the owning loop resolves it.
+    pub(super) fn visit_request(&mut self) -> bool {
+        let Some(agent) = self.agents.peeked().map(|agent| agent.id.clone()) else {
+            return false;
+        };
+        let Some(id) = self.agent_request(&agent).map(|item| item.id.clone()) else {
+            return false;
+        };
+        self.attention.select(&id);
+        let Some(target) = self.attention.acknowledge() else {
+            return false;
+        };
+        // A clarification is answered by reading the conversation it was raised in, which entering
+        // the agent has already opened. An approval needs its card, in that same conversation.
+        if target.kind == plexmaton_core::AttentionKind::Approval {
+            self.approval.open(target.id, SurfaceId::Inspector);
+            self.focus.prefer(SurfaceId::Approval);
+        }
+        true
+    }
+
     pub(crate) fn approval_in_primary(&self) -> bool {
         self.approval().is_some_and(|approval| {
             self.agents
                 .primary()
                 .is_some_and(|primary| &primary.id == approval.agent_id)
         })
-    }
-
-    /// Applies one user action to the Attention queue.
-    ///
-    /// Going to a request is the *only* thing in the workspace that lets a background agent change
-    /// what the user is looking at, and it happens because the user pressed a key on it. Nothing on
-    /// the producer path reaches here (ATT-1).
-    pub fn attend(&mut self, _surfaces: &SurfaceTree, intent: AttentionIntent) {
-        let changed = match intent {
-            AttentionIntent::Move(direction) => {
-                let ids: Vec<_> = self
-                    .attention_listed()
-                    .map(|item| item.id.clone())
-                    .collect();
-                self.attention.move_cursor(&ids, direction)
-            }
-            AttentionIntent::GoTo => {
-                let Some(id) = self.listed_attention_cursor().cloned() else {
-                    return;
-                };
-                self.attention.select(&id);
-                let Some(target) = self.attention.acknowledge() else {
-                    return;
-                };
-                // The agent may have left the roster; the acknowledgement still stands, because
-                // the user did see it.
-                let _selected = self.select_agent(&target.agent_id);
-                // Going to a background agent opens its window, and the user asked to be taken
-                // there, so the keyboard goes with them. The primary's conversation is already on
-                // screen, so going to the primary is pointing at it.
-                let destination = if self.agents.peeked().is_some() {
-                    SurfaceId::Inspector
-                } else {
-                    SurfaceId::Transcript
-                };
-                if target.kind == plexmaton_core::AttentionKind::Approval {
-                    self.approval.open(target.id, destination);
-                    self.focus.prefer(SurfaceId::Approval);
-                } else {
-                    self.focus.prefer(destination);
-                }
-                true
-            }
-        };
-        if changed {
-            self.touch();
-        }
     }
 
     /// Moves within or answers the user-opened approval surface.

@@ -106,7 +106,14 @@ impl ViewState {
             }
             _ => return None,
         };
-        let area = self.input_area(surfaces, surface)?;
+        let Some(area) = self.input_area(surfaces, surface) else {
+            if release && let Some(input) = self.input_mut(surface) {
+                // Geometry can disappear while capture is held. Preserve the range, but do
+                // not copy from an input the user can no longer see (CCV-4, INS-7).
+                let _ = input.finish_selection();
+            }
+            return None;
+        };
         let width = super::inner_width(area.width);
         let window = input_window(area);
         let column = at.x.saturating_sub(area.x + 1).min(width);
@@ -145,6 +152,7 @@ impl ViewState {
         let changed = self
             .focus
             .resolve(surfaces)
+            .filter(|surface| self.input_area(surfaces, *surface).is_some())
             .and_then(|surface| self.input_mut(surface))
             .is_some_and(TextInput::clear_selection);
         if changed {
@@ -191,20 +199,33 @@ impl ViewState {
             self.edit_drawer_filter(intent);
             return None;
         }
-        let kind = match self.focus.resolve(surfaces)? {
+        let surface = self.focus.resolve(surfaces)?;
+        let to = self.text_target(surfaces)?;
+        let kind = match surface {
             SurfaceId::Composer => SubmissionKind::Message,
-            SurfaceId::Inspector => SubmissionKind::Steering,
+            SurfaceId::Inspector
+                if self.agent(&to).is_some_and(|agent| {
+                    matches!(
+                        agent.status,
+                        plexmaton_core::AgentStatus::Running | plexmaton_core::AgentStatus::Waiting
+                    )
+                }) =>
+            {
+                SubmissionKind::Steering
+            }
+            SurfaceId::Inspector => SubmissionKind::Message,
             _ => return None,
         };
-        let to = self.text_target(surfaces)?;
         if let TextIntent::Submit = intent {
-            let skill = (kind == SubmissionKind::Message)
+            let skill = (surface == SurfaceId::Composer)
                 .then(|| self.selected_skill(&to).map(str::to_owned))
                 .flatten();
             let submitted = self.inputs.entry(to.clone()).or_default().take();
             if submitted.is_some() {
                 self.take_skill_binding(&to);
-                self.close_composer_menu();
+                if surface == SurfaceId::Composer {
+                    self.close_composer_menu();
+                }
                 self.touch();
             }
             return submitted.map(|text| Submission {
@@ -217,7 +238,7 @@ impl ViewState {
         // A row is a painted fact, so the motion is resolved at the width the input is drawn at.
         let row_width = match intent {
             TextIntent::MoveRow(_) => self
-                .input_area(surfaces, kind_surface(kind))
+                .input_area(surfaces, surface)
                 .map(|area| super::inner_width(area.width)),
             _ => None,
         };
@@ -229,7 +250,7 @@ impl ViewState {
             intent => apply_text(input, intent),
         };
         if changed {
-            if kind == SubmissionKind::Message {
+            if surface == SurfaceId::Composer {
                 self.sync_composer_menu();
             }
             self.touch();
@@ -241,13 +262,6 @@ impl ViewState {
 /// Rows an input's window holds inside the rectangle it is painted in: two edge rows out.
 pub(crate) fn input_window(area: ratatui::layout::Rect) -> u16 {
     area.height.saturating_sub(2).max(1)
-}
-
-const fn kind_surface(kind: SubmissionKind) -> SurfaceId {
-    match kind {
-        SubmissionKind::Message => SurfaceId::Composer,
-        SubmissionKind::Steering => SurfaceId::Inspector,
-    }
 }
 
 /// Applies one edit to whichever input the caller owns.

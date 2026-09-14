@@ -60,6 +60,7 @@ impl LiveRuntime {
             self.agent.selected_head(),
             model,
             tools,
+            &self.collaboration_context,
         ) {
             Ok(ledger) => Ok(ContextBudgetSnapshot::Available(Box::new(ledger))),
             Err(ContextBudgetError::IncompleteToolBatch) => Ok(ContextBudgetSnapshot::Unavailable(

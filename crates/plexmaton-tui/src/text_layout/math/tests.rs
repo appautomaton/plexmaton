@@ -161,7 +161,7 @@ fn formula_failures_are_local_typed_and_keep_source_copy_independent_of_capabili
 /// MTH-1/SEL-2: even a one-byte intersection paints the entire formula rectangle, not just glyphs.
 #[test]
 fn an_atomic_range_highlights_every_blank_and_edge_cell() {
-    let palette = crate::Palette::ansi();
+    let palette = crate::Palette::pastel();
     let selection = palette.style(Role::Selection);
     for math in [MathPresentation::Native, MathPresentation::default()] {
         let layout = crate::markdown::render_layout(

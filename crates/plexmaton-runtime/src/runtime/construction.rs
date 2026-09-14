@@ -1,21 +1,55 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use plexmaton_agent::{Agent, ApprovalPolicy, ConversationMetadata, TurnBudget};
+use plexmaton_agent::{
+    Agent, ApprovalPolicy, ConversationJournal, ConversationMetadata, TurnBudget,
+};
 use plexmaton_core::{AgentId, ConversationId};
 use plexmaton_provider::{ApiKey, ResolvedModel};
-use plexmaton_session_store::{AutomaticJournal, JournalFile, JournalRecovery};
+use plexmaton_session_store::collaboration::DelegatedConversationControl;
+use plexmaton_session_store::{AutomaticJournal, JournalRecovery, RootJournalFile};
 use tokio::sync::mpsc;
 
 use super::clock::{SystemWallClock, WallClock};
 use super::{
-    AfterCommit, JournalWriter, LiveRuntime, ModelDriver, ToolTasks, journal::JournalStore,
+    AfterCommit, JournalWriter, LiveRuntime, ModelDriver, RuntimeInputControl, ToolTasks,
+    journal::JournalStore,
 };
 use crate::{
     ConversationRecovery, HttpSetupError, JournalTailRecovery, NativeToolCatalog, RuntimeError,
     http::ProviderHttp,
 };
 
+mod delegated;
+
 const MODEL_SIGNAL_CAPACITY: usize = 32;
+
+struct JournalRuntimeOwner {
+    store: Box<dyn JournalStore>,
+    input_control: RuntimeInputControl,
+}
+
+impl JournalRuntimeOwner {
+    fn user(store: Box<dyn JournalStore>) -> Self {
+        Self {
+            store,
+            input_control: RuntimeInputControl::User,
+        }
+    }
+
+    fn awaiting_delegated(store: Box<dyn JournalStore>) -> Self {
+        Self {
+            store,
+            input_control: RuntimeInputControl::AwaitingDelegatedControl,
+        }
+    }
+
+    fn delegated(store: Box<dyn JournalStore>, control: DelegatedConversationControl) -> Self {
+        Self {
+            store,
+            input_control: RuntimeInputControl::Delegated(Box::new(control)),
+        }
+    }
+}
 
 impl LiveRuntime {
     /// Validates HTTP ownership and announces one idle live agent without touching the network.
@@ -53,8 +87,11 @@ impl LiveRuntime {
         model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
-        journal: JournalFile,
+        journal: RootJournalFile,
     ) -> Result<Self, RuntimeError> {
+        if !journal.journal().records().is_empty() {
+            return Err(RuntimeError::FreshJournalNotEmpty);
+        }
         let metadata = journal.journal().metadata().clone();
         Self::provider_with_new_store(
             agent_id,
@@ -63,7 +100,7 @@ impl LiveRuntime {
             key,
             tools,
             metadata,
-            Box::new(journal),
+            JournalRuntimeOwner::user(Box::new(journal)),
         )
         .await
     }
@@ -85,7 +122,7 @@ impl LiveRuntime {
             key,
             tools,
             metadata,
-            Box::new(journal),
+            JournalRuntimeOwner::user(Box::new(journal)),
         )
         .await
     }
@@ -97,7 +134,7 @@ impl LiveRuntime {
         key: ApiKey,
         tools: NativeToolCatalog,
         metadata: ConversationMetadata,
-        store: Box<dyn JournalStore>,
+        owner: JournalRuntimeOwner,
     ) -> Result<Self, RuntimeError> {
         if !tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
@@ -110,7 +147,7 @@ impl LiveRuntime {
             definitions,
             Arc::clone(&clock),
         )?);
-        Self::with_driver_store_and_clock(agent_id, label, driver, tools, metadata, store, clock)
+        Self::with_driver_store_and_owner(agent_id, label, driver, tools, metadata, owner, clock)
             .await
     }
 
@@ -120,7 +157,50 @@ impl LiveRuntime {
         model: ResolvedModel,
         key: ApiKey,
         tools: NativeToolCatalog,
-        journal: JournalFile,
+        journal: RootJournalFile,
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
+        Self::provider_with_resumed_journal_control(
+            agent_id,
+            model,
+            key,
+            tools,
+            journal,
+            RuntimeInputControl::User,
+        )
+        .await
+    }
+
+    async fn provider_with_resumed_journal_control(
+        agent_id: AgentId,
+        model: ResolvedModel,
+        key: ApiKey,
+        tools: NativeToolCatalog,
+        journal: RootJournalFile,
+        input_control: RuntimeInputControl,
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
+        let recovery = journal.recovery().clone();
+        let snapshot = journal.journal().clone();
+        let owner = match input_control {
+            RuntimeInputControl::User => JournalRuntimeOwner::user(Box::new(journal)),
+            RuntimeInputControl::AwaitingDelegatedControl => {
+                JournalRuntimeOwner::awaiting_delegated(Box::new(journal))
+            }
+            RuntimeInputControl::Delegated(_) => {
+                unreachable!("delegated control attaches only after runtime construction")
+            }
+        };
+        Self::provider_with_resumed_store(agent_id, model, key, tools, snapshot, recovery, owner)
+            .await
+    }
+
+    async fn provider_with_resumed_store(
+        agent_id: AgentId,
+        model: ResolvedModel,
+        key: ApiKey,
+        tools: NativeToolCatalog,
+        snapshot: ConversationJournal,
+        recovery: JournalRecovery,
+        owner: JournalRuntimeOwner,
     ) -> Result<(Self, ConversationRecovery), RuntimeError> {
         if !tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(HttpSetupError::ToolCredentialEnvironmentMismatch.into());
@@ -133,24 +213,15 @@ impl LiveRuntime {
             definitions,
             Arc::clone(&clock),
         )?);
-        let recovery = journal.recovery().clone();
         let agent = Agent::from_journal(
             agent_id.clone(),
-            journal.journal().clone(),
+            snapshot,
             TurnBudget::default(),
             ApprovalPolicy::default(),
         )
         .map_err(RuntimeError::JournalProjection)?;
-        Self::with_resumed_driver_and_store(
-            agent_id,
-            agent,
-            driver,
-            tools,
-            Box::new(journal),
-            recovery,
-            clock,
-        )
-        .await
+        Self::with_resumed_driver_and_owner(agent_id, agent, driver, tools, owner, recovery, clock)
+            .await
     }
 
     #[cfg(test)]
@@ -167,6 +238,16 @@ impl LiveRuntime {
             tools,
             Arc::new(SystemWallClock::new()?),
         ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_root_driver_for_test(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+    ) -> Result<Self, RuntimeError> {
+        Self::with_driver(agent_id, label, driver, tools)
     }
 
     pub(super) fn with_driver_and_clock(
@@ -196,6 +277,8 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             collaboration_context: Default::default(),
+            input_control: RuntimeInputControl::User,
+            collaboration_permit: None,
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,
@@ -212,6 +295,8 @@ impl LiveRuntime {
             journal_failed: false,
             shutdown_state: super::ShutdownState::Open,
             clock,
+            collaboration_identity:
+                crate::collaboration_ingress::RuntimeCollaborationIdentity::fresh(),
         };
         let announced = runtime.agent.announce(label);
         runtime
@@ -220,6 +305,7 @@ impl LiveRuntime {
         runtime
     }
 
+    #[cfg(test)]
     pub(super) async fn with_driver_store_and_clock(
         agent_id: AgentId,
         label: String,
@@ -229,6 +315,53 @@ impl LiveRuntime {
         store: Box<dyn JournalStore>,
         clock: Arc<dyn WallClock>,
     ) -> Result<Self, RuntimeError> {
+        Self::with_driver_store_and_owner(
+            agent_id,
+            label,
+            driver,
+            tools,
+            metadata,
+            JournalRuntimeOwner::user(store),
+            clock,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn with_delegated_driver_store_and_clock(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        metadata: ConversationMetadata,
+        store: Box<dyn JournalStore>,
+        clock: Arc<dyn WallClock>,
+    ) -> Result<Self, RuntimeError> {
+        Self::with_driver_store_and_owner(
+            agent_id,
+            label,
+            driver,
+            tools,
+            metadata,
+            JournalRuntimeOwner::awaiting_delegated(store),
+            clock,
+        )
+        .await
+    }
+
+    async fn with_driver_store_and_owner(
+        agent_id: AgentId,
+        label: String,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        metadata: ConversationMetadata,
+        owner: JournalRuntimeOwner,
+        clock: Arc<dyn WallClock>,
+    ) -> Result<Self, RuntimeError> {
+        let JournalRuntimeOwner {
+            store,
+            input_control,
+        } = owner;
         let (signals, signal_rx) = mpsc::channel(MODEL_SIGNAL_CAPACITY);
         let mut runtime = Self {
             agent_id: agent_id.clone(),
@@ -245,6 +378,8 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             collaboration_context: Default::default(),
+            input_control,
+            collaboration_permit: None,
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,
@@ -263,6 +398,8 @@ impl LiveRuntime {
             journal_failed: false,
             shutdown_state: super::ShutdownState::Open,
             clock,
+            collaboration_identity:
+                crate::collaboration_ingress::RuntimeCollaborationIdentity::fresh(),
         };
         let reaction = runtime.agent.announce(label);
         runtime.begin_transition(reaction, Vec::new(), AfterCommit::None)?;
@@ -270,15 +407,63 @@ impl LiveRuntime {
         Ok(runtime)
     }
 
+    #[cfg(test)]
     pub(super) async fn with_resumed_driver_and_store(
         agent_id: AgentId,
-        mut agent: Agent,
+        agent: Agent,
         driver: Arc<dyn ModelDriver>,
         tools: NativeToolCatalog,
         store: Box<dyn JournalStore>,
         tail_recovery: JournalRecovery,
         clock: Arc<dyn WallClock>,
     ) -> Result<(Self, ConversationRecovery), RuntimeError> {
+        Self::with_resumed_driver_and_owner(
+            agent_id,
+            agent,
+            driver,
+            tools,
+            JournalRuntimeOwner::user(store),
+            tail_recovery,
+            clock,
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn with_resumed_delegated_driver_and_store(
+        agent_id: AgentId,
+        agent: Agent,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        store: Box<dyn JournalStore>,
+        tail_recovery: JournalRecovery,
+        clock: Arc<dyn WallClock>,
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
+        Self::with_resumed_driver_and_owner(
+            agent_id,
+            agent,
+            driver,
+            tools,
+            JournalRuntimeOwner::awaiting_delegated(store),
+            tail_recovery,
+            clock,
+        )
+        .await
+    }
+
+    async fn with_resumed_driver_and_owner(
+        agent_id: AgentId,
+        mut agent: Agent,
+        driver: Arc<dyn ModelDriver>,
+        tools: NativeToolCatalog,
+        owner: JournalRuntimeOwner,
+        tail_recovery: JournalRecovery,
+        clock: Arc<dyn WallClock>,
+    ) -> Result<(Self, ConversationRecovery), RuntimeError> {
+        let JournalRuntimeOwner {
+            store,
+            input_control,
+        } = owner;
         let projection = agent
             .rebuild_projection()
             .unwrap_or_else(|_| unreachable!("a newly restored agent has no transient work"));
@@ -295,6 +480,8 @@ impl LiveRuntime {
             active: None,
             pending_model_start: None,
             collaboration_context: Default::default(),
+            input_control,
+            collaboration_permit: None,
             deferred_model_call: None,
             permissions: crate::CodingSessionPermissions::new(&tools),
             deferred_compaction_failure: None,
@@ -313,6 +500,8 @@ impl LiveRuntime {
             journal_failed: false,
             shutdown_state: super::ShutdownState::Open,
             clock,
+            collaboration_identity:
+                crate::collaboration_ingress::RuntimeCollaborationIdentity::fresh(),
         };
         let interrupted_turn = recovered.is_some();
         if let Some(reaction) = recovered {

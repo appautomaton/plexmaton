@@ -27,6 +27,44 @@ pub(super) struct ToolTasks {
 }
 
 impl ToolTasks {
+    pub(super) fn main_collaboration_identity(
+        &self,
+        endpoint: plexmaton_agent::collaboration::MailEndpoint,
+        runtime: std::sync::Arc<crate::collaboration_ingress::RuntimeCollaborationIdentity>,
+    ) -> Option<crate::MainRuntimeIdentity> {
+        self.catalog.main_runtime_identity(endpoint, runtime)
+    }
+
+    pub(super) fn child_collaboration_identity(
+        &self,
+        endpoint: plexmaton_agent::collaboration::MailEndpoint,
+        runtime: std::sync::Arc<crate::collaboration_ingress::RuntimeCollaborationIdentity>,
+    ) -> Option<crate::collaboration_ingress::ChildRuntimeIdentity> {
+        self.catalog.child_runtime_identity(endpoint, runtime)
+    }
+
+    pub(super) fn collaboration_artifact_source(
+        &self,
+        endpoint: plexmaton_agent::collaboration::MailEndpoint,
+        selected: Vec<plexmaton_agent::ArtifactAnnouncementOrigin>,
+        retained: Vec<plexmaton_agent::ArtifactAnnouncementOrigin>,
+        runtime: std::sync::Arc<crate::collaboration_ingress::RuntimeCollaborationIdentity>,
+    ) -> Option<crate::CollaborationArtifactSource> {
+        self.catalog
+            .collaboration_artifact_source(endpoint, selected, retained, runtime)
+    }
+
+    pub(super) fn collaboration_session_source(
+        &self,
+        endpoint: plexmaton_agent::collaboration::MailEndpoint,
+        journal: plexmaton_agent::ConversationJournal,
+        head: plexmaton_core::HeadName,
+        runtime: std::sync::Arc<crate::collaboration_ingress::RuntimeCollaborationIdentity>,
+    ) -> Option<crate::CollaborationSessionSource> {
+        self.catalog
+            .collaboration_session_source(endpoint, journal, head, runtime)
+    }
+
     pub(super) fn excludes_api_key_environment(&self, name: &str) -> bool {
         self.catalog.excludes_api_key_environment(name)
     }

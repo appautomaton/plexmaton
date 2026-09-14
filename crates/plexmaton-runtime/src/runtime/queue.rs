@@ -122,3 +122,22 @@ fn submitted_text(input: &Input) -> Option<&str> {
         _ => None,
     }
 }
+
+pub(crate) fn rejected_user_input(
+    input: &Input,
+    selected: Option<&str>,
+    reason: UndeliveredReason,
+) -> Option<UndeliveredInput> {
+    let (text, skill) = match input {
+        Input::Submitted { text } | Input::Steered { text } => (text, selected),
+        Input::SkillSubmitted { text, skill } | Input::SkillSteered { text, skill } => {
+            (text, Some(skill.name()))
+        }
+        _ => return None,
+    };
+    Some(UndeliveredInput::with_skill(
+        text.clone(),
+        skill.map(str::to_owned),
+        reason,
+    ))
+}

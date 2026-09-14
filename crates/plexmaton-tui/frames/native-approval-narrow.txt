@@ -1,11 +1,10 @@
-┌ Attention · 1 ───────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should │
-└──────────────────────────────────────────────────────────┘
+                                                            
 ┌ Agents ──────────────────────────────────────────────────┐
-│○ Agent B · UI study  done · 1 tool @1 1 mail             │
-│                                                          │
-│                                                          │
+│○ Agent B · UI study                                   ask│
+│  Choose whether the overlap study should cover narrow sc…│
 └──────────────────────────────────────────────────────────┘
+                                                            
+                                                            
                                                             
                                                             
                                                             
@@ -20,6 +19,7 @@
  UI study. Agent B is running independently; this           
  transcript remains interactive.                            
                                                             
+ received from agent-b · Routing stays centralized and z-o… 
  [?] exec_command · approval required                       
                                                     ( !2 )  
 ── Approval required · exec_command ────────────────────────

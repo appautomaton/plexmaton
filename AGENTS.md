@@ -1,5 +1,14 @@
 # AGENTS.md — Plexmaton
 
+## Who decides
+
+The user is a solo developer and what they say is the source of truth. Every document here was
+written by an agent, this one included, so any of it may encode an earlier misreading.
+
+Read the documents to learn what exists and why; cite them where they hold. Where the user's need
+contradicts one, the document is stale: name the sentence and rewrite it in the same change.
+"The contract says otherwise" is worth reporting, never a reason to refuse.
+
 ## Context routing
 
 Read only what the active task needs. Do not preload all phases, reference repositories, or broad source trees.
@@ -65,3 +74,4 @@ Keep roadmap, code, tests, comments, and user-facing behavior aligned. Document 
 - **Record contested choices.** Once a choice survives use, add a `Rejected:` sentence beside the rule naming the alternative and why it lost. Uncontested choices need no rejection note.
 - **An invariant with no test is marked unproven**, never left reading as fact.
 - **Link to the owner.** Expand docs only when needed; promote findings only when they change a durable invariant or system boundary.
+- **The repository is the memory.** A decision the user states is not recorded until it lands in the document that owns it, on the branch, in the same change. An agent's private notes, a session summary, or a memory file are not where a product decision, a scope cut, or a design constraint lives — only one reader ever sees those, and the next agent starts from the stale document. Every recorded note must earn its place; a note that could have been a sentence in `.agents/` is a note that should not exist.

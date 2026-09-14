@@ -57,7 +57,9 @@ impl Context {
                 ContextBudgetUnavailable::IncompleteToolBatch => Reason::IncompleteToolBatch,
             },
             Err(ContextBudgetError::IncompleteToolBatch) => Reason::IncompleteToolBatch,
-            Err(ContextBudgetError::Projection(_)) => Reason::ProjectionFailed,
+            Err(ContextBudgetError::Projection(_) | ContextBudgetError::Collaboration(_)) => {
+                Reason::ProjectionFailed
+            }
             Err(ContextBudgetError::Arithmetic(error)) => match error {
                 BudgetError::Overflow => Reason::ArithmeticOverflow,
                 BudgetError::InvalidLimits | BudgetError::InvalidAnchor => Reason::InvalidBudget,
@@ -68,7 +70,7 @@ impl Context {
                 | EncodeError::OpaqueReplayInChat
                 | EncodeError::UnrepresentableChatOrder
                 | EncodeError::IncompatibleReplay { .. } => Reason::HistoryIncompatible,
-                EncodeError::UnsupportedCollaboration
+                EncodeError::UnresolvedCollaboration
                 | EncodeError::InvalidToolArguments
                 | EncodeError::InvalidToolName
                 | EncodeError::InvalidReplayJson(_)

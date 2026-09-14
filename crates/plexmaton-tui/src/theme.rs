@@ -1,12 +1,12 @@
 //! Semantic colour tokens and the palettes that assign them a style.
 //!
 //! Widgets name a [`Role`], never a terminal colour. A [`Palette`] is one complete
-//! assignment of those tokens; [`Palette::ansi`], [`Palette::pastel`],
-//! [`Palette::truecolor`], and [`Palette::monochrome`] are shipped presets, not a closed set. A
+//! assignment of those tokens; [`Palette::pastel`] is the shipped one, not a closed
+//! set. A
 //! new colourway is a new assignment, not a change to a widget.
 
 use plexmaton_core::{AgentStatus, ToolCallStatus};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 
 pub(crate) mod code;
 mod effort;
@@ -130,7 +130,7 @@ pub const fn agent_role(status: AgentStatus) -> Role {
 ///
 /// Selection is reversal in all three, because reversal is what a terminal user reads as "selected"
 /// regardless of theme, and because it carries the distinction through a modifier rather than a
-/// colour — which is what the monochrome palette would have forced anyway.
+/// colour, so a selection reads as a selection on top of whatever role painted the run.
 const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 
 /// Resolved styles for every [`Role`].
@@ -180,53 +180,15 @@ impl Palette {
         }
     }
 
-    /// Palette built from the sixteen ANSI colours.
-    ///
-    /// This is the default because named colours resolve through the user's own terminal theme,
-    /// so the workspace sits inside their configured environment instead of overriding it. It is
-    /// also the only palette guaranteed to render on a terminal without truecolour.
-    #[must_use]
-    pub fn ansi() -> Self {
-        Self {
-            markdown: MarkdownTheme::Inherited,
-            body: Style::new(),
-            muted: Style::new().fg(Color::DarkGray),
-            // One step weaker than muted, because a border is the least important thing on screen
-            // (ui-ux §readability). A terminal that ignores DIM degrades it to muted, which is
-            // where this role already was.
-            border: Style::new().fg(Color::DarkGray).add_modifier(Modifier::DIM),
-            border_focused: Style::new().fg(Color::Cyan),
-            // Weight, not hue: a heading that spent a colour left focus, identity and headings
-            // all reading as cyan. `Reset` is the user's own text colour said out loud, and it has
-            // to be said: a title is painted over the border row, and a `Style` is a patch, so a
-            // role with no foreground keeps whichever colour the border left underneath it.
-            section_heading: Style::new().fg(Color::Reset).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(Color::Magenta),
-            // Reverse, not a named colour: a cyan chip next to muted labels made the footer
-            // compete with focus for the same hue.
-            key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            // Bright blue rather than blue: slot 4 is the darkest seat in most dark themes, and
-            // ambient work has to be legible before it can be quiet.
-            ambient: Style::new().fg(Color::LightBlue),
-            new_information: Style::new().fg(Color::Green),
-            action_required: Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            failure: Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
-            selection: SELECTION,
-            chosen: Style::new()
-                .fg(Color::Yellow)
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        }
-    }
-
     /// The designed palette: the status line's named colours on a dark terminal ground.
     ///
     /// Each colour names what a thing is: sky for where you are, teal for work in progress, mint
     /// for what finished, orange for what needs you, coral for what failed, violet for who is
     /// speaking, gold for what `Enter` acts on. Weight makes titles and the chosen row read first;
     /// italic keeps work in progress quiet. Its Markdown is the same tokens, designed for reading.
-    /// Rejected: Catppuccin's mauve-tinted tokens, which were nobody's here; and ANSI slots as the
-    /// default, which let the terminal theme decide what our semantics look like.
+    /// Rejected: Catppuccin's mauve-tinted tokens, which were nobody's here; and resolving through
+    /// the user's own terminal theme, which let their configuration decide what our semantics
+    /// look like.
     #[must_use]
     pub fn pastel() -> Self {
         use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL};
@@ -251,62 +213,25 @@ impl Palette {
     /// Designed truecolour palette matching the published screen-anatomy tokens.
     ///
     /// Opt in only when the terminal is known to support 24-bit colour; it overrides the user's
-    /// theme, which is a trade for precision rather than a strict improvement.
+    /// A second palette, owned by the tests that need one. A palette swap must change
+    /// styling and nothing else, and proving that needs two assignments — not a second
+    /// preset in the product that no user can select.
+    #[cfg(test)]
     #[must_use]
-    pub fn truecolor() -> Self {
-        const INK: Color = Color::Rgb(0xDC, 0xE7, 0xEA);
-        const MUTED: Color = Color::Rgb(0x8D, 0xA1, 0xA9);
-        const LINE: Color = Color::Rgb(0x33, 0x47, 0x4E);
-        const ACCENT: Color = Color::Rgb(0x45, 0xC6, 0xCF);
-        const AMBIENT: Color = Color::Rgb(0x7D, 0x91, 0x9A);
-        const INFO: Color = Color::Rgb(0x55, 0xC0, 0x8A);
-        const ATTENTION: Color = Color::Rgb(0xDD, 0xA3, 0x3F);
-        const FAILURE: Color = Color::Rgb(0xE8, 0x74, 0x6D);
-
-        Self {
-            markdown: MarkdownTheme::Inherited,
-            body: Style::new().fg(INK),
-            muted: Style::new().fg(MUTED),
-            border: Style::new().fg(LINE),
-            border_focused: Style::new().fg(ACCENT),
-            section_heading: Style::new().fg(ACCENT).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(ACCENT),
-            key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().fg(AMBIENT),
-            new_information: Style::new().fg(INFO),
-            action_required: Style::new().fg(ATTENTION).add_modifier(Modifier::BOLD),
-            failure: Style::new().fg(FAILURE).add_modifier(Modifier::BOLD),
-            selection: SELECTION,
-            chosen: Style::new()
-                .fg(ACCENT)
-                .bg(LINE)
-                .add_modifier(Modifier::BOLD),
-        }
-    }
-
-    /// Palette that carries every distinction through modifiers alone.
-    ///
-    /// The UI/UX contract requires the grammar to survive a monochrome terminal, so this is a
-    /// supported mode rather than a fallback that nobody checks. Colour must never be the only
-    /// carrier of a distinction that matters.
-    #[must_use]
-    pub fn monochrome() -> Self {
-        Self {
-            markdown: MarkdownTheme::Inherited,
-            body: Style::new(),
-            muted: Style::new().add_modifier(Modifier::DIM),
-            border: Style::new().add_modifier(Modifier::DIM),
-            border_focused: Style::new().add_modifier(Modifier::BOLD),
-            section_heading: Style::new().add_modifier(Modifier::BOLD),
-            accent: Style::new().add_modifier(Modifier::BOLD),
-            key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().add_modifier(Modifier::DIM),
-            new_information: Style::new(),
-            action_required: Style::new().add_modifier(Modifier::BOLD),
-            failure: Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
-            selection: SELECTION,
-            chosen: Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        }
+    pub(crate) fn inverted() -> Self {
+        let base = Self::pastel();
+        Self::from_roles(|role| {
+            // Only a role that already names a colour gets a different one. A role that
+            // carries its meaning in modifiers alone keeps them, so inverting cannot
+            // invent a colour where the design deliberately has none.
+            let style = base.style(role);
+            match style.fg {
+                Some(ratatui::style::Color::Rgb(r, g, b)) => {
+                    style.fg(ratatui::style::Color::Rgb(255 - r, 255 - g, 255 - b))
+                }
+                _ => style,
+            }
+        })
     }
 
     /// Resolves one role.
@@ -332,7 +257,7 @@ impl Palette {
 
 impl Default for Palette {
     fn default() -> Self {
-        Self::ansi()
+        Self::pastel()
     }
 }
 
@@ -346,12 +271,10 @@ mod tests {
 
     use super::{Palette, Role, tool_role};
 
-    fn palettes() -> [(&'static str, Palette); 4] {
+    fn palettes() -> [(&'static str, Palette); 2] {
         [
-            ("ansi", Palette::ansi()),
             ("pastel", Palette::pastel()),
-            ("truecolor", Palette::truecolor()),
-            ("monochrome", Palette::monochrome()),
+            ("inverted", Palette::inverted()),
         ]
     }
 
@@ -377,19 +300,6 @@ mod tests {
             Role::ActionRequired
         );
         assert_eq!(tool_role(ToolCallStatus::Denied), Role::Muted);
-    }
-
-    #[test]
-    fn monochrome_carries_every_attention_level_without_colour() {
-        let palette = Palette::monochrome();
-
-        for role in Role::ATTENTION {
-            let style = palette.style(role);
-            assert!(
-                style.fg.is_none() && style.bg.is_none(),
-                "{role:?} uses colour in the monochrome palette"
-            );
-        }
     }
 
     #[test]
@@ -425,12 +335,12 @@ mod tests {
 
     #[test]
     fn a_palette_is_a_complete_assignment_of_roles() {
-        let ansi = Palette::ansi();
-        let rebuilt = Palette::from_roles(|role| ansi.style(role));
+        let base = Palette::pastel();
+        let rebuilt = Palette::from_roles(|role| base.style(role));
         for role in Role::ALL {
             assert_eq!(
                 rebuilt.style(role),
-                ansi.style(role),
+                base.style(role),
                 "{role:?} did not round-trip through from_roles"
             );
         }

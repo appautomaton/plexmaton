@@ -1,10 +1,11 @@
 use super::*;
-use plexmaton_agent::{RetryCandidate, RetryTarget};
+use plexmaton_agent::{RetryCandidate, RetryTarget, UndeliveredInput};
 
 impl LiveRuntime {
     /// Only acknowledged, idle state can expose an actionable retry.
     pub fn retry_candidate(&self) -> Option<RetryCandidate> {
-        if self.shutdown_state != ShutdownState::Open
+        if self.user_control_refusal().is_some()
+            || self.shutdown_state != ShutdownState::Open
             || self.journal_failed
             || self.has_active_work()
             || self.pending_commit.is_some()
@@ -40,6 +41,14 @@ impl LiveRuntime {
         edited: Option<String>,
         selected: Option<String>,
     ) -> Result<DispatchReport, RuntimeError> {
+        if let Some(text) = &edited {
+            let input = Input::Submitted { text: text.clone() };
+            if let Some(refusal) = self.refuse_direct_input(&input, selected.as_deref()) {
+                return refusal;
+            }
+        } else {
+            self.require_user_control()?;
+        }
         if self
             .retry_candidate()
             .is_none_or(|candidate| candidate.target != target)

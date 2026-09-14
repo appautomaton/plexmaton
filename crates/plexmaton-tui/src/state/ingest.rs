@@ -262,13 +262,8 @@ impl ViewState {
                     !advanced && return_focus.is_some_and(|surface| self.focus.prefer(surface));
                 removed || restored || advanced
             }
-            ConversationEvent::MailDelivered {
-                item_id,
-                mail_id,
-                from,
-                to,
-                summary,
-            } => self.apply_mail(item_id, mail_id, from, to, summary)?,
+            event @ (ConversationEvent::TaskAssigned { .. }
+            | ConversationEvent::MailDelivered { .. }) => self.apply_addressed(event)?,
             ConversationEvent::ArtifactAnnounced {
                 agent_id,
                 item_id,
@@ -290,26 +285,86 @@ impl ViewState {
         Ok(changed)
     }
 
+    /// Files one side of a letter into the conversation that owns that side.
+    ///
+    /// Both endpoints must exist, because a letter names two conversations and an item addressed to
+    /// a conversation this projection has never heard of is a gap, not a delivery.
     fn apply_mail(
         &mut self,
+        agent_id: AgentId,
         item_id: TranscriptItemId,
         mail_id: plexmaton_core::MailId,
         from: AgentId,
         to: AgentId,
         summary: String,
     ) -> Result<bool, ReduceError> {
-        if !self.agents.contains(&to) {
-            return Err(ReduceError::UnknownAgent(to));
+        for endpoint in [&from, &to] {
+            if !self.agents.contains(endpoint) {
+                return Err(ReduceError::UnknownAgent(endpoint.clone()));
+            }
         }
-        self.validate_entry_owner(&from, &item_id)?;
-        let changed = self.agent_mut(&from)?.deliver_mail(
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = self.agent_mut(&agent_id)?.deliver_mail(
             item_id.clone(),
             mail_id,
-            from.clone(),
+            agent_id.clone(),
+            from,
             to,
             summary,
         )?;
-        self.remember_entry_owner(item_id, from);
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
+    /// Files one side of whatever one session addressed to another.
+    ///
+    /// Mail and a task share this arm because they share every rule that matters here: both name
+    /// two conversations, both are announced once per side, and both refuse an endpoint this
+    /// projection has never heard of.
+    fn apply_addressed(&mut self, event: ConversationEvent) -> Result<bool, ReduceError> {
+        match event {
+            ConversationEvent::TaskAssigned {
+                agent_id,
+                item_id,
+                from,
+                to,
+                task,
+            } => self.apply_task(agent_id, item_id, from, to, task),
+            ConversationEvent::MailDelivered {
+                agent_id,
+                item_id,
+                mail_id,
+                from,
+                to,
+                summary,
+            } => self.apply_mail(agent_id, item_id, mail_id, from, to, summary),
+            _ => unreachable!("only addressed events reach this arm"),
+        }
+    }
+
+    /// Files one side of an assigned task, under the same rule mail follows.
+    fn apply_task(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        from: AgentId,
+        to: AgentId,
+        task: String,
+    ) -> Result<bool, ReduceError> {
+        for endpoint in [&from, &to] {
+            if !self.agents.contains(endpoint) {
+                return Err(ReduceError::UnknownAgent(endpoint.clone()));
+            }
+        }
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = self.agent_mut(&agent_id)?.assign_task(
+            item_id.clone(),
+            agent_id.clone(),
+            from,
+            to,
+            task,
+        )?;
+        self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
     }
 
@@ -447,23 +502,37 @@ mod tests {
         assert_eq!(state.notices().count(), 0);
     }
 
+    /// One letter reaches two conversations, and both of them name the session that wrote it.
+    ///
+    /// The recipient's side is the whole point: without it a delegating agent answers a question
+    /// the user can see no trace of having been asked.
     #[test]
-    fn mail_retains_both_endpoints_and_lives_with_its_producer() {
+    fn a_letter_reaches_both_conversations_attributed_to_its_sender() {
         let state = canonical_state();
-        let producer = state
+        let sender = state
             .agent(&agent_id("agent-b"))
             .unwrap_or_else(|| panic!("canonical scenario creates the sender"));
-        let mail: Vec<_> = producer.mail().collect();
+        let recipient = state
+            .agent(&agent_id("agent-a"))
+            .unwrap_or_else(|| panic!("canonical scenario creates the recipient"));
+        let sent: Vec<_> = sender.mail().collect();
+        let arrived: Vec<_> = recipient.mail().collect();
 
-        assert_eq!(mail.len(), 1);
-        assert_eq!(mail[0].from.as_str(), "agent-b");
-        assert_eq!(mail[0].to.as_str(), "agent-a");
+        assert_eq!(sent.len(), 1);
+        assert_eq!(arrived.len(), 1);
+        for letter in [sent[0], arrived[0]] {
+            assert_eq!(letter.from.as_str(), "agent-b");
+            assert_eq!(letter.to.as_str(), "agent-a");
+        }
+        assert_eq!(sent[0].id, arrived[0].id, "one letter, one mail identity");
+        assert_ne!(
+            sent[0].entry_id, arrived[0].entry_id,
+            "an item belongs to one conversation, so each side is its own item"
+        );
         assert_eq!(
-            state
-                .primary_agent()
-                .map_or(0, |agent| agent.mail().count()),
-            0,
-            "delivery does not move the sender's entry into the recipient transcript"
+            recipient.mail().count(),
+            1,
+            "the recipient holds its own item, not the sender's"
         );
     }
 
@@ -500,6 +569,7 @@ mod tests {
         state.apply(envelope(
             6,
             ConversationEvent::MailDelivered {
+                agent_id: agent.clone(),
                 item_id: item_id("mail"),
                 mail_id: MailId::new("mail-1").unwrap_or_else(|error| panic!("fixture: {error}")),
                 from: agent.clone(),
@@ -537,6 +607,7 @@ mod tests {
                 TranscriptEntryView::Tool(_) => "tool",
                 TranscriptEntryView::Artifact(_) => "artifact",
                 TranscriptEntryView::Mail(_) => "mail",
+                TranscriptEntryView::Task(_) => "task",
             })
             .collect();
         assert_eq!(

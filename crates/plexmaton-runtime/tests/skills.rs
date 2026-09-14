@@ -10,7 +10,7 @@ use plexmaton_core::{AgentId, ConversationId, HeadName};
 use plexmaton_file_tools::FileCancellation;
 use plexmaton_provider::{ApiKey, ModelRegistry, ResolvedModel, resolve_api_key};
 use plexmaton_runtime::{DispatchReport, LiveRuntime, NativeToolCatalog, RuntimeUpdate};
-use plexmaton_session_store::{AutomaticJournal, JournalFile};
+use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, JournalFile};
 
 #[path = "skills/fixture.rs"]
 mod fixture;
@@ -160,6 +160,7 @@ async fn explicit_skill_context_survives_source_deletion_and_jsonl_resume() {
     let server = ScriptedServer::start([FINAL.to_owned(), FINAL.to_owned()]);
     let (model, key) = transport(&server.base_url);
     let automatic = AutomaticJournal::new(scratch.path(), UnixMillis::new(1));
+    let session_id = automatic.metadata().conversation_id().clone();
     let journal_path = automatic.path().to_path_buf();
     let mut runtime = LiveRuntime::provider_with_automatic_journal(
         agent_id(),
@@ -214,6 +215,11 @@ async fn explicit_skill_context_survives_source_deletion_and_jsonl_resume() {
                 && activation.location() == canonical_skill_path.to_string_lossy()
                 && activation.instructions() == BODY
     )));
+    drop(reopened);
+    let reopened = ConversationDirectory::under(scratch.path())
+        .unwrap_or_else(|error| panic!("root directory: {error}"))
+        .resume(&session_id)
+        .unwrap_or_else(|error| panic!("reopen root journal: {error}"));
 
     let resumed_key = resolve_api_key(&model, Some(OsString::from("fixture-secret")))
         .unwrap_or_else(|error| panic!("resumed fixture key: {error}"));
@@ -280,14 +286,13 @@ async fn model_skill_call_records_real_read_while_catalog_omits_body() {
         FINAL.to_owned(),
     ]);
     let (model, key) = transport(&server.base_url);
-    let journal_path = scratch.path().join("model-call.jsonl");
-    let journal = JournalFile::create(
-        &journal_path,
-        ConversationId::new("model-call-session")
-            .unwrap_or_else(|error| panic!("session id: {error}")),
-        UnixMillis::new(2),
-    )
-    .unwrap_or_else(|error| panic!("fresh journal: {error}"));
+    let session_id = ConversationId::new("model-call-session")
+        .unwrap_or_else(|error| panic!("session id: {error}"));
+    let journal = ConversationDirectory::under(scratch.path())
+        .unwrap_or_else(|error| panic!("root directory: {error}"))
+        .create(session_id, UnixMillis::new(2))
+        .unwrap_or_else(|error| panic!("fresh journal: {error}"));
+    let journal_path = journal.path().to_path_buf();
     let mut runtime = LiveRuntime::provider_with_fresh_journal(
         agent_id(),
         "Plexmaton",
@@ -373,14 +378,13 @@ async fn explicit_user_only_skill_allows_resource_but_not_unprompted_body() {
         FINAL.to_owned(),
     ]);
     let (model, key) = transport(&server.base_url);
-    let journal_path = scratch.path().join("user-only.jsonl");
-    let journal = JournalFile::create(
-        &journal_path,
-        ConversationId::new("user-only-session")
-            .unwrap_or_else(|error| panic!("user-only session id: {error}")),
-        UnixMillis::new(4),
-    )
-    .unwrap_or_else(|error| panic!("user-only journal: {error}"));
+    let session_id = ConversationId::new("user-only-session")
+        .unwrap_or_else(|error| panic!("user-only session id: {error}"));
+    let journal = ConversationDirectory::under(scratch.path())
+        .unwrap_or_else(|error| panic!("root directory: {error}"))
+        .create(session_id, UnixMillis::new(4))
+        .unwrap_or_else(|error| panic!("user-only journal: {error}"));
+    let journal_path = journal.path().to_path_buf();
     let mut runtime = LiveRuntime::provider_with_fresh_journal(
         agent_id(),
         "Plexmaton",

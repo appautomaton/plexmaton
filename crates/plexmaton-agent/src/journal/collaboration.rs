@@ -5,7 +5,46 @@ use crate::collaboration::{
     CollaborationError, CollaborationItemRef, MailEndpoint, ResolvedTurnAdmission, TurnBoundary,
 };
 
+/// Exact selected-branch session fact proving that one collaboration admission entered a turn.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollaborationInclusionOrigin {
+    entry: ConversationEntryId,
+    reference: CollaborationItemRef,
+}
+
+impl CollaborationInclusionOrigin {
+    #[must_use]
+    pub const fn entry(&self) -> &ConversationEntryId {
+        &self.entry
+    }
+
+    #[must_use]
+    pub const fn reference(&self) -> &CollaborationItemRef {
+        &self.reference
+    }
+}
+
 impl ConversationJournal {
+    /// Every collaboration inclusion on one branch, in provider order.
+    pub fn collaboration_inclusions(
+        &self,
+        head: &HeadName,
+    ) -> Result<Vec<CollaborationInclusionOrigin>, JournalError> {
+        Ok(self
+            .path(head)?
+            .into_iter()
+            .filter_map(|entry| match &entry.payload {
+                JournalEntryPayload::CollaborationTurnStarted { reference, .. } => {
+                    Some(CollaborationInclusionOrigin {
+                        entry: entry.id.clone(),
+                        reference: reference.clone(),
+                    })
+                }
+                _ => None,
+            })
+            .collect())
+    }
+
     /// Inclusion cursor is selected ancestry, not the latest global admission (CIN-2).
     pub fn previous_collaboration_inclusion(
         &self,

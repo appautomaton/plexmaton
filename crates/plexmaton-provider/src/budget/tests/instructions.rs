@@ -22,8 +22,11 @@ fn agi_4_instruction_bytes_are_budgeted_and_changed_rules_invalidate_measurement
         );
         let mut agent = open();
         let before = agent.journal().clone();
-        let base_budget = budgeted_context(agent.journal(), &head(), &base, &[]).expect("base");
-        let budget = budgeted_context(agent.journal(), &head(), &model, &[]).expect("budget");
+        let base_budget =
+            budgeted_context(agent.journal(), &head(), &base, &[], &Default::default())
+                .expect("base");
+        let budget = budgeted_context(agent.journal(), &head(), &model, &[], &Default::default())
+            .expect("budget");
         assert_eq!(base_budget.request, budget.request);
         assert_eq!(base_budget.ledger.atoms, budget.ledger.atoms);
         assert!(
@@ -73,11 +76,13 @@ fn agi_4_instruction_bytes_are_budgeted_and_changed_rules_invalidate_measurement
         agent
             .finish_request_attempt(&terminal)
             .expect("record usage");
-        let measured = budget_ledger(agent.journal(), &head(), &model, &[]).expect("matched");
+        let measured = budget_ledger(agent.journal(), &head(), &model, &[], &Default::default())
+            .expect("matched");
         assert!(measured.anchor.is_some());
         assert_eq!(measured.input_tokens, 500);
         assert_eq!(measured.estimated_remainder.tokens, 0);
-        let fresh = budget_ledger(agent.journal(), &head(), &changed, &[]).expect("changed");
+        let fresh = budget_ledger(agent.journal(), &head(), &changed, &[], &Default::default())
+            .expect("changed");
         assert!(
             fresh.anchor.is_none(),
             "{api}: changed rules cannot reuse old usage"

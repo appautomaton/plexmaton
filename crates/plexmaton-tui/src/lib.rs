@@ -29,21 +29,22 @@ mod transcript;
 mod workspace;
 
 pub use intent::{
-    ApprovalIntent, AttentionIntent, Direction, InspectorIntent, MenuIntent, PointerIntent,
-    ScrollDirection, SelectionIntent, TextIntent, TreeIntent, TuiIntent,
+    ApprovalIntent, Direction, InspectorIntent, MenuIntent, PointerIntent, ScrollDirection,
+    SelectionIntent, TextIntent, TreeIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};
 pub use state::{
     AgentView, ApplyOutcome, ApprovalSubmission, ApprovalView, ArtifactView, AttentionView,
-    CleanupNotice, Command, CompactRefusal, CompactionNote, ConfigurationSummary,
-    ConversationChoice, ConversationPickerStatus, ConversationRequest, ConversationRestoration,
-    ConversationTailRepair, CopyReceipt, CopyRequest, Drawer, InspectorView, Listing,
-    MAX_CONVERSATION_CHOICES, MailView, ModelChoice, ModelIdentity, NoticeView, Page,
-    PermissionRequest, PersistenceNotice, QueuedBoundary, QueuedInput, ReduceError, RetryAction,
-    RetryActions, RetrySubmission, RetryTarget, ScrollPosition, Selection, SkillChoice,
-    SkillChoiceSource, Submission, SubmissionKind, SwitchRefusal, ToolCallView,
-    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
+    ChildControl, ChildControlRefusal, ChildControlSnapshot, CleanupNotice, Command,
+    CompactRefusal, CompactionNote, ConfigurationSummary, ConversationChoice,
+    ConversationPickerStatus, ConversationRequest, ConversationRestoration, ConversationTailRepair,
+    CopyReceipt, CopyRequest, Drawer, InspectorView, Listing, MAX_CONVERSATION_CHOICES, MailView,
+    ModelChoice, ModelIdentity, NoticeView, Page, PermissionRequest, PersistenceNotice,
+    QueuedBoundary, QueuedInput, ReduceError, RetryAction, RetryActions, RetrySubmission,
+    RetryTarget, ScrollPosition, Selection, SkillChoice, SkillChoiceSource, Submission,
+    SubmissionKind, SwitchRefusal, TaskView, ToolCallView, TranscriptEntryView, TranscriptItemView,
+    TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
 pub use statusline::{StatusLineText, StatusLineTextError};

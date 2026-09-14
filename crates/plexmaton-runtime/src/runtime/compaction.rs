@@ -59,6 +59,7 @@ impl LiveRuntime {
             self.agent.selected_head(),
             model,
             tools,
+            &self.collaboration_context,
         )
         .map_err(RuntimeError::ContextBudget)?;
         let trigger = match (&ledger.decision, call.step_id.index()) {
@@ -117,6 +118,7 @@ impl LiveRuntime {
             self.agent.selected_head(),
             model,
             tools,
+            &self.collaboration_context,
             id,
         ) {
             Ok(prepared) => prepared,

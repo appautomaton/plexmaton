@@ -76,13 +76,16 @@ fn main() -> Result<()> {
     };
     for (width, height) in sizes {
         let footer = footer(width)?;
-        for (name, palette, selected) in [
-            ("before", Palette::ansi(), false),
-            ("pastel", Palette::pastel(), false),
-            ("mono", Palette::monochrome(), false),
-            ("selected", Palette::pastel(), true),
-        ] {
-            let buffer = preview(palette, footer.clone(), width, height, syntax, selected)?;
+        // One palette ships, so the axis this sweeps is selection rather than colour scheme.
+        for (name, selected) in [("pastel", false), ("selected", true)] {
+            let buffer = preview(
+                Palette::pastel(),
+                footer.clone(),
+                width,
+                height,
+                syntax,
+                selected,
+            )?;
             std::fs::write(
                 directory.join(format!("{name}-{width}x{height}.svg")),
                 frame_svg::svg(&buffer),
@@ -100,7 +103,7 @@ fn preview(
     syntax: bool,
     selected: bool,
 ) -> Result<Buffer> {
-    let mut workspace = Workspace::with_palette(Palette::ansi());
+    let mut workspace = Workspace::with_palette(palette);
     workspace.set_model(plexmaton_tui::ConfigurationSummary {
         configured_name: "fixture".into(),
         provider: "local".into(),

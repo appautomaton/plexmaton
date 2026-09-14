@@ -30,6 +30,7 @@ mod approval_interaction_tests;
 mod approval_pointer;
 #[cfg(test)]
 mod approval_queue_tests;
+mod child_control;
 mod composer_menu;
 #[cfg(test)]
 mod composer_menu_tests;
@@ -505,8 +506,8 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
+            TuiIntent::ToggleRoster => self.state.toggle_roster(),
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
-            TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::InspectCommand(action) => return self.inspect_command(action),
             TuiIntent::WithdrawQueued => return self.withdraw_queued(),
             TuiIntent::Approval(approval) => {
@@ -562,7 +563,7 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, ArtifactId, AttentionId,
-        AttentionRequest, ConversationEvent, ToolCallId, ToolCallStatus, ToolCapability,
+        AttentionRequest, ConversationEvent, MailId, ToolCallId, ToolCallStatus, ToolCapability,
         ToolDetail, ToolPresentation, TranscriptItemId,
     };
 
@@ -585,6 +586,20 @@ mod tests {
             .settled_draw(&mut terminal)
             .unwrap_or_else(|error| panic!("test render: {error}"));
         (workspace, terminal)
+    }
+
+    /// CCV-2: input geometry fixtures explicitly start after acknowledged Handoff.
+    fn acknowledge_user_control(workspace: &mut Workspace) {
+        let child = AgentId::new("agent-b").expect("fixture child identity");
+        workspace
+            .set_child_control(
+                &child,
+                crate::ChildControlSnapshot {
+                    revision: 1,
+                    control: crate::ChildControl::User,
+                },
+            )
+            .expect("known non-primary fixture child");
     }
 
     struct FoldableTool {
@@ -689,7 +704,7 @@ mod tests {
     fn an_injected_palette_is_the_one_the_frame_paints() {
         let palette = Palette::from_roles(|role| match role {
             Role::Border => Style::new().fg(Color::Magenta),
-            role => Palette::ansi().style(role),
+            role => Palette::pastel().style(role),
         });
         let mut workspace = Workspace::with_palette(palette);
         let mut terminal = Terminal::new(TestBackend::new(120, 24))
@@ -1140,7 +1155,7 @@ mod tests {
                 );
                 let prepared = workspace.metrics.text_layouts();
                 let source = workspace.state.agent(&agent).expect("agent").clone();
-                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                for palette in [Palette::inverted(), Palette::pastel(), Palette::inverted()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     let at = point_on(&terminal, &workspace, surface, "read_file");
@@ -1244,7 +1259,7 @@ mod tests {
                     &mouse(MouseEventKind::ScrollDown, region.x + 1, region.y + 1),
                 );
                 let prepared = workspace.metrics.text_layouts();
-                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                for palette in [Palette::inverted(), Palette::pastel(), Palette::inverted()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     assert_eq!(workspace.metrics.text_layouts(), prepared);
@@ -1275,7 +1290,7 @@ mod tests {
     /// ENT-4/SEL-4: disclosure never changes clipboard source, and neither width, scroll, nor a
     /// palette substitution can make copied tool text inherit terminal decoration.
     #[test]
-    fn tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome() {
+    fn tool_copy_is_identical_when_compact_open_resized_scrolled_and_repainted() {
         let FoldableTool {
             mut workspace,
             mut terminal,
@@ -1316,14 +1331,14 @@ mod tests {
             ),
         );
         let resized = copy(&mut workspace);
-        workspace.palette = Palette::monochrome();
+        workspace.palette = Palette::pastel();
         workspace.painted = None;
         frame(&mut workspace, &mut terminal);
-        let monochrome = copy(&mut workspace);
+        let repainted = copy(&mut workspace);
 
         assert_eq!(compact, open);
         assert_eq!(compact, resized);
-        assert_eq!(compact, monochrome);
+        assert_eq!(compact, repainted);
         let ToolPresentation {
             invocation: Some(ToolDetail::Text { source, .. }),
             ..
@@ -1816,7 +1831,8 @@ mod tests {
             let cold = frame(&mut workspace, &mut terminal);
             assert_eq!(
                 cold.entries_wrapped,
-                messages.saturating_add(1),
+                // The opener, and the letter the canonical timeline delivers into this conversation.
+                messages.saturating_add(2),
                 "a cold frame measures every entry exactly once, the canonical opener included"
             );
 
@@ -1831,7 +1847,7 @@ mod tests {
 
             assert_eq!(
                 workspace.metrics().retained(),
-                messages.saturating_add(1),
+                messages.saturating_add(2),
                 "the cache holds one height per entry and no more"
             );
             steady.push((delta.lines_built, cold.lines_built));
@@ -2217,6 +2233,7 @@ mod tests {
     #[test]
     fn the_inspector_takes_the_cursor_and_the_composer_keeps_one_row() {
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         let tab = press(KeyCode::Tab, KeyModifiers::NONE);
 
         // Walk to the composer and leave a draft there.
@@ -2463,6 +2480,7 @@ mod tests {
     fn an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor() {
         let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let draft = |workspace: &Workspace| workspace.state.draft(&agent_b).text().to_owned();
@@ -2516,6 +2534,11 @@ mod tests {
             cursor(&terminal),
             None,
             "and nothing owns a cursor, least of all the conversation"
+        );
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Composer).height,
+            3,
+            "CCV-2/INS-5: an invisible child input cannot collapse the primary composer"
         );
         assert!(
             !painted(&terminal, &workspace, SurfaceId::Inspector).contains("Message Agent B"),
@@ -2661,6 +2684,7 @@ mod tests {
     #[test]
     fn a_wheel_over_the_inspector_input_scrolls_that_inspectors_conversation() {
         let (mut workspace, mut terminal) = two_conversations();
+        acknowledge_user_control(&mut workspace);
         step(
             &mut workspace,
             &mut terminal,
@@ -2821,8 +2845,9 @@ mod tests {
 
         assert_eq!(workspace.state.attention_pending(), 1, "it did queue");
         assert!(
-            workspace.surfaces.get(SurfaceId::Attention).is_some(),
-            "and queueing is visible, or the user has no way to choose when to answer"
+            painted(&terminal, &workspace, SurfaceId::Agents).contains("ask"),
+            "and queueing is visible on the asking agent's row, or the user has no way to \
+             choose when to answer"
         );
         assert_eq!(focused(&workspace), was_focused, "focus did not move");
         assert_eq!(selected(&workspace), was_selected, "nor did the selection");
@@ -2838,6 +2863,60 @@ mod tests {
         );
     }
 
+    /// The roster is one panel the user opens and closes, from wherever they are.
+    ///
+    /// Resolved before focus like the Drawer's chord, so it works mid-draft: a user who is typing
+    /// should not have to leave the composer to put a panel away. `Ctrl-A` could not be this,
+    /// because it is already the composer's line-start motion.
+    #[test]
+    fn ctrl_b_puts_the_roster_away_and_brings_it_back_without_disturbing_a_draft() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in "half a thought".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        let caret = cursor(&terminal);
+        let conversation = bounds(&workspace, SurfaceId::Transcript);
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        );
+        assert!(
+            workspace.surfaces.get(SurfaceId::Agents).is_none(),
+            "the chord reached the workspace rather than the draft"
+        );
+        assert!(
+            bounds(&workspace, SurfaceId::Transcript).width > conversation.width,
+            "and the columns it held went to the conversation"
+        );
+        assert_eq!(
+            workspace.state.composer().text(),
+            "half a thought",
+            "the draft is untouched"
+        );
+        assert_eq!(
+            cursor(&terminal).map(|at| at.y),
+            caret.map(|at| at.y),
+            "the caret stays on its row; its column moves because the composer got the width back"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+        assert_eq!(bounds(&workspace, SurfaceId::Transcript), conversation);
+    }
+
     /// ATT-2 and ATT-3: going to a request is a keypress, and being seen is not being answered.
     #[test]
     fn going_to_a_request_is_the_users_move_and_marks_it_seen() {
@@ -2845,12 +2924,14 @@ mod tests {
         assert_eq!(selected(&workspace), "none");
         assert_eq!(workspace.state.attention_pending(), 1);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
 
         assert_eq!(
             selected(&workspace),
@@ -2869,14 +2950,15 @@ mod tests {
             "the request is still outstanding: the user saw it, nothing granted it"
         );
         assert!(
-            !painted(&terminal, &workspace, SurfaceId::Agents).contains(" · !"),
-            "and the rail's badge counts what is unanswered, so nothing unanswered is no badge"
+            !painted(&terminal, &workspace, SurfaceId::Transcript).contains("!"),
+            "and the pill counts what is unanswered, so nothing unanswered is no pill"
         );
     }
 
-    /// INV-10 inside the queue: its cursor is its own, and arrows there are not agent selection.
+    /// INV-10: there is one list of agents and one cursor in it. An arrow moves that selection,
+    /// and `Enter` on an agent that is asking is how the user goes to the request (ATT-2).
     #[test]
-    fn the_queues_cursor_moves_without_touching_the_agent_selection() {
+    fn an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request() {
         let mut conversation = Conversation::canonical();
         // Both from a sub-agent: the queue is what the user is not looking at, and the primary's
         // own approval answers itself in the composer's place rather than waiting in a line.
@@ -2903,19 +2985,22 @@ mod tests {
         frame(&mut workspace, &mut terminal);
         assert_eq!(workspace.state.attention_count(), 2);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        let was_selected = selected(&workspace);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        assert_eq!(selected(&workspace), "none");
         step(
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
         );
-
-        assert_eq!(workspace.state.attention_cursor(), 1);
         assert_eq!(
             selected(&workspace),
-            was_selected,
-            "an arrow in the queue moves the queue, not the rail"
+            "agent-b",
+            "an arrow on the roster moves the roster's own selection"
+        );
+        assert_eq!(
+            workspace.state.attention_pending(),
+            2,
+            "and moving over a row is not going to what it is asking"
         );
 
         step(
@@ -2924,9 +3009,14 @@ mod tests {
             &press(KeyCode::Enter, KeyModifiers::NONE),
         );
         assert_eq!(
-            selected(&workspace),
-            "agent-b",
-            "and Enter goes to whichever request the cursor is on"
+            workspace.state.attention_pending(),
+            1,
+            "entering the agent goes to one of its requests and marks it seen"
+        );
+        assert_eq!(
+            workspace.state.attention_count(),
+            2,
+            "neither is resolved: only the owning loop does that"
         );
     }
 
@@ -2958,17 +3048,14 @@ mod tests {
         workspace.emit(conversation.drain());
         frame(&mut workspace, &mut terminal);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Down, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
 
         assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
         let card = bounds(&workspace, SurfaceId::Approval);
@@ -3013,7 +3100,9 @@ mod tests {
         );
         assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        // A background card closes on Escape, and the request is still outstanding, so the roster
+        // still says agent-b wants something: entering it again is the way back (ATT-3).
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
         step(
             &mut workspace,
             &mut terminal,
@@ -3105,6 +3194,76 @@ mod tests {
             copied.text,
             "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/copy-source"
         );
+    }
+
+    /// ENT-4/CMP-1: a letter fills one row with as much of itself as fits, and `Ctrl-O` is the rest.
+    ///
+    /// The simulator only ever sent one short sentence, so the entry inlined its whole summary and
+    /// disclosure was reserved for tools. The first letter a delegated agent actually wrote was a
+    /// page long: it filled the conversation it arrived in and could not be folded away.
+    #[test]
+    fn a_long_letter_is_one_row_until_ctrl_o_opens_it() {
+        let mut conversation = Conversation::canonical();
+        let sender = conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
+        let recipient = conversation
+            .state
+            .sub_agents()
+            .next()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a second agent"));
+        let item =
+            TranscriptItemId::new("long-letter").unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(ConversationEvent::MailDelivered {
+            agent_id: sender.clone(),
+            item_id: item.clone(),
+            mail_id: MailId::new("long-letter").unwrap_or_else(|error| panic!("fixture: {error}")),
+            from: sender,
+            to: recipient,
+            // A bare title line first, which is what a report opens with and all a heading taking
+            // only the first line would ever have shown.
+            summary: "Read-only check complete.\n\
+                      The branch is main, and the worktree could not be observed from here.\n\
+                      Two phases are open and their roadmap rows agree with their files.\n\
+                      Nothing was modified."
+                .to_owned(),
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        // The heading spends the row it has: past the title, into the line after it, then stops.
+        let compact = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(
+            compact.contains("Read-only check complete. The branch is main"),
+            "{compact}"
+        );
+        assert!(compact.contains('…'), "{compact}");
+        assert!(!compact.contains("Nothing was modified"), "{compact}");
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+
+        assert!(
+            workspace.state.disclosure().is_open(&item),
+            "Ctrl-O has to reach a letter, not only a tool"
+        );
+        let opened = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(opened.contains("Nothing was modified"), "{opened}");
     }
 
     /// INV-6 with three rungs: `Escape` resolves the selection before the surface holding it.
@@ -3492,8 +3651,9 @@ mod tests {
 
     /// COM-4: the visible input names both the recipient and the boundary the loop must claim.
     #[test]
-    fn the_inspectors_input_submits_steering_for_that_agents_next_step() {
+    fn the_user_controlled_child_input_submits_a_message_when_finished() {
         let (mut workspace, mut terminal) = drawn(120, 40);
+        acknowledge_user_control(&mut workspace);
         step(
             &mut workspace,
             &mut terminal,
@@ -3514,7 +3674,7 @@ mod tests {
             .unwrap_or_else(|| panic!("the entered worker input must submit"));
 
         assert_eq!(submission.to.as_str(), "agent-b");
-        assert_eq!(submission.kind, SubmissionKind::Steering);
+        assert_eq!(submission.kind, SubmissionKind::Message);
         assert_eq!(submission.text, "check the cache");
     }
 
@@ -3566,6 +3726,7 @@ mod tests {
     fn pointer_clicks_place_the_caret_in_each_input() {
         for surface in [SurfaceId::Composer, SurfaceId::Inspector, SurfaceId::Drawer] {
             let (mut workspace, mut terminal) = drawn(95, 40);
+            acknowledge_user_control(&mut workspace);
             match surface {
                 SurfaceId::Composer => tab_to(&mut workspace, &mut terminal, surface),
                 SurfaceId::Inspector => {
@@ -4001,17 +4162,14 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         frame(&mut workspace, &mut terminal);
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Down, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
         assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
         let card = bounds(&workspace, SurfaceId::Approval);
         let card_text = painted(&terminal, &workspace, SurfaceId::Approval);

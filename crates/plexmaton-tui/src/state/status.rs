@@ -192,7 +192,14 @@ impl ViewState {
             }
             _ => self.agents.primary().map(|agent| agent.id.clone()),
         };
+        let editable = target.as_ref().is_some_and(|to| {
+            self.agents
+                .primary()
+                .is_some_and(|primary| primary.id == *to)
+                || self.text_target(surfaces).as_ref() == Some(to)
+        });
         if let Some(to) = target.as_ref()
+            && editable
             && let Some(composer) = self.inputs.get_mut(to)
             && composer.clear()
         {

@@ -3,59 +3,107 @@
 | Field | Value |
 | --- | --- |
 | Read when | Checking the mailbox spike comparison against source |
-| Scope | Source inspection only; no live endpoint or production durability proof |
-| Corpus | Revisions and inspection limits in [the spike](./README.md#corpus) |
+| Scope | Source inspection only; no live endpoint or reference-harness durability proof |
+| Corpus | Exact remote revisions and inspection limits in [the spike](./README.md#corpus) |
 
-Paths and line numbers refer to those pinned revisions. Codex paths start at `codex-rs/`;
-Grok paths use the prefix stated below. Inspect pinned content with `git show <revision>:<path>`
-when a local reference checkout has advanced.
+Paths below are relative to the named source repository at the pinned remote revision. Inspection
+used `git show` and `git grep` without changing a reference checkout.
+
+## Ranking
+
+Grok Build is the primary reference for execution ownership; Codex V2 is the primary reference for
+independent sessions and typed provenance. Kimi Code and DeepSeek Harness contribute focused
+late-callback, retry and cancellation cases. None has Plexmaton's durable single-controller handoff,
+so [COL-3](../../specs/collaboration-ledger.md) remains normative.
 
 ## Codex
 
-`protocol/src/protocol.rs:862` constructs `ResponseItem::AgentMessage`; the serde variant is in
-`protocol/src/models.rs:973`. Contextual fragment helpers construct the text, but their assistant
-role is not the final V2 atom. `core/src/session/rollout_reconstruction.rs:347` reconstructs typed
-mail. `codex-api/src/common.rs:274,327` serializes response items on HTTP and WebSocket transports.
-This proves the source representation, not live endpoint acceptance or other provider dialects.
+`codex-rs/protocol/src/protocol.rs` constructs `ResponseItem::AgentMessage`, whose typed wire value is
+in `protocol/src/models.rs`. `core/src/session/rollout_reconstruction.rs` reconstructs agent mail;
+`codex-api/src/common.rs` serializes response items on both transports. This proves a distinct
+semantic representation, not live provider acceptance.
 
-`core/src/session/handlers.rs:79` enqueues into the process-local queue in
-`core/src/session/input_queue.rs:122`; `core/src/session/mod.rs:3549` records included mail later.
-`core/src/session/turn_suspension.rs:96` explicitly drops process-local accepted input on handoff.
-There is no explicit mailbox capacity bound. `core/src/tools/handlers/multi_agents_v2/wait.rs:67`
-waits for caller activity and returns no child output.
+`core/src/session/handlers.rs` enqueues into `core/src/session/input_queue.rs`; inclusion is recorded
+later by the Session. Pending delivery remains process-local, and `core/src/session/turn_suspension.rs`
+drops such accepted input during handoff. No durable controller record equivalent to COL-3 was found.
 
-Normal V2 spawn and resume skip the legacy completion watcher
-(`core/src/agent/control/spawn.rs:769,1244`); terminal events notify the parent through
-`core/src/session/mod.rs:2084`. The legacy watcher discards send errors, but its existence does
-not prove duplicate completion on the normal V2 path.
+`core/src/agent/control/execution.rs` uses non-cloneable `AgentExecutionGuard` ownership;
+`control/residency.rs` separates held reservations from committed slots; `control/legacy.rs` persists
+lifecycle state before shutdown. These support the reservation/permit split, while Codex's shared
+`AgentControl` supports one owner across multiple child turns. Normal V2 spawn/resume skips the
+legacy completion watcher; terminal events notify the parent through the Session.
+
+The latest inspected commit adds a disabled-by-default `send_message_to_user_async` feature for root
+agents while excluding subagents. It is useful evidence for keeping user communication and agent
+collaboration distinct; it does not implement child input control.
 
 ## Grok Build
 
-Paths here are under `crates/codegen/`. In `xai-grok-tools/src/implementations/grok_build/`,
-`task/active_message.rs:150-233` defines `Open`, `Claimed`, `Committed`, `Revoked`. Admission CASes
-Open to Claimed, runs a synchronous insertion closure, then stores Committed. Revocation succeeds
-only from Open; settlement checks the lease rather than trusting an affirmative reply. Unprovable
-settlement becomes `AdmissionUncertain`. `task/coordinator/active_message.rs:58-155` finalizes only
-after in-flight admissions settle; uncertainty forces a failed/cancelled child result
-(`task/coordinator.rs:876`). This bounds admission races, not crash recovery.
+Under `crates/codegen/xai-grok-tools/src/implementations/grok_build/`,
+`task/active_message.rs` defines `Open`, `Claimed`, `Committed` and `Revoked`. Admission claims the
+lease, performs a synchronous insertion, then commits; revocation succeeds only from `Open`.
+Settlement that cannot prove admitted or rejected becomes `AdmissionUncertain`.
 
-`xai-grok-shell/src/session/acp_session_impl/prompt_queue.rs:102` inserts into `pending_inputs`;
-`parent_message.rs:289-362` in that directory persists at a later safe point. Committed is therefore
-not a disk acknowledgement. `xai-grok-shell/src/session/message_delivery.rs:157-206` checks target,
-content and IDs, operation, and authorization against the coordinator-issued grant. The coordinator
-also checks ownership, active state, workflow exclusion and cancellation before delivery
-(`xai-grok-tools/src/implementations/grok_build/task/coordinator/active_message.rs:542`).
+`task/coordinator/active_message.rs` retains in-flight leases and owned semaphore permits for both
+active and spawn-ready queued work. Finalization waits until every admission settles.
+`task/coordinator.rs` parks child terminal output behind that boundary, and an active child generation
+rejects late completion for a reused identity. The shell-side `session/message_delivery.rs` rechecks
+target, IDs, operation and coordinator-issued authorization before delivery.
 
-`xai-grok-shell/src/agent/subagent/spawn.rs:309-401` requires background eligibility and a surfaceable
-result, then checks cancellation, feature enablement, prior waiter delivery, explicit kill, active
-goal loop and parent channel liveness. These suppress unwanted, duplicate or undeliverable wakes.
-The prompt path at line 441 retains `SubagentCompleted` internally; provider conversion in
-`xai-grok-sampling-types/src/conversation/chat_completions.rs:67` produces user-role content.
-Foreground waiting buys direct output in the originating tool call, at the cost of holding that
-call; synthetic wake reuses prompt scheduling but loses the distinct actor role on the wire.
+This is the strongest model for `Main -> Releasing -> User/Frozen`, bounded reservations and stale
+work. It is not durable handoff: committed insertion is persisted later. Background completion may
+become internally attributed synthetic user-role content in
+`xai-grok-sampling-types/src/conversation/chat_completions.rs`, which Plexmaton rejects.
 
-Coordinator ingress/events and session commands use unbounded channels. Independent limits are
-not all fail-fast: `task/admission.rs:6-30` queues at the default 32-child concurrency limit.
-`task/coordinator_state.rs:17-55` caps completed retention at 1024 and active admissions at 64/8;
-message text is capped at 32 KiB. Model completion output is uncapped in `task/mod.rs:601-615`.
-These task paths are under `xai-grok-tools/src/implementations/grok_build/`.
+## Kimi Code
+
+`packages/agent-core-v2/test/agent/llmRequester/llmRequesterService.test.ts` proves that retry
+notification occurs before resending a repaired projection and before each indefinite-retry backoff.
+Its turn-machine regression discards an interrupted attempt stream when the service retries below
+the turn, so only the later attempt's tool identity reaches completion.
+
+This supports invalidating callbacks below a replaced attempt. It does not establish durable
+Conversation control, writer exclusion or handoff recovery.
+
+## DeepSeek Harness
+
+Under `packages/core/agent-loop/tests/`, `cancel.spec.ts` covers parking queued work, clearing a
+latched wake, reset after a cancelled turn and cancellation during error recovery.
+`coverage-edges.spec.ts` ignores retry actions returned after abort and prevents recovery retries when
+cancellation races the waterfall. `loop.spec.ts` abandons a live row when durable assistant
+settlement is rejected and settles failed attempts before retry; `inbox.spec.ts` clears both pending
+lists as durable cancellations.
+
+`packages/core/agent-loop/src/agent.ts` resets the abort controller so an old wake latch becomes
+stale; `assistant-stream.ts` emits an explicit abandoned terminal frame. These are useful Slice 3
+cancellation cases, but their inbox/abort state does not replace Plexmaton's collaboration log or
+permit-retained writer authority.
+
+## Applied boundary
+
+Plexmaton adapts Grok's explicit admission/finalization states without copying a cloneable delivery
+wrapper or synthetic wake message. It adapts Codex's independent session and typed provenance while
+making Handoff durable. Kimi and DeepSeek cases constrain stale callbacks and cancellation.
+
+A resolved `TurnAdmission` remains inspectable data. The collaboration file/control owner reserves
+the one Main execution slot before input and binds it to an exact admission. When controller routing
+is attached, the runtime refuses direct user input under Main control and retains the resulting
+permit through session/model work. Any unknown collaboration append freezes authority until reopen;
+a live reservation or permit retains the physical file lock. The bounded asynchronous collaboration
+owner, authenticated ingress and product bootstrap remain unproven.
+
+## Re-engaging a child, compared
+
+Grok's `xai-tool-types/src/task.rs` makes continuation a parameter of the spawn tool itself:
+`resume_from: Option<String>`, with the handle returned to the model in the completed sub-agent's
+output — a `resume_from_hint` field plus a rendered footer, "To continue this subagent's
+conversation, use resume_from=\"{subagent_id}\"". The runtime reconstructs that one child when the
+model names it, and a resumed child inherits its prior model rather than taking a fresh one.
+Codex's `ext/agent` has no continuation concept at all; a sub-agent runs once.
+
+Plexmaton reaches the same place by a different route: `update_task` names an existing delegation
+through its opaque `TargetSelector`, which is what `delegate` already returns. What it lacks is
+Grok's laziness. A resumed root reconstructs every child's runner up front, so a root with more
+delegations than `RUNNERS` leaves the rest addressable but unrunnable, and `update_task` on one of
+them reports success and does nothing. Reconstructing the one child a call names, at the moment it
+names it, is the shape to adopt.

@@ -116,7 +116,7 @@ impl ChatDecoder {
             .delta
             .reasoning_details
             .as_ref()
-            .is_some_and(|value| value != &Value::Null && value != &serde_json::json!([]))
+            .is_some_and(|value| !echoes_plain_reasoning(value, choice.delta.reasoning.as_deref()))
         {
             return Err(DecodeError::UnsupportedEvent(
                 "chat_reasoning_details".to_owned(),
@@ -348,6 +348,39 @@ fn required(
     value
         .filter(|value| !value.trim().is_empty())
         .ok_or(DecodeError::IncompleteToolCall { index, field })
+}
+
+/// PRV-3: `reasoning_details` is admitted only as a redundant restatement of the plain `reasoning`
+/// delta beside it. Every entry must be `reasoning.text`, carry nothing but its type, text, format
+/// and index, and concatenate to exactly the text already being retained. An encrypted, signed or
+/// summarized block, a divergent transcription, or details with no plain sibling stay unsupported:
+/// admitting them would drop the part the codec cannot represent, and the reasoning Plexmaton shows
+/// would no longer be the whole of what the provider sent.
+fn echoes_plain_reasoning(details: &Value, reasoning: Option<&str>) -> bool {
+    let Some(entries) = details.as_array() else {
+        return details.is_null();
+    };
+    if entries.is_empty() {
+        return true;
+    }
+    let mut echoed = String::new();
+    for entry in entries {
+        let Some(fields) = entry.as_object() else {
+            return false;
+        };
+        if fields.get("type").and_then(Value::as_str) != Some("reasoning.text")
+            || fields
+                .keys()
+                .any(|name| !matches!(name.as_str(), "type" | "text" | "format" | "index"))
+        {
+            return false;
+        }
+        match fields.get("text").and_then(Value::as_str) {
+            Some(text) => echoed.push_str(text),
+            None => return false,
+        }
+    }
+    reasoning == Some(echoed.as_str())
 }
 
 #[derive(Deserialize)]
