@@ -3,7 +3,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use plexmaton_agent::{Agent, Input, ModelCall, ModelStepId, RequestAttemptId, UndeliveredReason};
-use plexmaton_core::{AgentId, ConversationEventEnvelope};
+use plexmaton_core::{AgentId, AgentStatus, ConversationEventEnvelope};
 use plexmaton_session_store::collaboration::{DelegatedConversationControl, ExecutionPermit};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -131,6 +131,22 @@ enum ShutdownState {
 }
 
 impl LiveRuntime {
+    /// Puts one delegated child on this conversation's roster, numbered in its own event stream.
+    ///
+    /// The child is a separate Conversation; only its existence belongs to the root's projection,
+    /// and the collaboration log already holds that fact durably. Sharing the root's sequencer is
+    /// what keeps the event from arriving stale beside the conversation's own.
+    pub fn announce_delegated(
+        &mut self,
+        agent_id: AgentId,
+        label: impl Into<String>,
+        status: AgentStatus,
+    ) -> Vec<ConversationEventEnvelope> {
+        self.agent
+            .announce_delegated(agent_id, label, status)
+            .events
+    }
+
     /// Gives one addressed input to the owned agent and performs every resulting effect.
     pub async fn submit(
         &mut self,

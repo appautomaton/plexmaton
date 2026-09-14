@@ -37,6 +37,7 @@ pub(super) async fn drive_session<B: Backend>(
     permissions: &mut permission_controls::PermissionControls,
     terminal_events: &mut (impl Stream<Item = io::Result<crossterm::event::Event>> + Unpin),
     preparation: &mut plexmaton_cli::preparation::LivePreparation,
+    mut collaboration: Option<&mut crate::collaboration::Collaboration>,
     mut native_output: impl FnMut(&mut B, plexmaton_tui::math::NativeStage<'_>) -> Result<(), B::Error>,
 ) -> anyhow::Result<()>
 where
@@ -59,6 +60,11 @@ where
         let effort_deadline = workspace.effort_animation_deadline(Instant::now());
 
         tokio::select! {
+            // A root with no collaboration never yields here, so the arm is inert rather than a
+            // branch the loop has to skip.
+            activity = next_collaboration(collaboration.as_deref_mut()) => {
+                apply_collaboration(activity, collaboration.as_deref_mut(), runtime, workspace, &mut frames)?;
+            }
             prepared = preparation.next() => preparation.apply(prepared, workspace),
             delivered = clipboard.next() => {
                 report_copy(delivered.context("copy to the clipboard")?, workspace);
@@ -87,23 +93,10 @@ where
             () = wait_for_deadline(frame_deadline) => {}
             () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
             runtime_update = runtime.next_update() => {
-                match runtime_update.context("receive live runtime update")? {
-                    RuntimeUpdate::Event(event) => {
-                        if let Some(status) = status_line { status.observe(&event.event); }
-                        frames.receive(workspace, event);
-                        retry::sync_actions(runtime, workspace);
-                    }
-                    RuntimeUpdate::Report(report) => {
-                        frames.flush(workspace);
-                        if let Some(status) = status_line { status.mark_dirty(); }
-                        apply_report(runtime, workspace, runtime.agent_id().clone(), report);
-                        retry::sync_actions(runtime, workspace);
-                    }
-                    RuntimeUpdate::Finished => {
-                        frames.flush(workspace);
-                        frames.draw_with_native(workspace, terminal, Instant::now(), &mut native_output).context("draw final TUI frame")?;
-                        break;
-                    }
+                let update = runtime_update.context("receive live runtime update")?;
+                if apply_runtime_update(update, runtime, workspace, status_line, &mut frames) {
+                    frames.draw_with_native(workspace, terminal, Instant::now(), &mut native_output).context("draw final TUI frame")?;
+                    break;
                 }
             }
             terminal_event = terminal_events.next() => {
@@ -336,6 +329,64 @@ async fn next_status_update(status: &mut Option<statusline::StatusLine>) -> stat
 async fn wait_for_deadline(deadline: Option<Instant>) {
     match deadline {
         Some(deadline) => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Applies one runtime update, reporting whether the session has finished.
+fn apply_runtime_update(
+    update: RuntimeUpdate,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    status_line: &mut Option<statusline::StatusLine>,
+    frames: &mut stream_frames::StreamFrames,
+) -> bool {
+    match update {
+        RuntimeUpdate::Event(event) => {
+            if let Some(status) = status_line {
+                status.observe(&event.event);
+            }
+            frames.receive(workspace, event);
+            retry::sync_actions(runtime, workspace);
+        }
+        RuntimeUpdate::Report(report) => {
+            frames.flush(workspace);
+            if let Some(status) = status_line {
+                status.mark_dirty();
+            }
+            apply_report(runtime, workspace, runtime.agent_id().clone(), report);
+            retry::sync_actions(runtime, workspace);
+        }
+        RuntimeUpdate::Finished => {
+            frames.flush(workspace);
+            return true;
+        }
+    }
+    false
+}
+
+/// Projects one settled collaboration activity, keeping the select arm a single call.
+fn apply_collaboration(
+    activity: Option<plexmaton_runtime::OwnedCollaborationActivity>,
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    frames: &mut stream_frames::StreamFrames,
+) -> anyhow::Result<()> {
+    let Some((activity, collaboration)) = activity.zip(collaboration) else {
+        return Ok(());
+    };
+    frames.flush(workspace);
+    workspace.emit(collaboration.apply(runtime, activity)?);
+    Ok(())
+}
+
+/// Waits for the root's collaboration owner, or never resolves when the root has none.
+async fn next_collaboration(
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
+) -> Option<plexmaton_runtime::OwnedCollaborationActivity> {
+    match collaboration {
+        Some(collaboration) => collaboration.next().await,
         None => std::future::pending().await,
     }
 }

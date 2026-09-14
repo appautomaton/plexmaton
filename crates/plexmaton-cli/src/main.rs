@@ -16,6 +16,7 @@ use plexmaton_tui::{ConfigurationSummary, Palette, Workspace};
 
 mod agent_instructions;
 mod clipboard;
+mod collaboration;
 mod conversation_tree;
 mod input;
 mod input_queue;
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         std::env::current_exe().context("locate preparation executable")?,
     );
     // LIVE-6: all fallible authority and endpoint resolution happens before terminal ownership.
-    let (opened, workspace_root, mut picker, status_line) =
+    let (opened, workspace_root, mut picker, status_line, collaboration) =
         live_runtime_from_process(selection).await?;
     let OpenedConversation {
         runtime,
@@ -100,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         picker,
         status_line,
         render_preparation,
+        collaboration,
     )
     .await;
     drop(restore_terminal);
@@ -210,6 +212,7 @@ async fn run(
     mut picker: session_picker::ConversationPicker,
     mut status_line: Option<statusline::StatusLine>,
     mut render_preparation: preparation::LivePreparation,
+    mut collaboration: Option<collaboration::Collaboration>,
 ) -> anyhow::Result<Option<PersistedConversation>> {
     // One palette, no capability probe: a 24-bit terminal is assumed (ui-ux §readability).
     // The script footer retains its independent colors and is not rethemed by this choice.
@@ -247,6 +250,11 @@ async fn run(
         }
         workspace.report_conversation_recovery(recovery);
     }
+    // A resumed root puts every delegation it already created back on the roster without waking
+    // any of them (CHB-3).
+    if let Some(collaboration) = collaboration.as_mut() {
+        workspace.emit(collaboration.restore(&mut runtime).await?);
+    }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
     let loop_result = drive_session(
@@ -259,9 +267,13 @@ async fn run(
         &mut permissions,
         &mut EventStream::new(),
         &mut render_preparation,
+        collaboration.as_mut(),
         output::write_native,
     )
     .await;
+    if let Some(collaboration) = collaboration.as_mut() {
+        collaboration.shutdown().await;
+    }
     let clipboard_shutdown = output
         .clipboard
         .shutdown()

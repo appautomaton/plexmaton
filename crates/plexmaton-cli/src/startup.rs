@@ -8,8 +8,8 @@ use plexmaton_provider::{resolve_api_key, resolve_home};
 use plexmaton_runtime::NativeToolCatalog;
 
 use crate::{
-    INTERNAL_RG_DRIVER, agent_instructions, project_config, resolve_path_executable,
-    session::{ConversationSelection, OpenedConversation, open_selected_conversation},
+    INTERNAL_RG_DRIVER, agent_instructions, collaboration, project_config, resolve_path_executable,
+    session::{ConversationSelection, OpenedConversation, open_selected_conversation_with},
     session_picker, statusline,
 };
 
@@ -20,6 +20,7 @@ pub(super) async fn live_runtime_from_process(
     PathBuf,
     session_picker::ConversationPicker,
     Option<statusline::StatusLine>,
+    Option<collaboration::Collaboration>,
 )> {
     let configured_home = std::env::var_os("PLEXMATON_HOME");
     let user_home = std::env::var_os("HOME").map(PathBuf::from);
@@ -106,8 +107,35 @@ pub(super) async fn live_runtime_from_process(
                     .map(|model| model.api_key_env().to_owned()),
             )
     });
-    let mut opened =
-        open_selected_conversation(&root, selection, agent_id, model, key, tools).await?;
+    // The Main tool lane has to be on the catalog the runtime is built with, and the log it belongs
+    // to is named by the conversation, so the composition happens between those two facts.
+    let mut collaboration = None;
+    let child_tools = tools.clone();
+    let child_model = model.clone();
+    let child_key = key.clone();
+    let collaboration_root = root.clone();
+    let mut opened = open_selected_conversation_with(
+        &root,
+        selection,
+        agent_id,
+        model,
+        key,
+        tools,
+        |conversation, tools| {
+            let (root_collaboration, ingress) =
+                collaboration::open(&collaboration_root, conversation)?;
+            let tools = tools
+                .with_main_collaboration(ingress)
+                .context("install the Main collaboration tools")?;
+            collaboration = Some(root_collaboration);
+            Ok(tools)
+        },
+    )
+    .await?;
     opened.runtime.use_coding_session(permissions)?;
-    Ok((opened, workspace_root, picker, status_line))
+    if let Some(collaboration) = collaboration.as_mut() {
+        let factory = collaboration::child_factory(&root, child_model, child_key, child_tools)?;
+        collaboration.bind(&opened.runtime, factory)?;
+    }
+    Ok((opened, workspace_root, picker, status_line, collaboration))
 }

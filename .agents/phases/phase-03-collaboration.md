@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; the backend is built and has no production caller, so no delegated child can be created today |
+| Status | Active; a delegated child is created by the real executable and appears on the roster. Its transcript, mail and control are not yet on screen |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
@@ -17,22 +17,22 @@ Default resume activates only the main runner, retaining child history and canon
 
 ## What exists, and what stops it running
 
-Every part below is implemented and tested at its own boundary. None of them is reachable from the
-executable, so the roster is empty in a real session and `delegate` is absent from the model's
-tools. The right-hand column is the whole gap, and no part of it depends on another.
+`delegate` is in the model's tools, a call creates a real child, and the roster shows it. What is
+missing is everything after that first moment: the child's own work, its mail, and control over it.
+The right-hand column is the whole gap.
 
 | Part | Owns | Missing |
 | --- | --- | --- |
 | Ledger | [COL-1–COL-5](../specs/collaboration-ledger.md): one bounded log for mail, task updates and Handoff; retries reconcile to the original item; crash cuts recover | — |
 | Inclusion | [CIN-1–CIN-4](../specs/collaboration-inclusion.md): frozen eligible prefix, canonical session references, bounded resolution before dispatch | — |
 | Control | [COL-3](../specs/collaboration-ledger.md): single controller, authority-scoped reservations, quiescent durable handoff, crash recovery | Requested compaction and tree mutation stay ungated; they must not reach a Main-controlled child surface until product routing owns them |
-| Child bootstrap | [CHB-1–CHB-3](../specs/delegated-bootstrap.md): fresh and resumed constructors, capability floor, root-only resume | `DelegatedChildFactory::new` has no production caller — every construction site is a test |
+| Child bootstrap | [CHB-1–CHB-3](../specs/delegated-bootstrap.md): fresh and resumed constructors, capability floor, root-only resume | — |
 | Scheduling | [SCH-1–SCH-4](../specs/owned-scheduling.md): bounded owners, separate normal/control/update lanes, Stop under backpressure, joined shutdown | — |
-| Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots | `OwnedCollaboration::next_activity` has no production consumer, so a child's activity cannot reach the TUI |
-| Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning | `NativeToolCatalog::with_main_collaboration` has no production caller — the CLI opens a `Full` catalog, so the model never sees `delegate` |
-| Provider | Four dialects encode every other atom | All four refuse a collaboration atom ([PRV-1](../specs/provider-adapter.md)), so a child's first request cannot be built. This is a decision, not a gap: see the rule and its rejected alternatives |
+| Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots | A runner update reaches the session loop but projects nothing: the child's own transcript and mail are not on screen |
+| Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning | A child is named by its opaque target, because `delegate` carries no name and the runtime picks the model |
+| Provider | Four dialects render mail as an attributed turn ([PRV-1](../specs/provider-adapter.md)) | Attribution is text the model reads, not a type the runtime enforces |
 | Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source; the fixtures supply control facts by hand |
-| Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking | Nothing appends `AgentCreated` for a child to the parent journal, so the panel has no data to order |
+| Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking | Every child reads `Delegated`, and its status never leaves `running` |
 
 Semantics stay in the agent crate, storage in session-store, orchestration in runtime; no second
 agent engine or journal format is planned.
