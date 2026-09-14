@@ -5,16 +5,18 @@ use crate::Role;
 use crate::text_layout::paint::{Line, MarkdownRole, Paint as Style, Span};
 use crate::text_layout::{Layout, paint as wrap};
 use crate::{math::MathPresentation, text_layout::math::Atom};
-use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
+use pulldown_cmark::{Event, Tag, TagEnd};
 use ratatui::style::Modifier;
 use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
 
+mod code;
 mod streaming;
 mod syntax;
 mod table;
 #[cfg(test)]
 mod tests;
+use streaming::RenderStats;
 pub(crate) use streaming::{MAX_FROZEN_PREFIX_BYTES, PrefixCheckpoint, PrefixHint, RenderedLayout};
 
 pub(crate) const MAX_SOURCE_BYTES: usize = 128 * 1024;
@@ -145,12 +147,12 @@ pub(super) fn render_events_with_boundaries(
         .map(|(layout, boundaries, _)| (layout, boundaries))
 }
 
-pub(super) fn render_events_with_boundaries_stats(
+fn render_events_with_boundaries_stats(
     events: Vec<(Event<'_>, Range<usize>)>,
     width: usize,
     math: MathPresentation,
     completion: Completion,
-) -> Result<(Layout, Vec<Boundary>, usize), PlainReason> {
+) -> Result<(Layout, Vec<Boundary>, RenderStats), PlainReason> {
     let mut out = Renderer::new(width, math, completion);
     let mut events = events.into_iter();
     let mut boundaries = Vec::new();
@@ -175,6 +177,15 @@ pub(super) fn render_events_with_boundaries_stats(
                 out.layout.append(layout, &prefix, out.prefix_style());
                 out.check()?;
                 out.blank()?;
+            }
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let event_end = out.code_block(kind, &mut events)?;
+                let (rows, visible_text_bytes) = finished_coordinates(&out.layout);
+                boundaries.push(Boundary {
+                    event_end,
+                    visible_text_bytes,
+                    rows,
+                });
             }
             Event::Start(tag) => out.start(tag)?,
             Event::End(tag) => {
@@ -217,7 +228,14 @@ pub(super) fn render_events_with_boundaries_stats(
     }
     out.flush(false)?;
     out.layout.finish();
-    Ok((out.layout, boundaries, out.formula_preparations))
+    Ok((
+        out.layout,
+        boundaries,
+        RenderStats {
+            formulas: out.formula_preparations,
+            code_blocks: out.code_highlighter.preparations,
+        },
+    ))
 }
 
 fn finished_coordinates(layout: &Layout) -> (usize, usize) {
@@ -257,6 +275,7 @@ struct Renderer {
     lists: Vec<Option<u64>>,
     links: Vec<String>,
     code_depth: usize,
+    code_highlighter: code::CodeHighlighter,
     checked_rows: usize,
     bytes: usize,
     formula_preparations: usize,
@@ -278,6 +297,7 @@ impl Renderer {
             lists: Vec::new(),
             links: Vec::new(),
             code_depth: 0,
+            code_highlighter: code::CodeHighlighter::default(),
             bytes: 0,
             checked_rows: 0,
             formula_preparations: 0,
@@ -480,23 +500,6 @@ impl Renderer {
                 };
                 self.prefixes.push(Prefix::Item(marker));
             }
-            Tag::CodeBlock(kind) => {
-                self.flush(false)?;
-                let language = match kind {
-                    CodeBlockKind::Fenced(info) => info
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or("")
-                        .chars()
-                        .take(32)
-                        .collect::<String>(),
-                    CodeBlockKind::Indented => String::new(),
-                };
-                self.adornment(&format!("┌ {language}"), MarkdownRole::Guide.into())?;
-                self.prefixes.push(Prefix::Code);
-                self.code_depth += 1;
-                self.style = MarkdownRole::Code.into();
-            }
             Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
                 self.links.push(dest_url.into_string());
                 self.style = self.style.clone().patch(MarkdownRole::Link.into());
@@ -527,13 +530,6 @@ impl Renderer {
             TagEnd::BlockQuote(_) => {
                 self.flush(false)?;
                 self.prefixes.pop();
-                self.blank()?;
-            }
-            TagEnd::CodeBlock => {
-                self.flush(false)?;
-                self.prefixes.pop();
-                self.code_depth = self.code_depth.saturating_sub(1);
-                self.adornment("└", MarkdownRole::Guide.into())?;
                 self.blank()?;
             }
             TagEnd::Link | TagEnd::Image => {
