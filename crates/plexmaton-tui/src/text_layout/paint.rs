@@ -151,7 +151,7 @@ pub(crate) enum Treatment {
     #[default]
     Content,
     SelectionWidth(usize),
-    ToolHeading,
+    EntryHeading,
     Diff,
 }
 
@@ -251,7 +251,7 @@ impl Line {
                 text.push_str(&" ".repeat(width.saturating_sub(text.width())));
             }
             text::Line::styled(text, selection)
-        } else if appearance.hovered && self.treatment == Treatment::ToolHeading {
+        } else if appearance.hovered && self.treatment == Treatment::EntryHeading {
             text::Line::styled(self.to_string(), colors.palette.style(Role::Accent))
         } else {
             self.paint_ref(colors)

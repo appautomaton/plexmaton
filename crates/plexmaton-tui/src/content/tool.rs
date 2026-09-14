@@ -4,11 +4,12 @@ use crate::text_layout::paint::{Line, Span, Treatment};
 use plexmaton_core::{ToolCallStatus, ToolDetail};
 
 use crate::{
+    content::transcript_presentation::{Row, append_source},
     state::{EntryAppearance, ToolCallView},
     theme::{Role, tool_role},
 };
 
-pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -> Vec<Line> {
+pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -> Vec<Row> {
     let mut compact = Line::from(vec![
         Span::styled(format!("{} ", marker(tool.status)), tool_role(tool.status)),
         Span::styled(tool.label.clone(), Role::Body),
@@ -17,8 +18,8 @@ pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -
             tool_role(tool.status),
         ),
     ]);
-    compact.treatment = Treatment::ToolHeading;
-    let mut lines = vec![compact];
+    compact.treatment = Treatment::EntryHeading;
+    let mut lines = vec![Row::heading(compact)];
     if !appearance.open {
         return lines;
     }
@@ -31,15 +32,17 @@ pub(super) fn prepared_entry(tool: &ToolCallView, appearance: EntryAppearance) -
     lines
 }
 
-fn append_detail(lines: &mut Vec<Line>, heading: &str, detail: &ToolDetail) {
+fn append_detail(lines: &mut Vec<Row>, heading: &str, detail: &ToolDetail) {
     let omitted = match detail {
         ToolDetail::Text { omitted_bytes, .. } if *omitted_bytes > 0 => {
             format!(" · {omitted_bytes} bytes omitted")
         }
         ToolDetail::Text { .. } | ToolDetail::Diff { .. } | ToolDetail::Command(_) => String::new(),
     };
-    let heading = Line::styled(format!("  {heading}{omitted}"), Role::Muted);
-    lines.push(heading);
+    lines.push(Row::heading(Line::styled(
+        format!("  {heading}{omitted}"),
+        Role::Muted,
+    )));
     match detail {
         ToolDetail::Command(command) => {
             let text = super::command_transcript_source(
@@ -56,22 +59,6 @@ fn append_detail(lines: &mut Vec<Line>, heading: &str, detail: &ToolDetail) {
             append_source(lines, patch, Treatment::Diff, diff_role);
         }
     }
-}
-
-fn append_source(
-    lines: &mut Vec<Line>,
-    source: &str,
-    treatment: Treatment,
-    role: impl Fn(&str) -> Role,
-) {
-    lines.extend(source.split('\n').map(|row| {
-        let mut line = Line::from(vec![
-            Span::styled("  │ ", Role::Muted),
-            Span::styled(row.to_owned(), role(row)),
-        ]);
-        line.treatment = treatment;
-        line
-    }));
 }
 
 /// One bounded line-prefix decision, not a diff parser. Unknown and context lines remain source
@@ -136,7 +123,7 @@ mod tests {
         let colors = crate::text_layout::paint::Colors::new(palette);
         prepared_entry(tool, appearance)
             .into_iter()
-            .map(|line| line.paint_entry(&colors, appearance))
+            .map(|row| row.flattened().paint_entry(&colors, appearance))
             .collect()
     }
 

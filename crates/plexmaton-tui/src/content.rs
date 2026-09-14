@@ -32,7 +32,8 @@ mod transcript_presentation;
 pub(crate) use approval_presentation::{approval, approval_choice_rows, approval_scope_fits};
 pub(crate) use drawer::drawer;
 pub(crate) use transcript_presentation::{
-    conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout_with_prefix,
+    conversation_placeholder, discloses, literal_text_rows, transcript_entry,
+    transcript_layout_with_prefix,
 };
 
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
