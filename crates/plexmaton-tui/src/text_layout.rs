@@ -272,7 +272,15 @@ impl Layout {
         style: Style,
     ) -> Vec<text::Line<'static>> {
         let mut lines = self.painted_lines(palette);
-        for (line, fragments) in lines.iter_mut().zip(&self.rows) {
+        for ((line, fragments), retained) in lines.iter_mut().zip(&self.rows).zip(&self.lines) {
+            let style = if matches!(
+                retained.treatment,
+                paint::Treatment::MarkdownSelectionWidth(_)
+            ) {
+                palette.markdown_styles().selection
+            } else {
+                style
+            };
             let columns: Vec<_> = fragments
                 .iter()
                 .filter_map(|fragment| {

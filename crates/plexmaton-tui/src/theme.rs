@@ -8,6 +8,7 @@
 use plexmaton_core::{AgentStatus, ToolCallStatus};
 use ratatui::style::{Modifier, Style};
 
+pub(crate) mod code;
 mod effort;
 mod markdown;
 pub use effort::{EFFORT_COLOR_PHASES, EffortPalette};

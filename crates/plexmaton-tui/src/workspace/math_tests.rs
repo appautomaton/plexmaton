@@ -9,7 +9,6 @@ use plexmaton_core::{
 use ratatui::{
     backend::TestBackend,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
-    style::Modifier,
 };
 use unicode_width::UnicodeWidthStr as _;
 
@@ -206,10 +205,10 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
             for at in cells.iter().copied() {
                 assert_eq!(click(&mut workspace, &mut terminal, at), formula);
                 for cell in &cells {
-                    assert!(
-                        terminal.backend().buffer()[(cell.x, cell.y)]
-                            .modifier
-                            .contains(Modifier::REVERSED)
+                    assert_eq!(
+                        terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                        crate::theme::tokens::BAR,
+                        "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
                 assert_eq!(
@@ -233,10 +232,10 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
                 };
                 assert_eq!(copied.text, format!("{separator}{formula}"));
                 for cell in &cells {
-                    assert!(
-                        terminal.backend().buffer()[(cell.x, cell.y)]
-                            .modifier
-                            .contains(Modifier::REVERSED)
+                    assert_eq!(
+                        terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                        crate::theme::tokens::BAR,
+                        "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
             }
@@ -261,10 +260,10 @@ fn formula_source_fallback_and_reflow_preserve_atomic_selection_without_reprepar
                 original
             );
             for cell in atoms(&mut workspace) {
-                assert!(
-                    terminal.backend().buffer()[(cell.x, cell.y)]
-                        .modifier
-                        .contains(Modifier::REVERSED)
+                assert_eq!(
+                    terminal.backend().buffer()[(cell.x, cell.y)].bg,
+                    crate::theme::tokens::BAR,
+                    "a selected formula cell carries the shipped palette's selection ground"
                 );
             }
         }

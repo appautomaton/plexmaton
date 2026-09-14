@@ -49,19 +49,18 @@ input handler. PRE-1's allocation limit gives oversized entries a named refusal 
 intact. Height metadata outlives layout eviction and palette replacement. `text_layouts()` counts
 admitted preparation results delivered to the cache, including typed refusals and results dropped
 by retention; it does not count occupied slots or parser invocations.
-Streaming Markdown also retains a bounded checkpoint only after a complete top-level paragraph or
-heading. The checkpoint carries source bytes, visible-text/row coordinates and a full-parser event
+Streaming Markdown also retains a bounded checkpoint only after a complete top-level paragraph, heading or physically closed fenced code block. The checkpoint carries source bytes, visible-text/row coordinates and a full-parser event
 signature; late reference resolution, source replacement, malformed copy maps and open structural
 state invalidate it.
-The owned worker receives the complete source and full-parser suffix events, while layout and native
-math work before the checkpoint is reused. A completed entry takes the canonical full path.
+The owned worker receives the complete source and full-parser suffix events, while layout, native
+math and syntax work before the checkpoint is reused. A completed entry takes the canonical full path.
 Checkpoint source/layout hints are capped at 64 KiB and are omitted when that bound cannot be met;
 the existing request/reply bounds remain authoritative.
 Hidden plain prose without any supported syntax trigger keeps count-only measurement; admission never parses
 Markdown or infers formatting from regular expressions.
 
 **MD-5 — Color resolves from semantic style intent without reflow.** Prepared text retains ordered
-workspace/Markdown role and modifier patches, never resolved terminal colors; painting uses the
+workspace/Markdown/code role and modifier patches, never resolved terminal colors; painting uses the
 current palette without parsing, wrapping or rebuilding copy fragments. The explicit Markdown
 theme belongs to palette identity, independently of workspace chrome; its inherited choice follows
 the workspace palette. The designed palette's Markdown is the same named tokens: sky, mint and teal
@@ -72,10 +71,86 @@ Rejected: regular-expression Markdown parsing; storing decorated text in JSONL; 
 fetching image/link targets; hiding table cells on narrow terminals; styling user instructions as
 Markdown without an explicit product decision.
 
+**MD-6 — Syntax is bounded presentation of literal code.** Recognized fenced languages prepare
+semantic code roles inside PRE-1/PRE-2's owned worker, never in draw or input; unknown or unlabelled
+code remains literal. A 32 KiB per-block code budget and bounded highlight events degrade a whole
+block to visibly labelled plain code, preserving all text; incomplete syntax remains readable and
+selection retains token distinctions. The code frame encloses the current presentation; it does
+not claim a physical closing fence has arrived. Only a physically closed top-level fence can be
+frozen under MD-4.
+
+## Code theme
+
+The fence's first info word selects Rust (`rs`), Python (`py`, `python3`), JSON (`jsonc`),
+JavaScript (`js`, `jsx`), TypeScript (`ts`, `tsx`) or Bash (`sh`, `shell`), case-insensitively.
+Empty, `text`, `txt`, `plaintext` and unknown info words keep plain code. This is grammar-based
+syntax classification, not language-server semantic analysis. No automatic language guessing.
+A whole code block above 32 KiB, more than 32,768 highlight events or more than 128 nested
+captures loses only highlighting, with an explicit plain-text label. MD-3 bounds the complete
+entry; PRE-2 bounds computation, replacement and shutdown. The byte and event budgets bound the
+work, not its wall-clock time, which is superlinear in block size: adversarial punctuation at the
+32 KiB cap costs seconds, while real code at that cap costs milliseconds. Open blocks reparse only
+when their revision reaches the coalescing worker; unchanged paint never parses. This is not an
+incremental syntax-tree cache. Each bundled grammar's query is compiled at most once per process
+and then only read, because compiling one costs two orders of magnitude more than highlighting an
+ordinary block with it.
+
+| Code role | Pastel token |
+| --- | --- |
+| Text, variables, operators and punctuation | Body |
+| Keywords | Sky |
+| Types and properties, including JSON keys | Teal |
+| Functions and macros | Gold |
+| Strings | Mint |
+| Numbers and constants | Orange |
+| Comments | Steel, italic |
+
+These are content roles, not workspace attention states. Inherited palettes use Body with bold
+keywords and muted italic comments, retaining a color-free monochrome path. Headings, bold,
+italic, quotes and links keep MD-5's styles; inline code adds the existing Bar background.
+Pointer and entry selection use the existing Bar background for pastel Markdown, preserving
+foreground colors and emphasis; inherited and monochrome themes retain the workspace Selection
+style. Selection padding retains its measured width. Source Copy and pointer
+Copy continue to use MD-1/SEL-2. Rejected: terminal-colored spans in preparation, which would
+require parsing again when the palette changes.
+
+## Native syntax validation
+
+The actual workspace, prepared rows and status script were rendered and inspected at
+[120](../../crates/plexmaton-tui/frames/syntax-theme/120.svg),
+[88](../../crates/plexmaton-tui/frames/syntax-theme/88.svg) and
+[60](../../crates/plexmaton-tui/frames/syntax-theme/60.svg) columns, plus
+selected [120](../../crates/plexmaton-tui/frames/syntax-theme/selected-120.svg),
+[88](../../crates/plexmaton-tui/frames/syntax-theme/selected-88.svg),
+[60](../../crates/plexmaton-tui/frames/syntax-theme/selected-60.svg),
+[monochrome](../../crates/plexmaton-tui/frames/syntax-theme/mono-88.svg) and
+[short viewport](../../crates/plexmaton-tui/frames/syntax-theme/short-88.svg) states.
+The fixture includes emphasis, inline code, a quote, Rust/Python/JSON and Chinese text.
+The user has not yet reviewed this theme in their terminal; no live model requests or saved
+session writes were used. Reproduce from the task checkout with:
+
+```console
+cargo run -p plexmaton-tui --example markdown_style_preview -- target/syntax-review syntax
+```
+
+## Dependency admission
+
+Audited 2026-09-13: official Tree-sitter grammars and highlight queries for Rust 0.24.2,
+Python 0.25.0, JSON 0.24.8, JavaScript 0.25.0 and TypeScript/TSX 0.23.2; Bash reuses 0.25.1.
+The highlight engine stays at the workspace's 0.25.10 generation. All are MIT, bundled C with
+no system-library requirement; the pinned Rust toolchain exceeds the engine's declared MSRV.
+No language server, filesystem grammar discovery, injected-language loading or network access.
+[Upstream highlight manifest](https://github.com/tree-sitter/tree-sitter/blob/v0.25.10/highlight/Cargo.toml)
+and grammar crate manifests own dependency metadata. Resolution added six packages without replacing existing locked dependencies; affected compilation
+and `cargo deny check` passed. `cargo tree -d` and feature output confirm one existing engine
+generation; `cargo machete` reports no unused dependencies. Syntect's bundled-syntax path was not selected: it adds bincode, which carries
+[RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141.html).
+
 ## Evidence
 
 | Invariant | Proven by |
 | --- | --- |
+| MD-6 | `syntax_grammars_color_language_constructs_and_preserve_every_byte`, `syntax_grammars_compile_once_and_are_shared_by_every_renderer`, `syntax_unknown_and_budget_fallbacks_keep_complete_literal_code`, `syntax_paint_selection_and_monochrome_share_exact_code_geometry`, `syntax_streaming_open_fences_remain_literal_and_finish_canonically`, `syntax_streaming_reuses_closed_fences_without_rehighlighting_the_prefix`, `syntax_event_limits_and_invalid_ranges_refuse_partial_highlights`, `syntax_workspace_selection_preserves_colors_copy_and_cached_geometry`, `text_drag_copies_wrapped_code_without_its_frame`, `markdown_theme_change_reuses_prepared_rows_and_resolves_current_colors`, `real_preparation_driver_round_trips_semantic_rows_at_three_widths`, `real_preparation_worker_reuses_streamed_markdown_prefixes`; [native frames](#native-syntax-validation) |
 | MD-1 | `math_recognition_retains_original_delimiters_and_excludes_literal_regions`, `complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths`, `projection_fixture_composes_roots_and_multiline_loss_at_three_widths`, `markdown_styles_blocks_and_keeps_code_literal`, `markdown_controls_and_limits_are_explicit`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_frames_show_messages_at_three_widths` |
 | MD-2 | `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `markdown_tables_keep_all_values_at_wide_and_narrow_widths`, `markdown_streaming_prefixes_and_unicode_never_overflow`, `frozen_prefix_accepts_an_exact_fitting_cjk_fragment`, `markdown_frames_show_messages_at_three_widths`, `markdown_resize_round_trip_preserves_the_parked_frame` |
 | MD-3 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `logits_token_stream_never_shrinks_and_finalizes_to_the_same_layout`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `formula_failures_are_local_typed_and_keep_source_copy_independent_of_capability`, `markdown_controls_and_limits_are_explicit`, `markdown_streaming_prefixes_and_unicode_never_overflow` |

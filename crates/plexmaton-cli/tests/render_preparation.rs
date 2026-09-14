@@ -155,13 +155,13 @@ fn release(pid: i32) {
     .expect("release blocked child");
 }
 
-/// PRE-1/MD-5: the real same-build worker preserves rows, copy text and ordered style intent.
+/// PRE-1/MD-5/MD-6: the real same-build worker preserves rows, copy text and ordered style intent.
 #[tokio::test]
 async fn real_preparation_driver_round_trips_semantic_rows_at_three_widths() {
     let mut owner = Preparation::new(PathBuf::from(env!("CARGO_BIN_EXE_plexmaton")));
     for width in [120, 88, 60] {
         let mut requests = vec![request(
-            "# Native **heading**\n\n*中文 e\u{301}* and `code`",
+            "# Native **heading**\n\n*中文 e\u{301}* and `code`\n\n```rust\nfn greet() { /* comment */ }\n```\n\n```python\ndef greet():\n    return 42\n```\n\n```json\n{\"ready\": true}\n```",
             4,
             width,
         )];
@@ -174,7 +174,9 @@ async fn real_preparation_driver_round_trips_semantic_rows_at_three_widths() {
         assert_eq!(received, ticket);
         assert_eq!(
             prepared[0].selection_text(),
-            Ok("Native heading\n\n中文 e\u{301} and code")
+            Ok(
+                "Native heading\n\n中文 e\u{301} and code\n\nfn greet() { /* comment */ }\n\ndef greet():\n    return 42\n\n{\"ready\": true}"
+            )
         );
         assert_eq!(
             serde_json::to_value(&prepared).expect("received"),
@@ -605,8 +607,10 @@ async fn real_preparation_worker_reuses_streamed_markdown_prefixes() {
 
     let mut owner = Preparation::new(PathBuf::from(env!("CARGO_BIN_EXE_plexmaton")));
     for width in [120, 88, 60] {
-        let mut workspace =
-            projected_math("# Heading\n\n\\[x^2\\]\n\nTail", MathPresentation::Native);
+        let mut workspace = projected_math(
+            "# Heading\n\n```rust\nfn greet() {}\n```\n\n\\[x^2\\]\n\nTail",
+            MathPresentation::Native,
+        );
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 24))
             .expect("terminal");
         for (step, append) in [Some(""), Some(" grows"), Some("\n\nNext"), None]

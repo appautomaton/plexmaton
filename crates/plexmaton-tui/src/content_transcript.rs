@@ -332,7 +332,7 @@ fn transcript_text_with_prefix(
                 let mut layout = rendered.layout;
                 for line in &mut layout.lines {
                     if !line.spans.is_empty() {
-                        line.treatment = Treatment::SelectionWidth(reserved);
+                        line.treatment = Treatment::MarkdownSelectionWidth(reserved);
                     }
                 }
                 return (layout, rendered.checkpoint, rendered.reused_prefix);

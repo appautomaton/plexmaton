@@ -418,13 +418,13 @@ mod tests {
         assert_eq!(prepared.result, canonical.result);
     }
 
-    /// MD-4/MD-5: theme changes resolve new colors from the same retained geometry and style intent.
+    /// MD-4/MD-5/MD-6: theme changes resolve new colors from the same retained geometry and style intent.
     #[test]
     fn markdown_theme_change_reuses_prepared_rows_and_resolves_current_colors() {
         let agent = AgentId::new("primary").expect("agent");
         let item = TranscriptEntryView::Text(TranscriptItemView {
             id: TranscriptItemId::new("styled-heading").expect("item"),
-            source: "# Heading".into(),
+            source: "# Heading\n\n```rust\nfn greet() {}\n```".into(),
             role: TranscriptRole::Assistant,
             kind: TranscriptTextKind::Message,
             revision: 1,
@@ -444,6 +444,19 @@ mod tests {
             .spans[0]
             .style;
         assert_ne!(plain.fg, colored.fg);
+        let layout = prepared(&mut cache, &agent, &item, 60).expect("code hit");
+        let before = layout.painted_lines(&base);
+        let after = layout.painted_lines(&proposed);
+        let keyword = |lines: &[text::Line<'_>]| {
+            lines
+                .iter()
+                .flat_map(|line| &line.spans)
+                .find(|span| span.content == "fn")
+                .expect("keyword")
+                .style
+        };
+        assert_ne!(keyword(&before).fg, keyword(&after).fg);
+        assert_eq!(keyword(&after).fg, Some(crate::theme::tokens::SKY));
         assert_eq!(cache.layouts(), 1);
         prepared(&mut cache, &agent, &item, 60).expect("hit");
         assert_eq!(cache.layouts(), 1);

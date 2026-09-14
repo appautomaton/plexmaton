@@ -400,7 +400,7 @@ fn tre_2_groups_assistant_blocks_and_parallel_tool_batch() {
     assert_eq!(incomplete.rows[1].rewind, TreeRewindEligibility::Ineligible);
     assert_eq!(
         incomplete.rows[1].preview.text,
-        "checking read_file list_files"
+        "read_file list_files · checking"
     );
     assert_eq!(
         journal.tree_source(&plexmaton_core::TreeSourceRequest {
@@ -446,10 +446,7 @@ fn tre_2_groups_assistant_blocks_and_parallel_tool_batch() {
     assert_eq!(snapshot.rows[2].entry_id, final_step);
     assert_eq!(snapshot.rows[2].parent_id.as_ref(), Some(&tool_step));
     assert_eq!(snapshot.rows[2].kind, TreeRowKind::Assistant);
-    assert_eq!(
-        snapshot.rows[2].preview.text,
-        "answer one reasoning answer two"
-    );
+    assert_eq!(snapshot.rows[2].preview.text, "answer one answer two");
     assert_eq!(snapshot.rows[2].head_markers, [head("main")]);
     for row in &snapshot.rows {
         let expected = journal
@@ -769,4 +766,85 @@ fn tre_7_checkpoint_row_is_visible_but_not_rewindable() {
     assert_eq!(checkpoint.parent_id.as_ref(), Some(&assistant_entry));
     assert_eq!(checkpoint.head_markers, [head("main")]);
     assert_eq!(checkpoint.rewind, TreeRewindEligibility::Ineligible);
+}
+
+/// TRE-2/TRE-8: preview prioritizes visible answers and tool identities without changing source.
+#[test]
+fn tre_2_long_reasoning_never_displaces_answer_or_tool_preview() {
+    let reasoning = "private reasoning ".repeat(100);
+    let mut blocks = vec![
+        reasoning_block("thought", &reasoning),
+        text_block("answer", "Actual answer"),
+    ];
+    let preview = |blocks| {
+        super::semantic_row(
+            &agent(),
+            &JournalEntryPayload::AssistantOutput {
+                agent_id: agent(),
+                step_id: step("turn-1", 1),
+                output: output(blocks),
+            },
+        )
+        .expect("assistant row")
+        .1
+        .text
+    };
+    assert_eq!(preview(blocks.clone()), "Actual answer");
+    blocks.push(call_block(
+        "tool",
+        ToolCall {
+            call_id: id("call", ToolCallId::new),
+            name: "read_file".into(),
+            arguments: "{}".into(),
+        },
+    ));
+    assert_eq!(preview(blocks), "read_file · Actual answer");
+    assert_eq!(
+        preview(vec![reasoning_block("only-thought", "Considering options")]),
+        "reasoning: Considering options"
+    );
+}
+
+/// TRE-2: long tool names cannot consume the answer's budget; empty outputs do not invent reasoning.
+#[test]
+fn tre_2_tool_names_and_answers_have_independent_preview_budgets() {
+    let payload = |output| JournalEntryPayload::AssistantOutput {
+        agent_id: agent(),
+        step_id: step("turn-1", 1),
+        output,
+    };
+    let blocks = vec![
+        call_block(
+            "long-tool",
+            ToolCall {
+                call_id: id("call", ToolCallId::new),
+                name: "工具".repeat(100),
+                arguments: "{}".into(),
+            },
+        ),
+        text_block("answer", "Actual answer 中文"),
+    ];
+    let preview = super::semantic_row(&agent(), &payload(output(blocks)))
+        .expect("row")
+        .1;
+    assert!(preview.text.contains("Actual answer 中文"));
+    assert!(preview.text.starts_with("工具"));
+    assert!(preview.text.len() <= MAX_TREE_PREVIEW_BYTES_PER_ROW);
+    assert!(preview.truncated);
+    assert!(preview.text.ends_with('…'));
+    let empty = output_with_replay(
+        vec![crate::AssistantBlock::ReplayOnly {
+            item_id: id("hidden", TranscriptItemId::new),
+        }],
+        [(0, replay("opaque"))],
+    );
+    let preview = super::semantic_row(&agent(), &payload(empty))
+        .expect("row")
+        .1;
+    assert_eq!(preview.text, "");
+    assert!(!preview.truncated);
+    let blank = super::semantic_row(&agent(), &payload(output(vec![text_block("blank", "  ")])))
+        .expect("row")
+        .1;
+    assert_eq!(blank.text, "");
 }

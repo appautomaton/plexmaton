@@ -5,7 +5,11 @@ use ratatui::{style::Modifier, text};
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthStr;
 
-use crate::{Palette, Role, state::EntryAppearance, theme::MarkdownStyles};
+use crate::{
+    Palette, Role,
+    state::EntryAppearance,
+    theme::{MarkdownStyles, code::CodeRole},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum MarkdownRole {
@@ -26,6 +30,7 @@ pub(crate) enum MarkdownRole {
 enum Layer {
     Workspace(Role),
     Markdown(MarkdownRole),
+    Code(CodeRole),
     Add(#[serde(with = "modifier")] Modifier),
 }
 
@@ -50,6 +55,15 @@ impl From<MarkdownRole> for Paint {
     fn from(role: MarkdownRole) -> Self {
         Self {
             base: Some(Layer::Markdown(role)),
+            patches: Vec::new(),
+        }
+    }
+}
+
+impl From<CodeRole> for Paint {
+    fn from(role: CodeRole) -> Self {
+        Self {
+            base: Some(Layer::Code(role)),
             patches: Vec::new(),
         }
     }
@@ -89,6 +103,7 @@ impl Paint {
             |style, layer| match layer {
                 Layer::Workspace(role) => style.patch(colors.palette.style(*role)),
                 Layer::Markdown(role) => style.patch(colors.markdown(*role)),
+                Layer::Code(role) => style.patch(colors.palette.code_style(*role)),
                 Layer::Add(modifier) => style.add_modifier(*modifier),
             },
         )
@@ -153,6 +168,7 @@ pub(crate) enum Treatment {
     SelectionWidth(usize),
     EntryHeading,
     Diff,
+    MarkdownSelectionWidth(usize),
 }
 
 /// Prepared rows are not widgets: only text, style intent and a conversion at the paint boundary.
@@ -215,7 +231,7 @@ impl Line {
         self.width() <= width
             && self.style.is_bounded()
             && self.spans.iter().all(|span| span.style.is_bounded())
-            && !matches!(self.treatment, Treatment::SelectionWidth(reserved) if reserved > width)
+            && !matches!(self.treatment, Treatment::SelectionWidth(reserved) | Treatment::MarkdownSelectionWidth(reserved) if reserved > width)
     }
 
     pub(crate) fn paint_ref(&self, colors: &Colors<'_>) -> text::Line<'static> {
@@ -234,11 +250,24 @@ impl Line {
         appearance: EntryAppearance,
     ) -> text::Line<'static> {
         if appearance.selected {
-            let selection = colors.palette.style(Role::Selection);
-            if self.treatment == Treatment::Diff {
+            let selection = if matches!(self.treatment, Treatment::MarkdownSelectionWidth(_)) {
+                colors.markdown.selection
+            } else {
+                colors.palette.style(Role::Selection)
+            };
+            if matches!(
+                self.treatment,
+                Treatment::Diff | Treatment::MarkdownSelectionWidth(_)
+            ) {
                 let mut line = self.paint_ref(colors);
                 for span in &mut line.spans {
                     span.style = line.style.patch(span.style).patch(selection);
+                }
+                if let Treatment::MarkdownSelectionWidth(width) = self.treatment {
+                    line.spans.push(text::Span::styled(
+                        " ".repeat(width.saturating_sub(line.width())),
+                        selection,
+                    ));
                 }
                 line.style = ratatui::style::Style::default();
                 return line;

@@ -13,6 +13,8 @@ use crate::{state::TextInput, surface::SurfaceId};
 mod api;
 #[path = "conversation_tree/operations.rs"]
 mod operations;
+#[path = "conversation_tree/presentation.rs"]
+mod presentation;
 #[cfg(test)]
 #[path = "conversation_tree/tests.rs"]
 mod tests;
@@ -70,6 +72,7 @@ impl TreeEditor {
 pub(crate) struct ConversationTree {
     agent: AgentId,
     snapshot: Option<TreeSnapshot>,
+    presentation: presentation::Presentation,
     unavailable: Option<String>,
     return_focus: SurfaceId,
     open: bool,
@@ -93,6 +96,7 @@ impl ConversationTree {
         let mut tree = Self {
             agent,
             snapshot: None,
+            presentation: presentation::Presentation::default(),
             unavailable: None,
             return_focus,
             open: true,
@@ -113,15 +117,22 @@ impl ConversationTree {
     pub(crate) fn refresh(&mut self, snapshot: Result<TreeSnapshot, String>) {
         match snapshot {
             Ok(snapshot) if snapshot.origin.agent_id == self.agent => {
-                let parents = snapshot
-                    .rows
-                    .iter()
-                    .filter_map(|row| row.parent_id.clone())
-                    .collect::<BTreeSet<_>>();
+                let presentation = match presentation::Presentation::new(&snapshot.rows) {
+                    Ok(presentation) => presentation,
+                    Err(message) => {
+                        self.snapshot = None;
+                        self.presentation = presentation::Presentation::default();
+                        self.unavailable = Some(message.to_owned());
+                        self.entry_offset = 0;
+                        self.head_offset = 0;
+                        return;
+                    }
+                };
+                self.presentation = presentation;
                 self.snapshot = Some(snapshot);
                 self.unavailable = None;
                 self.notice = None;
-                self.folded.retain(|id| parents.contains(id));
+                self.folded.retain(|id| self.presentation.has_children(id));
                 self.reconcile_entries();
                 self.reconcile_heads();
             }
@@ -199,10 +210,11 @@ impl ConversationTree {
         };
         let mut hidden = BTreeSet::new();
         let mut visible = Vec::with_capacity(snapshot.rows.len());
-        for row in &snapshot.rows {
-            let row_is_hidden = row
-                .parent_id
-                .as_ref()
+        for index in &self.presentation.order {
+            let row = &snapshot.rows[*index];
+            let row_is_hidden = self
+                .presentation
+                .parent(&row.entry_id)
                 .is_some_and(|parent| hidden.contains(parent) || self.folded.contains(parent));
             if row_is_hidden {
                 hidden.insert(row.entry_id.clone());
@@ -230,9 +242,7 @@ impl ConversationTree {
     }
 
     pub(crate) fn has_children(&self, id: &ConversationEntryId) -> bool {
-        self.rows()
-            .iter()
-            .any(|row| row.parent_id.as_ref() == Some(id))
+        self.presentation.has_children(id)
     }
 
     pub(crate) fn entries_count(&self) -> usize {
@@ -266,7 +276,9 @@ impl ConversationTree {
 
     pub(crate) fn selected_entry_row(&self) -> Option<&TreeRow> {
         let selected = self.selected_entry.as_ref()?;
-        self.rows().iter().find(|row| &row.entry_id == selected)
+        self.visible_entries()
+            .into_iter()
+            .find(|row| &row.entry_id == selected)
     }
 
     pub(crate) fn set_pending(&mut self, pending: Option<TreePending>) {
@@ -390,7 +402,6 @@ impl ConversationTree {
                     return None;
                 };
                 if row.rewind != TreeRewindEligibility::Eligible {
-                    self.notice = Some("This row is not a safe rewind point.".to_owned());
                     return None;
                 }
                 TreeNavigationTarget::Rewind(row.entry_id.clone())
@@ -466,13 +477,15 @@ impl ConversationTree {
             .as_ref()
             .and_then(|id| self.visible_ancestor(id, &ids));
         let active_target = self.snapshot.as_ref().and_then(|snapshot| {
-            snapshot
-                .heads
+            let target = snapshot
+                .rows
                 .iter()
-                .find(|head| head.name == snapshot.origin.selected_head)
-                .and_then(|head| head.target.as_ref())
-                .filter(|id| ids.contains(*id))
-                .cloned()
+                .find(|row| row.head_markers.contains(&snapshot.origin.selected_head))?;
+            if ids.contains(&target.entry_id) {
+                Some(target.entry_id.clone())
+            } else {
+                self.visible_ancestor(&target.entry_id, &ids)
+            }
         });
         self.selected_entry = ancestor
             .or(active_target)
@@ -485,14 +498,12 @@ impl ConversationTree {
         entry: &ConversationEntryId,
         visible: &BTreeSet<ConversationEntryId>,
     ) -> Option<ConversationEntryId> {
-        let mut current = entry;
-        for _ in 0..=self.rows().len() {
-            let row = self.rows().iter().find(|row| &row.entry_id == current)?;
-            let parent = row.parent_id.as_ref()?;
-            if visible.contains(parent) {
-                return Some(parent.clone());
+        let mut current = self.presentation.anchor(entry)?;
+        for _ in 0..=self.presentation.order.len() {
+            if visible.contains(current) {
+                return Some(current.clone());
             }
-            current = parent;
+            current = self.presentation.parent(current)?;
         }
         None
     }

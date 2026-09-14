@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; PR #26 merged as `6fde843`, all three CI checks passed |
+| Status | Implemented; connected message graph and fold summaries verified locally and user-reviewed |
 | Owns | Semantic tree projection, durable navigation, tree modal and draft return |
 | Depends on | JRN-1–JRN-8, TIM-1, CPL-5, COM-3/COM-6, CMC-2, INV-1/INV-3/INV-6; [context epochs](../ui-ux.md#context-epochs-and-branch-selection) |
 | Proven by | Agent, runtime, store, TUI and CLI tests below; real PTY smoke |
@@ -11,11 +11,19 @@
 
 **TRE-1 — One action opens one modal.** `/tree` and `/rewind` resolve to the same typed action.
 The `Conversation tree` modal owns its cursor and any enabled search input, blocking input below it while
-producer events continue. Native frames are locally inspected; the user will test the interaction directly.
+producer events continue. Native frames are locally inspected; the user accepted the interaction on 2026-09-13.
 
 **TRE-2 — Tree rows are semantic projections.** Stable entry identities and parent relationships
 define the tree; record order supplies chronology, not lexical IDs. Audit records are not messages;
 previews and any enabled query results are bounded and truncation/partial availability is explicit.
+The snapshot keeps append chronology; display traverses contiguous subtrees in chronological sibling
+order and adds a lane only at a split; malformed ancestry refuses partial display. Ineligible tool
+batches are omitted from the message list; retained rows connect through their nearest retained
+ancestor. Eligible completed tool batches and read-only context rows remain available. Answer text
+precedes reasoning in preview selection; exact source and canonical snapshot metadata stay intact.
+Rejected: directory-depth indentation for every sequential step, and chronological flattened rows
+with depth-first connectors, which misrepresent linear work and interleaved branches; intermediate
+tool fold controls, which hid final answers behind non-rewindable implementation steps.
 
 **TRE-3 — Rewind preserves the original continuation.** Rewind creates and selects a fresh named
 head in one journal mutation at a validated stable boundary. Selecting an existing head moves only
@@ -33,6 +41,15 @@ Browsing, cancel and failed navigation preserve the original draft, binding and 
 **TRE-6 — Selection follows identity and focus.** Hover and keyboard share a tree cursor separate
 from transcript text selection. Filtering, folding, child dialogs and resize retain a valid selected
 ID or a defined visible ancestor; empty/root results are explicit states, never negative indices.
+Initial selection resolves the active head through the same semantic marker as its badge, including
+hidden journal tips and folded ancestors. Keyboard, pointer and folding share display traversal and
+retained parents. Only retained descendants make a row collapsible; `[+]` expands and `[−]` collapses.
+The complete three-cell control is clickable. Each message occupies a node row and a non-interactive
+connector row; linear continuations connect vertically in one lane and forks add a lane. A leaf is
+`•`, not a fold control. A collapsed node replaces its connector with the complete retained-descendant
+count and hidden head names, prioritizing the current branch. Nested folds do not reduce that count.
+Folding changes neither the canonical entries nor any head. Ineligible selection advertises Read-only, emits no
+navigation on Enter and does not enter a refusal/retry loop.
 
 **TRE-7 — Context follows destination ancestry.** A user target is before its turn; a completed
 assistant target includes that output. A complete tool batch is indivisible. Rewind performs no
@@ -180,35 +197,42 @@ merged as `6fde843`. These results cover the implementation, not subsequent docu
 
 Actual native frames were locally inspected at 120×30, 88×30, 60×30 and 48×12, including the label editor and branch selector. No preview generator or design mockup is shipped. `scripts/smoke-tree.py` separately proves actual terminal switching with Chinese text, exact destination context, original-branch return, selected-head restart and one command effect across six loopback requests.
 
-### Behavioral boundaries
+The native presentation keeps linear steps aligned and reserves a right-side badge for named heads;
+`●` marks the current branch even when multiple names share one display anchor. Canonical branch
+selection and copy still resolve the original head tip. Controls and the active head use `Accent`,
+connectors and inactive heads use `Muted`, and previews retain `Body`/`Muted`. Selected row headings use
+`Chosen`; its background spans the row without overwriting the other semantic foregrounds or weights.
+The footer advertises the selected row's action and names expand/collapse only when available.
+Scroll offsets/capacity remain semantic in UI state; the renderer maps to two-line node blocks.
+Fixed headings do not count as scrolled rows, and connectors, summaries and spare partial rows
+cannot become pointer targets.
+[Folded state](../../crates/plexmaton-tui/frames/conversation-tree/folded-88.svg) shows the same
+control and semantic roles after a pointer toggle. Frames below come from the production Workspace renderer with a sanitized structural fixture,
+not from the user's private journal. Regenerate with
+`PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui tre_1_2_native_branch_frames`.
 
-The table defines coverage, not a claim that every case passes. The evidence table below owns
-observed proofs and outstanding boundaries. Prefix proof tests with `tre_` and cite the invariant.
+| Scenario | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Omitted tool steps and shared tips | [120](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-60.svg) |
+| Return to an earlier branch | [120](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-60.svg) |
 
-| Layer | Cases that must fail for a plausible broken implementation |
-| --- | --- |
-| Agent journal | Fork/select roundtrip; stale source; name collision; missing/foreign target; selected rename; selected abandon refusal; source path unchanged |
-| Agent projection | User-before and completed-assistant-after; multi-block answers; complete versus interior parallel batch; failed/cancelled terminal; before/between checkpoints; root/empty tree; chronology independent of IDs |
-| Store | Old epoch/header unchanged; new selection survives reopen; injected failed/partial write cannot report a half-completed fork/select |
-| Runtime | Writer barrier pauses reset/draft; Busy in every owned-work state; no model/tool call on navigation; source unchanged; later submit exactly once; shutdown joins accepted navigation |
-| Draft/skills | Existing draft wins; empty draft gets exact selected text/binding; no concatenation; numeric explicit skill; unavailable current skill handled only on later submit |
-| TUI | Aliases and completion; mouse/key same selected ID; no hidden shortcuts; press/drag/resize target invalidation; child-dialog return; deep branch; min-size dismissal; search clear versus close and empty filter only if included |
-| CLI fixture | Both commands → tree → rewind → edit/send → original branch → exit/resume; exact provider context and no spurious interrupted turn |
+| Six-head structural fixture | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Expanded ancestry | [120](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-60.svg) |
+| Six descendants and two heads collapsed | [120](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-60.svg) |
 
-Use existing nearby tests before adding new infrastructure: `journal/projection/tests.rs`,
-`journal/validation_tests.rs`, `record/retry.rs`, runtime journal-failure fixtures,
-`workspace/retry/tests.rs`, `workspace/hover_tests.rs` and `workspace/pressed_tests.rs`.
-Public wire/loopback fixtures prove integration; paid/live model calls are not tests.
+These frames use sanitized text with the reported session's branch topology. Regenerate with
+`PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui tre_1_6_multibranch_graph_frames`.
 
 ## Evidence
 
 | Invariant | Proven by |
 | --- | --- |
-| TRE-1 | `tre_1_tree_frames_keep_branch_copy_and_status_at_each_breakpoint`, `tre_1_rewind_alias_completion_inserts_a_command_without_running_it`, `tre_1_hidden_input_and_selection_shortcuts_preserve_exact_draft_and_skill`, `tre_1_global_quit_confirmation_rearms_after_interrupt_under_tree`, `tre_1_minimum_size_escape_closes_drawer_before_tree_and_blocks_hidden_input`; `scripts/smoke-tui.py` and `scripts/smoke-tree.py` |
-| TRE-2 | `tre_2_all_heads_deduplicate_shared_ancestry_and_keep_chronology`, `tre_2_empty_root_and_exact_head_limit_are_explicit`, `tre_2_legacy_head_names_are_byte_bounded_before_snapshot_retention`, `tre_2_ancestry_and_scanned_record_limits_are_explicit`, `tre_2_node_preview_and_aggregate_bounds_are_typed_and_utf8_safe`, `tre_2_groups_assistant_blocks_and_parallel_tool_batch` |
+| TRE-1 | `tre_1_6_notice_and_empty_footers_describe_available_actions`; `tre_1_7_read_only_selection_never_advertises_rewind_or_retry`, `tre_1_6_disclosure_and_head_markers_keep_semantic_styles_when_selected`; `tre_1_tree_frames_keep_branch_copy_and_status_at_each_breakpoint`, `tre_1_rewind_alias_completion_inserts_a_command_without_running_it`, `tre_1_hidden_input_and_selection_shortcuts_preserve_exact_draft_and_skill`, `tre_1_global_quit_confirmation_rearms_after_interrupt_under_tree`, `tre_1_minimum_size_escape_closes_drawer_before_tree_and_blocks_hidden_input`; `scripts/smoke-tui.py` and `scripts/smoke-tree.py` |
+| TRE-2 | `tre_2_6_tool_chains_do_not_own_message_folding_or_selection`, `tre_2_6_8_omitted_tool_tip_keeps_canonical_copy_and_projected_head_anchor`, `tre_2_6_7_hidden_only_descendants_have_no_fold_but_completed_tools_remain_targets`, `tre_2_splits_below_omitted_tool_steps_keep_both_visible_continuations`; `tre_2_nested_splits_preserve_outer_connector_and_sibling_order`, `tre_2_disconnected_and_duplicate_snapshot_rows_refuse_partial_display`, `tre_2_tool_names_and_answers_have_independent_preview_budgets`; `tre_2_interleaved_branches_are_contiguous_and_fold_by_ancestry`, `tre_2_connectors_follow_splits_and_keep_linear_steps_aligned`, `tre_2_long_reasoning_never_displaces_answer_or_tool_preview`, `tre_1_2_native_branch_frames_preserve_heads_and_continuation_lanes`; `tre_2_all_heads_deduplicate_shared_ancestry_and_keep_chronology`, `tre_2_empty_root_and_exact_head_limit_are_explicit`, `tre_2_legacy_head_names_are_byte_bounded_before_snapshot_retention`, `tre_2_ancestry_and_scanned_record_limits_are_explicit`, `tre_2_node_preview_and_aggregate_bounds_are_typed_and_utf8_safe`, `tre_2_groups_assistant_blocks_and_parallel_tool_batch` |
 | TRE-3 | `tre_3_fork_and_select_creates_and_selects_without_moving_source`, `tre_3_select_head_moves_only_durable_selection`, `tre_3_create_head_does_not_change_selection`, `tre_3_stale_source_revision_refuses_fork_and_select`, `tre_3_name_collision_refuses_fork_and_select`, `tre_3_missing_target_refuses_fork_and_select`, `tre_3_foreign_source_refuses_fork_and_select`, `tre_3_unstable_target_refuses_fork_and_select`, `tre_3_rename_of_selected_preserves_selection_identity`, `tre_3_abandon_selected_refuses`, `tre_3_old_journals_without_selection_records_default_to_main`, `tre_3_select_head_stale_destination_revision_refuses`, `tre_3_from_journal_projects_the_durable_selected_head`, `tre_3_fork_and_select_survives_reopen_without_rewriting_the_header`, `tre_3_partial_fork_and_select_write_does_not_select_or_create_the_destination`, `tre_3_rejected_fork_and_select_writes_nothing` |
 | TRE-4 | `tre_4_navigation_is_acknowledgement_gated_cancellation_safe_and_report_owned`, `tre_4_pending_approval_refuses_navigation_without_flushing_or_writing`, `tre_4_queued_agent_input_refuses_navigation_and_remains_owned`, `tre_4_stale_and_invalid_navigation_refuse_without_writing`, `tre_4_navigation_write_failures_freeze_without_result_or_undelivered_input`, `tre_4_shutdown_joins_an_accepted_navigation_append`, `tre_4_8_metadata_ack_is_cancellation_safe_and_preserves_context`, `tre_4_8_metadata_write_failure_freezes_without_success_or_fake_input`; `tre_4_duplicate_metadata_enter_and_close_do_not_cancel_an_admitted_write`, `tre_4_5_report_preserves_drawer_and_rebases_its_return_focus`, `tre_4_8_edit_report_refreshes_acknowledged_metadata_without_reopening` |
 | TRE-5 | Agent source pair: `tre_4_5_user_rewind_returns_exact_text_and_numeric_skill_without_effects`; `tre_4_5_report_restores_draft_only_after_ack_and_preserves_occupied_input`, `tre_4_5_failed_report_keeps_pending_tree_input` |
-| TRE-6 | `tre_6_folding_an_ancestor_keeps_selection_on_a_visible_identity`, `tre_6_refresh_retains_valid_cursor_fold_and_view_mode`, `tre_6_pointer_and_keyboard_navigation_use_stable_rows_and_branches`, `tre_6_stationary_pointer_repeat_does_not_override_keyboard_cursor`, `tre_6_pointer_selects_a_branch_before_explicit_head_navigation`, `tre_6_tree_press_drag_resize_and_escape_never_release_activate` |
+| TRE-6 | `tre_1_6_message_nodes_have_visible_edges_and_connector_rows_are_not_targets`, `tre_2_6_collapsed_node_reports_hidden_heads_without_moving_them`, `tre_2_6_fold_counts_match_ancestry_and_preserve_unrelated_heads`, `tre_1_6_multibranch_graph_frames_show_fold_scope_and_hidden_current_head`, `tre_6_long_graph_scrolling_and_partial_rows_keep_exact_targets`; `tre_6_initial_selection_resolves_hidden_head_tip_and_visible_ancestor`, `tre_6_interleaved_native_rows_keep_pointer_navigation_and_fold_identity`; `tre_6_folding_an_ancestor_keeps_selection_on_a_visible_identity`, `tre_6_refresh_retains_valid_cursor_fold_and_view_mode`, `tre_6_pointer_and_keyboard_navigation_use_stable_rows_and_branches`, `tre_6_stationary_pointer_repeat_does_not_override_keyboard_cursor`, `tre_6_pointer_selects_a_branch_before_explicit_head_navigation`, `tre_6_tree_press_drag_resize_and_escape_never_release_activate` |
 | TRE-7 | `tre_4_7_invalid_targets_refuse_atomically_with_typed_reasons`, `tre_4_7_foreign_agent_target_refuses_without_mutation`, `tre_7_assistant_rewind_keeps_the_complete_tool_batch`, `tre_7_rewinding_first_user_selects_root_before_any_request_atom`, `tre_7_rewind_projection_excludes_a_newer_source_checkpoint`, `tre_7_steering_rows_are_visible_but_not_rewindable`, `tre_7_checkpoint_row_is_visible_but_not_rewindable`; `scripts/smoke-tree.py` |
 | TRE-8 | `tre_8_label_set_clear_and_noop_leave_context_and_accounting_identical`, `tre_3_8_head_edits_preserve_selection_and_history_and_refuse_selected_abandon`, `tre_8_invalid_metadata_targets_and_names_refuse_without_mutation`, `tre_8_empty_history_refuses_metadata_without_a_write`, `tre_8_snapshot_reads_the_authoritative_node_label`, `tre_8_tree_copy_reads_full_source_and_rejects_stale_or_foreign_rows`, `tre_8_assistant_copy_preserves_blocks_without_opaque_replay`, `tre_8_copy_capacity_is_exact_and_never_silently_truncates`, `tre_8_labels_revalidate_utf8_bounds_and_single_line_semantics`, `tre_3_8_labels_and_head_edits_reopen_without_rewriting_supported_headers`, `tre_8_partial_label_write_keeps_the_prior_annotation`; `tre_8_y_and_ctrl_y_return_the_same_workspace_copy_request`, `tre_8_label_editor_paints_its_caret_and_escape_returns_to_browsing`, `tre_8_copy_from_a_head_uses_its_marked_semantic_row` |
