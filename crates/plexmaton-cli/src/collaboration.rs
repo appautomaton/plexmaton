@@ -53,6 +53,8 @@ pub(crate) struct Collaboration {
     /// Letters already on screen. The snapshot is the whole correspondence every time, and resume
     /// replays it from the log, so the projection has to be the part that knows what is new.
     shown: BTreeSet<CollaborationItemRef>,
+    /// Where a child's own journal lives, so its history can be read back after a restart.
+    children: DelegatedConversationDirectory,
     /// The task each delegation was last drawn with. The log keeps only the current task, so the
     /// text itself is what separates "already on screen" from "Main changed it".
     assigned: BTreeMap<ConversationId, String>,
@@ -67,6 +69,8 @@ pub(crate) fn open(
     plexmaton_home: &Path,
     conversation: &ConversationId,
 ) -> anyhow::Result<(Collaboration, MainCollaborationIngress)> {
+    let children = DelegatedConversationDirectory::under(plexmaton_home)
+        .context("open the delegated session directory")?;
     let path = plexmaton_home
         .join("collaborations")
         .join(format!("{}.jsonl", conversation.as_str()));
@@ -102,6 +106,7 @@ pub(crate) fn open(
         Collaboration {
             owner,
             announced: BTreeMap::new(),
+            children,
             delivered,
             undelivered: false,
             root: None,
@@ -150,9 +155,45 @@ impl Collaboration {
                 anyhow::anyhow!("restore this root's collaboration context: {error}")
             })?;
         self.sync_roster(runtime, AgentStatus::Idle).await?;
+        self.replay_children(runtime)?;
         // Restoring draws the whole correspondence and answers none of it: a letter the root
         // already replied to before it exited must not earn a second turn every launch.
         let _restored = self.show_mail(runtime).await?;
+        Ok(())
+    }
+
+    /// Reads back what each child did in an earlier process, from the child's own journal.
+    ///
+    /// A live child streams its work through its runner and [`Self::project_runner`] forwards it.
+    /// A resumed one has no runner and never will until something addresses it, so its history is
+    /// only in its journal — and without this a conversation reopened tomorrow shows the ask and
+    /// the answer with the work between them missing. Reading is not waking (CHB-3): the journal is
+    /// opened, projected and closed without constructing a runtime or dispatching anything.
+    fn replay_children(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
+        let children: Vec<(ConversationId, AgentId)> = self
+            .announced
+            .iter()
+            .map(|(conversation, agent)| (conversation.clone(), agent.clone()))
+            .collect();
+        for (conversation, agent_id) in children {
+            // A child whose journal is missing or held elsewhere keeps its roster row and its
+            // correspondence; only the work between them is unavailable.
+            let Ok(file) = self.children.resume(&conversation) else {
+                continue;
+            };
+            let journal = file.journal();
+            let Ok(projection) = journal.project(journal.selected_head()) else {
+                continue;
+            };
+            for envelope in projection.events() {
+                let mut event = envelope.event.clone();
+                if !forwarded(&event) {
+                    continue;
+                }
+                *event.agent_mut() = agent_id.clone();
+                runtime.project_delegated(event);
+            }
+        }
         Ok(())
     }
 
