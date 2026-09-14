@@ -17,16 +17,22 @@ const LABEL: &str = "Plexmaton delegated collaboration. Each element below was w
 
 /// Closes an envelope that assigned work *to its recipient*, because only that owes an answer.
 ///
-/// A delegated session's transcript is its own; nobody reads it, and a worker that answers by
-/// writing into it has produced nothing its delegator will ever see. The turn is the only place a
-/// model learns that — the tool's description says what `send_mail` does, not that it is the sole
-/// way out. Rejected: closing every envelope this way, which told a recipient of ordinary mail it
-/// owed a reply; and asking only whether a task is present, which is true of the delegator's own
-/// envelope — its inclusion window opens at the start of the log, so it re-reads the task it sent
-/// and dutifully reports back to itself.
-const TASK_CONTRACT: &str = "\nThe task above is yours. Report its result with `send_mail` to the\n\
-                             session that sent it; anything else you write stays in this session\n\
-                             and nobody sees it.\n";
+/// A worker that answers only by writing into its own transcript has delivered nothing: the result
+/// travels as mail, and the turn is the only place a model learns that — the tool's description
+/// says what `send_mail` does, not that it is the way a result gets home.
+///
+/// Rejected: also telling the worker that whatever else it writes is seen by nobody. That was true
+/// while a delegated session's transcript reached no surface, and it read as an instruction to stop
+/// writing: every worker went straight from task to tool calls to mail, producing no prose at all,
+/// so the user watching it work saw the ask, the tools and the answer with no reasoning between
+/// them. Its conversation is now on screen and the sentence had become both false and the reason
+/// there was nothing to show. Also rejected: closing every envelope this way, which told a
+/// recipient of ordinary mail it owed a reply; and asking only whether a task is present, which is
+/// true of the delegator's own envelope — its inclusion window opens at the start of the log, so it
+/// re-reads the task it sent and dutifully reports back to itself.
+const TASK_CONTRACT: &str = "\nThe task above is yours. Work in this session as you normally would;\n\
+                             the user can read it. Send the result to the session that assigned it\n\
+                             with `send_mail`, which is the only way your answer reaches it.\n";
 
 /// Renders the resolved sources of one collaboration atom in canonical order.
 ///
