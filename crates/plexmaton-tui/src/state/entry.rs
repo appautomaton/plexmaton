@@ -111,13 +111,15 @@ pub struct ArtifactView {
 
 /// Typed mail delivered between sessions, as one of its two conversations holds it.
 ///
-/// Both endpoints are retained because they are the letter's attribution, and it reads the same in
-/// either conversation. Which side this item is stays in the projection that filed it: nothing
-/// drawn from a letter depends on where the reader is standing.
+/// Both endpoints are retained because they are the letter's attribution. `owner` is which side
+/// this item is, which the row does depend on: the same letter is an outbox entry in the
+/// conversation that wrote it and an inbox entry in the one it reached, and a reader needs telling
+/// which they are looking at.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailView {
     pub entry_id: TranscriptItemId,
     pub id: MailId,
+    pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
     pub summary: String,

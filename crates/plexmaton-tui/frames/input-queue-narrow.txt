@@ -25,7 +25,7 @@
  UI study. Agent B is running independently; this
  transcript remains interactive.
 
- agent-b -> agent-a · Routing stays centralized and z-orde…
+ received from agent-b · Routing stays centralized and z-o…
 
 
  · Responding…                                      ( !1 )

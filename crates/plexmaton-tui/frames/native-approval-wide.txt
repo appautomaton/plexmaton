@@ -19,7 +19,7 @@
 │                          │ I will inspect the workspace and delegate the focused UI study. Agent B is running             
 │                          │ independently; this transcript remains interactive.                                            
 │                          │                                                                                                
-│                          │ agent-b -> agent-a · Routing stays centralized and z-ordered.                                  
+│                          │ received from agent-b · Routing stays centralized and z-ordered.                               
 │                          │ [?] exec_command · approval required                                                           
 │                          │                                                                                        ( !2 )  
 │                          │── Approval required · exec_command ────────────────────────────────────────────────────────────

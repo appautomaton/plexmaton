@@ -8,7 +8,7 @@
 │                          │ │                                                                                        │ 
 │                          │ │[+] inspect interaction fixtures · succeeded                                            │ 
 │                          │ │@ interaction findings · artifact://agent-b/interaction-findings                        │ 
-│                          │ │agent-b -> agent-a · Routing stays centralized and z-ordered.                           │ 
+│                          │ │sent to agent-a · Routing stays centralized and z-ordered.                              │ 
 │                          │ │Controller unavailable | Input locked                                                   │ 
 │                          │ └────────────────────────────────────────────────────────────────────────────────────────┘ 
 │                          │                                                                                            
@@ -21,7 +21,7 @@
 │                          │ I will inspect the workspace and delegate the focused UI study. Agent B is running         
 │                          │ independently; this transcript remains interactive.                                        
 │                          │                                                                                            
-│                          │ agent-b -> agent-a · Routing stays centralized and z-ordered.                              
+│                          │ received from agent-b · Routing stays centralized and z-ordered.                           
 │                          │ · Thinking…                                                                        ( !1 )  
 │                          │── Approval required · edit ────────────────────────────────────────────────────────────────
 │                          │                                                                                            

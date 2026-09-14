@@ -12,9 +12,11 @@
 **ENT-1 — First appearance fixes identity and order.** The producer assigns every transcript fact a
 `TranscriptItemId`; text, tools, artifacts, mail, warnings and errors share one per-agent ordered
 projection. A letter enters both of the conversations it names, as one item each over one mail
-identity, and both of them are attributed to the session that wrote it: the sender's side says what
-it sent, the recipient's says what arrived. Rejected: one item filed under the producer alone, which
-left a delegating agent answering a question the user could see no trace of having been asked. A tool's
+identity, and each side says in a word what its own row is — sent to, or received from — naming the
+other end. Rejected: one item filed under the producer alone, which left a delegating agent
+answering a question the user could see no trace of having been asked; an arrow relative to the
+reader, which the person who asked for the feature read backwards on both sides; and dropping
+direction for a symmetric `from -> to`, which removed the ambiguity by removing the fact. A tool's
 `ToolCallId` and other domain IDs correlate facts but never choose their position, and a vector
 index is not an identity. A user's turn and an agent's turn carry no heading word: what separates
 them is the margin, a bar down the whole height of the user's turn and plain ground for the agent's.

@@ -310,9 +310,14 @@ impl ViewState {
             }
         }
         self.validate_entry_owner(&agent_id, &item_id)?;
-        let changed =
-            self.agent_mut(&agent_id)?
-                .deliver_mail(item_id.clone(), mail_id, from, to, summary)?;
+        let changed = self.agent_mut(&agent_id)?.deliver_mail(
+            item_id.clone(),
+            mail_id,
+            agent_id.clone(),
+            from,
+            to,
+            summary,
+        )?;
         self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
     }
