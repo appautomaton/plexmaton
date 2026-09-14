@@ -106,6 +106,58 @@ fn mouse(kind: MouseEventKind, x: u16, y: u16) -> Event {
     })
 }
 
+/// MD-5/MD-6/SEL-2: transcript selection preserves token colors after the content adapter,
+/// including palette replacement, and still copies the complete original fenced source.
+#[test]
+fn syntax_workspace_selection_preserves_colors_copy_and_cached_geometry() {
+    for width in [120, 88, 60] {
+        let (mut workspace, mut terminal) = fixture(width);
+        let layouts = workspace.metrics().text_layouts();
+        let keyword = |buffer: &ratatui::buffer::Buffer| {
+            let area = buffer.area;
+            (area.y..area.bottom())
+                .find_map(|y| {
+                    (area.x..area.right().saturating_sub(1)).find_map(|x| {
+                        (buffer[(x, y)].symbol() == "f" && buffer[(x + 1, y)].symbol() == "n")
+                            .then_some((x, y))
+                    })
+                })
+                .expect("Rust keyword visible")
+        };
+        workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::SHIFT)));
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("selected frame");
+        let point = keyword(terminal.backend().buffer());
+        let cell = &terminal.backend().buffer()[point];
+        assert_eq!(cell.fg, crate::theme::tokens::SKY);
+        assert_eq!(cell.bg, crate::theme::tokens::BAR);
+        assert!(!cell.modifier.contains(ratatui::style::Modifier::REVERSED));
+        assert_eq!(
+            terminal.backend().buffer()[(point.0 + 3, point.1)].fg,
+            crate::theme::tokens::GOLD
+        );
+        assert_eq!(
+            workspace.copy_selection().expect("source copy").text,
+            SOURCE
+        );
+        workspace.set_palette(Palette::monochrome());
+        workspace
+            .settled_draw(&mut terminal)
+            .expect("selected monochrome frame");
+        let cell = &terminal.backend().buffer()[keyword(terminal.backend().buffer())];
+        assert!(
+            cell.modifier
+                .contains(ratatui::style::Modifier::REVERSED | ratatui::style::Modifier::BOLD)
+        );
+        assert_eq!(workspace.metrics().text_layouts(), layouts);
+        assert_eq!(
+            workspace.copy_selection().expect("same source copy").text,
+            SOURCE
+        );
+    }
+}
+
 /// MD-1/MD-4/SEL-7: hover, source copy and selection reuse layout; a streamed delta changes one entry.
 #[test]
 fn markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source() {

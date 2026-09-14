@@ -14,6 +14,12 @@ use super::{
 };
 use crate::{Role, math::MathPresentation, text_layout::Layout};
 
+#[derive(Default)]
+pub(super) struct RenderStats {
+    pub(super) formulas: usize,
+    pub(super) code_blocks: usize,
+}
+
 mod signature;
 
 pub(crate) const MAX_FROZEN_PREFIX_BYTES: usize = 64 * 1024;
@@ -81,6 +87,8 @@ pub(crate) struct RenderedLayout {
     pub(crate) reused_prefix: bool,
     #[cfg(test)]
     pub(crate) formula_preparations: usize,
+    #[cfg(test)]
+    pub(crate) code_preparations: usize,
 }
 
 /// Prepare Markdown while reusing a previously validated top-level prefix when possible.
@@ -103,6 +111,8 @@ pub(crate) fn render_layout_with_prefix(
             reused_prefix: false,
             #[cfg(test)]
             formula_preparations: 0,
+            #[cfg(test)]
+            code_preparations: 0,
         });
     }
     let syntax = super::syntax::Source::new(source)?;
@@ -129,6 +139,8 @@ pub(crate) fn render_layout_with_prefix(
                 reused_prefix: true,
                 #[cfg(test)]
                 formula_preparations: 0,
+                #[cfg(test)]
+                code_preparations: 0,
             });
         }
         // Use events from the complete parser pass. Re-parsing `suffix` would lose reference
@@ -138,11 +150,11 @@ pub(crate) fn render_layout_with_prefix(
             .filter(|(_, range)| range.start >= checkpoint.source_bytes)
             .map(|(event, range)| (event.clone(), range.clone()))
             .collect();
-        if let Ok((tail, tail_boundaries, formula_preparations)) =
+        if let Ok((tail, tail_boundaries, stats)) =
             super::render_events_with_boundaries_stats(tail_events, width, math, completion)
         {
             #[cfg(not(test))]
-            let _ = formula_preparations;
+            let _ = (stats.formulas, stats.code_blocks);
             let mut layout = hint.layout.clone();
             // A retained prefix has already been finished, so recreate both separator bytes before
             // appending the independently rendered tail. Finishing either segment early must not
@@ -171,16 +183,18 @@ pub(crate) fn render_layout_with_prefix(
                     checkpoint: Some(checkpoint),
                     reused_prefix: true,
                     #[cfg(test)]
-                    formula_preparations,
+                    formula_preparations: stats.formulas,
+                    #[cfg(test)]
+                    code_preparations: stats.code_blocks,
                 });
             }
         }
     }
 
-    let (layout, boundaries, formula_preparations) =
+    let (layout, boundaries, stats) =
         super::render_events_with_boundaries_stats(event_ranges.clone(), width, math, completion)?;
     #[cfg(not(test))]
-    let _ = formula_preparations;
+    let _ = (stats.formulas, stats.code_blocks);
     let checkpoint = (completion == Completion::Streaming)
         .then(|| checkpoint_for(source, &event_ranges, &boundaries, &layout))
         .flatten();
@@ -189,7 +203,9 @@ pub(crate) fn render_layout_with_prefix(
         checkpoint,
         reused_prefix: false,
         #[cfg(test)]
-        formula_preparations,
+        formula_preparations: stats.formulas,
+        #[cfg(test)]
+        code_preparations: stats.code_blocks,
     })
 }
 
@@ -243,7 +259,10 @@ fn checkpoint_for(
         .rev()
         .find_map(|cut| {
             let last = events.iter().rfind(|(_, range)| range.end <= cut)?;
-            if !matches!(last.0, Event::End(TagEnd::Paragraph | TagEnd::Heading(_))) {
+            if !matches!(
+                last.0,
+                Event::End(TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::CodeBlock)
+            ) {
                 return None;
             }
             let boundary = boundaries
@@ -288,7 +307,10 @@ fn advanced_checkpoint(
         .rev()
         .find_map(|cut| {
             let last = events.iter().rfind(|(_, range)| range.end <= cut)?;
-            if !matches!(last.0, Event::End(TagEnd::Paragraph | TagEnd::Heading(_))) {
+            if !matches!(
+                last.0,
+                Event::End(TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::CodeBlock)
+            ) {
                 return None;
             }
             let boundary = boundaries
@@ -380,7 +402,6 @@ fn safe_checkpoint(source: &str, events: &[(Event<'_>, Range<usize>)], cut: usiz
                 if matches!(
                     tag,
                     Tag::BlockQuote(_)
-                        | Tag::CodeBlock(_)
                         | Tag::List(_)
                         | Tag::Item
                         | Tag::Table(_)
@@ -391,6 +412,13 @@ fn safe_checkpoint(source: &str, events: &[(Event<'_>, Range<usize>)], cut: usiz
                 ) {
                     return false;
                 }
+                if let Tag::CodeBlock(kind) = tag
+                    && (!matches!(kind, pulldown_cmark::CodeBlockKind::Fenced(_))
+                        || depth != 1
+                        || !closed_fence(source.get(range.clone()).unwrap_or("")))
+                {
+                    return false;
+                }
                 last_end = false;
             }
             Event::End(tag) => {
@@ -398,7 +426,10 @@ fn safe_checkpoint(source: &str, events: &[(Event<'_>, Range<usize>)], cut: usiz
                     return false;
                 };
                 depth = next_depth;
-                last_end = matches!(tag, TagEnd::Paragraph | TagEnd::Heading(_));
+                last_end = matches!(
+                    tag,
+                    TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::CodeBlock
+                );
             }
             Event::InlineMath(source) | Event::DisplayMath(source) => {
                 if source.is_empty() {
@@ -419,4 +450,23 @@ fn has_setext(source: &str) -> bool {
             && !pair[1].trim().is_empty()
             && pair[1].trim().chars().all(|ch| ch == '=' || ch == '-')
     })
+}
+
+// CommonMark emits an End event at EOF even for an open fence. Only a physical closing fence
+// establishes a stable code-block boundary; the full event signature still validates later edits.
+fn closed_fence(source: &str) -> bool {
+    let mut lines = source.lines();
+    let Some(first) = lines.next() else {
+        return false;
+    };
+    let first = first.trim_start();
+    let Some(marker @ ('`' | '~')) = first.chars().next() else {
+        return false;
+    };
+    let count = first.chars().take_while(|c| *c == marker).count();
+    let Some(last) = lines.last() else {
+        return false;
+    };
+    let last = last.trim();
+    count >= 3 && last.len() >= count && last.chars().all(|c| c == marker)
 }

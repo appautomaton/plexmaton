@@ -7,7 +7,7 @@ pub enum MarkdownTheme {
     /// Derive Markdown styles from the surrounding palette, including monochrome.
     #[default]
     Inherited,
-    /// Use the existing pastel palette's blue, green, lavender, teal and warm yellow accents.
+    /// Use the existing pastel palette's blue, green, teal and warm yellow accents.
     Pastel,
 }
 
@@ -21,6 +21,7 @@ pub(crate) struct MarkdownStyles {
     pub(crate) task_marker: Style,
     pub(crate) guide: Style,
     pub(crate) rule: Style,
+    pub(crate) selection: Style,
 }
 
 impl Palette {
@@ -45,14 +46,15 @@ impl Palette {
                 task_marker: self.style(Role::Accent),
                 guide: self.style(Role::Muted),
                 rule: self.style(Role::Border),
+                selection: self.style(Role::Selection),
             },
             MarkdownTheme::Pastel => {
-                use super::tokens::{GOLD, LINE, MINT, SKY, STEEL, TEAL};
+                use super::tokens::{BAR, GOLD, LINE, MINT, SKY, STEEL, TEAL};
                 MarkdownStyles {
                     // Sky, mint, teal lead the hierarchy; gold marks what you would type.
                     headings: [SKY, MINT, TEAL]
                         .map(|colour| Style::new().fg(colour).add_modifier(Modifier::BOLD)),
-                    inline_code: Style::new().fg(GOLD),
+                    inline_code: Style::new().fg(GOLD).bg(BAR),
                     code: self.style(Role::Body),
                     link: Style::new().fg(SKY).add_modifier(Modifier::UNDERLINED),
                     quote: Style::new().fg(STEEL).add_modifier(Modifier::ITALIC),
@@ -60,6 +62,7 @@ impl Palette {
                     task_marker: Style::new().fg(TEAL),
                     guide: Style::new().fg(STEEL),
                     rule: Style::new().fg(LINE),
+                    selection: Style::new().bg(BAR),
                 }
             }
         }

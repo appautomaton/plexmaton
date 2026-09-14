@@ -119,16 +119,17 @@ fn mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown() {
             layouts,
             "drag reuses measured layout"
         );
+        let selected_cell = &terminal.backend().buffer()[(start.x, start.y)];
+        assert_eq!(selected_cell.bg, crate::theme::tokens::BAR);
         assert!(
-            terminal.backend().buffer()[(start.x, start.y)]
+            selected_cell
                 .modifier
-                .contains(ratatui::style::Modifier::REVERSED)
+                .contains(ratatui::style::Modifier::BOLD)
         );
         let before = point(&terminal, "Before");
-        assert!(
-            !terminal.backend().buffer()[(before.x, before.y)]
-                .modifier
-                .contains(ratatui::style::Modifier::REVERSED)
+        assert_ne!(
+            terminal.backend().buffer()[(before.x, before.y)].bg,
+            selected_cell.bg
         );
         let copied = workspace
             .handle(&Event::Key(KeyEvent::new(
@@ -263,6 +264,9 @@ fn text_drag_copies_wrapped_code_without_its_frame() {
         drag(&mut workspace, &mut terminal, start, end),
         "    let greeting = \"hello world from a deliberately long line\";\n    println!(\"中文🙂\");"
     );
+    let keyword = terminal.backend().buffer()[(start.x + 4, start.y)].clone();
+    assert_eq!(keyword.fg, crate::theme::tokens::SKY);
+    assert_eq!(keyword.bg, crate::theme::tokens::BAR);
     let selected = workspace.copy_selection().expect("copy").text;
     terminal.backend_mut().resize(120, 24);
     workspace.handle(&Event::Resize(120, 24));
