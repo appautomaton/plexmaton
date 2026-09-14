@@ -1155,7 +1155,7 @@ mod tests {
                 );
                 let prepared = workspace.metrics.text_layouts();
                 let source = workspace.state.agent(&agent).expect("agent").clone();
-                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                for palette in [Palette::pastel(), Palette::truecolor(), Palette::ansi()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     let at = point_on(&terminal, &workspace, surface, "read_file");
@@ -1259,7 +1259,7 @@ mod tests {
                     &mouse(MouseEventKind::ScrollDown, region.x + 1, region.y + 1),
                 );
                 let prepared = workspace.metrics.text_layouts();
-                for palette in [Palette::pastel(), Palette::monochrome(), Palette::ansi()] {
+                for palette in [Palette::pastel(), Palette::truecolor(), Palette::ansi()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     assert_eq!(workspace.metrics.text_layouts(), prepared);
@@ -1290,7 +1290,7 @@ mod tests {
     /// ENT-4/SEL-4: disclosure never changes clipboard source, and neither width, scroll, nor a
     /// palette substitution can make copied tool text inherit terminal decoration.
     #[test]
-    fn tool_copy_is_identical_when_compact_open_resized_scrolled_and_monochrome() {
+    fn tool_copy_is_identical_when_compact_open_resized_scrolled_and_repainted() {
         let FoldableTool {
             mut workspace,
             mut terminal,
@@ -1331,14 +1331,14 @@ mod tests {
             ),
         );
         let resized = copy(&mut workspace);
-        workspace.palette = Palette::monochrome();
+        workspace.palette = Palette::pastel();
         workspace.painted = None;
         frame(&mut workspace, &mut terminal);
-        let monochrome = copy(&mut workspace);
+        let repainted = copy(&mut workspace);
 
         assert_eq!(compact, open);
         assert_eq!(compact, resized);
-        assert_eq!(compact, monochrome);
+        assert_eq!(compact, repainted);
         let ToolPresentation {
             invocation: Some(ToolDetail::Text { source, .. }),
             ..

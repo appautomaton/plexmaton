@@ -2,7 +2,7 @@
 //!
 //! Widgets name a [`Role`], never a terminal colour. A [`Palette`] is one complete
 //! assignment of those tokens; [`Palette::ansi`], [`Palette::pastel`],
-//! [`Palette::truecolor`], and [`Palette::monochrome`] are shipped presets, not a closed set. A
+//! and [`Palette::truecolor`] are shipped presets, not a closed set. A
 //! new colourway is a new assignment, not a change to a widget.
 
 use plexmaton_core::{AgentStatus, ToolCallStatus};
@@ -129,7 +129,7 @@ pub const fn agent_role(status: AgentStatus) -> Role {
 ///
 /// Selection is reversal in all three, because reversal is what a terminal user reads as "selected"
 /// regardless of theme, and because it carries the distinction through a modifier rather than a
-/// colour — which is what the monochrome palette would have forced anyway.
+/// colour, so a selection reads as a selection on top of whatever role painted the run.
 const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 
 /// Resolved styles for every [`Role`].
@@ -283,31 +283,6 @@ impl Palette {
         }
     }
 
-    /// Palette that carries every distinction through modifiers alone.
-    ///
-    /// The UI/UX contract requires the grammar to survive a monochrome terminal, so this is a
-    /// supported mode rather than a fallback that nobody checks. Colour must never be the only
-    /// carrier of a distinction that matters.
-    #[must_use]
-    pub fn monochrome() -> Self {
-        Self {
-            markdown: MarkdownTheme::Inherited,
-            body: Style::new(),
-            muted: Style::new().add_modifier(Modifier::DIM),
-            border: Style::new().add_modifier(Modifier::DIM),
-            border_focused: Style::new().add_modifier(Modifier::BOLD),
-            section_heading: Style::new().add_modifier(Modifier::BOLD),
-            accent: Style::new().add_modifier(Modifier::BOLD),
-            key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().add_modifier(Modifier::DIM),
-            new_information: Style::new(),
-            action_required: Style::new().add_modifier(Modifier::BOLD),
-            failure: Style::new().add_modifier(Modifier::BOLD | Modifier::REVERSED),
-            selection: SELECTION,
-            chosen: Style::new().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        }
-    }
-
     /// Resolves one role.
     #[must_use]
     pub fn style(&self, role: Role) -> Style {
@@ -345,12 +320,11 @@ mod tests {
 
     use super::{Palette, Role, tool_role};
 
-    fn palettes() -> [(&'static str, Palette); 4] {
+    fn palettes() -> [(&'static str, Palette); 3] {
         [
             ("ansi", Palette::ansi()),
             ("pastel", Palette::pastel()),
             ("truecolor", Palette::truecolor()),
-            ("monochrome", Palette::monochrome()),
         ]
     }
 
@@ -376,19 +350,6 @@ mod tests {
             Role::ActionRequired
         );
         assert_eq!(tool_role(ToolCallStatus::Denied), Role::Muted);
-    }
-
-    #[test]
-    fn monochrome_carries_every_attention_level_without_colour() {
-        let palette = Palette::monochrome();
-
-        for role in Role::ATTENTION {
-            let style = palette.style(role);
-            assert!(
-                style.fg.is_none() && style.bg.is_none(),
-                "{role:?} uses colour in the monochrome palette"
-            );
-        }
     }
 
     #[test]

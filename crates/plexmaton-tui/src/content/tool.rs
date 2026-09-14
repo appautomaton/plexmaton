@@ -90,7 +90,8 @@ fn diff_role(row: &str) -> Role {
     }
 }
 
-/// Tool markers stay legible without colour so monochrome terminals keep the same status grammar.
+/// Markers occupy one fixed column, so a busy transcript can be scanned down its left edge
+/// for the state that matters; colour then says how urgent the row it lands on is.
 const fn marker(status: ToolCallStatus) -> &'static str {
     match status {
         ToolCallStatus::Queued => "[ ]",
@@ -152,10 +153,10 @@ mod tests {
         }
     }
 
-    /// ENT-2: every state uses one stable, monochrome-readable compact grammar.
+    /// ENT-2: every state uses one stable compact grammar in a fixed column.
     #[test]
     fn every_tool_status_is_one_named_logical_line() {
-        let palette = Palette::monochrome();
+        let palette = Palette::pastel();
         for (status, expected_marker, label) in [
             (ToolCallStatus::Queued, "[ ]", "queued"),
             (ToolCallStatus::AwaitingApproval, "[?]", "approval required"),
@@ -188,7 +189,7 @@ mod tests {
     /// compact status remains first and omission is explicit without changing source.
     #[test]
     fn every_tool_status_can_disclose_the_same_typed_detail() {
-        let palette = Palette::monochrome();
+        let palette = Palette::pastel();
         let presentation = ToolPresentation {
             invocation: Some(ToolDetail::Text {
                 source: "Command \"cargo test\"".to_owned(),
@@ -230,7 +231,7 @@ mod tests {
         }
     }
 
-    /// ENT-4: diff meaning comes from retained markers in monochrome and semantic roles in colour;
+    /// ENT-4: diff meaning comes from retained markers in the text and semantic roles in colour;
     /// file headers are metadata rather than false additions/removals.
     #[test]
     fn canonical_diff_lines_keep_markers_and_receive_bounded_semantic_roles() {
@@ -246,15 +247,15 @@ mod tests {
             ..EntryAppearance::default()
         };
 
-        let monochrome = entry(
+        let markers = entry(
             &tool(ToolCallStatus::Succeeded, presentation.clone()),
-            &Palette::monochrome(),
+            &Palette::pastel(),
             appearance,
         );
-        assert_eq!(monochrome[5].to_string(), "  │ -blue");
-        assert_eq!(monochrome[6].to_string(), "  │ +pastel");
-        assert_eq!(monochrome[7].to_string(), "  │ ---old flag");
-        assert_eq!(monochrome[8].to_string(), "  │ +++new flag");
+        assert_eq!(markers[5].to_string(), "  │ -blue");
+        assert_eq!(markers[6].to_string(), "  │ +pastel");
+        assert_eq!(markers[7].to_string(), "  │ ---old flag");
+        assert_eq!(markers[8].to_string(), "  │ +++new flag");
 
         let palette = Palette::pastel();
         let coloured = entry(

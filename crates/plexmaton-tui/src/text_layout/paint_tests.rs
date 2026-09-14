@@ -26,7 +26,7 @@ fn semantic_paint_keeps_custom_role_patch_order_and_nested_markdown() {
         custom,
         Palette::ansi(),
         Palette::pastel(),
-        Palette::monochrome(),
+        Palette::truecolor(),
     ] {
         let lines = prepared.painted_lines(&palette);
         let styles = palette.markdown_styles();

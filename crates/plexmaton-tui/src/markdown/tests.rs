@@ -45,13 +45,6 @@ fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
             .add_modifier
             .contains(Modifier::ITALIC)
     );
-    let monochrome = render(source, &Palette::monochrome(), 120).expect("monochrome");
-    assert!(
-        monochrome
-            .iter()
-            .flat_map(|line| &line.spans)
-            .all(|span| span.style.fg.is_none() && span.style.bg.is_none())
-    );
 }
 
 /// MD-4: plain prose avoids parsing; every supported syntax trigger still reaches CommonMark.
@@ -150,7 +143,7 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
         "# 你好\n\n**hello 👩‍💻 e\u{301}**\n\n1. one\n   - nested\n\n```rs\n  let a = 42;\n```";
     for end in source.char_indices().map(|(i, _)| i).chain([source.len()]) {
         for width in [12, 45] {
-            let rows = render(&source[..end], &Palette::monochrome(), width)
+            let rows = render(&source[..end], &Palette::pastel(), width)
                 .unwrap_or_else(|reason| panic!("prefix {end}, width {width}: {reason:?}"));
             assert!(
                 rows.iter().all(|line| line.width() <= width),
@@ -163,13 +156,13 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
         render("```rust\n    let x = **literal**;", &Palette::ansi(), 45).expect("open fence");
     assert!(text(&open).contains("│     let x = **literal**;"));
     for width in [1, 4] {
-        let rows = render("**你好 👩‍💻 e\u{301}**", &Palette::monochrome(), width)
+        let rows = render("**你好 👩‍💻 e\u{301}**", &Palette::pastel(), width)
             .expect("wide graphemes are replaced, not rejected");
         assert!(rows.iter().all(|line| line.width() <= width));
     }
     // MD-3: structural prefixes that consume the viewport explicitly fall back to source.
     assert_eq!(
-        render("1. one", &Palette::monochrome(), 1),
+        render("1. one", &Palette::pastel(), 1),
         Err(PlainReason::Complexity)
     );
 }

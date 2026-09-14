@@ -79,7 +79,7 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
             .expect("viewport");
         let retained = workspace.metrics.retained();
         let layouts = workspace.metrics.text_layouts();
-        for palette in [Palette::monochrome(), Palette::pastel(), base] {
+        for palette in [Palette::pastel(), Palette::truecolor(), base] {
             let state = workspace.state.clone();
             workspace.set_palette(palette);
             let work = workspace

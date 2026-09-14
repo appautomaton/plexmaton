@@ -276,13 +276,20 @@ It is never an entry point for main-agent approvals.
 
 ### Readability
 
-- Visual hierarchy comes from spacing, alignment, restrained colour, and a consistent component
-  grammar before decorative borders.
-- Agent, mail, tool, reasoning, artifact, warning, and error content are distinguishable without
-  relying on colour alone.
+- Visual hierarchy comes from colour, weight, spacing, alignment, and a consistent component
+  grammar before decorative borders. Colour is the primary instrument, not a finishing coat: a
+  workspace running several agents fills with concurrent activity, and colour is how the user
+  finds the one row that needs them without reading the rest. Rejected: restrained colour with
+  hierarchy carried by spacing alone, which made every row look equally important and left
+  nothing to navigate by.
+- Agent, mail, tool, reasoning, artifact, warning, and error content are distinguishable by
+  colour, and carry a marker or name as well where that marker forms a scannable column.
+  Rejected: requiring every distinction to survive without colour, which capped the design at
+  what a colourless terminal could express.
 - Explicit plaintext reasoning is named and visually quiet; system text is named and muted;
-  warnings and errors are named before colour adds action-required or failure emphasis. Opaque
-  provider replay is never a visible transcript entry (PRV-3).
+  warnings and errors carry action-required and failure colour and are named too, so a long
+  transcript can be scanned for them. Opaque provider replay is never a visible transcript
+  entry (PRV-3).
   Reasoning's trailing empty lines do not expand the gap before the next entry (ENT-1).
 - A canonical diff keeps its source `+`/`-` markers. Added lines use new-information, removed lines
   use failure, hunk headers use accent, and the patch envelope is muted. Selecting the entry adds the
@@ -290,10 +297,15 @@ It is never an entry point for main-agent approvals.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
 - Workspace colour is thirteen semantic roles; widgets name a role, never a terminal colour, and
-  a palette is a complete assignment of them. The default is the status line's named colours:
-  colour says what a thing is, weight what reads first, italic what stays quiet, and the row
-  `Enter` acts on carries all three (`Chosen`). Without truecolor the chrome keeps its ANSI
-  slots. The status script owns its own colours (MD-5).
+  a palette is a complete assignment of them. Colour says what a thing is, weight what reads
+  first, italic what stays quiet, and the row `Enter` acts on carries all three (`Chosen`).
+  The status script owns its own colours (MD-5).
+- **The terminal is assumed modern.** Plexmaton targets a 24-bit-colour terminal and a reader with
+  ordinary colour vision. There is no reduced palette, no colour-capability probe, and no degraded
+  path: a terminal that cannot render the palette renders the product badly, and that is the
+  terminal's limitation rather than a case the design carries. Rejected: an ANSI slot fallback and
+  a modifier-only palette, which were a second design to keep correct for readers nobody had, and
+  which held the first design to what they could express.
 
 ### Selection and copy
 
@@ -478,8 +490,9 @@ reflows from source data rather than cropping stale strings.
 
 ## Transcript grammar
 
-Each of these has one visual treatment, readable in monochrome and low-colour terminals; colour
-carries identity and status but is never the only carrier:
+Each of these has one visual treatment. Colour carries identity and status; a marker or name
+joins it where that marker lines up into a column the eye can run down, which is how a transcript
+full of concurrent agents stays navigable:
 
 - User message
 - Assistant message, streaming and final
@@ -492,7 +505,7 @@ carries identity and status but is never the only carrier:
 - Handoff: an explicit change of controller, distinct from task completion or idle
 - Undelivered steering: a message that never reached its worker, with its original text intact
 - System text, named and muted
-- Warning and error, each named before colour adds emphasis
+- Warning and error, each carrying its colour and its name
 - Typeset display math and source reveal
 
 Waiting input is separate conversation chrome under IQU-1–IQU-4, not a transcript entry; it
@@ -506,8 +519,7 @@ use that space without changing it. TR-6 owns the measured composition.
 
 Each applicable surface has an intentional representation for: empty, loading, streaming, idle,
 waiting on a tool, model, permission or descendant, paused, completed, failed, cancelled,
-disconnected or reconnecting, stale or unavailable persisted content, a capability-degraded
-terminal, a child controlled by Main while running or idle, handoff pending acknowledgement,
+disconnected or reconnecting, stale or unavailable persisted content, a child controlled by Main while running or idle, handoff pending acknowledgement,
 a user-controlled child ready for input, primary input waiting for delivery with an empty or
 occupied draft, steering queued for a User-controlled worker's next step boundary, and input undeliverable with
 its payload retained.

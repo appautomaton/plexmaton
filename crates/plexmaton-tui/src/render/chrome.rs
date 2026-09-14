@@ -66,7 +66,8 @@ pub(super) fn agents_title(palette: &Palette) -> Line<'static> {
 /// Chrome, not a surface — it takes no rows, no focus and no pointer target, which is what lets it
 /// sit on a border at all (ATT-1). It counts what is still unanswered rather than what is queued: a
 /// queue of five the user has already been to is not five things demanding them (ATT-3). The
-/// brackets are the shape, `!` is the word, and the colour is third, so it survives monochrome.
+/// brackets are the shape, `!` is the word, and the colour is third, so the pill is found by
+/// shape while scanning and read by colour once the eye lands on it.
 ///
 /// The request open in the decision region counts too, even though it is on screen below. The pill
 /// is the workspace's one answer to "is anything waiting on me", and a status indicator that goes

@@ -4,7 +4,7 @@ use super::{Modifier, Palette, Role, Style};
 /// Color choice for assistant Markdown, independent of the workspace and script footer.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum MarkdownTheme {
-    /// Derive Markdown styles from the surrounding palette, including monochrome.
+    /// Derive Markdown styles from the surrounding palette.
     #[default]
     Inherited,
     /// Use the existing pastel palette's blue, green, lavender, teal and warm yellow accents.

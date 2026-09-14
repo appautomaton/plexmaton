@@ -435,7 +435,7 @@ mod tests {
             "Skill unavailable\ninput\treturned\u{1b} to the composer".to_owned(),
         );
 
-        let lines = notices(&state, &Palette::monochrome());
+        let lines = notices(&state, &Palette::pastel());
         assert_eq!(
             lines[0].to_string(),
             "[skill] Skills · Skill unavailable input    returned� to the composer"
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn an_agent_row_carries_its_tool_artifact_and_mail_counts() {
         let state = canonical_state();
-        let rows = agents(&state, &Palette::monochrome());
+        let rows = agents(&state, &Palette::pastel());
         let agent_b = rows
             .iter()
             .find(|line| line.to_string().contains("Agent B"))

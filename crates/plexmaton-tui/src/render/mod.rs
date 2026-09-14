@@ -336,7 +336,7 @@ mod tests {
 
     fn ink(style: Style) -> Ink {
         // An unset colour and an explicit reset paint the same thing; the buffer stores the second
-        // where a palette stores the first, and monochrome sets neither.
+        // where a palette stores the first.
         (
             style.fg.filter(|colour| *colour != Color::Reset),
             style.add_modifier,
@@ -863,14 +863,14 @@ mod tests {
     ///
     /// Reading it back from painted cells is what makes this more than a state assertion: a focus
     /// model the renderer ignores would leave the user with no way to tell where `Tab` went. Run
-    /// against every palette, because a monochrome terminal must show focus too.
+    /// against every palette, because focus must be visible whichever one is active.
     #[test]
     fn only_the_focused_panel_carries_the_focused_border() {
         for palette in [
             Palette::ansi(),
             Palette::pastel(),
             Palette::truecolor(),
-            Palette::monochrome(),
+            Palette::pastel(),
         ] {
             let mut state = canonical_state();
 
@@ -1007,9 +1007,9 @@ mod tests {
         );
     }
 
-    /// ENT-1: warning and error remain visibly distinct without relying on colour.
+    /// ENT-1: warning and error are each named, so the two read apart in a busy transcript.
     #[test]
-    fn monochrome_transcript_names_warning_and_error_separately() {
+    fn the_transcript_names_warning_and_error_separately() {
         let mut conversation = Conversation::canonical();
         let agent_id = AgentId::new("agent-a").unwrap_or_else(|error| panic!("fixture: {error}"));
         conversation.emit(ConversationEvent::RuntimeWarning {
@@ -1025,7 +1025,7 @@ mod tests {
             message: "request failed".to_owned(),
         });
 
-        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        let rendered = draw_with(&conversation.state, &Palette::pastel(), 120, 40);
         assert!(rendered.contains("warning"));
         assert!(rendered.contains("error"));
         assert!(rendered.contains("retrying the request"));
@@ -1114,7 +1114,7 @@ mod tests {
             conversation.emit(event);
         }
 
-        let rendered = draw_with(&conversation.state, &Palette::monochrome(), 120, 40);
+        let rendered = draw_with(&conversation.state, &Palette::pastel(), 120, 40);
         let first = rendered
             .find("first tool")
             .unwrap_or_else(|| panic!("first tool is visible:\n{rendered}"));
@@ -1167,11 +1167,9 @@ mod tests {
         let ansi = draw_with(&state, &Palette::ansi(), 120, 24);
         let pastel = draw_with(&state, &Palette::pastel(), 120, 24);
         let truecolor = draw_with(&state, &Palette::truecolor(), 120, 24);
-        let monochrome = draw_with(&state, &Palette::monochrome(), 120, 24);
 
         assert_eq!(ansi, pastel);
         assert_eq!(ansi, truecolor);
-        assert_eq!(ansi, monochrome);
     }
 
     /// The pill is the number that is unanswered, coloured, on the conversation being read.
@@ -1185,7 +1183,7 @@ mod tests {
             Palette::ansi(),
             Palette::pastel(),
             Palette::truecolor(),
-            Palette::monochrome(),
+            Palette::pastel(),
         ] {
             let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);
             let conversation = surfaces

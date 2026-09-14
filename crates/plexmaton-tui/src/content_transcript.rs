@@ -297,7 +297,7 @@ mod tests {
                     assert_eq!(literal_text_rows(&item, 60), None);
                     continue;
                 }
-                for palette in [Palette::ansi(), Palette::pastel(), Palette::monochrome()] {
+                for palette in [Palette::ansi(), Palette::pastel(), Palette::pastel()] {
                     for width in [0, 1, 4, 5, 6, 12, 58, 86, 118] {
                         let lines =
                             transcript_text(&item, width, crate::math::MathPresentation::default())
@@ -348,7 +348,7 @@ mod tests {
     }
 
     /// ENT-1: explicit plaintext reasoning, runtime system text, warnings, and errors each keep a
-    /// named monochrome treatment and a semantic palette role.
+    /// named textual treatment and a semantic palette role.
     #[test]
     fn non_chat_text_roles_have_distinct_named_treatments() {
         let cases = [
@@ -397,9 +397,9 @@ mod tests {
             assert_eq!(lines[0].style, palette.style(heading));
             assert_eq!(lines[1].spans[0].style, palette.style(body));
 
-            let monochrome = prepared.painted_lines(&Palette::monochrome());
-            assert_eq!(monochrome[0].to_string(), label);
-            assert_eq!(monochrome[1].to_string(), format!("{label} source"));
+            let painted = prepared.painted_lines(&Palette::pastel());
+            assert_eq!(painted[0].to_string(), label);
+            assert_eq!(painted[1].to_string(), format!("{label} source"));
         }
     }
 }
