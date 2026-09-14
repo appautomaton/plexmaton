@@ -2,15 +2,12 @@
 
 ## Who decides
 
-The user is a solo developer, and what they say is the source of truth. Every document here was
-written by an agent, including this one; any of it may encode an earlier agent's misreading of the
-intent, and age does not make a rule right.
+The user is a solo developer and what they say is the source of truth. Every document here was
+written by an agent, this one included, so any of it may encode an earlier misreading.
 
-So read the documents to learn what exists and why it was chosen, and cite them when they hold.
-But when the user states a need that a document contradicts, the document is stale — say which
-sentence is now wrong, rewrite it in the same change, and do not ask the user to argue with a file
-they did not write. "The contract says otherwise" is a fact worth reporting, never a reason to
-refuse. Existing does not make something correct, and neither does having always been that way.
+Read the documents to learn what exists and why; cite them where they hold. Where the user's need
+contradicts one, the document is stale: name the sentence and rewrite it in the same change.
+"The contract says otherwise" is worth reporting, never a reason to refuse.
 
 ## Context routing
 

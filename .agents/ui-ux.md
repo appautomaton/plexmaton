@@ -55,12 +55,12 @@ These terms are used identically in product copy, architecture, code, and tests.
 | Surface | A rendered interactive region that participates in z-order and event routing |
 | Viewport | The independently scrollable visible window over content owned by a surface |
 | Inspector | The second window: one agent's conversation, shown over or beside the primary's while the user looks at that agent. `Inspector` is the code's name; user-facing copy names the agent |
-| Peek | Looking at a sub-agent in the list, which opens the second window; `Escape` closes it. The primary is not in the list, because its conversation is the screen |
+| Peek | Looking at a sub-agent in the list, which opens the second window. The primary is not in the list, because its conversation is the screen |
 | Command | A `/name` typed into a conversation's input and run from there, with its target captured. It means nothing else |
 | Skill | A `$name` token bound into the message the input addresses |
 | Composer menu | The popup above the composer: Skills for `$`, Commands for `/`. The draft is its query |
 | Drawer | The workspace's own surface, pulled from the top edge by `Ctrl-P`. Its title, `Workspace`, is the addressee; it holds what outlives the process, as pages, never Commands |
-| Page | A view inside the Drawer: Configuration, Permissions. Opens in place; `Escape` returns to the list |
+| Page | A view inside the Drawer: Configuration, Permissions, opened in place |
 
 An alias such as `B` or `reviewer` is a display label, never durable identity. A pane is a layout
 presentation, not a Conversation. A widget is a Rust rendering component, not a synonym for an entry
@@ -88,35 +88,24 @@ composer or model-setting actions. Running and idle both retain the controller i
 
 After acknowledged handoff, the composer becomes available without taking keyboard focus or
 sending a message. History, selection/scroll anchors and the capability indication remain intact;
-stop is independent of handoff. These rendered excerpts show the three control states without
-freezing a new full-workspace layout:
+stop is independent of handoff.
 
-| State | Wide | Medium | Narrow |
-| --- | --- | --- | --- |
-| Controller: Main; child running | [120](../crates/plexmaton-tui/frames/ownership/main-running-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/main-running-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/main-running-60.svg) |
-| Controller: Main; child idle | [120](../crates/plexmaton-tui/frames/ownership/main-idle-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/main-idle-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/main-idle-60.svg) |
-| Controller: User | [120](../crates/plexmaton-tui/frames/ownership/user-controlled-120.svg) | [88](../crates/plexmaton-tui/frames/ownership/user-controlled-88.svg) | [60](../crates/plexmaton-tui/frames/ownership/user-controlled-60.svg) |
+**This layout is not locked.** Its only rendered evidence is the native readback in the
+[Kitty preview](./spikes/kitty-native-preview/README.md), which the user has not accepted.
 
 ### Context epochs and branch selection
 
-Branches share earlier history and compact independently. New model requests use the selected
-branch's compacted base and subsequent turns, with the applicable instructions and tool definitions.
-The checkpoint's persisted summary and retained context are reused without regenerating a summary.
+Branches share earlier history and compact independently; a new model request uses the selected
+branch's own compacted base and the turns after it.
 
-Every rewind creates and selects a new branch at an eligible stable historical boundary. The
-original branch, its head and its checkpoints remain unchanged. The new head uses the most recent
-checkpoint on its own ancestry, followed by entries through the target; a path without a checkpoint
-starts from its original context. Rewinding before a later checkpoint is therefore permitted:
-that checkpoint does not belong to the new head's ancestry.
-
-Selecting an existing branch restores its head and applies the same ancestry-based context rule.
-Both operations share original entries without copying history or repeating tool effects. The
-context epoch belongs to the target path; the source branch's latest checkpoint is not a rewind ban.
+Every rewind creates and selects a new branch, leaving the original head and its checkpoints
+untouched. Context follows the target path's own ancestry, so rewinding to a point before a later
+checkpoint is permitted: that checkpoint is not on the new head's ancestry. Both operations share
+original entries without copying history or repeating tool effects.
 
 Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
 historical forks, because the original continuation and the target ancestry must remain independent.
-CPL-5 proves checkpoint ancestry. [Conversation tree](./specs/conversation-tree.md#native-validation) owns branch and rewind
-interaction evidence and review.
+CPL-5 proves checkpoint ancestry; [conversation tree](./specs/conversation-tree.md) owns the rest.
 
 ### Screen ownership: full alternate screen
 
@@ -129,9 +118,9 @@ and hit testing, needs a coordinate space the application controls completely.
 Consequences that are requirements:
 
 - Terminal-native selection is unavailable over owned regions, so the application-owned selection
-  model and its modifier escape hatch are mandatory.
-- Diagnostics and logs never write to the owned screen. They go to a file or an inspectable surface.
-- Restoration survives panic and signal paths, because a leaked alternate screen destroys the user's
+  model and its modifier are mandatory.
+- Diagnostics and logs never write to the owned screen; they go to a file or an inspectable surface.
+- Restoration survives panic and signal paths: a leaked alternate screen destroys the user's
   scrollback.
 
 ### Input: exactly one cursor
@@ -150,17 +139,12 @@ other rule about input follows from this one.
   the list opens its window and leaves the keyboard in the list, so the arrows keep moving through
   it. `Enter`, or a click in the window, moves the keyboard into its available controls. After an
   acknowledged Handoff, the same action also reveals and focuses its input; before Handoff there is
-  no direct-input target. `Escape` closes the window and returns focus to the primary conversation.
+  no direct-input target. `Escape` closes the window, one layer of the routing ladder (INV-6).
   Rejected: focusing on look, which stops the arrows.
-- `Ctrl-J`, `Shift-Enter` and `Alt-Enter` insert a conversation newline; `Enter` submits.
-- **Waiting input remains visible beside its conversation.** A bounded band above the decision
-  region and composer names when submitted messages will be sent. It takes no focus or pointer
-  input and yields to both composers and readable conversation space; below its usable height it
-  disappears. `Alt-↑` from an empty primary composer takes the newest waiting message back with
-  its text and skill, leaving current work running. An occupied draft keeps both messages in
-  place and shows the empty-draft requirement. [IQU-1–IQU-4](./specs/input-queue.md) own the band.
-  Rejected: merging a returned message into an existing draft, which loses separate intent and
-  can lose its skill binding.
+- **Waiting input remains visible beside its conversation**, in a band that never takes focus and
+  yields to both composers. A message can be taken back into an empty draft, whole.
+  [IQU-1–IQU-4](./specs/input-queue.md) own the band. Rejected: merging a returned message into an
+  existing draft, which loses separate intent and can lose its skill binding.
 - **Every rendered input sits under the conversation it addresses**, between two rules; optional
   waiting and decision sections sit above the composer. The conversation has no edge of its own and,
   without those sections, runs into the top rule. The top rule names the target and
@@ -182,23 +166,16 @@ other rule about input follows from this one.
   the rows guaranteed to the primary conversation: focusing a worker never squeezes the primary off screen.
 - **The composer completes the token it starts with.** `$` lists Skills and `/` lists Commands in
   the composer menu, above the input, without taking the caret; the draft is the query. Commands
-  are what the user does inside a conversation: `/new`, `/resume` over saved conversations,
-  `/compact`, `/effort`, `/model`, `/tree` (also `/rewind`), and `/permissions` for the Session. `Enter` accepts with the effect the row states;
-  `Tab` completes without running; `Escape` keeps the draft. A token no row matches is text.
+  are what the user does inside a conversation, never workspace settings; a token no row matches is
+  text. [`specs/composer-menu.md`](./specs/composer-menu.md) owns the roster and its keys.
   Rejected: workspace settings as slash commands, which made the composer's title lie about the addressee;
   and conversations as a Drawer page, which hid what users type by habit behind a chord.
-- **The status line sits below every pane.** By default it shows the working directory; an explicitly
-  configured user script may supply several styled rows, bounded to preserve typing and readable
-  conversation space. The quit question temporarily replaces the terminal's last row and leaves
-  the rows above it unchanged (STL-4).
-  Rejected: a key-hint strip, a row of chords nobody read; overriding the first script row rather
+- **The status line sits below every pane**, showing the working directory unless a configured
+  script replaces it (STL-4). Rejected: a key-hint strip, a row of chords nobody read; overriding the first script row rather
   than the terminal's last; and the composer's bottom border, which belongs to one conversation,
   so a question from another agent's window was answered in the wrong box.
-- **Quitting is `Ctrl-D` twice within one second.** The first press arms a monotonic one-second
-  window and makes the status line say so; a second press before the deadline leaves, while expiry
-  restores the underlying status content. Other terminal events neither confirm nor withdraw it. `Ctrl-C`
-  withdraws it explicitly: with a non-empty draft it clears only the draft, and with an empty draft
-  it interrupts only the focused conversation. It never quits. Rejected: an indefinitely armed
+- **Quitting is a deliberate chord, and no single key leaves.** `Ctrl-C` clears a draft or
+  interrupts, never exits. INV-7 owns the chord and its deadline. Rejected: an indefinitely armed
   chord, which lets unrelated later intent become an exit; and cancelling on an unrelated key,
   pointer event, or resize, which makes the time window depend on incidental input.
 
@@ -259,20 +236,16 @@ It is never an entry point for main-agent approvals.
 - Input, scrolling, focus changes, and surface opening stay responsive while models stream and
   tools run.
 - Streaming updates do not re-layout content outside the affected visible blocks.
-- A background agent may update an ambient status indicator without forcing a full-screen redraw.
+- A background agent updates ambient status without forcing a full-screen redraw.
 - Loading and failure states appear in the affected surface and freeze nothing else.
-- A resumed conversation is confirmed in place, after its final entry, as UI only, with no
-  transcript item or record. A genuinely unfinished prior turn also gets a warning that nothing
-  was rerun; a failed or cancelled turn is finished and gets none. JRN-5 owns the copy.
-- **Notices** is reserved for future multi-agent workflows, not routine operation feedback.
-- An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error, by
-  click or `r` / `e` with the primary transcript focused. They are message-local actions, never
-  Commands. Retry continues the same path; Edit & retry fills the composer and preserves the old
-  path, and `Esc` restores the displaced draft. Neither repeats tools; JRN-8 owns eligibility.
-- `/resume` lists saved history behind the text after it; loading and errors stay inside the
-  menu. Switching waits for idle work and an empty draft, never silently interrupting or
-  discarding input; a new conversation creates storage on its first message unless ephemeral.
-  SPK-1–SPK-3 own discovery and replacement.
+- A resumed conversation is confirmed in place as UI only, with no transcript item or record, and
+  an unfinished prior turn is told that nothing was rerun. JRN-5 owns the copy.
+- **Notices** is reserved for future multi-agent workflows, not routine feedback.
+- An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error: they
+  are message-local actions, never Commands, and neither repeats tools. JRN-8 owns eligibility and
+  the bindings.
+- Switching conversations waits for idle work and an empty draft, never silently interrupting or
+  discarding input. SPK-1–SPK-3 own discovery and replacement.
 
 ### Readability
 
@@ -310,35 +283,24 @@ It is never an entry point for main-agent approvals.
 
 ### Selection and copy
 
-- Mouse capture never makes transcript, tool output, paths, mail, or equations uncopyable.
-- Hovering a message reveals a Copy icon at the right of its first row; clicking it copies the
-  whole source without selecting it, moves no focus, covers no text and reflows nothing. A drag
-  starts selection, and dragging off an action cancels it. SEL-7 owns the icon and the actions.
-- Pointer selection is a grapheme-safe range of visible text across entries; releasing copies
-  plain text with code indentation and semantic line breaks, without Markdown syntax, chrome or
-  soft-wrap newlines. Keyboard selection is a range of whole entries. Both survive scrolling and
-  reflow; a held drag beside the chrome scrolls into entries that began off-screen (SEL-6).
-- A foldable tool row toggles retained detail on click without selecting or copying it; drag and
-  keyboard gestures select source, and `Ctrl-O` toggles the selection's moving end. Hover changes
-  nothing semantic (ENT-4). Rejected: automatic selection on disclosure, which obscures detail;
-  and a nested viewport, an invisible second scroll owner.
-- `Ctrl-Y` copies the current selection: plain text for pointer ranges, original source for
-  keyboard entry ranges. The Copy icon always copies the whole message's original source,
-  including Markdown. SEL-1/SEL-2 own mapping, table separators and streaming validation.
-- Formula hits select and copy the whole original delimited TeX, even from blank-edge drags after
-  clipping or reflow (MTH-1). Rejected: partial or bare-body copy, and clipboard-only expansion.
-- The mouse reaches the terminal's own selection through a modifier escape hatch.
-- Delivery goes to the clipboard at the user's terminal, not the machine the process runs on.
-  A two-second bottom-right receipt reports `✓ Copied` after local helper acceptance or `Copy sent`
-  after terminal/tmux send. It overlays the status row without reflow or focus; quit takes priority.
-  Failure, cancellation and replaced work never produce success feedback (SEL-5).
-- Editable inputs take pointer placement and drag selection on grapheme boundaries; selected
-  source is copied on release, and typing replaces it (COM-6).
+- Nothing the workspace draws is uncopyable: transcript, tool output, paths, mail and equations
+  all reach the clipboard, and mouse capture never takes that away.
+- **Copy is delivered to the clipboard at the user's terminal**, not the machine the process runs
+  on, and reports what happened. Rejected: a local clipboard crate, which reaches the wrong machine
+  over SSH.
+- Pointer selection is a range of visible text; keyboard selection is a range of whole entries.
+  Both survive scrolling and reflow. Copied text carries code indentation and semantic line breaks
+  without chrome, Markdown syntax or soft-wrap newlines; the whole-message affordance copies the
+  original source instead, Markdown included. A formula copies its whole original TeX.
+- Hovering a message reveals its copy affordance without selecting, moving focus, covering text or
+  reflowing. A foldable row toggles detail on click without selecting it. Rejected: automatic
+  selection on disclosure, which obscures the detail the user opened.
+- The terminal's own selection stays reachable through a modifier.
 - Rejected: transcript selection reconstructed from terminal characters, which changes what is
-  copied at a second width; a local clipboard
-  crate, which reaches the wrong machine over SSH; and `Ctrl-C` as copy, which is the interrupt.
+  copied at a second width; and `Ctrl-C` as copy, which is the interrupt.
 
-The mechanism and the bindings are [`specs/selection-and-copy.md`](./specs/selection-and-copy.md).
+The mechanism, the bindings and the receipts are
+[`specs/selection-and-copy.md`](./specs/selection-and-copy.md).
 
 ## Information architecture
 
@@ -370,7 +332,7 @@ responsive fallback.
 | Category | Behaviour |
 | --- | --- |
 | Base workspace | Primary layout; never floats above other surfaces |
-| Second window | The sub-agent the user is looking at, floating over the primary's conversation or beside it at ultrawide; stays while they work elsewhere and closes on `Escape` |
+| Second window | The sub-agent the user is looking at, floating over the primary's conversation or beside it at ultrawide; it stays while they work elsewhere |
 | Modal | Owns input until resolved or dismissed; nothing beneath receives pointer events |
 | Popover or menu | Anchored to an initiating element; closes on outside interaction or `Escape` |
 | Tooltip | Informational only; never owns keyboard focus |
@@ -382,14 +344,12 @@ surface per feature, which multiplied key routing, pressed-pointer state and fix
 
 ### Drawer: the workspace's own input
 
-Docked to the top edge at full width, height from content. It floats over the
-strips and the rows already read, and may cover everything but the status line, because it
-blocks input anyway. `Ctrl-P` opens it from any focus state, even over a waiting approval,
-and never touches a draft: it addresses the workspace, not a conversation. A page opens in place,
-and `Escape` returns one layer per press: page, list, then where it was opened from. A centered bottom-edge
-`︽` handle retracts the entire Drawer to that origin from any page. It has only a lower outline,
-uses the existing border row and remains static; hover accents the handle. Rejected: the
-command palette, a centred overlay with three-cell margins, a dialog about nothing in particular.
+Docked to the top edge at full width, height from content. It floats over the rows already read
+and may cover everything but the status line, because it blocks input anyway. It opens from any
+focus state, even over a waiting approval, and never touches a draft: it addresses the workspace,
+not a conversation. A page opens in place, and a handle on its bottom edge retracts the whole
+Drawer from any page. DRW-1–DRW-3 own its pages, keys and chrome. Rejected: the command palette,
+a centred overlay with three-cell margins, a dialog about nothing in particular.
 
 ### Shelf: overlay without occlusion
 
@@ -400,12 +360,11 @@ rows already read. Transcripts follow their tail, so covering the top hides what
 covering the middle or bottom hides what the user is reading now. Rejected: a centred floating
 window, and splitting the region, which moved the conversation under it.
 
-- The primary conversation keeps at least ten readable rows beneath the shelf.
-- The composer is never covered, at any size.
-- A region too short to hold both maximizes the window instead of drawing a sliver.
-- Which agent is shown is the selection. Shelf, column, or maximized is geometry chosen by terminal
-  width and the user's maximize, and changing it changes no identity, scroll position, or focus.
-  There is no pin: the window stays until `Escape`.
+- The primary conversation keeps a readable minimum beneath the shelf and its composer is never
+  covered; a region too short for both maximizes the window rather than drawing a sliver (INS-2).
+- Which agent is shown is the selection. Shelf, column or maximized is geometry derived from
+  terminal width and the user's maximize, and changing it changes no identity, scroll position or
+  focus. There is no pin.
 
 The geometry, the bindings, and what opening means are [`specs/inspector.md`](./specs/inspector.md).
 
@@ -509,12 +468,11 @@ full of concurrent agents stays navigable:
 - Warning and error, each carrying its colour and its name
 - Typeset display math and source reveal
 
-Waiting input is separate conversation chrome under IQU-1–IQU-4, not a transcript entry; it
-becomes history only when its delivery boundary accepts it.
+Waiting input is conversation chrome (IQU-1–IQU-4), not a transcript entry; it becomes history
+only when its delivery boundary accepts it.
 
-Consecutive compact tools form one tight group. A tool group and a message, or two messages,
-are separated by one standard blank row; reasoning follows the same group boundary. Hover rules
-use that space without changing it. TR-6 owns the measured composition.
+Related entries group tightly and unrelated ones are separated by one standard blank row; TR-6
+owns the measured composition.
 
 ## State matrix
 
@@ -528,23 +486,9 @@ its payload retained.
 ## Performance budgets
 
 Targets are chosen against a 16 ms frame, so a budget spent is a frame the user waits for. Work
-counts are asserted by tests; wall-clock time is only reported, beside the machine that produced
-it (FR-4). The observed figures are in [`specs/frame-loop.md`](./specs/frame-loop.md) §cost.
-
-| Budget | Target | Workload |
-| --- | --- | --- |
-| Input event to visible frame | 5 ms | `streaming delta` |
-| Compact tool entry to visible frame | 5 ms, and one entry wrapped | `compact tool entry` |
-| Opening or closing one tool detail | 5 ms, and one entry wrapped | `open tool entry` |
-| Wheel event to visible scroll | 5 ms | `wheel` |
-| Surface open and close | 5 ms, and no re-wrapping | `open inspector` |
-| Two conversations on screen, either scrolled | 5 ms, and no re-wrapping | `two conversations` |
-| Extending a selection | 5 ms, and no re-wrapping | `extend selection` |
-| Opening a conversation nothing has measured | 20 ms | `cold open`, `open hidden conversation` |
-| Resize recovery | 20 ms | `resize` |
-| Streaming redraw frequency | One frame per changed projection, never per event | FR-1 |
-| Layout work per updated transcript block | One entry wrapped, at any history length | `streaming delta` |
-| Memory retained per hidden conversation | One cache entry per transcript entry per width drawn, at most two widths | `open inspector` |
+counts are asserted by tests; wall-clock time is only reported, beside the machine that produced it
+(FR-4). The targets and the figures measured against them are in
+[`specs/frame-loop.md`](./specs/frame-loop.md) §cost.
 
 ## Open questions
 

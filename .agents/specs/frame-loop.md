@@ -86,6 +86,25 @@ when a different ready event won the asynchronous wait. This is coalescing, not 
 cap: pressure and interaction can paint sooner. The measurement harness substitutes a cell buffer
 and explicit time; its stream workload drives the same batching, input and drawing methods.
 
+### Budgets
+
+Every target is set against a 16 ms frame. Work counts are asserted; timings are reported.
+
+| Budget | Target | Workload |
+| --- | --- | --- |
+| Input event to visible frame | 5 ms | `streaming delta` |
+| Compact tool entry to visible frame | 5 ms, and one entry wrapped | `compact tool entry` |
+| Opening or closing one tool detail | 5 ms, and one entry wrapped | `open tool entry` |
+| Wheel event to visible scroll | 5 ms | `wheel` |
+| Surface open and close | 5 ms, and no re-wrapping | `open inspector` |
+| Two conversations on screen, either scrolled | 5 ms, and no re-wrapping | `two conversations` |
+| Extending a selection | 5 ms, and no re-wrapping | `extend selection` |
+| Opening a conversation nothing has measured | 20 ms | `cold open`, `open hidden conversation` |
+| Resize recovery | 20 ms | `resize` |
+| Streaming redraw frequency | One frame per changed projection, never per event | FR-1 |
+| Layout work per updated transcript block | One entry wrapped, at any history length | `streaming delta` |
+| Memory retained per hidden conversation | One cache entry per transcript entry per width drawn, at most two widths | `open inspector` |
+
 ### Cost, measured
 
 `cargo run --release -p plexmaton-cli --bin plexmaton-measure` reports three distinct instruments:
