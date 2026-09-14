@@ -4,7 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::num::NonZeroUsize;
 
-use plexmaton_agent::collaboration::{CollaborationMailProjection, ItemReceipt, MailEndpoint};
+use plexmaton_agent::collaboration::{
+    CollaborationMailProjection, CollaborationRecord, ItemReceipt, MailEndpoint,
+};
 use plexmaton_core::{ConversationId, DelegationId};
 use plexmaton_session_store::collaboration::CollaborationAttempt;
 use thiserror::Error;
@@ -414,6 +416,11 @@ impl OwnedCollaboration {
         CollaborationWriterError,
     > {
         self.writer.admit_root_turn(item, boundary, previous).await
+    }
+
+    /// Every acknowledged record this root's log holds, in append order.
+    pub async fn records(&self) -> Result<Vec<CollaborationRecord>, CollaborationWriterError> {
+        self.writer.records().await
     }
 
     /// Reads a complete bounded mail snapshot from the live canonical writer (CMP-1).

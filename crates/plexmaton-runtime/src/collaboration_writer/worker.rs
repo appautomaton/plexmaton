@@ -53,6 +53,10 @@ pub(super) fn process_command(file: &mut CollaborationFile, command: Command) ->
             })),
             reply,
         ),
+        Command::Records { reply } => send_caught(
+            catch_unwind(AssertUnwindSafe(|| Ok(file.ledger().records().to_vec()))),
+            reply,
+        ),
         Command::ProjectMail { endpoint, reply } => send_caught(
             catch_unwind(AssertUnwindSafe(|| {
                 file.project_mail(&endpoint)
@@ -230,6 +234,11 @@ pub(super) fn reject_queued_commands(receiver: &mut mpsc::Receiver<Command>) {
                     .is_err();
             }
             Command::DelegatedControls { reply } => {
+                let _reply_cancelled = reply
+                    .send(Err(CollaborationWriterError::WorkerFailed))
+                    .is_err();
+            }
+            Command::Records { reply } => {
                 let _reply_cancelled = reply
                     .send(Err(CollaborationWriterError::WorkerFailed))
                     .is_err();

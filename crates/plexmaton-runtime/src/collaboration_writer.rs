@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use plexmaton_agent::collaboration::{
-    CollaborationItemRef, CollaborationMailProjection, DelegationView, ItemReceipt, MailEndpoint,
-    Preparation, ResolvedTurnAdmission, TurnBoundary,
+    CollaborationItemRef, CollaborationMailProjection, CollaborationRecord, DelegationView,
+    ItemReceipt, MailEndpoint, Preparation, ResolvedTurnAdmission, TurnBoundary,
 };
 use plexmaton_core::{CollaborationId, CollaborationItemId, DelegationId};
 use plexmaton_session_store::collaboration::{
@@ -204,6 +204,9 @@ enum Command {
     ProjectMail {
         endpoint: MailEndpoint,
         reply: oneshot::Sender<Result<CollaborationMailProjection, CollaborationWriterError>>,
+    },
+    Records {
+        reply: oneshot::Sender<Result<Vec<CollaborationRecord>, CollaborationWriterError>>,
     },
     ProjectSessionMail {
         endpoint: MailEndpoint,

@@ -127,6 +127,33 @@ impl CollaborationWriter {
             .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 
+    /// Every acknowledged record in the log, in append order.
+    ///
+    /// A reader that decides what the log *means on screen* needs the records themselves, not a
+    /// view derived from them: a delegation view keeps only the current task, so a reader built on
+    /// one cannot show that the task was ever changed.
+    pub(crate) async fn records(
+        &self,
+    ) -> Result<Vec<CollaborationRecord>, CollaborationWriterError> {
+        let (reply, result) = oneshot::channel();
+        let sender = self
+            .sender
+            .as_ref()
+            .ok_or(CollaborationWriterError::Closed)?;
+        match sender.try_send(Command::Records { reply }) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                return Err(CollaborationWriterError::Busy);
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                return Err(CollaborationWriterError::Closed);
+            }
+        }
+        result
+            .await
+            .map_err(|_| CollaborationWriterError::WorkerFailed)?
+    }
+
     /// Materializes exact session references through the current canonical file owner.
     pub(crate) async fn resolve_context(
         &self,
