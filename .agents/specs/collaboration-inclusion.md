@@ -22,8 +22,9 @@ record does not consume mail; missing, foreign and duplicate references fail clo
 
 **CIN-3 — Resolution preserves attribution and revision.** A resolved context atom contains the
 exact immutable admitted source items and their delegation revisions at those source positions, with
-bounded transient retention. A provider codec lacking the representation refuses explicitly; neither
-unresolved references nor resolved mail are converted into user-role text.
+bounded transient retention. A provider codec renders those sources in canonical order with each
+sender named, or refuses explicitly where it cannot; an unresolved reference is never rendered,
+because a pointer would wake the recipient for a message it cannot read.
 
 **CIN-4 — Session acknowledgement precedes driver dispatch.** The collaboration-turn path publishes
 no model call before its session inclusion and request authorization appends are acknowledged;
@@ -57,7 +58,7 @@ preparation failure settles the un-dispatched step through the existing turn ter
 | --- | --- |
 | CIN-1 | `cin_1_admission_orders_updates_and_handoff_and_freezes_original_revision`, `cin_1_source_capacity_holds_the_turn_without_advancing_log`, `cin_1_source_bytes_include_attributed_agent_identities`, `cin_2_reopen_between_logs_keeps_unincluded_items_pending` |
 | CIN-2 | `cin_2_automatic_journal_materializes_first_collaboration_turn`, `cin_2_unincluded_admission_and_branch_retain_pending_sources`, `cin_2_foreign_and_duplicate_references_fail_closed`, `cin_3_session_reference_resolves_without_synthetic_user_content`, `cin_2_reopen_between_logs_keeps_unincluded_items_pending`, `cin_4_uncertain_inclusion_reopens_without_redispatch` |
-| CIN-3 | `cin_3_session_reference_resolves_without_synthetic_user_content`, `cin_3_resolved_cache_is_bounded_and_exact_reinsertion_is_free`, `cin_3_resolved_cache_byte_cap_is_independent_of_turn_count`, `cin_3_all_codecs_refuse_collaboration_context_explicitly`, `cin_3_unsupported_driver_refuses_before_session_mutation` |
+| CIN-3 | `cin_3_session_reference_resolves_without_synthetic_user_content`, `cin_3_resolved_cache_is_bounded_and_exact_reinsertion_is_free`, `cin_3_resolved_cache_byte_cap_is_independent_of_turn_count`, `cin_3_every_codec_renders_collaboration_with_its_sender_named`, `cin_3_unsupported_driver_refuses_before_session_mutation` |
 | CIN-4 | `cin_4_inclusion_and_request_authorization_each_gate_dispatch`, `cin_4_cancelled_start_retains_inclusion_until_acknowledgement`, `cin_4_uncertain_inclusion_reopens_without_redispatch`, `cin_4_unresolved_history_never_strands_an_authorized_step` |
 
 ## Integration boundary

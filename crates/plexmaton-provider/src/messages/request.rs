@@ -55,7 +55,10 @@ pub(crate) fn encode_atom(
     atom: &ContextAtom,
 ) -> Result<Vec<Value>, EncodeError> {
     match atom.value() {
-        ContextAtomValue::Collaboration(_) => Err(EncodeError::UnsupportedCollaboration),
+        ContextAtomValue::Collaboration(context) => Ok(vec![json!({
+            "role":"user",
+            "content":[{"type":"text", "text":crate::collaboration::collaboration_context(context)?}],
+        })]),
         ContextAtomValue::User { text } | ContextAtomValue::CompactionSummary { text } => Ok(vec![
             json!({"role":"user", "content":[{"type":"text", "text":text}]}),
         ]),

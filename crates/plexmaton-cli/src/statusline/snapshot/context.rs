@@ -68,7 +68,7 @@ impl Context {
                 | EncodeError::OpaqueReplayInChat
                 | EncodeError::UnrepresentableChatOrder
                 | EncodeError::IncompatibleReplay { .. } => Reason::HistoryIncompatible,
-                EncodeError::UnsupportedCollaboration
+                EncodeError::UnresolvedCollaboration
                 | EncodeError::InvalidToolArguments
                 | EncodeError::InvalidToolName
                 | EncodeError::InvalidReplayJson(_)

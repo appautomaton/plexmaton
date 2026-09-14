@@ -40,9 +40,11 @@ table in `AGENTS.md` allows.
 
 Product invariants no phase may trade away, and no other document owns:
 
-- Delegation is asynchronous, and agent-to-agent communication is typed mail between sessions:
-  never a synthesized user message, never a blocking tool result. Bulk findings stay in artifacts
-  or the delegated session; mail carries a bounded summary and durable pointers.
+- Delegation is asynchronous, and mail between sessions is a typed atom rather than a turn, so the
+  inspector can show it on its own and revisions reconcile against one log. A dialect with no native
+  form for it renders mail as an attributed message naming its sender; an unattributed one, or a
+  blocking tool result, is not delegation. Bulk findings stay where they were produced; mail carries
+  a bounded summary and durable pointers.
 - A delegated Conversation has one controller. While the main agent controls it, the user may
   inspect its attributed mail and stop work, but cannot send conversation input. An explicit,
   durable handoff after quiescence enables user input without expanding tool capabilities or
@@ -51,8 +53,9 @@ Product invariants no phase may trade away, and no other document owns:
   projections over it.
 - Mathematical content has one semantic source and one typeset layout. Raw LaTeX is never the
   routine presentation, on any terminal; the invariants are the math track's.
-- User configuration and runtime state belong to `~/.plexmaton/`; project configuration and skills
-  must not redirect that ownership. `.agents/` is the shared project corpus; an optional project
+- User configuration and runtime state belong to one home the user owns, `~/.plexmaton/` by default
+  and wherever `PLEXMATON_HOME` points otherwise, which is how a development profile stays out of
+  the real one. Project configuration and skills must not redirect that ownership. `.agents/` is the shared project corpus; an optional project
   `.plexmaton/` holds client-specific settings and skills under [SKL-1–SKL-6](./specs/agent-skills.md).
   Claude Code remains the compatibility north star for external formats, through explicit adapters.
 

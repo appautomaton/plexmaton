@@ -1248,13 +1248,15 @@ async fn ctl_1_unsupported_provider_refuses_before_child_or_delegation_creation(
     let children =
         DelegatedConversationDirectory::under(&directory.0).expect("delegated directory");
     let child_path = children.path().to_path_buf();
-    let (model, key) = unsupported_model_and_key();
+    // Every production dialect can carry an attributed collaboration turn, so the driver that
+    // cannot is a fixture. The gate still has to hold: a child whose model could not be told what
+    // it is for must never reach a canonical record.
     owner
-        .bind_child_factory(DelegatedChildFactory::new(
+        .bind_child_factory(DelegatedChildFactory::synthetic(
             children,
-            model,
-            key,
             catalog(&directory),
+            FakeDriver::without_collaboration(Vec::<Script>::new()),
+            Arc::new(FixedWallClock(UnixMillis::EPOCH)),
         ))
         .expect("bind factory");
     let main = catalog(&directory)

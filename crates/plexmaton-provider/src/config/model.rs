@@ -46,10 +46,10 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
-    /// Whether this exact adapter can preserve typed collaboration order, attribution and authority.
+    /// Whether this dialect has a turn that is not the assistant's, where attributed mail goes.
     #[must_use]
-    pub const fn supports_typed_collaboration_context(&self) -> bool {
-        self.api.supports_typed_collaboration_context()
+    pub const fn carries_collaboration_context(&self) -> bool {
+        self.api.carries_collaboration_context()
     }
 
     /// Installs one immutable user-level workspace snapshot, separate from system instructions.

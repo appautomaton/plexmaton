@@ -6,6 +6,7 @@
 mod budget;
 mod chat;
 mod codec;
+mod collaboration;
 mod compaction;
 mod config;
 mod cost;

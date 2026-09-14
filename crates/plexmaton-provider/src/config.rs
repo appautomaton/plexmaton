@@ -37,12 +37,17 @@ impl ModelApi {
         }
     }
 
-    const fn supports_typed_collaboration_context(self) -> bool {
+    /// Whether this dialect can carry a collaboration atom at all (PRV-1).
+    ///
+    /// All four can, because all four have a turn that is not the assistant's, which is where an
+    /// attributed message goes. A dialect with no such turn would return false and refuse before a
+    /// child is created rather than drop the sender.
+    const fn carries_collaboration_context(self) -> bool {
         match self {
             Self::OpenaiResponses
             | Self::OpenaiChatCompletions
             | Self::AnthropicMessages
-            | Self::GoogleGenerateContent => false,
+            | Self::GoogleGenerateContent => true,
         }
     }
 }

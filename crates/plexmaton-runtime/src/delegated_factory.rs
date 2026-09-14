@@ -104,7 +104,7 @@ impl DelegatedChildFactory {
     #[must_use]
     pub fn supports_collaboration(&self) -> bool {
         match &self.driver {
-            ChildDriver::Provider { model, .. } => model.supports_typed_collaboration_context(),
+            ChildDriver::Provider { model, .. } => model.carries_collaboration_context(),
             #[cfg(test)]
             ChildDriver::Synthetic { driver, .. } => driver.supports_collaboration(),
         }
