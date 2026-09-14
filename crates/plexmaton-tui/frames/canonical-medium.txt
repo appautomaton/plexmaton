@@ -32,7 +32,7 @@
 │                        │ study. Agent B is running independently; this transcript            
 │                        │ remains interactive.                                                
 │                        │                                                                     
-│                        │ <- agent-b · Routing stays centralized and z-ordered.               
+│                        │ agent-b -> agent-a · Routing stays centralized and z-ordered.       
 │                        │ · Thinking…                                                 ( !1 )  
 │                        │── Message Agent A · primary ────────────────────────────────────────
 │                        │ Type a message · ⇥ to focus                                         

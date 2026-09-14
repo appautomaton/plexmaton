@@ -305,7 +305,6 @@ impl AgentView {
         &mut self,
         entry_id: TranscriptItemId,
         id: MailId,
-        owner: AgentId,
         from: AgentId,
         to: AgentId,
         summary: String,
@@ -315,7 +314,6 @@ impl AgentView {
             TranscriptEntryView::Mail(MailView {
                 entry_id,
                 id,
-                owner,
                 from,
                 to,
                 summary,

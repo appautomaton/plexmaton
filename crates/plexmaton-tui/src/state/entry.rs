@@ -111,14 +111,13 @@ pub struct ArtifactView {
 
 /// Typed mail delivered between sessions, as one of its two conversations holds it.
 ///
-/// Sender identity is part of the product contract, so it is retained rather than reduced away.
-/// `owner` says which side this item is: the same letter appears in the sender's conversation and
-/// in the recipient's, and only the owner separates "what I sent" from "what arrived".
+/// Both endpoints are retained because they are the letter's attribution, and it reads the same in
+/// either conversation. Which side this item is stays in the projection that filed it: nothing
+/// drawn from a letter depends on where the reader is standing.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailView {
     pub entry_id: TranscriptItemId,
     pub id: MailId,
-    pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
     pub summary: String,

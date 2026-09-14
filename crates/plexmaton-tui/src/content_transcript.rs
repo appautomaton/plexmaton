@@ -89,17 +89,17 @@ pub(crate) fn transcript_layout_with_prefix(
 /// which read correctly for as long as the simulator was the only thing producing mail; the first
 /// real letter filled the conversation it arrived in and pushed its own heading off the top.
 fn mail_entry(mail: &crate::MailView, appearance: EntryAppearance, width: u16) -> Vec<Row> {
-    // The arrow points the way the letter travelled relative to the conversation being read, and
-    // names the other end: naming this conversation would spend the row saying where you are.
-    let (marker, counterpart) = if mail.owner == mail.to {
-        ("<- ", mail.from.to_string())
-    } else {
-        ("-> ", mail.to.to_string())
-    };
-    let spent = marker.width() + counterpart.width() + " · ".width();
+    // A letter reads the same in both conversations it reaches, because it is one fact: who wrote
+    // it, and who it was for. Rejected: an arrow relative to the conversation being read, naming
+    // only the other end — the glyph says "towards" and "from" equally well, and the one name on
+    // the row is taken for the one who acted, so both sides were read backwards.
+    let from = mail.from.to_string();
+    let to = mail.to.to_string();
+    let spent = from.width() + " -> ".width() + to.width() + " · ".width();
     let mut compact = Line::from(vec![
-        Span::styled(marker, Role::NewInformation),
-        Span::styled(counterpart, Role::Body),
+        Span::styled(from, Role::NewInformation),
+        Span::styled(" -> ", Role::Muted),
+        Span::styled(to, Role::Body),
         Span::styled(
             format!(
                 " · {}",
@@ -578,7 +578,6 @@ mod mail_heading_tests {
             let entry = TranscriptEntryView::Mail(crate::MailView {
                 entry_id: TranscriptItemId::new("letter").unwrap_or_else(|error| panic!("{error}")),
                 id: MailId::new("letter").unwrap_or_else(|error| panic!("{error}")),
-                owner: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 from: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 to: AgentId::new("agent-a").unwrap_or_else(|error| panic!("{error}")),
                 summary: summary.to_owned(),

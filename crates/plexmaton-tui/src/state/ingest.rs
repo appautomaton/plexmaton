@@ -310,14 +310,9 @@ impl ViewState {
             }
         }
         self.validate_entry_owner(&agent_id, &item_id)?;
-        let changed = self.agent_mut(&agent_id)?.deliver_mail(
-            item_id.clone(),
-            mail_id,
-            agent_id.clone(),
-            from,
-            to,
-            summary,
-        )?;
+        let changed =
+            self.agent_mut(&agent_id)?
+                .deliver_mail(item_id.clone(), mail_id, from, to, summary)?;
         self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
     }
@@ -483,8 +478,11 @@ mod tests {
             sent[0].entry_id, arrived[0].entry_id,
             "an item belongs to one conversation, so each side is its own item"
         );
-        assert_eq!(sent[0].owner.as_str(), "agent-b");
-        assert_eq!(arrived[0].owner.as_str(), "agent-a");
+        assert_eq!(
+            recipient.mail().count(),
+            1,
+            "the recipient holds its own item, not the sender's"
+        );
     }
 
     /// Stage 3 entry spine: domain facts share one order without losing their typed payloads.

@@ -997,8 +997,8 @@ mod tests {
         // letter is here — pointing back at whoever wrote it, never attributed to A.
         assert!(rendered.contains("Routing stays"), "A received this letter");
         assert!(
-            rendered.contains("<- agent-b"),
-            "an arriving letter names its sender"
+            rendered.contains("agent-b -> agent-a"),
+            "a letter names who wrote it and who it was for, wherever it is read"
         );
     }
 

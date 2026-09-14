@@ -230,7 +230,6 @@ fn other_entries(width: u16) -> Vec<Request> {
             TranscriptEntryView::Mail(MailView {
                 entry_id: TranscriptItemId::new("mail-entry").expect("entry"),
                 id: MailId::new("mail").expect("mail"),
-                owner: agent.clone(),
                 from: agent.clone(),
                 to: AgentId::new("primary").expect("recipient"),
                 summary: "**literal** mail 中文".into(),
