@@ -264,12 +264,12 @@ impl ViewState {
         if self.agent_shown_by(target.surface).as_ref() != Some(&target.agent) {
             return;
         }
-        let retained_tool = self.agents.get(&target.agent).is_some_and(|agent| {
+        let retained = self.agents.get(&target.agent).is_some_and(|agent| {
             agent
                 .entries()
-                .any(|entry| entry.id() == &target.item && matches!(entry, TranscriptEntryView::Tool(tool) if tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()))
+                .any(|entry| entry.id() == &target.item && crate::content::discloses(entry))
         });
-        if !retained_tool {
+        if !retained {
             return;
         };
 

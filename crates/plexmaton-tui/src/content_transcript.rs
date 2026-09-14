@@ -6,6 +6,7 @@
 
 use crate::text_layout::paint::{Line, Span, Treatment};
 use plexmaton_core::TranscriptRole;
+use unicode_width::{UnicodeWidthChar as _, UnicodeWidthStr as _};
 
 use crate::{
     TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
@@ -54,7 +55,7 @@ pub(crate) fn transcript_layout_with_prefix(
     math: crate::math::MathPresentation,
     prefix: Option<&crate::markdown::PrefixHint>,
 ) -> (Layout, Option<crate::markdown::PrefixCheckpoint>, bool) {
-    let lines = match entry {
+    let rows = match entry {
         TranscriptEntryView::Text(item) => {
             return transcript_text_with_prefix(item, width, math, prefix);
         }
@@ -65,25 +66,156 @@ pub(crate) fn transcript_layout_with_prefix(
                 Span::styled(artifact.label.clone(), Role::Body),
                 Span::styled(format!(" · {}", artifact.pointer), Role::Muted),
             ]);
-            vec![line]
+            vec![Row::heading(line)]
         }
-        TranscriptEntryView::Mail(mail) => {
-            let line = Line::from(vec![
-                Span::styled("-> ", Role::NewInformation),
-                Span::styled(mail.to.to_string(), Role::Body),
-                Span::styled(format!(" · {}", mail.summary), Role::Muted),
-            ]);
-            vec![line]
-        }
+        TranscriptEntryView::Mail(mail) => mail_entry(mail, appearance, width),
     };
     let mut layout = Layout::default();
-    for line in lines {
-        layout.logical(line, usize::from(width), false, "", Role::Body);
+    for row in rows {
+        let reserved = usize::from(width).saturating_sub(row.gutter.width());
+        layout.logical(row.line, reserved, false, row.gutter, Role::Muted);
     }
     layout
         .text
         .truncate(layout.text.trim_end_matches('\n').len());
     (layout, None, false)
+}
+
+/// A letter is a heading and a body, which is the shape a tool call already has.
+///
+/// The summary is whatever another session chose to write: one sentence in the fixtures, a page in
+/// practice. `Ctrl-O` reveals the rest (ENT-4), and copy carries the whole letter either way, so
+/// the row itself only has to stay a row. Rejected: putting the entire summary in the heading,
+/// which read correctly for as long as the simulator was the only thing producing mail; the first
+/// real letter filled the conversation it arrived in and pushed its own heading off the top.
+fn mail_entry(mail: &crate::MailView, appearance: EntryAppearance, width: u16) -> Vec<Row> {
+    // The arrow points the way the letter travelled relative to the conversation being read, and
+    // names the other end: naming this conversation would spend the row saying where you are.
+    let (marker, counterpart) = if mail.owner == mail.to {
+        ("<- ", mail.from.to_string())
+    } else {
+        ("-> ", mail.to.to_string())
+    };
+    let spent = marker.width() + counterpart.width() + " · ".width();
+    let mut compact = Line::from(vec![
+        Span::styled(marker, Role::NewInformation),
+        Span::styled(counterpart, Role::Body),
+        Span::styled(
+            format!(
+                " · {}",
+                opening(&mail.summary, usize::from(width).saturating_sub(spent))
+            ),
+            Role::Muted,
+        ),
+    ]);
+    compact.treatment = Treatment::EntryHeading;
+    let mut rows = vec![Row::heading(compact)];
+    if appearance.open {
+        append_source(&mut rows, &mail.summary, Treatment::Content, |_| Role::Body);
+    }
+    rows
+}
+
+/// As much of the letter as this row holds, and an ellipsis when that is not all of it.
+///
+/// The bound is the width actually being drawn rather than a constant: a heading is a preview, and
+/// a preview that leaves two thirds of its row empty has thrown away the only thing it had. The
+/// ellipsis is the one signal that `Ctrl-O` has more, so it also appears for a letter whose words
+/// all fit but whose line breaks did not — the body is where those survive.
+fn opening(summary: &str, available: usize) -> String {
+    let flowed = flow(summary);
+    if !summary.contains('\n') && flowed.width() <= available {
+        return flowed;
+    }
+    let budget = available.saturating_sub("…".width());
+    let mut kept = String::new();
+    let mut used = 0;
+    for character in flowed.chars() {
+        let step = character.width().unwrap_or(0);
+        if used + step > budget {
+            break;
+        }
+        used += step;
+        kept.push(character);
+    }
+    kept.push('…');
+    kept
+}
+
+/// One row cannot hold a line break, so a heading spends them as spaces.
+fn flow(summary: &str) -> String {
+    summary
+        .split('\n')
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Whether an entry retains a body, and so answers `Ctrl-O` (ENT-4).
+///
+/// A letter always does. Its heading is a preview by construction — flowed onto one row and cut to
+/// the width being drawn — so the body is the only place the letter exists as it was written, and
+/// whether the preview happened to fit is a property of this frame rather than of the entry. The
+/// key is pressed against no particular column and must not have to guess one. Rejected: asking
+/// whether the entry is a tool, which was true while tools were the only kind with a body and made
+/// `Ctrl-O` inert for the first letter that needed it; and a constant floor below which a letter
+/// was deemed to always fit, which promised disclosure with an ellipsis in a panel narrower than
+/// the floor and then refused it.
+pub(crate) fn discloses(entry: &TranscriptEntryView) -> bool {
+    match entry {
+        TranscriptEntryView::Tool(tool) => {
+            tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()
+        }
+        TranscriptEntryView::Mail(mail) => !mail.summary.is_empty(),
+        TranscriptEntryView::Text(_) | TranscriptEntryView::Artifact(_) => false,
+    }
+}
+
+/// One prepared row, and the gutter every row it wraps onto repeats.
+///
+/// The gutter belongs to the wrapper rather than to the row's own spans: a retained line is source
+/// text of any length, and prose from another agent is the first kind that reliably exceeds a
+/// panel. Written into the spans it marks only the first row, and the remainder of a wrapped line
+/// escapes to column zero, reading as if it belonged to the conversation rather than the letter.
+pub(crate) struct Row {
+    line: Line,
+    gutter: &'static str,
+}
+
+impl Row {
+    /// A row that owns the full width, such as an entry's compact heading.
+    pub(crate) const fn heading(line: Line) -> Self {
+        Self { line, gutter: "" }
+    }
+
+    /// The row with its gutter written in, for a caller that paints without laying out a viewport.
+    #[cfg(test)]
+    pub(crate) fn flattened(mut self) -> Line {
+        if !self.gutter.is_empty() {
+            self.line
+                .spans
+                .insert(0, Span::styled(self.gutter, Role::Muted));
+        }
+        self.line
+    }
+}
+
+/// The gutter a disclosed body hangs from.
+const BODY: &str = "  │ ";
+
+/// One retained body under its gutter, shared by every entry that discloses one.
+pub(crate) fn append_source(
+    rows: &mut Vec<Row>,
+    source: &str,
+    treatment: Treatment,
+    role: impl Fn(&str) -> Role,
+) {
+    rows.extend(source.split('\n').map(|row| {
+        let mut line = Line::from(vec![Span::styled(row.to_owned(), role(row))]);
+        line.treatment = treatment;
+        Row { line, gutter: BODY }
+    }));
 }
 
 /// Which side of the conversation a message is on, said in the margin rather than in a word.
@@ -400,6 +532,66 @@ mod tests {
             let painted = prepared.painted_lines(&Palette::pastel());
             assert_eq!(painted[0].to_string(), label);
             assert_eq!(painted[1].to_string(), format!("{label} source"));
+        }
+    }
+}
+
+/// ENT-4: a heading is measured in columns, because a letter is written in whatever script its
+/// author uses and half of them are twice as wide as the count of their characters suggests.
+#[cfg(test)]
+mod mail_heading_tests {
+    use unicode_width::UnicodeWidthStr as _;
+
+    use plexmaton_core::{AgentId, MailId, TranscriptItemId};
+
+    use super::{TranscriptEntryView, opening};
+
+    #[test]
+    fn a_heading_spends_columns_and_never_more_than_it_has() {
+        for available in [12_usize, 24, 48, 96] {
+            for summary in [
+                "只读检查结果:\n1) .git/HEAD 指向 refs/heads/main,当前分支为 main。\n2) 未提交改动无法列出。",
+                "Read-only check complete.\nThe branch is main.\nNothing was modified.",
+                "短",
+            ] {
+                let heading = opening(summary, available);
+                assert!(
+                    heading.width() <= available,
+                    "{available} columns: {heading:?} is {} wide",
+                    heading.width()
+                );
+                assert!(!heading.contains('\n'), "a heading is one row: {heading:?}");
+            }
+        }
+    }
+
+    /// The ellipsis promises `Ctrl-O` answers. A panel narrow enough abridges any letter, so the
+    /// promise only holds if disclosure never consults the width the promise was made at.
+    #[test]
+    fn every_ellipsis_is_a_promise_disclosure_keeps() {
+        for summary in [
+            "只读检查结果:\n1) 当前分支为 main。",
+            "Read-only check complete.\nNothing was modified.",
+            "One short line.",
+            "短",
+        ] {
+            let entry = TranscriptEntryView::Mail(crate::MailView {
+                entry_id: TranscriptItemId::new("letter").unwrap_or_else(|error| panic!("{error}")),
+                id: MailId::new("letter").unwrap_or_else(|error| panic!("{error}")),
+                owner: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
+                from: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
+                to: AgentId::new("agent-a").unwrap_or_else(|error| panic!("{error}")),
+                summary: summary.to_owned(),
+                revision: 0,
+            });
+            for available in [8_usize, 12, 24, 48, 96, 240] {
+                if opening(summary, available).ends_with('…') {
+                    assert!(
+                        super::discloses(&entry),
+                        "{summary:?} abridged at {available} columns"
+                    );
+                }
+            }
         }
     }
 }
