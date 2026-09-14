@@ -218,6 +218,13 @@ enum Command {
         request: ScheduledTurnRequest,
         reply: oneshot::Sender<Result<PreparedChildExecution, CollaborationWriterError>>,
     },
+    /// A turn for the user-owned root, which holds no delegated control to reserve against.
+    AdmitRootTurn {
+        item: CollaborationItemId,
+        boundary: Box<TurnBoundary>,
+        previous: Option<CollaborationItemRef>,
+        reply: oneshot::Sender<Result<Arc<ResolvedTurnAdmission>, CollaborationWriterError>>,
+    },
     RequireQuiescent {
         reply: oneshot::Sender<Result<(), CollaborationWriterError>>,
     },
@@ -390,6 +397,39 @@ impl CollaborationWriter {
         };
         self.pending_schedule.take();
         outcome
+    }
+
+    /// Admits one turn for the root and returns its frozen sources, with no execution authority.
+    ///
+    /// A child's turn reserves against the delegated control that Main holds over it. The root has
+    /// no such control — the user owns it — so this is the same admission without that half, and it
+    /// is why a root turn cannot be scheduled through the owned runner path (COL-3).
+    pub(crate) async fn admit_root_turn(
+        &mut self,
+        item: CollaborationItemId,
+        boundary: TurnBoundary,
+        previous: Option<CollaborationItemRef>,
+    ) -> Result<Arc<ResolvedTurnAdmission>, CollaborationWriterError> {
+        let (reply, result) = oneshot::channel();
+        let Some(sender) = &self.sender else {
+            return Err(CollaborationWriterError::Closed);
+        };
+        sender
+            .send(Command::AdmitRootTurn {
+                item,
+                boundary: Box::new(boundary),
+                previous,
+                reply,
+            })
+            .await
+            .map_err(|_| CollaborationWriterError::Closed)?;
+        match result.await {
+            Ok(outcome) => outcome,
+            Err(_) => {
+                self.worker_failed = true;
+                Err(CollaborationWriterError::WorkerFailed)
+            }
+        }
     }
 
     /// Validates a Handoff against the canonical ledger without requiring current quiescence.

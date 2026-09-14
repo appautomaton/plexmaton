@@ -11,8 +11,8 @@ use std::{collections::BTreeSet, path::Path};
 use anyhow::Context as _;
 use plexmaton_agent::collaboration::CollaborationLimits;
 use plexmaton_core::{
-    AgentId, AgentStatus, CollaborationId, ConversationEvent, ConversationEventEnvelope,
-    ConversationId,
+    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent,
+    ConversationEventEnvelope, ConversationId, TurnId,
 };
 use plexmaton_runtime::{
     CollaborationIngressOutcome, CollaborationWriter, DelegatedChildFactory, LiveRuntime,
@@ -30,6 +30,9 @@ pub(crate) struct Collaboration {
     /// Children already on the roster, keyed by the conversation a runner update names. A second
     /// `AgentCreated` for one agent is a reduce error, and resume and a settlement both announce.
     announced: BTreeSet<ConversationId>,
+    /// Root inclusions issued so far, which name each one. Identity must be stable across a retry
+    /// and distinct across turns, and a counter is both without consulting the log.
+    delivered: u64,
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -64,6 +67,7 @@ pub(crate) fn open(
         Collaboration {
             owner,
             announced: BTreeSet::new(),
+            delivered: 0,
         },
         ingress,
     ))
@@ -146,12 +150,45 @@ impl Collaboration {
                 Ok(CollaborationIngressOutcome::Delegated { .. }) => {
                     self.sync_roster(runtime, AgentStatus::Running).await
                 }
+                // Mail a child sends has no wake of its own: a wake addresses an owned runner and
+                // the root is not one, it is the user's conversation. Without this the delegation
+                // is one-way — work goes out and no answer ever comes back.
+                Ok(CollaborationIngressOutcome::MailAccepted) => {
+                    self.deliver_to_root(runtime).await
+                }
                 Ok(_) | Err(_) => Ok(Vec::new()),
             },
             // A child's own transcript belongs to its own journal, but its lifecycle belongs on the
             // roster: an agent stuck at `running` forever is the panel lying about what it knows.
             OwnedCollaborationActivity::Runner(update) => self.project_runner(runtime, update),
         }
+    }
+
+    /// Gives the root a turn over whatever its inbox holds, if it is free to take one.
+    ///
+    /// A root that is mid-turn cannot open another, and a root with nothing pending has no turn to
+    /// open. Both are ordinary and silent: the next settled activity tries again, so a reply that
+    /// arrives while the user is mid-sentence is not lost, only deferred.
+    async fn deliver_to_root(
+        &mut self,
+        runtime: &mut LiveRuntime,
+    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+        let turn = TurnId::new(format!("turn-root-mail-{}", self.delivered))
+            .context("build a root collaboration turn identity")?;
+        let Ok((boundary, previous)) = runtime.collaboration_boundary(turn) else {
+            return Ok(Vec::new());
+        };
+        let item = CollaborationItemId::new(format!("root-inclusion-{}", self.delivered))
+            .context("build a root inclusion identity")?;
+        let Ok(resolved) = self.owner.admit_root_turn(item, boundary, previous).await else {
+            return Ok(Vec::new());
+        };
+        self.delivered = self.delivered.saturating_add(1);
+        runtime
+            .start_collaboration_turn(resolved)
+            .await
+            .context("give the root its delegated mail")?;
+        Ok(Vec::new())
     }
 
     /// Moves one child's roster status, which is all of a runner update the root can show today.

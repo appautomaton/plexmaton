@@ -91,6 +91,18 @@ pub(super) fn process_command(file: &mut CollaborationFile, command: Command) ->
                 reply,
             )
         }
+        Command::AdmitRootTurn {
+            item,
+            boundary,
+            previous,
+            reply,
+        } => send_caught(
+            catch_unwind(AssertUnwindSafe(|| {
+                admit_root_turn(file, item, *boundary, previous)
+                    .map_err(CollaborationWriterError::from)
+            })),
+            reply,
+        ),
         Command::RequireQuiescent { reply } => send_caught(
             catch_unwind(AssertUnwindSafe(|| {
                 file.require_quiescent()
@@ -99,30 +111,7 @@ pub(super) fn process_command(file: &mut CollaborationFile, command: Command) ->
             reply,
         ),
         Command::PreflightHandoff { attempt, reply } => {
-            let recovery = attempt.clone();
-            match catch_unwind(AssertUnwindSafe(|| preflight_handoff(file, &attempt))) {
-                Ok(Ok(delegation)) => {
-                    let _reply_cancelled = reply.send(Ok(delegation)).is_err();
-                    false
-                }
-                Ok(Err(source)) => {
-                    let _reply_cancelled = reply
-                        .send(Err(CollaborationWriterError::HandoffPreflight {
-                            source,
-                            attempt: Box::new(recovery),
-                        }))
-                        .is_err();
-                    false
-                }
-                Err(_) => {
-                    let _reply_cancelled = reply
-                        .send(Err(CollaborationWriterError::AdmissionWorkerFailed {
-                            attempt: Box::new(recovery),
-                        }))
-                        .is_err();
-                    true
-                }
-            }
+            send_handoff_preflight(file, attempt, reply)
         }
         #[cfg(test)]
         Command::Hold { entered, release } => {
@@ -223,6 +212,11 @@ pub(super) fn reject_queued_commands(receiver: &mut mpsc::Receiver<Command>) {
                     .send(Err(CollaborationWriterError::ScheduleWorkerFailed {
                         request: Box::new(request),
                     }))
+                    .is_err();
+            }
+            Command::AdmitRootTurn { reply, .. } => {
+                let _reply_cancelled = reply
+                    .send(Err(CollaborationWriterError::WorkerFailed))
                     .is_err();
             }
             Command::DelegatedControl { reply, .. } => {
@@ -334,6 +328,59 @@ fn schedule_inner(
         reservation,
         ticket,
     })
+}
+
+/// Answers one Handoff preflight, keeping its exact attempt in every refusal.
+fn send_handoff_preflight(
+    file: &mut CollaborationFile,
+    attempt: CollaborationAttempt,
+    reply: oneshot::Sender<Result<DelegationId, CollaborationWriterError>>,
+) -> bool {
+    let recovery = attempt.clone();
+    match catch_unwind(AssertUnwindSafe(|| preflight_handoff(file, &attempt))) {
+        Ok(Ok(delegation)) => {
+            let _reply_cancelled = reply.send(Ok(delegation)).is_err();
+            false
+        }
+        Ok(Err(source)) => {
+            let _reply_cancelled = reply
+                .send(Err(CollaborationWriterError::HandoffPreflight {
+                    source,
+                    attempt: Box::new(recovery),
+                }))
+                .is_err();
+            false
+        }
+        Err(_) => {
+            let _reply_cancelled = reply
+                .send(Err(CollaborationWriterError::AdmissionWorkerFailed {
+                    attempt: Box::new(recovery),
+                }))
+                .is_err();
+            true
+        }
+    }
+}
+
+/// Admits one root turn and freezes its sources, without reserving any delegated execution.
+fn admit_root_turn(
+    file: &mut CollaborationFile,
+    item: CollaborationItemId,
+    boundary: TurnBoundary,
+    previous: Option<CollaborationItemRef>,
+) -> Result<Arc<ResolvedTurnAdmission>, CollaborationStoreError> {
+    match file
+        .ledger()
+        .prepare_turn(item.clone(), boundary, previous)?
+    {
+        Preparation::Existing(_) => {}
+        Preparation::Append(record) => {
+            file.admit(record.id, record.event)
+                .map_err(|failure| failure.into_parts().0)?;
+        }
+    }
+    let reference = file.ledger().item_reference(&item)?;
+    Ok(file.ledger().resolve_turn(&reference)?)
 }
 
 fn preflight_handoff(

@@ -230,9 +230,12 @@ impl LiveRuntime {
             .await
     }
 
-    /// Exercises generic collaboration inclusion without production execution authority.
-    #[cfg(test)]
-    pub(crate) async fn start_collaboration_turn(
+    /// Starts one collaboration turn on a conversation nobody else controls.
+    ///
+    /// The root reads its mail through this: it holds no delegated control, so there is no permit
+    /// to bind and no ticket to validate. Everything else — the boundary check, the frozen sources,
+    /// the inclusion record — is the same admission a child gets (CIN-2).
+    pub async fn start_collaboration_turn(
         &mut self,
         resolved: Arc<ResolvedTurnAdmission>,
     ) -> Result<DispatchReport, RuntimeError> {

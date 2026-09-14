@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; the real executable delegates, the child answers, and the roster follows its lifecycle. The child's own transcript, its mail and control over it are not yet on screen |
+| Status | Active; the round trip runs in the real executable — the main agent delegates, the child works and mails back, and the root reads that mail and answers. The child's own transcript and control over it are not yet on screen |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
@@ -18,9 +18,9 @@ Default resume activates only the main runner, retaining child history and canon
 ## What exists, and what stops it running
 
 `delegate` is in the model's tools, a call creates a real child, the child runs its task against a
-real provider, and the roster follows it from `running` to `idle`. What is missing is everything the
-child produces: its transcript, its mail, and control over it. The right-hand column is the whole
-gap.
+real provider and mails its result back, and the root takes a collaboration turn to read it. What is
+missing is everything the user would watch while that happens: the child's transcript, its mail as a
+surface of its own, and control over it. The right-hand column is the whole gap.
 
 | Part | Owns | Missing |
 | --- | --- | --- |
@@ -29,10 +29,10 @@ gap.
 | Control | [COL-3](../specs/collaboration-ledger.md): single controller, authority-scoped reservations, quiescent durable handoff, crash recovery | Requested compaction and tree mutation stay ungated; they must not reach a Main-controlled child surface until product routing owns them |
 | Child bootstrap | [CHB-1–CHB-3](../specs/delegated-bootstrap.md): fresh and resumed constructors, capability floor, root-only resume | — |
 | Scheduling | [SCH-1–SCH-4](../specs/owned-scheduling.md): bounded owners, separate normal/control/update lanes, Stop under backpressure, joined shutdown | — |
-| Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots | A runner update reaches the session loop but projects nothing: the child's own transcript and mail are not on screen |
+| Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots; the root reads its own inbox through a turn it admits itself | Mail has no surface: the user sees the root's answer, never the letter it answered |
 | Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning | A child is named by its opaque target, because `delegate` carries no name and the runtime picks the model |
 | Provider | Four dialects render mail as an attributed turn ([PRV-1](../specs/provider-adapter.md)) | Attribution is text the model reads, not a type the runtime enforces |
-| Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source; the fixtures supply control facts by hand |
+| Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source, and the child's transcript: entering a child shows an empty conversation because its events stay in its own journal |
 | Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking, lifecycle from the child's own events | Every child reads `Delegated`: `delegate` carries no name and the runtime picks the model |
 
 Semantics stay in the agent crate, storage in session-store, orchestration in runtime; no second
