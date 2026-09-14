@@ -24,6 +24,17 @@ pub struct MainRuntimeIdentity {
     pub(super) runtime: Arc<RuntimeCollaborationIdentity>,
 }
 
+impl MainRuntimeIdentity {
+    /// Which endpoint the root is, so its composition root can read the mail addressed to it.
+    ///
+    /// Binding consumes this proof, and a CMP-1 snapshot is keyed by endpoint, so the one caller
+    /// that owns both has to take the address before it gives the capability away.
+    #[must_use]
+    pub const fn endpoint(&self) -> &MailEndpoint {
+        &self.endpoint
+    }
+}
+
 pub(crate) struct ChildRuntimeIdentity {
     pub(super) endpoint: MailEndpoint,
     pub(super) authority: Arc<IngressAuthority>,

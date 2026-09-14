@@ -49,9 +49,9 @@ pub use interface::{
 pub use native::{NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError};
 pub use owned_collaboration::{
     MAX_OWNED_RUNNERS, OwnedCollaboration, OwnedHandoffFailure, OwnedHandoffReport,
-    OwnedScheduleFailure, OwnedSchedulingError, OwnedShutdownFailure, OwnedShutdownReport,
-    OwnedShutdownSettlement, OwnedStopReport, RunnerRegistrationError, RunnerRegistrationReason,
-    SchedulerLimits, WakeAdmission, WakeFailure, WakeRefusal,
+    OwnedRootContextError, OwnedScheduleFailure, OwnedSchedulingError, OwnedShutdownFailure,
+    OwnedShutdownReport, OwnedShutdownSettlement, OwnedStopReport, RunnerRegistrationError,
+    RunnerRegistrationReason, SchedulerLimits, WakeAdmission, WakeFailure, WakeRefusal,
 };
 pub(crate) use owned_runner::{ChildStartError, OwnedChildRunner};
 pub use owned_runner::{

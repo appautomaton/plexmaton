@@ -13,8 +13,8 @@ use crate::collaboration_ingress::{CollaborationIngressOwner, PendingIngress};
 use crate::owned_runner::{ReserveStartError, ReservedChildStart, WakeHint};
 use crate::{
     ChildStartError, CollaborationIngressSettlement, CollaborationWriter, CollaborationWriterError,
-    DelegatedRuntimeBinding, DispatchReport, OwnedChildRunner, OwnedRunnerError, OwnedRunnerUpdate,
-    RunnerIdentity, RuntimeError, ScheduledTurnRequest,
+    DelegatedRuntimeBinding, DispatchReport, LiveRuntime, OwnedChildRunner, OwnedRunnerError,
+    OwnedRunnerUpdate, RunnerIdentity, RuntimeError, ScheduledTurnRequest,
 };
 
 /// Hard process-local ceiling independent of the collaboration log's retained delegation limit.
@@ -48,6 +48,15 @@ impl Default for SchedulerLimits {
             runners: NonZeroUsize::new(8).expect("default runner limit is nonzero"),
         }
     }
+}
+
+/// Why a resumed root could not be given back the admissions its journal already references.
+#[derive(Debug, Error)]
+pub enum OwnedRootContextError {
+    #[error(transparent)]
+    Runtime(#[from] RuntimeError),
+    #[error(transparent)]
+    Writer(#[from] CollaborationWriterError),
 }
 
 /// Scheduling failure after the owner retained an exact retryable request.
@@ -413,6 +422,26 @@ impl OwnedCollaboration {
         endpoint: MailEndpoint,
     ) -> Result<CollaborationMailProjection, CollaborationWriterError> {
         self.writer.project_mail(endpoint).await
+    }
+
+    /// Rebuilds the root's own resolved collaboration context after a restart (CIN-3).
+    ///
+    /// A turn the root took over its inbox leaves a collaboration atom in its journal. On resume
+    /// the projection rebuilds that atom as a reference, and resolving it needs an admission this
+    /// process never admitted — so without this, every later turn in a conversation that once
+    /// received mail is refused as unresolved. A child gets the same treatment when its runner
+    /// registers; the root has no runner to hang it on.
+    pub async fn restore_root_context(
+        &self,
+        runtime: &mut LiveRuntime,
+    ) -> Result<(), OwnedRootContextError> {
+        let references = runtime.collaboration_references()?;
+        if references.is_empty() {
+            return Ok(());
+        }
+        let resolved = self.writer.resolve_context(references).await?;
+        runtime.restore_resolved_collaboration_context(resolved)?;
+        Ok(())
     }
 }
 
