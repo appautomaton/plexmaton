@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | Roadmap locked typed mail and single controller; COL-1–COL-5, CIN-1–CIN-4, CHB-1–CHB-3, SCH-1–SCH-5, CMP-1 and UI/UX control/mail/Attention sections |
-| Status | Slices 1–5 complete; Slice 6 control UI ready for visual review, production activation blocked |
+| Status | Slices 1–5 complete; Slice 6 control UI built and the roster/Attention redesign reviewed and landed, production activation blocked |
 
 ## Outcome
 
@@ -65,6 +65,8 @@ explicitly separate from production authority. Provider activation still gates t
 ## Deliberately not in this plan
 
 No recursive delegation, child write/shell/delegation capabilities, automatic control transfer,
-synthetic user turns, automatic post-restart wake, unreviewed Attention ownership change, agent-rail
-or Attention layout redesign, commit, PR or merge. The [Kitty preview](../spikes/kitty-native-preview/README.md)
+synthetic user turns, automatic post-restart wake, commit, PR or merge. The Attention and roster
+layout redesign has since been reviewed and built: the user reviewed a computed mockup of every
+state at four widths and directed the change, so it is no longer the unreviewed redesign this
+excluded. The [Kitty preview](../spikes/kitty-native-preview/README.md)
 owns the native demonstration method and its limits.

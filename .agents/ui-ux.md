@@ -73,12 +73,12 @@ rewrite rather than an adjustment.
 
 ### Conversation start: durable by default
 
-Launching without a conversation argument prepares an automatically named durable Conversation. Its JSONL
-is created on the first accepted user message; opening menus, editing a draft or exiting without
-sending creates no file. Exit offers a resume command only for a selected saved Conversation. Explicit `create` reserves its file immediately.
-Only explicit `--ephemeral` declines Conversation
-persistence. Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish
-without the user choosing that behavior.
+Launching without a conversation argument prepares an automatically named durable Conversation. Its
+JSONL is created on the first accepted user message; opening menus, editing a draft or exiting
+without sending creates no file, and exit offers a resume command only for a saved one. Explicit
+`create` reserves its file immediately, and only explicit `--ephemeral` declines persistence.
+Rejected: an implicit ephemeral default, which makes an ordinary conversation vanish without the
+user choosing that behavior.
 
 ### Delegated conversation control
 
@@ -95,17 +95,13 @@ stop is independent of handoff.
 
 ### Context epochs and branch selection
 
-Branches share earlier history and compact independently; a new model request uses the selected
-branch's own compacted base and the turns after it.
-
-Every rewind creates and selects a new branch, leaving the original head and its checkpoints
-untouched. Context follows the target path's own ancestry, so rewinding to a point before a later
-checkpoint is permitted: that checkpoint is not on the new head's ancestry. Both operations share
-original entries without copying history or repeating tool effects.
-
-Rejected: moving the original head during rewind, or using its latest checkpoint to prohibit
-historical forks, because the original continuation and the target ancestry must remain independent.
-CPL-5 proves checkpoint ancestry; [conversation tree](./specs/conversation-tree.md) owns the rest.
+Branches share earlier history and compact independently; a request uses the selected branch's own
+compacted base and the turns after it. Every rewind creates and selects a new branch, leaving the
+original head and its checkpoints untouched, and shares original entries without repeating tool
+effects. Rejected: moving the original head during rewind, or using its latest checkpoint to
+prohibit historical forks, because the original continuation and the target ancestry must remain
+independent. CPL-5 proves checkpoint ancestry; [conversation tree](./specs/conversation-tree.md)
+owns the rest.
 
 ### Screen ownership: full alternate screen
 
@@ -115,13 +111,10 @@ gives the terminal ownership of scroll position and contradicts per-surface scro
 every locked surface behaviour, floating windows, z-order, pointer capture, independent viewports
 and hit testing, needs a coordinate space the application controls completely.
 
-Consequences that are requirements:
-
-- Terminal-native selection is unavailable over owned regions, so the application-owned selection
-  model and its modifier are mandatory.
-- Diagnostics and logs never write to the owned screen; they go to a file or an inspectable surface.
-- Restoration survives panic and signal paths: a leaked alternate screen destroys the user's
-  scrollback.
+Consequences that are requirements: terminal-native selection is unavailable over owned regions, so
+the application-owned selection model and its modifier are mandatory; diagnostics and logs go to a
+file or an inspectable surface, never the owned screen; and restoration survives panic and signal
+paths, because a leaked alternate screen destroys the user's scrollback.
 
 ### Input: exactly one cursor
 
@@ -184,15 +177,11 @@ with its target recorded in the message: no hidden state either.
 
 ### Nested scrolling: no propagation from an exhausted child
 
-A wheel event routes to the topmost eligible viewport under the pointer and is consumed there. When
-that viewport is already at its boundary, the event stops; it does not pass to the parent. A
-viewport that cannot scroll at all is not eligible, so the event routes to the next eligible one
-beneath it. "Exhausted" and "not scrollable" are deliberately different cases.
-
-Rejected: propagation. It would make a viewport's behaviour depend on its scroll position, so the
-same gesture over the same cell would sometimes move a different surface, the exact spatial-memory
-failure this contract exists to prevent, and it contradicts the rule that a popup consumes its own
-scroll without moving the transcript behind it.
+A wheel event is consumed by the viewport it routes to, and stops there even at that viewport's
+boundary. A viewport that cannot scroll at all is a different case, and falls through. INV-3 owns
+the routing. Rejected: propagation, which would make a viewport's behaviour depend on its scroll
+position, so the same gesture over the same cell would sometimes move a different surface — the
+exact spatial-memory failure this contract exists to prevent.
 
 ## Locked UX principles
 
@@ -216,10 +205,10 @@ before granting. ATT-1/PER-5 own card behavior; inspection/copy follows
 A background agent's request is announced in the roster, because the user is not in that
 conversation to see it: the row takes the action-required color, sorts above the agents that are
 only working, and says what is wanted. Requests never steal focus or open a modal; the user goes to
-the agent. Repeated identities coalesce, and acknowledging is not resolving. Ambient progress, new
-mail, action-required requests and failure stay distinct. Rejected: a separate Attention strip, a
-third home for what the roster and the raising conversation already carry, charged to the terminals
-with the fewest rows.
+the agent, and acknowledging is not resolving. Repeated identities coalesce, and ambient progress,
+new mail, action-required requests and failure stay distinct. Rejected: a separate Attention strip,
+a third home for what the roster and the raising conversation already carry, charged to the
+terminals with the fewest rows.
 
 ### Stable spatial memory
 
@@ -435,24 +424,24 @@ Every layout class preserves the meaning of this journey even when it changes wh
 - The agent navigator is one panel with one open state; the width decides only where it docks, a
   column from medium up and a shelf over the conversation below, which is
   [INS-3](./specs/inspector.md)'s rule applied to the second kind of panel. Closing returns every
-  column it held, and the status line still counts who is waiting. Rejected: a fixed column, which
-  spends width the user cannot take back, and a band below medium, which made the roster the first
-  thing a small terminal lost in the product whose subject is having several agents at once.
+  column it held; the pill on the activity line goes on counting what is unanswered. Rejected: a
+  fixed column, spending width the user cannot take back, and a band below medium, which made the
+  roster the first thing a small terminal lost.
 - Each roster row carries lifecycle plus what its agent waits on, or compact non-text counts such
   as `1 tool @1 1 mail`; `@` is the artifact marker, while the conversation title keeps full nouns.
-  The row whose conversation is on screen is marked in the identity color. Rejected: a separate
-  activity region, which regrouped facts that already belong in each agent's conversation.
+  A filled marker says which conversation is on screen; its color says that agent's state.
+  Rejected: a separate activity region, regrouping facts that belong in each agent's conversation.
 - Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
   cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,
   replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
   a working one.
 - Below 48 × 12 the screen is one notice. Rejected: a clipped workspace.
-- The Drawer keeps one geometry at every layout class: full width, height from content. Rejected:
-  maximizing it on narrow screens, which filled the terminal with three rows; and a 76-column
-  centred overlay, which shrank abruptly as the terminal grew.
-- Approval cards and the Drawer leave two clear cells inside each side border, one blank
-  row above and below their content, and a gap between data, choices and key hints. Short terminals
-  drop optional spacing before controls or the composer; filtering keeps the input row stable.
+- The Drawer keeps one geometry at every layout class: full width, height from content (DRW-2).
+  Rejected: maximizing it on narrow screens, which filled the terminal with three rows, and a
+  76-column centred overlay, which shrank abruptly as the terminal grew.
+- Decision surfaces are spaced, not packed: clear cells inside their side borders, a blank row
+  above and below, and a gap between data, choices and key hints. Short terminals drop optional
+  spacing before controls or the composer.
 
 Resize preserves the focused semantic item, keeps bottom-follow only for viewports already following
 the tail, keeps every viewport's anchor, clamps an inaccessible floating surface back into view, and

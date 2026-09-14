@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; Stage 7 Slice 6 control UI ready for visual review, production activation blocked |
+| Status | Active; Stage 7 Slice 6 control UI built and the roster/Attention redesign reviewed and landed, production activation blocked |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
