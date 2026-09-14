@@ -26,7 +26,6 @@ const MIN_PANEL_HEIGHT: u16 = 3;
 const TRANSCRIPT_COMFORT: u16 = 8;
 
 /// Preferred heights of the regions that yield on a short terminal.
-const RAIL_HEIGHT: u16 = 5;
 /// One row of text and the bottom edge of the box it closes (INS-5).
 const COLLAPSED_COMPOSER_HEIGHT: u16 = 2;
 const NOTICE_HEIGHT: u16 = 4;
@@ -106,6 +105,10 @@ pub struct WorkspaceInput {
     pub composer_menu_rows: u16,
     /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
     pub rail: bool,
+    /// Whether the user has the roster open. Closed, it returns every column it held.
+    pub roster: bool,
+    /// Rows the roster asks for when it docks as a shelf, borders included.
+    pub roster_rows: u16,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
     /// The open inspector, if one is open.
@@ -127,6 +130,8 @@ impl Default for WorkspaceInput {
             conversation_tree: false,
             composer_menu_rows: 0,
             rail: false,
+            roster: true,
+            roster_rows: 0,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
@@ -235,7 +240,8 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
             queue: queue_height,
             queue_floor: input.queue_floor,
         },
-        input.rail,
+        input.rail && input.roster,
+        input.roster_rows,
     );
     // Over the body rather than carved from it: the Drawer belongs to the workspace, blocks
     // everything below it (SURF-4), and is gone again on `Escape`, so nothing beneath it should
@@ -287,6 +293,7 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
             composer: MIN_PANEL_HEIGHT,
         },
         true,
+        0,
     )
     .composer
     .width
@@ -313,6 +320,8 @@ pub(super) struct BodyRegions {
     pub(super) inspector: Option<Rect>,
     /// Whether the second window floats over the conversation rather than tiling beside it.
     pub(super) inspector_floats: bool,
+    /// Whether the roster is docked over the conversation rather than beside it.
+    pub(super) agents_floats: bool,
     /// The composer, at the bottom of the conversation's column. Always present: the body was
     /// sized so that typing survives every other region.
     pub(super) composer: Rect,
@@ -344,6 +353,7 @@ fn body_regions(
     inspector: Option<InspectorRequest>,
     block: InputBlock,
     rail: bool,
+    roster_rows: u16,
 ) -> BodyRegions {
     // All three sections are carved from the conversation's column as one block, so the second
     // window's give-back and the shelf's guarantee are measured against the rows the conversation
@@ -359,6 +369,7 @@ fn body_regions(
             transcript: Some(body),
             inspector: None,
             inspector_floats: false,
+            agents_floats: false,
             composer: Rect::default(),
             decision: None,
             queue: None,
@@ -376,6 +387,7 @@ fn body_regions(
                     transcript: Some(transcript),
                     inspector: None,
                     inspector_floats: false,
+                    agents_floats: false,
                     composer: Rect::default(),
                     decision: None,
                     queue: None,
@@ -384,25 +396,21 @@ fn body_regions(
                 }
             }
             // `TooSmall` returned before layout began, so it cannot reach here.
-            LayoutClass::Narrow | LayoutClass::TooSmall => {
-                // The input rows are spoken for, so the rail bids against what is left.
-                let mut rows = body.height.saturating_sub(input_height);
-                let rail_height = reserve(&mut rows, RAIL_HEIGHT, MIN_PANEL_HEIGHT);
-                let rows = rows.saturating_add(input_height);
-                let transcript =
-                    Rect::new(body.x, body.y.saturating_add(rail_height), body.width, rows);
-                BodyRegions {
-                    agents: band(body, body.y, rail_height),
-                    transcript: Some(transcript),
-                    inspector: None,
-                    inspector_floats: false,
-                    composer: Rect::default(),
-                    decision: None,
-                    queue: None,
-                    drawer: None,
-                    command_inspection: None,
-                }
-            }
+            // Too narrow to spend width on a column, so the roster docks over the conversation
+            // instead, after the second window has been placed. The conversation keeps its whole
+            // rectangle either way; what changes is whether the panel takes columns or covers rows.
+            LayoutClass::Narrow | LayoutClass::TooSmall => BodyRegions {
+                agents: None,
+                transcript: Some(body),
+                inspector: None,
+                inspector_floats: false,
+                agents_floats: false,
+                composer: Rect::default(),
+                decision: None,
+                queue: None,
+                drawer: None,
+                command_inspection: None,
+            },
         }
     };
 
@@ -429,7 +437,52 @@ fn body_regions(
         None => base,
     };
     split_input(&mut placed, block);
+    if rail && placed.agents.is_none() {
+        placed = dock_roster(placed, roster_rows);
+    }
     placed
+}
+
+/// Docks the roster over the conversation, for the widths that have no columns to give it.
+///
+/// The same rule the second window follows (INS-3): one panel, and the terminal's size decides
+/// where it lands. It floats inside whichever conversation is on screen, so that conversation keeps
+/// every row it had and the rows the panel covers are the ones already read — which is only true
+/// because a conversation shorter than its region sits at the bottom.
+///
+/// Rejected: a fixed five-row band taking rows from the conversation. It fit one agent, so the one
+/// view a product about several agents cannot afford to lose was the first thing a small terminal
+/// lost, and it cost those rows whether the user wanted the panel or not.
+fn dock_roster(mut placed: BodyRegions, rows: u16) -> BodyRegions {
+    let Some(host) = placed.transcript.or(placed.inspector) else {
+        return placed;
+    };
+    // One row below the host's top edge. That row is either the second window's title, which names
+    // the conversation being covered and carries its control state (CCV-3), or one more row of
+    // already-read conversation, which costs nothing. Covering it would leave the user unable to
+    // say which agent they are looking at, and stack two close boxes on adjacent rows.
+    let top = host.y.saturating_add(1);
+    let region = host.height.saturating_sub(1);
+    placed.agents = band(host, top, roster_shelf_rows(region, rows));
+    placed.agents_floats = placed.agents.is_some();
+    placed
+}
+
+/// Rows the docked roster may cover, or none when the conversation cannot spare them.
+///
+/// The ten-row guarantee (INS-2) outranks the panel, and below it the honest answer is no panel
+/// rather than a panel registered too short to read. This is where it differs from the second
+/// window's shelf, which keeps a floor even on a cramped terminal: that window is the thing the
+/// user asked to look at, while the roster is an index they can bring back with one chord.
+const fn roster_shelf_rows(region: u16, wanted: u16) -> u16 {
+    let ceiling = region.saturating_sub(inspector::CONVERSATION_GUARANTEE);
+    if ceiling < MIN_PANEL_HEIGHT {
+        return 0;
+    }
+    if wanted < MIN_PANEL_HEIGHT {
+        return MIN_PANEL_HEIGHT;
+    }
+    if wanted > ceiling { ceiling } else { wanted }
 }
 
 /// Rows a band that cannot scroll may have: what fits in `room`, or none if that is below `floor`.
@@ -440,20 +493,6 @@ fn body_regions(
 pub(super) const fn granted(want: u16, floor: u16, room: u16) -> u16 {
     let height = if want < room { want } else { room };
     if height < floor { 0 } else { height }
-}
-
-/// Takes `want` rows if what remains still clears `floor`, and none at all otherwise.
-///
-/// All or nothing, deliberately. Ratatui's solver returns a zero-height rectangle rather than
-/// failing, and half an agent rail is a border with no rail inside it. A region either gets enough
-/// rows to say something or it does not appear and gives them to the conversation.
-fn reserve(remaining: &mut u16, want: u16, floor: u16) -> u16 {
-    if *remaining >= want.saturating_add(floor) {
-        *remaining = remaining.saturating_sub(want);
-        want
-    } else {
-        0
-    }
 }
 
 fn band(column: Rect, top: u16, height: u16) -> Option<Rect> {
@@ -512,6 +551,68 @@ mod tests {
         }
     }
 
+    /// ui-ux §responsive layout classes: one panel with one open state, and the width decides only
+    /// where it docks. Closed, it returns every column or row it held to the conversation.
+    #[test]
+    fn the_roster_docks_as_a_column_or_a_shelf_and_closing_returns_what_it_held() {
+        for (width, height) in [(140, 40), (120, 40), (88, 40), (60, 40)] {
+            let area = Rect::new(0, 0, width, height);
+            let open = workspace(
+                area,
+                WorkspaceInput {
+                    roster_rows: 8,
+                    ..input(false)
+                },
+            );
+            let closed = workspace(
+                area,
+                WorkspaceInput {
+                    roster: false,
+                    roster_rows: 8,
+                    ..input(false)
+                },
+            );
+            let panel = open
+                .get(SurfaceId::Agents)
+                .unwrap_or_else(|| panic!("{width}x{height}: an open roster is registered"));
+            assert!(
+                closed.get(SurfaceId::Agents).is_none(),
+                "{width}x{height}: a closed roster is not registered at all"
+            );
+            let before = open
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: conversation"))
+                .bounds;
+            let after = closed
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: conversation"))
+                .bounds;
+            if LayoutClass::for_size(width, height) == LayoutClass::Narrow {
+                assert!(
+                    panel.z_index > 0,
+                    "{width}x{height}: with no width to spend it docks over the conversation"
+                );
+                assert_eq!(
+                    before, after,
+                    "{width}x{height}: a docked roster covers rows rather than taking them"
+                );
+                assert!(
+                    panel.bounds.y > after.y,
+                    "{width}x{height}: the host's own title row survives underneath it"
+                );
+            } else {
+                assert_eq!(
+                    panel.z_index, 0,
+                    "{width}x{height}: a column is part of the base layer"
+                );
+                assert!(
+                    after.width > before.width,
+                    "{width}x{height}: closing hands the columns back to the conversation"
+                );
+            }
+        }
+    }
+
     /// SKP-4: a clipped menu never hides both the selected choice and its keys.
     #[test]
     fn skill_picker_is_absent_when_fewer_than_choice_footer_and_borders_fit() {
@@ -520,6 +621,7 @@ mod tests {
             transcript: Some(Rect::new(0, 0, 60, 2)),
             inspector: None,
             inspector_floats: false,
+            agents_floats: false,
             composer: Rect::new(0, 4, 60, 3),
             decision: Some(Rect::new(0, 2, 60, 2)),
             queue: None,
@@ -851,12 +953,12 @@ mod tests {
 
     /// What survives at the smallest supported terminal, in priority order.
     ///
-    /// Twelve rows cannot hold a status line, a composer, a conversation, a notice strip and an
-    /// agent rail at once, so this pins which of them goes. Typing and the conversation are the
+    /// Twelve rows cannot hold a status line, a composer, a readable conversation, a notice strip
+    /// and the roster at once, so this pins which of them goes. Typing and the conversation are the
     /// workspace. A producer defect the user cannot see is the failure the notice log exists to
-    /// prevent, and
-    /// nothing else signals it. A missing agent rail is visible in itself and returns on resize, so
-    /// the rail is what yields.
+    /// prevent, and nothing else signals it. The roster is what yields: it is an index the user can
+    /// bring back with one chord, and at this height it has nowhere to dock that does not take the
+    /// conversation below its ten-row guarantee (INS-2).
     ///
     /// This replaced an assertion that the rail always survives a notice. That was true before the
     /// composer took three of these twelve rows, and the composer is not the thing to give up.
@@ -866,8 +968,8 @@ mod tests {
         assert!(quiet.get(SurfaceId::Composer).is_some());
         assert!(quiet.get(SurfaceId::Transcript).is_some());
         assert!(
-            quiet.get(SurfaceId::Agents).is_some(),
-            "with no defect to report there is room for the rail"
+            quiet.get(SurfaceId::Agents).is_none(),
+            "twelve rows cannot hold both, and the conversation is not the thing to give up"
         );
 
         let degraded = workspace(Rect::new(0, 0, 48, 12), input(true));
@@ -879,7 +981,7 @@ mod tests {
         );
         assert!(
             degraded.get(SurfaceId::Agents).is_none(),
-            "the rail is what yields, and it returns as soon as the rows do"
+            "the roster yields here too, and it returns as soon as the rows do"
         );
     }
 

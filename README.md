@@ -58,6 +58,7 @@ UI, tools and journals are local; model requests use your configured endpoint. C
 
 | Input | Action |
 | --- | --- |
+| `Ctrl-B` | Show or hide the agent roster |
 | `Ctrl-P` | Open the Drawer: configuration and permissions |
 | `Ctrl-J`, `Shift-Enter`, `Alt-Enter` | Newline in conversation input |
 | `Alt-↑` | Take the most recent waiting message into the empty primary composer |

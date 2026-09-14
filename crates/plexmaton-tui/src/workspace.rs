@@ -506,6 +506,7 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
+            TuiIntent::ToggleRoster => self.state.toggle_roster(),
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::InspectCommand(action) => return self.inspect_command(action),
             TuiIntent::WithdrawQueued => return self.withdraw_queued(),
@@ -2859,6 +2860,60 @@ mod tests {
             !workspace.surfaces.has_dismissible(),
             "nothing opened over the user's work"
         );
+    }
+
+    /// The roster is one panel the user opens and closes, from wherever they are.
+    ///
+    /// Resolved before focus like the Drawer's chord, so it works mid-draft: a user who is typing
+    /// should not have to leave the composer to put a panel away. `Ctrl-A` could not be this,
+    /// because it is already the composer's line-start motion.
+    #[test]
+    fn ctrl_b_puts_the_roster_away_and_brings_it_back_without_disturbing_a_draft() {
+        let (mut workspace, mut terminal) = drawn(120, 40);
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in "half a thought".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        let caret = cursor(&terminal);
+        let conversation = bounds(&workspace, SurfaceId::Transcript);
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        );
+        assert!(
+            workspace.surfaces.get(SurfaceId::Agents).is_none(),
+            "the chord reached the workspace rather than the draft"
+        );
+        assert!(
+            bounds(&workspace, SurfaceId::Transcript).width > conversation.width,
+            "and the columns it held went to the conversation"
+        );
+        assert_eq!(
+            workspace.state.composer().text(),
+            "half a thought",
+            "the draft is untouched"
+        );
+        assert_eq!(
+            cursor(&terminal).map(|at| at.y),
+            caret.map(|at| at.y),
+            "the caret stays on its row; its column moves because the composer got the width back"
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('b'), KeyModifiers::CONTROL),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+        assert_eq!(bounds(&workspace, SurfaceId::Transcript), conversation);
     }
 
     /// ATT-2 and ATT-3: going to a request is a keypress, and being seen is not being answered.

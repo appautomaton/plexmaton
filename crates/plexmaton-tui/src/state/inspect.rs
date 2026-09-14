@@ -219,6 +219,38 @@ impl ViewState {
         Ok(())
     }
 
+    /// Whether the roster is on screen.
+    #[must_use]
+    pub const fn roster_open(&self) -> bool {
+        !self.roster_closed
+    }
+
+    /// Puts the roster away, or brings it back.
+    ///
+    /// One panel with one open state. The width decides only where it docks when it is open — a
+    /// column from medium up, a shelf over the conversation below — so this is the same verb at
+    /// every size, and closing gives every column or row it held back to the conversation.
+    pub fn toggle_roster(&mut self) {
+        self.roster_closed = !self.roster_closed;
+        self.touch();
+    }
+
+    /// Rows the roster asks for when it docks as a shelf, borders included.
+    ///
+    /// Measured from the same lines it will paint, so a panel that has grown a row does not have
+    /// to be redrawn to find out. Layout still clamps it: what it wants is not what it gets.
+    #[must_use]
+    pub fn roster_rows(&self, width: u16) -> u16 {
+        if !self.roster_open() || self.sub_agents().next().is_none() {
+            return 0;
+        }
+        let rows =
+            crate::content::roster(self, &crate::theme::Palette::default(), inner_width(width))
+                .lines
+                .len();
+        u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2)
+    }
+
     /// Moves the agent selection one step in arrival order, clamped at both ends.
     pub fn move_selection(&mut self, direction: Direction) {
         if self.agents.move_selection(direction) {

@@ -26,11 +26,16 @@ pub(super) fn surface_tree(
 ) -> SurfaceTree {
     let mut tree = SurfaceTree::default();
 
-    register(
+    register_at(
         &mut tree,
         SurfaceId::Agents,
         regions.agents,
         SurfaceKind::Panel,
+        if regions.agents_floats {
+            FLOATING_Z_INDEX
+        } else {
+            BASE_Z_INDEX
+        },
     );
     register(
         &mut tree,

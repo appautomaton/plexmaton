@@ -1,9 +1,9 @@
+┌ Agent B · UI study · Completed · esc ────────────────────┐
 ┌ Agents ──────────────────────────────────────────────────┐
 │● Agent B · UI study                              approval│
 │  Change crates/plexmaton-core/src/lib.rs and preserve it…│
-│                                                          │
 └──────────────────────────────────────────────────────────┘
-┌ Agent B · UI study · Completed · esc ────────────────────┐
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │

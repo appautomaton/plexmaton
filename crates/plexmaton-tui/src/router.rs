@@ -141,6 +141,13 @@ impl Router {
             }
         }
 
+        // Its own chord, resolved before focus, so the roster comes and goes from wherever the
+        // user is, including mid-draft. `⌃B` is what a hand reaching for "put the side panel away"
+        // already presses, and it is unclaimed here: `⌥B` is the word motion, not this.
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+            return Routed::Intent(TuiIntent::ToggleRoster);
+        }
+
         // Its own chord, resolved before focus, so it opens from wherever the user is. `⌃P` is
         // unclaimed and reaches no text input: a control chord under a cursor is never the letter.
         if key.modifiers.contains(KeyModifiers::CONTROL)

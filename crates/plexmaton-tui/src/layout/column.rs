@@ -16,6 +16,7 @@ pub(super) fn beside_conversation(body: Rect, rail: u16) -> BodyRegions {
         transcript: Some(transcript),
         inspector: None,
         inspector_floats: false,
+        agents_floats: false,
         composer: Rect::default(),
         decision: None,
         queue: None,

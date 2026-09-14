@@ -13,7 +13,7 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 use super::{BodyRegions, LayoutClass, MIN_PANEL_HEIGHT, band};
 
 /// Rows of the primary conversation an open inspector must leave readable (INS-2).
-const CONVERSATION_GUARANTEE: u16 = 10;
+pub(super) const CONVERSATION_GUARANTEE: u16 = 10;
 
 /// Share of the conversation region a shelf takes by default, in hundredths (ui-ux §shelf).
 const SHELF_SHARE: u32 = 55;

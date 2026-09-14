@@ -562,8 +562,12 @@ mod tests {
     /// content and what reaches the screen are one computation.
     #[test]
     fn the_transcript_opens_at_its_tail_and_the_wheel_moves_it() {
-        // Narrow enough that the conversation wraps past the rows it is given.
+        // Narrow enough that the conversation wraps past the rows it is given. The roster takes
+        // none of them at this height — the ten-row guarantee outranks it — so the overflow has to
+        // come from the conversation itself.
         let mut session = RenderFixture::canonical(48, 12);
+        session.conversation.extend(4);
+        session.draw();
         let viewport = session.viewport(SurfaceId::Transcript);
 
         assert!(
@@ -599,7 +603,7 @@ mod tests {
         let mut session = RenderFixture::canonical(60, 20);
         session.conversation.extend(10);
         session.draw();
-        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 6);
+        session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 10);
 
         let narrow = session.viewport(SurfaceId::Transcript);
         let reading = markers(&session.region(SurfaceId::Transcript));

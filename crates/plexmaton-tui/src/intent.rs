@@ -222,6 +222,8 @@ pub enum TuiIntent {
     Dismiss,
     /// Act on the inspector.
     Inspector(InspectorIntent),
+    /// Put the roster away, or bring it back.
+    ToggleRoster,
     /// Act on the Attention queue.
     /// Act on the open approval surface.
     Approval(ApprovalIntent),

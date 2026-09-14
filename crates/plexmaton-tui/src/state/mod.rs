@@ -150,6 +150,11 @@ pub struct ViewState {
     compacting: Option<AgentId>,
     /// Submitted input no request carries yet; the composition root replaces it whole.
     queued: Vec<QueuedInput>,
+    /// Whether the user has put the roster away.
+    ///
+    /// Stored closed-side-up so `Default` means open: a workspace that starts by hiding its index
+    /// of agents would be hiding the thing the product is about.
+    roster_closed: bool,
 }
 
 /// A message the user submitted, and the agent it is addressed to.

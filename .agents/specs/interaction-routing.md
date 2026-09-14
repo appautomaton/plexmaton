@@ -116,6 +116,7 @@ navigation are disabled. Native proof and rendered review status remain in the t
 | `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
+| `Ctrl-B` | Put the roster away, or bring it back | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move selection, which in the list opens or moves the second window (INS-1) | `↑` / `↓` move the caret one painted row and the window follows (COM-2); `k` / `j` insert |
