@@ -1,9 +1,8 @@
-┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ────────────────┐                                                                     
-│● Agent B · UI study ask│ ┌ Agent B · UI study · Completed · esc ───────────────────────────┐ 
-│  Choose whether the ov…│ │                                                                 │ 
+│● Agent B · UI study    │ ┌ Agent B · UI study · Completed · esc ───────────────────────────┐ 
+│  approval              │ │                                                                 │ 
+│                        │ │                                                                 │ 
+│                        │ │                                                                 │ 
 │                        │ │I found the surface-routing boundary and am checking overlap     │ 
 │                        │ │behavior.                                                        │ 
 │                        │ │                                                                 │ 
@@ -12,6 +11,7 @@
 │                        │ │-> agent-a · Routing stays centralized and z-ordered.            │ 
 │                        │ │Controller unavailable | Input locked                            │ 
 │                        │ └─────────────────────────────────────────────────────────────────┘ 
+│                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     

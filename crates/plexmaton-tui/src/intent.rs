@@ -126,18 +126,6 @@ pub enum InspectorIntent {
     Shrink,
 }
 
-/// One thing the user asked of the Attention queue.
-///
-/// Every verb here is user-initiated. Nothing a background agent does reaches this enum, which is
-/// the structural half of "a request never takes focus": there is no producer path to these.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttentionIntent {
-    /// Move the queue's own cursor.
-    Move(Direction),
-    /// Go to the agent whose request is under the cursor, marking it seen.
-    GoTo,
-}
-
 /// One thing the user asked of an approval surface they explicitly opened.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApprovalIntent {
@@ -235,7 +223,6 @@ pub enum TuiIntent {
     /// Act on the inspector.
     Inspector(InspectorIntent),
     /// Act on the Attention queue.
-    Attention(AttentionIntent),
     /// Act on the open approval surface.
     Approval(ApprovalIntent),
     /// Read or copy the exact pending command without changing its approval.

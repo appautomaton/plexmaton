@@ -143,7 +143,12 @@ impl ViewState {
         let changed = match intent {
             // Entering focuses it, so its input is usable without a second step (INS-4). The
             // surface is already registered, but a preference is what focus keeps across frames.
-            InspectorIntent::Open => self.focus.prefer(SurfaceId::Inspector),
+            // Entering an agent that is asking something is also going to the request (ATT-2):
+            // the roster is where the user found it, and this is the agent it belongs to.
+            InspectorIntent::Open => {
+                let focused = self.focus.prefer(SurfaceId::Inspector);
+                self.visit_request() || focused
+            }
             InspectorIntent::ToggleMaximize => {
                 self.inspector.toggle_maximized();
                 true

@@ -1,11 +1,11 @@
-┌ Attention · 1 ───────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should │
-└──────────────────────────────────────────────────────────┘
 ┌ Agents ──────────────────────────────────────────────────┐
 │○ Agent B · UI study                                   ask│
 │  Choose whether the overlap study should cover narrow sc…│
 │                                                          │
 └──────────────────────────────────────────────────────────┘
+
+
+
 
 
 

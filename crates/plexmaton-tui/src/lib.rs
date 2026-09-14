@@ -29,8 +29,8 @@ mod transcript;
 mod workspace;
 
 pub use intent::{
-    ApprovalIntent, AttentionIntent, Direction, InspectorIntent, MenuIntent, PointerIntent,
-    ScrollDirection, SelectionIntent, TextIntent, TreeIntent, TuiIntent,
+    ApprovalIntent, Direction, InspectorIntent, MenuIntent, PointerIntent, ScrollDirection,
+    SelectionIntent, TextIntent, TreeIntent, TuiIntent,
 };
 pub use render::render;
 pub use router::{Ignored, Routed, Router, RouterContext};

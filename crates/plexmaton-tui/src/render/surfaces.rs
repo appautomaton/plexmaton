@@ -202,7 +202,6 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
     let mut input = WorkspaceInput {
         status_rows: state.status().rows(),
         has_notices: state.notices().next().is_some(),
-        attention: state.attention_listed_count(),
         decision_rows: state.decision_rows(composer_width),
         queue_rows: state.queued_rows(composer_width),
         queue_floor: state.queued_floor(composer_width),

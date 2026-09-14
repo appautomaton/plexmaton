@@ -93,27 +93,6 @@ pub(super) fn attention_pill(state: &ViewState, palette: &Palette) -> Option<Lin
     ]))
 }
 
-/// The band names both numbers, because it is the surface that can show the difference.
-pub(super) fn attention_title(state: &ViewState, palette: &Palette) -> Line<'static> {
-    let queued = state.attention_listed_count();
-    let pending = state.attention_listed_pending();
-    let rest = if pending == queued {
-        format!(" · {queued}")
-    } else {
-        format!(" · {queued} · {pending} unanswered")
-    };
-    title(palette, "Attention", attention_role(state), rest)
-}
-
-/// An unanswered request must read as action required, not as ambient decoration.
-pub(super) fn attention_role(state: &ViewState) -> Role {
-    if state.attention_listed_pending() == 0 {
-        Role::SectionHeading
-    } else {
-        Role::ActionRequired
-    }
-}
-
 /// The conversation's last row: what the agent is doing on the left; what the reader has
 /// selected and what is still waiting on them on the right (ui-ux §input, COM-5, SEL-5, ATT-1).
 ///

@@ -1,6 +1,5 @@
 //! Logical lines for queued requests and the approval decision card.
 
-use plexmaton_core::AttentionKind;
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr;
@@ -10,39 +9,6 @@ use crate::{
     state::wrap_line,
     theme::{Palette, Role},
 };
-
-/// Queued background requests, oldest first, with the cursor on the one `Enter` would go to.
-///
-/// Approval and clarification are drawn apart because `ui-ux.md` §attention management refuses one
-/// generic notification treatment: one is an agent that cannot proceed, the other is an agent that
-/// can. Seen requests stay listed and stop shouting — acknowledging is not resolving (ATT-3).
-pub(crate) fn attention(state: &ViewState, palette: &Palette, width: u16) -> Vec<Line<'static>> {
-    // Named rather than counted: the band lists a subset now, so an index into it is an index into
-    // a different list than the one the cursor moves through.
-    let cursor = state.listed_attention_cursor();
-    state
-        .attention_listed()
-        .map(|item| {
-            let (marker, role) = match (item.acknowledged, item.kind()) {
-                (true, _) => ("seen  ", Role::Muted),
-                (false, AttentionKind::Approval) => ("block ", Role::ActionRequired),
-                (false, AttentionKind::Clarification) => ("ask   ", Role::NewInformation),
-            };
-            let chosen = cursor == Some(&item.id);
-            let spans = vec![
-                Span::styled(if chosen { "> " } else { "  " }, palette.style(Role::Muted)),
-                Span::styled(marker, palette.style(role)),
-                Span::styled(format!("{} · ", item.agent_id), palette.style(Role::Muted)),
-                Span::styled(item.summary().to_owned(), palette.style(Role::Body)),
-            ];
-            if chosen {
-                crate::content::chosen_row(spans, palette, width)
-            } else {
-                Line::from(spans)
-            }
-        })
-        .collect()
-}
 
 /// Builds the exact visible card rows. On short terminals secondary copy yields before actions.
 struct ApprovalContent {

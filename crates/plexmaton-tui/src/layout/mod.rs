@@ -31,12 +31,6 @@ const RAIL_HEIGHT: u16 = 5;
 const COLLAPSED_COMPOSER_HEIGHT: u16 = 2;
 const NOTICE_HEIGHT: u16 = 4;
 
-/// Requests the band shows before it starts scrolling instead of growing.
-///
-/// The queue is unbounded and the conversation is not negotiable, so past this the band keeps its
-/// height and the rest of the queue arrives by scrolling it.
-const ATTENTION_LISTED: usize = 3;
-
 /// Smallest terminal that can still express the canonical journey.
 ///
 /// Below this the honest response is one explicit notice, not a layout clipped until it lies.
@@ -92,8 +86,6 @@ pub struct WorkspaceInput {
     pub status_rows: u16,
     /// Whether the notice strip has anything to report.
     pub has_notices: bool,
-    /// How many background requests are queued. Zero registers no band at all.
-    pub attention: usize,
     /// Rows the decision region asks for, divider included. Zero registers no region at all.
     pub decision_rows: u16,
     /// Rows the waiting-input band asks for, divider included. Zero registers no region at all.
@@ -125,7 +117,6 @@ impl Default for WorkspaceInput {
         Self {
             status_rows: 1,
             has_notices: false,
-            attention: 0,
             decision_rows: 0,
             queue_rows: 0,
             queue_floor: 0,
@@ -223,21 +214,13 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
     };
     rest = rest.saturating_sub(notice_height);
 
-    // Served after the notice strip for the same reason the strip outranks the agent rail: a
-    // silently wrong projection has no other signal, while a blocked agent also shows as `Waiting`
-    // in the rail and its request survives until the rows come back.
-    let attention_height = attention_rows(input.attention, rest);
-    rest = rest.saturating_sub(attention_height);
-
-    // The strips take their rows from the top of the screen, never from the bottom: the newest
-    // conversation rows and the composer stay where they are when a notice or a request arrives,
-    // so nothing the user is reading or typing into moves (ATT-1).
+    // The strip takes its rows from the top of the screen, never from the bottom: the newest
+    // conversation rows and the composer stay where they are when a notice arrives, so nothing the
+    // user is reading or typing into moves.
     let notices = band(area, area.y, notice_height);
-    let attention_top = area.y.saturating_add(notice_height);
-    let attention = band(area, attention_top, attention_height);
     let body = Rect::new(
         area.x,
-        attention_top.saturating_add(attention_height),
+        area.y.saturating_add(notice_height),
         area.width,
         rest.saturating_add(input_height),
     );
@@ -274,7 +257,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
         )
     });
 
-    registration::surface_tree(area, status, notices, attention, regions, &input)
+    registration::surface_tree(area, status, notices, regions, &input)
 }
 
 /// The most lines the primary composer may take at this terminal height: a third of it, never
@@ -317,25 +300,6 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
 /// missing rail is visible in itself and recovered by resizing.
 fn notice_rows(available: u16) -> u16 {
     NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
-}
-
-/// Rows for the Attention band: two borders plus up to three requests, and none at all below that.
-///
-/// All or nothing for the same reason `reserve` is: a band that cannot show one request is a focus
-/// stop and a pointer target advertising a queue the user cannot read. The queue survives without
-/// it — the rail carries the count, and the band returns when the rows do.
-fn attention_rows(queued: usize, available: u16) -> u16 {
-    if queued == 0 {
-        return 0;
-    }
-    let listed = u16::try_from(queued.clamp(1, ATTENTION_LISTED)).unwrap_or(1);
-    let want = listed.saturating_add(2);
-    let room = available.saturating_sub(TRANSCRIPT_COMFORT);
-    if room >= MIN_PANEL_HEIGHT {
-        want.min(room)
-    } else {
-        0
-    }
 }
 
 /// What one frame's body is divided into.
@@ -566,7 +530,6 @@ mod tests {
             Rect::new(0, 0, 60, 10),
             Rect::new(0, 8, 60, 1),
             None,
-            None,
             regions,
             &WorkspaceInput {
                 decision_mode: DecisionMode::Inline,
@@ -593,13 +556,7 @@ mod tests {
             [false, true].into_iter().flat_map(move |has_notices| {
                 [input(has_notices), inspecting(has_notices)]
                     .into_iter()
-                    .flat_map(move |base| {
-                        // Zero, one, and more than the band lists: the three cases its height
-                        // function distinguishes.
-                        [0, 1, 9].into_iter().map(move |attention| {
-                            (width, height, WorkspaceInput { attention, ..base })
-                        })
-                    })
+                    .map(move |base| (width, height, base))
             })
         })
     }
@@ -622,7 +579,6 @@ mod tests {
                     Rect::new(7, 11, width, height),
                     WorkspaceInput {
                         drawer_rows: rows,
-                        attention: 1,
                         ..WorkspaceInput::default()
                     },
                 );
@@ -801,13 +757,12 @@ mod tests {
     /// the part the user builds muscle memory on, so that is the part held fixed.
     #[test]
     fn the_focus_ring_loses_stops_without_ever_reordering() {
-        const CANONICAL: [SurfaceId; 6] = [
+        const CANONICAL: [SurfaceId; 5] = [
             SurfaceId::Agents,
             SurfaceId::Transcript,
             SurfaceId::Inspector,
             SurfaceId::Composer,
             SurfaceId::Notices,
-            SurfaceId::Attention,
         ];
 
         for (width, height, input) in shapes() {

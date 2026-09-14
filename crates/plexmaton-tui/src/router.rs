@@ -11,8 +11,8 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, AttentionIntent, Direction, DrawerIntent, InspectorIntent, MenuIntent,
-        PointerIntent, ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
+        ApprovalIntent, Direction, DrawerIntent, InspectorIntent, MenuIntent, PointerIntent,
+        ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
@@ -498,13 +498,10 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
         KeyCode::Char('e') if context.focused == Some(SurfaceId::Transcript) => {
             Routed::Intent(TuiIntent::Retry(crate::RetryAction::EditRetry))
         }
-        // `Enter` means "open what I am on". In the queue that is a request, and going to it is
-        // the user choosing to, which is the only way a background request ever moves anything.
-        KeyCode::Enter if context.focused == Some(SurfaceId::Attention) => {
-            Routed::Intent(TuiIntent::Attention(AttentionIntent::GoTo))
-        }
         // Opening is explicit and never a side effect of moving around (INS-4). It does not move
         // the selection: inspection is its own axis, which is what puts two agents on screen.
+        // On the roster, opening an agent that is asking something is also going to its request
+        // (ATT-2): the row the user pressed `Enter` on is where they found it.
         KeyCode::Enter => Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open)),
         KeyCode::Down | KeyCode::Char('j') => {
             step(Direction::Forward, ScrollDirection::Down, context)
@@ -526,9 +523,6 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
 fn step(list: Direction, wheel: ScrollDirection, context: &RouterContext<'_>) -> Routed {
     match context.focused {
         Some(SurfaceId::Agents) => Routed::Intent(TuiIntent::MoveSelection(list)),
-        Some(SurfaceId::Attention) => {
-            Routed::Intent(TuiIntent::Attention(AttentionIntent::Move(list)))
-        }
         Some(surface) => {
             if context
                 .surfaces

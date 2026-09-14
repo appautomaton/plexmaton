@@ -2,12 +2,12 @@
 │[skill] Skills · Skill unavailable · input returned to the composer; SKILL.md could not be   │
 │read                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Attention · 1 ──────────────────────────────────────────────────────────────────────────────┐
-│> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
-└─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ────────────────┐                                                                     
 │○ Agent B · UI study ask│                                                                     
 │  Choose whether the ov…│                                                                     
+│                        │                                                                     
+│                        │                                                                     
+│                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     
 │                        │                                                                     

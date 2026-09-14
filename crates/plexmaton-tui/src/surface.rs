@@ -163,7 +163,11 @@ impl SurfaceKind {
 /// arrive as variants carrying their own identity.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SurfaceId {
-    /// The list of sub-agents, carrying the attention count.
+    /// The list of sub-agents: who exists, what each is doing, and which one is asking something.
+    ///
+    /// A background request is announced on its agent's row rather than on a strip of its own. A
+    /// panel that already names every agent is where the user looks for one, and a second surface
+    /// saying the same thing is a third copy to keep in step.
     Agents,
     /// The primary agent's conversation.
     Transcript,
@@ -183,11 +187,6 @@ pub enum SurfaceId {
     ComposerMenu,
     /// Bounded tail of producer-defect notices. Registered only while one exists.
     Notices,
-    /// Requests background agents have made of the user. Registered only while one is queued.
-    ///
-    /// The strips sit at the top of the screen but at the end of the ring, so focus starts on the
-    /// list rather than on whatever arrived, and the ring runs list, conversation, input, strips.
-    Attention,
     /// Submitted input no request carries yet, above the decision region (IQU-3).
     ///
     /// Chrome, not a panel: it reports what the user already said and offers nothing to do with it,

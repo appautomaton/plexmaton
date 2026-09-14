@@ -35,10 +35,12 @@ pub(crate) struct RosterRows {
 /// Failure outranks a request because a broken agent is not going to ask; a request outranks
 /// everything else because it is the only class that is addressed to the user. Ambient work sorts
 /// last and stays last: the whole point of the class is that the user was not asked to read it.
-fn rank(agent: &AgentView, asking: bool) -> u8 {
+fn rank(agent: &AgentView, request: Option<&crate::AttentionView>) -> u8 {
     match () {
         () if agent.status == AgentStatus::Failed => 2,
-        () if asking => 1,
+        // A request the user has already been to is still outstanding and still listed, but it has
+        // stopped asking: they saw it, so it sorts with the work rather than above it (ATT-3).
+        () if request.is_some_and(|item| !item.acknowledged) => 1,
         () => 0,
     }
 }
@@ -118,10 +120,10 @@ pub(crate) fn roster(state: &ViewState, palette: &Palette, width: u16) -> Roster
         .sub_agents()
         .map(|agent| (agent, state.agent_request(&agent.id)))
         .collect();
-    ordered.sort_by_key(|(agent, request)| std::cmp::Reverse(rank(agent, request.is_some())));
+    ordered.sort_by_key(|(agent, request)| std::cmp::Reverse(rank(agent, *request)));
     let waiting = ordered
         .iter()
-        .filter(|(agent, request)| rank(agent, request.is_some()) > 0)
+        .filter(|(agent, request)| rank(agent, *request) > 0)
         .count();
 
     let inner = usize::from(width);
@@ -139,12 +141,13 @@ pub(crate) fn roster(state: &ViewState, palette: &Palette, width: u16) -> Roster
             rows.owners.push(None);
         }
 
-        let role = if agent.status == AgentStatus::Failed {
-            Role::Failure
-        } else if request.is_some() {
-            Role::ActionRequired
-        } else {
-            agent_role(agent.status)
+        let role = match request {
+            _ if agent.status == AgentStatus::Failed => Role::Failure,
+            Some(item) if !item.acknowledged => Role::ActionRequired,
+            // Seen, still outstanding: the row keeps saying what the agent wants and stops
+            // competing for the attention it has already had.
+            Some(_) => Role::Muted,
+            None => agent_role(agent.status),
         };
         // `●` open, `○` not. The glyph says which conversation is on screen and the colour says
         // what the agent's state is, so the row's first cell — the one a scan reaches first —

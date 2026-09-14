@@ -170,7 +170,7 @@ fn render(palette: Palette, frame: &str) -> Result<Buffer> {
         }
         "approval" => {
             for _ in 0..8 {
-                if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Attention) {
+                if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Agents) {
                     break;
                 }
                 workspace.handle(&key(KeyCode::Tab, KeyModifiers::NONE));

@@ -17,7 +17,7 @@ use surfaces::{
     draw_cursor, drawer_page, drawer_panel, queued_input_panel, workspace_input,
 };
 
-use chrome::{agents_title, attention_title, inspector_title, render_status, render_too_small};
+use chrome::{agents_title, inspector_title, render_status, render_too_small};
 
 use crate::{
     ViewState, content,
@@ -156,20 +156,6 @@ pub fn render(
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
             SurfaceId::Notices => Some(surfaces::notices_panel(state, palette)),
-            SurfaceId::Attention => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: None,
-                body: Body::Whole {
-                    lines: content::attention(state, palette, inner_width(bounds.width)),
-                    // Oldest first, and the oldest unanswered request is the one that has been
-                    // waiting longest: this band opens at its head, not at its tail.
-                    follows_tail: false,
-                },
-                title: attention_title(state, palette),
-                badge: None,
-                edges: Edges::All,
-            }),
             SurfaceId::QueuedInput => Some(queued_input_panel(state, palette, bounds)),
             SurfaceId::CommandInspection => Some(command_inspection::panel(state, palette, bounds)),
             SurfaceId::ConversationTree => Some(conversation_tree::panel(state, palette, bounds)),
@@ -929,8 +915,8 @@ mod tests {
 
         assert_eq!(
             surfaces.len(),
-            6,
-            "a degraded workspace registers its six visible surfaces"
+            5,
+            "a degraded workspace registers its five visible surfaces"
         );
         for surface in surfaces.iter() {
             // An exhaustive match, so a new surface identity cannot be added without stating what
@@ -941,7 +927,6 @@ mod tests {
                 SurfaceId::Transcript => "Thinking…",
                 SurfaceId::Composer => "Message Agent A",
                 SurfaceId::Notices => "[drop]",
-                SurfaceId::Attention => "Attention",
                 SurfaceId::Approval => "Approval required",
                 SurfaceId::CommandInspection => "Command",
                 SurfaceId::ConversationTree => "Conversation tree",

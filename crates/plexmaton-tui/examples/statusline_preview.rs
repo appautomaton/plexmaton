@@ -72,7 +72,7 @@ fn preview(width: u16, height: u16, mode: Mode) -> Result<Buffer> {
     prepared_frame::draw(&mut workspace, &mut terminal)?;
     if mode == Mode::Approval {
         for _ in 0..8 {
-            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Attention) {
+            if workspace.state().focused(workspace.surfaces()) == Some(SurfaceId::Agents) {
                 break;
             }
             workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));

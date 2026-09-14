@@ -507,7 +507,6 @@ impl Workspace {
                 };
             }
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
-            TuiIntent::Attention(attention) => self.state.attend(&self.surfaces, attention),
             TuiIntent::InspectCommand(action) => return self.inspect_command(action),
             TuiIntent::WithdrawQueued => return self.withdraw_queued(),
             TuiIntent::Approval(approval) => {
@@ -2844,8 +2843,9 @@ mod tests {
 
         assert_eq!(workspace.state.attention_pending(), 1, "it did queue");
         assert!(
-            workspace.surfaces.get(SurfaceId::Attention).is_some(),
-            "and queueing is visible, or the user has no way to choose when to answer"
+            painted(&terminal, &workspace, SurfaceId::Agents).contains("ask"),
+            "and queueing is visible on the asking agent's row, or the user has no way to \
+             choose when to answer"
         );
         assert_eq!(focused(&workspace), was_focused, "focus did not move");
         assert_eq!(selected(&workspace), was_selected, "nor did the selection");
@@ -2868,12 +2868,14 @@ mod tests {
         assert_eq!(selected(&workspace), "none");
         assert_eq!(workspace.state.attention_pending(), 1);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
 
         assert_eq!(
             selected(&workspace),
@@ -2892,14 +2894,15 @@ mod tests {
             "the request is still outstanding: the user saw it, nothing granted it"
         );
         assert!(
-            !painted(&terminal, &workspace, SurfaceId::Agents).contains(" · !"),
-            "and the rail's badge counts what is unanswered, so nothing unanswered is no badge"
+            !painted(&terminal, &workspace, SurfaceId::Transcript).contains("!"),
+            "and the pill counts what is unanswered, so nothing unanswered is no pill"
         );
     }
 
-    /// INV-10 inside the queue: its cursor is its own, and arrows there are not agent selection.
+    /// INV-10: there is one list of agents and one cursor in it. An arrow moves that selection,
+    /// and `Enter` on an agent that is asking is how the user goes to the request (ATT-2).
     #[test]
-    fn the_queues_cursor_moves_without_touching_the_agent_selection() {
+    fn an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request() {
         let mut conversation = Conversation::canonical();
         // Both from a sub-agent: the queue is what the user is not looking at, and the primary's
         // own approval answers itself in the composer's place rather than waiting in a line.
@@ -2926,19 +2929,22 @@ mod tests {
         frame(&mut workspace, &mut terminal);
         assert_eq!(workspace.state.attention_count(), 2);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        let was_selected = selected(&workspace);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        assert_eq!(selected(&workspace), "none");
         step(
             &mut workspace,
             &mut terminal,
             &press(KeyCode::Down, KeyModifiers::NONE),
         );
-
-        assert_eq!(workspace.state.attention_cursor(), 1);
         assert_eq!(
             selected(&workspace),
-            was_selected,
-            "an arrow in the queue moves the queue, not the rail"
+            "agent-b",
+            "an arrow on the roster moves the roster's own selection"
+        );
+        assert_eq!(
+            workspace.state.attention_pending(),
+            2,
+            "and moving over a row is not going to what it is asking"
         );
 
         step(
@@ -2947,9 +2953,14 @@ mod tests {
             &press(KeyCode::Enter, KeyModifiers::NONE),
         );
         assert_eq!(
-            selected(&workspace),
-            "agent-b",
-            "and Enter goes to whichever request the cursor is on"
+            workspace.state.attention_pending(),
+            1,
+            "entering the agent goes to one of its requests and marks it seen"
+        );
+        assert_eq!(
+            workspace.state.attention_count(),
+            2,
+            "neither is resolved: only the owning loop does that"
         );
     }
 
@@ -2981,17 +2992,14 @@ mod tests {
         workspace.emit(conversation.drain());
         frame(&mut workspace, &mut terminal);
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Down, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
 
         assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
         let card = bounds(&workspace, SurfaceId::Approval);
@@ -3036,7 +3044,9 @@ mod tests {
         );
         assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
 
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
+        // A background card closes on Escape, and the request is still outstanding, so the roster
+        // still says agent-b wants something: entering it again is the way back (ATT-3).
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
         step(
             &mut workspace,
             &mut terminal,
@@ -4026,17 +4036,14 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         frame(&mut workspace, &mut terminal);
-        tab_to(&mut workspace, &mut terminal, SurfaceId::Attention);
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Down, KeyModifiers::NONE),
-        );
-        step(
-            &mut workspace,
-            &mut terminal,
-            &press(KeyCode::Enter, KeyModifiers::NONE),
-        );
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Agents);
+        for key in [KeyCode::Down, KeyCode::Enter] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(key, KeyModifiers::NONE),
+            );
+        }
         assert_eq!(focused(&workspace), Some(SurfaceId::Approval));
         let card = bounds(&workspace, SurfaceId::Approval);
         let card_text = painted(&terminal, &workspace, SurfaceId::Approval);
