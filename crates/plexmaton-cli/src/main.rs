@@ -253,7 +253,9 @@ async fn run(
     // A resumed root puts every delegation it already created back on the roster without waking
     // any of them (CHB-3).
     if let Some(collaboration) = collaboration.as_mut() {
-        workspace.emit(collaboration.restore(&mut runtime).await?);
+        // The restored roster and correspondence queue on the runtime, which the loop below
+        // publishes in the order it numbered them.
+        collaboration.restore(&mut runtime).await?;
     }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());

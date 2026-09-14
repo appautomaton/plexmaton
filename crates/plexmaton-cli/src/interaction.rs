@@ -94,7 +94,7 @@ where
             () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
             runtime_update = runtime.next_update() => {
                 let update = runtime_update.context("receive live runtime update")?;
-                deliver_pending_mail(collaboration.as_deref_mut(), runtime, workspace).await?;
+                deliver_pending_mail(collaboration.as_deref_mut(), runtime).await?;
                 if apply_runtime_update(update, runtime, workspace, status_line, &mut frames) {
                     frames.draw_with_native(workspace, terminal, Instant::now(), &mut native_output).context("draw final TUI frame")?;
                     break;
@@ -398,10 +398,9 @@ async fn apply_terminal_event(
 async fn deliver_pending_mail(
     collaboration: Option<&mut crate::collaboration::Collaboration>,
     runtime: &mut LiveRuntime,
-    workspace: &mut Workspace,
 ) -> anyhow::Result<()> {
     if let Some(collaboration) = collaboration {
-        workspace.emit(collaboration.deliver_pending(runtime).await?);
+        collaboration.deliver_pending(runtime).await?;
     }
     Ok(())
 }
@@ -418,7 +417,11 @@ async fn apply_collaboration(
         return Ok(());
     };
     frames.flush(workspace);
-    workspace.emit(collaboration.apply(runtime, activity).await?);
+    // Both of these queue their events on the runtime, which publishes them in the order it
+    // numbered them; this arm only drives the work.
+    collaboration.apply(runtime, activity).await?;
+    // Whatever that settlement put on screen is there before the root takes a turn over it.
+    collaboration.deliver_pending(runtime).await?;
     Ok(())
 }
 

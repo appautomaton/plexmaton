@@ -134,13 +134,15 @@ impl LiveRuntime {
     /// Puts one fact about a delegated child on this conversation's roster.
     ///
     /// The child is a separate Conversation; only its existence and lifecycle belong to the root's
-    /// projection, and the collaboration log already holds both durably. Sharing the root's
-    /// sequencer is what keeps the event from arriving stale beside the conversation's own.
-    pub fn project_delegated(
-        &mut self,
-        event: plexmaton_core::ConversationEvent,
-    ) -> Vec<ConversationEventEnvelope> {
-        self.agent.project_delegated(event).events
+    /// projection, and the collaboration log already holds both durably.
+    ///
+    /// Queued rather than returned, because the sequence it takes belongs to this conversation and
+    /// the queue is where that order is kept: a caller that published the envelope itself would
+    /// step in front of events numbered earlier and still waiting — behind a projection reset, for
+    /// one — and the projection drops whatever arrives after a number it has already applied.
+    pub fn project_delegated(&mut self, event: plexmaton_core::ConversationEvent) {
+        self.pending
+            .extend(self.agent.project_delegated(event).events);
     }
 
     /// Gives one addressed input to the owned agent and performs every resulting effect.

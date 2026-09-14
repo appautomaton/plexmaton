@@ -16,8 +16,8 @@ use plexmaton_agent::collaboration::{
     CollaborationItemRef, CollaborationLimits, MailDirection, MailEndpoint,
 };
 use plexmaton_core::{
-    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent,
-    ConversationEventEnvelope, ConversationId, TranscriptItemId, TurnId,
+    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent, ConversationId,
+    TranscriptItemId, TurnId,
 };
 use plexmaton_runtime::{
     CollaborationIngressOutcome, CollaborationWriter, DelegatedChildFactory, LiveRuntime,
@@ -132,10 +132,7 @@ impl Collaboration {
     ///
     /// Resume does not wake a child (CHB-3); this only makes existing delegations addressable again
     /// and puts them back on the roster, with the correspondence they already exchanged.
-    pub(crate) async fn restore(
-        &mut self,
-        runtime: &mut LiveRuntime,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    pub(crate) async fn restore(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
         // A conversation that once read its mail carries that turn's collaboration atom in its
         // journal. Nothing else hands the admission back after a restart, and a reference that
         // cannot resolve refuses every later turn the user types.
@@ -145,34 +142,8 @@ impl Collaboration {
             .map_err(|error| {
                 anyhow::anyhow!("restore this root's collaboration context: {error}")
             })?;
-        let mut events = self.sync_roster(runtime, AgentStatus::Idle).await?;
-        self.rebuild_children().await?;
-        events.extend(self.show_mail(runtime).await?);
-        Ok(events)
-    }
-
-    /// Gives each restored delegation a runner again, still idle (CHB-3).
-    ///
-    /// Registering a target only makes it addressable. Without a runner behind it, `update_task`
-    /// records the new task and then finds nothing to wake: the tool reports success, the roster
-    /// says idle, and the child never does the work. CHB-3 forbids waking a child on resume, not
-    /// reconstructing one — an explicit Main admission afterwards is what CHB-3 asks for.
-    ///
-    /// A root may hold more delegations than it may run at once, so a refusal here is expected
-    /// rather than fatal: that child stays addressable and is reconstructed when capacity allows.
-    async fn rebuild_children(&mut self) -> anyhow::Result<()> {
-        let selectors: Vec<_> = self
-            .owner
-            .register_collaboration_targets()
-            .await
-            .map_err(|error| anyhow::anyhow!("register delegated targets: {error}"))?
-            .iter()
-            .map(|target| target.selector().clone())
-            .collect();
-        for selector in selectors {
-            let _ = self.owner.resume_collaboration_target(&selector).await;
-        }
-        Ok(())
+        self.sync_roster(runtime, AgentStatus::Idle).await?;
+        self.show_mail(runtime).await
     }
 
     /// Puts every canonical delegation this root owns on the roster, announcing only the new ones.
@@ -183,7 +154,7 @@ impl Collaboration {
         &mut self,
         runtime: &mut LiveRuntime,
         status: AgentStatus,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    ) -> anyhow::Result<()> {
         let targets = self
             .owner
             .register_collaboration_targets()
@@ -193,11 +164,10 @@ impl Collaboration {
             .iter()
             .map(|target| target.worker().conversation.clone())
             .collect();
-        let mut events = Vec::new();
         for child in children {
-            events.extend(self.announce(runtime, child, status)?);
+            self.announce(runtime, child, status)?;
         }
-        Ok(events)
+        Ok(())
     }
 
     /// The next thing the collaboration owner did, for the caller's select loop.
@@ -213,7 +183,7 @@ impl Collaboration {
         &mut self,
         runtime: &mut LiveRuntime,
         activity: OwnedCollaborationActivity,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    ) -> anyhow::Result<()> {
         match activity {
             OwnedCollaborationActivity::Ingress(settlement) => match settlement.result() {
                 Ok(CollaborationIngressOutcome::Delegated { .. }) => {
@@ -222,13 +192,15 @@ impl Collaboration {
                 // Mail a child sends has no wake of its own: a wake addresses an owned runner and
                 // the root is not one, it is the user's conversation. Without this the delegation
                 // is one-way — work goes out and no answer ever comes back.
+                // The letter is drawn, and answering it is left to the caller, which starts that
+                // turn only after these events are on screen. Starting it here would number the
+                // letter before the turn and then emit it after, and the projection drops an event
+                // that arrives behind one already applied.
                 Ok(CollaborationIngressOutcome::MailAccepted) => {
-                    // The letter is shown before it is answered, because it arrives first.
-                    let mut events = self.show_mail(runtime).await?;
-                    events.extend(self.deliver_to_root(runtime).await?);
-                    Ok(events)
+                    self.undelivered = true;
+                    self.show_mail(runtime).await
                 }
-                Ok(_) | Err(_) => Ok(Vec::new()),
+                Ok(_) | Err(_) => Ok(()),
             },
             // A child's own transcript belongs to its own journal, but its lifecycle belongs on the
             // roster: an agent stuck at `running` forever is the panel lying about what it knows.
@@ -244,32 +216,29 @@ impl Collaboration {
     pub(crate) async fn deliver_pending(
         &mut self,
         runtime: &mut LiveRuntime,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    ) -> anyhow::Result<()> {
         if self.undelivered {
             self.deliver_to_root(runtime).await
         } else {
-            Ok(Vec::new())
+            Ok(())
         }
     }
 
-    async fn deliver_to_root(
-        &mut self,
-        runtime: &mut LiveRuntime,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    async fn deliver_to_root(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
         let turn = TurnId::new(format!("turn-root-mail-{}-{}", self.run, self.delivered))
             .context("build a root collaboration turn identity")?;
         // A refusal here is almost always "the root is mid-turn", which resolves on its own. The
         // flag is what makes that true: without it the letter is dropped and never retried.
         let Ok((boundary, previous)) = runtime.collaboration_boundary(turn) else {
             self.undelivered = true;
-            return Ok(Vec::new());
+            return Ok(());
         };
         let item =
             CollaborationItemId::new(format!("root-inclusion-{}-{}", self.run, self.delivered))
                 .context("build a root inclusion identity")?;
         let Ok(resolved) = self.owner.admit_root_turn(item, boundary, previous).await else {
             self.undelivered = true;
-            return Ok(Vec::new());
+            return Ok(());
         };
         self.delivered = self.delivered.saturating_add(1);
         self.undelivered = false;
@@ -277,7 +246,7 @@ impl Collaboration {
             .start_collaboration_turn(resolved)
             .await
             .context("give the root its delegated mail")?;
-        Ok(Vec::new())
+        Ok(())
     }
 
     /// Draws every letter the root has been sent that is not on screen yet (CMP-1).
@@ -288,19 +257,15 @@ impl Collaboration {
     /// left the root answering a question the user could see no trace of having been asked; and
     /// writing a `MailDelivered` journal entry, which survives restart for free but gives one letter
     /// two durable homes — the roadmap locks revisions to reconcile against the collaboration log.
-    async fn show_mail(
-        &mut self,
-        runtime: &mut LiveRuntime,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    async fn show_mail(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
         let Some(root) = self.root.clone() else {
-            return Ok(Vec::new());
+            return Ok(());
         };
         // A root that has never been written to is not an endpoint the ledger knows, and an empty
         // inbox is not a failure worth reporting to the session loop.
         let Ok(snapshot) = self.owner.mail_snapshot(root).await else {
-            return Ok(Vec::new());
+            return Ok(());
         };
-        let mut events = Vec::new();
         for mail in snapshot.items() {
             if mail.direction() != MailDirection::Incoming || self.shown.contains(mail.reference())
             {
@@ -323,17 +288,17 @@ impl Collaboration {
                     mail.reference().item.as_str()
                 ))
                 .context("build a mail entry identity")?;
-                events.extend(runtime.project_delegated(ConversationEvent::MailDelivered {
+                runtime.project_delegated(ConversationEvent::MailDelivered {
                     agent_id: owner,
                     item_id,
                     mail_id: envelope.id.clone(),
                     from: from.clone(),
                     to: to.clone(),
                     summary: envelope.summary.as_str().to_owned(),
-                }));
+                });
             }
         }
-        Ok(events)
+        Ok(())
     }
 
     /// Moves one child's roster status, which is all of a runner update the root can show today.
@@ -341,7 +306,7 @@ impl Collaboration {
         &mut self,
         runtime: &mut LiveRuntime,
         update: OwnedRunnerUpdate,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    ) -> anyhow::Result<()> {
         let (identity, status) = match &update {
             // A child reports its own lifecycle in its own conversation's events. Re-addressing
             // that one event is how the roster learns a child stopped; nothing else in a child's
@@ -351,25 +316,26 @@ impl Collaboration {
                 match update.as_ref() {
                     RuntimeUpdate::Event(envelope) => match &envelope.event {
                         ConversationEvent::AgentStatusChanged { status, .. } => *status,
-                        _ => return Ok(Vec::new()),
+                        _ => return Ok(()),
                     },
-                    RuntimeUpdate::Report(_) => return Ok(Vec::new()),
+                    RuntimeUpdate::Report(_) => return Ok(()),
                     RuntimeUpdate::Finished => AgentStatus::Completed,
                 },
             ),
             OwnedRunnerUpdate::Failed { identity, .. }
             | OwnedRunnerUpdate::WorkerFailed { identity }
             | OwnedRunnerUpdate::WakeRejected { identity, .. } => (identity, AgentStatus::Failed),
-            _ => return Ok(Vec::new()),
+            _ => return Ok(()),
         };
         let Some(agent_id) = self
             .announced
             .get(&identity.endpoint().conversation)
             .cloned()
         else {
-            return Ok(Vec::new());
+            return Ok(());
         };
-        Ok(runtime.project_delegated(ConversationEvent::AgentStatusChanged { agent_id, status }))
+        runtime.project_delegated(ConversationEvent::AgentStatusChanged { agent_id, status });
+        Ok(())
     }
 
     /// Settles retained work before joining every runner and then the writer.
@@ -392,19 +358,20 @@ impl Collaboration {
         runtime: &mut LiveRuntime,
         child: ConversationId,
         status: AgentStatus,
-    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+    ) -> anyhow::Result<()> {
         if self.announced.contains_key(&child) {
-            return Ok(Vec::new());
+            return Ok(());
         }
         let position = self.announced.len().saturating_add(1);
         let agent_id = AgentId::new(format!("delegated-{position}"))
             .context("build a delegated agent identity")?;
         self.announced.insert(child, agent_id.clone());
-        Ok(runtime.project_delegated(ConversationEvent::AgentCreated {
+        runtime.project_delegated(ConversationEvent::AgentCreated {
             agent_id,
             label: format!("Delegated {position}"),
             status,
-        }))
+        });
+        Ok(())
     }
 }
 

@@ -252,6 +252,12 @@ enum PreparedIngress {
         attempt: CollaborationAttempt,
         outcome: CollaborationIngressOutcome,
         wake: Option<WakeHint>,
+        /// A child this call needs running that has none yet, named as the model named it.
+        ///
+        /// A delegation outlives the process that created it, but its runner does not, so after a
+        /// resume every target is addressable and none is running. Preparation holds no mutable
+        /// owner and cannot build one, so it records which child to build and settlement does it.
+        revive: Option<TargetSelector>,
     },
     Handoff(CollaborationAttempt),
 }
@@ -517,6 +523,7 @@ async fn enqueue(
 }
 
 mod owner;
+mod preparation;
 mod provisioning;
 mod source;
 
