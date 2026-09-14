@@ -5,18 +5,15 @@
 //! ask "how tall is this" and a renderer ask "draw rows 12 to 20" without either duplicating the
 //! other's work — and it is the seam used by the wrapping cache.
 
-use plexmaton_core::{AgentId, AgentStatus};
-use ratatui::{
-    text::{Line, Span},
-    widgets::{Paragraph, Wrap},
-};
+use plexmaton_core::AgentStatus;
+use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
     CleanupNotice, ConversationTailRepair, NoticeView, PersistenceNotice, TranscriptEntryView,
     ViewState,
-    theme::{Palette, Role, agent_role},
+    theme::{Palette, Role},
 };
 
 #[path = "content_approval.rs"]
@@ -25,7 +22,9 @@ mod command;
 mod composer_menu;
 pub(crate) use composer_menu::composer_menu;
 mod drawer;
+mod roster;
 pub(crate) use command::{command_display_source, command_transcript_source};
+pub(crate) use roster::{agent_at_row, roster};
 mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;
@@ -37,68 +36,6 @@ pub(crate) use drawer::drawer;
 pub(crate) use transcript_presentation::{
     conversation_placeholder, literal_text_rows, transcript_entry, transcript_layout_with_prefix,
 };
-
-/// The list of sub-agents: identity, lifecycle, and which one is being looked at.
-///
-/// The primary is not in it. Its conversation is the screen, and looking at it is looking at
-/// nobody else (INS-1).
-pub(crate) fn agents(state: &ViewState, palette: &Palette) -> Vec<Line<'static>> {
-    let selected = state.selected_agent().map(|agent| agent.id.clone());
-    if state.sub_agents().next().is_none() {
-        return vec![Line::styled(
-            "No sub-agents yet.",
-            palette.style(Role::Muted),
-        )];
-    }
-    state
-        .sub_agents()
-        .map(|agent| {
-            let (marker, marker_role) = if selected.as_ref() == Some(&agent.id) {
-                ("●", Role::Accent)
-            } else {
-                ("○", Role::Muted)
-            };
-            Line::from(vec![
-                Span::styled(format!("{marker} "), palette.style(marker_role)),
-                Span::styled(agent.label.clone(), palette.style(Role::Body)),
-                Span::styled(
-                    format!(
-                        "  {}{}",
-                        agent_status_label(agent.status),
-                        agent_row_counts(agent)
-                    ),
-                    palette.style(agent_role(agent.status)),
-                ),
-            ])
-        })
-        .collect()
-}
-
-/// Which agent is painted on `row` of the list, counting rows the way the panel wraps them.
-///
-/// The pointer's way of looking at an agent. Rows are counted through the same lines the panel
-/// paints, so a label that wrapped onto two rows hits on either; `row` is relative to the panel's
-/// content and already past its scroll offset, which the caller knows and this function does not.
-pub(crate) fn agent_at_row(
-    state: &ViewState,
-    palette: &Palette,
-    width: u16,
-    row: usize,
-) -> Option<AgentId> {
-    let target = row;
-    let mut first = 0_usize;
-    for (agent, line) in state.sub_agents().zip(agents(state, palette)) {
-        let rows = Paragraph::new(line)
-            .wrap(Wrap { trim: false })
-            .line_count(width)
-            .max(1);
-        if (first..first.saturating_add(rows)).contains(&target) {
-            return Some(agent.id.clone());
-        }
-        first = first.saturating_add(rows);
-    }
-    None
-}
 
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
 /// row and conversation title stay short.
@@ -116,35 +53,6 @@ pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
         }
     }
     parts
-}
-
-/// Compact counts for the narrow agent rail; `@` is the transcript's artifact marker.
-fn agent_row_counts(agent: &crate::AgentView) -> String {
-    let (tools, artifacts, mail) = count_entries(agent);
-    let mut parts = String::new();
-    if tools > 0 {
-        parts.push_str(&format!(
-            "{tools} tool{}",
-            if tools == 1 { "" } else { "s" }
-        ));
-    }
-    if artifacts > 0 {
-        if !parts.is_empty() {
-            parts.push(' ');
-        }
-        parts.push_str(&format!("@{artifacts}"));
-    }
-    if mail > 0 {
-        if !parts.is_empty() {
-            parts.push(' ');
-        }
-        parts.push_str(&format!("{mail} mail"));
-    }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!(" · {parts}")
-    }
 }
 
 fn count_entries(agent: &crate::AgentView) -> (usize, usize, usize) {
@@ -423,10 +331,8 @@ pub(crate) fn command_summary(source: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::widgets::{Paragraph, Wrap};
-
-    use super::{agents, notices};
-    use crate::{ViewState, test_support::canonical_state, theme::Palette};
+    use super::notices;
+    use crate::{ViewState, theme::Palette};
 
     #[test]
     fn skill_diagnostic_names_the_feature_and_returned_input() {
@@ -467,28 +373,6 @@ mod tests {
                     palette.style(crate::theme::Role::ActionRequired)
                 );
             }
-        }
-    }
-
-    /// Phase 01 stage 3 slice 3: retiring the detail panel keeps its counts on each agent row.
-    #[test]
-    fn an_agent_row_carries_its_tool_artifact_and_mail_counts() {
-        let state = canonical_state();
-        let rows = agents(&state, &Palette::pastel());
-        let agent_b = rows
-            .iter()
-            .find(|line| line.to_string().contains("Agent B"))
-            .unwrap_or_else(|| panic!("canonical state includes Agent B"))
-            .to_string();
-
-        assert!(agent_b.contains("1 tool"), "{agent_b:?}");
-        assert!(agent_b.contains("@1"), "{agent_b:?}");
-        assert!(agent_b.contains("1 mail"), "{agent_b:?}");
-        for width in [26, 24] {
-            let physical_rows = Paragraph::new(agent_b.clone())
-                .wrap(Wrap { trim: false })
-                .line_count(width);
-            assert_eq!(physical_rows, 2, "{width} cells: {agent_b:?}");
         }
     }
 }

@@ -96,7 +96,10 @@ pub fn render(
                 chrome: Chrome::Box,
                 footer: None,
                 body: Body::Whole {
-                    lines: content::agents(state, palette),
+                    // Width-aware: the rows right-align their lifecycle word and clip their own
+                    // detail, because a roster that lets the panel wrap it loses the column the
+                    // eye scans down.
+                    lines: content::roster(state, palette, inner_width(bounds.width)).lines,
                     follows_tail: false,
                 },
                 title: agents_title(palette),
@@ -1140,9 +1143,18 @@ mod tests {
             !rendered.contains("Activity"),
             "domain entries have no second panel"
         );
-        assert!(rendered.contains("1 tool"));
-        assert!(rendered.contains("@1"), "compact artifact count");
-        assert!(rendered.contains("1 mail"));
+        // Agent B is asking, and an ask outranks a tally: its detail row carries the request
+        // rather than its counts. Resolving the request hands the row back to the counts.
+        assert!(rendered.contains("overlap study"), "the ask is the detail");
+        let mut answered = Conversation::canonical();
+        answered.emit(ConversationEvent::AttentionResolved {
+            agent_id: AgentId::new("agent-b").expect("fixture agent"),
+            attention_id: AttentionId::new("attention-b-1").expect("fixture request"),
+        });
+        let counted = draw(&answered.state, 60, 30);
+        assert!(counted.contains("1 tool"));
+        assert!(counted.contains("@1"), "compact artifact count");
+        assert!(counted.contains("1 mail"));
         assert!(rendered.contains("Message Agent A"));
         assert!(
             rendered.contains("~/plexmaton"),

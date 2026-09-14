@@ -50,6 +50,18 @@ impl ViewState {
         })
     }
 
+    /// What this agent is waiting on the user for, if anything, and only while unanswered.
+    ///
+    /// The roster asks this per row: a request is announced beside the agent that raised it, which
+    /// is the only place the user can act on it, and an acknowledged request has already sent them
+    /// there. Excluding the primary keeps ATT-1 — its approvals belong to its own conversation.
+    pub(crate) fn agent_request(&self, agent: &plexmaton_core::AgentId) -> Option<&AttentionView> {
+        let primary = self.agents.primary().map(|agent| &agent.id);
+        self.attention
+            .iter()
+            .find(|item| &item.agent_id == agent && !item.acknowledged && Some(agent) != primary)
+    }
+
     pub(crate) fn listed_attention_cursor(&self) -> Option<&plexmaton_core::AttentionId> {
         let current = self
             .attention

@@ -147,11 +147,10 @@ other rule about input follows from this one.
   existing draft, which loses separate intent and can lose its skill binding.
 - **Every rendered input sits under the conversation it addresses**, between two rules; optional
   waiting and decision sections sit above the composer. The conversation has no edge of its own and,
-  without those sections, runs into the top rule. The top rule names the target and
-  the [reasoning effort](./specs/reasoning-effort.md) for the message; neither rule carries other text. A
-  User-controlled sub-agent's input is the bottom of its window; a Main-controlled window has no
-  input region. There is no input anywhere else, and `Tab` from a sub-agent's input lands on the
-  primary composer, which is what the collapsed row's `⇥ to return` promises. Rejected: a box around conversation and input, chrome that said
+  without those sections, runs into the top rule, which names the target and the message's
+  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else. A User-controlled
+  sub-agent's input is the bottom of its window; a Main-controlled window has no input region, and
+  there is no input anywhere else. Rejected: a box around conversation and input, chrome that said
   nothing; and current work on the composer's rule, mixing the agent's doing with the user's
   typing.
 - While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
@@ -207,15 +206,20 @@ scroll without moving the transcript behind it.
 
 ### Attention management
 
-Main-agent approvals stay in their conversation, never the Attention bar, and preserve the draft.
-Leaving grants nothing; Deny starts selected. Allow and remember… reviews a backend-offered scope
-and lifetime before granting. ATT-1/PER-5 own card behavior;
-inspection/copy follows [APD](./specs/approval-inspection.md).
+A request is answered where the agent that raised it is; the roster says which agent that is.
 
-Attention is reserved for future background-agent workflows, keeping ambient progress, new mail,
-action-required requests and failure distinct. Background requests cannot steal focus or open
-modals; the user visits them. Repeated identities coalesce, and acknowledging is not resolving.
-It is never an entry point for main-agent approvals.
+The primary agent's approval opens in its own conversation and preserves the draft. Leaving grants
+nothing; Deny starts selected. Allow and remember… reviews a backend-offered scope and lifetime
+before granting. ATT-1/PER-5 own card behavior; inspection/copy follows
+[APD](./specs/approval-inspection.md).
+
+A background agent's request is announced in the roster, because the user is not in that
+conversation to see it: the row takes the action-required color, sorts above the agents that are
+only working, and says what is wanted. Requests never steal focus or open a modal; the user goes to
+the agent. Repeated identities coalesce, and acknowledging is not resolving. Ambient progress, new
+mail, action-required requests and failure stay distinct. Rejected: a separate Attention strip, a
+third home for what the roster and the raising conversation already carry, charged to the terminals
+with the fewest rows.
 
 ### Stable spatial memory
 
@@ -336,7 +340,7 @@ responsive fallback.
 | Modal | Owns input until resolved or dismissed; nothing beneath receives pointer events |
 | Popover or menu | Anchored to an initiating element; closes on outside interaction or `Escape` |
 | Tooltip | Informational only; never owns keyboard focus |
-| Attention queue | Ordered action-required items; opening one is explicit and never caused by background focus theft |
+| Roster | The agents and what each is doing or waiting on; opening one is explicit and never caused by background focus theft |
 
 The categories are closed: the Drawer is a modal, the composer menu a popover, and a feature adds
 content to an existing surface, a Drawer page or a menu row, before it may add one. Rejected: one
@@ -407,8 +411,8 @@ grammar, never assigned widget by widget.
 5. B's conversation streams inside an independently scrollable viewport.
 6. The user returns to A and continues typing while B stays on screen.
 7. The user resizes B's window while A remains independently usable.
-8. B requests approval or clarification; the request enters the Attention queue without opening a
-   modal or stealing focus.
+8. B requests approval or clarification; B's roster row says so without opening a modal or stealing
+   focus.
 9. B sends typed mail to A; ambient status changes without automatic navigation.
 10. The user goes to the request, follows an artifact, copies evidence, and returns to the exact
     prior viewport positions.
@@ -423,15 +427,21 @@ Every layout class preserves the meaning of this journey even when it changes wh
 | Class | Product expectation | Threshold |
 | --- | --- | --- |
 | Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 132 |
-| Wide | Agent column plus one conversation; a second agent arrives as a shelf | 96 ≤ width < 132 |
-| Medium | A narrow agent column plus the primary conversation | 72 ≤ width < 96 |
+| Wide | One conversation, and the roster as a column while it is open; a second agent arrives as a shelf | 96 ≤ width < 132 |
+| Medium | One conversation, and the roster as a narrow column while it is open | 72 ≤ width < 96 |
 | Narrow | One major surface at a time; looking at an agent is a full-region transition, the window's maximized presentation | width < 72 |
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-- The agent navigator is a column from medium up and a band below. Each row carries lifecycle plus
-  compact non-text counts such as `1 tool @1 1 mail`; `@` is the artifact marker, while the
-  conversation title keeps full nouns. Rejected: a separate activity region, which regrouped facts
-  that already belong in each agent's conversation.
+- The agent navigator is one panel with one open state; the width decides only where it docks, a
+  column from medium up and a shelf over the conversation below, which is
+  [INS-3](./specs/inspector.md)'s rule applied to the second kind of panel. Closing returns every
+  column it held, and the status line still counts who is waiting. Rejected: a fixed column, which
+  spends width the user cannot take back, and a band below medium, which made the roster the first
+  thing a small terminal lost in the product whose subject is having several agents at once.
+- Each roster row carries lifecycle plus what its agent waits on, or compact non-text counts such
+  as `1 tool @1 1 mail`; `@` is the artifact marker, while the conversation title keeps full nouns.
+  The row whose conversation is on screen is marked in the identity color. Rejected: a separate
+  activity region, which regrouped facts that already belong in each agent's conversation.
 - Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
   cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,
   replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
@@ -492,7 +502,6 @@ counts are asserted by tests; wall-clock time is only reported, beside the machi
 
 ## Open questions
 
-- The left agent rail and the top Attention strip: neither is the wanted shape yet.
 - How much tool activity remains visible in a collapsed transcript block.
 - Notification treatment for mail that arrives while its sender's window is open.
 - Whether ten rows is the right primary-conversation guarantee in real use.

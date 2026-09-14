@@ -2,8 +2,8 @@
 │> ask   agent-b · Choose whether the overlap study should cover narrow screens.              │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agents ────────────────┐                                                                     
-│● Agent B · UI study    │ ┌ Agent B · UI study · Completed · esc ───────────────────────────┐ 
-│done · 1 tool @1 1 mail │ │                                                                 │ 
+│● Agent B · UI study ask│ ┌ Agent B · UI study · Completed · esc ───────────────────────────┐ 
+│  Choose whether the ov…│ │                                                                 │ 
 │                        │ │I found the surface-routing boundary and am checking overlap     │ 
 │                        │ │behavior.                                                        │ 
 │                        │ │                                                                 │ 
