@@ -68,7 +68,23 @@ pub(crate) fn transcript_layout_with_prefix(
             ]);
             vec![Row::heading(line)]
         }
-        TranscriptEntryView::Mail(mail) => mail_entry(mail, appearance, width),
+        TranscriptEntryView::Mail(mail) => {
+            let (heading, counterpart) = if mail.owner == mail.to {
+                ("received from ", &mail.from)
+            } else {
+                ("sent to ", &mail.to)
+            };
+            addressed_entry(heading, counterpart, &mail.summary, appearance, width)
+        }
+        // The same shape, because it is the same kind of fact: one session addressed another.
+        TranscriptEntryView::Task(task) => {
+            let (heading, counterpart) = if task.owner == task.to {
+                ("assigned by ", &task.from)
+            } else {
+                ("assigned to ", &task.to)
+            };
+            addressed_entry(heading, counterpart, &task.task, appearance, width)
+        }
     };
     let mut layout = Layout::default();
     for row in rows {
@@ -81,26 +97,28 @@ pub(crate) fn transcript_layout_with_prefix(
     (layout, None, false)
 }
 
-/// A letter is a heading and a body, which is the shape a tool call already has.
+/// One addressed item — a letter, a task — as a heading and a body, the shape a tool call has.
 ///
 /// The summary is whatever another session chose to write: one sentence in the fixtures, a page in
 /// practice. `Ctrl-O` reveals the rest (ENT-4), and copy carries the whole letter either way, so
 /// the row itself only has to stay a row. Rejected: putting the entire summary in the heading,
 /// which read correctly for as long as the simulator was the only thing producing mail; the first
 /// real letter filled the conversation it arrived in and pushed its own heading off the top.
-fn mail_entry(mail: &crate::MailView, appearance: EntryAppearance, width: u16) -> Vec<Row> {
-    // Two facts, and they answer to different owners. Who wrote the letter belongs to the letter,
-    // so both conversations name the same pair. What the row is belongs to the conversation holding
-    // it, and it is said in a word: `ui-ux.md`'s grammar keeps a name for whatever is not a
-    // position in a conversation but something the reader has to be told, and inbound against
-    // outbound is exactly that. Rejected: a bare arrow relative to the reader naming only the other
-    // end, which the person who asked for the feature read backwards on both sides; and then
-    // dropping direction altogether, which left the outbox and the inbox drawn identically.
-    let (heading, counterpart) = if mail.owner == mail.to {
-        ("received from ", mail.from.to_string())
-    } else {
-        ("sent to ", mail.to.to_string())
-    };
+fn addressed_entry(
+    heading: &'static str,
+    counterpart: &plexmaton_core::AgentId,
+    body: &str,
+    appearance: EntryAppearance,
+    width: u16,
+) -> Vec<Row> {
+    // Two facts, and they answer to different owners. Who the other end is belongs to the item, so
+    // both conversations agree on it. What the row *is* belongs to the conversation holding it, and
+    // it is said in a word: `ui-ux.md`'s grammar keeps a name for whatever is not a position in a
+    // conversation but something the reader has to be told, and which way this went is exactly
+    // that. Rejected: a bare arrow relative to the reader naming only the other end, which the
+    // person who asked for the feature read backwards on both sides; and then dropping direction
+    // altogether, which left the outbox and the inbox drawn identically.
+    let counterpart = counterpart.to_string();
     let spent = heading.width() + counterpart.width() + " · ".width();
     let mut compact = Line::from(vec![
         Span::styled(heading, Role::Muted),
@@ -108,7 +126,7 @@ fn mail_entry(mail: &crate::MailView, appearance: EntryAppearance, width: u16) -
         Span::styled(
             format!(
                 " · {}",
-                opening(&mail.summary, usize::from(width).saturating_sub(spent))
+                opening(body, usize::from(width).saturating_sub(spent))
             ),
             Role::Muted,
         ),
@@ -116,7 +134,7 @@ fn mail_entry(mail: &crate::MailView, appearance: EntryAppearance, width: u16) -
     compact.treatment = Treatment::EntryHeading;
     let mut rows = vec![Row::heading(compact)];
     if appearance.open {
-        append_source(&mut rows, &mail.summary, Treatment::Content, |_| Role::Body);
+        append_source(&mut rows, body, Treatment::Content, |_| Role::Body);
     }
     rows
 }
@@ -173,6 +191,7 @@ pub(crate) fn discloses(entry: &TranscriptEntryView) -> bool {
             tool.presentation.invocation.is_some() || tool.presentation.outcome.is_some()
         }
         TranscriptEntryView::Mail(mail) => !mail.summary.is_empty(),
+        TranscriptEntryView::Task(task) => !task.task.is_empty(),
         TranscriptEntryView::Text(_) | TranscriptEntryView::Artifact(_) => false,
     }
 }
@@ -597,6 +616,96 @@ mod mail_heading_tests {
                     );
                 }
             }
+        }
+    }
+}
+
+/// ENT-1: one item, two conversations, and each says which side it is looking at.
+#[cfg(test)]
+mod addressed_entry_tests {
+    use plexmaton_core::{AgentId, MailId, TranscriptItemId};
+
+    use super::{TranscriptEntryView, transcript_layout};
+    use crate::state::EntryAppearance;
+
+    fn agent(id: &str) -> AgentId {
+        AgentId::new(id).unwrap_or_else(|error| panic!("fixture: {error}"))
+    }
+
+    fn letter(owner: &str) -> TranscriptEntryView {
+        TranscriptEntryView::Mail(crate::MailView {
+            entry_id: TranscriptItemId::new(format!("letter-{owner}"))
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            id: MailId::new("letter").unwrap_or_else(|error| panic!("fixture: {error}")),
+            owner: agent(owner),
+            from: agent("delegated-1"),
+            to: agent("agent-primary"),
+            summary: "the answer".to_owned(),
+            revision: 0,
+        })
+    }
+
+    fn task(owner: &str) -> TranscriptEntryView {
+        TranscriptEntryView::Task(crate::TaskView {
+            entry_id: TranscriptItemId::new(format!("task-{owner}"))
+                .unwrap_or_else(|error| panic!("fixture: {error}")),
+            owner: agent(owner),
+            from: agent("agent-primary"),
+            to: agent("delegated-1"),
+            task: "the ask".to_owned(),
+            revision: 0,
+        })
+    }
+
+    fn drawn(entry: &TranscriptEntryView) -> String {
+        transcript_layout(
+            entry,
+            EntryAppearance::compact(false),
+            120,
+            crate::math::MathPresentation::default(),
+        )
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+    }
+
+    /// Each side names the *other* end. Swapping either branch's endpoint makes a row claim the
+    /// conversation is corresponding with itself, which is what this refuses.
+    #[test]
+    fn each_side_of_one_item_names_the_other_end() {
+        for (sent, received, counterpart, owner) in [
+            (
+                letter("delegated-1"),
+                letter("agent-primary"),
+                "delegated-1",
+                "agent-primary",
+            ),
+            (
+                task("agent-primary"),
+                task("delegated-1"),
+                "agent-primary",
+                "delegated-1",
+            ),
+        ] {
+            let sent = drawn(&sent);
+            let received = drawn(&received);
+            assert_ne!(
+                sent, received,
+                "the outbox and the inbox must not read alike"
+            );
+            assert!(
+                received.contains(counterpart),
+                "the arriving side names who addressed it: {received:?}"
+            );
+            assert!(
+                !received.contains(owner),
+                "and never names the conversation reading it: {received:?}"
+            );
+            assert!(
+                sent.contains(owner),
+                "the sending side names who it addressed: {sent:?}"
+            );
         }
     }
 }

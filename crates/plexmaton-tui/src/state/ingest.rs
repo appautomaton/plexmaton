@@ -262,14 +262,8 @@ impl ViewState {
                     !advanced && return_focus.is_some_and(|surface| self.focus.prefer(surface));
                 removed || restored || advanced
             }
-            ConversationEvent::MailDelivered {
-                agent_id,
-                item_id,
-                mail_id,
-                from,
-                to,
-                summary,
-            } => self.apply_mail(agent_id, item_id, mail_id, from, to, summary)?,
+            event @ (ConversationEvent::TaskAssigned { .. }
+            | ConversationEvent::MailDelivered { .. }) => self.apply_addressed(event)?,
             ConversationEvent::ArtifactAnnounced {
                 agent_id,
                 item_id,
@@ -317,6 +311,58 @@ impl ViewState {
             from,
             to,
             summary,
+        )?;
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
+    /// Files one side of whatever one session addressed to another.
+    ///
+    /// Mail and a task share this arm because they share every rule that matters here: both name
+    /// two conversations, both are announced once per side, and both refuse an endpoint this
+    /// projection has never heard of.
+    fn apply_addressed(&mut self, event: ConversationEvent) -> Result<bool, ReduceError> {
+        match event {
+            ConversationEvent::TaskAssigned {
+                agent_id,
+                item_id,
+                from,
+                to,
+                task,
+            } => self.apply_task(agent_id, item_id, from, to, task),
+            ConversationEvent::MailDelivered {
+                agent_id,
+                item_id,
+                mail_id,
+                from,
+                to,
+                summary,
+            } => self.apply_mail(agent_id, item_id, mail_id, from, to, summary),
+            _ => unreachable!("only addressed events reach this arm"),
+        }
+    }
+
+    /// Files one side of an assigned task, under the same rule mail follows.
+    fn apply_task(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        from: AgentId,
+        to: AgentId,
+        task: String,
+    ) -> Result<bool, ReduceError> {
+        for endpoint in [&from, &to] {
+            if !self.agents.contains(endpoint) {
+                return Err(ReduceError::UnknownAgent(endpoint.clone()));
+            }
+        }
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = self.agent_mut(&agent_id)?.assign_task(
+            item_id.clone(),
+            agent_id.clone(),
+            from,
+            to,
+            task,
         )?;
         self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
@@ -561,6 +607,7 @@ mod tests {
                 TranscriptEntryView::Tool(_) => "tool",
                 TranscriptEntryView::Artifact(_) => "artifact",
                 TranscriptEntryView::Mail(_) => "mail",
+                TranscriptEntryView::Task(_) => "task",
             })
             .collect();
         assert_eq!(

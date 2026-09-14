@@ -364,6 +364,24 @@ pub enum ConversationEvent {
         /// Exact queued request to remove.
         attention_id: AttentionId,
     },
+    /// Main assigned or reassigned the standing task of one delegated session.
+    ///
+    /// Announced once per side, like mail: the delegator's conversation shows what it asked for and
+    /// the worker's shows what it was asked. A revision of the same delegation is a new item rather
+    /// than an update, because what the child was asked at the time is what the reader is looking
+    /// for — the current task alone would erase the history of having changed it.
+    TaskAssigned {
+        /// Whose conversation this item belongs to: the delegator's copy, or the worker's.
+        agent_id: AgentId,
+        /// Transcript position assigned to this assignment.
+        item_id: TranscriptItemId,
+        /// The session that assigned it, named on both sides.
+        from: AgentId,
+        /// The delegated session it was assigned to.
+        to: AgentId,
+        /// The task as written. Bounded by the collaboration log that holds it.
+        task: String,
+    },
     /// Typed mail was delivered from one session to another.
     ///
     /// One letter reaches both conversations, so it is announced once per side: the sender's

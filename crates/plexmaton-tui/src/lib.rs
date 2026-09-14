@@ -43,7 +43,7 @@ pub use state::{
     ModelChoice, ModelIdentity, NoticeView, Page, PermissionRequest, PersistenceNotice,
     QueuedBoundary, QueuedInput, ReduceError, RetryAction, RetryActions, RetrySubmission,
     RetryTarget, ScrollPosition, Selection, SkillChoice, SkillChoiceSource, Submission,
-    SubmissionKind, SwitchRefusal, ToolCallView, TranscriptEntryView, TranscriptItemView,
+    SubmissionKind, SwitchRefusal, TaskView, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};

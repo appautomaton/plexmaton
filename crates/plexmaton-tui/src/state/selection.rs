@@ -331,6 +331,8 @@ fn entry_source(entry: &TranscriptEntryView) -> Option<String> {
         TranscriptEntryView::Artifact(artifact) => Some(artifact.pointer.clone()),
         // Recipient travels with the summary because the entry belongs to its producer.
         TranscriptEntryView::Mail(mail) => Some(format!("{}: {}", mail.to, mail.summary)),
+        // Recipient travels with the task for the same reason it does with a letter.
+        TranscriptEntryView::Task(task) => Some(format!("{}: {}", task.to, task.task)),
     }
 }
 

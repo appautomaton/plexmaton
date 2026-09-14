@@ -67,16 +67,23 @@ fn detail(agent: &AgentView, summary: Option<&str>) -> String {
     if let Some(summary) = summary {
         return summary.to_owned();
     }
-    let (tools, artifacts, mail) = count_entries(agent);
+    let counts = count_entries(agent);
     let mut parts: Vec<String> = Vec::new();
-    if tools > 0 {
-        parts.push(format!("{tools} tool{}", if tools == 1 { "" } else { "s" }));
+    if counts.tools > 0 {
+        parts.push(format!(
+            "{} tool{}",
+            counts.tools,
+            if counts.tools == 1 { "" } else { "s" }
+        ));
     }
-    if artifacts > 0 {
-        parts.push(format!("@{artifacts}"));
+    if counts.artifacts > 0 {
+        parts.push(format!("@{}", counts.artifacts));
     }
-    if mail > 0 {
-        parts.push(format!("{mail} mail"));
+    if counts.tasks > 0 {
+        parts.push(format!("{} task", counts.tasks));
+    }
+    if counts.mail > 0 {
+        parts.push(format!("{} mail", counts.mail));
     }
     parts.join(" ")
 }

@@ -58,7 +58,7 @@ pub(crate) use disclosure::{DisclosureState, EntryAppearance, EntryTarget};
 pub(crate) use drawer::Shown;
 pub use drawer::{Drawer, Page};
 pub use entry::{
-    ArtifactView, MailView, ToolCallView, TranscriptEntryView, TranscriptItemView,
+    ArtifactView, MailView, TaskView, ToolCallView, TranscriptEntryView, TranscriptItemView,
     TranscriptTextKind,
 };
 pub use ingest::{ApplyOutcome, ReduceError};

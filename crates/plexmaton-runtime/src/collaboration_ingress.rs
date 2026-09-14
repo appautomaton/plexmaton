@@ -64,6 +64,12 @@ impl RegisteredCollaborationTarget {
     pub fn worker(&self) -> &MailEndpoint {
         self.child.worker()
     }
+
+    /// The canonical delegation, so a caller can read the task it currently carries.
+    #[must_use]
+    pub fn delegation(&self) -> &DelegationId {
+        self.child.control.delegation()
+    }
 }
 
 impl ChildCollaborationIngress {

@@ -39,12 +39,13 @@ pub(crate) use transcript_presentation::{
 /// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
 /// row and conversation title stay short.
 pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
-    let (tools, artifacts, mail) = count_entries(agent);
+    let counts = count_entries(agent);
     let mut parts = String::new();
     for (count, one, many) in [
-        (tools, "tool", "tools"),
-        (artifacts, "artifact", "artifacts"),
-        (mail, "mail", "mail"),
+        (counts.tools, "tool", "tools"),
+        (counts.artifacts, "artifact", "artifacts"),
+        (counts.mail, "mail", "mail"),
+        (counts.tasks, "task", "tasks"),
     ] {
         if count > 0 {
             let noun = if count == 1 { one } else { many };
@@ -54,16 +55,40 @@ pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
     parts
 }
 
-fn count_entries(agent: &crate::AgentView) -> (usize, usize, usize) {
-    agent.entries().fold(
-        (0_usize, 0_usize, 0_usize),
-        |(tools, artifacts, mail), entry| match entry {
-            TranscriptEntryView::Text(_) => (tools, artifacts, mail),
-            TranscriptEntryView::Tool(_) => (tools.saturating_add(1), artifacts, mail),
-            TranscriptEntryView::Artifact(_) => (tools, artifacts.saturating_add(1), mail),
-            TranscriptEntryView::Mail(_) => (tools, artifacts, mail.saturating_add(1)),
-        },
-    )
+/// What a roster row and a conversation title count, one field per entry kind.
+///
+/// A tuple was fine for three and became unreadable at four; a named field is also what makes
+/// adding the next kind a compiler error at every reader rather than a silent zero.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EntryCounts {
+    pub(crate) tools: usize,
+    pub(crate) artifacts: usize,
+    pub(crate) mail: usize,
+    pub(crate) tasks: usize,
+}
+
+fn count_entries(agent: &crate::AgentView) -> EntryCounts {
+    agent
+        .entries()
+        .fold(EntryCounts::default(), |counts, entry| match entry {
+            TranscriptEntryView::Text(_) => counts,
+            TranscriptEntryView::Tool(_) => EntryCounts {
+                tools: counts.tools.saturating_add(1),
+                ..counts
+            },
+            TranscriptEntryView::Artifact(_) => EntryCounts {
+                artifacts: counts.artifacts.saturating_add(1),
+                ..counts
+            },
+            TranscriptEntryView::Mail(_) => EntryCounts {
+                mail: counts.mail.saturating_add(1),
+                ..counts
+            },
+            TranscriptEntryView::Task(_) => EntryCounts {
+                tasks: counts.tasks.saturating_add(1),
+                ..counts
+            },
+        })
 }
 
 /// The one row the primary composer keeps while a sub-agent's input is active (INS-5).
