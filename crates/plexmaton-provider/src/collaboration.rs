@@ -15,6 +15,19 @@ use crate::codec::EncodeError;
 const LABEL: &str = "Plexmaton delegated collaboration. Each element below was written by the\n\
                      session named in its `from` attribute, not by the user:\n";
 
+/// Closes an envelope that assigned work *to its recipient*, because only that owes an answer.
+///
+/// A delegated session's transcript is its own; nobody reads it, and a worker that answers by
+/// writing into it has produced nothing its delegator will ever see. The turn is the only place a
+/// model learns that — the tool's description says what `send_mail` does, not that it is the sole
+/// way out. Rejected: closing every envelope this way, which told a recipient of ordinary mail it
+/// owed a reply; and asking only whether a task is present, which is true of the delegator's own
+/// envelope — its inclusion window opens at the start of the log, so it re-reads the task it sent
+/// and dutifully reports back to itself.
+const TASK_CONTRACT: &str = "\nThe task above is yours. Report its result with `send_mail` to the\n\
+                             session that sent it; anything else you write stays in this session\n\
+                             and nobody sees it.\n";
+
 /// Renders the resolved sources of one collaboration atom in canonical order.
 ///
 /// A reference that never resolved carries no content, so it is refused rather than rendered as an
@@ -28,6 +41,8 @@ pub(crate) fn collaboration_context(context: &CollaborationContext) -> Result<St
 
 fn render(resolved: &ResolvedTurnAdmission) -> String {
     let mut out = String::from(LABEL);
+    let recipient = &resolved.admission().boundary.recipient;
+    let mut assigned = false;
     for item in resolved.items() {
         match &item.event {
             // An ordering point with no content of its own; its siblings carry the sources.
@@ -35,31 +50,37 @@ fn render(resolved: &ResolvedTurnAdmission) -> String {
             CollaborationEvent::DelegationCreated {
                 delegation,
                 delegator,
+                worker,
                 task,
-                ..
-            } => element(
-                &mut out,
-                "task",
-                &[
-                    ("from", &endpoint(delegator)),
-                    ("delegation", delegation.as_str()),
-                ],
-                task.as_str(),
-            ),
+            } => {
+                assigned |= worker == recipient;
+                element(
+                    &mut out,
+                    "task",
+                    &[
+                        ("from", &endpoint(delegator)),
+                        ("delegation", delegation.as_str()),
+                    ],
+                    task.as_str(),
+                );
+            }
             CollaborationEvent::TaskUpdated {
                 delegation,
                 author,
                 task,
                 ..
-            } => element(
-                &mut out,
-                "task-update",
-                &[
-                    ("from", &endpoint(author)),
-                    ("delegation", delegation.as_str()),
-                ],
-                task.as_str(),
-            ),
+            } => {
+                assigned |= author != recipient;
+                element(
+                    &mut out,
+                    "task-update",
+                    &[
+                        ("from", &endpoint(author)),
+                        ("delegation", delegation.as_str()),
+                    ],
+                    task.as_str(),
+                );
+            }
             CollaborationEvent::MailAccepted { mail } => {
                 // The summary is escaped text and each pointer is already an element, so the body
                 // is assembled pre-escaped rather than escaped once more as a whole.
@@ -94,6 +115,9 @@ fn render(resolved: &ResolvedTurnAdmission) -> String {
                 ],
             ),
         }
+    }
+    if assigned {
+        out.push_str(TASK_CONTRACT);
     }
     out
 }

@@ -94,25 +94,18 @@ where
             () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
             runtime_update = runtime.next_update() => {
                 let update = runtime_update.context("receive live runtime update")?;
+                deliver_pending_mail(collaboration.as_deref_mut(), runtime, workspace).await?;
                 if apply_runtime_update(update, runtime, workspace, status_line, &mut frames) {
                     frames.draw_with_native(workspace, terminal, Instant::now(), &mut native_output).context("draw final TUI frame")?;
                     break;
                 }
             }
             terminal_event = terminal_events.next() => {
-                match terminal_event {
-                    Some(Ok(event)) => {
-                        if matches!(event, crossterm::event::Event::Resize(..))
-                            && let Some(status) = status_line { status.mark_dirty(); }
-                        let outcome = frames.handle(workspace, &event);
-                        picker.observe_closed(workspace);
-                        permissions.observe_closed(workspace);
-                        if apply_workspace_outcome(outcome, runtime, workspace, clipboard, picker, permissions, status_line).await? {
-                            break;
-                        }
-                    }
-                    Some(Err(error)) => return Err(error).context("read terminal event"),
-                    None => break,
+                let Some(event) = terminal_event.transpose().context("read terminal event")? else {
+                    break;
+                };
+                if apply_terminal_event(&event, runtime, workspace, clipboard, picker, permissions, status_line, &mut frames).await? {
+                    break;
                 }
             }
         }
@@ -363,6 +356,54 @@ fn apply_runtime_update(
         }
     }
     false
+}
+
+/// Handles one terminal event, reporting whether the session should close.
+#[allow(clippy::too_many_arguments)]
+async fn apply_terminal_event(
+    event: &crossterm::event::Event,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    clipboard: &mut TerminalClipboard<impl io::Write>,
+    picker: &mut session_picker::ConversationPicker,
+    permissions: &mut permission_controls::PermissionControls,
+    status_line: &mut Option<statusline::StatusLine>,
+    frames: &mut stream_frames::StreamFrames,
+) -> anyhow::Result<bool> {
+    if matches!(event, crossterm::event::Event::Resize(..))
+        && let Some(status) = status_line
+    {
+        status.mark_dirty();
+    }
+    let outcome = frames.handle(workspace, event);
+    picker.observe_closed(workspace);
+    permissions.observe_closed(workspace);
+    apply_workspace_outcome(
+        outcome,
+        runtime,
+        workspace,
+        clipboard,
+        picker,
+        permissions,
+        status_line,
+    )
+    .await
+}
+
+/// Retries mail the root was too busy to read, now that the root has moved.
+///
+/// Mail almost always lands while the root is still finishing the turn that sent the work, and
+/// nothing settles in the collaboration owner afterwards. The retry has to hang off the root's own
+/// progress or the letter waits forever.
+async fn deliver_pending_mail(
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+) -> anyhow::Result<()> {
+    if let Some(collaboration) = collaboration {
+        workspace.emit(collaboration.deliver_pending(runtime).await?);
+    }
+    Ok(())
 }
 
 /// Projects one settled collaboration activity, keeping the select arm a single call.

@@ -33,6 +33,9 @@ pub(crate) struct Collaboration {
     /// Root inclusions issued so far, which name each one. Identity must be stable across a retry
     /// and distinct across turns, and a counter is both without consulting the log.
     delivered: u64,
+    /// Mail reached the log while the root was mid-turn. Nothing else will settle on its own, so
+    /// without this the letter waits forever for an activity that never comes.
+    undelivered: bool,
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -68,6 +71,7 @@ pub(crate) fn open(
             owner,
             announced: BTreeSet::new(),
             delivered: 0,
+            undelivered: false,
         },
         ingress,
     ))
@@ -164,11 +168,22 @@ impl Collaboration {
         }
     }
 
-    /// Gives the root a turn over whatever its inbox holds, if it is free to take one.
+    /// Gives the root a turn over whatever its inbox holds, once it is free to take one.
     ///
-    /// A root that is mid-turn cannot open another, and a root with nothing pending has no turn to
-    /// open. Both are ordinary and silent: the next settled activity tries again, so a reply that
-    /// arrives while the user is mid-sentence is not lost, only deferred.
+    /// Mail almost always lands while the root is still finishing the turn that sent the work, and
+    /// a busy conversation cannot open a second turn. Nothing else settles afterwards, so the
+    /// retry has to hang off the root's own progress rather than the collaboration owner's.
+    pub(crate) async fn deliver_pending(
+        &mut self,
+        runtime: &mut LiveRuntime,
+    ) -> anyhow::Result<Vec<ConversationEventEnvelope>> {
+        if self.undelivered {
+            self.deliver_to_root(runtime).await
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
     async fn deliver_to_root(
         &mut self,
         runtime: &mut LiveRuntime,
@@ -184,6 +199,7 @@ impl Collaboration {
             return Ok(Vec::new());
         };
         self.delivered = self.delivered.saturating_add(1);
+        self.undelivered = false;
         runtime
             .start_collaboration_turn(resolved)
             .await
