@@ -302,10 +302,11 @@ It is never an entry point for main-agent approvals.
   The status script owns its own colours (MD-5).
 - **The terminal is assumed modern.** Plexmaton targets a 24-bit-colour terminal and a reader with
   ordinary colour vision. There is no reduced palette, no colour-capability probe, and no degraded
-  path: a terminal that cannot render the palette renders the product badly, and that is the
-  terminal's limitation rather than a case the design carries. Rejected: an ANSI slot fallback and
-  a modifier-only palette, which were a second design to keep correct for readers nobody had, and
-  which held the first design to what they could express.
+  path. The product already requires far more than colour depth — an animated effort rail on a
+  67 ms clock (EFF-4), live repaint as agents stream, and native typeset math (MTH-2) — so a
+  terminal that cannot render the palette was never going to run the product anyway. Carrying a
+  fallback for it only capped what the first design could say. Rejected: an ANSI slot fallback and
+  a modifier-only palette, which were a second design to keep correct for readers nobody had.
 
 ### Selection and copy
 

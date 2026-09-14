@@ -46,6 +46,22 @@ pub(crate) struct WorkloadSamples {
 /// The sizes the resize workload cycles through: ultrawide, wide, and narrow.
 pub(crate) const RESIZES: [(u16, u16); 3] = [(160, 40), (100, 30), (60, 24)];
 
+/// A palette differing from the shipped one in colour alone, so a swap costs a repaint and
+/// nothing else. The harness owns it: measuring a repaint needs two assignments, which is
+/// not a reason for the product to ship a preset nobody selects.
+pub(crate) fn shifted_palette() -> plexmaton_tui::Palette {
+    let base = plexmaton_tui::Palette::pastel();
+    plexmaton_tui::Palette::from_roles(|role| {
+        let style = base.style(role);
+        match style.fg {
+            Some(ratatui::style::Color::Rgb(r, g, b)) => {
+                style.fg(ratatui::style::Color::Rgb(255 - r, 255 - g, 255 - b))
+            }
+            _ => style,
+        }
+    })
+}
+
 mod live_preparation;
 mod preparation;
 mod rich_layout;

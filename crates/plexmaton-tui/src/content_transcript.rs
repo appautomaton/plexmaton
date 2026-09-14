@@ -297,7 +297,7 @@ mod tests {
                     assert_eq!(literal_text_rows(&item, 60), None);
                     continue;
                 }
-                for palette in [Palette::ansi(), Palette::pastel(), Palette::pastel()] {
+                for palette in [Palette::pastel(), Palette::pastel(), Palette::pastel()] {
                     for width in [0, 1, 4, 5, 6, 12, 58, 86, 118] {
                         let lines =
                             transcript_text(&item, width, crate::math::MathPresentation::default())

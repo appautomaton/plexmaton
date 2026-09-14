@@ -704,7 +704,7 @@ mod tests {
     fn an_injected_palette_is_the_one_the_frame_paints() {
         let palette = Palette::from_roles(|role| match role {
             Role::Border => Style::new().fg(Color::Magenta),
-            role => Palette::ansi().style(role),
+            role => Palette::pastel().style(role),
         });
         let mut workspace = Workspace::with_palette(palette);
         let mut terminal = Terminal::new(TestBackend::new(120, 24))
@@ -1155,7 +1155,7 @@ mod tests {
                 );
                 let prepared = workspace.metrics.text_layouts();
                 let source = workspace.state.agent(&agent).expect("agent").clone();
-                for palette in [Palette::pastel(), Palette::truecolor(), Palette::ansi()] {
+                for palette in [Palette::inverted(), Palette::pastel(), Palette::inverted()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     let at = point_on(&terminal, &workspace, surface, "read_file");
@@ -1259,7 +1259,7 @@ mod tests {
                     &mouse(MouseEventKind::ScrollDown, region.x + 1, region.y + 1),
                 );
                 let prepared = workspace.metrics.text_layouts();
-                for palette in [Palette::pastel(), Palette::truecolor(), Palette::ansi()] {
+                for palette in [Palette::inverted(), Palette::pastel(), Palette::inverted()] {
                     workspace.set_palette(palette);
                     assert_eq!(frame(&mut workspace, &mut terminal).entries_wrapped, 0);
                     assert_eq!(workspace.metrics.text_layouts(), prepared);

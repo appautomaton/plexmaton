@@ -21,10 +21,12 @@ pub(super) fn palette_change(messages: usize, samples: WorkloadSamples) -> anyho
     harness.warm(usize::MAX)?;
     let mut run = Run::new("palette change");
     for sample in 0..samples.repeated {
+        // Alternating two genuinely different assignments is what makes this a repaint
+        // measurement; the second one is the benchmark's own, not a preset the product ships.
         let palette = if sample % 2 == 0 {
-            plexmaton_tui::Palette::pastel()
+            super::shifted_palette()
         } else {
-            plexmaton_tui::Palette::ansi()
+            plexmaton_tui::Palette::pastel()
         };
         let started = Instant::now();
         harness.workspace.set_palette(palette);

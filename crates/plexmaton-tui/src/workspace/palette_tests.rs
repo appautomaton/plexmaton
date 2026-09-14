@@ -17,7 +17,7 @@ fn pointer(kind: MouseEventKind, column: u16, row: u16) -> Event {
 /// TR-1/MD-5/SEL-2: repainting colors keeps the drawn geometry, parked source and pointer selection.
 #[test]
 fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
-    let base = Palette::ansi().with_markdown_theme(crate::MarkdownTheme::Pastel);
+    let base = Palette::pastel().with_markdown_theme(crate::MarkdownTheme::Pastel);
     for width in [120, 88, 60] {
         let mut conversation = Conversation::canonical();
         conversation.extend(500).append(
@@ -79,7 +79,7 @@ fn palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths() {
             .expect("viewport");
         let retained = workspace.metrics.retained();
         let layouts = workspace.metrics.text_layouts();
-        for palette in [Palette::pastel(), Palette::truecolor(), base] {
+        for palette in [Palette::inverted(), base] {
             let state = workspace.state.clone();
             workspace.set_palette(palette);
             let work = workspace

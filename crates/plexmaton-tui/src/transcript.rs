@@ -556,7 +556,7 @@ mod tests {
     fn restoration_feedback_scrolls_at_its_anchor_without_changing_semantic_entries_or_copy() {
         // TR-1/TR-3, JRN-5: presentation has measured rows but no semantic item or copy identity.
         for width in [118, 93, 58] {
-            let palette = Palette::ansi();
+            let palette = Palette::pastel();
             let mut conversation = Conversation::canonical();
             conversation.extend(30);
             let mut metrics = TranscriptMetrics::default();

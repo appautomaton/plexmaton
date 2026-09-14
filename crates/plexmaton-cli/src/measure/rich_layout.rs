@@ -6,7 +6,7 @@ use plexmaton_core::{
     TranscriptRole,
 };
 use plexmaton_sim::Scenario;
-use plexmaton_tui::{FrameWork, Palette};
+use plexmaton_tui::FrameWork;
 use std::time::{Duration, Instant};
 
 pub(super) const SOURCE: &str = "## Notes\n\nA **bounded** paragraph with `inline code` and a [link](https://example.invalid).\n\n> Context.\n\n- First item\n- Second item\n";
@@ -66,7 +66,7 @@ fn sample(messages: usize) -> anyhow::Result<[Observation; 3]> {
     let cold = draw(&mut harness)?;
     harness.resize((88, 40));
     let resized = draw(&mut harness)?;
-    harness.workspace.set_palette(Palette::pastel());
+    harness.workspace.set_palette(super::shifted_palette());
     let painted = draw(&mut harness)?;
     ensure!(
         cold.layouts > 0

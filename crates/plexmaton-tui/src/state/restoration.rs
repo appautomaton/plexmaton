@@ -188,7 +188,7 @@ mod tests {
             let inner = width - 2;
             metrics.measure(
                 state.primary_agent().expect("agent"),
-                &Palette::ansi(),
+                &Palette::pastel(),
                 inner,
             );
             assert_eq!(metrics.compact_entry_at_row(&agent_id, inner, 0), None);

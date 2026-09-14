@@ -445,7 +445,7 @@ mod tests {
     #[test]
     fn restoration_confirmation_is_green_and_tail_repair_is_separate() {
         // JRN-5 / ui-ux §responsive interaction: success and repair have distinct named cues.
-        let palette = Palette::ansi();
+        let palette = Palette::pastel();
         for tail in [
             None,
             Some(crate::ConversationTailRepair::IsolatedFinalTail { bytes: 37 }),
@@ -456,10 +456,16 @@ mod tests {
             );
             let confirmation = &lines[lines.len() - 2];
             assert_eq!(confirmation.to_string(), "✓ Conversation restored.");
-            assert_eq!(confirmation.style.fg, Some(ratatui::style::Color::Green));
+            assert_eq!(
+                confirmation.style,
+                palette.style(crate::theme::Role::NewInformation)
+            );
             assert_eq!(lines.len(), if tail.is_some() { 3 } else { 2 });
             if tail.is_some() {
-                assert_eq!(lines[0].style.fg, Some(ratatui::style::Color::Yellow));
+                assert_eq!(
+                    lines[0].style,
+                    palette.style(crate::theme::Role::ActionRequired)
+                );
             }
         }
     }

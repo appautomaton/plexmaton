@@ -12,7 +12,7 @@ use plexmaton_agent::Input;
 use plexmaton_core::AgentId;
 use plexmaton_provider::resolve_api_key;
 use plexmaton_runtime::{ConversationRecovery, DispatchReport, LiveRuntime, NativeToolCatalog};
-use plexmaton_tui::{ConfigurationSummary, MarkdownTheme, Palette, Workspace};
+use plexmaton_tui::{ConfigurationSummary, Palette, Workspace};
 
 mod agent_instructions;
 mod clipboard;
@@ -211,19 +211,9 @@ async fn run(
     mut status_line: Option<statusline::StatusLine>,
     mut render_preparation: preparation::LivePreparation,
 ) -> anyhow::Result<Option<PersistedConversation>> {
-    // The designed palette needs 24-bit colour. A terminal without it keeps its own slots for
-    // the chrome and the designed Markdown, which is the most that can be asked of it (MD-5).
-    // The script footer retains its independent colors; neither choice rethemes the other.
-    let designed = std::env::var("COLORTERM")
-        .is_ok_and(|value| matches!(value.as_str(), "truecolor" | "24bit"));
-    let mut workspace = Workspace::with_presentation(
-        if designed {
-            Palette::pastel()
-        } else {
-            Palette::ansi().with_markdown_theme(MarkdownTheme::Pastel)
-        },
-        output.math,
-    );
+    // One palette, no capability probe: a 24-bit terminal is assumed (ui-ux §readability).
+    // The script footer retains its independent colors and is not rethemed by this choice.
+    let mut workspace = Workspace::with_presentation(Palette::pastel(), output.math);
     workspace.set_model(picker.configuration());
     workspace.set_model_choices(
         picker

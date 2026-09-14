@@ -867,9 +867,9 @@ mod tests {
     #[test]
     fn only_the_focused_panel_carries_the_focused_border() {
         for palette in [
-            Palette::ansi(),
             Palette::pastel(),
-            Palette::truecolor(),
+            Palette::pastel(),
+            Palette::inverted(),
             Palette::pastel(),
         ] {
             let mut state = canonical_state();
@@ -1164,12 +1164,12 @@ mod tests {
         // Swapping the palette must change styling only. A palette that alters which characters
         // reach the buffer would mean colour is carrying meaning that the glyphs do not.
         let state = canonical_state();
-        let ansi = draw_with(&state, &Palette::ansi(), 120, 24);
+        let ansi = draw_with(&state, &Palette::pastel(), 120, 24);
         let pastel = draw_with(&state, &Palette::pastel(), 120, 24);
-        let truecolor = draw_with(&state, &Palette::truecolor(), 120, 24);
+        let inverted = draw_with(&state, &Palette::inverted(), 120, 24);
 
         assert_eq!(ansi, pastel);
-        assert_eq!(ansi, truecolor);
+        assert_eq!(pastel, inverted);
     }
 
     /// The pill is the number that is unanswered, coloured, on the conversation being read.
@@ -1180,9 +1180,9 @@ mod tests {
     #[test]
     fn the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row() {
         for palette in [
-            Palette::ansi(),
             Palette::pastel(),
-            Palette::truecolor(),
+            Palette::pastel(),
+            Palette::inverted(),
             Palette::pastel(),
         ] {
             let (surfaces, buffer) = draw_frame(&canonical_state(), &palette, 120, 24);

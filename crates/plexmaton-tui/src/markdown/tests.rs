@@ -12,7 +12,7 @@ fn text(lines: &[ratatui::text::Line<'_>]) -> String {
 #[test]
 fn markdown_pastel_changes_only_style_and_keeps_nested_modifiers() {
     let source = "# Blue heading\n\n## Green heading\n\n### Lavender heading\n\n**bold `command` and [link](https://example.com)**\n\n> A gentle quote.\n\n- 中文 e\u{301}\n\n```rust\n    let x = \"literal **text**\";\n```\n\n| Name | Value |\n| --- | --- |\n| result | **ready** |";
-    let base = Palette::ansi();
+    let base = Palette::pastel();
     let proposed = base.with_markdown_theme(crate::MarkdownTheme::Pastel);
     for width in [12, 60, 88, 120] {
         let prepared = render_layout(source, width, MathPresentation::Native, Completion::Final)
@@ -153,7 +153,7 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
         }
     }
     let open =
-        render("```rust\n    let x = **literal**;", &Palette::ansi(), 45).expect("open fence");
+        render("```rust\n    let x = **literal**;", &Palette::pastel(), 45).expect("open fence");
     assert!(text(&open).contains("│     let x = **literal**;"));
     for width in [1, 4] {
         let rows = render("**你好 👩‍💻 e\u{301}**", &Palette::pastel(), width)
@@ -172,18 +172,18 @@ fn markdown_streaming_prefixes_and_unicode_never_overflow() {
 fn markdown_controls_and_limits_are_explicit() {
     let rows = render(
         "[click](https://example.com)\n\n<script>\u{1b}]52;c;payload\u{7}</script>",
-        &Palette::ansi(),
+        &Palette::pastel(),
         60,
     )
     .expect("inert");
     assert!(!text(&rows).contains('\u{1b}') && !text(&rows).contains('\u{7}'));
     assert!(text(&rows).contains("<script>"));
     assert_eq!(
-        render(&"a".repeat(MAX_SOURCE_BYTES + 1), &Palette::ansi(), 60),
+        render(&"a".repeat(MAX_SOURCE_BYTES + 1), &Palette::pastel(), 60),
         Err(PlainReason::Size)
     );
     assert_eq!(
-        render(&format!("{}text", "> ".repeat(40)), &Palette::ansi(), 120),
+        render(&format!("{}text", "> ".repeat(40)), &Palette::pastel(), 120),
         Err(PlainReason::Complexity)
     );
 }

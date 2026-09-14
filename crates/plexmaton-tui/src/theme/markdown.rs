@@ -73,7 +73,7 @@ mod tests {
     /// MD-5: a content color choice cannot change focus, selection, approval or other chrome.
     #[test]
     fn markdown_pastel_leaves_all_workspace_roles_unchanged() {
-        let base = Palette::ansi();
+        let base = Palette::pastel().with_markdown_theme(MarkdownTheme::Inherited);
         let colored = base.with_markdown_theme(MarkdownTheme::Pastel);
         for role in Role::ALL {
             assert_eq!(base.style(role), colored.style(role), "{role:?}");

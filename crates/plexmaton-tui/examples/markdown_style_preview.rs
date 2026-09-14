@@ -29,7 +29,7 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(directory)?;
     for (width, height) in [(120, 40), (88, 42), (60, 46), (88, 20)] {
         let footer = footer(width)?;
-        for (name, palette) in [("before", Palette::ansi()), ("pastel", Palette::pastel())] {
+        for (name, palette) in [("before", Palette::pastel()), ("pastel", Palette::pastel())] {
             let buffer = preview(palette, footer.clone(), width, height)?;
             std::fs::write(
                 directory.join(format!("{name}-{width}x{height}.svg")),
@@ -41,7 +41,7 @@ fn main() -> Result<()> {
 }
 
 fn preview(palette: Palette, footer: StatusLineText, width: u16, height: u16) -> Result<Buffer> {
-    let mut workspace = Workspace::with_palette(Palette::ansi());
+    let mut workspace = Workspace::with_palette(Palette::pastel());
     workspace.set_model(plexmaton_tui::ConfigurationSummary {
         configured_name: "fixture".into(),
         provider: "local".into(),
