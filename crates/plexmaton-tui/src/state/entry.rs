@@ -109,13 +109,16 @@ pub struct ArtifactView {
     pub revision: u64,
 }
 
-/// Typed mail delivered between sessions.
+/// Typed mail delivered between sessions, as one of its two conversations holds it.
 ///
 /// Sender identity is part of the product contract, so it is retained rather than reduced away.
+/// `owner` says which side this item is: the same letter appears in the sender's conversation and
+/// in the recipient's, and only the owner separates "what I sent" from "what arrived".
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MailView {
     pub entry_id: TranscriptItemId,
     pub id: MailId,
+    pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
     pub summary: String,

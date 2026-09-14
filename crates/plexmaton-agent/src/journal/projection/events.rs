@@ -30,6 +30,8 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> ConversationEvent {
             agent_id,
             attention_id,
         },
+        // A journalled delivery records the sender's own item, so that is whose copy it replays as;
+        // the recipient's side is a projection over the collaboration log, not a journal fact.
         JournalEntryPayload::MailDelivered {
             item_id,
             mail_id,
@@ -37,6 +39,7 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> ConversationEvent {
             to,
             summary,
         } => ConversationEvent::MailDelivered {
+            agent_id: from.clone(),
             item_id,
             mail_id,
             from,

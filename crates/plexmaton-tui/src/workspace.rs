@@ -563,7 +563,7 @@ mod tests {
 
     use plexmaton_core::{
         AgentId, AgentStatus, ApprovalDecision, ApprovalId, ArtifactId, AttentionId,
-        AttentionRequest, ConversationEvent, ToolCallId, ToolCallStatus, ToolCapability,
+        AttentionRequest, ConversationEvent, MailId, ToolCallId, ToolCallStatus, ToolCapability,
         ToolDetail, ToolPresentation, TranscriptItemId,
     };
 
@@ -1831,7 +1831,8 @@ mod tests {
             let cold = frame(&mut workspace, &mut terminal);
             assert_eq!(
                 cold.entries_wrapped,
-                messages.saturating_add(1),
+                // The opener, and the letter the canonical timeline delivers into this conversation.
+                messages.saturating_add(2),
                 "a cold frame measures every entry exactly once, the canonical opener included"
             );
 
@@ -1846,7 +1847,7 @@ mod tests {
 
             assert_eq!(
                 workspace.metrics().retained(),
-                messages.saturating_add(1),
+                messages.saturating_add(2),
                 "the cache holds one height per entry and no more"
             );
             steady.push((delta.lines_built, cold.lines_built));
@@ -3193,6 +3194,76 @@ mod tests {
             copied.text,
             "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/copy-source"
         );
+    }
+
+    /// ENT-4/CMP-1: a letter fills one row with as much of itself as fits, and `Ctrl-O` is the rest.
+    ///
+    /// The simulator only ever sent one short sentence, so the entry inlined its whole summary and
+    /// disclosure was reserved for tools. The first letter a delegated agent actually wrote was a
+    /// page long: it filled the conversation it arrived in and could not be folded away.
+    #[test]
+    fn a_long_letter_is_one_row_until_ctrl_o_opens_it() {
+        let mut conversation = Conversation::canonical();
+        let sender = conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
+        let recipient = conversation
+            .state
+            .sub_agents()
+            .next()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a second agent"));
+        let item =
+            TranscriptItemId::new("long-letter").unwrap_or_else(|error| panic!("fixture: {error}"));
+        conversation.emit(ConversationEvent::MailDelivered {
+            agent_id: sender.clone(),
+            item_id: item.clone(),
+            mail_id: MailId::new("long-letter").unwrap_or_else(|error| panic!("fixture: {error}")),
+            from: sender,
+            to: recipient,
+            // A bare title line first, which is what a report opens with and all a heading taking
+            // only the first line would ever have shown.
+            summary: "Read-only check complete.\n\
+                      The branch is main, and the worktree could not be observed from here.\n\
+                      Two phases are open and their roadmap rows agree with their files.\n\
+                      Nothing was modified."
+                .to_owned(),
+        });
+        let mut workspace = Workspace::default();
+        let mut terminal = Terminal::new(TestBackend::new(120, 40))
+            .unwrap_or_else(|error| panic!("test terminal: {error}"));
+        workspace.emit(conversation.drain());
+        frame(&mut workspace, &mut terminal);
+
+        // The heading spends the row it has: past the title, into the line after it, then stops.
+        let compact = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(
+            compact.contains("Read-only check complete. The branch is main"),
+            "{compact}"
+        );
+        assert!(compact.contains('…'), "{compact}");
+        assert!(!compact.contains("Nothing was modified"), "{compact}");
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Up, KeyModifiers::SHIFT),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+
+        assert!(
+            workspace.state.disclosure().is_open(&item),
+            "Ctrl-O has to reach a letter, not only a tool"
+        );
+        let opened = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(opened.contains("Nothing was modified"), "{opened}");
     }
 
     /// INV-6 with three rungs: `Escape` resolves the selection before the surface holding it.

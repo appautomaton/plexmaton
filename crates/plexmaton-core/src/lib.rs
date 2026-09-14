@@ -365,14 +365,21 @@ pub enum ConversationEvent {
         attention_id: AttentionId,
     },
     /// Typed mail was delivered from one session to another.
+    ///
+    /// One letter reaches both conversations, so it is announced once per side: the sender's
+    /// conversation shows what it sent and the recipient's shows what arrived, each its own
+    /// transcript item over the same `mail_id`. Without `agent_id` the owner could only be read
+    /// off `from`, and a recipient's conversation had no way to say a letter had come at all.
     MailDelivered {
+        /// Whose conversation this item belongs to: the sender's copy, or the recipient's.
+        agent_id: AgentId,
         /// Transcript position assigned to this delivery.
         item_id: TranscriptItemId,
-        /// Identity of the delivered mail.
+        /// Identity of the delivered mail, shared by both sides' items.
         mail_id: MailId,
-        /// Sending agent and owner of this transcript item.
+        /// Sending agent, named on both sides because attribution is the letter's, not the item's.
         from: AgentId,
-        /// Receiving agent retained as the delivery endpoint; the sender owns this transcript item.
+        /// Receiving agent.
         to: AgentId,
         /// Bounded summary. Bulk findings stay in artifacts or the sender's session.
         summary: String,
@@ -546,6 +553,7 @@ mod tests {
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
             },
             ConversationEvent::MailDelivered {
+                agent_id: agent("agent-b"),
                 item_id: TranscriptItemId::new("item-mail-1")
                     .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
                 mail_id: MailId::new("mail-1")

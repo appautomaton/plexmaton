@@ -993,9 +993,12 @@ mod tests {
             "the rail names the rail and nothing else"
         );
         assert!(rendered.contains("remains interactive"));
+        // A is the recipient, and the inspector shows incoming as well as outgoing mail, so the
+        // letter is here — pointing back at whoever wrote it, never attributed to A.
+        assert!(rendered.contains("Routing stays"), "A received this letter");
         assert!(
-            !rendered.contains("Routing stays"),
-            "B's outgoing mail must not be projected as mail owned by A"
+            rendered.contains("<- agent-b"),
+            "an arriving letter names its sender"
         );
     }
 
