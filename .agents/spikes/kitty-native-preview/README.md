@@ -22,6 +22,18 @@ current focus. `Tab`, or a click in the child's conversation, enters it; only Us
 its input. `Escape` backs out and `Ctrl-D` twice within one second exits. Ctrl-C's Stop hint appears
 only when a running child holds focus. External work is unavailable in this preview.
 
+The roster needs several agents to say anything, and this fixture has one. For the panel's own
+behaviour — ordering, the ruled break, and `Ctrl-B` — use:
+
+```sh
+cargo run --locked -p plexmaton-tui --example roster_preview
+```
+
+Five agents in four states at once: one failed, one wanting an approval, one asking a question, two
+working. `Ctrl-B` puts the panel away and brings it back, `↑`/`↓` move the selection, and `Enter`
+enters an agent, which for one that is asking is also going to its request. Resizing past 72 columns
+moves the panel from a column to a shelf over the conversation.
+
 To launch a separate review window and size it in cells from another Kitty shell:
 
 ```sh
