@@ -31,7 +31,7 @@ over it. The right-hand column is the whole gap.
 | Child bootstrap | [CHB-1–CHB-3](../specs/delegated-bootstrap.md): fresh and resumed constructors, capability floor, root-only resume | — |
 | Scheduling | [SCH-1–SCH-4](../specs/owned-scheduling.md): bounded owners, separate normal/control/update lanes, Stop under backpressure, joined shutdown | — |
 | Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots; the root reads its own inbox through a turn it admits itself, and each letter joins its sender's conversation and that sender's roster count | Queued and included read the same on screen; distinguishing them needs the CMP-2 session join, which no product surface calls yet |
-| Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning | `update_task` reports success whether or not a runner exists to do the work; resume reconstructs runners eagerly, so past `RUNNERS` capacity the task is recorded and silently never run |
+| Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning; an assignment rebuilds the one sleeping child it names, or fails rather than recording work nothing will perform | Mail does not rebuild its recipient, so a letter to a child that is not running waits until an assignment wakes it |
 | Provider | Four dialects render mail as an attributed turn ([PRV-1](../specs/provider-adapter.md)) | Attribution is text the model reads, not a type the runtime enforces |
 | Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source, and the child's transcript: entering a child shows the mail it sent and nothing else, because its own events stay in its own journal under its own agent id |
 | Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking, lifecycle from the child's own events | A child is named `Delegated N` by the order it was created, not by what it does: `delegate` carries no name and the runtime picks the model |
@@ -52,6 +52,13 @@ agent engine or journal format is planned.
 
 ## Outstanding
 
+- **One conversation, one way out.** `Record::emit` assigns a sequence and pushes the envelope into
+  whichever `Reaction` its caller holds, and `LiveRuntime` then routes some reactions into its
+  pending queue and returns others to the caller. One counter and two containers means the workspace
+  can receive a later number before an earlier one, and the projection drops the earlier as stale —
+  intermittently, and more often the more a root projects. The fix is the invariant, not another
+  ordering fix at a call site: every reaction joins the queue in assignment order, the queue is the
+  only exit, and a return value carries a report rather than events.
 - Process death inside the collaboration-log/child-journal provisioning window.
 - A canonical cross-session Attention source. Background requests must not be inferred from mail or
   task state.
