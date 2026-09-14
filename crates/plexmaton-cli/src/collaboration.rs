@@ -378,30 +378,31 @@ impl Collaboration {
         self.announced.get(&endpoint.conversation).cloned()
     }
 
-    /// Moves one child's roster status, which is all of a runner update the root can show today.
+    /// Shows what a child is doing, in the root's projection, under the name the roster gave it.
+    ///
+    /// A child is a separate conversation: it numbers its own events and names itself by its own
+    /// agent identity, so its envelopes cannot be forwarded as they are — the sequence would arrive
+    /// stale beside the root's own, and the name would belong to nobody the panel has heard of.
+    /// Each fact is re-addressed and renumbered instead.
+    ///
+    /// What is forwarded is the child's work: what it said, what it ran, and what went wrong. Its
+    /// own `AgentCreated` is not, because the roster already announced it under a different name;
+    /// nor are its letters and tasks, which the collaboration log already draws on both sides and
+    /// which would otherwise appear twice.
     fn project_runner(
         &mut self,
         runtime: &mut LiveRuntime,
         update: OwnedRunnerUpdate,
     ) -> anyhow::Result<()> {
-        let (identity, status) = match &update {
-            // A child reports its own lifecycle in its own conversation's events. Re-addressing
-            // that one event is how the roster learns a child stopped; nothing else in a child's
-            // stream belongs to the root, because its transcript is its own conversation's.
-            OwnedRunnerUpdate::Runtime { identity, update } => (
-                identity,
-                match update.as_ref() {
-                    RuntimeUpdate::Event(envelope) => match &envelope.event {
-                        ConversationEvent::AgentStatusChanged { status, .. } => *status,
-                        _ => return Ok(()),
-                    },
-                    RuntimeUpdate::Report(_) => return Ok(()),
-                    RuntimeUpdate::Finished => AgentStatus::Completed,
-                },
-            ),
+        let (identity, event) = match update {
+            OwnedRunnerUpdate::Runtime { identity, update } => match *update {
+                RuntimeUpdate::Event(envelope) => (identity, Some(envelope.event)),
+                RuntimeUpdate::Report(_) => return Ok(()),
+                RuntimeUpdate::Finished => (identity, None),
+            },
             OwnedRunnerUpdate::Failed { identity, .. }
             | OwnedRunnerUpdate::WorkerFailed { identity }
-            | OwnedRunnerUpdate::WakeRejected { identity, .. } => (identity, AgentStatus::Failed),
+            | OwnedRunnerUpdate::WakeRejected { identity, .. } => (identity, None),
             _ => return Ok(()),
         };
         let Some(agent_id) = self
@@ -411,7 +412,19 @@ impl Collaboration {
         else {
             return Ok(());
         };
-        runtime.project_delegated(ConversationEvent::AgentStatusChanged { agent_id, status });
+        // A runner that ended without saying so leaves the roster claiming it is still working.
+        let Some(mut event) = event else {
+            runtime.project_delegated(ConversationEvent::AgentStatusChanged {
+                agent_id,
+                status: AgentStatus::Failed,
+            });
+            return Ok(());
+        };
+        if !forwarded(&event) {
+            return Ok(());
+        }
+        *event.agent_mut() = agent_id;
+        runtime.project_delegated(event);
         Ok(())
     }
 
@@ -465,4 +478,23 @@ pub(crate) fn child_factory(
     let directory = DelegatedConversationDirectory::under(plexmaton_home)
         .context("open the delegated session directory")?;
     Ok(DelegatedChildFactory::new(directory, model, key, tools))
+}
+
+/// Whether one of a child's own facts belongs in the root's view of it.
+///
+/// Its transcript, its tools and its failures are what the user opened the child to read. Its
+/// identity and its correspondence are already on screen under names this root chose, and its
+/// token usage has no surface to appear on.
+const fn forwarded(event: &ConversationEvent) -> bool {
+    matches!(
+        event,
+        ConversationEvent::AgentStatusChanged { .. }
+            | ConversationEvent::TranscriptItemStarted { .. }
+            | ConversationEvent::TranscriptDelta { .. }
+            | ConversationEvent::TranscriptItemFinalized { .. }
+            | ConversationEvent::ToolCallChanged { .. }
+            | ConversationEvent::ArtifactAnnounced { .. }
+            | ConversationEvent::RuntimeWarning { .. }
+            | ConversationEvent::RuntimeError { .. }
+    )
 }

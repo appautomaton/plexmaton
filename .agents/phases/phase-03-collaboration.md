@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; the round trip was observed in the real executable — the main agent delegates, the child works and mails back, the root reads that mail and answers, and both the ask and the answer are on screen in both conversations and survive resume. That composition root has no tests: the observation is a demonstration, not evidence. The child's own transcript and control over it are not yet on screen |
+| Status | Active; the round trip was observed in the real executable — Main delegates, the child works and mails back, the root reads that mail and answers, and the ask, the child's own work and the answer are all on screen in both conversations and survive resume. That composition root has no tests: the observation is a demonstration, not evidence. Control over a child — Stop, Handoff — is not yet on screen |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | JRN-4/JRN-7, LIVE-1/LIVE-3 and the existing provider context boundary |
@@ -18,10 +18,10 @@ Default resume activates only the main runner, retaining child history and canon
 ## What exists, and what stops it running
 
 `delegate` is in the model's tools, a call creates a real child, the child runs its task against a
-real provider and mails its result back, the root takes a collaboration turn to read it, and the
-letter is on screen in the child's window with its roster row counting it. What is still missing is
-the rest of what the user would watch while that happens: the child's own transcript, and control
-over it. The right-hand column is the whole gap.
+real provider and mails its result back, and the root takes a collaboration turn to read it. Both
+directions are on screen in both conversations: what Main asked, what the child did to answer it —
+its text, its tools, its failures — and the letter it sent back. What is still missing is control:
+stopping a child, and handing it over. The right-hand column is the whole gap.
 
 | Part | Owns | Missing |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ over it. The right-hand column is the whole gap.
 | Wake and mail projection | [SCH-5](../specs/owned-scheduling.md), [CMP-1](../specs/collaboration-mail-projection.md): coalesced hints, branch-local boundary reread, attributed Incoming/Sent snapshots; the root reads its own inbox through a turn it admits itself, and each letter joins its sender's conversation and that sender's roster count | Queued and included read the same on screen; distinguishing them needs the CMP-2 session join, which no product surface calls yet |
 | Tool grammar | [CTL-1–CTL-2](../specs/collaboration-tools.md): four typed schemas, authenticated ingress, recoverable provisioning; an assignment rebuilds the one sleeping child it names, or fails rather than recording work nothing will perform | Mail does not rebuild its recipient, so a letter to a child that is not running waits until an assignment wakes it. A collaboration tool call carries no retained invocation, so its row discloses nothing: the task or letter is readable only as the entry the projection draws beside it |
 | Provider | Four dialects render mail as an attributed turn ([PRV-1](../specs/provider-adapter.md)) | Attribution is text the model reads, not a type the runtime enforces |
-| Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment | Production source, and the work itself: a child's window now shows what it was asked and what it answered, but nothing it did in between — its own events stay in its own journal under its own agent id. `HandoffCompleted` is also still drawn nowhere |
+| Control view | [CCV-1–CCV-4](../specs/child-control-view.md): controller presentation, composer gate, passive acknowledgment; a child's own transcript, tools and failures are re-addressed into the root's projection under its roster name | Production Stop and Handoff, and `HandoffCompleted`, which is still drawn nowhere |
 | Roster | Ordering by attention, the ruled break, `Ctrl-B`, width-dependent docking, lifecycle from the child's own events | A child is named `Delegated N` by the order it was created, not by what it does: `delegate` carries no name and the runtime picks the model |
 
 Semantics stay in the agent crate, storage in session-store, orchestration in runtime; no second
