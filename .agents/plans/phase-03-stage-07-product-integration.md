@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | Roadmap locked typed mail and single controller; COL-1–COL-5, CIN-1–CIN-4, CHB-1–CHB-3, SCH-1–SCH-5, CMP-1 and UI/UX control/mail/Attention sections |
-| Status | Slices 1–5 complete; Slice 6 control UI built and the roster/Attention redesign reviewed and landed, production activation blocked |
+| Status | Slices 1–5 complete; Slice 6 control UI built and reviewed, and production activation now runs the delegation round trip and shows its mail. The child's transcript and production Stop/Handoff remain |
 
 ## Outcome
 
@@ -50,9 +50,13 @@ collaboration context can close the end-to-end integration gate.
      [native record](../spikes/kitty-native-preview/README.md#evidence-and-limits).
      Normal terminal restoration was checked and the final targeted Sol review found no blocker. This part grants
      no runtime authority and does not prove production Stop, Handoff, mail or Attention.
-   - **Production activation.** Enable execution only after a provider has a native typed collaboration
-     field. Connect inspection, Stop, Handoff, composer control and passive projections to the real
-     root service, then verify the production journey and native frames at three widths.
+   - **Production activation (partly delivered).** The executable composes the owner, the child
+     factory and the Main lane, so `delegate` reaches a model, a real child answers by mail, the root
+     admits its own turn to read it, and each letter is drawn in its sender's conversation with the
+     roster counting it — verified against a live provider on create and on resume. Rejected: gating
+     this on a native typed collaboration field, which no dialect offers; [PRV-1](../specs/provider-adapter.md)
+     renders mail as an attributed turn instead. Still to connect: the child's own transcript, Stop,
+     Handoff and composer control, then native frames at three widths.
    Review any interaction contract change with the user after they have seen its native frame.
 
 ## Order and why

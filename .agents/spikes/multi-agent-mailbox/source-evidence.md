@@ -91,3 +91,19 @@ is attached, the runtime refuses direct user input under Main control and retain
 permit through session/model work. Any unknown collaboration append freezes authority until reopen;
 a live reservation or permit retains the physical file lock. The bounded asynchronous collaboration
 owner, authenticated ingress and product bootstrap remain unproven.
+
+## Re-engaging a child, compared
+
+Grok's `xai-tool-types/src/task.rs` makes continuation a parameter of the spawn tool itself:
+`resume_from: Option<String>`, with the handle returned to the model in the completed sub-agent's
+output — a `resume_from_hint` field plus a rendered footer, "To continue this subagent's
+conversation, use resume_from=\"{subagent_id}\"". The runtime reconstructs that one child when the
+model names it, and a resumed child inherits its prior model rather than taking a fresh one.
+Codex's `ext/agent` has no continuation concept at all; a sub-agent runs once.
+
+Plexmaton reaches the same place by a different route: `update_task` names an existing delegation
+through its opaque `TargetSelector`, which is what `delegate` already returns. What it lacks is
+Grok's laziness. A resumed root reconstructs every child's runner up front, so a root with more
+delegations than `RUNNERS` leaves the rest addressable but unrunnable, and `update_task` on one of
+them reports success and does nothing. Reconstructing the one child a call names, at the moment it
+names it, is the shape to adopt.
