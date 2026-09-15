@@ -52,14 +52,22 @@ This preparation task ends with plans and document validation, then waits for in
 ## Coordinator protocol
 
 The next coordinator reads this phase and the active plan, then only that slice's specs, named
-owners and nearby tests. Follow [AGENTS.md](../../AGENTS.md#working-discipline): the coordinator
-owns edits; gpt-5.6-luna at max explores bounded distinct angles, and gpt-5.6-sol at high reviews.
-Delegates are read-only. A coordinator may itself be gpt-5.6-luna at max; this plan requires no
-continuing role from the planning session.
+owners and nearby tests. The user's assignment for this run is gpt-5.6-sol at xhigh as coordinator
+and gpt-5.6-luna at max as implementation delegates. The coordinator owns decomposition, integration,
+independent review, verification and task Git resources; Luna delegates may edit and test their
+explicitly assigned slice scope under [AGENTS.md](../../AGENTS.md#working-discipline).
+This run requires no continuing role from the planning session.
 
-Delegate packets contain the slice, question, read paths, invariant and expected evidence.
-Return file/line findings and test seams, not copied trees or conversation history. Do not preload
-future slices/reference repositories. Read M/L as scope, not a promised token or time budget.
+Keep one implementation slice in progress. Give each writer exclusive named files, and do not
+edit those files concurrently. Independent read-only exploration may run alongside implementation;
+additional writers require demonstrably disjoint ownership within the active slice. The coordinator
+reviews the actual diff and test evidence before marking a slice complete; the implementer's
+report alone is not verification. Delegate Git commits, branch switches and cleanup are not allowed.
+
+Delegate packets contain the slice, role, read paths, exclusive edit scope, invariant, acceptance
+checks and exclusions. Implementers return changed files, checks actually run, results and remaining
+risks; read-only delegates return file/line findings and test seams. Do not copy trees/conversation
+history or preload future slices/references. M/L describes scope, not a token or time budget.
 
 For each slice: failing case → implementation → focused checks → targeted review → spec/status
 update. Retain only command, tested revision/diff, result, artifact path and limits beside the slice;

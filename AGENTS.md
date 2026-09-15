@@ -49,8 +49,10 @@ merge, that agent syncs `main` and retires the task's worktree and local/remote 
 cleanup request, following [Git workflow](./.agents/standards/git-workflow.md). Preserve unfinished
 work; report a blocked cleanup instead of calling it complete. New work gets a new branch.
 
-The primary agent owns all edits, integration, and verification. Delegates are read-only and
-return evidence.
+The primary agent owns integration, verification and task Git resources. Delegates are read-only
+unless the user explicitly assigns them implementation. Record that assignment in the active
+phase before dispatch; each implementation delegate gets a bounded scope and exclusive file
+ownership. The coordinator does not edit files while a delegate owns them.
 
 **Codex only:** explore with `gpt-5.6-luna` at `max` effort; use 2–4 distinct angles for substantial
 work, as slots permit. Review with `gpt-5.6-sol` at `high` effort, one targeted reviewer by default.
