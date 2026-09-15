@@ -29,6 +29,8 @@ use crate::{
     UPDATE_TASK_TOOL_NAME,
 };
 
+mod process_death;
+
 const UNKNOWN_ARTIFACT: &str =
     "artifact-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 

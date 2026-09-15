@@ -75,6 +75,8 @@ impl OwnedCollaboration {
             ActivationControl::Main => factory.reserve(view.worker.conversation.clone())?,
             ActivationControl::User => factory.resume(view.worker.conversation.clone())?,
         };
+        #[cfg(test)]
+        provisioning_process_barrier("child-journal", selector);
         let binding = self.delegated_binding(target.delegation.clone()).await?;
         let registered = self
             .register_collaboration_target(target.delegation)
@@ -86,7 +88,11 @@ impl OwnedCollaboration {
             .build(view.worker, journal, binding, registered.child_ingress())
             .await?;
         match self.register(runtime).await {
-            Ok(identity) => Ok(identity),
+            Ok(identity) => {
+                #[cfg(test)]
+                provisioning_process_barrier("runner", selector);
+                Ok(identity)
+            }
             Err(error) => {
                 let (registration, mut runtime) = error.into_parts();
                 match runtime.shutdown().await {
@@ -115,6 +121,8 @@ impl OwnedCollaboration {
         };
         let reference = self.writer.item_reference(&receipt);
         let selector = TargetSelector::issued_for(&reference);
+        #[cfg(test)]
+        provisioning_process_barrier("canonical", &selector);
         let canonical = match &delegation.creation.event {
             CollaborationEvent::DelegationCreated { delegation, .. } => delegation.clone(),
             _ => unreachable!("pending delegation retains its creation event"),
@@ -148,4 +156,39 @@ fn provisioning_failure(
         target,
         source: Box::new(source),
     }
+}
+
+/// Test-only process cut after one named provisioning boundary has become externally observable.
+#[cfg(test)]
+pub(super) fn provisioning_process_barrier(boundary: &str, target: &TargetSelector) {
+    use std::io::Write as _;
+    use std::time::{Duration, Instant};
+
+    let Some(selected) = std::env::var_os("PLEXMATON_TEST_PROVISIONING_CUT") else {
+        return;
+    };
+    if selected != boundary {
+        return;
+    }
+    let ready = std::path::PathBuf::from(
+        std::env::var_os("PLEXMATON_TEST_PROVISIONING_READY")
+            .expect("process-cut fixture provides a readiness path"),
+    );
+    let mut marker = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(ready)
+        .expect("create process-cut readiness marker");
+    write!(marker, "{boundary}\n{}\n", target.as_str())
+        .expect("write process-cut readiness marker");
+    marker
+        .sync_all()
+        .expect("persist process-cut readiness marker");
+    // The parent owns this process and normally kills it immediately. The deadline also bounds the
+    // fixture if the parent disappears before Drop can reap its child.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        std::thread::park_timeout(deadline.saturating_duration_since(Instant::now()));
+    }
+    panic!("process-cut fixture was not terminated by its owner");
 }

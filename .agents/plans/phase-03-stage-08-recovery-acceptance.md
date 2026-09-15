@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | JRN-3–JRN-7, COL-3–COL-5, CIN-2–CIN-4, CHB-1–CHB-3, SCH-2–SCH-5, APV-6, ATT-1–ATT-3, PRV-1 |
-| Status | Active; 0 of 4 slices complete. Next: slice 1 (provisioning across process death) |
+| Status | Active; 1 of 4 slices complete. Next: slice 2 (CLI kill → resume) |
 
 ## Outcome
 
@@ -22,7 +22,7 @@ than duplicating their entire matrices.
 
 ## Slices
 
-1. **Provisioning across process death — L; pending.**
+1. **Provisioning across process death — L; complete.**
    Read [collaboration-tools](../specs/collaboration-tools.md) CTL-1,
    [ledger](../specs/collaboration-ledger.md) COL-4/COL-5 and
    [bootstrap](../specs/delegated-bootstrap.md) CHB-2/CHB-3.
@@ -33,6 +33,8 @@ than duplicating their entire matrices.
    preserved accepted mail, and explicit recovery of a canonical-only child. Reopen starts no work;
    explicit target recovery cannot create a second child. Cover uncertain writes and refusal of
    malformed/mismatched provenance without erasing evidence. Keep barriers test-scoped and bounded.
+   `provisioning_process_death_recovers_one_exact_passive_child` kills at all four boundaries,
+   preserves target/retry/mail and recovers one passive child; lower tiers retain other failures.
 
 2. **CLI kill → resume with equal projections — L; pending; after 1.**
    Read [session-journal](../specs/session-journal.md) JRN-4/JRN-5/JRN-7,
