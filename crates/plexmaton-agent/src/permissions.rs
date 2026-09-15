@@ -57,6 +57,13 @@ impl PermissionDefinition {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PermissionMatcher {
+    /// Native workspace inspection, with read and search definitions explicitly pinned.
+    NativeInspection {
+        /// Trusted read definition.
+        read: PermissionDefinition,
+        /// Trusted search definition.
+        search: PermissionDefinition,
+    },
     /// The native create/edit preset, with both definitions explicitly pinned.
     NativeFileChanges {
         /// Trusted create definition.
@@ -85,6 +92,9 @@ impl PermissionMatcher {
     #[must_use]
     pub fn matches(&self, call: &AdmittedToolCall) -> bool {
         match (self, call.permission_subject()) {
+            (Self::NativeInspection { read, search }, _) => {
+                read.matches(call) || search.matches(call)
+            }
             (
                 Self::NativeFileChanges { create, edit },
                 PermissionSubject::NativeFileChange(change),

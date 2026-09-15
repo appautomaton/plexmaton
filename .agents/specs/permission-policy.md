@@ -10,20 +10,22 @@
 ## Invariants
 
 **PER-1 — Session authority outlives a Conversation.** One explicit owner retains temporary
-grants for the coding Session and physical workspace. Opening a new or saved conversation, head selection and
-compaction do not reset it. Exit/restart creates fresh memory-only authority; Conversation JSONL
-never restores a grant. Immutable snapshots are projections of this owner.
+grants for the coding Session and physical workspace. Root and delegated child runtimes share that
+owner; CHB-1 still bounds which tools a child can expose. Opening a new or saved conversation, head
+selection and compaction do not reset it. Exit/restart creates fresh memory-only authority;
+Conversation JSONL never restores a grant. Immutable snapshots are projections of this owner.
 
 **PER-2 — Explicit rules precede memory.** Deny precedes Ask, then Allow or a remembered grant,
-then capability fallback. Native read/search fallback allows; native writes and process spawning
-ask. A reusable offer is valid only when its addition authorizes the whole admitted operation;
-explicit Ask/Deny cannot be bypassed by remembering it. APV-3 still applies.
+then capability fallback. Native read/search fallback allows unless an exact `native_inspection`
+rule asks or denies them; native writes and process spawning ask. A reusable offer is valid only
+when its addition authorizes the whole admitted operation; explicit Ask/Deny cannot be bypassed by
+remembering it. APV-3 still applies.
 
-**PER-3 — A preset names definitions.** The native file-change preset pins create and edit
-identities/revisions and excludes agent-control/configuration paths and Git metadata. Neither a
-`FileWrite` capability nor a similar display name makes another tool a member. Typed permission
-subjects are issued by the trusted catalog through its APV-1 ticket, never reconstructed from
-approval detail.
+**PER-3 — A preset names definitions.** The native inspection preset pins read and search
+identities/revisions; the native file-change preset pins create and edit identities/revisions and
+excludes agent-control/configuration paths and Git metadata. Neither a capability nor a similar
+display name makes another tool a member. Typed permission subjects are issued by the trusted
+catalog through its APV-1 ticket, never reconstructed from approval detail.
 
 **PER-4 — Reuse retains scope and revision.** Exact command grants match exact source, definition,
 revision and captured execution context, including the physical working directory, shell and
@@ -91,9 +93,9 @@ The scope must reach a successfully delivered frame before a separate press can 
 
 | Invariant | Evidence |
 | --- | --- |
-| PER-1 | `per_1_memory_is_owned_by_the_coding_session_and_snapshots_cannot_mutate_it`, `per_1_remembered_command_survives_runtime_replacement_and_revocation_restores_asking`, `new_session_is_lazy_and_replacement_preserves_saved_history`, `per_1_coding_session_authority_expires_on_restart_and_refuses_other_workspaces` |
-| PER-2 | `per_2_deny_then_ask_precede_allow_and_memory_in_every_rule_order`, `per_2_explicit_capability_ask_cannot_hide_a_matching_deny_or_be_remembered`, `per_5_remember_releases_covered_waiting_siblings_through_current_policy` |
-| PER-3 | `per_3_file_change_preset_pins_definitions_and_excludes_control_paths`; existing native admission/executor tests remain APV-3 evidence |
+| PER-1 | `per_1_memory_is_owned_by_the_coding_session_and_snapshots_cannot_mutate_it`, `per_1_remembered_command_survives_runtime_replacement_and_revocation_restores_asking`, `new_session_is_lazy_and_replacement_preserves_saved_history`, `per_1_coding_session_authority_expires_on_restart_and_refuses_other_workspaces`; `scripts/smoke-delegate.py` proves the production child uses the root coding Session's current startup rules |
+| PER-2 | `per_2_deny_then_ask_precede_allow_and_memory_in_every_rule_order`, `per_2_explicit_capability_ask_cannot_hide_a_matching_deny_or_be_remembered`, `per_5_remember_releases_covered_waiting_siblings_through_current_policy`; `scripts/smoke-delegate.py` changes native inspection from Ask to Deny across restart |
+| PER-3 | `per_3_file_change_preset_pins_definitions_and_excludes_control_paths`, `per_3_inspection_preset_pins_only_read_and_search_definitions`; existing native admission/executor tests remain APV-3 evidence |
 | PER-4 | `per_4_exact_commands_preserve_source_and_context_without_reading_detail`, `per_4_stale_foreign_and_full_mutations_preserve_current_authority`, `per_4_a_changed_policy_reissues_choices_without_applying_the_stale_decision`, `per_4_changed_offer_returns_to_review_and_back_never_grants`, `per_4_command_subject_tracks_executor_context_and_preserves_exact_source` |
 | PER-5 | `per_5_remember_prepares_once_and_only_then_produces_the_audited_execution`, `per_5_preparation_failure_keeps_the_request_and_cancellation_refuses_late_completion`, `per_5_allow_once_cannot_cross_conversations_with_reused_provider_call_ids`, `per_5_remember_is_two_steps_and_submission_disables_duplicate_decisions`, `attention_keyboard_activates_the_visible_worker_and_escape_restores_primary_card`, `per_5_failed_remember_audit_never_dispatches_the_prepared_command`, `per_5_revocation_between_preparation_and_dispatch_refuses_the_effect`, `per_5_interrupt_before_permission_audit_ack_starts_no_worker`, `per_5_shutdown_before_permission_audit_ack_starts_no_worker`, `per_5_remembered_scope_frames_preserve_the_operation_and_composer` |
 | PER-6 | `per_6_project_observations_invalidate_offers_and_unavailable_sources_never_allow`, `per_6_project_command_survives_restart_and_dispatch_observes_external_revoke`, `per_6_corrupt_project_source_refuses_allow_once_before_its_effect`, `per_6_project_grant_saved_then_conversation_audit_failed_starts_no_effect`, `per_6_project_receipt_survives_a_different_audit_failing_before_worker_delivery`, `per_6_saved_project_receipt_frames_are_local_to_the_call_and_never_copied`, `shutdown_report_is_not_silently_discarded`; PGR-1–PGR-5 cover storage; [real CLI trust, restart and revoke journey](../../scripts/smoke-permissions.py) |
@@ -121,6 +123,10 @@ match = { kind = "native_file_changes" }
 
 [[permissions.rules]]
 action = "ask"
+match = { kind = "native_inspection" }
+
+[[permissions.rules]]
+action = "ask"
 match = { kind = "exact_command", source = "git fetch origin" }
 
 [[permissions.rules]]
@@ -128,9 +134,10 @@ action = "allow"
 match = { kind = "command_prefix", arguments = ["git", "fetch"] }
 ```
 
-Actions are `allow`, `ask`, or `deny`. Match kinds name the native preset, exact shell source or
-a literal argv prefix. Unknown fields, more than 128 rules, and commands outside CMD-1 bounds refuse the complete
-source. The catalog compiles definitions and command context; configuration cannot supply either.
+Actions are `allow`, `ask`, or `deny`. Match kinds name the native inspection or file-change
+preset, exact shell source or a literal argv prefix. Unknown fields, more than 128 rules, and
+commands outside CMD-1 bounds refuse the complete source. The catalog compiles definitions and
+command context; configuration cannot supply either.
 Project files retain SKL-1's 64 KiB complete-read bound. User rules load once per coding Session;
 restart reloads them. Project rules refresh under the personal store lock before controls and dispatch.
 

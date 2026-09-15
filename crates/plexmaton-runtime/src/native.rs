@@ -125,6 +125,13 @@ pub struct NativePermissionCompiler {
 }
 
 impl NativePermissionCompiler {
+    /// Pins the known read/search pair for opt-in configured inspection policy.
+    #[must_use]
+    pub fn native_inspection(&self) -> plexmaton_agent::PermissionMatcher {
+        let (read, search) = FileTools::inspection_permission_definitions();
+        plexmaton_agent::PermissionMatcher::NativeInspection { read, search }
+    }
+
     /// Pins the known create/edit pair; capability names never select preset membership.
     #[must_use]
     pub fn native_file_changes(&self) -> plexmaton_agent::PermissionMatcher {

@@ -442,10 +442,11 @@ pub(crate) fn child_factory(
     model: plexmaton_provider::ResolvedModel,
     key: plexmaton_provider::ApiKey,
     tools: plexmaton_runtime::NativeToolCatalog,
+    permissions: plexmaton_runtime::CodingSessionPermissions,
 ) -> anyhow::Result<DelegatedChildFactory> {
     let directory = DelegatedConversationDirectory::under(plexmaton_home)
         .context("open the delegated session directory")?;
-    Ok(DelegatedChildFactory::new(directory, model, key, tools))
+    Ok(DelegatedChildFactory::new(directory, model, key, tools).with_coding_session(permissions))
 }
 
 /// Which transcript entry a forwarded fact belongs to, when it names one.

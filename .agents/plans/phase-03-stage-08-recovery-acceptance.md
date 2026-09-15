@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | JRN-3–JRN-7, COL-3–COL-5, CIN-2–CIN-4, CHB-1–CHB-3, SCH-2–SCH-5, APV-6, ATT-1–ATT-3, PRV-1 |
-| Status | Active; 2 of 4 slices complete. Next: slice 3 (pending approval readmission) |
+| Status | Active; 3 of 4 slices complete. Next: slice 4 (final acceptance and document closure) |
 
 ## Outcome
 
@@ -36,26 +36,24 @@ than duplicating their entire matrices.
    tool is replayed; one explicit root turn
    receives the recovered task/mail context. The pending cut reopens under Main and appends exactly
    one interruption, one cancelled call and one `process_died` terminal. Lower-tier JRN-4 tests own
-   torn-tail permutations; actionable approval readmission remains slice 3.
+   torn-tail permutations.
 
-3. **Pending approval readmission — L; pending; after 2.**
+3. **Pending approval recovery — L; complete.**
    Read [tool-admission](../specs/tool-admission.md) APV-6,
    [session-journal](../specs/session-journal.md) JRN-5 and
    [permission-policy](../specs/permission-policy.md) PER-1/PER-9.
-   This is an inherited contract boundary, not evidence supplied by child Stop.
-   Current JRN-5 cancels orphaned calls; APV-6 requires fresh admission/current policy when a
-   persisted pending request is restored. First pin the supported restoration/explicit-continuation
-   action with a focused test. Preserve effect-free replay and never treat a saved approval as authority.
-   Establish the first production-supported child request source under CHB-1 and carry its
-   continuation through the runtime and CLI owner route. The real PTY must show that request on the
-   roster at 120/95/60 columns without taking focus, then open it only after user navigation.
-   **Closes:** changing policy, revoking a grant or replacing the tool definition before reopen
-   affects fresh admission; stale decisions cannot execute the old call; no effect runs merely
-   because resume read a record. Prove the real supported flow through runtime, CLI and PTY
-   boundaries.
-   If the current cancellation rule leaves no such restoration flow, present that exact scenario
-   and a concrete contract change for the user's decision. Do not silently count cancellation as
-   readmission, invent automatic execution, or remove APV-6 from the phase to obtain a pass.
+   The user chose permanent cancellation: a process-dead request cannot continue, its old approval
+   ID returns `NotPending`, and only a new explicit submission may start a new model turn and call.
+   The new call runs fresh admission under current policy; replay remains effect-free and no saved
+   approval becomes authority. The production child now shares the root coding Session's policy,
+   while CHB-1 still restricts it to read/search and fixed-parent mail. An opt-in
+   `native_inspection` matcher pins the read/search definitions. The real PTY changes that rule
+   from Ask to Deny across process death: the old approval stays inert, then an explicit task update
+   produces a new forbidden result without reading the file. The roster and approval card remain
+   reachable only by user navigation at 120/95/60 columns before and after restart.
+   **Closes:** `apv_6_process_recovery_cancels_old_approval_and_requires_new_submission`,
+   `per_3_inspection_preset_pins_only_read_and_search_definitions`, and
+   `scripts/smoke-delegate.py` prove the runtime, configured policy, CLI and PTY boundaries.
 
 4. **Final acceptance and document closure — M; pending; after 1–3 and stage 7.**
    Assess every row of the phase exit table. Reuse spec-named tests for retry reconciliation,

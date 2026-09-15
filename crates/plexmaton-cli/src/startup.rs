@@ -134,7 +134,13 @@ pub(super) async fn live_runtime_from_process(
     .await?;
     opened.runtime.use_coding_session(permissions)?;
     if let Some(collaboration) = collaboration.as_mut() {
-        let factory = collaboration::child_factory(&root, child_model, child_key, child_tools)?;
+        let factory = collaboration::child_factory(
+            &root,
+            child_model,
+            child_key,
+            child_tools,
+            opened.runtime.coding_session(),
+        )?;
         collaboration.bind(&opened.runtime, factory)?;
     }
     Ok((opened, workspace_root, picker, status_line, collaboration))

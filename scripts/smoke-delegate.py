@@ -77,6 +77,17 @@ STOP_CHILD_LATE = "STOP_CHILD_LATE_AFTER_STOP must never appear"
 STOP_ROOT_INPUT = "STOP_ROOT_INPUT root remains responsive"
 STOP_ROOT_ANSWER = "STOP_ROOT_ANSWER root answered after child Stop"
 
+APPROVAL_ASK = "APPROVAL_DELEGATE_ASK create a child that requests inspection"
+APPROVAL_TASK = "APPROVAL_CHILD_TASK inspect the first fixture"
+APPROVAL_WAITING = "APPROVAL_ROOT_WAITING for the child inspection"
+APPROVAL_UPDATE_ASK = "APPROVAL_UPDATE_ASK submit new work after process recovery"
+APPROVAL_UPDATED_TASK = "APPROVAL_UPDATED_TASK inspect under the current policy"
+APPROVAL_UPDATE_DONE = "APPROVAL_UPDATE_DONE new work submitted"
+APPROVAL_POLICY_DENIED = "APPROVAL_POLICY_DENIED current rules refused the new read"
+APPROVAL_REPORT = "APPROVAL_CHILD_REPORT current policy was applied"
+APPROVAL_CHILD_DONE = "APPROVAL_CHILD_DONE"
+APPROVAL_ROOT_SAW = "APPROVAL_ROOT_SAW fresh policy result"
+
 KILL_ASK = "KILL_DELEGATE_ASK create a recoverable child"
 KILL_TASK = "KILL_CHILD_TASK retain this task through process death"
 KILL_WAITING = "KILL_ROOT_WAITING for durable mail"
@@ -219,6 +230,13 @@ def kill_update_task_reply(body):
     )
 
 
+def approval_update_task_reply(body):
+    return calls(
+        "approvaltaskupdate",
+        ("update_task", {"target": delegated_target(body), "task": APPROVAL_UPDATED_TASK}),
+    )
+
+
 class CollaborationProvider(AddressedProvider):
     """Allows addressed replies to derive the opaque selector from their exact request."""
 
@@ -288,9 +306,31 @@ def kill_resume_script(paused):
     ]
 
 
-def configure(home, provider):
-    home.mkdir()
-    (home / "config.toml").write_text(f'''active_model = {{ provider = "fixture", model = "delegate" }}
+def approval_recovery_script():
+    """A restored approval stays cancelled; fresh submitted work uses the current child policy."""
+    read = {"path": "first", "offset": None, "limit": None}
+    return [
+        (APPROVAL_ASK, calls("approvalmain", ("delegate", {"task": APPROVAL_TASK}))),
+        ("call_DELEGATE_approvalmain", says(APPROVAL_WAITING)),
+        (APPROVAL_TASK, calls("approvaloldread", ("read_file", read))),
+        (APPROVAL_UPDATE_ASK, approval_update_task_reply),
+        ("call_UPDATE_TASK_approvaltaskupdate", says(APPROVAL_UPDATE_DONE)),
+        (APPROVAL_UPDATED_TASK, calls("approvalfreshread", ("read_file", read))),
+        (
+            "call_READ_FILE_approvalfreshread",
+            calls(
+                "approvalmail",
+                ("send_mail", {"summary": APPROVAL_REPORT, "artifacts": []}),
+                text=APPROVAL_POLICY_DENIED,
+            ),
+        ),
+        ("call_SEND_MAIL_approvalmail", says(APPROVAL_CHILD_DONE)),
+        (APPROVAL_REPORT, says(APPROVAL_ROOT_SAW)),
+    ]
+
+
+def configuration_source(provider, inspection_policy=None):
+    source = f'''active_model = {{ provider = "fixture", model = "delegate" }}
 [providers.fixture]
 base_url = "{provider.base_url}"
 api_key_env = "PLEXMATON_DELEGATE_FIXTURE_KEY"
@@ -301,7 +341,18 @@ display_name = "DelegateFixture"
 context_window_tokens = 32768
 max_output_tokens = 4096
 output_reserve_tokens = 4096
-''')
+'''
+    if inspection_policy is not None:
+        source += f'''\n[[permissions.rules]]
+action = "{inspection_policy}"
+match = {{ kind = "native_inspection" }}
+'''
+    return source
+
+
+def configure(home, provider, inspection_policy=None):
+    home.mkdir()
+    (home / "config.toml").write_text(configuration_source(provider, inspection_policy))
     return dict(fixture_environment(), PLEXMATON_HOME=str(home),
                 PLEXMATON_DELEGATE_FIXTURE_KEY="fixture-only")
 
@@ -1298,6 +1349,97 @@ def run_kill_resume_smoke(provider, paused):
             "repeat pending-Handoff resume added recovery debt"
 
 
+def approval_attention_at_three_widths(terminal, artifact):
+    """A child request stays on its roster row until explicit user navigation."""
+    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        screen = terminal.resize(
+            width,
+            CHILD,
+            "approval",
+            APPROVAL_WAITING,
+            "Message Plexmaton",
+            absent=("Allow once",),
+        )
+        if label:
+            write_frame(terminal, artifact, label, screen)
+    terminal.resize(120, CHILD, "approval", APPROVAL_WAITING, "Message Plexmaton")
+
+
+def open_child_approval(terminal):
+    click(terminal.master, ROSTER_ROW, terminal.capture)
+    terminal.wait(CHILD)
+    return terminal.send(ENTER, "read_file", "Allow once", "Deny")
+
+
+def run_approval_recovery_smoke(provider):
+    """APV-6/ATT-1: old approval cannot continue; new child work uses current policy."""
+    with tempfile.TemporaryDirectory(prefix="plexmaton-delegate-approval-", dir="/tmp") as folder:
+        home, project = Path(folder) / "home", Path(folder) / "project"
+        project.mkdir()
+        denied_read_marker = "DENIED_READ_CONTENT_MUST_NOT_APPEAR"
+        (project / "first").write_text(denied_read_marker + "\n")
+        invocation_trace = Path(folder) / "collaboration-invocations.log"
+        environment = dict(
+            configure(home, provider, "ask"),
+            PLEXMATON_TEST_COLLABORATION_INVOCATIONS=str(invocation_trace),
+        )
+
+        with Terminal(project, environment, "delegate", "approval-before-death") as terminal:
+            terminal.wait("Message Plexmaton")
+            terminal.prompt(APPROVAL_ASK, APPROVAL_WAITING, CHILD)
+            approval_attention_at_three_widths(terminal, "approval-live")
+            requests_before, errors = provider.snapshot()
+            assert len(requests_before) == 3 and not errors, (requests_before, errors)
+            assert invocation_snapshot(invocation_trace) == ["delegate"]
+            journal = one(home / "sessions")
+            durable_before = journal_snapshot(home)
+            open_child_approval(terminal)
+            terminal.widths("approval-live-card", "read_file", "Allow once", "Deny")
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            kill_terminal(terminal)
+
+        # Process recovery never continues the old call. New work reads a fresh startup policy.
+        (home / "config.toml").write_text(configuration_source(provider, "deny"))
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "approval-after-death",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(APPROVAL_WAITING, CHILD, "approval", RESTORED)
+            assert provider.snapshot() == (requests_before, errors)
+            assert invocation_snapshot(invocation_trace) == ["delegate"]
+            assert journal_snapshot(home) == durable_before
+            approval_attention_at_three_widths(terminal, "approval-resumed")
+            open_child_approval(terminal)
+            terminal.send(ENTER, "This request is no longer pending.")
+            assert provider.snapshot() == (requests_before, errors)
+            assert invocation_snapshot(invocation_trace) == ["delegate"]
+            assert journal_snapshot(home) == durable_before
+            for _ in range(3):
+                os.write(terminal.master, ESC)
+                observe_for(terminal.master, 0.05, terminal.capture)
+            terminal.wait(APPROVAL_WAITING, absent=("Allow once", "Deny"))
+
+            focus_primary_and_type(terminal, APPROVAL_UPDATE_ASK)
+            terminal.send(ENTER, APPROVAL_UPDATE_DONE, APPROVAL_UPDATED_TASK)
+            terminal.wait(APPROVAL_REPORT, APPROVAL_ROOT_SAW, absent=("( !1 )",))
+            requests_after, errors_after = provider.snapshot()
+            assert len(requests_after) == 9 and not errors_after, (requests_after, errors_after)
+            fresh_result = json.dumps(requests_after[6], ensure_ascii=False)
+            assert "forbidden" in fresh_result and denied_read_marker not in fresh_result, fresh_result
+            assert invocation_snapshot(invocation_trace) == [
+                "delegate", "update_task", "send_mail"
+            ]
+            open_child(terminal, APPROVAL_POLICY_DENIED, APPROVAL_CHILD_DONE)
+            terminal.wait(APPROVAL_POLICY_DENIED, APPROVAL_CHILD_DONE, absent=("Allow once",))
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+
+
 def stop_script(paused):
     """The child response has one visible prefix and one late marker behind the pause barrier."""
     return [
@@ -1370,6 +1512,8 @@ def main():
     killed = paused_text_response(KILL_CHILD_PAUSED, KILL_CHILD_LATE, "killchild-paused")
     with CollaborationProvider(kill_resume_script(killed)) as provider:
         run_kill_resume_smoke(provider, killed)
+    with CollaborationProvider(approval_recovery_script()) as provider:
+        run_approval_recovery_smoke(provider)
     paused = paused_late_response()
     with AddressedProvider(stop_script(paused)) as provider:
         run_stop_smoke(provider, paused)
@@ -1381,7 +1525,8 @@ def main():
           "a final restoration confirmation, no request or durable write; and "
           "focused-child Stop through a paused provider with root continuation; actual CLI "
           "kill/resume with equal passive projections, one explicit root continuation, and a "
-          "pending-Handoff recovery that stays under Main control")
+          "pending-Handoff recovery that stays under Main control; restored child approvals stay "
+          "cancelled, while fresh child work uses current policy")
 
 
 if __name__ == "__main__":

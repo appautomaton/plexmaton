@@ -82,8 +82,8 @@ to `/model`; it does not convert incompatible history.
 
 Conversations save on the first message; blank launches save nothing. `/tree` revisits saved history on a new branch without replaying effects; the original branch remains selectable. The tree connects message nodes vertically, omits intermediate tools, and shows hidden entry/branch counts on collapse; `●` marks the current branch. Use `--ephemeral` to opt out of saving. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.
 
-Delegate read-only work, revise tasks, exchange mail, stop children, hand one to your input, and
-inspect child history after exit or process death without waking it. Linux remains unverified.
+Delegate read-only work, exchange mail, stop/take over children, inspect history after process
+death. Process death cancels pending approvals; repeat under current policy. Linux unverified.
 
 Use the [quality gates](.agents/standards/quality-gates.md) for local checks and CI coverage. Model fixtures stay local; private state goes in ignored `.local/`.
 

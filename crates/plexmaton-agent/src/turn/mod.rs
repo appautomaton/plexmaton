@@ -2467,9 +2467,9 @@ mod tests {
         }
     }
 
-    /// JRN-5/JRN-7: process recovery settles canonical debt without rerunning its tool effect.
+    /// APV-6/JRN-5/JRN-7: recovery cancels the old approval; only new input can start work.
     #[test]
-    fn an_unfinished_restored_turn_becomes_idle_with_a_stable_cancelled_tool_result() {
+    fn apv_6_process_recovery_cancels_old_approval_and_requires_new_submission() {
         let mut live = agent();
         submit(&mut live, "change a file");
         call_named(&mut live, "write-1", "edit");
@@ -2478,6 +2478,12 @@ mod tests {
             admitted("write-1", "edit", [ToolCapability::FileWrite]),
         )));
         assert!(waiting.effects.is_empty(), "approval had not run the tool");
+        let old_approval = live
+            .pending_approvals()
+            .next()
+            .expect("old approval")
+            .approval_id()
+            .clone();
 
         let mut resumed = Agent::from_journal(
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}")),
@@ -2537,6 +2543,34 @@ mod tests {
                 }
         ));
         assert!(resumed.recover_after_process_death().is_none());
+
+        let stale = resumed.handle_at(
+            Input::ApprovalDecided {
+                approval_id: old_approval,
+                decision: ApprovalDecision::AllowOnce,
+            },
+            UnixMillis::new(1_000),
+        );
+        assert!(stale.effects.is_empty(), "the old approval cannot continue");
+        assert!(matches!(
+            stale.unresolved_approvals.as_slice(),
+            [crate::UnresolvedApprovalDecision {
+                reason: ApprovalDecisionRefusal::NotPending,
+                ..
+            }]
+        ));
+
+        let submitted = resumed.handle_at(
+            Input::Submitted {
+                text: "request the operation again".to_owned(),
+            },
+            UnixMillis::new(1_001),
+        );
+        assert!(matches!(
+            submitted.effects.as_slice(),
+            [Effect::CallModel(_)]
+        ));
+        assert!(resumed.pending_approvals().next().is_none());
     }
 
     /// TIM-1/JRN-5: a durable atomic turn start is enough to identify process-orphaned work.
