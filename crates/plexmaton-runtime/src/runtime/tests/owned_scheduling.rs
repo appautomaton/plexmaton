@@ -32,6 +32,8 @@ use crate::{
     RuntimeUpdate, ScheduledTurnRequest, SchedulerLimits, WakeAdmission, WakeHint, WakeRefusal,
 };
 
+mod user_control;
+
 struct Directory(std::path::PathBuf);
 
 impl Directory {

@@ -223,6 +223,14 @@ impl DelegatedChildFactory {
             Err(error) => Err(error.into()),
         }
     }
+
+    /// Opens only existing delegated history for explicit post-Handoff User activation.
+    pub(crate) fn resume(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<DelegatedJournalFile, DelegatedChildFactoryError> {
+        self.directory.resume(&conversation).map_err(Into::into)
+    }
 }
 
 impl OwnedCollaboration {

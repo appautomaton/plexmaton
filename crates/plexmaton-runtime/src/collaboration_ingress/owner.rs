@@ -43,6 +43,13 @@ impl OwnedCollaboration {
         delegation: DelegationId,
     ) -> Result<RegisteredCollaborationTarget, CollaborationIngressFailure> {
         let control = self.writer.delegated_control(delegation).await?;
+        if control
+            .controller()
+            .map_err(crate::CollaborationWriterError::Store)?
+            == DelegationController::User
+        {
+            self.handoff_closed.insert(control.delegation().clone());
+        }
         self.ingress
             .as_mut()
             .ok_or(CollaborationIngressRefusal::Closed)?
@@ -66,6 +73,13 @@ impl OwnedCollaboration {
         let mut targets = Vec::new();
         for control in controls {
             if control.provenance().delegator() == &main {
+                if control
+                    .controller()
+                    .map_err(crate::CollaborationWriterError::Store)?
+                    == DelegationController::User
+                {
+                    self.handoff_closed.insert(control.delegation().clone());
+                }
                 targets.push(ingress.register(control)?);
             }
         }
@@ -161,6 +175,9 @@ impl OwnedCollaboration {
                 return Some(OwnedCollaborationActivity::Ingress(
                     self.finish_pending_ingress().await,
                 ));
+            }
+            if let Some(settlement) = self.settle_cold_handoff().await {
+                return Some(OwnedCollaborationActivity::Handoff(settlement));
             }
             let ingress = self.ingress.as_ref()?;
             if ingress.receiver.is_closed()

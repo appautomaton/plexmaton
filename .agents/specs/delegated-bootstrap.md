@@ -22,6 +22,9 @@ before the runtime is exposed. The child mail catalog is crate-private and must 
 canonical provenance as the runtime binding. They force CHB-1 and accept only a `ResolvedModel`, whose configured
 reasoning effort has already passed model-local validation. Control is installed before any
 bootstrap or recovery append; a fresh constructor refuses a journal that already has records.
+Explicit User activation uses the same resumed constructor and fixed catalog after canonical User
+control and the current owner's process-local target have both been validated. It requires the
+existing delegated journal; activation cannot create missing child history.
 
 **CHB-3 — Root resume never activates a child.** User-selectable root journals and delegated child
 journals have separate owner-only directories that issue distinct, non-interconvertible runtime
@@ -29,6 +32,8 @@ tokens. Root constructors accept only a root token and delegated constructors ac
 token. Child history activates only through the delegated path and CHB-2; recovery dispatches no
 provider or tool, and interrupted work needs a fresh explicit Main admission rather than automatic
 restart. Explicit target resume may reconstruct a canonical Main-controlled child but does not wake it.
+User-controlled reconstruction requires a separately issued User target and explicit activation;
+it likewise sends no input, provider request or tool effect.
 
 ## Model
 
@@ -50,8 +55,8 @@ does not change the CHB-1 profile.
 | Invariant | Proven by |
 | --- | --- |
 | CHB-1 | `chb_1_read_only_catalog_cannot_be_widened_by_an_admitted_call`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_ingress_derives_mail_endpoints_and_current_task_revision`, `ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision` |
-| CHB-2 | `chb_2_delegated_control_retains_all_creation_provenance_across_reopen`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation` |
-| CHB-3 | `chb_3_delegated_journals_require_their_explicit_directory`, `chb_3_resumed_child_settles_interruption_without_redispatch`, `ctl_1_explicit_resume_recovers_a_canonical_child_missing_its_journal`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation`, `missing_resumed_child_history_projects_one_explicit_unavailable_state`, `locked_resumed_child_history_projects_one_explicit_unavailable_state`, `corrupt_resumed_child_history_projects_one_explicit_unavailable_state`; `scripts/smoke-delegate.py` proves passive pointer and keyboard browsing with no request or durable write |
+| CHB-2 | `chb_2_delegated_control_retains_all_creation_provenance_across_reopen`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation`, `col_3_reopened_user_control_requires_explicit_activation_and_preserves_history`, `chb_3_user_activation_requires_the_existing_delegated_journal` |
+| CHB-3 | `chb_3_delegated_journals_require_their_explicit_directory`, `chb_3_resumed_child_settles_interruption_without_redispatch`, `ctl_1_explicit_resume_recovers_a_canonical_child_missing_its_journal`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation`, `col_3_reopened_user_control_requires_explicit_activation_and_preserves_history`, `chb_3_user_activation_requires_the_existing_delegated_journal`, `missing_resumed_child_history_projects_one_explicit_unavailable_state`, `locked_resumed_child_history_projects_one_explicit_unavailable_state`, `corrupt_resumed_child_history_projects_one_explicit_unavailable_state`; `scripts/smoke-delegate.py` proves passive pointer and keyboard browsing with no request or durable write |
 
 ## Integration boundary
 

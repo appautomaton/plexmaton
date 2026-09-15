@@ -16,11 +16,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     ChildMailIntent, CollaborationToolRequest, MainMailIntent, OwnedCollaboration,
-    OwnedHandoffFailure, RuntimeError, TargetSelector, UpdateTaskIntent, WakeHint,
+    OwnedHandoffFailure, OwnedHandoffSettlement, RuntimeError, TargetSelector, UpdateTaskIntent,
+    WakeHint,
 };
 
 mod result;
 pub use result::{CollaborationIngressResult, CollaborationIngressSettlement};
+mod user_target;
+pub use user_target::{UserInputTarget, UserInputTicket};
 
 const INGRESS_CAPACITY: usize = 8;
 
@@ -188,6 +191,8 @@ impl CollaborationIngressFailure {
 pub enum OwnedCollaborationActivity {
     Ingress(CollaborationIngressSettlement),
     Runner(crate::OwnedRunnerUpdate),
+    /// A direct Handoff settled without a live runner incarnation to tag.
+    Handoff(OwnedHandoffSettlement),
 }
 
 enum IngressCaller {
@@ -206,10 +211,10 @@ struct IngressCommand {
 }
 
 #[derive(Clone)]
-struct RegisteredTarget {
-    delegation: DelegationId,
-    delegator: MailEndpoint,
-    worker: MailEndpoint,
+pub(crate) struct RegisteredTarget {
+    pub(crate) delegation: DelegationId,
+    pub(crate) delegator: MailEndpoint,
+    pub(crate) worker: MailEndpoint,
 }
 
 pub(crate) struct CollaborationIngressOwner {

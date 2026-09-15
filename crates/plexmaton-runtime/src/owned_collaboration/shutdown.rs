@@ -51,6 +51,11 @@ impl OwnedCollaboration {
             self.shutdown_settlements
                 .push(OwnedShutdownSettlement::Schedule(outcome));
         }
+        if self.pending_user_input.is_some() {
+            let outcome = self.finish_pending_user_input().await;
+            self.shutdown_settlements
+                .push(OwnedShutdownSettlement::UserInput(outcome));
+        }
         self.shutting_down = true;
         for slot in self.runners.values_mut().filter(|slot| !slot.finished) {
             if !slot.shutdown_requested {

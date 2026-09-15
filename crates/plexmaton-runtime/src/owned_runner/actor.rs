@@ -11,6 +11,7 @@ pub(super) async fn run_owned_child(
     mut runtime: LiveRuntime,
     identity: RunnerIdentity,
     normal: mpsc::Receiver<NormalCommand>,
+    user_input: mpsc::Receiver<UserInputCommand>,
     control: mpsc::Receiver<ControlCommand>,
     session: mpsc::Receiver<SessionCommand>,
     updates: mpsc::Sender<OwnedRunnerUpdate>,
@@ -19,6 +20,7 @@ pub(super) async fn run_owned_child(
         &mut runtime,
         identity,
         normal,
+        user_input,
         control,
         session,
         updates,
@@ -35,6 +37,7 @@ async fn run_owned_child_loop(
     runtime: &mut LiveRuntime,
     identity: RunnerIdentity,
     mut normal: mpsc::Receiver<NormalCommand>,
+    mut user_input: mpsc::Receiver<UserInputCommand>,
     mut control: mpsc::Receiver<ControlCommand>,
     mut session: mpsc::Receiver<SessionCommand>,
     updates: mpsc::Sender<OwnedRunnerUpdate>,
@@ -45,6 +48,7 @@ async fn run_owned_child_loop(
             match flush_pending_update(
                 runtime,
                 &mut normal,
+                &mut user_input,
                 &mut control,
                 &mut session,
                 &updates,
@@ -55,8 +59,16 @@ async fn run_owned_child_loop(
                 PendingUpdateAction::Retain(update) => pending_update = Some(update),
                 PendingUpdateAction::Delivered => {}
                 PendingUpdateAction::Close { update, reply } => {
-                    close_owned_child(runtime, identity, normal, updates, Some(update), reply)
-                        .await;
+                    close_owned_child(
+                        runtime,
+                        identity,
+                        normal,
+                        user_input,
+                        updates,
+                        Some(update),
+                        reply,
+                    )
+                    .await;
                     return;
                 }
                 PendingUpdateAction::ReceiverClosed => {
@@ -82,12 +94,24 @@ async fn run_owned_child_loop(
                 if let ControlAction::Close(reply) =
                     handle_control(command, runtime, &mut normal).await
                 {
-                    close_owned_child(runtime, identity, normal, updates, None, reply).await;
+                    close_owned_child(
+                        runtime,
+                        identity,
+                        normal,
+                        user_input,
+                        updates,
+                        None,
+                        reply,
+                    )
+                    .await;
                     return;
                 }
             }
             command = session.recv() => {
                 handle_session(command, runtime).await;
+            }
+            command = user_input.recv() => {
+                handle_user_input(command, runtime).await;
             }
             update = runtime.next_update() => {
                 match update {
@@ -102,10 +126,12 @@ async fn run_owned_child_loop(
                                 runtime,
                                 identity,
                                 normal,
+                                user_input,
                                 updates,
                                 pending_update.take(),
                                 None,
-                            ).await;
+                            )
+                            .await;
                             return;
                         }
                     }
@@ -114,6 +140,7 @@ async fn run_owned_child_loop(
                             runtime,
                             identity.clone(),
                             normal,
+                            user_input,
                             updates,
                             Some(OwnedRunnerUpdate::Failed { identity, error }),
                             None,
@@ -145,7 +172,16 @@ async fn run_owned_child_loop(
                         });
                     }
                     None => {
-                        close_owned_child(runtime, identity, normal, updates, None, None).await;
+                        close_owned_child(
+                            runtime,
+                            identity,
+                            normal,
+                            user_input,
+                            updates,
+                            None,
+                            None,
+                        )
+                        .await;
                         return;
                     }
                 }
@@ -167,6 +203,7 @@ enum PendingUpdateAction {
 async fn flush_pending_update(
     runtime: &mut LiveRuntime,
     normal: &mut mpsc::Receiver<NormalCommand>,
+    user_input: &mut mpsc::Receiver<UserInputCommand>,
     control: &mut mpsc::Receiver<ControlCommand>,
     session: &mut mpsc::Receiver<SessionCommand>,
     updates: &mpsc::Sender<OwnedRunnerUpdate>,
@@ -184,6 +221,10 @@ async fn flush_pending_update(
             handle_session(command, runtime).await;
             PendingUpdateAction::Retain(update)
         }
+        command = user_input.recv() => {
+            handle_user_input(command, runtime).await;
+            PendingUpdateAction::Retain(update)
+        }
         permit = updates.reserve() => {
             let Ok(permit) = permit else {
                 return PendingUpdateAction::ReceiverClosed;
@@ -192,6 +233,38 @@ async fn flush_pending_update(
             PendingUpdateAction::Delivered
         }
     }
+}
+
+async fn handle_user_input(command: Option<UserInputCommand>, runtime: &mut LiveRuntime) {
+    let (input, selected_skill, reply) = match command {
+        Some(UserInputCommand::Submit {
+            input,
+            selected_skill,
+            #[cfg(test)]
+            fail,
+            reply,
+        }) => {
+            #[cfg(test)]
+            if fail {
+                let _caller_gone = reply.send(Err(RuntimeError::DelegatedControlBusy)).is_err();
+                return;
+            }
+            (*input, selected_skill, reply)
+        }
+        #[cfg(test)]
+        Some(UserInputCommand::Hold { entered, release }) => {
+            entered.notify_one();
+            release.notified().await;
+            return;
+        }
+        None => return,
+    };
+    let agent = runtime.agent_id().clone();
+    let result = match selected_skill {
+        Some(skill) => runtime.submit_skill(agent, input, skill).await,
+        None => runtime.submit(agent, input).await,
+    };
+    let _caller_gone = reply.send(result).is_err();
 }
 
 async fn handle_session(command: Option<SessionCommand>, runtime: &mut LiveRuntime) {
@@ -244,11 +317,13 @@ async fn close_owned_child(
     runtime: &mut LiveRuntime,
     identity: RunnerIdentity,
     mut normal: mpsc::Receiver<NormalCommand>,
+    mut user_input: mpsc::Receiver<UserInputCommand>,
     updates: mpsc::Sender<OwnedRunnerUpdate>,
     pending: Option<OwnedRunnerUpdate>,
     reply: Option<oneshot::Sender<Result<DispatchReport, RuntimeError>>>,
 ) {
     drain_normal(&mut normal);
+    drain_user_input(&mut user_input);
     let shutdown = runtime.shutdown().await;
     let already_finished = matches!(&pending, Some(update) if update.is_finished());
     let (terminal_failure, pending) = match pending {
@@ -341,6 +416,18 @@ async fn close_owned_child(
     }
 }
 
+fn drain_user_input(user_input: &mut mpsc::Receiver<UserInputCommand>) {
+    while let Ok(command) = user_input.try_recv() {
+        match command {
+            UserInputCommand::Submit { reply, .. } => {
+                let _caller_gone = reply.send(Err(RuntimeError::ShuttingDown)).is_err();
+            }
+            #[cfg(test)]
+            UserInputCommand::Hold { .. } => {}
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use plexmaton_agent::collaboration::MailEndpoint;
@@ -382,6 +469,7 @@ mod tests {
             generation: RunnerGeneration::new(1).expect("generation"),
         };
         let (_normal, normal) = mpsc::channel(1);
+        let (_user_input, user_input) = mpsc::channel(1);
         let (updates, mut received) = mpsc::channel(1);
         let failure_identity = identity.clone();
         let close = tokio::spawn(async move {
@@ -390,6 +478,7 @@ mod tests {
                 &mut runtime,
                 identity,
                 normal,
+                user_input,
                 updates,
                 Some(OwnedRunnerUpdate::Failed {
                     identity: failure_identity,

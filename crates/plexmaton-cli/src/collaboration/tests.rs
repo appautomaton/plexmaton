@@ -622,6 +622,7 @@ async fn stop_settlement_is_consumed_exactly_once() {
         agent: child.clone(),
         outcome: Box::new(Ok(OwnedStopReport {
             scheduled: None,
+            user_input: None,
             stopped: DispatchReport::default(),
         })),
     });

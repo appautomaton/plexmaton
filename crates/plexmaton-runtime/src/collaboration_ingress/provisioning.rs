@@ -2,11 +2,34 @@
 
 use super::*;
 
+#[derive(Clone, Copy)]
+enum ActivationControl {
+    Main,
+    User,
+}
+
 impl OwnedCollaboration {
     /// Explicitly reconstructs one canonical Main-controlled child without scheduling work.
     pub async fn resume_collaboration_target(
         &mut self,
         selector: &TargetSelector,
+    ) -> Result<crate::RunnerIdentity, CollaborationIngressFailure> {
+        self.resume_collaboration_target_with_control(selector, ActivationControl::Main)
+            .await
+    }
+
+    pub(crate) async fn resume_user_collaboration_target(
+        &mut self,
+        selector: &TargetSelector,
+    ) -> Result<crate::RunnerIdentity, CollaborationIngressFailure> {
+        self.resume_collaboration_target_with_control(selector, ActivationControl::User)
+            .await
+    }
+
+    async fn resume_collaboration_target_with_control(
+        &mut self,
+        selector: &TargetSelector,
+        control: ActivationControl,
     ) -> Result<crate::RunnerIdentity, CollaborationIngressFailure> {
         let target = self
             .ingress
@@ -24,7 +47,9 @@ impl OwnedCollaboration {
                     .ok_or(CollaborationIngressRefusal::UnknownTarget)?
             }
         };
-        let view = self.current_target(&target, true).await?;
+        let view = self
+            .current_target(&target, matches!(control, ActivationControl::Main))
+            .await?;
         if let Some(identity) = self.live_runner_identity(&target.delegation, &view.worker) {
             return Ok(identity);
         }
@@ -42,11 +67,14 @@ impl OwnedCollaboration {
         if !self.has_runner_capacity() {
             return Err(CollaborationIngressRefusal::Busy.into());
         }
-        let journal = self
+        let factory = self
             .child_factory
             .as_ref()
-            .expect("preflighted child factory")
-            .reserve(view.worker.conversation.clone())?;
+            .expect("preflighted child factory");
+        let journal = match control {
+            ActivationControl::Main => factory.reserve(view.worker.conversation.clone())?,
+            ActivationControl::User => factory.resume(view.worker.conversation.clone())?,
+        };
         let binding = self.delegated_binding(target.delegation.clone()).await?;
         let registered = self
             .register_collaboration_target(target.delegation)

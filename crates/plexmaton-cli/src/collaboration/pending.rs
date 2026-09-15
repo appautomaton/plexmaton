@@ -140,6 +140,13 @@ impl Collaboration {
                 })
             }
             OwnedCollaborationActivity::Ingress(_) => None,
+            OwnedCollaborationActivity::Handoff(settlement) if settlement.outcome().is_ok() => {
+                Some(PendingRootProjection::RefreshLog {
+                    sync_running_roster: false,
+                    orphaned_link: None,
+                })
+            }
+            OwnedCollaborationActivity::Handoff(_) => None,
             OwnedCollaborationActivity::Runner(update) => self.prepare_runner(update),
         };
         Ok(self.pending_projection.is_some())

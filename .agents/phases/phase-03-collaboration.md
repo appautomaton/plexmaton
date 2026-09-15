@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 7 slices 1–4 of 8 are complete; slice 5 is next; stage 8 remains prepared |
+| Status | Active; stage 7 slices 1–5 of 8 are complete; slice 6 is next; stage 8 remains prepared |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Inherits | Phase 02 journal recovery, providers, compaction, permissions and conversation trees. JRN-4/JRN-5 real CLI kill→resume and APV-6 pending-request readmission remain unproven |
@@ -17,8 +17,9 @@ COL-3, CHB-1–CHB-3 and the [locked roadmap](../roadmap.md#locked) own authorit
 
 ## Current evidence
 
-The current task is `feat/phase-03-control` in `.worktrees/phase-03-control`. Stage 7.1–7.3 are
-checkpointed locally through `bf73c71`; earlier preparation is published on the task branch. The user
+The current task is `feat/phase-03-control` in `.worktrees/phase-03-control`. Stage 7.1–7.4 are
+checkpointed locally through `149d5e0`; stage 7.5 is complete in the current change. Earlier
+preparation is published on the task branch. The user
 directed this same worktree to continue through the prepared Phase 03 plan end to end, without a PR,
 merge or retirement between slices. The primary checkout remains on main; local commits may
 checkpoint completed slices, while publication still requires instruction.
@@ -32,9 +33,10 @@ checkpoint completed slices, while publication still requires instruction.
 | Owned child Stop | Focused-child Ctrl-C now addresses the collaboration owner, never the root runtime. Stop admission is synchronous and cancellation-safe; accepted scheduling settles first, exact reports return through the child route, wakes cannot restart the stopped child, and repeated/missing/resumed requests remain typed control outcomes. The paused-provider PTY stops only the child, admits root input before releasing the provider barrier, completes that root request afterward, and rejects late child output from both screen and journal |
 | Passive child resume | The normal replay route already projected valid child history before slice 3, but no executable opened it after restart. Pointer and keyboard now open that exact persisted child at 120/95/60 columns; at 60, scroll then close/reopen retains the same semantic first-visible history line before returning to Main. Provider request counts and the root, child and collaboration JSONL bytes remain unchanged across both resume journeys. Missing, locked and invalid child journals retain a selectable roster row with one bounded child-owned warning; invalid bytes remain untouched |
 | Durable shared-entry placement | Successful collaboration tools and admitted recipient turns write validated reference-only session links after acknowledgement; task and mail bodies remain solely in the collaboration log. If an accepted ingress outlives its tool wait, the composition writes the same idempotent link through the caller's root or child journal owner. Selected branches place each side at its first durable link, while old or interrupted journals use a stable canonical suffix. Two real-file reopens preserve bytes and order; real passive child activation suppresses only its restored prefix and retains later recovery revisions; the PTY places task/mail among conversation work before the restoration confirmation |
-| Validation | At unchanged `c965b28`, all seven executable journeys and all 41 Python tests passed locally on 2026-09-15. Stage 7.1 passed the 70-test runtime persistence module and its focused gates. Stage 7.2 passed 31 owned-scheduling tests, the 16-test Stop filter and all 124 then-current CLI binary tests. Stage 7.3 passed all 127 CLI binary tests, three focused Inspector keyboard/pointer/anchor tests, all 41 Python gate tests and the expanded real delegation journey. Stage 7.4 passed all 241 agent tests, all 231 runtime tests, every CLI target including 134 composition tests, all 41 Python tests, targeted Clippy, formatting and the expanded delegation PTY with ordered live/reopen task and mail rows. No branch CI result is recorded here |
-| Active implementation lease | None. Slices 1–4 are complete; slice 5 has not started |
-| Existing control backend | Main's four tools reach authenticated ingress; Handoff and Stop reach canonical owner settlement. The owned child actor survives Stop/Handoff, but has no user-submission lane. Control snapshots and Handoff entries have no production projection |
+| Execution after Handoff | The owner issues a process-local authenticated User input target for one canonical child; activation returns an exact runner-generation ticket and admits it through a separate one-slot runner lane only after the durable controller is User. Active Handoff stops Main work before transfer; idle transfer admits only the addressed child. Exact Handoff retry does not interrupt User work, Stop closes new input, cancelled waits and shutdown retain outcomes and drafts, and a reopened User child stays passive until explicit cold activation of its existing delegated journal. Reopen restores its history and read-only capability profile while stale targets, tickets and Main wakes/admissions fail |
+| Validation | At unchanged `c965b28`, all seven executable journeys and all 41 Python tests passed locally on 2026-09-15. Stage 7.1 passed the 70-test runtime persistence module and its focused gates. Stage 7.2 passed 31 owned-scheduling tests, the 16-test Stop filter and all 124 then-current CLI binary tests. Stage 7.3 passed all 127 CLI binary tests, three focused Inspector keyboard/pointer/anchor tests, all 41 Python gate tests and the expanded real delegation journey. Stage 7.4 passed all 241 agent tests, all 231 runtime tests, every CLI target including 134 composition tests, all 41 Python tests, targeted Clippy, formatting and the expanded delegation PTY with ordered live/reopen task and mail rows. Stage 7.5 passed all 240 runtime tests, every CLI target including 134 composition tests, and all 41 Python gate tests, plus targeted Clippy, formatting, file-length, crate-graph, citation and frame gates. Its nine-test tier-2 module covers active/idle Handoff, exact retry, accepted-wait cancellation, failed input followed by Stop, cross-child Stop priority, canceled cold Handoff, retained terminal join order, strict history resume, stale target/ticket, passive reopen and explicit User activation. No branch CI result is recorded here |
+| Active implementation lease | None. Slices 1–5 are complete; slice 6 has not started |
+| Existing control backend | Main's four tools reach authenticated ingress; Handoff and Stop reach canonical owner settlement. The owned child actor has an authenticated post-Handoff User input lane and explicit cold activation. Control snapshots, product input routing and Handoff entries have no production projection |
 | Native UI | Revisioned control/composer fixtures have native evidence in the [Kitty record](../spikes/kitty-native-preview/README.md). They prove presentation mechanisms, not production authority or final user acceptance |
 
 Keep three facts separate: **Implemented** means the mechanism has its spec-named proof;
@@ -49,7 +51,7 @@ owners/tests, preserve existing work, and follow AGENTS.md for team roles and au
 
 | Stage | Purpose | State |
 | --- | --- | --- |
-| [7 — Product integration](../plans/phase-03-stage-07-product-integration.md) | Ordered publication; owned Stop; passive resume; durable entry placement; post-Handoff runtime ownership; control/input; canonical requests; complete journey and consistent display names | Active; slices 1–4 of eight complete; slice 5 is next |
+| [7 — Product integration](../plans/phase-03-stage-07-product-integration.md) | Ordered publication; owned Stop; passive resume; durable entry placement; post-Handoff runtime ownership; control/input; canonical requests; complete journey and consistent display names | Active; slices 1–5 of eight complete; slice 6 is next |
 | [8 — Recovery acceptance](../plans/phase-03-stage-08-recovery-acceptance.md) | Provisioning crash cuts; actual CLI kill→resume; pending approval readmission; final acceptance and closure | Prepared; four slices after stage 7 |
 
 The previous backend work stays in its mechanisms. The former single unfinished activation/control

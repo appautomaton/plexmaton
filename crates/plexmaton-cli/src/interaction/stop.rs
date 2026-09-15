@@ -1,7 +1,7 @@
 //! Focused-conversation interruption and child Stop settlement.
 
 use plexmaton_core::AgentId;
-use plexmaton_runtime::{LiveRuntime, OwnedSchedulingError, OwnedStopReport};
+use plexmaton_runtime::{DispatchReport, LiveRuntime, OwnedSchedulingError, OwnedStopReport};
 use plexmaton_tui::Workspace;
 
 use crate::{dispatch_live, input::apply_report, route_interrupt};
@@ -44,6 +44,20 @@ pub(super) fn apply_stop_settlement(
     };
     if let Some(scheduled) = report.scheduled {
         apply_report(runtime, workspace, to.clone(), scheduled);
+    }
+    if let Some(user_input) = report.user_input {
+        match *user_input {
+            Ok(user_input) => apply_report(runtime, workspace, to.clone(), user_input),
+            Err(failure) => {
+                if let Some(input) =
+                    failure.into_undelivered(plexmaton_agent::UndeliveredReason::Interrupted)
+                {
+                    let mut returned = DispatchReport::default();
+                    returned.undelivered.push(input);
+                    apply_report(runtime, workspace, to.clone(), returned);
+                }
+            }
+        }
     }
     apply_report(runtime, workspace, to, report.stopped);
 }

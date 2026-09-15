@@ -319,14 +319,15 @@ async fn stop_settlement_restores_exact_child_input_without_a_new_event() {
         crate::test_support::empty_session_for(fixture.path(), agent("root"));
     apply_stop_settlement(
         Ok(OwnedStopReport {
-            scheduled: Some(DispatchReport {
+            scheduled: None,
+            user_input: Some(Box::new(Ok(DispatchReport {
                 undelivered: vec![plexmaton_agent::UndeliveredInput {
                     text: "exact child draft".to_owned(),
                     skill: None,
                     reason: plexmaton_agent::UndeliveredReason::Interrupted,
                 }],
                 ..DispatchReport::default()
-            }),
+            }))),
             stopped: DispatchReport::default(),
         }),
         agent("delegated-1"),

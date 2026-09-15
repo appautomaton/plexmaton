@@ -161,6 +161,13 @@ impl OwnedCollaboration {
             ));
         }
         let runtime_identity = runtime.child_collaboration_identity();
+        #[cfg(not(test))]
+        if runtime_identity.is_none() {
+            return Err(registration_error(
+                RunnerRegistrationReason::ProvenanceMismatch,
+                runtime,
+            ));
+        }
         if runtime_identity.as_ref().is_some_and(|identity| {
             !self
                 .ingress
@@ -223,6 +230,7 @@ impl OwnedCollaboration {
                 joined: false,
                 shutdown_report: None,
                 shutdown_error: None,
+                input_unavailable: false,
             },
         );
         if let Some(runtime_identity) = runtime_identity {
