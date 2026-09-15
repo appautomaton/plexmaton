@@ -105,6 +105,8 @@ precedes placement; runtime authority precedes editable UI.
 
 Use the phase's [coordinator protocol](../phases/phase-03-collaboration.md#coordinator-protocol)
 for delegation packets, evidence, continuation and authorization. It survives this plan's deletion.
+Apply its [Luna context and slot lifecycle](../phases/phase-03-collaboration.md#luna-context-and-slot-lifecycle)
+at every assignment: measure the worker's usable context, checkpoint, retire and verify capacity.
 
 ## Deliberately not in this plan
 

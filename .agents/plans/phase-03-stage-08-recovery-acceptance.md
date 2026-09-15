@@ -14,6 +14,8 @@ A green graceful-exit smoke does not establish process-kill recovery. Every requ
 row keeps the phase open unless the user explicitly changes its scope.
 
 The phase's [coordinator protocol](../phases/phase-03-collaboration.md#coordinator-protocol) applies.
+Its [Luna context and slot lifecycle](../phases/phase-03-collaboration.md#luna-context-and-slot-lifecycle)
+also applies when rotating workers between recovery cases.
 Load only the current slice's owners and tests. M/L are scope sizes, not time estimates.
 The existing real-file tests are the starting point; add the missing boundary witness rather
 than duplicating their entire matrices.

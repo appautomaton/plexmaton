@@ -82,6 +82,51 @@ authorized, continue routine green slices without another permission request. A 
 authority decision or external blocker gets evidence and a proposed resolution. Preserve existing
 uncommitted work; commit, push, PR and merge remain unauthorized. This planning task starts no code.
 
+### Luna context and slot lifecycle
+
+The Sol coordinator owns both context fit and delegate retirement. A slice is an acceptance unit,
+not a promise that one Luna context can complete it; split L slices into bounded implementation
+packets without weakening their final gate.
+
+1. **Measure before dispatching work.** Inspect the actual runtime's model metadata, context
+   telemetry and concurrent-agent limit. This preparation found Luna metadata with
+   `context_window=272000` and `effective_context_window_percent=95` (258400 before used context),
+   not a measured worker remainder. Recheck at run start; the
+   [Luna API model ceiling](https://developers.openai.com/api/docs/models/gpt-5.6-luna) is not the
+   local harness allocation. Spawn with minimal inherited context (`fork_turns="none"` in the
+   current tool schema) and a self-contained packet. Each Luna reports its own available context
+   after receiving that packet, using `get_context_remaining` or the runtime's equivalent. Never
+   use Sol's remaining context as Luna's budget. If telemetry is unavailable, mark it unknown and
+   use one small test/patch unit per delegate instead of assuming a whole L slice fits.
+2. **Keep room to finish.** As a task policy, reserve at least 25% of that initial measured
+   remainder for verification, failure diagnosis and handoff. This is a planning margin, not a
+   model limit. Recheck at reading, patch and test milestones and before taking more work. If the
+   next operation cannot fit above the reserve, or the runtime warns of compaction/context pressure,
+   stop expanding scope and checkpoint. Do not rely on automatic compaction to preserve ownership
+   or turn a nearly full thread into a fresh worker.
+3. **Checkpoint before retirement.** Return changed files, completed work, actual test commands/
+   results, unresolved hypotheses, the next atomic step, and owned process/session IDs. Finish the
+   current atomic write and settle or stop only the delegate's own processes. The coordinator
+   verifies the diff, records durable progress beside the active slice/spec, and preserves unfinished
+   edits. A replacement receives this compact packet plus relevant paths, not the old transcript.
+4. **Release every finished assignment.** On completion, cancellation, supersession or context
+   rotation, collect the checkpoint and use the runtime's documented close/terminate operation
+   when available. Do not park completed Luna threads for possible future work. For an unresponsive
+   worker, use supported interruption/termination, then inspect files and owned processes before
+   transferring edit ownership. Never discard unfinished work to make retirement look complete.
+5. **Verify capacity was reclaimed.** Inventory agents before each spawn and after retirement;
+   track ID, assignment, file ownership, state and context pressure in the coordinator's live
+   working set. Count the coordinator when the runtime's limit does. Confirm that the old writer
+   is inactive and check the runtime's slot accounting before dispatching a replacement. A final
+   answer, an interrupt acknowledgement and a released slot are distinct facts. If closing is not
+   exposed, follow the documented completion/interrupt behavior and report the limitation; do not
+   invent a close call or claim interruption reclaimed capacity. If all slots remain occupied,
+   collect/retire existing work before spawning more. No two workers inherit the same file lease.
+
+The [OpenAI subagent guide](https://learn.chatgpt.com/docs/agent-configuration/subagents#managing-subagents)
+describes stopping and closing agents; the running harness's actual tools determine which operation
+Sol can invoke. Use fresh Luna assignments after retirement, with explicit file-ownership transfer.
+
 ## Mechanism routing
 
 Read only the IDs a slice names. Architecture, testing, Git workflow and quality-gate standards
