@@ -28,6 +28,12 @@ pub(super) enum UserControlRefusal {
 }
 
 impl LiveRuntime {
+    /// Returns an opaque stamp for this exact process-local runtime instance.
+    #[must_use]
+    pub fn collaboration_runtime_stamp(&self) -> crate::CollaborationRuntimeStamp {
+        crate::CollaborationRuntimeStamp::new(Arc::clone(&self.collaboration_identity))
+    }
+
     /// Seals this user-owned root's endpoint to its Main ingress and runtime instance.
     pub fn main_collaboration_identity(&self) -> Option<crate::MainRuntimeIdentity> {
         if !matches!(self.input_control, RuntimeInputControl::User) {

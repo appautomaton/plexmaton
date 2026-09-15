@@ -138,12 +138,15 @@ async fn failed_terminal_setup(
         .and_then(surface_shutdown_report);
     session_result(
         Err(error).context("acquire terminal output"),
-        runtime_shutdown,
-        status_shutdown,
-        Ok(()),
-        preparation_shutdown,
-        picker_shutdown,
-        Ok(()),
+        SessionShutdowns {
+            runtime: runtime_shutdown,
+            collaboration: Ok(()),
+            status: status_shutdown,
+            clipboard: Ok(()),
+            preparation: preparation_shutdown,
+            picker: picker_shutdown,
+            permissions: Ok(()),
+        },
     )
 }
 /// Project only display values from the same model handed to the runtime (DRW-4, PRV-6).
@@ -273,9 +276,10 @@ async fn run(
         output::write_native,
     )
     .await;
-    if let Some(collaboration) = collaboration.as_mut() {
-        collaboration.shutdown().await;
-    }
+    let collaboration_shutdown = match collaboration.as_mut() {
+        Some(collaboration) => collaboration.shutdown().await,
+        None => Ok(()),
+    };
     let clipboard_shutdown = output
         .clipboard
         .shutdown()
@@ -294,34 +298,43 @@ async fn run(
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     session_result(
         loop_result,
-        shutdown.and_then(surface_shutdown_report),
-        status_shutdown,
-        clipboard_shutdown,
-        preparation_shutdown,
-        picker_shutdown,
-        permission_shutdown,
+        SessionShutdowns {
+            runtime: shutdown.and_then(surface_shutdown_report),
+            collaboration: collaboration_shutdown,
+            status: status_shutdown,
+            clipboard: clipboard_shutdown,
+            preparation: preparation_shutdown,
+            picker: picker_shutdown,
+            permissions: permission_shutdown,
+        },
     )?;
     Ok(picker.current)
 }
 
 /// Optional presentation cleanup must never mask retained input or a durable-session failure.
+struct SessionShutdowns {
+    runtime: anyhow::Result<()>,
+    collaboration: anyhow::Result<()>,
+    status: anyhow::Result<()>,
+    clipboard: anyhow::Result<()>,
+    preparation: anyhow::Result<()>,
+    picker: anyhow::Result<()>,
+    permissions: anyhow::Result<()>,
+}
+
 fn session_result(
     loop_result: anyhow::Result<()>,
-    runtime_shutdown: anyhow::Result<()>,
-    status_shutdown: anyhow::Result<()>,
-    clipboard_shutdown: anyhow::Result<()>,
-    preparation_shutdown: anyhow::Result<()>,
-    picker_shutdown: anyhow::Result<()>,
-    permission_shutdown: anyhow::Result<()>,
+    shutdowns: SessionShutdowns,
 ) -> anyhow::Result<()> {
     let failures: Vec<_> = [
-        runtime_shutdown,
+        shutdowns.runtime,
         loop_result,
-        status_shutdown,
-        clipboard_shutdown,
-        preparation_shutdown,
-        picker_shutdown,
-        permission_shutdown,
+        shutdowns.collaboration,
+        shutdowns.status,
+        shutdowns.clipboard,
+        shutdowns.preparation,
+        shutdowns.picker,
+        shutdowns.permissions,
     ]
     .into_iter()
     .filter_map(Result::err)

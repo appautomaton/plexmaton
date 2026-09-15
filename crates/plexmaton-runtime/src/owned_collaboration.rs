@@ -207,6 +207,7 @@ struct PendingHandoff {
 struct PendingStop {
     conversation: ConversationId,
     scheduled: Option<DispatchReport>,
+    stop_started: bool,
 }
 
 /// Reports and receipt produced by one quiescent durable Handoff.

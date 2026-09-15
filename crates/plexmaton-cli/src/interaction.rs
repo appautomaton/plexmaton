@@ -2,11 +2,13 @@
 
 mod model;
 use model::apply_model;
+mod stop;
 use std::{io, time::Instant};
+use stop::{apply_interrupt, apply_stop_settlement};
 
 use anyhow::Context as _;
 use futures_util::{Stream, StreamExt};
-use plexmaton_runtime::{LiveRuntime, RuntimeUpdate};
+use plexmaton_runtime::{LiveRuntime, OwnedCollaborationActivity, RuntimeUpdate};
 use plexmaton_tui::{
     Command, CommandRun, CompactRefusal, CompactionNote, ConversationRequest, Flow, Page,
     PermissionRequest, Workspace,
@@ -14,9 +16,9 @@ use plexmaton_tui::{
 use ratatui::{Terminal, backend::Backend};
 
 use crate::{
-    clipboard::TerminalClipboard, conversation_tree, dispatch_live, input::apply_report,
-    input_queue, permission_controls, retry, route_approval, route_interrupt, route_submission,
-    session_picker, statusline, stream_frames,
+    clipboard::TerminalClipboard, collaboration::RootProjectionProgress, conversation_tree,
+    dispatch_live, input::apply_report, input_queue, permission_controls, retry, route_approval,
+    route_submission, session_picker, statusline, stream_frames,
 };
 
 #[cfg(test)]
@@ -51,19 +53,36 @@ where
         frames
             .draw_with_native(workspace, terminal, Instant::now(), &mut native_output)
             .context("draw TUI frame")?;
-        if preparation.sync(workspace) {
+        if restart_after_owned_updates(
+            preparation,
+            collaboration.as_deref_mut(),
+            runtime,
+            workspace,
+            &mut frames,
+        )
+        .await?
+        {
             continue;
         }
         let note_deadline = workspace.note_deadline();
         let drag_deadline = workspace.drag_autoscroll_deadline();
         let frame_deadline = frames.deadline();
         let effort_deadline = workspace.effort_animation_deadline(Instant::now());
+        let collaboration_enabled = collaboration
+            .as_deref()
+            .is_some_and(|collaboration| collaboration.can_poll(runtime));
 
         tokio::select! {
             // A root with no collaboration never yields here, so the arm is inert rather than a
             // branch the loop has to skip.
-            activity = next_collaboration(collaboration.as_deref_mut()) => {
-                apply_collaboration(activity, collaboration.as_deref_mut(), runtime, workspace, &mut frames).await?;
+            activity = next_collaboration(collaboration.as_deref_mut()), if collaboration_enabled => {
+                apply_collaboration(
+                    activity,
+                    collaboration.as_deref_mut(),
+                    runtime,
+                    workspace,
+                    &mut frames,
+                ).await?;
             }
             prepared = preparation.next() => preparation.apply(prepared, workspace),
             delivered = clipboard.next() => {
@@ -104,7 +123,19 @@ where
                 let Some(event) = terminal_event.transpose().context("read terminal event")? else {
                     break;
                 };
-                if apply_terminal_event(&event, runtime, workspace, clipboard, picker, permissions, status_line, &mut frames).await? {
+                if apply_terminal_event(
+                    &event,
+                    runtime,
+                    workspace,
+                    clipboard,
+                    picker,
+                    permissions,
+                    status_line,
+                    collaboration.as_deref_mut(),
+                    &mut frames,
+                )
+                .await?
+                {
                     break;
                 }
             }
@@ -113,10 +144,48 @@ where
     Ok(())
 }
 
+/// Publishes preparation output first, then advances the root-owned projection slot once its
+/// journal barrier has settled. Either applied output starts a fresh frame iteration.
+async fn restart_after_owned_updates(
+    preparation: &mut plexmaton_cli::preparation::LivePreparation,
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    frames: &mut stream_frames::StreamFrames,
+) -> anyhow::Result<bool> {
+    if preparation.sync(workspace) {
+        return Ok(true);
+    }
+    let Some(collaboration) = collaboration else {
+        return Ok(false);
+    };
+    if !collaboration.has_pending_projection() {
+        return Ok(false);
+    }
+    match collaboration.drive_pending(runtime).await? {
+        RootProjectionProgress::Applied => {
+            // Runtime events already removed from its queue reach the projection before the newly
+            // numbered delegated envelope can be polled into the next frame.
+            frames.flush(workspace);
+            collaboration.deliver_pending(runtime).await?;
+            Ok(true)
+        }
+        RootProjectionProgress::Idle
+        | RootProjectionProgress::PendingCommit
+        | RootProjectionProgress::RequiresReopen
+        | RootProjectionProgress::ConversationMismatch => Ok(false),
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the interaction boundary names each independently owned effect"
+)]
 async fn apply_workspace_outcome(
     outcome: plexmaton_tui::Outcome,
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
     clipboard: &mut TerminalClipboard<impl io::Write>,
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
@@ -199,7 +268,7 @@ async fn apply_workspace_outcome(
         retry::sync_actions(runtime, workspace);
     }
     if let Some(agent_id) = outcome.interrupted {
-        dispatch_live(runtime, workspace, route_interrupt(agent_id)).await?;
+        apply_interrupt(agent_id, runtime, workspace, collaboration).await?;
     }
     if let Some(approval) = outcome.approval {
         dispatch_live(runtime, workspace, route_approval(approval)).await?;
@@ -368,6 +437,7 @@ async fn apply_terminal_event(
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
     status_line: &mut Option<statusline::StatusLine>,
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
     frames: &mut stream_frames::StreamFrames,
 ) -> anyhow::Result<bool> {
     if matches!(event, crossterm::event::Event::Resize(..))
@@ -382,6 +452,7 @@ async fn apply_terminal_event(
         outcome,
         runtime,
         workspace,
+        collaboration,
         clipboard,
         picker,
         permissions,
@@ -405,9 +476,9 @@ async fn deliver_pending_mail(
     Ok(())
 }
 
-/// Projects one settled collaboration activity, keeping the select arm a single call.
+/// Transfers one selected activity into the root-owned slot and drives it when JRN-7 permits.
 async fn apply_collaboration(
-    activity: Option<plexmaton_runtime::OwnedCollaborationActivity>,
+    activity: Option<OwnedCollaborationActivity>,
     collaboration: Option<&mut crate::collaboration::Collaboration>,
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
@@ -417,18 +488,29 @@ async fn apply_collaboration(
         return Ok(());
     };
     frames.flush(workspace);
-    // Both of these queue their events on the runtime, which publishes them in the order it
-    // numbered them; this arm only drives the work.
-    collaboration.apply(runtime, activity).await?;
-    // Whatever that settlement put on screen is there before the root takes a turn over it.
-    collaboration.deliver_pending(runtime).await?;
+    let staged = collaboration.stage(activity)?;
+    if let Some((to, outcome)) = collaboration.take_stop_settlement() {
+        apply_stop_settlement(outcome, to, runtime, workspace);
+        return Ok(());
+    }
+    let progress = if staged {
+        collaboration.drive_pending(runtime).await?
+    } else {
+        RootProjectionProgress::Idle
+    };
+    if matches!(
+        progress,
+        RootProjectionProgress::Applied | RootProjectionProgress::Idle
+    ) {
+        collaboration.deliver_pending(runtime).await?;
+    }
     Ok(())
 }
 
 /// Waits for the root's collaboration owner, or never resolves when the root has none.
 async fn next_collaboration(
     collaboration: Option<&mut crate::collaboration::Collaboration>,
-) -> Option<plexmaton_runtime::OwnedCollaborationActivity> {
+) -> Option<OwnedCollaborationActivity> {
     match collaboration {
         Some(collaboration) => collaboration.next().await,
         None => std::future::pending().await,

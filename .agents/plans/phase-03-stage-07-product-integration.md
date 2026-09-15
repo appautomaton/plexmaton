@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
-| Status | Prepared; 0 of 8 remaining slices complete. Next: slice 1. Implementation awaits user instruction |
+| Status | Active; 2 of 8 slices complete. Next: slice 3 (passive child history after resume) |
 
 ## Outcome
 
@@ -19,7 +19,7 @@ source paths are relative to the named crate's src directory.
 
 ## Slices
 
-1. **Ordered publication — M; no prerequisite.**
+1. **Ordered publication — M; complete.**
    Read: JRN-7; ENT-1/ENT-3.
    Start at runtime `project_delegated`, `runtime/transition.rs` and
    `runtime/tests/persistence/barriers.rs` (`StoreControl`).
@@ -29,7 +29,7 @@ source paths are relative to the named crate's src directory.
    facts after cancelled waits and failed/uncertain appends. No uncommitted fact escapes. The
    regression fails on old code; repeated green smoke runs are not a substitute.
 
-2. **Owned child interruption — M; after 1.**
+2. **Owned child interruption — M; complete.**
    Read: LIVE-3; SCH-2/SCH-4; INV-7.
    Start at CLI `interaction.rs`, `input.rs`, `collaboration.rs` and runtime
    `owned_collaboration/lifecycle.rs`. Reproduce focused-child Ctrl-C, then address its real
@@ -111,4 +111,4 @@ at every assignment: measure the worker's usable context, checkpoint, retire and
 ## Deliberately not in this plan
 
 [Stage 8](./phase-03-stage-08-recovery-acceptance.md) owns recovery acceptance and phase closure.
-The phase owns deferred scope. No UI redesign or capability expansion. Implementation awaits instruction.
+The phase owns deferred scope. No UI redesign or capability expansion.

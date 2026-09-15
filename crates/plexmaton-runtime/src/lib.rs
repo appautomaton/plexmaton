@@ -19,8 +19,9 @@ mod runtime;
 pub use collaboration_ingress::{
     ChildCollaborationIngress, CollaborationArtifactRegistrationError, CollaborationArtifactSource,
     CollaborationIngressFailure, CollaborationIngressOutcome, CollaborationIngressRefusal,
-    CollaborationIngressSettlement, CollaborationSessionSource, MainCollaborationIngress,
-    MainRuntimeIdentity, OwnedCollaborationActivity, RegisteredCollaborationTarget,
+    CollaborationIngressSettlement, CollaborationRuntimeStamp, CollaborationSessionSource,
+    MainCollaborationIngress, MainRuntimeIdentity, OwnedCollaborationActivity,
+    RegisteredCollaborationTarget,
 };
 pub use collaboration_read::{
     CollaborationReadError, CollaborationSessionMailProjection, SessionMailInclusion,
@@ -58,8 +59,8 @@ pub use owned_runner::{
     OwnedRunnerError, OwnedRunnerUpdate, RunnerGeneration, RunnerIdentity, WakeHint,
 };
 pub use runtime::{
-    ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime, ModelChangeRefusal,
-    QueuedBoundary, QueuedInput,
+    ContextBudgetSnapshot, ContextBudgetUnavailable, DelegatedProjectionRefusal, LiveRuntime,
+    ModelChangeRefusal, QueuedBoundary, QueuedInput,
 };
 
 pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

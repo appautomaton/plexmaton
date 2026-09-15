@@ -20,6 +20,51 @@ impl OwnedCollaboration {
             .hold_join_for_test()
     }
 
+    /// Admits one Stop without waiting for the child to release execution authority.
+    ///
+    /// The retained operation is settled by [`Self::next_update`] or [`Self::next_activity`], so
+    /// a caller can keep pumping unrelated root activity while the child joins (SCH-2/SCH-4).
+    pub fn begin_stop(
+        &mut self,
+        conversation: &ConversationId,
+    ) -> Result<(), OwnedSchedulingError> {
+        if let Some(pending) = &self.pending_stop {
+            if &pending.conversation != conversation {
+                return Err(OwnedSchedulingError::StopInProgress);
+            }
+            return Ok(());
+        }
+        if self.shutting_down {
+            return Err(OwnedSchedulingError::ShuttingDown);
+        }
+        self.remove_wake(conversation);
+        let schedule_pending = self
+            .pending_schedule
+            .as_ref()
+            .is_some_and(|pending| &pending.conversation == conversation);
+        let slot = self
+            .runners
+            .get_mut(conversation)
+            .ok_or(OwnedSchedulingError::UnknownRunner)?;
+        if slot.finished {
+            return Err(OwnedSchedulingError::RunnerClosed);
+        }
+        let stop_started = if schedule_pending {
+            false
+        } else {
+            slot.runner
+                .begin_stop()
+                .map_err(OwnedSchedulingError::Control)?;
+            true
+        };
+        self.pending_stop = Some(PendingStop {
+            conversation: conversation.clone(),
+            scheduled: None,
+            stop_started,
+        });
+        Ok(())
+    }
+
     /// Stops one child and acknowledges only after its runtime has released execution authority.
     pub async fn stop(
         &mut self,
@@ -30,27 +75,59 @@ impl OwnedCollaboration {
         {
             return Err(OwnedSchedulingError::StopInProgress);
         }
-        self.remove_wake(conversation);
         if self.pending_stop.is_none() {
-            let scheduled = if self
-                .pending_schedule
-                .as_ref()
-                .is_some_and(|pending| &pending.conversation == conversation)
-            {
-                Some(self.finish_pending_schedule().await?)
-            } else {
-                None
+            self.begin_stop(conversation)?;
+        } else {
+            self.remove_wake(conversation);
+        }
+        self.finish_pending_stop(conversation).await
+    }
+
+    async fn finish_pending_stop(
+        &mut self,
+        conversation: &ConversationId,
+    ) -> Result<OwnedStopReport, OwnedSchedulingError> {
+        let schedule_pending = self.pending_stop.as_ref().is_some_and(|pending| {
+            !pending.stop_started
+                && self
+                    .pending_schedule
+                    .as_ref()
+                    .is_some_and(|schedule| &schedule.conversation == conversation)
+        });
+        if schedule_pending {
+            let scheduled = match self.finish_pending_schedule().await {
+                Ok(report) => report,
+                Err(error) => {
+                    self.pending_stop.take();
+                    return Err(error);
+                }
             };
-            self.runners
+            self.pending_stop
+                .as_mut()
+                .expect("pending Stop survives schedule settlement")
+                .scheduled = Some(scheduled);
+        }
+        let stop_started = self
+            .pending_stop
+            .as_ref()
+            .is_some_and(|pending| pending.stop_started);
+        if !stop_started {
+            let slot = self
+                .runners
                 .get_mut(conversation)
-                .ok_or(OwnedSchedulingError::UnknownRunner)?
-                .runner
-                .begin_stop()
-                .map_err(OwnedSchedulingError::Control)?;
-            self.pending_stop = Some(PendingStop {
-                conversation: conversation.clone(),
-                scheduled,
-            });
+                .ok_or(OwnedSchedulingError::UnknownRunner)?;
+            if slot.finished {
+                self.pending_stop.take();
+                return Err(OwnedSchedulingError::RunnerClosed);
+            }
+            if let Err(error) = slot.runner.begin_stop() {
+                self.pending_stop.take();
+                return Err(OwnedSchedulingError::Control(error));
+            }
+            self.pending_stop
+                .as_mut()
+                .expect("pending Stop survives control admission")
+                .stop_started = true;
         }
         let stopped = self
             .runners

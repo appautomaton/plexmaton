@@ -14,12 +14,13 @@ resumed child's conversation among its steps.
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 
-from provider_fixture import AddressedProvider, calls, says
-from smoke_support import ESC, ROOT, Terminal, click, fixture_environment
+from provider_fixture import AddressedProvider, PausedResponse, calls, response, says
+from smoke_support import ENTER, ESC, ROOT, Terminal, click, fixture_environment, sgr_press
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
@@ -36,6 +37,46 @@ ROSTER_ROW = (5, 1)
 # What each conversation must show: the child's own work, and the root's task, letter and answer.
 CHILD_SIDE = (CHILD, WORKING, DONE)
 ROOT_SIDE = (f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+
+STOP_ASK = "STOP_DELEGATE_ASK create a child and leave it working"
+STOP_TASK = "STOP_CHILD_TASK keep the provider stream open"
+STOP_CHILD_WORKING = "STOP_CHILD_WORKING first stream event"
+STOP_CHILD_LATE = "STOP_CHILD_LATE_AFTER_STOP must never appear"
+STOP_ROOT_INPUT = "STOP_ROOT_INPUT root remains responsive"
+STOP_ROOT_ANSWER = "STOP_ROOT_ANSWER root answered after child Stop"
+
+
+class QuietPausedResponse(PausedResponse):
+    """Release a cancelled client without turning its expected broken pipe into a fixture error."""
+
+    def write(self, stream):
+        stream.write(self.prefix)
+        stream.flush()
+        assert self.release.wait(timeout=30), "paused fixture was not released"
+        try:
+            stream.write(self.remainder)
+            stream.flush()
+        except OSError:
+            # Stop closes the provider stream. The late bytes are deliberately discarded by the
+            # fixture so a socket teardown cannot hide the product-level stale-event assertion.
+            pass
+
+
+def paused_late_response():
+    """Put a recognisable assistant delta after the first SSE event and its release barrier."""
+    initial = response(
+        {"role": "assistant", "content": STOP_CHILD_WORKING},
+        "stop",
+        "stopchild",
+    )
+    boundary = initial.index(b"\n\n") + 2
+    late = {
+        "id": "stopchild",
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"content": STOP_CHILD_LATE}, "finish_reason": None}],
+    }
+    data = initial[:boundary] + b"data: " + json.dumps(late).encode() + b"\n\n" + initial[boundary:]
+    return QuietPausedResponse(data)
 
 
 def script():
@@ -96,6 +137,15 @@ def open_child(terminal, *markers):
     """
     click(terminal.master, ROSTER_ROW, terminal.capture)
     return terminal.wait(CHILD, *markers)
+
+
+def focus_primary_and_type(terminal, text):
+    """Return focus to the root composer and leave a draft while the child provider is paused."""
+    at = (30, terminal.size[0] - 3)
+    click(terminal.master, at, terminal.capture, cursor=True)
+    os.write(terminal.master, sgr_press(*at)[:-1] + b"m")
+    os.write(terminal.master, text.encode())
+    return terminal.wait(text)
 
 
 def no_dropped_events(terminal):
@@ -184,6 +234,62 @@ def run_smoke(provider):
             terminal.quit()
 
 
+def stop_script(paused):
+    """The child response has one visible prefix and one late marker behind the pause barrier."""
+    return [
+        (STOP_ASK, calls("stopask", ("delegate", {"task": STOP_TASK}))),
+        ("call_DELEGATE_stopask", says("STOP_ROOT_WAITING child is running")),
+        (STOP_TASK, paused),
+        (STOP_ROOT_INPUT, says(STOP_ROOT_ANSWER)),
+    ]
+
+
+def run_stop_smoke(provider, paused):
+    """SCH-2/SCH-4/INV-7: Stop the focused child at a paused provider boundary, then continue Main."""
+    with tempfile.TemporaryDirectory(prefix="plexmaton-delegate-stop-", dir="/tmp") as folder:
+        home, project = Path(folder) / "home", Path(folder) / "project"
+        project.mkdir()
+        environment = configure(home, provider)
+
+        with Terminal(project, environment, "delegate", "stop") as terminal:
+            terminal.wait("Message Plexmaton")
+            terminal.prompt(STOP_ASK, "STOP_ROOT_WAITING", CHILD)
+            # Selecting then entering the row is the real open/focus path; Ctrl-C then resolves
+            # the Inspector conversation rather than the primary runtime (INV-7).
+            open_child(terminal, STOP_CHILD_WORKING)
+            terminal.send(ENTER, "Controller unavailable", "Input locked", STOP_CHILD_WORKING)
+            requests, errors = provider.snapshot()
+            assert len(requests) == 3 and not errors, (requests, errors)
+            assert STOP_CHILD_LATE.encode() not in bytes(terminal.capture)
+
+            # The old route sends this addressed interrupt through Main and exits with WrongAgent.
+            # The fixed route settles the child while leaving the PTY and root runtime alive.
+            terminal.send(
+                b"\x03",
+                f"{CHILD} · Idle",
+                "Controller unavailable",
+                STOP_CHILD_WORKING,
+            )
+            assert terminal.process.poll() is None, "focused-child Stop exited the root session"
+            # Root input is accepted before the paused handler is released. The HTTP server cannot
+            # serve the next request until release, so the draft itself is the pre-release witness;
+            # the answer below proves the same root request completes afterward.
+            focus_primary_and_type(terminal, STOP_ROOT_INPUT)
+            requests, errors = provider.snapshot()
+            assert len(requests) == 3 and not errors, (requests, errors)
+            release_start = len(terminal.capture)
+            paused.release.set()
+            terminal.send(ENTER, STOP_ROOT_ANSWER, absent=(STOP_CHILD_LATE,))
+            assert STOP_CHILD_LATE.encode() not in bytes(terminal.capture[release_start:])
+            no_dropped_events(terminal)
+            terminal.quit()
+
+        requests, errors = provider.snapshot()
+        assert len(requests) == 4 and not errors, (requests, errors)
+        journals = list((home / "delegated-sessions").glob("*.jsonl"))
+        assert journals and all(STOP_CHILD_LATE.encode() not in path.read_bytes() for path in journals)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skip-build", action="store_true", help="use the current task's verified debug binary")
@@ -193,9 +299,13 @@ def main():
                         "--bin", "plexmaton", "--quiet"], cwd=ROOT, check=True)
     with AddressedProvider(script()) as provider:
         run_smoke(provider)
+    paused = paused_late_response()
+    with AddressedProvider(stop_script(paused)) as provider:
+        run_stop_smoke(provider, paused)
     print("delegate smoke passed: one delegation; the child's own work and letter; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
-          "the child is closed; no dropped event; a durable ledger and child journal; and resume")
+          "the child is closed; no dropped event; a durable ledger and child journal; resume; and "
+          "focused-child Stop through a paused provider with root continuation")
 
 
 if __name__ == "__main__":

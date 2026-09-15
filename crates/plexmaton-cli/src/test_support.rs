@@ -11,6 +11,18 @@ pub(crate) fn empty_session(
     Workspace,
     u64,
 ) {
+    empty_session_for(root, AgentId::new("primary").expect("agent"))
+}
+
+pub(crate) fn empty_session_for(
+    root: &Path,
+    agent_id: AgentId,
+) -> (
+    LiveRuntime,
+    session_picker::ConversationPicker,
+    Workspace,
+    u64,
+) {
     let models = plexmaton_provider::ModelRegistry::parse(
         r#"
 active_model = { provider = "fixture", model = "test" }
@@ -38,14 +50,8 @@ output_reserve_tokens = 1000
     .expect("tools");
     let key =
         plexmaton_provider::resolve_api_key(&model, Some("fixture-only".into())).expect("key");
-    let mut runtime = LiveRuntime::provider(
-        AgentId::new("primary").expect("agent"),
-        "Plexmaton",
-        model.clone(),
-        key,
-        tools,
-    )
-    .expect("runtime");
+    let mut runtime =
+        LiveRuntime::provider(agent_id, "Plexmaton", model.clone(), key, tools).expect("runtime");
     let picker = session_picker::ConversationPicker::new(session_picker::Launcher {
         root: root.into(),
         workspace: root.into(),

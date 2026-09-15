@@ -1,8 +1,314 @@
 use super::*;
+use crate::DelegatedProjectionRefusal;
 use crate::runtime::tests::{
     compaction::{CompactionDriver, SummaryScript, large_answer},
     finish_active, text_delta,
 };
+use plexmaton_core::{ConversationEvent, ConversationEventEnvelope, TranscriptItemId};
+
+fn delegated_marker(marker: &str) -> ConversationEvent {
+    ConversationEvent::RuntimeWarning {
+        agent_id: agent_id(),
+        item_id: TranscriptItemId::new(format!("stage-7-1-{marker}"))
+            .unwrap_or_else(|error| panic!("delegated marker identity: {error}")),
+        message: marker.to_owned(),
+    }
+}
+
+fn drain_announcement(runtime: &mut LiveRuntime) {
+    assert!(matches!(
+        runtime.try_next_event(),
+        Some(ConversationEventEnvelope {
+            event: ConversationEvent::AgentCreated { .. },
+            ..
+        })
+    ));
+}
+
+async fn collect_events(runtime: &mut LiveRuntime, count: usize) -> Vec<ConversationEventEnvelope> {
+    let mut events = Vec::with_capacity(count);
+    while events.len() < count {
+        let update = tokio::time::timeout(Duration::from_secs(5), runtime.next_update())
+            .await
+            .unwrap_or_else(|_| panic!("runtime did not publish staged event {}", events.len() + 1))
+            .unwrap_or_else(|error| panic!("collect staged event: {error}"));
+        match update {
+            RuntimeUpdate::Event(event) => events.push(event),
+            RuntimeUpdate::Report(report) => {
+                panic!("unexpected report while collecting staged events: {report:?}")
+            }
+            RuntimeUpdate::Finished => panic!("runtime finished while collecting staged events"),
+        }
+    }
+    events
+}
+
+fn assert_submission_events_precede_markers(events: &[ConversationEventEnvelope]) {
+    assert_eq!(
+        events.len(),
+        6,
+        "one submission and two delegated markers are expected"
+    );
+    assert!(matches!(
+        &events[0].event,
+        ConversationEvent::TranscriptItemStarted { .. }
+    ));
+    assert!(matches!(
+        &events[1].event,
+        ConversationEvent::TranscriptDelta { text, .. } if text == "keep this exact draft"
+    ));
+    assert!(matches!(
+        &events[2].event,
+        ConversationEvent::TranscriptItemFinalized { .. }
+    ));
+    assert!(matches!(
+        &events[3].event,
+        ConversationEvent::AgentStatusChanged {
+            status: plexmaton_core::AgentStatus::Running,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &events[4].event,
+        ConversationEvent::RuntimeWarning { message, .. } if message == "delegated-a"
+    ));
+    assert!(matches!(
+        &events[5].event,
+        ConversationEvent::RuntimeWarning { message, .. } if message == "delegated-b"
+    ));
+
+    let sequences = events
+        .iter()
+        .map(|event| event.sequence.get())
+        .collect::<Vec<_>>();
+    assert_eq!(sequences, [2, 3, 4, 5, 6, 7]);
+    for marker in ["delegated-a", "delegated-b"] {
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| {
+                    matches!(
+                        &event.event,
+                        ConversationEvent::RuntimeWarning { message, .. } if message == marker
+                    )
+                })
+                .count(),
+            1,
+            "delegated marker {marker} must appear exactly once"
+        );
+    }
+}
+
+/// JRN-7/ENT-1/ENT-3: a cancelled append waiter refuses delegated projection without retaining or
+/// numbering it. The caller retries after acknowledgement, preserving consecutive exact-once order.
+#[tokio::test]
+async fn cancelled_submit_publishes_staged_events_before_projected_delegation() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    // A failed assertion must release the synchronous writer before the runtime is dropped.
+    let _release = ReleaseGateOnDrop(&control.gate);
+    drain_announcement(&mut runtime);
+    control.block_after(1);
+
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(agent_id(), submission());
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("submit completed before append ack: {result:?}"),
+            () = entered => {}
+        }
+    }
+
+    let delegated_a = delegated_marker("delegated-a");
+    let delegated_b = delegated_marker("delegated-b");
+    for _ in 0..64 {
+        assert_eq!(
+            runtime.project_delegated(&delegated_a),
+            Err(DelegatedProjectionRefusal::PendingCommit),
+            "a stalled append admits no unbounded projection suffix"
+        );
+    }
+    assert_eq!(
+        runtime.project_delegated(&delegated_b),
+        Err(DelegatedProjectionRefusal::PendingCommit)
+    );
+    assert!(
+        runtime.acknowledged_conversation().is_none(),
+        "the blocked submission remains unacknowledged"
+    );
+    assert!(
+        runtime.try_next_event().is_none(),
+        "projected delegated event escaped before append acknowledgement"
+    );
+    assert!(
+        driver.calls().await.is_empty(),
+        "provider started before submission acknowledgement"
+    );
+
+    control.gate.release();
+    let mut events = collect_events(&mut runtime, 4).await;
+    assert_eq!(runtime.delegated_projection_refusal(), None);
+    runtime
+        .project_delegated(&delegated_a)
+        .expect("project first retained delegated event after acknowledgement");
+    runtime
+        .project_delegated(&delegated_b)
+        .expect("project second retained delegated event after acknowledgement");
+    events.extend(collect_events(&mut runtime, 2).await);
+    assert_submission_events_precede_markers(&events);
+    assert_eq!(
+        driver.calls().await.len(),
+        1,
+        "provider starts exactly once after the append is acknowledged"
+    );
+}
+
+/// JRN-7/ENT-1/ENT-3: a definite append failure changes caller-retained delegated projection from
+/// transient backpressure to reopen-required, and no reaction or delegated event can escape.
+#[tokio::test]
+async fn failed_cancelled_submit_reports_before_projected_delegation() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    drain_announcement(&mut runtime);
+    control.block_after(1);
+    control.fail_after(1, false);
+
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(agent_id(), submission());
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("submit completed before injected failure: {result:?}"),
+            () = entered => {}
+        }
+    }
+
+    let delegated_a = delegated_marker("delegated-a");
+    let delegated_b = delegated_marker("delegated-b");
+    assert_eq!(
+        runtime.project_delegated(&delegated_a),
+        Err(DelegatedProjectionRefusal::PendingCommit)
+    );
+    assert_eq!(
+        runtime.project_delegated(&delegated_b),
+        Err(DelegatedProjectionRefusal::PendingCommit)
+    );
+    assert!(
+        runtime.acknowledged_conversation().is_none(),
+        "the blocked submission remains unacknowledged"
+    );
+    control.gate.release();
+
+    let first = tokio::time::timeout(Duration::from_secs(5), runtime.next_update())
+        .await
+        .unwrap_or_else(|_| panic!("runtime did not report the definite append failure"))
+        .unwrap_or_else(|error| panic!("resume definite append failure: {error}"));
+    let report = match first {
+        RuntimeUpdate::Report(report) => report,
+        other => panic!("first update after release was not the persistence report: {other:?}"),
+    };
+    assert!(
+        runtime.try_next_event().is_none(),
+        "deferred delegated or reaction event escaped after definite append failure"
+    );
+    assert_eq!(
+        report.persistence_failure,
+        Some(PersistenceFailure::NotWritten)
+    );
+    assert!(matches!(
+        report.undelivered.as_slice(),
+        [input]
+            if input.text == "keep this exact draft"
+                && input.reason == UndeliveredReason::PersistenceFailed
+    ));
+    assert!(
+        driver.calls().await.is_empty(),
+        "definite failure started a provider"
+    );
+    assert!(runtime.acknowledged_conversation().is_none());
+    assert_eq!(
+        runtime.project_delegated(&delegated_a),
+        Err(DelegatedProjectionRefusal::PersistenceFailed),
+        "the failed runtime cannot consume the retained durable fact"
+    );
+}
+
+/// JRN-7/ENT-1/ENT-3: typed uncertainty follows the same refusal and no-event/no-effect boundary.
+/// The ControlledStore error models an unknown write outcome; it does not prove write-then-error
+/// bytes reached storage.
+#[tokio::test]
+async fn uncertain_cancelled_submit_reports_before_projected_delegation() {
+    let (control, store) = StoreControl::pair();
+    let driver = FakeDriver::new([Script::EndWithoutTerminal]);
+    let mut runtime = runtime(store, Arc::clone(&driver)).await;
+    let _release = ReleaseGateOnDrop(&control.gate);
+    drain_announcement(&mut runtime);
+    control.block_after(1);
+    control.fail_after(1, true);
+
+    {
+        let entered = control.gate.entered.notified();
+        let submit = runtime.submit(agent_id(), submission());
+        tokio::pin!(submit);
+        tokio::select! {
+            result = &mut submit => panic!("submit completed before injected uncertain failure: {result:?}"),
+            () = entered => {}
+        }
+    }
+
+    let delegated_a = delegated_marker("delegated-a");
+    let delegated_b = delegated_marker("delegated-b");
+    assert_eq!(
+        runtime.project_delegated(&delegated_a),
+        Err(DelegatedProjectionRefusal::PendingCommit)
+    );
+    assert_eq!(
+        runtime.project_delegated(&delegated_b),
+        Err(DelegatedProjectionRefusal::PendingCommit)
+    );
+    assert!(
+        runtime.acknowledged_conversation().is_none(),
+        "the blocked submission remains unacknowledged"
+    );
+    control.gate.release();
+
+    let first = tokio::time::timeout(Duration::from_secs(5), runtime.next_update())
+        .await
+        .unwrap_or_else(|_| panic!("runtime did not report the uncertain append failure"))
+        .unwrap_or_else(|error| panic!("resume uncertain append failure: {error}"));
+    let report = match first {
+        RuntimeUpdate::Report(report) => report,
+        other => panic!("first update after release was not the persistence report: {other:?}"),
+    };
+    assert!(
+        runtime.try_next_event().is_none(),
+        "deferred delegated or reaction event escaped after uncertain append failure"
+    );
+    assert_eq!(
+        report.persistence_failure,
+        Some(PersistenceFailure::OutcomeUnknown)
+    );
+    assert!(matches!(
+        report.undelivered.as_slice(),
+        [input]
+            if input.text == "keep this exact draft"
+                && input.reason == UndeliveredReason::PersistenceFailed
+    ));
+    assert!(
+        driver.calls().await.is_empty(),
+        "uncertain failure started a provider"
+    );
+    assert!(runtime.acknowledged_conversation().is_none());
+    assert_eq!(
+        runtime.project_delegated(&delegated_a),
+        Err(DelegatedProjectionRefusal::PersistenceFailed),
+        "the uncertain runtime cannot consume the retained durable fact"
+    );
+}
 
 /// JRN-7: no provider effect starts before every record in its transition is acknowledged.
 #[tokio::test]

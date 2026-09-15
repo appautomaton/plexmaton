@@ -535,7 +535,10 @@ mod source;
 
 use source::SessionSourceRole;
 pub(crate) use source::{ChildRuntimeIdentity, RuntimeCollaborationIdentity};
-pub use source::{CollaborationArtifactSource, CollaborationSessionSource, MainRuntimeIdentity};
+pub use source::{
+    CollaborationArtifactSource, CollaborationRuntimeStamp, CollaborationSessionSource,
+    MainRuntimeIdentity,
+};
 
 #[cfg(test)]
 mod tests;

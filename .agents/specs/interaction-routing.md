@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented |
+| Status | Implemented and wired |
 | Owns | Translation from terminal events to typed intents, pointer capture, and the Escape ladder |
 | Depends on | The locked input decisions in [`ui-ux.md`](../ui-ux.md) §input, and its §input and event-routing contract |
-| Proven by | `plexmaton-tui::{router,workspace}` tests |
+| Proven by | `plexmaton-tui::{router,workspace}` tests, CLI composition tests and PTY journeys |
 
 ## Invariants
 
@@ -40,7 +40,9 @@ the inspector. `Escape` never quits.
 second press before its one-second monotonic deadline; expiry clears the question, and unrelated
 terminal events leave the deadline alone. `Ctrl-C` clears the resolved conversation's non-empty
 draft without an interrupt, or interrupts that conversation when its draft is empty; either path
-withdraws the quit question. No bare key quits; rejected alternatives are in `ui-ux.md` §input.
+withdraws the quit question. The composition routes the root to its live runtime and a child to the
+collaboration owner; a typed child refusal is never retried against the root. No bare key quits;
+rejected alternatives are in `ui-ux.md` §input.
 
 **INV-8 — No modifier is reserved: the escape hatch is the terminal's.** A terminal that bypasses
 mouse reporting keeps the gesture on whichever modifier it chose, so an event that *arrives*
@@ -182,7 +184,7 @@ is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DR
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `focus_loss_suspends_motion_without_releasing_capture`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` |
-| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval` |
+| INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval`, `ctrl_c_child_refusal_never_falls_back_to_root_and_root_remains_routable`; `scripts/smoke-delegate.py` proves focused-child Stop does not exit or interrupt Main |
 | INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |
 | INV-9 | `resize_is_an_intent` |
 | INV-10 | `an_arrow_moves_the_rail_and_scrolls_everything_else`, `an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request`, `approval_keys_stay_inside_the_blocking_surface` |
