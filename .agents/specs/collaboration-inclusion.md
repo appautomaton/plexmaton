@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Permit-retained runtime path implemented; production orchestration unproven |
+| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` delegates through the real binary and the child receives its task |
 | Owns | Turn-admission ordering, canonical session references and typed context resolution |
 | Depends on | Roadmap §Locked; COL-1–COL-5; JRN-1/JRN-7; TIM-2 |
 | Proven by | Ledger/session tests, real-file scripted runtime tests and provider refusal fixtures |
@@ -71,8 +71,9 @@ awaiting that binding refuses direct input. Once bound, the runtime gates ordina
 while Main controls and retains a Main permit through inclusion, authorization, owned work and
 cancellation/join. [SCH-1–SCH-5](./owned-scheduling.md) supply the asynchronous writer, bounded
 runner owner, canonical live-owner wake recheck and resumed selected-branch context restoration.
-[CTL-1](./collaboration-tools.md) owns runtime-sealed product ingress authentication; provider
-activation and UI projection remain unproven.
+[CTL-1](./collaboration-tools.md) owns runtime-sealed product ingress authentication. Provider
+activation and UI projection are proven by `scripts/smoke-delegate.py`, which delegates through the
+real binary against a loopback provider and reads the result in both conversations.
 This mechanism does not promise exactly-once model/tool effects or power-loss durability.
 Branch/export/delete must retain referenced collaboration logs; unsupported resolution blocks
 continuation.

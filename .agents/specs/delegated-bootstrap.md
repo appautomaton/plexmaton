@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented backend boundary; provider and product activation unproven |
+| Status | Implemented and wired. CHB-1/CHB-2 accepted: `scripts/smoke-delegate.py` creates a real child that runs and keeps its own journal. CHB-3 lists a resumed child with its counts, and that child's conversation cannot be opened |
 | Owns | Read-only child capability floor, child journal placement and bound fresh/resumed runtime construction |
 | Depends on | COL-3; CIN-2/CIN-4; APV-1–APV-3; JRN-3–JRN-5; PRV-6 |
 | Proven by | Native catalog, real-file provenance/directory and direct runtime-constructor tests |
@@ -58,5 +58,6 @@ does not change the CHB-1 profile.
 [SCH-1–SCH-5](./owned-scheduling.md) validate canonical provenance, restore selected-branch
 collaboration context and expose a bounded runner while keeping child history out of ordinary root
 selection. The storage token proves directory origin; canonical provenance and COL-3 prove runtime
-authority. Passive UI history projection, tree/compaction routing and provider collaboration
-encoding remain later Phase 03 stages.
+authority. Passive UI history projection is delivered while a child is live and half-delivered after
+a restart: the roster lists a resumed child with its counts, and its conversation cannot be opened.
+Tree/compaction routing and provider collaboration encoding remain later Phase 03 stages.

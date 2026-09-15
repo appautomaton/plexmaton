@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Canonical and selected-session backend projections implemented; product routing remains unproven |
+| Status | Implemented. CMP-1 is wired and accepted: `scripts/smoke-delegate.py` draws the letter in both conversations. CMP-2's session join has no caller, so queued and included still read the same |
 | Owns | Read-only Incoming/Sent mail views and recipient-session inclusion over one canonical collaboration log |
 | Depends on | COL-1/COL-2/COL-4; the mail rules in [`ui-ux.md`](../ui-ux.md) §product areas |
 | Proven by | Pure ledger and live-writer/reopen tests named below |
@@ -36,7 +36,9 @@ does not inspect the recipient's session. No state implies consumption, seen sta
 ## Integration boundary
 
 `TurnAdmitted` alone still proves no model inclusion; CMP-2 requires an exact-runtime-sealed snapshot of
-the recipient session's branch-local `CollaborationTurnStarted` fact. Product routing has not consumed this backend view.
+the recipient session's branch-local `CollaborationTurnStarted` fact. Product routing consumes CMP-1 —
+`scripts/smoke-delegate.py` draws each letter in both conversations — and has not consumed the CMP-2
+join, so queued and included still read the same on screen.
 This mechanism does not project Attention: the current collaboration grammar has no action-required
 fact, and its cross-session canonical source remains unproven. Mail, task updates and Handoff are
 never inferred to be Attention. Seen or acknowledged presentation state is separate from canonical

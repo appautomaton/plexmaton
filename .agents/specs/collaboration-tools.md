@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Typed grammar, runtime-sealed ingress, recoverable child provisioning and artifact resolution implemented; production provider activation unproven |
+| Status | Implemented, and all four tools are wired from the Main catalog through the owner. Accepted: `scripts/smoke-delegate.py` drives `delegate` and `send_mail` from real model turns. `update_task` and `handoff` have no acceptance evidence, and `HandoffCompleted` earns no entry |
 | Owns | Exact model-visible delegation, mail, task-update and Handoff schemas before authority binding |
 | Depends on | COL-1–COL-3; CHB-1; PRV-1; the typed-mail and single-controller rules in the roadmap |
 | Proven by | Runtime schema and parsing tests named below |
@@ -51,6 +51,7 @@ creation before creating the child journal. Post-creation failure returns the ex
 explicit resume reuses the canonical worker and journal without another creation or automatic
 wake. In-process cancellation is proven to settle that exact attempt once; canonical-only
 provisioning survives reopen and recreates its missing child without a duplicate, while a real
-process kill at that exact window remains unproven. The current four
-production adapters all fail provider preflight; a synthetic supporting driver proves creation,
-registration, repeated Main-to-child wake and target return without enabling production execution.
+process kill at that exact window remains unproven. Production composition installs this ingress
+and the child factory; PRV-1 owns attributed collaboration encoding. The executable smoke exercises
+creation and mail through a loopback Chat Completions fixture. Four-dialect compatibility evidence
+and the remaining product acceptance are separate from that one journey.

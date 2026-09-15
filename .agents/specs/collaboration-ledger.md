@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Exclusive control, admission and narrow runtime gate implemented; product owner unproven |
+| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` asserts `delegation_created` and `mail_accepted` on disk after a real round trip. COL-3's Handoff is wired through the owner with no acceptance evidence; its Stop has no caller |
 | Owns | Canonical collaboration admission, retry identity, bounded reduction and delegation task/control authority |
 | Depends on | Roadmap §Locked; JRN-4/JRN-7 for the process-death durability boundary |
 | Proven by | Pure ledger, real-file authority and permit-backed runtime integration tests |
@@ -96,7 +96,8 @@ owner, reserve runner capacity before turn admission, retain permits through own
 Stop/Handoff. [CMP-1](./collaboration-mail-projection.md) derives attributed Incoming/Sent snapshots
 through that live owner. [CTL-1](./collaboration-tools.md) seals Main authorship to the exact
 user-owned root runtime tool ingress before constructing events; a serialized author is not a
-credential. Product and TUI routing remain unproven. Accepted means
+credential. Production routes delegation and mail into both conversations; Stop routing and
+controller/Handoff presentation remain unaccepted. Accepted admission means
 present in this log, not included in a model request or completed. [CIN-1–CIN-4](./collaboration-inclusion.md)
 own frozen turn admission, session inclusion references and the dispatch barrier. Provider
 projection must preserve a distinct semantic mail atom, with an explicit encoding or typed refusal

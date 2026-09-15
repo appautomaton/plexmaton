@@ -2,7 +2,7 @@
 """STL-2–4: configured shell footer in the real TUI; no request is submitted to a model."""
 
 import fcntl
-import importlib.util
+import json
 import os
 from pathlib import Path
 import pty
@@ -11,14 +11,12 @@ import shlex
 import subprocess
 import tempfile
 import termios
-from smoke_support import NoModelRequests, fixture_environment
+from smoke_support import (ALTERNATE_SCREEN_EXIT, ROOT, NoModelRequests, await_screen,
+                           fixture_environment, read_to_eof, read_until, set_size)
 
 
 def run_smoke(model_url):
-    root = Path(__file__).resolve().parent.parent
-    spec = importlib.util.spec_from_file_location("terminal_smoke", root / "scripts/smoke-tui.py")
-    smoke = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(smoke)
+    root = ROOT
     subprocess.run(["cargo", "build", "--locked", "-p", "plexmaton-cli", "--bin", "plexmaton", "--quiet"], cwd=root, check=True)
     with tempfile.TemporaryDirectory(prefix="plexmaton-status-smoke-", dir="/tmp") as folder:
         home = Path(folder)
@@ -26,7 +24,6 @@ def run_smoke(model_url):
         transform = '.model.display_name = (.model.display_name + ":" + (.plexmaton.terminal.columns | tostring))'
         command = "jq " + shlex.quote(transform) + " | bash " + shlex.quote(str(root / "examples/statusline-pastel.sh"))
         # JSON quoting is valid for this TOML basic string too.
-        import json
         (home / "config.toml").write_text(f'''active_model = {{ provider = "fixture", model = "luna" }}
 [status_line]
 command = {json.dumps(command)}
@@ -49,7 +46,7 @@ output_reserve_tokens = 8192
         env.pop("NO_COLOR", None)
         env.update(TERM="xterm-256color", COLORTERM="truecolor")
         master, slave = pty.openpty()
-        smoke.set_size(slave, (30, 120))
+        set_size(slave, (30, 120))
         process = subprocess.Popen([str(root / "target/debug/plexmaton")], cwd=home, env=env,
                                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
                                    preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
@@ -58,16 +55,16 @@ output_reserve_tokens = 8192
         try:
             def resize(size, published=False):
                 start = len(capture)
-                smoke.set_size(master, size)
+                set_size(master, size)
                 small = size[0] < 12 or size[1] < 48
                 markers = ("Terminal too small",) if small else ("Plexmaton", "Message Plexmaton")
                 if published:
                     markers += (f"FixtureLuna:{size[1]}",)
-                screen = smoke.await_screen(master, capture, size, markers,
+                screen = await_screen(master, capture, size, markers,
                                             ("status line:", "null"), start, complete=not small)
                 return screen, start
 
-            smoke.await_screen(master, capture, (30, 120), ("FixtureLuna:120", "Message Plexmaton"))
+            await_screen(master, capture, (30, 120), ("FixtureLuna:120", "Message Plexmaton"))
             for width in [120, 95, 60]:
                 resize((30, width + 1), published=True)
                 screen, _ = resize((30, width), published=True)
@@ -79,18 +76,18 @@ output_reserve_tokens = 8192
             for size in [(30, 60), (8, 40), (30, 95), (8, 40), (30, 61)]:
                 resize(size)
             # A width-specific value proves the NEW script result was published after churn.
-            smoke.await_screen(master, capture, (30, 61), ("FixtureLuna:61",), ("status line:",))
+            await_screen(master, capture, (30, 61), ("FixtureLuna:61",), ("status line:",))
             _, frame_start = resize((30, 60), published=True)
             os.write(master, b"\x04")
-            screen = smoke.await_screen(master, capture, (30, 60),
+            screen = await_screen(master, capture, (30, 60),
                                         ("press Ctrl-D again to quit", "FixtureLuna:60"), start=frame_start).splitlines()
             assert "press Ctrl-D again to quit" in screen[-1], screen
             assert any("FixtureLuna:60" in row for row in screen[:-1]), screen
             os.write(master, b"\x04\x04")
-            smoke.read_until(master, capture, lambda: smoke.ALTERNATE_SCREEN_EXIT in capture,
+            read_until(master, capture, lambda: ALTERNATE_SCREEN_EXIT in capture,
                              description="status-line terminal release")
             assert process.wait(timeout=3) == 0
-            smoke.read_to_eof(master, capture)
+            read_to_eof(master, capture)
             sessions = list((home / "sessions").glob("*.jsonl"))
             assert not sessions, f"blank status-line launch created {sessions!r}"
             assert b"To continue this conversation, run:" not in capture

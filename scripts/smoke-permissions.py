@@ -2,90 +2,22 @@
 """PER-6/PER-8/PER-10: trust, prefix reuse and revoke through the real executable."""
 
 import base64
-import fcntl
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
-import pty
 import subprocess
 import tempfile
-import termios
 
-from permission_fixture import ScriptedProvider, command_turn
-from smoke_support import fixture_environment
-
-ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("terminal_smoke", ROOT / "scripts/smoke-tui.py")
-smoke = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(smoke)
-UP, DOWN, ENTER, ESC = b"\x1b[A", b"\x1b[B", b"\r", b"\x1b"
+from provider_fixture import ScriptedProvider, command_turn
+from smoke_support import ENTER, ESC, ROOT, UP, Terminal, fixture_environment, read_until
 
 
-class Terminal:
+class PermissionTerminal(Terminal):
+    """The Drawer route this journey walks repeatedly; no other journey opens Permissions."""
+
     def __init__(self, project, environment, name, arguments=()):
-        self.project, self.environment, self.name = project, environment, name
-        self.arguments = tuple(arguments)
-        self.size = (30, 120)
-        self.capture = bytearray()
-        self.frame_start = 0
-
-    def __enter__(self):
-        self.master, slave = pty.openpty()
-        try:
-            smoke.set_size(slave, self.size)
-            self.process = subprocess.Popen(
-                [str(ROOT / "target/debug/plexmaton"), *self.arguments], cwd=self.project, env=self.environment,
-                stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
-                preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
-        except BaseException:
-            os.close(self.master)
-            raise
-        finally:
-            os.close(slave)
-        return self
-
-    def __exit__(self, *_error):
-        try:
-            output = ROOT / "target/smoke"
-            output.mkdir(parents=True, exist_ok=True)
-            (output / f"permissions-{self.name}.raw").write_bytes(self.capture)
-            (output / f"permissions-{self.name}.txt").write_text(
-                smoke.rendered_screen(bytes(self.capture[self.frame_start:]), self.size))
-        finally:
-            try:
-                if self.process.poll() is None:
-                    self.process.kill()
-            finally:
-                os.close(self.master)
-            self.process.wait(timeout=10)
-
-    def wait(self, *markers, absent=()):
-        return smoke.await_screen(self.master, self.capture, self.size, markers, absent, self.frame_start)
-
-    def send(self, keys, *markers, absent=()):
-        os.write(self.master, keys)
-        return self.wait(*markers, absent=absent)
-
-    def resize(self, width, *markers):
-        self.frame_start = len(self.capture)
-        self.size = (30, width)
-        smoke.set_size(self.master, self.size)
-        return self.wait(*markers)
-
-    def widths(self, name, *markers):
-        for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
-            screen = self.resize(width, *markers)
-            if label:
-                # PRE-1: resize may first publish placeholders. Review the settled frame,
-                # and fail if the owned preparation never supplies it.
-                screen = self.wait(*markers, absent=("Preparing text",))
-                output = ROOT / "target/smoke"
-                output.mkdir(parents=True, exist_ok=True)
-                (output / f"permissions-{name}-{label}.txt").write_text(
-                    "\n".join(row.rstrip() for row in screen.splitlines()) + "\n")
-        self.resize(120, *markers)
+        super().__init__(project, environment, "permissions", name, arguments)
 
     def permissions(self):
         self.send(b"\x10perm", "Workspace", "> Permissions", "Esc close")
@@ -95,22 +27,6 @@ class Terminal:
         # One layer per Escape (DRW-3): the page returns to the list, the list to the origin.
         self.send(ESC, "> Permissions", "Esc close")
         self.send(ESC, "Message Plexmaton", absent=("Type to filter",))
-
-    def prompt(self, message, *markers, absent=()):
-        at = (5, self.size[0] - 3)
-        smoke.click(self.master, at, self.capture, cursor=True)
-        os.write(self.master, smoke.sgr_press(*at)[:-1] + b"m")
-        return self.send(message.encode() + ENTER, *markers, absent=absent)
-
-    def quit(self):
-        self.send(b"\x04", "press Ctrl-D again to quit")
-        os.write(self.master, b"\x04")
-        smoke.read_until(self.master, self.capture, lambda: smoke.ALTERNATE_SCREEN_EXIT in self.capture,
-                         description="permission terminal release")
-        # Restoration and the durable-conversation handoff may still be writing. Keep draining
-        # the PTY until EOF before joining; waiting first can hold a terminal drain on macOS.
-        smoke.read_to_eof(self.master, self.capture)
-        assert self.process.wait(timeout=3) == 0
 
 
 def changes(home):
@@ -148,7 +64,7 @@ output_reserve_tokens = 4096
 ''')
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home),
                            PLEXMATON_PERMISSION_FIXTURE_KEY="fixture-only")
-        with Terminal(project, environment, "first") as terminal:
+        with PermissionTerminal(project, environment, "first") as terminal:
             terminal.wait("Message Plexmaton")
             terminal.permissions()
             terminal.wait("> Review project configuration rules")
@@ -168,9 +84,9 @@ output_reserve_tokens = 4096
             start = len(terminal.capture)
             os.write(terminal.master, b"c")
             expected = b"]52;c;" + base64.b64encode(b"ls first")
-            smoke.read_until(terminal.master, terminal.capture,
-                             lambda: expected in bytes(terminal.capture[start:]),
-                             description="command inspection copy")
+            read_until(terminal.master, terminal.capture,
+                       lambda: expected in bytes(terminal.capture[start:]),
+                       description="command inspection copy")
             terminal.send(ESC, "Approval required", "1. Allow once", "3. Deny")
             terminal.send(b"2", "Remember permission", "Scope: ls", "> 1. This Session")
             terminal.widths("prefix", "Remember permission", "Scope: ls", "same cwd/environment", "This Project")
@@ -181,7 +97,7 @@ output_reserve_tokens = 4096
             assert grant["grant"]["matcher"]["prefix"]["arguments"] == ["ls"], grant
             terminal.quit()
 
-        with Terminal(project, environment, "restart") as terminal:
+        with PermissionTerminal(project, environment, "restart") as terminal:
             terminal.wait("Message Plexmaton")
             terminal.prompt("reuse prefix fixture", "PREFIX_REUSED", absent=("Approval required",))
             requests, errors = provider.snapshot()

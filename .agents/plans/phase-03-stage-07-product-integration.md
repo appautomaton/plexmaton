@@ -3,74 +3,110 @@
 | Field | Value |
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
-| Contract | Roadmap locked typed mail and single controller; COL-1–COL-5, CIN-1–CIN-4, CHB-1–CHB-3, SCH-1–SCH-5, CMP-1 and UI/UX control/mail/Attention sections |
-| Status | Slices 1–5 complete; Slice 6 control UI built and reviewed, and production activation now runs the delegation round trip and shows its mail. The child's transcript and production Stop/Handoff remain |
+| Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
+| Status | Prepared; 0 of 8 remaining slices complete. Next: slice 1. Implementation awaits user instruction |
 
 ## Outcome
 
-One authenticated Main composition root owns collaboration mutations, child construction, runner
-updates and teardown. Native delegation/mail/Handoff operations derive authorship from that owner
-capability, preserve exact input across cancellation and refuse unsupported child providers before
-durable creation. Product read models join canonical collaboration and selected recipient-session facts
-without inventing model inclusion or Attention. Native UI fixtures can validate presentation and
-input routing before provider activation; only a production provider that safely represents typed
-collaboration context can close the end-to-end integration gate.
+Finish the existing collaboration implementation; retain its ledger, inclusion, ingress, runners
+and working-tree smoke refactor. The [phase](../phases/phase-03-collaboration.md#current-evidence)
+owns the baseline. These eight pending slices replace the former unfinished control/activation slice.
+
+M is one main boundary; L crosses boundaries and needs component plus executable evidence.
+Sizes describe scope, not duration. Resolve Read IDs through
+[mechanism routing](../phases/phase-03-collaboration.md#mechanism-routing);
+source paths are relative to the named crate's src directory.
 
 ## Slices
 
-1. **Mutation ownership (complete).** Retain accepted regular admission and Handoff preflight/results across
-   caller cancellation, expose exact settlement, and include it in joined shutdown. Disposable
-   projection/control queries may be recomputed; they never mutate canonical state.
-2. **Typed native grammar (complete).** Define bounded delegation, mail, task-update and Handoff requests whose
-   arguments contain no author, endpoint or durable retry identity. Main receives all four tools;
-   a child receives only typed `send_mail`, without write/shell/delegation/control capabilities.
-3. **Authenticated owner ingress (complete).** Bind parsed operations to a bounded command lane. Derive Main
-   and child identity from owner-held capabilities, assign retry identities inside the owner, and
-   keep production provider refusal ahead of delegation creation.
-4. **Root composition service (complete backend boundary).** Authenticate Main from the exact tool
-   ingress and unique instance token carried by its user-owned root runtime. Preflight deterministic provider, credential,
-   child-profile and runner-capacity failures before identity allocation. Admit canonical creation
-   before creating or resuming the child journal, bind the exact child capability, register one
-   bounded runner and route content-free wake, Stop and Handoff. Cancellation retains the exact
-   command; explicit resume reuses canonical provenance without automatically waking a child.
-   A post-canonical failure returns the exact target for explicit recovery without another
-   creation or automatic wake; post-build registration failure shuts down its caller-owned runtime
-   before returning. Process death during the two-file provisioning window remains unproven.
-5. **Session-aware read model (complete backend boundary).** Join CMP-1 mail with exact-runtime-sealed selected recipient-session CIN-2 facts before
-   reporting queued versus included. Reconcile the locked Attention source before projecting
-   background requests; do not infer them from mail or task state. The mail join is implemented;
-   an active owned child serves it through a separate bounded inspection lane. Attention still has
-   no canonical action-required source and therefore remains unprojected.
-6. **Control UI, provider activation and native frames (in progress).** Complete these parts in order:
-   - **Control presentation and routing (implemented; visual acceptance pending).**
-     [CCV-1–CCV-4](../specs/child-control-view.md) now supply typed control facts to the real Workspace
-     renderer. Ten focused tests cover the control, input and preservation boundaries, including
-     hidden selection/drag settlement and short-height composer geometry. Kitty readbacks cover
-     four states at 120, 88 and 60 columns plus explicit entered-child input at each width; see the
-     [native record](../spikes/kitty-native-preview/README.md#evidence-and-limits).
-     Normal terminal restoration was checked and the final targeted Sol review found no blocker. This part grants
-     no runtime authority and does not prove production Stop, Handoff, mail or Attention.
-   - **Production activation (partly delivered).** The executable composes the owner, the child
-     factory and the Main lane, so `delegate` reaches a model, a real child answers by mail, the root
-     admits its own turn to read it, and each letter is drawn in its sender's conversation with the
-     roster counting it — verified against a live provider on create and on resume. Rejected: gating
-     this on a native typed collaboration field, which no dialect offers; [PRV-1](../specs/provider-adapter.md)
-     renders mail as an attributed turn instead. Still to connect: the child's own transcript, Stop,
-     Handoff and composer control, then native frames at three widths.
-   Review any interaction contract change with the user after they have seen its native frame.
+1. **Ordered publication — M; no prerequisite.**
+   Read: JRN-7; ENT-1/ENT-3.
+   Start at runtime `project_delegated`, `runtime/transition.rs` and
+   `runtime/tests/persistence/barriers.rs` (`StoreControl`).
+   Hold a journal acknowledgement, interleave delegated facts, then release it; establish a failing
+   schedule before repairing publication; the trace does not establish its cause.
+   **Closes:** tier 2 proves consecutive, exact-once publication and the disposition of deferred
+   facts after cancelled waits and failed/uncertain appends. No uncommitted fact escapes. The
+   regression fails on old code; repeated green smoke runs are not a substitute.
+
+2. **Owned child interruption — M; after 1.**
+   Read: LIVE-3; SCH-2/SCH-4; INV-7.
+   Start at CLI `interaction.rs`, `input.rs`, `collaboration.rs` and runtime
+   `owned_collaboration/lifecycle.rs`. Reproduce focused-child Ctrl-C, then address its real
+   owner; retain settlement while continuing to pump workspace activity.
+   **Closes:** running/idle/repeated Stop and missing or resumed runners cannot exit the CLI or
+   interrupt the root. Active work joins; accepted mail settles; late wake cannot restart stopped
+   work. Tier 2 covers cancellation; a paused-provider PTY proves Stop and root continuation.
+
+3. **Passive child history after resume — M; after 1.**
+   Read: CHB-3; INS-1/INS-4/INS-6.
+   Start at CLI `collaboration.rs::{restore,replay_children,sync_roster}`, session startup and
+   roster/inspector registration. Make the persisted child projection selectable without starting
+   a runner. Missing, locked or corrupt history needs an explicit unavailable state.
+   **Closes:** keyboard and pointer open the exact child's work after restart, at 120/95/60 columns.
+   Close/reopen retains reading anchors with zero requests/effects. Test unavailable-history paths.
+
+4. **Durable shared-entry placement — L; after 1 and 3.**
+   Read: ENT-1; CIN-2; JRN-3/JRN-5.
+   Start at CLI `collaboration/projection.rs`, session replay and inclusion references.
+   Define placement from canonical durable links; preserve one source of truth. If old journals
+   lack an anchor, document a lossless compatibility policy rather than inventing original order.
+   **Closes:** tier 2 compares ordered live/reopened semantic items on selected branches; repeat
+   reopen and subsequent child activation duplicate nothing. The PTY verifies task/mail positions
+   among conversation work and before the restoration confirmation. No wall-clock merge.
+
+5. **Execution ownership after Handoff — L; after 2.**
+   Read: COL-3; SCH-3/SCH-4; CHB-1/CHB-2.
+   Start at `owned_runner`, `owned_collaboration`, `collaboration_ingress` and
+   `runtime/collaboration.rs`. Existing Handoff settles the ledger; add a bounded authenticated
+   user-input lane to the one owned child runtime, including explicit cold activation.
+   **Closes:** no direct input before durable transfer; afterward input reaches only that child.
+   History/capabilities survive, Main admission and stale tickets fail, cancellation/duplicate
+   transfer/write failure settle safely, and shutdown joins ownership. Default resume executes
+   nothing. Prove active/idle transfer and reopened User control at tier 2 before enabling UI input.
+
+6. **Controller projection and child input — M; after 3–5.**
+   Read: CCV-1–CCV-4; INS-5/INS-7; UI/UX delegated control.
+   Feed revisioned snapshots from the authenticated owner, project a distinct Handoff entry, and
+   route focused input/refusals to slice 5. Retain exact undelivered drafts. Presentation grants no
+   authority; input must not appear before the execution route works.
+   **Closes:** Main/pending/unknown stay locked; acknowledged User control enables input without
+   focus theft or auto-send. The existing Main `handoff` tool drives the PTY transition, followed
+   by a child-addressed message/response. Verify Stop hints, capabilities, history and selection/
+   scroll preservation at three widths. No new Handoff shortcut is required.
+
+7. **Canonical background requests — L; after 3, 5 and 6.**
+   Read: ATT-1–ATT-3; APV-4/APV-6; COL-1–COL-4; CMP-1/CMP-2.
+   Start at producer-owned pending state, CLI child-event forwarding and the TUI Attention queue.
+   The producer journal owns pending/resolved truth and decision authority. Admit bounded,
+   authenticated request/resolution references through the collaboration item log; the root
+   projection owns no lifecycle state. Do not bypass the log or duplicate the pending-state machine.
+   Mail, task progress and failure cannot substitute for a request.
+   **Closes:** tier 2 verifies the live owner-addressed decision route and passive, effect-free
+   reopen of request identities/state over the same validated prefix. Recovered orphan requests
+   remain inert; restored decision admission/current-policy checks belong to stage 8.3. Live
+   acknowledgement differs from resolution; wrong-owner/stale decisions fail. A supported real
+   request reaches the PTY roster without taking focus and opens only by user navigation.
+
+8. **Complete journey and consistent names — M; after 1–7.**
+   Read: UI/UX vocabulary; ENT-1; the phase exit table.
+   Use existing display labels (Plexmaton, Delegated N) in roster, titles and correspondence;
+   typed IDs/selectors stay unchanged. Extend `smoke-delegate.py` with task
+   update, Stop, Handoff/input, resumed-child browsing and no unintended wake.
+   **Closes:** exact addressed outcomes, durable facts and the complete 120/95/60 flow pass,
+   including returning to the root at 60. Hold child work while proving root responsiveness;
+   the fixture must serve independent requests so it cannot itself serialize both agents.
+   Inspect native frames as well as markers. Stage 8 still gates phase closure.
 
 ## Order and why
 
-Mutation retention closes the authority hole before native tools can reach it. Typed schemas fix
-what authenticated ingress accepts; the root service then supplies real facts for read-side
-composition. Native control UI now uses the proven backend vocabulary while its fixture remains
-explicitly separate from production authority. Provider activation still gates the complete journey.
+Run in number order, one slice in progress. Publication/Stop protect later work; passive recovery
+precedes placement; runtime authority precedes editable UI.
+
+Use the phase's [coordinator protocol](../phases/phase-03-collaboration.md#coordinator-protocol)
+for delegation packets, evidence, continuation and authorization. It survives this plan's deletion.
 
 ## Deliberately not in this plan
 
-No recursive delegation, child write/shell/delegation capabilities, automatic control transfer,
-synthetic user turns, automatic post-restart wake, commit, PR or merge. The Attention and roster
-layout redesign has since been reviewed and built: the user reviewed a computed mockup of every
-state at four widths and directed the change, so it is no longer the unreviewed redesign this
-excluded. The [Kitty preview](../spikes/kitty-native-preview/README.md)
-owns the native demonstration method and its limits.
+[Stage 8](./phase-03-stage-08-recovery-acceptance.md) owns recovery acceptance and phase closure.
+The phase owns deferred scope. No UI redesign or capability expansion. Implementation awaits instruction.

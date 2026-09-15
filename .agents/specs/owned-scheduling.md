@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented backend boundary, including canonical live-owner wake; product composition remains unproven |
+| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` runs a child to completion beside a responsive root. SCH-3's Stop has an owner route and no caller: read from source, `Ctrl-C` over a focused child window is addressed to the root runtime, which answers `WrongAgent` — unreproduced |
 | Owns | Asynchronous collaboration-file ownership, bounded child-runner lanes, scheduling authority and joined stop/Handoff |
 | Depends on | COL-3/COL-4; CIN-4; CHB-1–CHB-3; LIVE-1/LIVE-3 |
 | Proven by | Runtime tests named below |

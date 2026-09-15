@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | UI projection implemented and natively exercised; user visual acceptance and production source unproven |
+| Status | Implemented. Accepted: `scripts/smoke-delegate.py` opens the child's conversation and reads its prose, tool and letter at three widths. The controller presentation and composer gate have no production snapshot, so the window always reads `Controller unavailable \| Input locked` |
 | Owns | Revisioned child controller presentation, its composer gate and passive acknowledgment |
 | Depends on | [UI/UX control and input](../ui-ux.md#delegated-conversation-control), COM-4, INS-5, INS-7, COL-3 and CHB-1 |
 | Proven by | `plexmaton-tui::workspace::child_control::tests`; native review below |

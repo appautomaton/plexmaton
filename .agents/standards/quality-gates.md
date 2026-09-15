@@ -42,6 +42,7 @@ Supply-chain and corpus lanes, selected by dependency or document changes:
 | `python3 scripts/smoke-input-queue.py` | Paused loopback stream, waiting-input display, occupied-draft guard, exact text/skill withdrawal, continuation and resubmission through a real PTY |
 | `python3 scripts/smoke-tree.py` | Tree aliases, rewind/edit/send, original branch and selected-head restart through a real PTY; exact loopback context and no repeated command effect |
 | `python3 scripts/smoke-permissions.py` | Project trust, real command execution, a remembered prefix across restart, revoke/deny and three widths in a real PTY; eight bounded local fixture requests |
+| `python3 scripts/smoke-delegate.py` | A delegation the binary can perform: the child's own conversation beside the root's, its letter back, both at three widths, a durable ledger and child journal, and resume. Acceptance evidence for the collaboration mechanisms; it does not report whether one is wired |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the frames under `crates/plexmaton-tui/frames/`; the diff is the review |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 
@@ -87,11 +88,17 @@ The hook clears Git's repository-local environment first: an inherited `GIT_DIR`
 fixture's `git init`. Rejected: clippy and the workspace tests in the hook, which build the
 workspace at two minutes a commit to repeat what CI already checks.
 
-## The terminal smoke
+## The terminal smokes
 
 `./scripts/smoke-tui.py` covers alternate-screen release, resize repaint, quitting, and mouse/focus
 reporting through a real PTY. Use CI unless a terminal or interaction change needs local
 reproduction or terminal-specific evidence.
+
+Each `smoke-*.py` is one journey and imports no other journey. What journeys share lives in
+`smoke_support.py` (pseudo-terminal, frame reader, `Terminal`) and `provider_fixture.py` (loopback
+provider). Rejected: reaching a sibling's helpers through
+`importlib.util.spec_from_file_location`, which five of these scripts once did — it executes that
+journey's module body to borrow from it, and left every new journey hunting for its helpers.
 
 Input reporting is checked here because neither half fits a cell buffer: enabling and releasing
 mouse and focus events are byte sequences, and the click is sent as a real SGR report so
@@ -109,13 +116,13 @@ Terminal-boundary pitfalls:
 - A normal smoke launch uses an isolated `PLEXMATON_HOME`; menus, draft edits and blank exit must
   create no JSONL or saved-session handoff. Test commands never contact a configured provider; see
   [testing](./testing.md) §Tier 5.
-- Both smoke scripts use an owned loopback connection trap and a whitelisted child environment:
+- Every smoke script uses an owned loopback endpoint and a whitelisted child environment:
   no real credentials, proxy or live tmux clipboard. Blank launches assert zero JSONL, and the
   trap proves no model work without reading the journal.
-- An agent sandbox may refuse `pty.openpty` with "out of pty devices". That is the sandbox, not a
-  defect; run the smoke outside it. Two `Ctrl-D` presses inside the one-second window are how it
-  quits; the script first lets one window expire, so a change to that chord changes this script in
-  the same commit.
+- An agent sandbox may refuse `pty.openpty` with "out of pty devices", or `bind` on loopback with
+  `EPERM`. That is the sandbox, not a defect; run the smoke outside it. Two `Ctrl-D` presses inside
+  the one-second window are how it quits; the script first lets one window expire, so a change to
+  that chord changes this script in the same commit.
 
 ## Parallel checkouts
 
