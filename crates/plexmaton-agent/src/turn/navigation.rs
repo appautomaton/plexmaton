@@ -61,8 +61,8 @@ impl Agent {
                     .validate_record(&record)
                     .map_err(TreeNavigationRefusal::Journal)?;
                 let projection = self
-                    .journal()
-                    .project_at(resolved.boundary.as_ref())
+                    .record
+                    .project_at_with_delegated(resolved.boundary.as_ref())
                     .map_err(TreeNavigationRefusal::Projection)?;
                 let returned_draft =
                     self.journal()
@@ -113,8 +113,8 @@ impl Agent {
                     .validate_record(&record)
                     .map_err(TreeNavigationRefusal::Journal)?;
                 let projection = self
-                    .journal()
-                    .project(destination)
+                    .record
+                    .project_with_delegated(destination)
                     .map_err(TreeNavigationRefusal::Projection)?;
                 self.record
                     .apply_tree_navigation(record, projection, &mut reaction)

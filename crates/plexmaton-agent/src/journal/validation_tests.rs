@@ -1,12 +1,13 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ConversationEntryId, ConversationId, HeadName, JournalRecordId,
-    ToolCallId, ToolPresentation, TranscriptItemId,
+    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEntryId,
+    ConversationId, HeadName, JournalRecordId, ToolCallId, ToolPresentation, TranscriptItemId,
 };
 
 use super::{
     ConversationEntry, ConversationJournal, HeadRevision, JournalEntryPayload, JournalError,
     JournalRecord, JournalSequence,
 };
+use crate::collaboration::{CollaborationError, CollaborationItemRef, CollaborationSequence};
 use crate::test_support::{call_block, output, reasoning_block, step, text_block};
 use crate::{AdmissionRefusal, ToolCall, ToolCancellationReason, ToolOutcome, UnixMillis};
 
@@ -86,6 +87,50 @@ fn tim_1_invalid_initial_agent_status_changes_nothing() {
         Err(JournalError::InvalidInitialAgentStatus(agent_id.clone()))
     );
     assert_eq!(journal, empty);
+}
+
+/// JRN-2/JRN-3: a session placement link belongs only to an agent announced on that ancestry.
+#[test]
+fn collaboration_link_refuses_a_foreign_session_agent() {
+    let mut journal = ConversationJournal::new(id("session-a", ConversationId::new));
+    let owner = id("agent-a", AgentId::new);
+    let created = ConversationEntry {
+        id: id("created", ConversationEntryId::new),
+        parent_id: None,
+        payload: JournalEntryPayload::AgentCreated {
+            agent_id: owner,
+            label: "Agent A".to_owned(),
+            status: AgentStatus::Idle,
+        },
+    };
+    let created_id = created.id.clone();
+    journal
+        .apply(append(1, "created-record", "main", 0, created))
+        .expect("announce session agent");
+    let foreign = append(
+        2,
+        "foreign-link-record",
+        "main",
+        1,
+        ConversationEntry {
+            id: id("foreign-link", ConversationEntryId::new),
+            parent_id: Some(created_id),
+            payload: JournalEntryPayload::CollaborationItemLinked {
+                agent_id: id("agent-b", AgentId::new),
+                reference: CollaborationItemRef {
+                    collaboration: id("collaboration", CollaborationId::new),
+                    item: id("item-1", CollaborationItemId::new),
+                    sequence: CollaborationSequence(1),
+                },
+            },
+        },
+    );
+    assert_eq!(
+        journal.apply(foreign),
+        Err(JournalError::Collaboration(
+            CollaborationError::ForeignReference
+        ))
+    );
 }
 
 /// JRN-2: each mutation arm wires its named head through revision validation.

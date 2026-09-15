@@ -246,19 +246,19 @@ async fn run(
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
+    // A resumed root puts every delegation it already created back on the roster without waking
+    // any of them (CHB-3), and merges shared entries at their durable session anchors before the
+    // restoration confirmation takes its final presentation position (ENT-1/JRN-5).
+    if let Some(collaboration) = collaboration.as_mut() {
+        collaboration.restore(&mut runtime).await?;
+    }
     if let Some(recovery) = restoration_feedback(recovery) {
-        // Install the acknowledged replay before anchoring presentation after its final entry.
+        // Install the complete acknowledged replay before anchoring presentation after its final
+        // entry, including collaboration rows whose bodies remain in their canonical log.
         while let Some(event) = runtime.try_next_event() {
             workspace.emit(vec![event]);
         }
         workspace.report_conversation_recovery(recovery);
-    }
-    // A resumed root puts every delegation it already created back on the roster without waking
-    // any of them (CHB-3).
-    if let Some(collaboration) = collaboration.as_mut() {
-        // The restored roster and correspondence queue on the runtime, which the loop below
-        // publishes in the order it numbered them.
-        collaboration.restore(&mut runtime).await?;
     }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());

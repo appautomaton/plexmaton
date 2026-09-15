@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
-| Status | Active; 3 of 8 slices complete. Next: slice 4 (durable shared-entry placement) |
+| Status | Active; 4 of 8 slices complete. Next: slice 5 (execution ownership after Handoff) |
 
 ## Outcome
 
@@ -46,7 +46,7 @@ source paths are relative to the named crate's src directory.
    **Closes:** keyboard and pointer open the exact child's work after restart, at 120/95/60 columns.
    Close/reopen retains reading anchors with zero requests/effects. Test unavailable-history paths.
 
-4. **Durable shared-entry placement — L; after 1 and 3.**
+4. **Durable shared-entry placement — L; complete.**
    Read: ENT-1; CIN-2; JRN-3/JRN-5.
    Start at CLI `collaboration/projection.rs`, session replay and inclusion references.
    Define placement from canonical durable links; preserve one source of truth. If old journals

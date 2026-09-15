@@ -28,6 +28,25 @@ pub(super) enum UserControlRefusal {
 }
 
 impl LiveRuntime {
+    /// Persists one session-side placement after the collaboration owner outlived its tool wait.
+    pub async fn link_collaboration_item(
+        &mut self,
+        reference: CollaborationItemRef,
+    ) -> Result<(), RuntimeError> {
+        if !self.supports_collaboration() {
+            return Err(CollaborationError::UnsupportedContext.into());
+        }
+        let reaction = self
+            .agent
+            .link_collaboration_item(reference, self.clock.now())?;
+        self.begin_transition(reaction, Vec::new(), AfterCommit::None)?;
+        self.finish_transition().await?;
+        if self.journal_failed {
+            return Err(RuntimeError::JournalRequiresReopen);
+        }
+        Ok(())
+    }
+
     /// Returns an opaque stamp for this exact process-local runtime instance.
     #[must_use]
     pub fn collaboration_runtime_stamp(&self) -> crate::CollaborationRuntimeStamp {

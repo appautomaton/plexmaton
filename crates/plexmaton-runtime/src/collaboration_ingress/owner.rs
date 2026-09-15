@@ -256,11 +256,12 @@ impl OwnedCollaboration {
                         (None, None) => None,
                     };
                     match self.admit(attempt).await {
-                        Ok(_) => {
+                        Ok(receipt) => {
                             if let Some(wake) = wake {
                                 let _advisory = self.wake(wake);
                             }
-                            Ok(outcome)
+                            let reference = self.writer.item_reference(&receipt);
+                            Ok(CollaborationIngressResult::new(outcome, reference))
                         }
                         Err(crate::CollaborationWriterError::AdmissionBusy { .. }) => {
                             match self.writer.wait_writable().await {
@@ -274,7 +275,13 @@ impl OwnedCollaboration {
                 PreparedIngress::Handoff(attempt) => self
                     .handoff(attempt)
                     .await
-                    .map(|_| CollaborationIngressOutcome::HandoffCompleted)
+                    .map(|report| {
+                        let reference = self.writer.item_reference(&report.receipt);
+                        CollaborationIngressResult::new(
+                            CollaborationIngressOutcome::HandoffCompleted,
+                            reference,
+                        )
+                    })
                     .map_err(CollaborationIngressFailure::from),
             };
             return self.complete_pending_ingress(result);
@@ -305,9 +312,16 @@ impl OwnedCollaboration {
 
     fn complete_pending_ingress(
         &mut self,
-        result: Result<CollaborationIngressOutcome, CollaborationIngressFailure>,
+        result: Result<CollaborationIngressResult, CollaborationIngressFailure>,
     ) -> CollaborationIngressSettlement {
         let pending = self.pending_ingress.take().expect("pending ingress");
+        let caller = match &pending.command.caller {
+            IngressCaller::Main(_) => self
+                .ingress
+                .as_ref()
+                .and_then(|ingress| ingress.main.clone()),
+            IngressCaller::Child { control, .. } => Some(control.worker().clone()),
+        };
         let reply = result
             .as_ref()
             .map(Clone::clone)
@@ -315,6 +329,7 @@ impl OwnedCollaboration {
         let reply_delivered = pending.command.reply.send(reply).is_ok();
         CollaborationIngressSettlement {
             call_id: pending.command.call_id,
+            caller,
             result,
             reply_delivered,
         }

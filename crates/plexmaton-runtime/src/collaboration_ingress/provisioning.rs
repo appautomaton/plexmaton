@@ -75,7 +75,7 @@ impl OwnedCollaboration {
     pub(super) async fn finish_delegation(
         &mut self,
         delegation: PendingDelegation,
-    ) -> Result<CollaborationIngressOutcome, CollaborationIngressFailure> {
+    ) -> Result<CollaborationIngressResult, CollaborationIngressFailure> {
         let receipt = loop {
             match self.admit(delegation.creation.clone()).await {
                 Ok(receipt) => break receipt,
@@ -85,7 +85,8 @@ impl OwnedCollaboration {
                 Err(error) => return Err(error.into()),
             }
         };
-        let selector = TargetSelector::issued_for(&self.writer.item_reference(&receipt));
+        let reference = self.writer.item_reference(&receipt);
+        let selector = TargetSelector::issued_for(&reference);
         let canonical = match &delegation.creation.event {
             CollaborationEvent::DelegationCreated { delegation, .. } => delegation.clone(),
             _ => unreachable!("pending delegation retains its creation event"),
@@ -104,7 +105,10 @@ impl OwnedCollaboration {
         ))
         .map_err(CollaborationIngressFailure::from)
         .map_err(|source| provisioning_failure(selector.clone(), source))?;
-        Ok(CollaborationIngressOutcome::Delegated { target: selector })
+        Ok(CollaborationIngressResult::new(
+            CollaborationIngressOutcome::Delegated { target: selector },
+            reference,
+        ))
     }
 }
 

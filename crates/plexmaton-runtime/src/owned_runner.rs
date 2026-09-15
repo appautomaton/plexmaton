@@ -15,7 +15,7 @@ use crate::{DispatchReport, LiveRuntime, PreparedChildExecution, RuntimeError};
 
 const NORMAL_CAPACITY: usize = 1;
 const CONTROL_CAPACITY: usize = 1;
-const QUERY_CAPACITY: usize = 1;
+const SESSION_CAPACITY: usize = 1;
 const UPDATE_CAPACITY: usize = 1;
 
 /// Failure to place or execute one normal-lane child turn.
@@ -174,9 +174,13 @@ enum ControlCommand {
     Panic,
 }
 
-enum QueryCommand {
+enum SessionCommand {
     SessionSource {
         reply: oneshot::Sender<Option<crate::CollaborationSessionSource>>,
+    },
+    LinkCollaborationItem {
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
 }
 
@@ -186,7 +190,7 @@ pub struct OwnedChildRunner {
     collaboration_supported: bool,
     normal: Option<mpsc::Sender<NormalCommand>>,
     control: Option<mpsc::Sender<ControlCommand>>,
-    query: Option<mpsc::Sender<QueryCommand>>,
+    session: Option<mpsc::Sender<SessionCommand>>,
     updates: mpsc::Receiver<OwnedRunnerUpdate>,
     worker: Option<JoinHandle<()>>,
     start_reply: Option<oneshot::Receiver<Result<DispatchReport, RuntimeError>>>,
@@ -228,7 +232,7 @@ impl OwnedChildRunner {
         let collaboration_supported = runtime.supports_collaboration();
         let (normal, normal_rx) = mpsc::channel(NORMAL_CAPACITY);
         let (control, control_rx) = mpsc::channel(CONTROL_CAPACITY);
-        let (query, query_rx) = mpsc::channel(QUERY_CAPACITY);
+        let (session, session_rx) = mpsc::channel(SESSION_CAPACITY);
         let (updates_tx, updates) = mpsc::channel(UPDATE_CAPACITY);
         let worker_identity = identity.clone();
         let worker = tokio::spawn(actor::run_owned_child(
@@ -236,7 +240,7 @@ impl OwnedChildRunner {
             worker_identity,
             normal_rx,
             control_rx,
-            query_rx,
+            session_rx,
             updates_tx,
         ));
         Ok(Self {
@@ -244,7 +248,7 @@ impl OwnedChildRunner {
             collaboration_supported,
             normal: Some(normal),
             control: Some(control),
-            query: Some(query),
+            session: Some(session),
             updates,
             worker: Some(worker),
             start_reply: None,
@@ -400,8 +404,8 @@ impl OwnedChildRunner {
         &self,
     ) -> Result<crate::CollaborationSessionSource, OwnedRunnerError> {
         let (reply, result) = oneshot::channel();
-        let sender = self.query.as_ref().ok_or(OwnedRunnerError::Closed)?;
-        match sender.try_send(QueryCommand::SessionSource { reply }) {
+        let sender = self.session.as_ref().ok_or(OwnedRunnerError::Closed)?;
+        match sender.try_send(SessionCommand::SessionSource { reply }) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
                 return Err(OwnedRunnerError::InspectionBusy);
@@ -414,6 +418,24 @@ impl OwnedChildRunner {
             .await
             .map_err(|_| OwnedRunnerError::WorkerFailed)?
             .ok_or(OwnedRunnerError::CollaborationUnavailable)
+    }
+
+    /// Persists one canonical collaboration placement through the child runtime's journal owner.
+    pub(crate) async fn link_collaboration_item(
+        &self,
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+    ) -> Result<(), OwnedRunnerError> {
+        let (reply, result) = oneshot::channel();
+        self.session
+            .as_ref()
+            .ok_or(OwnedRunnerError::Closed)?
+            .send(SessionCommand::LinkCollaborationItem { reference, reply })
+            .await
+            .map_err(|_| OwnedRunnerError::Closed)?;
+        result
+            .await
+            .map_err(|_| OwnedRunnerError::WorkerFailed)?
+            .map_err(OwnedRunnerError::from)
     }
 
     #[cfg(test)]
@@ -451,7 +473,7 @@ impl OwnedChildRunner {
         }
         self.normal.take();
         self.control.take();
-        self.query.take();
+        self.session.take();
         self.shutdown_reply = Some(result);
         Ok(())
     }
@@ -505,7 +527,7 @@ impl Drop for OwnedChildRunner {
     fn drop(&mut self) {
         self.normal.take();
         self.control.take();
-        self.query.take();
+        self.session.take();
         if let Some(worker) = self.worker.take() {
             worker.abort();
         }

@@ -1,10 +1,43 @@
 use plexmaton_core::{AgentStatus, ConversationEvent, TurnId};
 
 use super::{Agent, DeliveryBoundary};
-use crate::collaboration::{CollaborationError, ResolvedTurnAdmission, TurnBoundary};
+use crate::collaboration::{
+    CollaborationError, CollaborationItemRef, ResolvedTurnAdmission, TurnBoundary,
+};
 use crate::{JournalEntryPayload, Reaction, UnixMillis};
 
 impl Agent {
+    /// Records an owner-acknowledged collaboration fact whose originating tool wait disappeared.
+    ///
+    /// Retrying after caller cancellation is idempotent on the selected ancestry. The shared body
+    /// remains in the collaboration log; this records only the session's first durable position.
+    pub fn link_collaboration_item(
+        &mut self,
+        reference: CollaborationItemRef,
+        at: UnixMillis,
+    ) -> Result<Reaction, CollaborationError> {
+        reference.validate()?;
+        let already_linked = self
+            .journal()
+            .collaboration_links(self.selected_head())
+            .map_err(|_| CollaborationError::InvalidTurnBoundary)?
+            .into_iter()
+            .any(|origin| {
+                origin.agent() == self.record.agent_id() && origin.reference() == &reference
+            });
+        let mut reaction = Reaction::at(at);
+        if !already_linked {
+            self.record.commit(
+                JournalEntryPayload::CollaborationItemLinked {
+                    agent_id: self.record.agent_id().clone(),
+                    reference,
+                },
+                &mut reaction,
+            );
+        }
+        Ok(reaction.into_output())
+    }
+
     /// Proposes an idle turn boundary; queued ordinary inputs must remain with their own owner.
     pub fn collaboration_boundary(&self, turn: TurnId) -> Result<TurnBoundary, CollaborationError> {
         if self.is_running()
@@ -86,6 +119,25 @@ impl Agent {
             },
             &mut reaction,
         );
+        let mut linked: Vec<_> = self
+            .journal()
+            .collaboration_links(self.selected_head())
+            .map_err(|_| CollaborationError::InvalidTurnBoundary)?
+            .into_iter()
+            .map(|origin| origin.reference().clone())
+            .collect();
+        for item in resolved.items() {
+            if !linked.contains(&item.reference) {
+                self.record.commit(
+                    JournalEntryPayload::CollaborationItemLinked {
+                        agent_id: boundary.recipient.agent.clone(),
+                        reference: item.reference.clone(),
+                    },
+                    &mut reaction,
+                );
+                linked.push(item.reference.clone());
+            }
+        }
         self.record.emit(
             &mut reaction,
             ConversationEvent::AgentStatusChanged {

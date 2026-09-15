@@ -7,15 +7,15 @@
 //! TUI already knows how to draw.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::Path,
 };
 
 use anyhow::Context as _;
-use plexmaton_agent::collaboration::{CollaborationEvent, CollaborationLimits, MailEndpoint};
+use plexmaton_agent::collaboration::{CollaborationLimits, MailEndpoint};
 use plexmaton_core::{
     AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent, ConversationId,
-    DelegationId, TranscriptItemId, TurnId,
+    TranscriptItemId, TurnId,
 };
 use plexmaton_runtime::{
     CollaborationRuntimeStamp, CollaborationWriter, DelegatedChildFactory, DispatchReport,
@@ -26,6 +26,7 @@ use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::Col
 
 mod history;
 mod pending;
+mod placement;
 use pending::PendingRootProjection;
 pub(crate) use pending::RootProjectionProgress;
 
@@ -41,6 +42,7 @@ const ROOT_INCLUSION: &str = "root-inclusion-";
 /// One root's collaboration log, its owner, and the Main tool lane bound to this executable.
 pub(crate) struct Collaboration {
     owner: OwnedCollaboration,
+    collaboration: CollaborationId,
     /// Durable root identity. A session picker may replace only the runtime, so every projection
     /// checks this before it can consume root-owned activity.
     conversation: ConversationId,
@@ -66,15 +68,15 @@ pub(crate) struct Collaboration {
     undelivered: bool,
     /// Where the root receives mail, taken at bind time because binding consumes the proof.
     root: Option<MailEndpoint>,
-    /// Log records already on screen. The log is read whole every time and a restart replays all
-    /// of it, so the projection is the part that knows what is new.
-    shown: BTreeSet<CollaborationItemId>,
-    /// Child entries already drawn from a journal at restore.
-    ///
-    /// A child's history has two sources and they overlap: restore reads its journal, and a child
-    /// revived afterwards streams a runtime that replayed the same journal. Identities are
-    /// deterministic, so the second telling arrives as a revision gap on an entry already finished.
-    replayed: BTreeSet<TranscriptItemId>,
+    /// Log records already observed for root-turn admission. Display readiness is session-local,
+    /// so this cannot also stand in for the two independently anchored transcript rows.
+    observed: BTreeSet<CollaborationItemId>,
+    /// Shared transcript rows already projected, keyed by their stable per-session identity.
+    shown: BTreeSet<TranscriptItemId>,
+    /// Sessions with a canonical row waiting for their own durable placement link.
+    pending_placement: BTreeSet<AgentId>,
+    /// Exact journal prefix a passively reopened child will replay once when it is activated.
+    replayed_prefix: BTreeMap<ConversationId, VecDeque<ConversationEvent>>,
     /// Where a child's own journal lives, so its history can be read back after a restart.
     children: DelegatedConversationDirectory,
 }
@@ -98,7 +100,7 @@ pub(crate) fn open(
     let file = if path.exists() {
         CollaborationFile::open(&path).context("open this conversation's collaboration log")?
     } else {
-        CollaborationFile::create(&path, id, CollaborationLimits::default())
+        CollaborationFile::create(&path, id.clone(), CollaborationLimits::default())
             .context("create this conversation's collaboration log")?
     };
     // How many root inclusions this log already holds, so the counter continues rather than
@@ -124,6 +126,7 @@ pub(crate) fn open(
     Ok((
         Collaboration {
             owner,
+            collaboration: id,
             conversation: conversation.clone(),
             bound_runtime: None,
             pending_projection: None,
@@ -132,8 +135,10 @@ pub(crate) fn open(
             delivered,
             undelivered: false,
             root: None,
+            observed: BTreeSet::new(),
             shown: BTreeSet::new(),
-            replayed: BTreeSet::new(),
+            pending_placement: BTreeSet::new(),
+            replayed_prefix: BTreeMap::new(),
         },
         ingress,
     ))
@@ -180,10 +185,31 @@ impl Collaboration {
                 anyhow::anyhow!("restore this root's collaboration context: {error}")
             })?;
         self.sync_roster(runtime, AgentStatus::Idle).await?;
-        self.replay_children(runtime)?;
+        let records = self
+            .owner
+            .records()
+            .await
+            .context("read the collaboration log for restoration")?;
+        self.replay_children(runtime, &records).await?;
+        let source = runtime
+            .collaboration_session_source()
+            .context("capture this root's selected collaboration session")?;
+        let placements = self
+            .session_placements(&source.endpoint().agent, source.journal(), &records)
+            .await?;
         // Restoring draws the whole correspondence and answers none of it: a letter the root
         // already replied to before it exited must not earn a second turn every launch.
-        let _restored = self.show(runtime).await?;
+        let root = self
+            .root
+            .as_ref()
+            .context("restored collaboration has no Main endpoint")?
+            .agent
+            .clone();
+        self.project_session_rows(runtime, &records, &root, &placements, true, false)?;
+        self.observe_records(&records);
+        runtime.rebuild_delegated_projection().map_err(|error| {
+            anyhow::anyhow!("rebuild the durably placed collaboration projection: {error:?}")
+        })?;
         Ok(())
     }
 
@@ -269,68 +295,10 @@ impl Collaboration {
         self.delivered = self.delivered.saturating_add(1);
         self.undelivered = false;
         runtime
-            .start_collaboration_turn(resolved)
+            .start_collaboration_turn(std::sync::Arc::clone(&resolved))
             .await
             .context("give the root its delegated mail")?;
         Ok(())
-    }
-
-    /// Draws every fact in the log that is not on screen yet, on both sides it names.
-    ///
-    /// One pass over one log with one rule, because the alternative was three: a mail projection
-    /// that filtered a direction, a task projection that compared text, and neither reachable from
-    /// the settlement the other answered to. Every hole the user found was one of the three
-    /// forgetting what another remembered — a letter Main sent, a task nobody read, a task change
-    /// that waited for a restart.
-    ///
-    /// Returns whether anything arrived *for the root*, which is the one thing that earns it a turn.
-    async fn show(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<bool> {
-        let Some(root) = self.root.clone() else {
-            return Ok(false);
-        };
-        if let Some(refusal) = runtime.delegated_projection_refusal() {
-            return Err(refusal).context("project collaboration activity");
-        }
-        let records = self
-            .owner
-            .records()
-            .await
-            .context("read the collaboration log for projection")?;
-        // A task update names its delegation, so the session it was given to is read back from the
-        // record that created it — the same log, one pass earlier.
-        let workers: BTreeMap<DelegationId, MailEndpoint> = records
-            .iter()
-            .filter_map(|record| match &record.event {
-                CollaborationEvent::DelegationCreated {
-                    delegation, worker, ..
-                } => Some((delegation.clone(), worker.clone())),
-                _ => None,
-            })
-            .collect();
-        let mut arrived = false;
-        for record in &records {
-            if self.shown.contains(&record.id) {
-                continue;
-            }
-            let drawn = entries(record, &|endpoint| self.name(endpoint), &|delegation| {
-                workers.get(delegation).cloned()
-            });
-            // A record whose ends the roster cannot name yet is left for the next pass rather than
-            // marked seen, because the roster is what changes between passes.
-            if drawn.is_empty() && !matches!(record.event, CollaborationEvent::TurnAdmitted { .. })
-            {
-                continue;
-            }
-            self.shown.insert(record.id.clone());
-            for (owner, event) in drawn {
-                arrived |= owner == root.agent
-                    && matches!(&event, ConversationEvent::MailDelivered { .. });
-                runtime
-                    .project_delegated(&event)
-                    .context("project collaboration log entry")?;
-            }
-        }
-        Ok(arrived)
     }
 
     /// Names either end of a collaboration fact the way the roster names it, root included.
@@ -424,7 +392,7 @@ impl Collaboration {
             status,
         };
         runtime
-            .project_delegated(&event)
+            .project_delegated_roster(&event)
             .context("project delegated roster entry")?;
         self.announced.insert(child, agent_id);
         Ok(())
@@ -471,6 +439,8 @@ fn item_of(event: &ConversationEvent) -> Option<TranscriptItemId> {
         | ConversationEvent::TranscriptDelta { item_id, .. }
         | ConversationEvent::TranscriptItemFinalized { item_id, .. }
         | ConversationEvent::ToolCallChanged { item_id, .. }
+        | ConversationEvent::TaskAssigned { item_id, .. }
+        | ConversationEvent::MailDelivered { item_id, .. }
         | ConversationEvent::ArtifactAnnounced { item_id, .. }
         | ConversationEvent::RuntimeWarning { item_id, .. }
         | ConversationEvent::RuntimeError { item_id, .. } => Some(item_id.clone()),
@@ -487,6 +457,8 @@ const fn forwarded(event: &ConversationEvent) -> bool {
     matches!(
         event,
         ConversationEvent::AgentStatusChanged { .. }
+            | ConversationEvent::TaskAssigned { .. }
+            | ConversationEvent::MailDelivered { .. }
             | ConversationEvent::TranscriptItemStarted { .. }
             | ConversationEvent::TranscriptDelta { .. }
             | ConversationEvent::TranscriptItemFinalized { .. }
@@ -498,4 +470,3 @@ const fn forwarded(event: &ConversationEvent) -> bool {
 }
 
 mod projection;
-use projection::entries;

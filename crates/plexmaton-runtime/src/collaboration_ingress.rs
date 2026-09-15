@@ -19,6 +19,9 @@ use crate::{
     OwnedHandoffFailure, RuntimeError, TargetSelector, UpdateTaskIntent, WakeHint,
 };
 
+mod result;
+pub use result::{CollaborationIngressResult, CollaborationIngressSettlement};
+
 const INGRESS_CAPACITY: usize = 8;
 
 struct IngressAuthority;
@@ -180,37 +183,11 @@ impl CollaborationIngressFailure {
     }
 }
 
-/// Observable settlement retained by the root even when the originating tool wait disappeared.
-#[derive(Debug)]
-pub struct CollaborationIngressSettlement {
-    call_id: ToolCallId,
-    result: Result<CollaborationIngressOutcome, CollaborationIngressFailure>,
-    reply_delivered: bool,
-}
-
 /// One root-facing collaboration activity from either the tool lane or a child runner.
 #[derive(Debug)]
 pub enum OwnedCollaborationActivity {
     Ingress(CollaborationIngressSettlement),
     Runner(crate::OwnedRunnerUpdate),
-}
-
-impl CollaborationIngressSettlement {
-    #[must_use]
-    pub const fn call_id(&self) -> &ToolCallId {
-        &self.call_id
-    }
-
-    pub const fn result(
-        &self,
-    ) -> &Result<CollaborationIngressOutcome, CollaborationIngressFailure> {
-        &self.result
-    }
-
-    #[must_use]
-    pub const fn reply_delivered(&self) -> bool {
-        self.reply_delivered
-    }
 }
 
 enum IngressCaller {
@@ -225,7 +202,7 @@ struct IngressCommand {
     call_id: ToolCallId,
     caller: IngressCaller,
     request: CollaborationToolRequest,
-    reply: oneshot::Sender<Result<CollaborationIngressOutcome, CollaborationIngressRefusal>>,
+    reply: oneshot::Sender<Result<CollaborationIngressResult, CollaborationIngressRefusal>>,
 }
 
 #[derive(Clone)]
@@ -459,7 +436,7 @@ impl MainCollaborationIngress {
         call_id: ToolCallId,
         request: CollaborationToolRequest,
         cancellation: CancellationToken,
-    ) -> Result<CollaborationIngressOutcome, CollaborationIngressRefusal> {
+    ) -> Result<CollaborationIngressResult, CollaborationIngressRefusal> {
         enqueue(
             &self.sender,
             call_id,
@@ -478,7 +455,7 @@ impl ChildCollaborationIngress {
         call_id: ToolCallId,
         request: CollaborationToolRequest,
         cancellation: CancellationToken,
-    ) -> Result<CollaborationIngressOutcome, CollaborationIngressRefusal> {
+    ) -> Result<CollaborationIngressResult, CollaborationIngressRefusal> {
         enqueue(
             &self.sender,
             call_id,
@@ -501,7 +478,7 @@ async fn enqueue(
     request: CollaborationToolRequest,
     cancellation: CancellationToken,
     notify: Arc<Notify>,
-) -> Result<CollaborationIngressOutcome, CollaborationIngressRefusal> {
+) -> Result<CollaborationIngressResult, CollaborationIngressRefusal> {
     if cancellation.is_cancelled() {
         return Err(CollaborationIngressRefusal::Cancelled);
     }
@@ -523,8 +500,8 @@ async fn enqueue(
     notify.notify_one();
     tokio::select! {
         biased;
-        () = cancellation.cancelled() => Err(CollaborationIngressRefusal::Cancelled),
         result = result => result.unwrap_or(Err(CollaborationIngressRefusal::Closed)),
+        () = cancellation.cancelled() => Err(CollaborationIngressRefusal::Cancelled),
     }
 }
 

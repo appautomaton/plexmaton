@@ -6,7 +6,7 @@ against one endpoint, and their requests interleave in an order no script can pr
 journey addresses each reply to the request that earns it.
 """
 
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
 
@@ -124,7 +124,10 @@ class LoopbackProvider:
                             owner.errors.append(str(error))
                     self.send_error(400, "fixture refused request")
 
-        self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        # Delegated conversations own independent provider requests. A single handler would make
+        # whichever stream pauses first serialize the other agent and turn scheduling into fixture
+        # behavior rather than product behavior.
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.base_url = f"http://127.0.0.1:{self.server.server_port}/v1"
         self.worker = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05})
         try:

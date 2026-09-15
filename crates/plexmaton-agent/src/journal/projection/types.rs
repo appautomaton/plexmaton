@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use plexmaton_core::{
-    AgentId, AttentionId, ConversationEventEnvelope, ToolCallId, ToolCallStatus, TranscriptItemId,
-    TurnId,
+    AgentId, AttentionId, ConversationEntryId, ConversationEventEnvelope, ToolCallId,
+    ToolCallStatus, TranscriptItemId, TurnId,
 };
 
 use super::super::JournalError;
@@ -15,6 +17,7 @@ pub struct JournalProjection {
     pub(super) request_attempts: Vec<RequestAttempt>,
     pub(super) context_epoch: ContextEpoch,
     pub(super) base_atom_count: usize,
+    pub(super) entry_event_offsets: BTreeMap<ConversationEntryId, usize>,
 }
 
 impl JournalProjection {
@@ -58,6 +61,23 @@ impl JournalProjection {
     #[must_use]
     pub const fn base_atom_count(&self) -> usize {
         self.base_atom_count
+    }
+
+    /// Event-stream insertion point immediately before one selected canonical entry is reduced.
+    #[must_use]
+    pub fn event_offset(&self, entry: &ConversationEntryId) -> Option<usize> {
+        self.entry_event_offsets.get(entry).copied()
+    }
+
+    pub(crate) fn replace_events(
+        &mut self,
+        events: Vec<ConversationEventEnvelope>,
+        placement_boundaries: &[usize],
+    ) {
+        for offset in self.entry_event_offsets.values_mut() {
+            *offset = placement_boundaries[*offset];
+        }
+        self.events = events;
     }
 }
 

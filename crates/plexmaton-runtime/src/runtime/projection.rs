@@ -1,6 +1,8 @@
 //! Acknowledgement-gated projection of facts whose canonical source is outside the session journal.
 
-use plexmaton_core::ConversationEvent;
+use std::collections::VecDeque;
+
+use plexmaton_core::{ConversationEntryId, ConversationEvent};
 
 use super::LiveRuntime;
 
@@ -39,6 +41,46 @@ impl LiveRuntime {
         }
         self.pending
             .extend(self.agent.project_delegated(event.clone()).events);
+        Ok(())
+    }
+
+    /// Retains one delegated roster identity ahead of external transcript entries on rebuild.
+    pub fn project_delegated_roster(
+        &mut self,
+        event: &ConversationEvent,
+    ) -> Result<(), DelegatedProjectionRefusal> {
+        if let Some(refusal) = self.delegated_projection_refusal() {
+            return Err(refusal);
+        }
+        self.pending
+            .extend(self.agent.project_delegated_roster(event.clone()).events);
+        Ok(())
+    }
+
+    /// Retains one collaboration row by its canonical log reference and selected-session anchor.
+    pub fn project_delegated_reference(
+        &mut self,
+        event: &ConversationEvent,
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+        fallback: Vec<ConversationEntryId>,
+    ) -> Result<(), DelegatedProjectionRefusal> {
+        if let Some(refusal) = self.delegated_projection_refusal() {
+            return Err(refusal);
+        }
+        self.pending.extend(
+            self.agent
+                .project_delegated_reference(event.clone(), reference, fallback)
+                .events,
+        );
+        Ok(())
+    }
+
+    /// Rebuilds the startup projection after canonical external facts have been registered.
+    pub fn rebuild_delegated_projection(
+        &mut self,
+    ) -> Result<(), plexmaton_agent::ProjectionRebuildError> {
+        let projection = self.agent.rebuild_projection()?;
+        self.pending = VecDeque::from(projection.events().to_vec());
         Ok(())
     }
 

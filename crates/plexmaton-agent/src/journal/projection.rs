@@ -372,9 +372,11 @@ impl ConversationJournal {
         }
         ordered.sort_by_key(|(sequence, _)| *sequence);
         let mut finished_turns = BTreeSet::new();
+        let mut entry_event_offsets = BTreeMap::new();
         for (_, fact) in ordered {
             match fact {
                 SelectedFact::Entry(entry) => {
+                    entry_event_offsets.insert(entry.id.clone(), projector.events.len());
                     if let JournalEntryPayload::CompactionCheckpoint { checkpoint, .. } =
                         &entry.payload
                     {
@@ -435,6 +437,7 @@ impl ConversationJournal {
             request_attempts,
             context_epoch: projector.context_epoch,
             base_atom_count: projector.base_atom_count,
+            entry_event_offsets,
         })
     }
 }

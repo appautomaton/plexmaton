@@ -49,10 +49,11 @@ pub use interface::{
     UnresolvedApprovalDecision,
 };
 pub use journal::{
-    ArtifactAnnouncementOrigin, BudgetBasis, CollaborationInclusionOrigin, ConversationEntry,
-    ConversationJournal, ConversationMetadata, HeadRevision, JournalEntryPayload, JournalError,
-    JournalProjection, JournalProjectionError, JournalRecord, JournalSequence, RecoveryProjection,
-    RequestAccounting, RequestAccountingError, RetryCandidate, RetryTarget,
+    ArtifactAnnouncementOrigin, BudgetBasis, CollaborationInclusionOrigin, CollaborationLinkOrigin,
+    ConversationEntry, ConversationJournal, ConversationMetadata, HeadRevision,
+    JournalEntryPayload, JournalError, JournalProjection, JournalProjectionError, JournalRecord,
+    JournalSequence, RecoveryProjection, RequestAccounting, RequestAccountingError, RetryCandidate,
+    RetryTarget,
 };
 pub use model::{
     AssistantBlock, AssistantOutput, AssistantReplay, BlockReplay, ContextAtom, ContextAtomValue,

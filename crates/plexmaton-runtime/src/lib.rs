@@ -19,9 +19,9 @@ mod runtime;
 pub use collaboration_ingress::{
     ChildCollaborationIngress, CollaborationArtifactRegistrationError, CollaborationArtifactSource,
     CollaborationIngressFailure, CollaborationIngressOutcome, CollaborationIngressRefusal,
-    CollaborationIngressSettlement, CollaborationRuntimeStamp, CollaborationSessionSource,
-    MainCollaborationIngress, MainRuntimeIdentity, OwnedCollaborationActivity,
-    RegisteredCollaborationTarget,
+    CollaborationIngressResult, CollaborationIngressSettlement, CollaborationRuntimeStamp,
+    CollaborationSessionSource, MainCollaborationIngress, MainRuntimeIdentity,
+    OwnedCollaborationActivity, RegisteredCollaborationTarget,
 };
 pub use collaboration_read::{
     CollaborationReadError, CollaborationSessionMailProjection, SessionMailInclusion,

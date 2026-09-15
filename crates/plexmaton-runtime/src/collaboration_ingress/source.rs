@@ -89,6 +89,21 @@ pub(super) enum SessionSourceRole {
 }
 
 impl CollaborationSessionSource {
+    #[must_use]
+    pub const fn endpoint(&self) -> &MailEndpoint {
+        &self.endpoint
+    }
+
+    #[must_use]
+    pub const fn journal(&self) -> &ConversationJournal {
+        &self.journal
+    }
+
+    #[must_use]
+    pub const fn selected_head(&self) -> &HeadName {
+        &self.head
+    }
+
     fn new(
         endpoint: MailEndpoint,
         journal: ConversationJournal,

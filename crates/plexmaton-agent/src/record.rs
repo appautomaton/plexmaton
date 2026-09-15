@@ -22,6 +22,9 @@ use crate::{
     RequestAttemptTerminal, RequestEnvironment, UnixMillis,
 };
 
+mod delegated;
+pub(crate) use delegated::DelegatedPlacement;
+use delegated::DelegatedProjection;
 mod navigation;
 mod recovery;
 mod retry;
@@ -34,6 +37,7 @@ pub(crate) struct Record {
     journal: ConversationJournal,
     announced: bool,
     next_event: u64,
+    delegated: Vec<DelegatedProjection>,
 }
 
 pub(crate) enum RequestAttemptCommitError {
@@ -58,6 +62,7 @@ impl Record {
             journal: ConversationJournal::with_metadata(metadata),
             announced: false,
             next_event: 1,
+            delegated: Vec::new(),
         }
     }
 
@@ -87,6 +92,7 @@ impl Record {
             journal,
             announced,
             next_event,
+            delegated: Vec::new(),
         })
     }
 
@@ -137,6 +143,7 @@ impl Record {
             .journal
             .project(self.selected_head())
             .unwrap_or_else(|error| unreachable!("live facts must remain projectable: {error:?}"));
+        let projection = self.with_delegated(projection);
         self.next_event = projection.events().last().map_or(1, |event| {
             event
                 .sequence

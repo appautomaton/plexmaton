@@ -24,7 +24,7 @@ from smoke_support import DOWN, ENTER, ESC, ROOT, UP, Terminal, click, fixture_e
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
-HISTORY_ANCHOR = "CHILD_HISTORY_LINE_03"
+HISTORY_ANCHOR = "CHILD_HISTORY_LINE_02"
 WORKING = "CHILD_WORKING counting them now\n" + "\n".join(
     f"CHILD_HISTORY_LINE_{index:02d}" for index in range(48)
 )
@@ -32,6 +32,7 @@ REPORT = "CHILD_REPORT the project holds two fixtures"
 WAITING = "MAIN_WAITING for the delegated answer"
 SAW = "MAIN_SAW_THE_REPORT and agrees"
 DONE = "CHILD_DONE"
+RESTORED = "Conversation restored."
 # Three names for two conversations: the roster and the inspector title say `Delegated 1`, a root
 # entry addresses `delegated-1`, and the child's entries address the root as `agent-primary`.
 CHILD, TARGET, ROOT_AGENT = "Delegated 1", "delegated-1", "agent-primary"
@@ -219,6 +220,12 @@ def visible_history_anchor(screen):
     raise AssertionError("the resumed child viewport has no history anchor")
 
 
+def assert_ordered(screen, *markers):
+    """Require one visible conversation to retain semantic first-appearance order."""
+    positions = [screen.index(marker) for marker in markers]
+    assert positions == sorted(positions), (markers, positions)
+
+
 def run_smoke(provider):
     with tempfile.TemporaryDirectory(prefix="plexmaton-delegate-", dir="/tmp") as folder:
         home, project = Path(folder) / "home", Path(folder) / "project"
@@ -234,7 +241,16 @@ def run_smoke(provider):
             # ENT-1: the root's own transcript holds the task it handed out, addressed to the child.
             terminal.wait(f"assigned to {TARGET}", "COUNT_THE_FIXTURES")
             # CMP-1: the answer arrives as mail the root reads in a turn it admits itself.
-            terminal.wait(f"received from {TARGET}", "CHILD_REPORT", SAW)
+            root_screen = terminal.wait(f"received from {TARGET}", "CHILD_REPORT", SAW)
+            assert_ordered(
+                root_screen,
+                ASK,
+                "delegate · succeeded",
+                f"assigned to {TARGET}",
+                WAITING,
+                f"received from {TARGET}",
+                SAW,
+            )
             # Checked before the roster is touched: a drop opens a notice panel that moves every
             # row below it, and the click that opens the child would then miss for a reason the
             # failure does not name.
@@ -257,7 +273,19 @@ def run_smoke(provider):
         # width, then closes it at the narrow width and returns the root without starting work.
         with Terminal(project, environment, "delegate", "resume-pointer",
                       ("resume", journal.stem)) as terminal:
-            terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+            root_screen = terminal.wait(
+                f"assigned to {TARGET}", f"received from {TARGET}", SAW, RESTORED
+            )
+            assert_ordered(
+                root_screen,
+                ASK,
+                "delegate · succeeded",
+                f"assigned to {TARGET}",
+                WAITING,
+                f"received from {TARGET}",
+                SAW,
+                RESTORED,
+            )
             requests_before, errors_before = provider.snapshot()
             open_child(terminal, *CHILD_SIDE)
             both_at_three_widths(terminal, "resumed-pointer")
@@ -265,14 +293,24 @@ def run_smoke(provider):
             # Park inside the long restored message, close while the Inspector owns focus, then
             # reopen by pointer at the same width and require the same first visible history line.
             open_child(terminal, *CHILD_SIDE)
-            terminal.resize(60, *CHILD_SIDE)
             terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
+            oldest = terminal.send(
+                UP * 100, f"assigned by {ROOT_AGENT}", "CHILD_WORKING"
+            )
+            assert_ordered(oldest, f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
+            newest = terminal.send(
+                DOWN * 100, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE
+            )
+            assert_ordered(newest, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
+            terminal.resize(60, *CHILD_SIDE)
             parked_screen = terminal.send(UP * 12, HISTORY_ANCHOR)
+            write_frame(terminal, "resumed-pointer", "anchor-parked", parked_screen)
             parked = visible_history_anchor(parked_screen)
             assert parked == HISTORY_ANCHOR, (parked, HISTORY_ANCHOR)
             focus_primary(terminal)
             terminal.send(ESC, *ROOT_SIDE, absent=(DONE,))
             reopened = terminal.send(b"\t" + DOWN, CHILD, parked)
+            write_frame(terminal, "resumed-pointer", "anchor-reopened", reopened)
             assert visible_history_anchor(reopened) == parked, \
                 "the resumed child's reading anchor moved across close/reopen"
             close_child(terminal, *ROOT_SIDE, absent=(DONE,))
@@ -289,7 +327,7 @@ def run_smoke(provider):
         # Enter explicitly moves into the read-only window, and every width retains its work.
         with Terminal(project, environment, "delegate", "resume-keyboard",
                       ("resume", journal.stem)) as terminal:
-            terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+            terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW, RESTORED)
             requests_before, errors_before = provider.snapshot()
             terminal.send(DOWN, *CHILD_SIDE)
             terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
@@ -374,7 +412,8 @@ def main():
     print("delegate smoke passed: one delegation; the child's own work and letter; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
           "the child is closed; no dropped event; a durable ledger and child journal; passive "
-          "pointer and keyboard resume at all three widths with no request or durable write; and "
+          "pointer and keyboard resume at all three widths with durable task/mail placement, "
+          "a final restoration confirmation, no request or durable write; and "
           "focused-child Stop through a paused provider with root continuation")
 
 

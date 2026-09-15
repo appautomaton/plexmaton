@@ -195,6 +195,28 @@ fn cin_3_session_reference_resolves_without_synthetic_user_content() {
     let reaction = agent
         .start_collaboration_turn(&source, UnixMillis::EPOCH)
         .expect("start");
+    let linked: Vec<_> = reaction
+        .records
+        .iter()
+        .filter_map(|record| match record {
+            JournalRecord::AppendEntry { entry, .. } => match &entry.payload {
+                crate::JournalEntryPayload::CollaborationItemLinked { reference, .. } => {
+                    Some(reference.clone())
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        linked,
+        source
+            .items()
+            .iter()
+            .map(|item| item.reference.clone())
+            .collect::<Vec<_>>(),
+        "the recipient records one session placement for every admitted source"
+    );
     let bytes = serde_json::to_string(&reaction.records).expect("encode session records");
     assert!(!bytes.contains("Found two relevant files"));
     assert!(!bytes.contains("Inspect files"));

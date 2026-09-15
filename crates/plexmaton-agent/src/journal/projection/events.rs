@@ -84,7 +84,8 @@ pub(super) fn visible_event(payload: JournalEntryPayload) -> ConversationEvent {
                 message: super::super::PROCESS_RECOVERY_MESSAGE.to_owned(),
             }
         }
-        JournalEntryPayload::AssistantOutput { .. }
+        JournalEntryPayload::CollaborationItemLinked { .. }
+        | JournalEntryPayload::AssistantOutput { .. }
         | JournalEntryPayload::CompactionCheckpoint { .. }
         | JournalEntryPayload::TurnStatusChanged { .. }
         | JournalEntryPayload::TurnStarted { .. }
@@ -192,7 +193,8 @@ impl Projector {
                 self.require_agent(agent_id)?;
                 self.claim_entry(item_id, agent_id)?;
             }
-            JournalEntryPayload::TurnStatusChanged { .. }
+            JournalEntryPayload::CollaborationItemLinked { .. }
+            | JournalEntryPayload::TurnStatusChanged { .. }
             | JournalEntryPayload::TurnStarted { .. }
             | JournalEntryPayload::CollaborationTurnStarted { .. }
             | JournalEntryPayload::TurnRetried { .. }

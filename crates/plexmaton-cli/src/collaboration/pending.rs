@@ -1,5 +1,6 @@
 //! Root-bound ownership of one selected collaboration projection.
 
+use plexmaton_agent::collaboration::{CollaborationItemRef, MailEndpoint};
 use plexmaton_core::{AgentId, ConversationEvent, ConversationId};
 use plexmaton_runtime::{
     CollaborationIngressOutcome, DelegatedProjectionRefusal, LiveRuntime,
@@ -7,7 +8,7 @@ use plexmaton_runtime::{
     RunnerGeneration, RuntimeUpdate,
 };
 
-use super::{AgentStatus, Collaboration, forwarded, item_of};
+use super::{AgentStatus, Collaboration, forwarded};
 
 /// Whether the current root runtime advanced one retained projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,6 +31,7 @@ pub(super) enum RecoverySource {
 pub(super) enum PendingRootProjection {
     RefreshLog {
         sync_running_roster: bool,
+        orphaned_link: Option<OrphanedIngressLink>,
     },
     RunnerEvent {
         child: ConversationId,
@@ -41,6 +43,12 @@ pub(super) enum PendingRootProjection {
         agent: AgentId,
         outcome: Box<Result<OwnedStopReport, OwnedSchedulingError>>,
     },
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct OrphanedIngressLink {
+    pub(super) caller: MailEndpoint,
+    pub(super) reference: CollaborationItemRef,
 }
 
 impl PendingRootProjection {
@@ -107,11 +115,28 @@ impl Collaboration {
         );
         self.pending_projection = match activity {
             OwnedCollaborationActivity::Ingress(settlement) if settlement.result().is_ok() => {
+                let orphaned_link = if settlement.reply_delivered() {
+                    None
+                } else {
+                    Some(OrphanedIngressLink {
+                        caller: settlement.caller().cloned().ok_or_else(|| {
+                            anyhow::anyhow!("settled collaboration ingress has no caller endpoint")
+                        })?,
+                        reference: settlement
+                            .result()
+                            .as_ref()
+                            .expect("successful ingress checked above")
+                            .reference()
+                            .clone(),
+                    })
+                };
                 Some(PendingRootProjection::RefreshLog {
                     sync_running_roster: matches!(
                         settlement.result(),
-                        Ok(CollaborationIngressOutcome::Delegated { .. })
+                        Ok(result)
+                            if matches!(result.outcome(), CollaborationIngressOutcome::Delegated { .. })
                     ),
+                    orphaned_link,
                 })
             }
             OwnedCollaborationActivity::Ingress(_) => None,
@@ -144,23 +169,45 @@ impl Collaboration {
             None => {}
         }
 
-        match self
+        let refresh = match self
             .pending_projection
             .as_ref()
             .expect("pending projection checked above")
         {
             PendingRootProjection::RefreshLog {
                 sync_running_roster,
-            } => {
-                if *sync_running_roster {
-                    self.sync_roster(runtime, AgentStatus::Running).await?;
-                }
-                self.undelivered |= self.show(runtime).await?;
+                orphaned_link,
+            } => Some((*sync_running_roster, orphaned_link.clone())),
+            _ => None,
+        };
+        if let Some((sync_running_roster, orphaned_link)) = refresh {
+            let refresh_child = match orphaned_link {
+                Some(link) => self.persist_orphaned_link(runtime, link).await?,
+                None => None,
+            };
+            if sync_running_roster {
+                self.sync_roster(runtime, AgentStatus::Running).await?;
             }
-            PendingRootProjection::RunnerEvent { event, .. } => {
+            self.undelivered |= self.show(runtime).await?;
+            if let Some(child) = refresh_child {
+                self.refresh_child(runtime, &child).await?;
+            }
+            self.pending_projection.take();
+            return Ok(RootProjectionProgress::Applied);
+        }
+
+        match self
+            .pending_projection
+            .as_ref()
+            .expect("pending projection checked above")
+        {
+            PendingRootProjection::RefreshLog { .. } => unreachable!("refresh handled above"),
+            PendingRootProjection::RunnerEvent { child, event, .. } => {
                 runtime
                     .project_delegated(event)
                     .map_err(anyhow::Error::from)?;
+                let child = child.clone();
+                self.refresh_child(runtime, &child).await?;
             }
             // `apply_collaboration` takes this result through `take_stop_settlement` so its
             // report can return exact child-owned input. Keeping it staged is safe if a caller is
@@ -173,7 +220,7 @@ impl Collaboration {
         Ok(RootProjectionProgress::Applied)
     }
 
-    fn prepare_runner(&self, update: OwnedRunnerUpdate) -> Option<PendingRootProjection> {
+    fn prepare_runner(&mut self, update: OwnedRunnerUpdate) -> Option<PendingRootProjection> {
         let (identity, event, recovery) = match update {
             OwnedRunnerUpdate::StopSettled { identity, outcome } => {
                 let agent = self
@@ -200,25 +247,43 @@ impl Collaboration {
             .announced
             .get(&identity.endpoint().conversation)
             .cloned()?;
-        let mut event = match event {
+        let event = match event {
             Some(event) => event,
             None => ConversationEvent::AgentStatusChanged {
                 agent_id: agent_id.clone(),
                 status: AgentStatus::Failed,
             },
         };
-        if !forwarded(&event) {
-            return None;
-        }
-        if item_of(&event).is_some_and(|item| self.replayed.contains(&item)) {
-            return None;
-        }
-        *event.agent_mut() = agent_id;
+        let event =
+            self.prepare_forwarded_event(&identity.endpoint().conversation, &agent_id, event)?;
         Some(PendingRootProjection::RunnerEvent {
             child: identity.endpoint().conversation.clone(),
             generation: identity.generation(),
             event: Box::new(event),
             recovery,
         })
+    }
+
+    pub(super) fn prepare_forwarded_event(
+        &mut self,
+        conversation: &ConversationId,
+        agent_id: &AgentId,
+        mut event: ConversationEvent,
+    ) -> Option<ConversationEvent> {
+        if !forwarded(&event) {
+            return None;
+        }
+        if let Some(prefix) = self.replayed_prefix.get_mut(conversation) {
+            if prefix.front() == Some(&event) {
+                prefix.pop_front();
+                if prefix.is_empty() {
+                    self.replayed_prefix.remove(conversation);
+                }
+                return None;
+            }
+            self.replayed_prefix.remove(conversation);
+        }
+        *event.agent_mut() = agent_id.clone();
+        Some(event)
     }
 }

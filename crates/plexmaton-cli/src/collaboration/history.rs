@@ -1,9 +1,11 @@
 //! Passive child-journal projection and explicit unavailable-history states.
 
 use anyhow::Context as _;
+use plexmaton_agent::collaboration::{CollaborationEvent, CollaborationRecord};
 use plexmaton_core::{AgentId, ConversationEvent, ConversationId, TranscriptItemId};
 use plexmaton_runtime::LiveRuntime;
 use plexmaton_session_store::StoreError;
+use std::collections::{BTreeMap, VecDeque};
 
 use super::{Collaboration, forwarded, item_of};
 
@@ -46,7 +48,20 @@ impl Collaboration {
     /// in its journal. Reading is not waking (CHB-3): the journal is opened, projected and closed
     /// without constructing a runtime or dispatching anything. An unavailable journal retains its
     /// roster row and gains one process-local warning instead of presenting an empty conversation.
-    pub(super) fn replay_children(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
+    pub(super) async fn replay_children(
+        &mut self,
+        runtime: &mut LiveRuntime,
+        records: &[CollaborationRecord],
+    ) -> anyhow::Result<()> {
+        let workers: BTreeMap<_, _> = records
+            .iter()
+            .filter_map(|record| match &record.event {
+                CollaborationEvent::DelegationCreated {
+                    delegation, worker, ..
+                } => Some((delegation.clone(), worker.clone())),
+                _ => None,
+            })
+            .collect();
         let children: Vec<(ConversationId, AgentId)> = self
             .announced
             .iter()
@@ -76,19 +91,42 @@ impl Collaboration {
                     continue;
                 }
             };
-            for envelope in projection.events() {
-                let mut event = envelope.event.clone();
+            let session_agent = workers
+                .values()
+                .find(|endpoint| endpoint.conversation == conversation)
+                .map(|endpoint| &endpoint.agent)
+                .context("restored child has no canonical collaboration endpoint")?;
+            let placements = self
+                .session_placements(session_agent, journal, records)
+                .await?;
+            let replayed_prefix: VecDeque<_> = projection
+                .events()
+                .iter()
+                .filter(|envelope| forwarded(&envelope.event))
+                .map(|envelope| envelope.event.clone())
+                .collect();
+            if !replayed_prefix.is_empty() {
+                self.replayed_prefix
+                    .insert(conversation.clone(), replayed_prefix);
+            }
+            let shared = super::projection::session_entries(
+                records,
+                &agent_id,
+                &placements,
+                &|endpoint| self.name(endpoint),
+                &|delegation| workers.get(delegation).cloned(),
+            );
+            self.shown
+                .extend(shared.iter().filter_map(|placed| item_of(&placed.event)));
+            let merged = super::projection::merge_session_entries(&projection, shared);
+            for mut event in merged {
                 if !forwarded(&event) {
                     continue;
                 }
-                let item = item_of(&event);
                 *event.agent_mut() = agent_id.clone();
                 runtime
                     .project_delegated(&event)
                     .context("project restored delegated work")?;
-                if let Some(item) = item {
-                    self.replayed.insert(item);
-                }
             }
         }
         Ok(())

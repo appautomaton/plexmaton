@@ -424,6 +424,17 @@ impl OwnedCollaboration {
         self.writer.records().await
     }
 
+    /// Resolves selected-session admission references through the canonical file owner.
+    pub async fn resolve_session_references(
+        &self,
+        references: Vec<plexmaton_agent::collaboration::CollaborationItemRef>,
+    ) -> Result<
+        Vec<std::sync::Arc<plexmaton_agent::collaboration::ResolvedTurnAdmission>>,
+        CollaborationWriterError,
+    > {
+        self.writer.resolve_context(references).await
+    }
+
     /// Reads a complete bounded mail snapshot from the live canonical writer (CMP-1).
     pub async fn mail_snapshot(
         &self,

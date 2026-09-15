@@ -12,7 +12,7 @@ pub(super) async fn run_owned_child(
     identity: RunnerIdentity,
     normal: mpsc::Receiver<NormalCommand>,
     control: mpsc::Receiver<ControlCommand>,
-    query: mpsc::Receiver<QueryCommand>,
+    session: mpsc::Receiver<SessionCommand>,
     updates: mpsc::Sender<OwnedRunnerUpdate>,
 ) {
     let result = AssertUnwindSafe(run_owned_child_loop(
@@ -20,7 +20,7 @@ pub(super) async fn run_owned_child(
         identity,
         normal,
         control,
-        query,
+        session,
         updates,
     ))
     .catch_unwind()
@@ -36,7 +36,7 @@ async fn run_owned_child_loop(
     identity: RunnerIdentity,
     mut normal: mpsc::Receiver<NormalCommand>,
     mut control: mpsc::Receiver<ControlCommand>,
-    mut query: mpsc::Receiver<QueryCommand>,
+    mut session: mpsc::Receiver<SessionCommand>,
     updates: mpsc::Sender<OwnedRunnerUpdate>,
 ) {
     let mut pending_update = None;
@@ -46,7 +46,7 @@ async fn run_owned_child_loop(
                 runtime,
                 &mut normal,
                 &mut control,
-                &mut query,
+                &mut session,
                 &updates,
                 update,
             )
@@ -86,8 +86,8 @@ async fn run_owned_child_loop(
                     return;
                 }
             }
-            command = query.recv() => {
-                handle_query(command, runtime);
+            command = session.recv() => {
+                handle_session(command, runtime).await;
             }
             update = runtime.next_update() => {
                 match update {
@@ -168,7 +168,7 @@ async fn flush_pending_update(
     runtime: &mut LiveRuntime,
     normal: &mut mpsc::Receiver<NormalCommand>,
     control: &mut mpsc::Receiver<ControlCommand>,
-    query: &mut mpsc::Receiver<QueryCommand>,
+    session: &mut mpsc::Receiver<SessionCommand>,
     updates: &mpsc::Sender<OwnedRunnerUpdate>,
     update: OwnedRunnerUpdate,
 ) -> PendingUpdateAction {
@@ -180,8 +180,8 @@ async fn flush_pending_update(
                 ControlAction::Close(reply) => PendingUpdateAction::Close { update, reply },
             }
         }
-        command = query.recv() => {
-            handle_query(command, runtime);
+        command = session.recv() => {
+            handle_session(command, runtime).await;
             PendingUpdateAction::Retain(update)
         }
         permit = updates.reserve() => {
@@ -194,11 +194,17 @@ async fn flush_pending_update(
     }
 }
 
-fn handle_query(command: Option<QueryCommand>, runtime: &LiveRuntime) {
-    let Some(QueryCommand::SessionSource { reply }) = command else {
-        return;
-    };
-    let _caller_gone = reply.send(runtime.collaboration_session_source()).is_err();
+async fn handle_session(command: Option<SessionCommand>, runtime: &mut LiveRuntime) {
+    match command {
+        Some(SessionCommand::SessionSource { reply }) => {
+            let _caller_gone = reply.send(runtime.collaboration_session_source()).is_err();
+        }
+        Some(SessionCommand::LinkCollaborationItem { reference, reply }) => {
+            let result = runtime.link_collaboration_item(reference).await;
+            let _caller_gone = reply.send(result).is_err();
+        }
+        None => {}
+    }
 }
 
 enum ControlAction {

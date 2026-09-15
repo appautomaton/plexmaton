@@ -3,6 +3,32 @@
 use super::*;
 use crate::collaboration_tools::collaboration_tool_definitions;
 
+pub(super) fn tool_result(result: crate::CollaborationIngressResult) -> ToolExecutionResult {
+    let (outcome, reference) = result.into_parts();
+    let output = match outcome {
+        CollaborationIngressOutcome::Delegated { target } => serde_json::json!({
+            "status": "delegated",
+            "target": target.as_str(),
+        }),
+        CollaborationIngressOutcome::MailAccepted => {
+            serde_json::json!({"status": "mail_accepted"})
+        }
+        CollaborationIngressOutcome::TaskUpdated => {
+            serde_json::json!({"status": "task_updated"})
+        }
+        CollaborationIngressOutcome::HandoffCompleted => {
+            serde_json::json!({"status": "handoff_completed"})
+        }
+    };
+    ToolExecutionResult::new(
+        ToolOutcome::Succeeded {
+            output: output.to_string(),
+        },
+        None,
+    )
+    .with_collaboration_reference(reference)
+}
+
 impl NativeToolCatalog {
     /// Adds Main-only collaboration definitions backed by one authenticated bounded ingress.
     pub fn with_main_collaboration(

@@ -113,8 +113,15 @@ where
             () = wait_for_deadline(effort_deadline) => { workspace.advance_effort_animation(Instant::now()); }
             runtime_update = runtime.next_update() => {
                 let update = runtime_update.context("receive live runtime update")?;
-                deliver_pending_mail(collaboration.as_deref_mut(), runtime).await?;
-                if apply_runtime_update(update, runtime, workspace, status_line, &mut frames) {
+                let finished = apply_runtime_progress(
+                    update,
+                    collaboration.as_deref_mut(),
+                    runtime,
+                    workspace,
+                    status_line,
+                    &mut frames,
+                ).await?;
+                if finished {
                     frames.draw_with_native(workspace, terminal, Instant::now(), &mut native_output).context("draw final TUI frame")?;
                     break;
                 }
@@ -142,6 +149,23 @@ where
         }
     }
     Ok(())
+}
+
+/// Applies one acknowledged root update before retrying rows whose placement it made durable.
+async fn apply_runtime_progress(
+    update: RuntimeUpdate,
+    collaboration: Option<&mut crate::collaboration::Collaboration>,
+    runtime: &mut LiveRuntime,
+    workspace: &mut Workspace,
+    status_line: &mut Option<statusline::StatusLine>,
+    frames: &mut stream_frames::StreamFrames,
+) -> anyhow::Result<bool> {
+    let finished = apply_runtime_update(update, runtime, workspace, status_line, frames);
+    if let Some(collaboration) = collaboration {
+        collaboration.refresh_root(runtime).await?;
+        collaboration.deliver_pending(runtime).await?;
+    }
+    Ok(finished)
 }
 
 /// Publishes preparation output first, then advances the root-owned projection slot once its
@@ -459,21 +483,6 @@ async fn apply_terminal_event(
         status_line,
     )
     .await
-}
-
-/// Retries mail the root was too busy to read, now that the root has moved.
-///
-/// Mail almost always lands while the root is still finishing the turn that sent the work, and
-/// nothing settles in the collaboration owner afterwards. The retry has to hang off the root's own
-/// progress or the letter waits forever.
-async fn deliver_pending_mail(
-    collaboration: Option<&mut crate::collaboration::Collaboration>,
-    runtime: &mut LiveRuntime,
-) -> anyhow::Result<()> {
-    if let Some(collaboration) = collaboration {
-        collaboration.deliver_pending(runtime).await?;
-    }
-    Ok(())
 }
 
 /// Transfers one selected activity into the root-owned slot and drives it when JRN-7 permits.
