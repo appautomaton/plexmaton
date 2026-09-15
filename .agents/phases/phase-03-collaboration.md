@@ -18,15 +18,16 @@ COL-3, CHB-1–CHB-3 and the [locked roadmap](../roadmap.md#locked) own authorit
 ## Current evidence
 
 The current task is `feat/phase-03-control` in `.worktrees/phase-03-control`, based on
-`b722eb8`. Its inherited uncommitted changes are scripts, tests, CI and documentation.
-The primary checkout remains on main. Recheck refs/status before starting execution.
+`b722eb8`. The preparation changes to scripts, tests, CI and documentation are committed
+and published on the task branch. The primary checkout remains on main. Recheck refs/status
+before starting execution.
 
 | Area | Evidence and limit |
 | --- | --- |
 | Delegation and mail | `scripts/smoke-delegate.py` uses the real binary, real runtime/storage and a loopback Chat Completions fixture. It drives delegate/send_mail, opens child work, checks both conversations at 120/95 columns and returns to the root after closing the child at 60 |
 | Persistence | The smoke reads child JSONL and checks delegation/mail event kinds. Graceful root resume restores visible markers. This does not prove exact durable payloads, chronological equality, child reopening or process-kill recovery |
 | Script infrastructure | Shared PTY/Terminal and provider fixtures replace cross-journey imports. Addressed replies match the final request message; the routing regression now compares response bodies |
-| Validation | Last reported locally: seven journeys and 41 Python tests passed, plus citations/frames/typos. CI invocation is present in the working-tree workflow; there is no CI result for these uncommitted changes. Revalidate the inherited baseline once at execution start |
+| Validation | Last reported locally: seven journeys and 41 Python tests passed, plus citations/frames/typos. CI invocation is committed in the workflow; no branch CI result is recorded here. Revalidate the inherited baseline once at execution start |
 | Existing control backend | Main's four tools reach authenticated ingress; Handoff reaches canonical owner settlement. The owned child actor survives Stop/Handoff, but has no user-submission lane. Control snapshots and Handoff entries have no production projection |
 | Native UI | Revisioned control/composer fixtures have native evidence in the [Kitty record](../spikes/kitty-native-preview/README.md). They prove presentation mechanisms, not production authority or final user acceptance |
 
@@ -80,7 +81,8 @@ the next plan uses this protocol, not a link into the deleted plan.
 once at execution start; expand checks for changed boundaries/failures. After execution is
 authorized, continue routine green slices without another permission request. A concrete contract/
 authority decision or external blocker gets evidence and a proposed resolution. Preserve existing
-uncommitted work; commit, push, PR and merge remain unauthorized. This planning task starts no code.
+uncommitted work. Execution authorization alone does not authorize commit, push, PR or merge;
+follow the user's explicit instruction for each. This planning task starts no code.
 
 ### Luna context and slot lifecycle
 

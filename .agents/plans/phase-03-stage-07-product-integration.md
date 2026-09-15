@@ -9,7 +9,7 @@
 ## Outcome
 
 Finish the existing collaboration implementation; retain its ledger, inclusion, ingress, runners
-and working-tree smoke refactor. The [phase](../phases/phase-03-collaboration.md#current-evidence)
+and committed smoke refactor. The [phase](../phases/phase-03-collaboration.md#current-evidence)
 owns the baseline. These eight pending slices replace the former unfinished control/activation slice.
 
 M is one main boundary; L crosses boundaries and needs component plus executable evidence.
