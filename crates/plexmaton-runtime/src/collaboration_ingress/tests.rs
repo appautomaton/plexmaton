@@ -1137,6 +1137,138 @@ async fn ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision() {
     assert!(CollaborationFile::open(path_for(&directory)).is_ok());
 }
 
+/// CCV-1/CCV-2: authenticated Handoff reports pending before its durable User snapshot.
+#[tokio::test]
+async fn ccv_1_handoff_activity_projects_pending_before_acknowledgement() {
+    let directory = Directory::new();
+    let mut owner = owner(&directory);
+    let main_ingress = owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main");
+    let target = owner
+        .register_collaboration_target(delegation())
+        .await
+        .expect("register target");
+    let user_target = target.user_input_target();
+    let initial = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("initial Main snapshot");
+    assert_eq!(initial.revision(), 0);
+    assert_eq!(initial.control(), OwnedChildControl::Main);
+    let main = catalog(&directory)
+        .with_main_collaboration(main_ingress)
+        .expect("Main catalog");
+    let call = admit(
+        &main,
+        "visible-handoff",
+        HANDOFF_TOOL_NAME,
+        json!({"target": target.selector().as_str()}),
+    )
+    .await;
+    let execution = main.execute(call, NativeCancellation::new());
+    tokio::pin!(execution);
+
+    let pending = {
+        let pending_activity = owner.next_activity();
+        tokio::pin!(pending_activity);
+        tokio::select! {
+            activity = &mut pending_activity => activity.expect("pending control activity"),
+            result = &mut execution => panic!("Handoff acknowledged before pending control: {result:?}"),
+        }
+    };
+    assert!(matches!(
+        pending,
+        OwnedCollaborationActivity::Control(snapshot)
+            if snapshot.worker() == target.worker()
+                && snapshot.revision() == 1
+                && snapshot.control() == OwnedChildControl::HandoffPending
+    ));
+    assert!(
+        tokio::time::timeout(Duration::ZERO, &mut execution)
+            .await
+            .is_err(),
+        "the tool remains unacknowledged while pending is visible"
+    );
+    let (result, settled) = tokio::join!(execution, owner.next_activity());
+    assert!(matches!(result.outcome(), ToolOutcome::Succeeded { .. }));
+    assert!(matches!(
+        settled,
+        Some(OwnedCollaborationActivity::Ingress(settlement))
+            if matches!(
+                settled_outcome(settlement.result()),
+                Some(CollaborationIngressOutcome::HandoffCompleted)
+            )
+    ));
+    let user = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("durable User snapshot");
+    assert_eq!(user.revision(), 2);
+    assert_eq!(user.control(), OwnedChildControl::User);
+    shutdown(&mut owner).await;
+}
+
+/// CCV-1/CCV-4: a refused Handoff can return to Main and retry without a stale revision.
+#[tokio::test]
+async fn ccv_1_failed_handoff_projection_rolls_forward_to_main_before_retry() {
+    let directory = Directory::new();
+    let mut owner = owner(&directory);
+    owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main");
+    let target = owner
+        .register_collaboration_target(delegation())
+        .await
+        .expect("register target");
+    let user_target = target.user_input_target();
+    let initial = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("initial Main snapshot");
+    let attempt = CollaborationAttempt {
+        id: CollaborationItemId::new("retry-handoff").expect("item"),
+        event: CollaborationEvent::HandoffCompleted {
+            delegation: delegation(),
+            expected: DelegationRevision(0),
+            author: endpoint("main"),
+        },
+    };
+
+    let pending = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("pending snapshot");
+    let repeated = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("repeated pending snapshot");
+    let rolled_back = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("canonical Main snapshot");
+    let retry = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("retry pending snapshot");
+
+    assert_eq!(
+        (initial.revision(), initial.control()),
+        (0, OwnedChildControl::Main)
+    );
+    assert_eq!(
+        (pending.revision(), pending.control()),
+        (1, OwnedChildControl::HandoffPending)
+    );
+    assert_eq!(repeated, pending, "repeated state is a no-op");
+    assert_eq!(
+        (rolled_back.revision(), rolled_back.control()),
+        (2, OwnedChildControl::Main)
+    );
+    assert_eq!(
+        (retry.revision(), retry.control()),
+        (3, OwnedChildControl::HandoffPending)
+    );
+    shutdown(&mut owner).await;
+}
+
 /// CTL-1/SCH-4: ingress capacity is hard and shutdown settles every accepted command.
 #[tokio::test]
 async fn ctl_1_ingress_lane_is_bounded_and_shutdown_retains_all_settlements() {

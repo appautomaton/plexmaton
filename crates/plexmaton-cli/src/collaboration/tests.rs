@@ -1,6 +1,11 @@
 use super::{pending::PendingRootProjection, *};
-use crate::{test_support::empty_session_for, tests::FixtureWorkspace};
-use plexmaton_agent::collaboration::{CollaborationEvent, CollaborationItemRef, CollaborationText};
+use crate::{
+    test_support::empty_session_for,
+    tests::{FixtureServer, FixtureWorkspace, fixture_http_server},
+};
+use plexmaton_agent::collaboration::{
+    CollaborationEvent, CollaborationItemRef, CollaborationText, DelegationRevision,
+};
 use plexmaton_agent::{
     Agent, ApprovalPolicy, Effect, Input, ModelEvent, ModelOutputPosition, Reaction, StopReason,
     ToolCall, TurnBudget, UnixMillis,
@@ -56,6 +61,28 @@ output_reserve_tokens = 1000
     .clone()
 }
 
+fn chat_fixture_model(base_url: &str) -> plexmaton_provider::ResolvedModel {
+    plexmaton_provider::ModelRegistry::parse(&format!(
+        r#"
+active_model = {{ provider = "fixture", model = "test" }}
+[providers.fixture]
+base_url = "{base_url}"
+api_key_env = "PLEXMATON_TEST_UNUSED_KEY"
+[providers.fixture.models.test]
+api = "openai_chat_completions"
+id = "fixture"
+reasoning_effort = "none"
+allowed_reasoning_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
+context_window_tokens = 100000
+max_output_tokens = 1000
+output_reserve_tokens = 1000
+"#,
+    ))
+    .expect("fixture model")
+    .active_model()
+    .clone()
+}
+
 fn native_tools(root: &Path, model: &plexmaton_provider::ResolvedModel) -> NativeToolCatalog {
     NativeToolCatalog::open(
         root,
@@ -76,12 +103,24 @@ async fn bound_root(
     plexmaton_provider::ResolvedModel,
     NativeToolCatalog,
 ) {
+    bound_root_with_model(fixture, id, fixture_model()).await
+}
+
+async fn bound_root_with_model(
+    fixture: &FixtureWorkspace,
+    id: ConversationId,
+    model: plexmaton_provider::ResolvedModel,
+) -> (
+    LiveRuntime,
+    Collaboration,
+    plexmaton_provider::ResolvedModel,
+    NativeToolCatalog,
+) {
     let sessions = ConversationDirectory::under(fixture.path()).expect("session directory");
     let journal = sessions
         .create(id.clone(), UnixMillis::EPOCH)
         .expect("root journal");
     let (mut collaboration, ingress) = open(fixture.path(), &id).expect("root collaboration");
-    let model = fixture_model();
     let base_tools = native_tools(fixture.path(), &model);
     let tools = base_tools
         .clone()
@@ -641,6 +680,418 @@ async fn stop_settlement_is_consumed_exactly_once() {
         runtime.try_next_event().is_none(),
         "Stop is not a transcript event"
     );
+
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// CCV-1–CCV-4: canonical Main/User snapshots and Handoff rows reach the real workspace.
+#[tokio::test]
+async fn control_snapshots_apply_to_the_announced_child_and_unlock_after_handoff() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, mut collaboration, _, _) =
+        bound_root(&fixture, conversation("control-root")).await;
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("control-child", "child-runtime");
+    let delegation = DelegationId::new("control-task").expect("delegation");
+    let created = collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("control-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: delegation.clone(),
+                delegator: root.clone(),
+                worker: worker.clone(),
+                task: CollaborationText::new("show controller").expect("task"),
+            },
+        })
+        .await
+        .expect("create delegation");
+    drop(
+        collaboration
+            .children
+            .create(worker.conversation.clone(), UnixMillis::EPOCH)
+            .expect("create passive child history"),
+    );
+    runtime
+        .link_collaboration_item(CollaborationItemRef {
+            collaboration: collaboration.collaboration.clone(),
+            item: created.id,
+            sequence: created.sequence,
+        })
+        .await
+        .expect("link delegation to Main history");
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("sync Main controller");
+    let records = collaboration
+        .owner
+        .records()
+        .await
+        .expect("initial delegation records");
+    collaboration
+        .replay_children(&mut runtime, &records)
+        .await
+        .expect("project the passive child before Handoff");
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    collaboration
+        .apply_child_controls(&mut workspace)
+        .expect("apply Main controller");
+    let child = agent("delegated-1");
+    assert_eq!(
+        workspace
+            .state()
+            .agent(&child)
+            .expect("announced child")
+            .control(),
+        Some(plexmaton_tui::ChildControlSnapshot {
+            revision: 0,
+            control: plexmaton_tui::ChildControl::Main,
+        })
+    );
+    let handoff = collaboration
+        .owner
+        .handoff(CollaborationAttempt {
+            id: CollaborationItemId::new("control-handoff").expect("item"),
+            event: CollaborationEvent::HandoffCompleted {
+                delegation,
+                expected: DelegationRevision(0),
+                author: root,
+            },
+        })
+        .await
+        .expect("durable Handoff");
+    runtime
+        .link_collaboration_item(CollaborationItemRef {
+            collaboration: collaboration.collaboration.clone(),
+            item: handoff.receipt.id,
+            sequence: handoff.receipt.sequence,
+        })
+        .await
+        .expect("link Handoff to Main history");
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("sync User controller");
+    collaboration
+        .show(&mut runtime)
+        .await
+        .expect("show Handoff");
+    collaboration
+        .refresh_pending_children(&mut runtime)
+        .await
+        .expect("show Handoff immediately in passive child history");
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    collaboration
+        .apply_child_controls(&mut workspace)
+        .expect("apply User controller");
+    assert_eq!(
+        workspace
+            .state()
+            .agent(&child)
+            .expect("announced child")
+            .control(),
+        Some(plexmaton_tui::ChildControlSnapshot {
+            revision: 1,
+            control: plexmaton_tui::ChildControl::User,
+        })
+    );
+    let root_handoff = workspace
+        .state()
+        .agent(&agent("root"))
+        .expect("root")
+        .entries()
+        .find_map(|entry| match entry {
+            plexmaton_tui::TranscriptEntryView::Handoff(view) => Some(view.entry_id.clone()),
+            _ => None,
+        })
+        .expect("root Handoff entry");
+    let child_handoff = workspace
+        .state()
+        .agent(&child)
+        .expect("child")
+        .entries()
+        .find_map(|entry| match entry {
+            plexmaton_tui::TranscriptEntryView::Handoff(view) => Some(view.entry_id.clone()),
+            _ => None,
+        })
+        .expect("child Handoff entry");
+    assert_ne!(root_handoff, child_handoff);
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+fn settle_workspace_frame(
+    workspace: &mut plexmaton_tui::Workspace,
+    terminal: &mut Terminal<TestBackend>,
+) {
+    loop {
+        workspace.draw(terminal).expect("draw User child input");
+        let Some(work) = workspace.take_preparation() else {
+            break;
+        };
+        let prepared = plexmaton_tui::preparation::prepare_batch(&work.requests)
+            .expect("prepare bounded child frame");
+        assert!(workspace.complete_preparation(work.token, prepared));
+    }
+}
+
+fn focused_child_submission(workspace: &mut plexmaton_tui::Workspace) -> plexmaton_tui::Submission {
+    let mut terminal = Terminal::new(TestBackend::new(95, 36)).expect("terminal");
+    workspace.draw(&mut terminal).expect("draw roster");
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+    )));
+    workspace.draw(&mut terminal).expect("draw child window");
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    for width in [120, 95, 60] {
+        terminal.backend_mut().resize(width, 36);
+        workspace.handle(&Event::Resize(width, 36));
+        settle_workspace_frame(workspace, &mut terminal);
+        let frame: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        for marker in [
+            "Controller: User",
+            "Read-only files | No shell",
+            "handoff · Controller: User",
+            "Message Plexmaton",
+            "to return",
+        ] {
+            assert!(frame.contains(marker), "{width}: missing {marker}: {frame}");
+        }
+        assert!(
+            terminal.backend().cursor_visible(),
+            "{width}: one child cursor"
+        );
+    }
+    workspace.handle(&Event::Paste("answer only this child".into()));
+    workspace
+        .handle(&Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )))
+        .submitted
+        .expect("focused child submission")
+}
+
+async fn collect_child_request(
+    server: FixtureServer,
+    collaboration: &mut Collaboration,
+    runtime: &mut LiveRuntime,
+) -> Vec<Vec<u8>> {
+    let fixture_join = tokio::task::spawn_blocking(move || server.join());
+    tokio::pin!(fixture_join);
+    loop {
+        tokio::select! {
+            result = &mut fixture_join => {
+                return result
+                    .expect("fixture join task")
+                    .expect("fixture server thread")
+                    .expect("fixture request");
+            }
+            activity = collaboration.next() => {
+                let activity = activity.expect("child activity before fixture request");
+                let staged = collaboration.stage(activity).expect("stage child activity");
+                if let Some((_to, outcome)) = collaboration.take_user_input_settlement() {
+                    assert_eq!(
+                        outcome,
+                        plexmaton_runtime::DispatchReport::default(),
+                        "accepted child input settles successfully"
+                    );
+                    continue;
+                }
+                if staged {
+                    collaboration
+                        .drive_pending(runtime)
+                        .await
+                        .expect("project child activity");
+                }
+            }
+        }
+    }
+}
+
+async fn finish_child_response(
+    collaboration: &mut Collaboration,
+    runtime: &mut LiveRuntime,
+    child: &AgentId,
+) {
+    for _ in 0..64 {
+        let idle = std::iter::from_fn(|| runtime.try_next_event()).any(|envelope| {
+            matches!(
+                envelope.event,
+                ConversationEvent::AgentStatusChanged {
+                    ref agent_id,
+                    status: AgentStatus::Idle,
+                } if agent_id == child
+            )
+        });
+        if idle {
+            return;
+        }
+        let activity =
+            tokio::time::timeout(std::time::Duration::from_secs(5), collaboration.next())
+                .await
+                .expect("child completion activity")
+                .expect("owned child completion");
+        if collaboration
+            .stage(activity)
+            .expect("stage child completion")
+        {
+            collaboration
+                .drive_pending(runtime)
+                .await
+                .expect("project child completion");
+        }
+    }
+    panic!("child response did not reach terminal Idle");
+}
+
+/// COM-4/CCV-2: focused child input fails closed before Handoff and reaches only the child after.
+#[tokio::test]
+async fn production_handoff_routes_child_input_and_retains_the_locked_draft() {
+    let (base_url, server) = fixture_http_server([include_str!(
+        "../../../plexmaton-provider/tests/fixtures/chat_final_answer.sse"
+    )]);
+    let fixture = FixtureWorkspace::new();
+    let model = chat_fixture_model(&base_url);
+    let (mut runtime, mut collaboration, model, tools) =
+        bound_root_with_model(&fixture, conversation("input-root"), model).await;
+    let key = plexmaton_provider::resolve_api_key(&model, Some("fixture-only".into()))
+        .expect("fixture key");
+    collaboration
+        .owner
+        .bind_child_factory(DelegatedChildFactory::new(
+            DelegatedConversationDirectory::under(fixture.path()).expect("children"),
+            model,
+            key,
+            tools,
+        ))
+        .expect("bind child factory");
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("input-child", "child-runtime");
+    let delegation = DelegationId::new("input-task").expect("delegation");
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("input-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: delegation.clone(),
+                delegator: root.clone(),
+                worker: worker.clone(),
+                task: CollaborationText::new("take direct input").expect("task"),
+            },
+        })
+        .await
+        .expect("create delegation");
+    drop(
+        collaboration
+            .children
+            .create(worker.conversation.clone(), UnixMillis::EPOCH)
+            .expect("create child history"),
+    );
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("sync Main controller");
+    let child = agent("delegated-1");
+    let locked = collaboration.dispatch_child_input(crate::input::AddressedInput {
+        to: child.clone(),
+        input: Input::Submitted {
+            text: "keep this exact draft".into(),
+        },
+        skill: None,
+    });
+    assert!(locked.undelivered.iter().any(|input| {
+        input.text == "keep this exact draft"
+            && input.reason == plexmaton_agent::UndeliveredReason::ControlledByMain
+    }));
+    assert!(
+        !runtime.has_active_work(),
+        "root runtime receives no child input"
+    );
+
+    let handoff = collaboration
+        .owner
+        .handoff(CollaborationAttempt {
+            id: CollaborationItemId::new("input-handoff").expect("item"),
+            event: CollaborationEvent::HandoffCompleted {
+                delegation,
+                expected: DelegationRevision(0),
+                author: root,
+            },
+        })
+        .await
+        .expect("durable Handoff");
+    let handoff_reference = CollaborationItemRef {
+        collaboration: collaboration.collaboration.clone(),
+        item: handoff.receipt.id,
+        sequence: handoff.receipt.sequence,
+    };
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("sync User controller");
+    let records = collaboration
+        .owner
+        .records()
+        .await
+        .expect("Handoff records");
+    collaboration
+        .replay_children(&mut runtime, &records)
+        .await
+        .expect("project passive Handoff history");
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    collaboration
+        .apply_child_controls(&mut workspace)
+        .expect("apply User controller");
+    let submitted = focused_child_submission(&mut workspace);
+    assert_eq!(submitted.to, child);
+    assert_eq!(submitted.text, "answer only this child");
+    let report = collaboration.dispatch_child_input(crate::input::route_submission(submitted));
+    assert!(report.undelivered.is_empty());
+    assert!(!runtime.has_active_work(), "root remains idle");
+    assert!(
+        collaboration
+            .owner
+            .child_session_source(&worker.conversation)
+            .await
+            .expect("inspect queued child input")
+            .is_none(),
+        "terminal-path admission does not wait for cold activation"
+    );
+    let requests = collect_child_request(server, &mut collaboration, &mut runtime).await;
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value = serde_json::from_slice(&requests[0]).expect("request JSON");
+    assert!(body.to_string().contains("answer only this child"));
+    let child_source = collaboration
+        .owner
+        .child_session_source(&worker.conversation)
+        .await
+        .expect("inspect child after input")
+        .expect("active User child");
+    assert!(
+        child_source
+            .journal()
+            .collaboration_links(child_source.selected_head())
+            .expect("child Handoff links")
+            .iter()
+            .any(|origin| origin.reference() == &handoff_reference),
+        "User activation anchors Handoff before the child turn"
+    );
+    finish_child_response(&mut collaboration, &mut runtime, &child).await;
 
     collaboration.shutdown().await.expect("shutdown owner");
     runtime.shutdown().await.expect("shutdown root");

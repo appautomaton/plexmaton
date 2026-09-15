@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
-| Status | Active; 5 of 8 slices complete. Next: slice 6 (controller projection and child input) |
+| Status | Active; 6 of 8 slices complete. Next: slice 7 (canonical background requests) |
 
 ## Outcome
 
@@ -65,7 +65,7 @@ source paths are relative to the named crate's src directory.
    transfer/write failure settle safely, and shutdown joins ownership. Default resume executes
    nothing. Prove active/idle transfer and reopened User control at tier 2 before enabling UI input.
 
-6. **Controller projection and child input — M; after 3–5.**
+6. **Controller projection and child input — M; complete.**
    Read: CCV-1–CCV-4; INS-5/INS-7; UI/UX delegated control.
    Feed revisioned snapshots from the authenticated owner, project a distinct Handoff entry, and
    route focused input/refusals to slice 5. Retain exact undelivered drafts. Presentation grants no
@@ -74,6 +74,10 @@ source paths are relative to the named crate's src directory.
    focus theft or auto-send. The existing Main `handoff` tool drives the PTY transition, followed
    by a child-addressed message/response. Verify Stop hints, capabilities, history and selection/
    scroll preservation at three widths. No new Handoff shortcut is required.
+   **Evidence:** owner/CLI tests cover pending, rollback, synchronous retained product input, cold
+   activation off the terminal path, exact draft return and both Handoff rows;
+   `scripts/smoke-delegate.py` drives the real tool, child-only response, Stop and passive
+   User-control resume in saved 120/95/60 frames.
 
 7. **Canonical background requests — L; after 3, 5 and 6.**
    Read: ATT-1–ATT-3; APV-4/APV-6; COL-1–COL-4; CMP-1/CMP-2.

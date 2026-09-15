@@ -210,12 +210,8 @@ struct PendingStop {
     conversation: ConversationId,
     scheduled: Option<DispatchReport>,
     user_input: Option<Result<DispatchReport, UserInputFailure>>,
+    user_input_identity: Option<RunnerIdentity>,
     stop_started: bool,
-}
-
-struct PendingUserInput {
-    conversation: ConversationId,
-    request: UserInputRequest,
 }
 
 /// Reports and receipt produced by one quiescent durable Handoff.
@@ -261,6 +257,7 @@ pub enum OwnedShutdownSettlement {
     Admission(Result<ItemReceipt, CollaborationWriterError>),
     Schedule(Result<DispatchReport, OwnedScheduleFailure>),
     UserInput(Result<DispatchReport, UserInputFailure>),
+    UserTargetInput(Result<DispatchReport, UserTargetInputFailure>),
     Stop(Result<OwnedStopReport, OwnedSchedulingError>),
     Handoff(Result<OwnedHandoffReport, OwnedHandoffFailure>),
 }
@@ -333,8 +330,13 @@ pub struct OwnedCollaboration {
     pub(crate) handoff_closed: BTreeSet<DelegationId>,
     pending_schedule: Option<PendingOwnedSchedule>,
     pending_user_input: Option<PendingUserInput>,
+    pub(crate) pending_user_target_input: Option<PendingUserTargetInput>,
+    pub(crate) pending_user_target_settlement: Option<OwnedUserInputSettlement>,
+    detached_user_input: Option<(RunnerIdentity, Result<DispatchReport, UserInputFailure>)>,
     pending_stop: Option<PendingStop>,
     pending_handoff: Option<PendingHandoff>,
+    pub(crate) control_snapshots:
+        BTreeMap<ConversationId, crate::collaboration_ingress::OwnedChildControlSnapshot>,
     pub(crate) ingress: Option<CollaborationIngressOwner>,
     pub(crate) pending_ingress: Option<PendingIngress>,
     pub(crate) child_factory: Option<crate::DelegatedChildFactory>,
@@ -357,8 +359,12 @@ impl OwnedCollaboration {
             handoff_closed: BTreeSet::new(),
             pending_schedule: None,
             pending_user_input: None,
+            pending_user_target_input: None,
+            pending_user_target_settlement: None,
+            detached_user_input: None,
             pending_stop: None,
             pending_handoff: None,
+            control_snapshots: BTreeMap::new(),
             ingress: None,
             pending_ingress: None,
             child_factory: None,
@@ -376,6 +382,9 @@ impl OwnedCollaboration {
         self.pending_schedule.is_some()
             || self.pending_stop.is_some()
             || self.pending_user_input.is_some()
+            || self.pending_user_target_input.is_some()
+            || self.pending_user_target_settlement.is_some()
+            || self.detached_user_input.is_some()
             || self.pending_handoff.is_some()
             || !self.wakes.is_empty()
             || self.runners.values().any(|slot| !slot.joined)
@@ -510,10 +519,16 @@ mod scheduling;
 mod settlement;
 mod shutdown;
 mod user_input;
+mod user_target_input;
 mod wake;
 
 pub use registration::{RunnerRegistrationError, RunnerRegistrationReason};
+use user_input::PendingUserInput;
 pub use user_input::{UserInputFailure, UserInputRefusal, UserInputRequest};
+use user_target_input::PendingUserTargetInput;
+pub use user_target_input::{
+    OwnedUserInputSettlement, UserTargetInputFailure, UserTargetInputRequest,
+};
 use wake::PendingWake;
 pub use wake::{WakeAdmission, WakeFailure, WakeRefusal};
 

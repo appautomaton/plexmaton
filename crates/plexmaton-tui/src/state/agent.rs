@@ -74,7 +74,8 @@ impl AgentView {
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
-            | TranscriptEntryView::Task(_) => None,
+            | TranscriptEntryView::Task(_)
+            | TranscriptEntryView::Handoff(_) => None,
         })
     }
 
@@ -346,6 +347,23 @@ impl AgentView {
         )
     }
 
+    pub(super) fn complete_handoff(
+        &mut self,
+        entry_id: TranscriptItemId,
+        owner: AgentId,
+        child: AgentId,
+    ) -> Result<bool, ReduceError> {
+        self.insert_terminal(
+            entry_id.clone(),
+            TranscriptEntryView::Handoff(super::HandoffView {
+                entry_id,
+                owner,
+                child,
+                revision: 0,
+            }),
+        )
+    }
+
     /// Iterates assigned tasks in arrival order.
     pub fn tasks(&self) -> impl Iterator<Item = &super::TaskView> {
         self.entries.iter().filter_map(|entry| match entry {
@@ -399,7 +417,10 @@ impl AgentView {
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
-            | TranscriptEntryView::Task(_) => Err(ReduceError::EntryKindChanged(item_id.clone())),
+            | TranscriptEntryView::Task(_)
+            | TranscriptEntryView::Handoff(_) => {
+                Err(ReduceError::EntryKindChanged(item_id.clone()))
+            }
         }
     }
 }

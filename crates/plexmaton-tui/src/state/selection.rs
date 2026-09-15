@@ -333,6 +333,7 @@ fn entry_source(entry: &TranscriptEntryView) -> Option<String> {
         TranscriptEntryView::Mail(mail) => Some(format!("{}: {}", mail.to, mail.summary)),
         // Recipient travels with the task for the same reason it does with a letter.
         TranscriptEntryView::Task(task) => Some(format!("{}: {}", task.to, task.task)),
+        TranscriptEntryView::Handoff(_) => Some("Handoff completed: Controller User".to_owned()),
     }
 }
 

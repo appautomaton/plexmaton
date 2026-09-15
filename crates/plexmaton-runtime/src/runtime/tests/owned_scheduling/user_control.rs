@@ -1,7 +1,7 @@
 use plexmaton_agent::Input;
 
 use super::*;
-use crate::UserInputRequest;
+use crate::{UserInputRequest, UserTargetInputRequest};
 
 /// COL-3/SCH-4: only the owner-issued target reaches the exact child after durable Handoff.
 #[tokio::test]
@@ -226,6 +226,99 @@ async fn col_3_idle_handoff_opens_user_input_until_owned_stop_begins() {
     owner.begin_shutdown().await.expect("begin shutdown");
     while owner.next_update().await.is_some() {}
     owner.finish_shutdown().await.expect("join owner");
+}
+
+/// SCH-2/SCH-4: Stop owns target input before cold activation and returns its exact draft.
+#[tokio::test]
+async fn sch_2_stop_cancels_queued_cold_target_input_before_runner_activation() {
+    let directory = Directory::new();
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main ingress");
+    let target = owner
+        .register_collaboration_targets()
+        .await
+        .expect("register targets")
+        .into_iter()
+        .find(|target| target.worker() == &endpoint("one"))
+        .expect("first target")
+        .user_input_target();
+    owner
+        .handoff(CollaborationAttempt {
+            id: item("handoff-before-queued-stop"),
+            event: CollaborationEvent::HandoffCompleted {
+                delegation: named_delegation("one"),
+                expected: DelegationRevision(0),
+                author: endpoint("main"),
+            },
+        })
+        .await
+        .expect("cold Handoff");
+    owner
+        .begin_user_target_input(UserTargetInputRequest::new(
+            target.clone(),
+            Input::Submitted {
+                text: "return before activation".into(),
+            },
+            Some("review".into()),
+        ))
+        .expect("queue exact target input");
+    let conversation = endpoint("one").conversation;
+    owner
+        .begin_stop(&conversation)
+        .expect("Stop owns queued cold input without a runner");
+    let second = owner
+        .begin_user_target_input(UserTargetInputRequest::new(
+            target,
+            Input::Submitted {
+                text: "second rapid draft".into(),
+            },
+            None,
+        ))
+        .expect_err("unpublished interrupted input keeps the target lane occupied");
+    assert!(matches!(
+        second.reason(),
+        crate::UserInputRefusal::InProgress
+    ));
+    assert_eq!(
+        second
+            .into_undelivered(plexmaton_agent::UndeliveredReason::QueueFull)
+            .expect("second rapid draft remains returnable")
+            .text,
+        "second rapid draft"
+    );
+    let activity = owner
+        .next_activity()
+        .await
+        .expect("queued-input Stop settlement");
+    let crate::OwnedCollaborationActivity::UserInput(settlement) = activity else {
+        panic!("queued cold input must settle through owner input activity");
+    };
+    assert_eq!(&settlement.worker().conversation, &conversation);
+    let returned = settlement
+        .into_outcome()
+        .expect_err("Stop interrupts queued target input")
+        .into_undelivered(plexmaton_agent::UndeliveredReason::Interrupted)
+        .expect("queued message remains returnable");
+    assert_eq!(returned.text, "return before activation");
+    assert_eq!(returned.skill.as_deref(), Some("review"));
+    assert_eq!(
+        returned.reason,
+        plexmaton_agent::UndeliveredReason::Interrupted
+    );
+    assert!(
+        owner
+            .child_session_source(&conversation)
+            .await
+            .expect("inspect child after queued Stop")
+            .is_none(),
+        "Stop never cold-activates the child"
+    );
+    owner.begin_shutdown().await.expect("begin shutdown");
+    owner.finish_shutdown().await.expect("finish shutdown");
 }
 
 /// SCH-2/SCH-4: an accepted child input is bounded and settles after its caller stops waiting.

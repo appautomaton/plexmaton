@@ -64,6 +64,7 @@ impl ConversationEvent {
             | Self::AttentionResolved { agent_id, .. }
             | Self::TaskAssigned { agent_id, .. }
             | Self::MailDelivered { agent_id, .. }
+            | Self::HandoffCompleted { agent_id, .. }
             | Self::ArtifactAnnounced { agent_id, .. }
             | Self::RuntimeWarning { agent_id, .. }
             | Self::RuntimeError { agent_id, .. } => agent_id,
@@ -429,6 +430,18 @@ pub enum ConversationEvent {
         /// Bounded summary. Bulk findings stay in artifacts or the sender's session.
         summary: String,
     },
+    /// Durable transfer of one delegated Conversation from Main to User control.
+    ///
+    /// The same Handoff appears once in the root and child conversations under distinct item
+    /// identities; `agent_id` names which side owns this entry.
+    HandoffCompleted {
+        /// Conversation whose ordered transcript owns this side of the Handoff.
+        agent_id: AgentId,
+        /// Transcript position assigned to this side of the Handoff.
+        item_id: TranscriptItemId,
+        /// Delegated agent whose controller became User.
+        child: AgentId,
+    },
     /// An agent published a durable work product.
     ArtifactAnnounced {
         /// Agent that produced the artifact.
@@ -606,6 +619,12 @@ mod tests {
                 from: agent("agent-b"),
                 to: agent("agent-a"),
                 summary: "findings".into(),
+            },
+            ConversationEvent::HandoffCompleted {
+                agent_id: agent("agent-a"),
+                item_id: TranscriptItemId::new("item-handoff-1")
+                    .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+                child: agent("agent-b"),
             },
             ConversationEvent::ArtifactAnnounced {
                 agent_id: agent("agent-b"),

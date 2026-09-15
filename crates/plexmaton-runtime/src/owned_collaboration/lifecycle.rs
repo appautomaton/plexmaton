@@ -46,12 +46,23 @@ impl OwnedCollaboration {
             .pending_user_input
             .as_ref()
             .is_some_and(|pending| &pending.conversation == conversation);
-        let slot = self
-            .runners
-            .get_mut(conversation)
-            .ok_or(OwnedSchedulingError::UnknownRunner)?;
+        let target_only_pending =
+            self.has_user_target_input_for(conversation) && !user_input_pending;
+        let interrupted_target =
+            target_only_pending && self.interrupt_user_target_input(conversation);
+        let Some(slot) = self.runners.get_mut(conversation) else {
+            return if interrupted_target {
+                Ok(())
+            } else {
+                Err(OwnedSchedulingError::UnknownRunner)
+            };
+        };
         if slot.finished {
-            return Err(OwnedSchedulingError::RunnerClosed);
+            return if interrupted_target {
+                Ok(())
+            } else {
+                Err(OwnedSchedulingError::RunnerClosed)
+            };
         }
         let stop_started = if schedule_pending || user_input_pending {
             false
@@ -65,6 +76,7 @@ impl OwnedCollaboration {
             conversation: conversation.clone(),
             scheduled: None,
             user_input: None,
+            user_input_identity: None,
             stop_started,
         });
         Ok(())
@@ -120,27 +132,40 @@ impl OwnedCollaboration {
                     .is_some_and(|input| &input.conversation == conversation)
         });
         if user_input_pending {
+            let identity = self
+                .runners
+                .get(conversation)
+                .expect("pending user input retains its runner")
+                .runner
+                .identity()
+                .clone();
             let user_input = self.finish_pending_user_input().await;
-            self.pending_stop
+            self.clear_user_target_input_for(conversation);
+            let pending = self
+                .pending_stop
                 .as_mut()
-                .expect("pending Stop survives user-input settlement")
-                .user_input = Some(user_input);
+                .expect("pending Stop survives user-input settlement");
+            pending.user_input = Some(user_input);
+            pending.user_input_identity = Some(identity);
         }
         let stop_started = self
             .pending_stop
             .as_ref()
             .is_some_and(|pending| pending.stop_started);
         if !stop_started {
-            let slot = self
-                .runners
-                .get_mut(conversation)
-                .ok_or(OwnedSchedulingError::UnknownRunner)?;
+            let Some(slot) = self.runners.get_mut(conversation) else {
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
+                return Err(OwnedSchedulingError::UnknownRunner);
+            };
             if slot.finished {
-                self.pending_stop.take();
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
                 return Err(OwnedSchedulingError::RunnerClosed);
             }
             if let Err(error) = slot.runner.begin_stop() {
-                self.pending_stop.take();
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
                 return Err(OwnedSchedulingError::Control(error));
             }
             self.pending_stop
@@ -155,7 +180,7 @@ impl OwnedCollaboration {
             .runner
             .finish_stop()
             .await;
-        let pending = self
+        let mut pending = self
             .pending_stop
             .take()
             .expect("completed Stop retains its scheduling report");
@@ -165,7 +190,18 @@ impl OwnedCollaboration {
                 user_input: pending.user_input.map(Box::new),
                 stopped,
             }),
-            Err(error) => Err(OwnedSchedulingError::Control(error)),
+            Err(error) => {
+                self.detach_stop_user_input(&mut pending);
+                Err(OwnedSchedulingError::Control(error))
+            }
+        }
+    }
+
+    fn detach_stop_user_input(&mut self, pending: &mut PendingStop) {
+        if let Some(identity) = pending.user_input_identity.take()
+            && let Some(outcome) = pending.user_input.take()
+        {
+            self.detached_user_input = Some((identity, outcome));
         }
     }
 

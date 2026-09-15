@@ -292,6 +292,7 @@ fn snapshot_bytes(entry: &crate::TranscriptEntryView) -> usize {
                 + mail.to.as_str().len()
         }
         Entry::Task(task) => task.task.len() + task.from.as_str().len() + task.to.as_str().len(),
+        Entry::Handoff(handoff) => handoff.owner.as_str().len() + handoff.child.as_str().len(),
     };
     size_of::<crate::TranscriptEntryView>() + entry.id().as_str().len() + source
 }

@@ -140,23 +140,59 @@ impl Collaboration {
         if !self.pending_placement.contains(&agent) {
             return Ok(());
         }
-        let Some(source) = self
+        let source = self
             .owner
             .child_session_source(child)
             .await
-            .map_err(|error| anyhow::anyhow!("inspect delegated session placement: {error}"))?
-        else {
-            return Ok(());
-        };
+            .map_err(|error| anyhow::anyhow!("inspect delegated session placement: {error}"))?;
         let records = self
             .owner
             .records()
             .await
             .context("read the collaboration log for delegated placement")?;
-        let placements = self
-            .session_placements(&source.endpoint().agent, source.journal(), &records)
-            .await?;
+        let placements = match source {
+            Some(source) => {
+                self.session_placements(&source.endpoint().agent, source.journal(), &records)
+                    .await?
+            }
+            None => {
+                let file = match self.children.resume(child) {
+                    Ok(file) => file,
+                    Err(_) => return Ok(()),
+                };
+                let session_agent = records
+                    .iter()
+                    .find_map(|record| match &record.event {
+                        CollaborationEvent::DelegationCreated { worker, .. }
+                            if &worker.conversation == child =>
+                        {
+                            Some(&worker.agent)
+                        }
+                        _ => None,
+                    })
+                    .context("passive delegated session has no canonical endpoint")?;
+                self.session_placements(session_agent, file.journal(), &records)
+                    .await?
+            }
+        };
         self.project_session_rows(runtime, &records, &agent, &placements, false, true)
+    }
+
+    /// Rebuilds every child-side row whose canonical record just became visible.
+    pub(super) async fn refresh_pending_children(
+        &mut self,
+        runtime: &mut LiveRuntime,
+    ) -> anyhow::Result<()> {
+        let children: Vec<_> = self
+            .announced
+            .iter()
+            .filter(|(_, agent)| self.pending_placement.contains(agent))
+            .map(|(conversation, _)| conversation.clone())
+            .collect();
+        for child in children {
+            self.refresh_child(runtime, &child).await?;
+        }
+        Ok(())
     }
 
     pub(super) fn project_session_rows(
@@ -195,7 +231,10 @@ impl Collaboration {
             }
             // Live rows wait for their own session's acknowledged link. Restore also reaches this
             // function, where old journals may supply an inclusion anchor instead.
-            if require_anchor && placed.anchors.is_empty() {
+            if require_anchor
+                && placed.anchors.is_empty()
+                && !matches!(&placed.event, ConversationEvent::HandoffCompleted { .. })
+            {
                 pending = true;
                 break;
             }

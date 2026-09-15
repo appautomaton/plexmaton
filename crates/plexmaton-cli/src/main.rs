@@ -260,6 +260,9 @@ async fn run(
         }
         workspace.report_conversation_recovery(recovery);
     }
+    if let Some(collaboration) = collaboration.as_ref() {
+        collaboration.apply_child_controls(&mut workspace)?;
+    }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
     let loop_result = drive_session(

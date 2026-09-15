@@ -20,8 +20,9 @@ pub use collaboration_ingress::{
     ChildCollaborationIngress, CollaborationArtifactRegistrationError, CollaborationArtifactSource,
     CollaborationIngressFailure, CollaborationIngressOutcome, CollaborationIngressRefusal,
     CollaborationIngressResult, CollaborationIngressSettlement, CollaborationRuntimeStamp,
-    CollaborationSessionSource, MainCollaborationIngress, MainRuntimeIdentity,
-    OwnedCollaborationActivity, RegisteredCollaborationTarget, UserInputTarget, UserInputTicket,
+    CollaborationSessionSource, MainCollaborationIngress, MainRuntimeIdentity, OwnedChildControl,
+    OwnedChildControlSnapshot, OwnedCollaborationActivity, RegisteredCollaborationTarget,
+    UserInputTarget, UserInputTicket,
 };
 pub use collaboration_read::{
     CollaborationReadError, CollaborationSessionMailProjection, SessionMailInclusion,
@@ -52,8 +53,9 @@ pub use owned_collaboration::{
     MAX_OWNED_RUNNERS, OwnedCollaboration, OwnedHandoffFailure, OwnedHandoffReport,
     OwnedHandoffSettlement, OwnedRootContextError, OwnedScheduleFailure, OwnedSchedulingError,
     OwnedShutdownFailure, OwnedShutdownReport, OwnedShutdownSettlement, OwnedStopReport,
-    RunnerRegistrationError, RunnerRegistrationReason, SchedulerLimits, UserInputFailure,
-    UserInputRefusal, UserInputRequest, WakeAdmission, WakeFailure, WakeRefusal,
+    OwnedUserInputSettlement, RunnerRegistrationError, RunnerRegistrationReason, SchedulerLimits,
+    UserInputFailure, UserInputRefusal, UserInputRequest, UserTargetInputFailure,
+    UserTargetInputRequest, WakeAdmission, WakeFailure, WakeRefusal,
 };
 pub(crate) use owned_runner::{ChildStartError, OwnedChildRunner};
 pub use owned_runner::{

@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use plexmaton_agent::collaboration::DelegationController;
 use plexmaton_agent::{Input, UndeliveredInput, UndeliveredReason};
 use thiserror::Error;
 
@@ -15,6 +14,11 @@ pub struct UserInputRequest {
     ticket: UserInputTicket,
     input: Input,
     selected_skill: Option<String>,
+}
+
+pub(super) struct PendingUserInput {
+    pub(super) conversation: ConversationId,
+    pub(super) request: UserInputRequest,
 }
 
 impl UserInputRequest {
@@ -60,6 +64,8 @@ pub enum UserInputRefusal {
     ShuttingDown,
     #[error("another accepted child input must settle first")]
     InProgress,
+    #[error("child input was interrupted before activation")]
+    Interrupted,
     #[error("the input target does not belong to this collaboration owner")]
     StaleTarget,
     #[error("the input ticket does not name the current child runner generation")]
@@ -95,6 +101,10 @@ impl UserInputFailure {
     #[must_use]
     pub fn into_request(self) -> UserInputRequest {
         *self.request
+    }
+
+    pub(super) fn into_reason(self) -> UserInputRefusal {
+        *self.reason
     }
 
     /// Converts retained message text and skill into the caller's chosen return disposition.
@@ -168,34 +178,21 @@ impl OwnedCollaboration {
         Ok(release)
     }
 
-    /// Explicitly starts a cold User-controlled child without giving it input or waking a turn.
-    pub async fn activate_user_target(
-        &mut self,
-        target: &UserInputTarget,
-    ) -> Result<UserInputTicket, UserInputRefusal> {
-        if self.shutting_down {
-            return Err(UserInputRefusal::ShuttingDown);
-        }
-        let canonical = self.require_user_target(target).await?;
-        if self
-            .runners
-            .get(&canonical.worker.conversation)
-            .is_some_and(|slot| slot.finished || slot.input_unavailable)
-        {
-            return Err(UserInputRefusal::RequiresReopen);
-        }
-        if let Some(identity) = self.live_runner_identity(&canonical.delegation, &canonical.worker)
-        {
-            return Ok(target.issue_ticket(identity));
-        }
-        self.resume_user_collaboration_target(target.selector())
-            .await
-            .map(|identity| target.issue_ticket(identity))
-            .map_err(UserInputRefusal::Activation)
-    }
-
     /// Transfers input to the exact live child lane and retains settlement across cancellation.
     pub async fn begin_user_input(
+        &mut self,
+        request: UserInputRequest,
+    ) -> Result<(), UserInputFailure> {
+        if self.pending_user_target_input.is_some()
+            || self.pending_user_target_settlement.is_some()
+            || self.detached_user_input.is_some()
+        {
+            return Err(user_input_failure(UserInputRefusal::InProgress, request));
+        }
+        self.begin_user_input_inner(request).await
+    }
+
+    pub(super) async fn begin_user_input_inner(
         &mut self,
         request: UserInputRequest,
     ) -> Result<(), UserInputFailure> {
@@ -290,7 +287,7 @@ impl OwnedCollaboration {
         result.map_err(|error| user_input_failure(UserInputRefusal::Runner(error), pending.request))
     }
 
-    async fn require_user_target(
+    pub(crate) async fn require_user_target_any_control(
         &self,
         target: &UserInputTarget,
     ) -> Result<crate::collaboration_ingress::RegisteredTarget, UserInputRefusal> {
@@ -307,14 +304,11 @@ impl OwnedCollaboration {
         if view.worker != canonical.worker {
             return Err(UserInputRefusal::StaleTarget);
         }
-        match view.controller {
-            DelegationController::Main => Err(UserInputRefusal::ControlledByMain),
-            DelegationController::User => Ok(canonical),
-        }
+        Ok(canonical)
     }
 }
 
-fn supported_product_input(input: &Input, selected_skill: Option<&str>) -> bool {
+pub(super) fn supported_product_input(input: &Input, selected_skill: Option<&str>) -> bool {
     match input {
         Input::Submitted { .. } | Input::Steered { .. } => true,
         Input::ApprovalDecided { .. } => selected_skill.is_none(),

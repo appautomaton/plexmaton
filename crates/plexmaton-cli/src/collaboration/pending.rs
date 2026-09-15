@@ -3,9 +3,9 @@
 use plexmaton_agent::collaboration::{CollaborationItemRef, MailEndpoint};
 use plexmaton_core::{AgentId, ConversationEvent, ConversationId};
 use plexmaton_runtime::{
-    CollaborationIngressOutcome, DelegatedProjectionRefusal, LiveRuntime,
+    CollaborationIngressOutcome, DelegatedProjectionRefusal, DispatchReport, LiveRuntime,
     OwnedCollaborationActivity, OwnedRunnerUpdate, OwnedSchedulingError, OwnedStopReport,
-    RunnerGeneration, RuntimeUpdate,
+    RunnerGeneration, RuntimeUpdate, UserInputFailure, UserTargetInputFailure,
 };
 
 use super::{AgentStatus, Collaboration, forwarded};
@@ -33,6 +33,7 @@ pub(super) enum PendingRootProjection {
         sync_running_roster: bool,
         orphaned_link: Option<OrphanedIngressLink>,
     },
+    RefreshControls,
     RunnerEvent {
         child: ConversationId,
         generation: RunnerGeneration,
@@ -42,6 +43,10 @@ pub(super) enum PendingRootProjection {
     StopSettled {
         agent: AgentId,
         outcome: Box<Result<OwnedStopReport, OwnedSchedulingError>>,
+    },
+    UserInputSettled {
+        agent: AgentId,
+        report: Box<DispatchReport>,
     },
 }
 
@@ -55,11 +60,12 @@ impl PendingRootProjection {
     pub(super) fn transient_description(&self) -> Option<String> {
         match self {
             Self::RefreshLog { .. }
+            | Self::RefreshControls
             | Self::RunnerEvent {
                 recovery: RecoverySource::ChildJournal,
                 ..
             } => None,
-            Self::StopSettled { .. } => None,
+            Self::StopSettled { .. } | Self::UserInputSettled { .. } => None,
             Self::RunnerEvent {
                 child,
                 generation,
@@ -104,6 +110,18 @@ impl Collaboration {
         }
     }
 
+    /// Takes one retained child input result after its original wait was cancelled.
+    pub(crate) fn take_user_input_settlement(&mut self) -> Option<(AgentId, DispatchReport)> {
+        let projection = self.pending_projection.take()?;
+        match projection {
+            PendingRootProjection::UserInputSettled { agent, report } => Some((agent, *report)),
+            other => {
+                self.pending_projection = Some(other);
+                None
+            }
+        }
+    }
+
     /// Converts one opaque owner activity into the smallest retryable root projection.
     ///
     /// Successful ingress is reconstructed from its durable log. Runner events retain only their
@@ -139,14 +157,28 @@ impl Collaboration {
                     orphaned_link,
                 })
             }
-            OwnedCollaborationActivity::Ingress(_) => None,
+            OwnedCollaborationActivity::Ingress(_) => Some(PendingRootProjection::RefreshControls),
+            OwnedCollaborationActivity::Control(snapshot) => {
+                self.retain_control_snapshot(snapshot)?;
+                None
+            }
             OwnedCollaborationActivity::Handoff(settlement) if settlement.outcome().is_ok() => {
                 Some(PendingRootProjection::RefreshLog {
                     sync_running_roster: false,
                     orphaned_link: None,
                 })
             }
-            OwnedCollaborationActivity::Handoff(_) => None,
+            OwnedCollaborationActivity::Handoff(_) => Some(PendingRootProjection::RefreshControls),
+            OwnedCollaborationActivity::UserInput(settlement) => {
+                let agent = self
+                    .announced
+                    .get(&settlement.worker().conversation)
+                    .cloned();
+                agent.map(|agent| PendingRootProjection::UserInputSettled {
+                    agent,
+                    report: Box::new(target_input_report(settlement.into_outcome())),
+                })
+            }
             OwnedCollaborationActivity::Runner(update) => self.prepare_runner(update),
         };
         Ok(self.pending_projection.is_some())
@@ -195,10 +227,21 @@ impl Collaboration {
             if sync_running_roster {
                 self.sync_roster(runtime, AgentStatus::Running).await?;
             }
+            self.refresh_child_controls().await?;
             self.undelivered |= self.show(runtime).await?;
+            self.refresh_pending_children(runtime).await?;
             if let Some(child) = refresh_child {
                 self.refresh_child(runtime, &child).await?;
             }
+            self.pending_projection.take();
+            return Ok(RootProjectionProgress::Applied);
+        }
+
+        if matches!(
+            self.pending_projection,
+            Some(PendingRootProjection::RefreshControls)
+        ) {
+            self.refresh_child_controls().await?;
             self.pending_projection.take();
             return Ok(RootProjectionProgress::Applied);
         }
@@ -209,6 +252,9 @@ impl Collaboration {
             .expect("pending projection checked above")
         {
             PendingRootProjection::RefreshLog { .. } => unreachable!("refresh handled above"),
+            PendingRootProjection::RefreshControls => {
+                unreachable!("control refresh handled above")
+            }
             PendingRootProjection::RunnerEvent { child, event, .. } => {
                 runtime
                     .project_delegated(event)
@@ -220,6 +266,9 @@ impl Collaboration {
             // report can return exact child-owned input. Keeping it staged is safe if a caller is
             // only advancing the root projection slot.
             PendingRootProjection::StopSettled { .. } => {
+                return Ok(RootProjectionProgress::Idle);
+            }
+            PendingRootProjection::UserInputSettled { .. } => {
                 return Ok(RootProjectionProgress::Idle);
             }
         }
@@ -235,6 +284,16 @@ impl Collaboration {
                     .get(&identity.endpoint().conversation)
                     .cloned()?;
                 return Some(PendingRootProjection::StopSettled { agent, outcome });
+            }
+            OwnedRunnerUpdate::UserInputSettled { identity, outcome } => {
+                let agent = self
+                    .announced
+                    .get(&identity.endpoint().conversation)
+                    .cloned()?;
+                return Some(PendingRootProjection::UserInputSettled {
+                    agent,
+                    report: Box::new(user_input_report(*outcome)),
+                });
             }
             OwnedRunnerUpdate::Runtime { identity, update } => match *update {
                 RuntimeUpdate::Event(envelope) => {
@@ -292,5 +351,33 @@ impl Collaboration {
         }
         *event.agent_mut() = agent_id.clone();
         Some(event)
+    }
+}
+
+fn user_input_report(outcome: Result<DispatchReport, UserInputFailure>) -> DispatchReport {
+    match outcome {
+        Ok(report) => report,
+        Err(failure) => {
+            let reason = super::undelivered_reason(failure.reason());
+            let mut report = DispatchReport::default();
+            if let Some(input) = failure.into_undelivered(reason) {
+                report.undelivered.push(input);
+            }
+            report
+        }
+    }
+}
+
+fn target_input_report(outcome: Result<DispatchReport, UserTargetInputFailure>) -> DispatchReport {
+    match outcome {
+        Ok(report) => report,
+        Err(failure) => {
+            let reason = super::undelivered_reason(failure.reason());
+            let mut report = DispatchReport::default();
+            if let Some(input) = failure.into_undelivered(reason) {
+                report.undelivered.push(input);
+            }
+            report
+        }
     }
 }

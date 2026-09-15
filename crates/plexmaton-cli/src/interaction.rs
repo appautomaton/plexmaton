@@ -1,5 +1,6 @@
 //! One production interaction loop: input, revision-gated frames and owned external completions.
 
+mod child_input;
 mod model;
 use model::apply_model;
 mod stop;
@@ -18,7 +19,7 @@ use ratatui::{Terminal, backend::Backend};
 use crate::{
     clipboard::TerminalClipboard, collaboration::RootProjectionProgress, conversation_tree,
     dispatch_live, input::apply_report, input_queue, permission_controls, retry, route_approval,
-    route_submission, session_picker, statusline, stream_frames,
+    session_picker, statusline, stream_frames,
 };
 
 #[cfg(test)]
@@ -164,6 +165,7 @@ async fn apply_runtime_progress(
     if let Some(collaboration) = collaboration {
         collaboration.refresh_root(runtime).await?;
         collaboration.deliver_pending(runtime).await?;
+        collaboration.apply_child_controls(workspace)?;
     }
     Ok(finished)
 }
@@ -192,6 +194,7 @@ async fn restart_after_owned_updates(
             // numbered delegated envelope can be polled into the next frame.
             frames.flush(workspace);
             collaboration.deliver_pending(runtime).await?;
+            collaboration.apply_child_controls(workspace)?;
             Ok(true)
         }
         RootProjectionProgress::Idle
@@ -209,7 +212,7 @@ async fn apply_workspace_outcome(
     outcome: plexmaton_tui::Outcome,
     runtime: &mut LiveRuntime,
     workspace: &mut Workspace,
-    collaboration: Option<&mut crate::collaboration::Collaboration>,
+    mut collaboration: Option<&mut crate::collaboration::Collaboration>,
     clipboard: &mut TerminalClipboard<impl io::Write>,
     picker: &mut session_picker::ConversationPicker,
     permissions: &mut permission_controls::PermissionControls,
@@ -288,7 +291,7 @@ async fn apply_workspace_outcome(
         }
     }
     if let Some(submission) = outcome.submitted {
-        dispatch_live(runtime, workspace, route_submission(submission)).await?;
+        child_input::dispatch(submission, collaboration.as_deref_mut(), runtime, workspace).await?;
         retry::sync_actions(runtime, workspace);
     }
     if let Some(agent_id) = outcome.interrupted {
@@ -498,6 +501,11 @@ async fn apply_collaboration(
     };
     frames.flush(workspace);
     let staged = collaboration.stage(activity)?;
+    collaboration.apply_child_controls(workspace)?;
+    if let Some((to, outcome)) = collaboration.take_user_input_settlement() {
+        child_input::apply_settlement(outcome, to, runtime, workspace);
+        return Ok(());
+    }
     if let Some((to, outcome)) = collaboration.take_stop_settlement() {
         apply_stop_settlement(outcome, to, runtime, workspace);
         return Ok(());
@@ -507,6 +515,7 @@ async fn apply_collaboration(
     } else {
         RootProjectionProgress::Idle
     };
+    collaboration.apply_child_controls(workspace)?;
     if matches!(
         progress,
         RootProjectionProgress::Applied | RootProjectionProgress::Idle

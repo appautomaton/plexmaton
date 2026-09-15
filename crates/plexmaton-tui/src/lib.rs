@@ -39,12 +39,12 @@ pub use state::{
     ChildControl, ChildControlRefusal, ChildControlSnapshot, CleanupNotice, Command,
     CompactRefusal, CompactionNote, ConfigurationSummary, ConversationChoice,
     ConversationPickerStatus, ConversationRequest, ConversationRestoration, ConversationTailRepair,
-    CopyReceipt, CopyRequest, Drawer, InspectorView, Listing, MAX_CONVERSATION_CHOICES, MailView,
-    ModelChoice, ModelIdentity, NoticeView, Page, PermissionRequest, PersistenceNotice,
-    QueuedBoundary, QueuedInput, ReduceError, RetryAction, RetryActions, RetrySubmission,
-    RetryTarget, ScrollPosition, Selection, SkillChoice, SkillChoiceSource, Submission,
-    SubmissionKind, SwitchRefusal, TaskView, ToolCallView, TranscriptEntryView, TranscriptItemView,
-    TranscriptTextKind, ViewRevision, ViewState,
+    CopyReceipt, CopyRequest, Drawer, HandoffView, InspectorView, Listing,
+    MAX_CONVERSATION_CHOICES, MailView, ModelChoice, ModelIdentity, NoticeView, Page,
+    PermissionRequest, PersistenceNotice, QueuedBoundary, QueuedInput, ReduceError, RetryAction,
+    RetryActions, RetrySubmission, RetryTarget, ScrollPosition, Selection, SkillChoice,
+    SkillChoiceSource, Submission, SubmissionKind, SwitchRefusal, TaskView, ToolCallView,
+    TranscriptEntryView, TranscriptItemView, TranscriptTextKind, ViewRevision, ViewState,
 };
 pub use state::{ApprovalChoice, ApprovalFeedback, ApprovalStage};
 pub use statusline::{StatusLineText, StatusLineTextError};

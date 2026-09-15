@@ -462,8 +462,8 @@ full of concurrent agents stays navigable:
 - Agent mail, and Main-authored task updates, each entering both conversations it names and saying
   in a word which side its row is: `sent to`, `received from`, `assigned to`, `assigned by`, naming
   the other end. The user read these on a real delegation and accepted the wording on 2026-09-14
-- Handoff: an explicit change of controller, distinct from task completion or idle. Named here and
-  not built; nothing draws it yet
+- Handoff: an explicit change of controller, distinct from task completion or idle. Both named
+  conversations receive one `handoff · Controller: User` row from the canonical durable fact
 - Undelivered steering: a message that never reached its worker, with its original text intact
 - System text, named and muted
 - Warning and error, each carrying its colour and its name

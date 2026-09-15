@@ -272,9 +272,18 @@ pub(super) fn entries(
                 summary: mail.summary.as_str().to_owned(),
             },
         ),
-        // An explicit change of controller, which `ui-ux.md` names as its own entry kind and
-        // `ConversationEvent` has no variant for yet.
-        CollaborationEvent::HandoffCompleted { .. } => Vec::new(),
+        CollaborationEvent::HandoffCompleted {
+            delegation, author, ..
+        } => both(
+            name(author),
+            worker(delegation).as_ref().and_then(name),
+            &item,
+            &|_from, child, owner, side| ConversationEvent::HandoffCompleted {
+                agent_id: owner,
+                item_id: side,
+                child,
+            },
+        ),
     }
 }
 
@@ -307,7 +316,7 @@ fn both(
 mod tests {
     use plexmaton_agent::collaboration::{
         CollaborationEvent, CollaborationItemRef, CollaborationLimits, CollaborationRecord,
-        CollaborationSequence, CollaborationText, MailEndpoint, MailEnvelope,
+        CollaborationSequence, CollaborationText, DelegationRevision, MailEndpoint, MailEnvelope,
     };
     use plexmaton_agent::{
         ConversationEntry, ConversationJournal, JournalEntryPayload, JournalRecord, UnixMillis,
@@ -400,7 +409,7 @@ mod tests {
         };
         let updated = CollaborationEvent::TaskUpdated {
             delegation: delegation(),
-            expected: plexmaton_agent::collaboration::DelegationRevision(0),
+            expected: DelegationRevision(0),
             author: root(),
             task: text("read the standards"),
         };
@@ -438,6 +447,41 @@ mod tests {
                 assert_eq!(row.1, shape, "{what} is attributed the same on both sides");
             }
         }
+    }
+
+    /// CCV-3: one durable Handoff becomes distinct semantic rows on both named sides.
+    #[test]
+    fn handoff_projects_distinct_entries_on_both_sides() {
+        let rows = entries(
+            &record(
+                "handoff-item",
+                CollaborationEvent::HandoffCompleted {
+                    delegation: delegation(),
+                    expected: DelegationRevision(0),
+                    author: root(),
+                },
+            ),
+            &name,
+            &worker,
+        );
+        assert_eq!(rows.len(), 2);
+        let mut projected = rows.into_iter().map(|(owner, event)| match event {
+            ConversationEvent::HandoffCompleted {
+                agent_id,
+                item_id,
+                child,
+            } => (owner, agent_id, item_id, child),
+            other => panic!("unexpected Handoff projection: {other:?}"),
+        });
+        let root_side = projected.next().expect("root side");
+        let child_side = projected.next().expect("child side");
+        assert_eq!(root_side.0, AgentId::new("agent-primary").expect("root"));
+        assert_eq!(root_side.0, root_side.1);
+        assert_eq!(child_side.0, AgentId::new("delegated-1").expect("child"));
+        assert_eq!(child_side.0, child_side.1);
+        assert_eq!(root_side.3, child_side.0);
+        assert_eq!(child_side.3, child_side.0);
+        assert_ne!(root_side.2, child_side.2);
     }
 
     /// A fact naming a session the roster cannot name draws nothing rather than a row about a

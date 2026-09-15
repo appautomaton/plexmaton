@@ -159,7 +159,12 @@ impl OwnedCollaboration {
             let pending = self.ingress.as_mut()?.receive().await?;
             self.pending_ingress = Some(pending);
         }
-        Some(self.finish_pending_ingress().await)
+        loop {
+            match self.advance_pending_ingress().await {
+                IngressProgress::Control(_) => {}
+                IngressProgress::Settled(settlement) => return Some(settlement),
+            }
+        }
     }
 
     /// Waits for either an authenticated tool command or one child-runner update.
@@ -172,8 +177,21 @@ impl OwnedCollaboration {
                     .and_then(CollaborationIngressOwner::try_receive);
             }
             if self.pending_ingress.is_some() {
-                return Some(OwnedCollaborationActivity::Ingress(
-                    self.finish_pending_ingress().await,
+                return Some(match self.advance_pending_ingress().await {
+                    IngressProgress::Control(snapshot) => {
+                        OwnedCollaborationActivity::Control(snapshot)
+                    }
+                    IngressProgress::Settled(settlement) => {
+                        OwnedCollaborationActivity::Ingress(settlement)
+                    }
+                });
+            }
+            if let Some(settlement) = self.pending_user_target_settlement.take() {
+                return Some(OwnedCollaborationActivity::UserInput(settlement));
+            }
+            if self.user_target_input_precedes_updates() {
+                return Some(OwnedCollaborationActivity::UserInput(
+                    self.finish_pending_user_target_input().await,
                 ));
             }
             if let Some(settlement) = self.settle_cold_handoff().await {
@@ -214,7 +232,7 @@ impl OwnedCollaboration {
         }
     }
 
-    async fn finish_pending_ingress(&mut self) -> CollaborationIngressSettlement {
+    async fn advance_pending_ingress(&mut self) -> IngressProgress {
         loop {
             if self
                 .pending_ingress
@@ -233,12 +251,16 @@ impl OwnedCollaboration {
                     )) => match self.writer.wait_writable().await {
                         Ok(()) => continue,
                         Err(error) => {
-                            return self.complete_pending_ingress(Err(
+                            return IngressProgress::Settled(self.complete_pending_ingress(Err(
                                 CollaborationIngressFailure::from(error),
-                            ));
+                            )));
                         }
                     },
-                    Err(failure) => return self.complete_pending_ingress(Err(failure)),
+                    Err(failure) => {
+                        return IngressProgress::Settled(
+                            self.complete_pending_ingress(Err(failure)),
+                        );
+                    }
                 }
             }
             let prepared = self
@@ -247,6 +269,22 @@ impl OwnedCollaboration {
                 .and_then(|pending| pending.prepared.as_ref())
                 .expect("prepared ingress")
                 .clone();
+            if let PreparedIngress::Handoff(attempt) = &prepared
+                && !self
+                    .pending_ingress
+                    .as_ref()
+                    .expect("prepared ingress")
+                    .control_announced
+            {
+                self.pending_ingress
+                    .as_mut()
+                    .expect("prepared ingress")
+                    .control_announced = true;
+                return IngressProgress::Control(
+                    self.pending_handoff_snapshot(attempt)
+                        .expect("authenticated Handoff retains its canonical target"),
+                );
+            }
             let result = match prepared {
                 PreparedIngress::Delegation(delegation) => self.finish_delegation(delegation).await,
                 PreparedIngress::Admission {
@@ -266,7 +304,9 @@ impl OwnedCollaboration {
                                     Some(WakeHint::new(identity, fresh_item_id(), fresh_turn_id()))
                                 }
                                 Err(failure) => {
-                                    return self.complete_pending_ingress(Err(failure));
+                                    return IngressProgress::Settled(
+                                        self.complete_pending_ingress(Err(failure)),
+                                    );
                                 }
                             }
                         }
@@ -301,7 +341,7 @@ impl OwnedCollaboration {
                     })
                     .map_err(CollaborationIngressFailure::from),
             };
-            return self.complete_pending_ingress(result);
+            return IngressProgress::Settled(self.complete_pending_ingress(result));
         }
     }
 
@@ -364,9 +404,17 @@ impl OwnedCollaboration {
             if self.pending_ingress.is_none() {
                 break;
             }
-            let settlement = self.finish_pending_ingress().await;
-            self.shutdown_settlements
-                .push(crate::OwnedShutdownSettlement::Ingress(settlement));
+            match self.advance_pending_ingress().await {
+                IngressProgress::Control(_) => {}
+                IngressProgress::Settled(settlement) => self
+                    .shutdown_settlements
+                    .push(crate::OwnedShutdownSettlement::Ingress(settlement)),
+            }
         }
     }
+}
+
+enum IngressProgress {
+    Control(OwnedChildControlSnapshot),
+    Settled(CollaborationIngressSettlement),
 }

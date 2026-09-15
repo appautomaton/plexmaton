@@ -19,11 +19,14 @@ use plexmaton_core::{
 };
 use plexmaton_runtime::{
     CollaborationRuntimeStamp, CollaborationWriter, DelegatedChildFactory, DispatchReport,
-    LiveRuntime, MainCollaborationIngress, OwnedCollaboration, OwnedCollaborationActivity,
-    OwnedSchedulingError, OwnedShutdownReport, SchedulerLimits,
+    LiveRuntime, MainCollaborationIngress, OwnedChildControlSnapshot, OwnedCollaboration,
+    OwnedCollaborationActivity, OwnedSchedulingError, OwnedShutdownReport, SchedulerLimits,
+    UserInputTarget,
 };
 use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::CollaborationFile};
 
+mod child_control;
+pub(crate) use child_control::undelivered_reason;
 mod history;
 mod pending;
 mod placement;
@@ -79,6 +82,10 @@ pub(crate) struct Collaboration {
     replayed_prefix: BTreeMap<ConversationId, VecDeque<ConversationEvent>>,
     /// Where a child's own journal lives, so its history can be read back after a restart.
     children: DelegatedConversationDirectory,
+    /// Authenticated input targets retained separately from display-only controller snapshots.
+    user_targets: BTreeMap<ConversationId, UserInputTarget>,
+    /// Latest authenticated controller projection for each canonical child Conversation.
+    controls: BTreeMap<ConversationId, OwnedChildControlSnapshot>,
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -132,6 +139,8 @@ pub(crate) fn open(
             pending_projection: None,
             announced: BTreeMap::new(),
             children,
+            user_targets: BTreeMap::new(),
+            controls: BTreeMap::new(),
             delivered,
             undelivered: false,
             root: None,
@@ -210,30 +219,6 @@ impl Collaboration {
         runtime.rebuild_delegated_projection().map_err(|error| {
             anyhow::anyhow!("rebuild the durably placed collaboration projection: {error:?}")
         })?;
-        Ok(())
-    }
-
-    /// Puts every canonical delegation this root owns on the roster, announcing only the new ones.
-    ///
-    /// Both resume and a fresh settlement land here, because a delegation's identity on the roster
-    /// is its child conversation and only the registry knows which conversation a target addresses.
-    async fn sync_roster(
-        &mut self,
-        runtime: &mut LiveRuntime,
-        status: AgentStatus,
-    ) -> anyhow::Result<()> {
-        let targets = self
-            .owner
-            .register_collaboration_targets()
-            .await
-            .map_err(|error| anyhow::anyhow!("register delegated targets: {error}"))?;
-        let children: Vec<ConversationId> = targets
-            .iter()
-            .map(|target| target.worker().conversation.clone())
-            .collect();
-        for child in children {
-            self.announce(runtime, child, status)?;
-        }
         Ok(())
     }
 
@@ -441,6 +426,7 @@ fn item_of(event: &ConversationEvent) -> Option<TranscriptItemId> {
         | ConversationEvent::ToolCallChanged { item_id, .. }
         | ConversationEvent::TaskAssigned { item_id, .. }
         | ConversationEvent::MailDelivered { item_id, .. }
+        | ConversationEvent::HandoffCompleted { item_id, .. }
         | ConversationEvent::ArtifactAnnounced { item_id, .. }
         | ConversationEvent::RuntimeWarning { item_id, .. }
         | ConversationEvent::RuntimeError { item_id, .. } => Some(item_id.clone()),
@@ -459,6 +445,7 @@ const fn forwarded(event: &ConversationEvent) -> bool {
         ConversationEvent::AgentStatusChanged { .. }
             | ConversationEvent::TaskAssigned { .. }
             | ConversationEvent::MailDelivered { .. }
+            | ConversationEvent::HandoffCompleted { .. }
             | ConversationEvent::TranscriptItemStarted { .. }
             | ConversationEvent::TranscriptDelta { .. }
             | ConversationEvent::TranscriptItemFinalized { .. }

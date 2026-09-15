@@ -7,9 +7,9 @@ specified, implemented, tested, green, and called from production, and still sho
 only this says otherwise.
 
 Passing here is acceptance evidence and nothing else. It does not say a mechanism is wired, and
-failing to appear here does not say one is unwired — `handoff` is called from production today and
-has no step below. Phase 03's exit gate is this script passing with Stop, Handoff and reopening a
-resumed child's conversation among its steps.
+failing to appear here does not say one is unwired. Phase 03's exit gate is this script passing
+with Stop, Handoff, focused child input and reopening a resumed child's conversation among its
+steps.
 """
 
 import argparse
@@ -19,8 +19,18 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from provider_fixture import AddressedProvider, PausedResponse, calls, response, says
-from smoke_support import DOWN, ENTER, ESC, ROOT, UP, Terminal, click, fixture_environment, sgr_press
+from provider_fixture import AddressedProvider, PausedResponse, asked, calls, response, says
+from smoke_support import (
+    DOWN,
+    ENTER,
+    ESC,
+    ROOT,
+    Terminal,
+    click,
+    fixture_environment,
+    observe_for,
+    sgr_press,
+)
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
@@ -41,6 +51,14 @@ ROSTER_ROW = (5, 1)
 # What each conversation must show: the child's own work, and the root's task, letter and answer.
 CHILD_SIDE = (CHILD, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
 ROOT_SIDE = (f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+
+HANDOFF_ASK = "HANDOFF_ASK transfer the delegated child to me"
+HANDOFF_DONE = "HANDOFF_DONE user control is ready"
+CHILD_INPUT = "USER_CHILD_INPUT answer this child directly"
+CHILD_ANSWER = "USER_CHILD_ANSWER received only by the child"
+HANDOFF_ROW = "handoff · Controller: User"
+USER_CHILD_SIDE = (CHILD, HANDOFF_ROW, CHILD_INPUT, CHILD_ANSWER)
+USER_ROOT_SIDE = (f"received from {TARGET}", SAW, HANDOFF_ROW, HANDOFF_DONE)
 
 STOP_ASK = "STOP_DELEGATE_ASK create a child and leave it working"
 STOP_TASK = "STOP_CHILD_TASK keep the provider stream open"
@@ -83,6 +101,40 @@ def paused_late_response():
     return QuietPausedResponse(data)
 
 
+def handoff_reply(body):
+    """Read the opaque target from Main's earlier successful delegation result."""
+    for message in reversed(body.get("messages") or []):
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(result, dict) and result.get("status") == "delegated":
+            target = result.get("target")
+            assert isinstance(target, str) and target, result
+            return calls("handoff", ("handoff", {"target": target}))
+    raise AssertionError("the Handoff request has no earlier delegated target")
+
+
+class HandoffProvider(AddressedProvider):
+    """Allows one addressed reply to derive the opaque selector from that exact request."""
+
+    @staticmethod
+    def payload(entry):
+        data = entry[1]
+        return b"dynamic handoff reply" if callable(data) else data
+
+    def choose(self, body):
+        question = asked(body)
+        for index, (cue, data) in enumerate(self.responses):
+            if index not in self.answered and cue in question:
+                self.answered.add(index)
+                return data(body) if callable(data) else data
+        raise AssertionError(f"no scripted reply is addressed to {question[:200]}")
+
+
 def script():
     """Each reply is addressed to the request that earns it; the two runners interleave freely.
 
@@ -100,6 +152,11 @@ def script():
         ("call_SEND_MAIL_childwork", says(DONE)),
         # CMP-1: the root admits its own turn to read the inbox, and answers with the letter in it.
         (REPORT, says(SAW)),
+        # Main's model uses the opaque selector from its own earlier tool result.
+        (HANDOFF_ASK, handoff_reply),
+        ("call_HANDOFF_handoff", says(HANDOFF_DONE)),
+        # After acknowledged transfer, the user's focused child composer owns this turn.
+        (CHILD_INPUT, says(CHILD_ANSWER)),
     ]
 
 
@@ -157,6 +214,16 @@ def focus_primary_and_type(terminal, text):
     return terminal.wait(text)
 
 
+def scroll_child(terminal, upward, count, *markers):
+    """Scroll inside the inspected conversation without taking its User input focus."""
+    button = 64 if upward else 65
+    event = f"\x1b[<{button};41;6M".encode()
+    for _ in range(count):
+        os.write(terminal.master, event)
+        observe_for(terminal.master, 0.004, terminal.capture)
+    return terminal.wait(*markers)
+
+
 def no_dropped_events(terminal):
     """The projection must publish every delegated fact, in order.
 
@@ -186,14 +253,33 @@ def both_at_three_widths(terminal, artifact="child"):
     `SIGWINCH`, nothing repaints, and the frame this reads from would be empty.
     """
     for width, label in [(121, None), (120, "wide"), (95, "medium")]:
-        screen = terminal.resize(width, *CHILD_SIDE, *ROOT_SIDE)
+        screen = terminal.resize(width, *USER_CHILD_SIDE, *USER_ROOT_SIDE)
         if label:
             write_frame(terminal, artifact, label, screen)
     write_frame(terminal, artifact, "narrow",
-                terminal.resize(60, *CHILD_SIDE, absent=(SAW,)))
+                terminal.resize(60, *USER_CHILD_SIDE, absent=(SAW,)))
     write_frame(terminal, artifact, "narrow-root",
-                close_child(terminal, *ROOT_SIDE, absent=(DONE,)))
-    terminal.resize(120, *ROOT_SIDE, absent=(DONE,))
+                close_child(terminal, *USER_ROOT_SIDE, absent=(CHILD_ANSWER,)))
+    terminal.resize(120, *USER_ROOT_SIDE, absent=(CHILD_ANSWER,))
+
+
+def stop_hint_at_three_widths(terminal):
+    """Focused Main control shows Stop beside the capability line at every supported width."""
+    for width, label, hint in [
+        (121, None, True),
+        (120, "wide", True),
+        (95, "medium", True),
+        (60, "narrow", True),
+    ]:
+        screen = terminal.resize(width, "Controller: Main", STOP_CHILD_WORKING)
+        screen = terminal.wait(
+            "Controller: Main", STOP_CHILD_WORKING, absent=("Preparing text",)
+        )
+        assert ("^C Stop" in screen) == hint, (width, screen)
+        assert "Read-only files | No shell" in screen, (width, screen)
+        if label:
+            write_frame(terminal, "stop-main", label, screen)
+    terminal.resize(120, "Controller: Main", STOP_CHILD_WORKING, "^C Stop")
 
 
 def write_frame(terminal, artifact, label, screen):
@@ -251,6 +337,40 @@ def run_smoke(provider):
                 f"received from {TARGET}",
                 SAW,
             )
+            # COL-3/CCV-1–CCV-4: Main's real tool transfers control, then the focused child input
+            # reaches that child's provider and leaves the primary composer as a return target.
+            focus_primary_and_type(terminal, HANDOFF_ASK)
+            terminal.send(ENTER, HANDOFF_DONE, HANDOFF_ROW)
+            open_child(terminal, *CHILD_SIDE, HANDOFF_ROW, "Controller: User")
+            terminal.send(
+                ENTER,
+                *CHILD_SIDE,
+                HANDOFF_ROW,
+                "Controller: User",
+                "Message Plexmaton",
+                "to return",
+            )
+            terminal.send(
+                CHILD_INPUT.encode() + ENTER,
+                *USER_CHILD_SIDE,
+                "Controller: User",
+                "Message Plexmaton",
+                "to return",
+            )
+            terminal.widths(
+                "handoff-user",
+                *USER_CHILD_SIDE,
+                "Controller: User",
+                "Message Plexmaton",
+                "to return",
+            )
+            close_child(
+                terminal,
+                *ROOT_SIDE,
+                HANDOFF_DONE,
+                HANDOFF_ROW,
+                absent=(CHILD_INPUT, CHILD_ANSWER),
+            )
             # Checked before the roster is touched: a drop opens a notice panel that moves every
             # row below it, and the click that opens the child would then miss for a reason the
             # failure does not name.
@@ -266,7 +386,7 @@ def run_smoke(provider):
         assert len(records(one(home / "delegated-sessions"))) > 1, "the child kept no journal"
         kinds = {record["event"]["kind"] for record in records(one(home / "collaborations"))
                  if "event" in record}
-        assert {"delegation_created", "mail_accepted"} <= kinds, kinds
+        assert {"delegation_created", "mail_accepted", "handoff_completed"} <= kinds, kinds
         durable_before_resume = journal_snapshot(home)
 
         # CHB-3/INS-1/INS-6: pointer selection opens the exact restored child at every responsive
@@ -287,23 +407,22 @@ def run_smoke(provider):
                 RESTORED,
             )
             requests_before, errors_before = provider.snapshot()
-            open_child(terminal, *CHILD_SIDE)
+            open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
             both_at_three_widths(terminal, "resumed-pointer")
             # INS-6: a semantic viewport anchor belongs to the child, not the transient window.
             # Park inside the long restored message, close while the Inspector owns focus, then
             # reopen by pointer at the same width and require the same first visible history line.
-            open_child(terminal, *CHILD_SIDE)
-            terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
-            oldest = terminal.send(
-                UP * 100, f"assigned by {ROOT_AGENT}", "CHILD_WORKING"
+            open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
+            oldest = scroll_child(
+                terminal, True, 100, f"assigned by {ROOT_AGENT}", "CHILD_WORKING"
             )
             assert_ordered(oldest, f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
-            newest = terminal.send(
-                DOWN * 100, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE
+            newest = scroll_child(
+                terminal, False, 100, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE
             )
             assert_ordered(newest, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
-            terminal.resize(60, *CHILD_SIDE)
-            parked_screen = terminal.send(UP * 12, HISTORY_ANCHOR)
+            terminal.resize(60, *USER_CHILD_SIDE, "Controller: User")
+            parked_screen = scroll_child(terminal, True, 12, HISTORY_ANCHOR)
             write_frame(terminal, "resumed-pointer", "anchor-parked", parked_screen)
             parked = visible_history_anchor(parked_screen)
             assert parked == HISTORY_ANCHOR, (parked, HISTORY_ANCHOR)
@@ -329,9 +448,14 @@ def run_smoke(provider):
                       ("resume", journal.stem)) as terminal:
             terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW, RESTORED)
             requests_before, errors_before = provider.snapshot()
-            terminal.send(DOWN, *CHILD_SIDE)
-            terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
-            terminal.widths("resumed-keyboard", *CHILD_SIDE)
+            terminal.send(DOWN, *USER_CHILD_SIDE, "Controller: User")
+            terminal.send(ENTER, "Controller: User", "Message Plexmaton", *USER_CHILD_SIDE)
+            terminal.widths(
+                "resumed-keyboard",
+                *USER_CHILD_SIDE,
+                "Controller: User",
+                "Message Plexmaton",
+            )
             requests_after, errors_after = provider.snapshot()
             assert requests_after == requests_before, "keyboard browsing contacted the provider"
             assert not errors_before and not errors_after, (errors_before, errors_after)
@@ -364,7 +488,8 @@ def run_stop_smoke(provider, paused):
             # Selecting then entering the row is the real open/focus path; Ctrl-C then resolves
             # the Inspector conversation rather than the primary runtime (INV-7).
             open_child(terminal, STOP_CHILD_WORKING)
-            terminal.send(ENTER, "Controller unavailable", "Input locked", STOP_CHILD_WORKING)
+            terminal.send(ENTER, "Controller: Main", STOP_CHILD_WORKING)
+            stop_hint_at_three_widths(terminal)
             requests, errors = provider.snapshot()
             assert len(requests) == 3 and not errors, (requests, errors)
             assert STOP_CHILD_LATE.encode() not in bytes(terminal.capture)
@@ -374,7 +499,7 @@ def run_stop_smoke(provider, paused):
             terminal.send(
                 b"\x03",
                 f"{CHILD} · Idle",
-                "Controller unavailable",
+                "Controller: Main",
                 STOP_CHILD_WORKING,
             )
             assert terminal.process.poll() is None, "focused-child Stop exited the root session"
@@ -404,15 +529,16 @@ def main():
     if not arguments.skip_build:
         subprocess.run(["cargo", "build", "--locked", "--offline", "-p", "plexmaton-cli",
                         "--bin", "plexmaton", "--quiet"], cwd=ROOT, check=True)
-    with AddressedProvider(script()) as provider:
+    with HandoffProvider(script()) as provider:
         run_smoke(provider)
     paused = paused_late_response()
     with AddressedProvider(stop_script(paused)) as provider:
         run_stop_smoke(provider, paused)
-    print("delegate smoke passed: one delegation; the child's own work and letter; both "
+    print("delegate smoke passed: one delegation; the child's own work and letter; Main Handoff "
+          "and focused User child input; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
           "the child is closed; no dropped event; a durable ledger and child journal; passive "
-          "pointer and keyboard resume at all three widths with durable task/mail placement, "
+          "pointer and keyboard resume at all three widths with durable task/mail/Handoff placement, "
           "a final restoration confirmation, no request or durable write; and "
           "focused-child Stop through a paused provider with root continuation")
 

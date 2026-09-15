@@ -48,6 +48,12 @@ impl OwnedCollaboration {
     }
 
     pub(super) async fn settle_abandoned_operation(&mut self) -> Option<OwnedRunnerUpdate> {
+        if let Some((identity, outcome)) = self.detached_user_input.take() {
+            return Some(OwnedRunnerUpdate::UserInputSettled {
+                identity,
+                outcome: Box::new(outcome),
+            });
+        }
         let different_child_stop = self
             .pending_stop
             .as_ref()

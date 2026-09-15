@@ -42,7 +42,7 @@ Supply-chain and corpus lanes, selected by dependency or document changes:
 | `python3 scripts/smoke-input-queue.py` | Paused loopback stream, waiting-input display, occupied-draft guard, exact text/skill withdrawal, continuation and resubmission through a real PTY |
 | `python3 scripts/smoke-tree.py` | Tree aliases, rewind/edit/send, original branch and selected-head restart through a real PTY; exact loopback context and no repeated command effect |
 | `python3 scripts/smoke-permissions.py` | Project trust, real command execution, a remembered prefix across restart, revoke/deny and three widths in a real PTY; eight bounded local fixture requests |
-| `python3 scripts/smoke-delegate.py` | A delegation the binary can perform: the child's own conversation beside the root's, its letter back, both at three widths, a durable ledger and child journal, and resume. Acceptance evidence for the collaboration mechanisms; it does not report whether one is wired |
+| `python3 scripts/smoke-delegate.py` | A delegation the binary can perform: the child's own conversation beside the root's, its letter back, Main Handoff, focused User child input, Stop, three widths, durable journals and passive resume. Acceptance evidence for the collaboration mechanisms; it does not report whether one is wired |
 | `PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui frames` | Rewrites the frames under `crates/plexmaton-tui/frames/`; the diff is the review |
 | `cargo run --release -p plexmaton-cli --bin plexmaton-measure` | What a frame costs. Reports only; its work counts are asserted by the test suite, and its timings belong to the machine that ran it ([frame-loop](../specs/frame-loop.md) FR-4) |
 

@@ -16,14 +16,16 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     ChildMailIntent, CollaborationToolRequest, MainMailIntent, OwnedCollaboration,
-    OwnedHandoffFailure, OwnedHandoffSettlement, RuntimeError, TargetSelector, UpdateTaskIntent,
-    WakeHint,
+    OwnedHandoffFailure, OwnedHandoffSettlement, OwnedUserInputSettlement, RuntimeError,
+    TargetSelector, UpdateTaskIntent, WakeHint,
 };
 
 mod result;
 pub use result::{CollaborationIngressResult, CollaborationIngressSettlement};
 mod user_target;
-pub use user_target::{UserInputTarget, UserInputTicket};
+pub use user_target::{
+    OwnedChildControl, OwnedChildControlSnapshot, UserInputTarget, UserInputTicket,
+};
 
 const INGRESS_CAPACITY: usize = 8;
 
@@ -191,8 +193,12 @@ impl CollaborationIngressFailure {
 pub enum OwnedCollaborationActivity {
     Ingress(CollaborationIngressSettlement),
     Runner(crate::OwnedRunnerUpdate),
+    /// Revisioned display-only controller state for one canonical child.
+    Control(OwnedChildControlSnapshot),
     /// A direct Handoff settled without a live runner incarnation to tag.
     Handoff(OwnedHandoffSettlement),
+    /// Product-owned child input whose activation and admission settled off the terminal path.
+    UserInput(OwnedUserInputSettlement),
 }
 
 enum IngressCaller {
@@ -231,6 +237,7 @@ pub(crate) struct CollaborationIngressOwner {
 pub(crate) struct PendingIngress {
     command: IngressCommand,
     prepared: Option<PreparedIngress>,
+    control_announced: bool,
 }
 
 #[derive(Clone)]
@@ -341,6 +348,7 @@ impl CollaborationIngressOwner {
         self.receiver.recv().await.map(|command| PendingIngress {
             command,
             prepared: None,
+            control_announced: false,
         })
     }
 
@@ -348,6 +356,7 @@ impl CollaborationIngressOwner {
         self.receiver.try_recv().ok().map(|command| PendingIngress {
             command,
             prepared: None,
+            control_announced: false,
         })
     }
 

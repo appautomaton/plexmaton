@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented. Accepted: `scripts/smoke-delegate.py` opens the child's conversation and reads its prose, tool and letter at three widths. The controller presentation and composer gate have no production snapshot, so the window always reads `Controller unavailable \| Input locked` |
+| Status | Implemented, wired and accepted. `scripts/smoke-delegate.py` drives Main Handoff, focused User child input and passive User-control resume at 120/95/60; authenticated Main and Stop presentation remain in the same journey |
 | Owns | Revisioned child controller presentation, its composer gate and passive acknowledgment |
 | Depends on | [UI/UX control and input](../ui-ux.md#delegated-conversation-control), COM-4, INS-5, INS-7, COL-3 and CHB-1 |
-| Proven by | `plexmaton-tui::workspace::child_control::tests`; native review below |
+| Proven by | `plexmaton-tui::workspace::child_control::tests`, the runtime/CLI tests below and `scripts/smoke-delegate.py`; native review below |
 
 ## Invariants
 
@@ -33,10 +33,10 @@ of control and changes no lifecycle/controller until its owner reports a result 
 
 | Invariant | Proven by |
 | --- | --- |
-| CCV-1 | `ccv_1_snapshots_refuse_wrong_targets_stale_and_conflicting_revisions` |
-| CCV-2 | `ccv_2_non_user_children_have_no_input_cursor_or_submission`, `ccv_2_control_survives_dismissal_reopen_and_resize`, `ccv_2_user_child_input_uses_its_lifecycle_without_primary_commands`, `ccv_2_primary_collapse_matches_visible_child_input_across_short_heights` |
-| CCV-3 | `ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths` |
-| CCV-4 | `ccv_4_acknowledgment_is_passive_and_preserves_reading_state`, `ccv_4_interrupt_preserves_hidden_input_and_control`, `ccv_4_control_loss_settles_input_drag_without_copy_or_hidden_escape`, `ccv_4_hidden_input_release_settles_and_escape_closes_the_window` |
+| CCV-1 | `ccv_1_snapshots_refuse_wrong_targets_stale_and_conflicting_revisions`, `ccv_1_handoff_activity_projects_pending_before_acknowledgement`, `ccv_1_failed_handoff_projection_rolls_forward_to_main_before_retry`, `control_snapshots_apply_to_the_announced_child_and_unlock_after_handoff` |
+| CCV-2 | `ccv_2_non_user_children_have_no_input_cursor_or_submission`, `ccv_2_control_survives_dismissal_reopen_and_resize`, `ccv_2_user_child_input_uses_its_lifecycle_without_primary_commands`, `ccv_2_primary_collapse_matches_visible_child_input_across_short_heights`, `production_handoff_routes_child_input_and_retains_the_locked_draft`; `scripts/smoke-delegate.py` |
+| CCV-3 | `ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths`, `ccv_3_handoff_entry_is_distinct_at_three_widths`, `handoff_projects_distinct_entries_on_both_sides`; `scripts/smoke-delegate.py` |
+| CCV-4 | `ccv_4_acknowledgment_is_passive_and_preserves_reading_state`, `ccv_4_interrupt_preserves_hidden_input_and_control`, `ccv_4_control_loss_settles_input_drag_without_copy_or_hidden_escape`, `ccv_4_hidden_input_release_settles_and_escape_closes_the_window`, `control_snapshots_apply_to_the_announced_child_and_unlock_after_handoff` |
 
 ## Native review
 
@@ -46,8 +46,9 @@ Escape over counts when all cannot fit. The Ctrl-C Stop hint appears only while 
 keyboard focus and is running or waiting. Read-only file access and no shell describe the V1 profile;
 typed mail remains available under CHB-1 and is not a filesystem write capability.
 
-Pixel-level acceptance and production source authentication remain unproven.
+Pixel-level native user acceptance remains unproven.
 
-The native fixture is not authenticated product ingress. Production projection from the exact owned
-runtime, durable Handoff history, canonical mail inclusion/Attention and Stop settlement remain the
-[Stage 7](../plans/phase-03-stage-07-product-integration.md) integration gate.
+The native fixture is not authenticated product ingress. The real PTY now proves exact-owner
+controller projection, durable Handoff history, focused User input, capabilities and Stop-hint
+behavior at all three widths, plus default-width Stop settlement. Canonical mail inclusion and Attention remain later
+[Stage 7](../plans/phase-03-stage-07-product-integration.md) integration gates.

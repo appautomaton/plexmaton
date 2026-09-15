@@ -82,6 +82,7 @@ never report success. Preparation is synchronous for this finite fixture; native
 production responsiveness are not demonstrated.
 
 Child history and mail are synthetic. This scenario has no Attention request; the Attention layout
-is unchanged. Authenticated control snapshots, real Stop/Handoff settlement, canonical mail inclusion
-and Attention, and provider activation remain the [Stage 7](../../plans/phase-03-stage-07-product-integration.md)
-product boundary. No product interaction contract was changed by this preview.
+is unchanged. The separate real PTY now covers authenticated control snapshots, Stop/Handoff
+settlement and provider activation. Canonical mail inclusion and Attention remain the
+[Stage 7](../../plans/phase-03-stage-07-product-integration.md) product boundary. No product
+interaction contract was changed by this preview.

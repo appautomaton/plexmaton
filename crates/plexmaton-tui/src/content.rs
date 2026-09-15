@@ -71,7 +71,7 @@ fn count_entries(agent: &crate::AgentView) -> EntryCounts {
     agent
         .entries()
         .fold(EntryCounts::default(), |counts, entry| match entry {
-            TranscriptEntryView::Text(_) => counts,
+            TranscriptEntryView::Text(_) | TranscriptEntryView::Handoff(_) => counts,
             TranscriptEntryView::Tool(_) => EntryCounts {
                 tools: counts.tools.saturating_add(1),
                 ..counts

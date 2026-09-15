@@ -264,6 +264,11 @@ impl ViewState {
             }
             event @ (ConversationEvent::TaskAssigned { .. }
             | ConversationEvent::MailDelivered { .. }) => self.apply_addressed(event)?,
+            ConversationEvent::HandoffCompleted {
+                agent_id,
+                item_id,
+                child,
+            } => self.apply_handoff(agent_id, item_id, child)?,
             ConversationEvent::ArtifactAnnounced {
                 agent_id,
                 item_id,
@@ -363,6 +368,27 @@ impl ViewState {
             from,
             to,
             task,
+        )?;
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
+    fn apply_handoff(
+        &mut self,
+        agent_id: AgentId,
+        item_id: TranscriptItemId,
+        child: AgentId,
+    ) -> Result<bool, ReduceError> {
+        for endpoint in [&agent_id, &child] {
+            if !self.agents.contains(endpoint) {
+                return Err(ReduceError::UnknownAgent(endpoint.clone()));
+            }
+        }
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed = self.agent_mut(&agent_id)?.complete_handoff(
+            item_id.clone(),
+            agent_id.clone(),
+            child,
         )?;
         self.remember_entry_owner(item_id, agent_id);
         Ok(changed)
@@ -608,6 +634,7 @@ mod tests {
                 TranscriptEntryView::Artifact(_) => "artifact",
                 TranscriptEntryView::Mail(_) => "mail",
                 TranscriptEntryView::Task(_) => "task",
+                TranscriptEntryView::Handoff(_) => "handoff",
             })
             .collect();
         assert_eq!(

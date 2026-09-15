@@ -85,6 +85,13 @@ pub(crate) fn transcript_layout_with_prefix(
             };
             addressed_entry(heading, counterpart, &task.task, appearance, width)
         }
+        TranscriptEntryView::Handoff(_) => {
+            let line = Line::from(vec![
+                Span::styled("handoff", Role::NewInformation),
+                Span::styled(" · Controller: User", Role::Muted),
+            ]);
+            vec![Row::heading(line)]
+        }
     };
     let mut layout = Layout::default();
     for row in rows {
@@ -192,7 +199,9 @@ pub(crate) fn discloses(entry: &TranscriptEntryView) -> bool {
         }
         TranscriptEntryView::Mail(mail) => !mail.summary.is_empty(),
         TranscriptEntryView::Task(task) => !task.task.is_empty(),
-        TranscriptEntryView::Text(_) | TranscriptEntryView::Artifact(_) => false,
+        TranscriptEntryView::Text(_)
+        | TranscriptEntryView::Artifact(_)
+        | TranscriptEntryView::Handoff(_) => false,
     }
 }
 
@@ -413,13 +422,37 @@ pub(crate) fn conversation_placeholder(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{TranscriptItemId, TranscriptRole};
+    use plexmaton_core::{AgentId, TranscriptItemId, TranscriptRole};
 
-    use super::{literal_text_rows, transcript_text};
+    use super::{discloses, literal_text_rows, transcript_entry, transcript_text};
     use crate::{
-        TranscriptItemView, TranscriptTextKind,
+        HandoffView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
+        state::EntryAppearance,
         theme::{Palette, Role},
     };
+
+    /// CCV-3: acknowledged control is a stable semantic row at every accepted width.
+    #[test]
+    fn ccv_3_handoff_entry_is_distinct_at_three_widths() {
+        let child = AgentId::new("delegated-1").expect("child");
+        let entry = TranscriptEntryView::Handoff(HandoffView {
+            entry_id: TranscriptItemId::new("handoff-in").expect("item"),
+            owner: child.clone(),
+            child,
+            revision: 0,
+        });
+        for width in [120, 95, 60] {
+            let lines = transcript_entry(
+                &entry,
+                &Palette::pastel(),
+                EntryAppearance::default(),
+                width,
+            );
+            assert_eq!(lines.len(), 1, "{width} columns");
+            assert_eq!(lines[0].to_string(), "handoff · Controller: User");
+        }
+        assert!(!discloses(&entry));
+    }
 
     /// TR-1/MD-2: measurement-only geometry agrees with the actual paragraph at every small width.
     #[test]

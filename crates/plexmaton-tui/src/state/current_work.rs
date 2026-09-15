@@ -57,7 +57,8 @@ impl<'a> CurrentWork<'a> {
                 | TranscriptEntryView::Tool(_)
                 | TranscriptEntryView::Artifact(_)
                 | TranscriptEntryView::Mail(_)
-                | TranscriptEntryView::Task(_) => {}
+                | TranscriptEntryView::Task(_)
+                | TranscriptEntryView::Handoff(_) => {}
             }
         }
         // The Attention band names other outstanding requests. They still suppress ambient work
