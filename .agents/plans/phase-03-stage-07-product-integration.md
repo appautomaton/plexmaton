@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
-| Status | Active; 2 of 8 slices complete. Next: slice 3 (passive child history after resume) |
+| Status | Active; 3 of 8 slices complete. Next: slice 4 (durable shared-entry placement) |
 
 ## Outcome
 
@@ -38,7 +38,7 @@ source paths are relative to the named crate's src directory.
    interrupt the root. Active work joins; accepted mail settles; late wake cannot restart stopped
    work. Tier 2 covers cancellation; a paused-provider PTY proves Stop and root continuation.
 
-3. **Passive child history after resume — M; after 1.**
+3. **Passive child history after resume — M; complete.**
    Read: CHB-3; INS-1/INS-4/INS-6.
    Start at CLI `collaboration.rs::{restore,replay_children,sync_roster}`, session startup and
    roster/inspector registration. Make the persisted child projection selectable without starting

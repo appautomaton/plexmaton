@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and wired. CHB-1/CHB-2 accepted: `scripts/smoke-delegate.py` creates a real child that runs and keeps its own journal. CHB-3 lists a resumed child with its counts, and that child's conversation cannot be opened |
+| Status | Implemented, wired and accepted. `scripts/smoke-delegate.py` creates a real child with its own journal, then passively reopens that exact history by pointer and keyboard at 120/95/60 columns |
 | Owns | Read-only child capability floor, child journal placement and bound fresh/resumed runtime construction |
 | Depends on | COL-3; CIN-2/CIN-4; APV-1–APV-3; JRN-3–JRN-5; PRV-6 |
 | Proven by | Native catalog, real-file provenance/directory and direct runtime-constructor tests |
@@ -51,13 +51,13 @@ does not change the CHB-1 profile.
 | --- | --- |
 | CHB-1 | `chb_1_read_only_catalog_cannot_be_widened_by_an_admitted_call`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_ingress_derives_mail_endpoints_and_current_task_revision`, `ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision` |
 | CHB-2 | `chb_2_delegated_control_retains_all_creation_provenance_across_reopen`, `chb_2_fresh_child_constructor_is_exact_and_forces_read_only_tools`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation` |
-| CHB-3 | `chb_3_delegated_journals_require_their_explicit_directory`, `chb_3_resumed_child_settles_interruption_without_redispatch`, `ctl_1_explicit_resume_recovers_a_canonical_child_missing_its_journal`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation` |
+| CHB-3 | `chb_3_delegated_journals_require_their_explicit_directory`, `chb_3_resumed_child_settles_interruption_without_redispatch`, `ctl_1_explicit_resume_recovers_a_canonical_child_missing_its_journal`, `ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creation`, `missing_resumed_child_history_projects_one_explicit_unavailable_state`, `locked_resumed_child_history_projects_one_explicit_unavailable_state`, `corrupt_resumed_child_history_projects_one_explicit_unavailable_state`; `scripts/smoke-delegate.py` proves passive pointer and keyboard browsing with no request or durable write |
 
 ## Integration boundary
 
 [SCH-1–SCH-5](./owned-scheduling.md) validate canonical provenance, restore selected-branch
 collaboration context and expose a bounded runner while keeping child history out of ordinary root
 selection. The storage token proves directory origin; canonical provenance and COL-3 prove runtime
-authority. Passive UI history projection is delivered while a child is live and half-delivered after
-a restart: the roster lists a resumed child with its counts, and its conversation cannot be opened.
+authority. Passive UI projection opens the validated child journal without constructing a runtime;
+missing, writer-locked or invalid evidence keeps its roster row and projects one explicit warning.
 Tree/compaction routing and provider collaboration encoding remain later Phase 03 stages.

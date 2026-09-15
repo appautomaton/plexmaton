@@ -1,6 +1,13 @@
 use super::{pending::PendingRootProjection, *};
 use crate::{test_support::empty_session_for, tests::FixtureWorkspace};
+use plexmaton_agent::UnixMillis;
 use plexmaton_runtime::{DispatchReport, OwnedStopReport, RunnerGeneration};
+use ratatui::{
+    Terminal,
+    backend::TestBackend,
+    crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
+};
+use std::{fs, os::unix::fs::PermissionsExt as _};
 
 fn agent(value: &str) -> AgentId {
     AgentId::new(value).expect("agent")
@@ -20,6 +27,19 @@ fn failed_projection() -> PendingRootProjection {
         }),
         recovery: pending::RecoverySource::None,
     }
+}
+
+fn one_history_warning(runtime: &mut LiveRuntime) -> (AgentId, String) {
+    let warnings: Vec<_> = std::iter::from_fn(|| runtime.try_next_event())
+        .filter_map(|envelope| match envelope.event {
+            ConversationEvent::RuntimeWarning {
+                agent_id, message, ..
+            } => Some((agent_id, message)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(warnings.len(), 1, "one explicit history state");
+    warnings.into_iter().next().expect("history warning")
 }
 
 impl Collaboration {
@@ -213,6 +233,146 @@ async fn resumed_child_stop_refusal_is_repeatable_and_root_is_untouched() {
         ));
         assert!(runtime.try_next_event().is_none(), "root stayed untouched");
     }
+
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// CHB-3/INS-6: a canonical child whose journal is absent stays selectable and explains the gap.
+#[tokio::test]
+async fn missing_resumed_child_history_projects_one_explicit_unavailable_state() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, _, mut workspace, _) = empty_session_for(fixture.path(), agent("root"));
+    let (mut collaboration, _ingress) =
+        open(fixture.path(), runtime.conversation_id()).expect("open root collaboration");
+    let conversation = conversation("missing-child");
+    let child = agent("delegated-1");
+    collaboration
+        .announce(&mut runtime, conversation, AgentStatus::Idle)
+        .expect("announce resumed child");
+
+    collaboration
+        .replay_children(&mut runtime)
+        .expect("missing history is a visible child state");
+    let events: Vec<_> = std::iter::from_fn(|| runtime.try_next_event()).collect();
+    let warnings: Vec<_> = events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            ConversationEvent::RuntimeWarning {
+                agent_id, message, ..
+            } => Some((agent_id.clone(), message.clone())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        warnings,
+        vec![(
+            child,
+            "History unavailable: this delegated conversation journal is missing.".to_owned()
+        )]
+    );
+    assert!(!runtime.has_active_work(), "passive history starts no work");
+    workspace.emit(events);
+    let mut terminal = Terminal::new(TestBackend::new(120, 30)).expect("terminal");
+    workspace
+        .draw(&mut terminal)
+        .expect("restored roster frame");
+    assert!(
+        workspace
+            .state()
+            .agent(&agent("delegated-1"))
+            .expect("restored child")
+            .transcript()
+            .any(|item| {
+                item.kind == plexmaton_tui::TranscriptTextKind::Warning
+                    && item.source
+                        == "History unavailable: this delegated conversation journal is missing."
+            }),
+        "the child retains one explicit unavailable-history entry"
+    );
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+    )));
+    assert_eq!(
+        workspace
+            .state()
+            .selected_agent()
+            .map(|agent| agent.id.as_str()),
+        Some("delegated-1"),
+        "the unavailable child stays selectable"
+    );
+
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// CHB-3/INS-6: a journal held by another owner is a readable locked state, never an empty child.
+#[tokio::test]
+async fn locked_resumed_child_history_projects_one_explicit_unavailable_state() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, _, _, _) = empty_session_for(fixture.path(), agent("root"));
+    let (mut collaboration, _ingress) =
+        open(fixture.path(), runtime.conversation_id()).expect("open root collaboration");
+    let conversation = conversation("locked-child");
+    let child = agent("delegated-1");
+    let held = collaboration
+        .children
+        .create(conversation.clone(), UnixMillis::EPOCH)
+        .expect("hold child journal");
+    collaboration.announced.insert(conversation, child.clone());
+
+    collaboration
+        .replay_children(&mut runtime)
+        .expect("locked history is a visible child state");
+    assert_eq!(
+        one_history_warning(&mut runtime),
+        (
+            child,
+            "History unavailable: this delegated conversation journal is open in another session."
+                .to_owned()
+        )
+    );
+    assert!(!runtime.has_active_work(), "passive history starts no work");
+
+    drop(held);
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// CHB-3/INS-6: malformed child evidence remains on disk and becomes an explicit invalid state.
+#[tokio::test]
+async fn corrupt_resumed_child_history_projects_one_explicit_unavailable_state() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, _, _, _) = empty_session_for(fixture.path(), agent("root"));
+    let (mut collaboration, _ingress) =
+        open(fixture.path(), runtime.conversation_id()).expect("open root collaboration");
+    let conversation = conversation("corrupt-child");
+    let child = agent("delegated-1");
+    let path = collaboration
+        .children
+        .path_for(&conversation)
+        .expect("child path");
+    fs::write(&path, b"not a journal header\n").expect("write corrupt evidence");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("secure corrupt evidence");
+    collaboration.announced.insert(conversation, child.clone());
+
+    collaboration
+        .replay_children(&mut runtime)
+        .expect("invalid history is a visible child state");
+    assert_eq!(
+        one_history_warning(&mut runtime),
+        (
+            child,
+            "History unavailable: this delegated conversation journal could not be validated."
+                .to_owned()
+        )
+    );
+    assert!(!runtime.has_active_work(), "passive history starts no work");
+    assert_eq!(
+        fs::read(&path).expect("corrupt evidence remains"),
+        b"not a journal header\n"
+    );
 
     collaboration.shutdown().await.expect("shutdown owner");
     runtime.shutdown().await.expect("shutdown root");

@@ -20,11 +20,14 @@ import subprocess
 import tempfile
 
 from provider_fixture import AddressedProvider, PausedResponse, calls, response, says
-from smoke_support import ENTER, ESC, ROOT, Terminal, click, fixture_environment, sgr_press
+from smoke_support import DOWN, ENTER, ESC, ROOT, UP, Terminal, click, fixture_environment, sgr_press
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
-WORKING = "CHILD_WORKING counting them now"
+HISTORY_ANCHOR = "CHILD_HISTORY_LINE_03"
+WORKING = "CHILD_WORKING counting them now\n" + "\n".join(
+    f"CHILD_HISTORY_LINE_{index:02d}" for index in range(48)
+)
 REPORT = "CHILD_REPORT the project holds two fixtures"
 WAITING = "MAIN_WAITING for the delegated answer"
 SAW = "MAIN_SAW_THE_REPORT and agrees"
@@ -35,7 +38,7 @@ CHILD, TARGET, ROOT_AGENT = "Delegated 1", "delegated-1", "agent-primary"
 # The roster's first row, which is the only delegated session this journey creates.
 ROSTER_ROW = (5, 1)
 # What each conversation must show: the child's own work, and the root's task, letter and answer.
-CHILD_SIDE = (CHILD, WORKING, DONE)
+CHILD_SIDE = (CHILD, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
 ROOT_SIDE = (f"assigned to {TARGET}", f"received from {TARGET}", SAW)
 
 STOP_ASK = "STOP_DELEGATE_ASK create a child and leave it working"
@@ -139,11 +142,16 @@ def open_child(terminal, *markers):
     return terminal.wait(CHILD, *markers)
 
 
-def focus_primary_and_type(terminal, text):
-    """Return focus to the root composer and leave a draft while the child provider is paused."""
+def focus_primary(terminal):
+    """Move focus to the root composer through its real pointer target."""
     at = (30, terminal.size[0] - 3)
     click(terminal.master, at, terminal.capture, cursor=True)
     os.write(terminal.master, sgr_press(*at)[:-1] + b"m")
+
+
+def focus_primary_and_type(terminal, text):
+    """Return focus to the root composer and leave a draft while the child provider is paused."""
+    focus_primary(terminal)
     os.write(terminal.master, text.encode())
     return terminal.wait(text)
 
@@ -165,7 +173,7 @@ def close_child(terminal, *markers, absent=()):
     return terminal.send(ESC, *markers, absent=absent)
 
 
-def both_at_three_widths(terminal):
+def both_at_three_widths(terminal, artifact="child"):
     """Both conversations at three widths, including what the narrowest one has to give up.
 
     Docking is width-dependent, so the same markers at every width would prove neither side. At 120
@@ -179,15 +187,36 @@ def both_at_three_widths(terminal):
     for width, label in [(121, None), (120, "wide"), (95, "medium")]:
         screen = terminal.resize(width, *CHILD_SIDE, *ROOT_SIDE)
         if label:
-            write_frame(terminal, label, screen)
-    write_frame(terminal, "narrow", terminal.resize(60, *CHILD_SIDE, absent=(SAW,)))
-    write_frame(terminal, "narrow-root", close_child(terminal, *ROOT_SIDE, absent=(WORKING,)))
-    terminal.resize(120, *ROOT_SIDE, absent=(WORKING,))
+            write_frame(terminal, artifact, label, screen)
+    write_frame(terminal, artifact, "narrow",
+                terminal.resize(60, *CHILD_SIDE, absent=(SAW,)))
+    write_frame(terminal, artifact, "narrow-root",
+                close_child(terminal, *ROOT_SIDE, absent=(DONE,)))
+    terminal.resize(120, *ROOT_SIDE, absent=(DONE,))
 
 
-def write_frame(terminal, label, screen):
-    (terminal.artifacts() / f"delegate-child-{label}.txt").write_text(
+def write_frame(terminal, artifact, label, screen):
+    (terminal.artifacts() / f"delegate-{artifact}-{label}.txt").write_text(
         "\n".join(row.rstrip() for row in screen.splitlines()) + "\n")
+
+
+def journal_snapshot(home):
+    """Exact durable bytes: passive browsing may acquire readers but must append no fact."""
+    return {
+        path.relative_to(home): path.read_bytes()
+        for folder in ("sessions", "delegated-sessions", "collaborations")
+        for path in sorted((home / folder).glob("*.jsonl"))
+    }
+
+
+def visible_history_anchor(screen):
+    """The first semantic history line in the viewport, independent of border geometry."""
+    prefix = "CHILD_HISTORY_LINE_"
+    for row in screen.splitlines():
+        start = row.find(prefix)
+        if start >= 0:
+            return row[start:start + len(HISTORY_ANCHOR)]
+    raise AssertionError("the resumed child viewport has no history anchor")
 
 
 def run_smoke(provider):
@@ -212,8 +241,7 @@ def run_smoke(provider):
             no_dropped_events(terminal)
             # CCV-1: the child's own conversation — its prose, its tool, its letter — under the
             # roster name, on the same entry grammar the primary uses.
-            open_child(terminal, f"assigned by {ROOT_AGENT}", WORKING, "send_mail · succeeded",
-                       f"sent to {ROOT_AGENT}", DONE)
+            open_child(terminal, *CHILD_SIDE)
             both_at_three_widths(terminal)
             journal = one(home / "sessions")
             no_dropped_events(terminal)
@@ -223,15 +251,56 @@ def run_smoke(provider):
         kinds = {record["event"]["kind"] for record in records(one(home / "collaborations"))
                  if "event" in record}
         assert {"delegation_created", "mail_accepted"} <= kinds, kinds
+        durable_before_resume = journal_snapshot(home)
 
-        # CHB-3: a default resume wakes only the root, and what it delegated is still in the
-        # conversation. Reopening the child's own conversation is a step of this journey that does
-        # not pass yet: the roster lists it with its counts, and `Down` and `Enter` on that row
-        # paint nothing at all, so there is no way to read the history the journal still holds.
-        with Terminal(project, environment, "delegate", "resume", ("resume", journal.stem)) as terminal:
+        # CHB-3/INS-1/INS-6: pointer selection opens the exact restored child at every responsive
+        # width, then closes it at the narrow width and returns the root without starting work.
+        with Terminal(project, environment, "delegate", "resume-pointer",
+                      ("resume", journal.stem)) as terminal:
             terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+            requests_before, errors_before = provider.snapshot()
+            open_child(terminal, *CHILD_SIDE)
+            both_at_three_widths(terminal, "resumed-pointer")
+            # INS-6: a semantic viewport anchor belongs to the child, not the transient window.
+            # Park inside the long restored message, close while the Inspector owns focus, then
+            # reopen by pointer at the same width and require the same first visible history line.
+            open_child(terminal, *CHILD_SIDE)
+            terminal.resize(60, *CHILD_SIDE)
+            terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
+            parked_screen = terminal.send(UP * 12, HISTORY_ANCHOR)
+            parked = visible_history_anchor(parked_screen)
+            assert parked == HISTORY_ANCHOR, (parked, HISTORY_ANCHOR)
+            focus_primary(terminal)
+            terminal.send(ESC, *ROOT_SIDE, absent=(DONE,))
+            reopened = terminal.send(b"\t" + DOWN, CHILD, parked)
+            assert visible_history_anchor(reopened) == parked, \
+                "the resumed child's reading anchor moved across close/reopen"
+            close_child(terminal, *ROOT_SIDE, absent=(DONE,))
+            terminal.resize(120, *ROOT_SIDE, absent=(DONE,))
+            requests_after, errors_after = provider.snapshot()
+            assert requests_after == requests_before, "passive child browsing contacted the provider"
+            assert not errors_before and not errors_after, (errors_before, errors_after)
             no_dropped_events(terminal)
             terminal.quit()
+        assert journal_snapshot(home) == durable_before_resume, \
+            "pointer browsing appended a durable fact"
+
+        # A fresh resume begins on the roster. Down opens the same persisted child by keyboard;
+        # Enter explicitly moves into the read-only window, and every width retains its work.
+        with Terminal(project, environment, "delegate", "resume-keyboard",
+                      ("resume", journal.stem)) as terminal:
+            terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+            requests_before, errors_before = provider.snapshot()
+            terminal.send(DOWN, *CHILD_SIDE)
+            terminal.send(ENTER, "Controller unavailable", "Input locked", *CHILD_SIDE)
+            terminal.widths("resumed-keyboard", *CHILD_SIDE)
+            requests_after, errors_after = provider.snapshot()
+            assert requests_after == requests_before, "keyboard browsing contacted the provider"
+            assert not errors_before and not errors_after, (errors_before, errors_after)
+            no_dropped_events(terminal)
+            terminal.quit()
+        assert journal_snapshot(home) == durable_before_resume, \
+            "keyboard browsing appended a durable fact"
 
 
 def stop_script(paused):
@@ -304,7 +373,8 @@ def main():
         run_stop_smoke(provider, paused)
     print("delegate smoke passed: one delegation; the child's own work and letter; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
-          "the child is closed; no dropped event; a durable ledger and child journal; resume; and "
+          "the child is closed; no dropped event; a durable ledger and child journal; passive "
+          "pointer and keyboard resume at all three widths with no request or durable write; and "
           "focused-child Stop through a paused provider with root continuation")
 
 

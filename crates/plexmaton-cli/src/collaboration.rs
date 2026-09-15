@@ -24,6 +24,7 @@ use plexmaton_runtime::{
 };
 use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::CollaborationFile};
 
+mod history;
 mod pending;
 use pending::PendingRootProjection;
 pub(crate) use pending::RootProjectionProgress;
@@ -183,47 +184,6 @@ impl Collaboration {
         // Restoring draws the whole correspondence and answers none of it: a letter the root
         // already replied to before it exited must not earn a second turn every launch.
         let _restored = self.show(runtime).await?;
-        Ok(())
-    }
-
-    /// Reads back what each child did in an earlier process, from the child's own journal.
-    ///
-    /// A live child streams its work through its runner and the pending projection forwards it.
-    /// A resumed one has no runner and never will until something addresses it, so its history is
-    /// only in its journal — and without this a conversation reopened tomorrow shows the ask and
-    /// the answer with the work between them missing. Reading is not waking (CHB-3): the journal is
-    /// opened, projected and closed without constructing a runtime or dispatching anything.
-    fn replay_children(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
-        let children: Vec<(ConversationId, AgentId)> = self
-            .announced
-            .iter()
-            .map(|(conversation, agent)| (conversation.clone(), agent.clone()))
-            .collect();
-        for (conversation, agent_id) in children {
-            // A child whose journal is missing or held elsewhere keeps its roster row and its
-            // correspondence; only the work between them is unavailable.
-            let Ok(file) = self.children.resume(&conversation) else {
-                continue;
-            };
-            let journal = file.journal();
-            let Ok(projection) = journal.project(journal.selected_head()) else {
-                continue;
-            };
-            for envelope in projection.events() {
-                let mut event = envelope.event.clone();
-                if !forwarded(&event) {
-                    continue;
-                }
-                let item = item_of(&event);
-                *event.agent_mut() = agent_id.clone();
-                runtime
-                    .project_delegated(&event)
-                    .context("project restored delegated work")?;
-                if let Some(item) = item {
-                    self.replayed.insert(item);
-                }
-            }
-        }
         Ok(())
     }
 

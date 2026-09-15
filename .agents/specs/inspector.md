@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented |
+| Status | Implemented and wired; passive resumed-child browsing is accepted at 120/95/60 columns |
 | Owns | What the second window shows, where it goes, and what opening, entering, resizing, and closing it do |
 | Depends on | [surface-model](./surface-model.md) SURF-3 and SURF-5; the Escape ladder in [interaction-routing](./interaction-routing.md) INV-6; the shelf rules in [`ui-ux.md`](../ui-ux.md) §shelf |
 | Proven by | `plexmaton-tui::layout::inspector`, `::state::inspector`, and `::workspace` tests |
@@ -80,6 +80,7 @@ state::inspector                         ├─ Column     the secondary column,
 | --- | --- |
 | A window command with nothing open | A no-op that advances no revision |
 | The looked-at agent leaves the roster | The panel says so rather than painting an empty box |
+| A resumed child's journal is missing, locked or invalid | The roster row remains selectable and its conversation shows one explicit history warning; browsing starts no work |
 | Going to a request from the primary itself | No window opens and any open one closes; the keyboard goes to the primary |
 | No sub-agents yet | No rail is registered; its column goes to the conversation |
 | A drag that began on the body, not the edge | Moves nothing; a grab is recorded at press or not at all |
@@ -94,11 +95,11 @@ state::inspector                         ├─ Column     the secondary column,
 
 | Invariant | Proven by |
 | --- | --- |
-| INS-1 | `the_rail_is_registered_only_when_there_is_a_roster`, `the_window_floats_over_the_primary_and_escape_closes_it`, `clicking_an_agent_in_the_list_selects_it_and_opens_its_window`, `the_journey_reaches_two_agents_without_losing_the_first`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted` |
+| INS-1 | `the_rail_is_registered_only_when_there_is_a_roster`, `the_window_floats_over_the_primary_and_escape_closes_it`, `clicking_an_agent_in_the_list_selects_it_and_opens_its_window`, `the_journey_reaches_two_agents_without_losing_the_first`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`; `scripts/smoke-delegate.py` opens the same resumed child by pointer and keyboard |
 | INS-2 | `an_open_inspector_leaves_ten_readable_rows_or_takes_the_region_outright`, `a_dragged_height_is_clamped_rather_than_obeyed`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INS-3 | `presentation_follows_the_terminal_and_the_users_maximize`, `the_composer_survives_every_presentation`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap`, `the_presentation_survives_the_window_showing_another_agent` |
-| INS-4 | `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter` |
+| INS-4 | `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`; `scripts/smoke-delegate.py` enters the resumed read-only child and closes it back to Main at 60 columns |
 | INS-5 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `only_a_press_on_the_bottom_edge_starts_a_resize`, `the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does`, `a_wheel_over_the_inspector_input_scrolls_that_inspectors_conversation`; CCV-2 |
-| INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both` |
+| INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both`, `missing_resumed_child_history_projects_one_explicit_unavailable_state`, `locked_resumed_child_history_projects_one_explicit_unavailable_state`, `corrupt_resumed_child_history_projects_one_explicit_unavailable_state`; `scripts/smoke-delegate.py` shows the exact restored child entries at all three widths, retains a semantic first-visible line through close/reopen and changes no durable bytes |
 | INS-7 | `an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor`, `an_inspector_splits_for_its_input_only_when_both_still_fit` |
 | INS-8 | `resizing_a_maximized_inspector_preserves_the_shelf_height`, `derived_maximized_and_column_inspectors_have_no_resize_edge` |

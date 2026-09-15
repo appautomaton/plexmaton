@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stage 7 slices 1–2 of 8 are complete; slice 3 is next; stage 8 remains prepared |
+| Status | Active; stage 7 slices 1–3 of 8 are complete; slice 4 is next; stage 8 remains prepared |
 | Parent roadmap | [Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Inherits | Phase 02 journal recovery, providers, compaction, permissions and conversation trees. JRN-4/JRN-5 real CLI kill→resume and APV-6 pending-request readmission remain unproven |
@@ -17,10 +17,11 @@ COL-3, CHB-1–CHB-3 and the [locked roadmap](../roadmap.md#locked) own authorit
 
 ## Current evidence
 
-The current task is `feat/phase-03-control` in `.worktrees/phase-03-control`, with Stage 7.1–7.2
-work based on `c965b28`. Earlier preparation changes to scripts, tests, CI and documentation are
-published on the task branch. The primary checkout remains on main. Recheck refs/status before
-starting another slice.
+The current task is `feat/phase-03-control` in `.worktrees/phase-03-control`. Stage 7.1–7.2 are
+checkpointed locally at `b0e1063`; earlier preparation is published on the task branch. The user
+directed this same worktree to continue through the prepared Phase 03 plan end to end, without a PR,
+merge or retirement between slices. The primary checkout remains on main; local commits may
+checkpoint completed slices, while publication still requires instruction.
 
 | Area | Evidence and limit |
 | --- | --- |
@@ -29,8 +30,9 @@ starting another slice.
 | Script infrastructure | Shared PTY/Terminal and provider fixtures replace cross-journey imports. Addressed replies match the final request message; the routing regression now compares response bodies |
 | Ordered publication | The controlled old-code witness at `c965b28` published a delegated fact before the blocked user append was acknowledged. The repaired runtime refuses without numbering; the root collaboration component retains one typed projection bound to the exact root runtime while bounded owners hold later activity. Reopen rebuilds durable log/journal facts, and shutdown reports a transient runner outcome with no durable source. The runtime and CLI regressions prove consecutive exact-once success, cancelled-wait retention, both failure dispositions, conversation isolation and no pre-ack event/effect |
 | Owned child Stop | Focused-child Ctrl-C now addresses the collaboration owner, never the root runtime. Stop admission is synchronous and cancellation-safe; accepted scheduling settles first, exact reports return through the child route, wakes cannot restart the stopped child, and repeated/missing/resumed requests remain typed control outcomes. The paused-provider PTY stops only the child, admits root input before releasing the provider barrier, completes that root request afterward, and rejects late child output from both screen and journal |
-| Validation | At unchanged `c965b28`, all seven executable journeys and all 41 Python tests passed locally on 2026-09-15. Stage 7.1 passed the 70-test runtime persistence module and its focused gates. Current Stage 7.2 code passed 31 owned-scheduling tests, the 16-test Stop filter, all 124 CLI binary tests, all 41 Python gate tests, targeted Clippy, formatting, file-length/citation/crate-graph/frame/typo gates and the real delegation journey with its paused-provider Stop continuation. No branch CI result is recorded here |
-| Active implementation lease | None. Slices 1–2 are complete; slice 3 has not started |
+| Passive child resume | The normal replay route already projected valid child history before slice 3, but no executable opened it after restart. Pointer and keyboard now open that exact persisted child at 120/95/60 columns; at 60, scroll then close/reopen retains the same semantic first-visible history line before returning to Main. Provider request counts and the root, child and collaboration JSONL bytes remain unchanged across both resume journeys. Missing, locked and invalid child journals retain a selectable roster row with one bounded child-owned warning; invalid bytes remain untouched |
+| Validation | At unchanged `c965b28`, all seven executable journeys and all 41 Python tests passed locally on 2026-09-15. Stage 7.1 passed the 70-test runtime persistence module and its focused gates. Stage 7.2 passed 31 owned-scheduling tests, the 16-test Stop filter and all 124 then-current CLI binary tests. Stage 7.3 passed all 127 CLI binary tests, three focused Inspector keyboard/pointer/anchor tests, all 41 Python gate tests, targeted Clippy, formatting, file-length/citation/crate-graph/frame/typo gates and the expanded real delegation journey with semantic close/reopen anchoring. No branch CI result is recorded here |
+| Active implementation lease | None. Slices 1–3 are complete; slice 4 has not started |
 | Existing control backend | Main's four tools reach authenticated ingress; Handoff and Stop reach canonical owner settlement. The owned child actor survives Stop/Handoff, but has no user-submission lane. Control snapshots and Handoff entries have no production projection |
 | Native UI | Revisioned control/composer fixtures have native evidence in the [Kitty record](../spikes/kitty-native-preview/README.md). They prove presentation mechanisms, not production authority or final user acceptance |
 
@@ -46,7 +48,7 @@ owners/tests, preserve existing work, and follow AGENTS.md for team roles and au
 
 | Stage | Purpose | State |
 | --- | --- | --- |
-| [7 — Product integration](../plans/phase-03-stage-07-product-integration.md) | Ordered publication; owned Stop; passive resume; durable entry placement; post-Handoff runtime ownership; control/input; canonical requests; complete journey and consistent display names | Active; slices 1–2 of eight complete; slice 3 is next |
+| [7 — Product integration](../plans/phase-03-stage-07-product-integration.md) | Ordered publication; owned Stop; passive resume; durable entry placement; post-Handoff runtime ownership; control/input; canonical requests; complete journey and consistent display names | Active; slices 1–3 of eight complete; slice 4 is next |
 | [8 — Recovery acceptance](../plans/phase-03-stage-08-recovery-acceptance.md) | Provisioning crash cuts; actual CLI kill→resume; pending approval readmission; final acceptance and closure | Prepared; four slices after stage 7 |
 
 The previous backend work stays in its mechanisms. The former single unfinished activation/control
@@ -166,7 +168,7 @@ A scope change needs the user's decision; green tests for a smaller journey cann
 | Task, child work and mail remain readable in both conversations at all three widths | Baseline covers the initial round trip; task update and the complete control journey remain | 7.8 |
 | Focused-child Stop settles only that child and root input stays responsive | The paused-provider PTY stops the focused child, accepts root input before the child handler is released, completes the root request afterward and admits no late child output; missing/resumed and repeated Stop remain root-safe typed outcomes | 7.2, 7.8 |
 | Durable Handoff enables the exact child's input, preserves capabilities and refuses Main/stale authority | Settlement is wired; user dispatch, control snapshots and a Handoff entry are absent | 7.5, 7.6 |
-| Default resume permits child browsing without work and restores selected history/control | Root markers restore; the documented child-open failure remains untested by the journey | 7.3, 8.2 |
+| Default resume permits child browsing without work and restores selected history/control | Pointer and keyboard open the exact persisted child at 120/95/60 with no provider request or durable write; close/reopen retains its semantic reading anchor, and missing, locked and invalid journals remain selectable with explicit warnings. Process-kill equality remains | 7.3, 8.2 |
 | Background requests have one canonical source, preserve focus, and resolve only through their owner | No production cross-session request source/projection; recovered requests stay inert until fresh admission is supported | 7.7, 8.2, 8.3 |
 | Accepted mail/provisioning survive process death and retry once with exact identities | Real-file unit/component proofs exist; executable two-file and kill→resume witnesses remain | 8.1, 8.2 |
 | Restored pending calls use current admission/policy without replaying effects | APV-6 is unproven; reconcile its restoration boundary with JRN-5 cancellation | 8.3 |
@@ -192,9 +194,12 @@ A scope change needs the user's decision; green tests for a smaller journey cann
   and rejection of late child bytes from screen and journal. The footer still returns
   `Controller unavailable | Input locked`; slice 7.6 owns the authenticated control snapshot and
   visible `^C Stop` hint.
-- **Resume:** the existing record reports a populated roster but no child window after Down/Enter.
-  Child journals are read during restore; their existence is not proof of a usable surface.
-  Stage 7.3 owns reproduction and repair.
+- **Resume, observed:** valid passive history projection was already wired; the missing evidence was
+  the user route after restart. The expanded journey opens the same child by pointer and keyboard at
+  all three widths, changes no provider count or durable byte, and retains a scrolled semantic anchor
+  through close/reopen before returning to Main at 60. Storage and projection errors previously
+  disappeared behind an empty-conversation placeholder; missing, locked and invalid journals now
+  produce exact child-owned warnings without changing their evidence.
 - **Names:** root/child display labels already exist as Plexmaton and Delegated N. Correspondence
   currently leaks `agent-primary` and `delegated-N`. Stage 7.8 resolves display labels without
   changing durable identities or selectors; rendered copy remains subject to the UI/UX contract.
