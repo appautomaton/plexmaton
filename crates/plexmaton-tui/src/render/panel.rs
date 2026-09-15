@@ -151,9 +151,10 @@ pub(super) fn render_steer(
     agent_id: &AgentId,
     area: Rect,
 ) {
-    let label = state
-        .agent(agent_id)
-        .map_or_else(|| agent_id.to_string(), |agent| agent.label.clone());
+    let label = state.agent(agent_id).map_or_else(
+        || "the delegated agent".to_owned(),
+        |agent| agent.label.clone(),
+    );
     let lines = crate::content::input_lines(
         state.draft(agent_id),
         palette,

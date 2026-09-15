@@ -175,7 +175,7 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) 
     let Some(agent) = state.agent(&open.agent) else {
         return title(
             palette,
-            open.agent.to_string(),
+            "Conversation unavailable",
             Role::SectionHeading,
             " · esc",
         );

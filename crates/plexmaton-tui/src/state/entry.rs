@@ -130,6 +130,8 @@ pub struct MailView {
     pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
+    /// Display label of the endpoint opposite `owner`; durable identities remain in `from`/`to`.
+    pub counterpart: String,
     pub summary: String,
     pub revision: u64,
 }
@@ -154,6 +156,8 @@ pub struct TaskView {
     pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
+    /// Display label of the endpoint opposite `owner`; durable identities remain in `from`/`to`.
+    pub counterpart: String,
     pub task: String,
     pub revision: u64,
 }

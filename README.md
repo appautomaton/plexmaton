@@ -11,7 +11,7 @@
 
 </div>
 
-Plexmaton is an AI coding assistant for the terminal, built in Rust by App Automaton. Choose your model, follow the work, and return to saved conversations.
+Plexmaton is App Automaton's Rust AI coding assistant for the terminal. Choose a model, follow the work, and resume saved conversations.
 
 ## Why Plexmaton?
 
@@ -19,7 +19,7 @@ Plexmaton is an AI coding assistant for the terminal, built in Rust by App Autom
 - **Choose your models.** Use OpenAI Responses, Chat Completions, Anthropic Messages or Gemini APIs.
 - **Stay in control.** Approve an action once, remember a Session or Project permission, and review or revoke it in the Drawer.
 - **Carry your context forward.** Saved conversations and automatic compaction preserve source history. Reusable `SKILL.md` instructions bring your workflows into the conversation.
-- **Read comfortably.** Pastel Markdown with bold, italic and [syntax-highlighted code](.agents/specs/markdown.md#code-theme), plus native math with hats and Chinese labels. Reasoning and unfinished math stay compact; tool groups and messages share one consistent gap. Copy follows your selection.
+- **Read comfortably.** Pastel Markdown, [syntax-highlighted code](.agents/specs/markdown.md#code-theme), and native math with hats and Chinese labels. Reasoning, tool groups and messages stay compact; copy follows selection.
 
 <p align="center">
 <img src="crates/plexmaton-tui/frames/math/reply-88.svg" width="640" alt="Plexmaton terminal workspace displaying a formatted assistant response and native mathematical notation">
@@ -82,7 +82,8 @@ to `/model`; it does not convert incompatible history.
 
 Conversations save on the first message; blank launches save nothing. `/tree` revisits saved history on a new branch without replaying effects; the original branch remains selectable. The tree connects message nodes vertically, omits intermediate tools, and shows hidden entry/branch counts on collapse; `●` marks the current branch. Use `--ephemeral` to opt out of saving. Exit prints a resume command. Journal epochs `2026-09-04` and `2026-09-05` remain readable without rewriting history.
 
-One live agent is available today. Multi-agent collaboration is on the [roadmap](.agents/roadmap.md). Linux compatibility is not yet established.
+Delegate read-only work, revise tasks, exchange mail, stop children, hand one to your input, and
+inspect child history on resume without waking it. Linux compatibility is not yet established.
 
 Use the [quality gates](.agents/standards/quality-gates.md) for local checks and CI coverage. Model fixtures stay local; private state goes in ignored `.local/`.
 

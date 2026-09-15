@@ -19,7 +19,7 @@
 │                        │ study. Agent B is running independently; this transcript            
 │                        │ remains interactive.                                                
 │                        │                                                                     
-│                        │ received from agent-b · Routing stays centralized and z-ordered.    
+│                        │ received from Agent B · UI study · Routing stays centralized and z… 
 │                        │ [?] exec_command · approval required                                
 │                        │                                                             ( !2 )  
 │                        │── Approval required · exec_command ─────────────────────────────────

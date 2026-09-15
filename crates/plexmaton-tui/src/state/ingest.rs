@@ -303,18 +303,14 @@ impl ViewState {
         to: AgentId,
         summary: String,
     ) -> Result<bool, ReduceError> {
-        for endpoint in [&from, &to] {
-            if !self.agents.contains(endpoint) {
-                return Err(ReduceError::UnknownAgent(endpoint.clone()));
-            }
-        }
+        let counterpart = self.addressed_counterpart(&agent_id, &from, &to)?;
         self.validate_entry_owner(&agent_id, &item_id)?;
         let changed = self.agent_mut(&agent_id)?.deliver_mail(
             item_id.clone(),
             mail_id,
-            agent_id.clone(),
             from,
             to,
+            counterpart,
             summary,
         )?;
         self.remember_entry_owner(item_id, agent_id);
@@ -356,21 +352,33 @@ impl ViewState {
         to: AgentId,
         task: String,
     ) -> Result<bool, ReduceError> {
-        for endpoint in [&from, &to] {
+        let counterpart = self.addressed_counterpart(&agent_id, &from, &to)?;
+        self.validate_entry_owner(&agent_id, &item_id)?;
+        let changed =
+            self.agent_mut(&agent_id)?
+                .assign_task(item_id.clone(), from, to, counterpart, task)?;
+        self.remember_entry_owner(item_id, agent_id);
+        Ok(changed)
+    }
+
+    fn addressed_counterpart(
+        &self,
+        owner: &AgentId,
+        from: &AgentId,
+        to: &AgentId,
+    ) -> Result<String, ReduceError> {
+        for endpoint in [from, to] {
             if !self.agents.contains(endpoint) {
                 return Err(ReduceError::UnknownAgent(endpoint.clone()));
             }
         }
-        self.validate_entry_owner(&agent_id, &item_id)?;
-        let changed = self.agent_mut(&agent_id)?.assign_task(
-            item_id.clone(),
-            agent_id.clone(),
-            from,
-            to,
-            task,
-        )?;
-        self.remember_entry_owner(item_id, agent_id);
-        Ok(changed)
+        let counterpart = if owner == to { from } else { to };
+        Ok(self
+            .agents
+            .get(counterpart)
+            .expect("validated addressed endpoint remains present")
+            .label
+            .clone())
     }
 
     fn apply_handoff(
@@ -550,6 +558,8 @@ mod tests {
             assert_eq!(letter.from.as_str(), "agent-b");
             assert_eq!(letter.to.as_str(), "agent-a");
         }
+        assert_eq!(sent[0].counterpart, "Agent A · primary");
+        assert_eq!(arrived[0].counterpart, "Agent B · UI study");
         assert_eq!(sent[0].id, arrived[0].id, "one letter, one mail identity");
         assert_ne!(
             sent[0].entry_id, arrived[0].entry_id,

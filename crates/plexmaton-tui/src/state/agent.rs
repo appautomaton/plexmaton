@@ -307,9 +307,9 @@ impl AgentView {
         &mut self,
         entry_id: TranscriptItemId,
         id: MailId,
-        owner: AgentId,
         from: AgentId,
         to: AgentId,
+        counterpart: String,
         summary: String,
     ) -> Result<bool, ReduceError> {
         self.insert_terminal(
@@ -317,9 +317,10 @@ impl AgentView {
             TranscriptEntryView::Mail(MailView {
                 entry_id,
                 id,
-                owner,
+                owner: self.id.clone(),
                 from,
                 to,
+                counterpart,
                 summary,
                 revision: 0,
             }),
@@ -329,18 +330,19 @@ impl AgentView {
     pub(super) fn assign_task(
         &mut self,
         entry_id: TranscriptItemId,
-        owner: AgentId,
         from: AgentId,
         to: AgentId,
+        counterpart: String,
         task: String,
     ) -> Result<bool, ReduceError> {
         self.insert_terminal(
             entry_id.clone(),
             TranscriptEntryView::Task(super::TaskView {
                 entry_id,
-                owner,
+                owner: self.id.clone(),
                 from,
                 to,
+                counterpart,
                 task,
                 revision: 0,
             }),

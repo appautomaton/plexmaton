@@ -51,4 +51,4 @@ Pixel-level native user acceptance remains unproven.
 The native fixture is not authenticated product ingress. The real PTY now proves exact-owner
 controller projection, durable Handoff history, focused User input, capabilities and Stop-hint
 behavior at all three widths, plus default-width Stop settlement. Canonical mail inclusion and Attention remain later
-[Stage 7](../plans/phase-03-stage-07-product-integration.md) integration gates.
+[Phase 03](../phases/phase-03-collaboration.md) integration gates.

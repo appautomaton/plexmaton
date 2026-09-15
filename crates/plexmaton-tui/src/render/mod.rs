@@ -997,7 +997,7 @@ mod tests {
         // letter is here — pointing back at whoever wrote it, never attributed to A.
         assert!(rendered.contains("Routing stays"), "A received this letter");
         assert!(
-            rendered.contains("received from agent-b"),
+            rendered.contains("received from Agent B · UI study"),
             "A is the recipient, and the row says so in a word rather than a glyph"
         );
     }

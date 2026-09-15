@@ -32,7 +32,7 @@
  UI study. Agent B is running independently; this           
  transcript remains interactive.                            
                                                             
- received from agent-b · Routing stays centralized and z-o… 
+ received from Agent B · UI study · Routing stays centrali… 
  · Thinking…                                        ( !1 )  
 ── Message Agent A · primary ───────────────────────────────
  Type a message · ⇥ to focus                                

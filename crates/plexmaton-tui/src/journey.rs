@@ -360,7 +360,7 @@ mod tests {
             .unwrap_or_else(|| panic!("a selection must copy to something"));
         assert_eq!(
             copied.text,
-            "artifact://agent-b/interaction-findings\nagent-a: Routing stays centralized and z-ordered."
+            "artifact://agent-b/interaction-findings\nAgent A · primary: Routing stays centralized and z-ordered."
         );
         assert!(
             journey

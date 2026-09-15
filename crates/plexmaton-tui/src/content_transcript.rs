@@ -69,21 +69,21 @@ pub(crate) fn transcript_layout_with_prefix(
             vec![Row::heading(line)]
         }
         TranscriptEntryView::Mail(mail) => {
-            let (heading, counterpart) = if mail.owner == mail.to {
-                ("received from ", &mail.from)
+            let heading = if mail.owner == mail.to {
+                "received from "
             } else {
-                ("sent to ", &mail.to)
+                "sent to "
             };
-            addressed_entry(heading, counterpart, &mail.summary, appearance, width)
+            addressed_entry(heading, &mail.counterpart, &mail.summary, appearance, width)
         }
         // The same shape, because it is the same kind of fact: one session addressed another.
         TranscriptEntryView::Task(task) => {
-            let (heading, counterpart) = if task.owner == task.to {
-                ("assigned by ", &task.from)
+            let heading = if task.owner == task.to {
+                "assigned by "
             } else {
-                ("assigned to ", &task.to)
+                "assigned to "
             };
-            addressed_entry(heading, counterpart, &task.task, appearance, width)
+            addressed_entry(heading, &task.counterpart, &task.task, appearance, width)
         }
         TranscriptEntryView::Handoff(_) => {
             let line = Line::from(vec![
@@ -113,7 +113,7 @@ pub(crate) fn transcript_layout_with_prefix(
 /// real letter filled the conversation it arrived in and pushed its own heading off the top.
 fn addressed_entry(
     heading: &'static str,
-    counterpart: &plexmaton_core::AgentId,
+    counterpart: &str,
     body: &str,
     appearance: EntryAppearance,
     width: u16,
@@ -125,11 +125,10 @@ fn addressed_entry(
     // that. Rejected: a bare arrow relative to the reader naming only the other end, which the
     // person who asked for the feature read backwards on both sides; and then dropping direction
     // altogether, which left the outbox and the inbox drawn identically.
-    let counterpart = counterpart.to_string();
     let spent = heading.width() + counterpart.width() + " · ".width();
     let mut compact = Line::from(vec![
         Span::styled(heading, Role::Muted),
-        Span::styled(counterpart, Role::NewInformation),
+        Span::styled(counterpart.to_owned(), Role::NewInformation),
         Span::styled(
             format!(
                 " · {}",
@@ -638,6 +637,7 @@ mod mail_heading_tests {
                 owner: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 from: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 to: AgentId::new("agent-a").unwrap_or_else(|error| panic!("{error}")),
+                counterpart: "Agent A".to_owned(),
                 summary: summary.to_owned(),
                 revision: 0,
             });
@@ -673,6 +673,12 @@ mod addressed_entry_tests {
             owner: agent(owner),
             from: agent("delegated-1"),
             to: agent("agent-primary"),
+            counterpart: if owner == "agent-primary" {
+                "Delegated 1"
+            } else {
+                "Plexmaton"
+            }
+            .to_owned(),
             summary: "the answer".to_owned(),
             revision: 0,
         })
@@ -685,6 +691,12 @@ mod addressed_entry_tests {
             owner: agent(owner),
             from: agent("agent-primary"),
             to: agent("delegated-1"),
+            counterpart: if owner == "agent-primary" {
+                "Delegated 1"
+            } else {
+                "Plexmaton"
+            }
+            .to_owned(),
             task: "the ask".to_owned(),
             revision: 0,
         })
@@ -703,22 +715,21 @@ mod addressed_entry_tests {
         .collect()
     }
 
-    /// Each side names the *other* end. Swapping either branch's endpoint makes a row claim the
-    /// conversation is corresponding with itself, which is what this refuses.
+    /// Each side names the other end by its display label while retaining routing identities.
     #[test]
     fn each_side_of_one_item_names_the_other_end() {
-        for (sent, received, counterpart, owner) in [
+        for (sent, received, sent_heading, received_heading) in [
             (
                 letter("delegated-1"),
                 letter("agent-primary"),
-                "delegated-1",
-                "agent-primary",
+                "sent to Plexmaton",
+                "received from Delegated 1",
             ),
             (
                 task("agent-primary"),
                 task("delegated-1"),
-                "agent-primary",
-                "delegated-1",
+                "assigned to Delegated 1",
+                "assigned by Plexmaton",
             ),
         ] {
             let sent = drawn(&sent);
@@ -727,18 +738,12 @@ mod addressed_entry_tests {
                 sent, received,
                 "the outbox and the inbox must not read alike"
             );
-            assert!(
-                received.contains(counterpart),
-                "the arriving side names who addressed it: {received:?}"
-            );
-            assert!(
-                !received.contains(owner),
-                "and never names the conversation reading it: {received:?}"
-            );
-            assert!(
-                sent.contains(owner),
-                "the sending side names who it addressed: {sent:?}"
-            );
+            assert!(sent.contains(sent_heading), "{sent:?}");
+            assert!(received.contains(received_heading), "{received:?}");
+            for internal in ["agent-primary", "delegated-1"] {
+                assert!(!sent.contains(internal), "{sent:?}");
+                assert!(!received.contains(internal), "{received:?}");
+            }
         }
     }
 }

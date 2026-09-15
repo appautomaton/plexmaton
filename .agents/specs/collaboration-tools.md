@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` drives `delegate`, `send_mail` and `handoff` from real model turns; Handoff reaches both conversations as a distinct entry. `update_task` has no acceptance evidence |
+| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` drives the three Main control tools plus child `send_mail` and proves the task update schedules the exact child once; Main-authored `send_mail` has no PTY evidence |
 | Owns | Exact model-visible delegation, mail, task-update and Handoff schemas before authority binding |
 | Depends on | COL-1–COL-3; CHB-1; PRV-1; the typed-mail and single-controller rules in the roadmap |
 | Proven by | Runtime schema and parsing tests named below |
@@ -54,5 +54,6 @@ provisioning survives reopen and recreates its missing child without a duplicate
 process kill at that exact window remains unproven. Production composition installs this ingress
 and the child factory; PRV-1 owns attributed collaboration encoding. The executable smoke exercises
 creation, mail and Main Handoff through a loopback Chat Completions fixture, followed by focused
-User input to the transferred child. Four-dialect compatibility evidence remains separate from
-that one journey.
+User input to the transferred child. It also updates the same target, observes one addressed child
+continuation, and verifies the exact durable task record. Four-dialect compatibility evidence
+remains separate from that one journey.

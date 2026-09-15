@@ -235,6 +235,7 @@ fn other_entries(width: u16) -> Vec<Request> {
                 owner: agent.clone(),
                 from: agent.clone(),
                 to: AgentId::new("primary").expect("recipient"),
+                counterpart: "Plexmaton".into(),
                 summary: "**literal** mail 中文".into(),
                 revision: 1,
             }),

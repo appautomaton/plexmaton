@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | JRN-3–JRN-7, COL-3–COL-5, CIN-2–CIN-4, CHB-1–CHB-3, SCH-2–SCH-5, APV-6, ATT-1–ATT-3, PRV-1 |
-| Status | Prepared; 0 of 4 slices complete. Starts after stage 7; implementation awaits user instruction |
+| Status | Active; 0 of 4 slices complete. Next: slice 1 (provisioning across process death) |
 
 ## Outcome
 

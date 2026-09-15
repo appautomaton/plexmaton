@@ -27,14 +27,16 @@ from smoke_support import (
     ROOT,
     Terminal,
     click,
+    collapsed,
     fixture_environment,
     observe_for,
+    rendered_screen,
     sgr_press,
 )
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
 TASK = "COUNT_THE_FIXTURES in this project and report the number"
-HISTORY_ANCHOR = "CHILD_HISTORY_LINE_02"
+HISTORY_PREFIX = "CHILD_HISTORY_LINE_"
 WORKING = "CHILD_WORKING counting them now\n" + "\n".join(
     f"CHILD_HISTORY_LINE_{index:02d}" for index in range(48)
 )
@@ -43,9 +45,8 @@ WAITING = "MAIN_WAITING for the delegated answer"
 SAW = "MAIN_SAW_THE_REPORT and agrees"
 DONE = "CHILD_DONE"
 RESTORED = "Conversation restored."
-# Three names for two conversations: the roster and the inspector title say `Delegated 1`, a root
-# entry addresses `delegated-1`, and the child's entries address the root as `agent-primary`.
-CHILD, TARGET, ROOT_AGENT = "Delegated 1", "delegated-1", "agent-primary"
+CHILD, TARGET, ROOT_AGENT = "Delegated 1", "Delegated 1", "Plexmaton"
+INTERNAL_NAMES = ("agent-primary", "delegated-1", "child-runtime")
 # The roster's first row, which is the only delegated session this journey creates.
 ROSTER_ROW = (5, 1)
 # What each conversation must show: the child's own work, and the root's task, letter and answer.
@@ -57,8 +58,12 @@ HANDOFF_DONE = "HANDOFF_DONE user control is ready"
 CHILD_INPUT = "USER_CHILD_INPUT answer this child directly"
 CHILD_ANSWER = "USER_CHILD_ANSWER received only by the child"
 HANDOFF_ROW = "handoff · Controller: User"
+UPDATE_ASK = "UPDATE_TASK_ASK continue the delegated child with a revised task"
+UPDATED_TASK = "RETAIN_TOTAL_2_FIXTURES"
+UPDATE_DONE = "UPDATE_TASK_DONE revised and scheduled once"
+UPDATE_CHILD_ACK = "CHILD_UPDATE_ACK retained the verified total"
 USER_CHILD_SIDE = (CHILD, HANDOFF_ROW, CHILD_INPUT, CHILD_ANSWER)
-USER_ROOT_SIDE = (f"received from {TARGET}", SAW, HANDOFF_ROW, HANDOFF_DONE)
+USER_ROOT_SIDE = (HANDOFF_DONE,)
 
 STOP_ASK = "STOP_DELEGATE_ASK create a child and leave it working"
 STOP_TASK = "STOP_CHILD_TASK keep the provider stream open"
@@ -101,7 +106,7 @@ def paused_late_response():
     return QuietPausedResponse(data)
 
 
-def handoff_reply(body):
+def delegated_target(body):
     """Read the opaque target from Main's earlier successful delegation result."""
     for message in reversed(body.get("messages") or []):
         content = message.get("content")
@@ -114,12 +119,23 @@ def handoff_reply(body):
         if isinstance(result, dict) and result.get("status") == "delegated":
             target = result.get("target")
             assert isinstance(target, str) and target, result
-            return calls("handoff", ("handoff", {"target": target}))
-    raise AssertionError("the Handoff request has no earlier delegated target")
+            return target
+    raise AssertionError("the request has no earlier delegated target")
 
 
-class HandoffProvider(AddressedProvider):
-    """Allows one addressed reply to derive the opaque selector from that exact request."""
+def handoff_reply(body):
+    return calls("handoff", ("handoff", {"target": delegated_target(body)}))
+
+
+def update_task_reply(body):
+    return calls(
+        "taskupdate",
+        ("update_task", {"target": delegated_target(body), "task": UPDATED_TASK}),
+    )
+
+
+class CollaborationProvider(AddressedProvider):
+    """Allows addressed replies to derive the opaque selector from their exact request."""
 
     @staticmethod
     def payload(entry):
@@ -152,6 +168,10 @@ def script():
         ("call_SEND_MAIL_childwork", says(DONE)),
         # CMP-1: the root admits its own turn to read the inbox, and answers with the letter in it.
         (REPORT, says(SAW)),
+        # Main updates the canonical task; the owner schedules that exact child once.
+        (UPDATE_ASK, update_task_reply),
+        ("call_UPDATE_TASK_taskupdate", says(UPDATE_DONE)),
+        (UPDATED_TASK, says(UPDATE_CHILD_ACK)),
         # Main's model uses the opaque selector from its own earlier tool result.
         (HANDOFF_ASK, handoff_reply),
         ("call_HANDOFF_handoff", says(HANDOFF_DONE)),
@@ -180,6 +200,16 @@ output_reserve_tokens = 4096
 
 def records(path):
     return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def one_event(entries, kind):
+    matches = [
+        record["event"]
+        for record in entries
+        if record.get("event", {}).get("kind") == kind
+    ]
+    assert len(matches) == 1, (kind, matches)
+    return matches[0]
 
 
 def one(folder):
@@ -214,14 +244,89 @@ def focus_primary_and_type(terminal, text):
     return terminal.wait(text)
 
 
-def scroll_child(terminal, upward, count, *markers):
-    """Scroll inside the inspected conversation without taking its User input focus."""
-    button = 64 if upward else 65
-    event = f"\x1b[<{button};41;6M".encode()
-    for _ in range(count):
+def scroll_child_until(terminal, upward, markers, limit=40):
+    """Find named semantic rows by bounded user scrolling instead of assuming viewport geometry."""
+    event = f"\x1b[<{64 if upward else 65};41;6M".encode()
+    wanted = [collapsed(marker.encode()) for marker in markers]
+    for _ in range(limit + 1):
+        screen = rendered_screen(bytes(terminal.capture[terminal.frame_start:]), terminal.size)
+        flat = collapsed(screen.encode())
+        if all(marker in flat for marker in wanted):
+            return screen
         os.write(terminal.master, event)
-        observe_for(terminal.master, 0.004, terminal.capture)
-    return terminal.wait(*markers)
+        observe_for(terminal.master, 0.02, terminal.capture)
+    screen = rendered_screen(bytes(terminal.capture[terminal.frame_start:]), terminal.size)
+    raise AssertionError(f"scroll never exposed {markers!r} at {terminal.size}:\n{screen}")
+
+
+def task_update_at_three_widths(terminal, artifact):
+    """The revised task and its exact child continuation stay reachable at every width."""
+    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        terminal.resize(width, UPDATE_CHILD_ACK)
+        screen = scroll_child_until(
+            terminal, True, (f"assigned by {ROOT_AGENT} · {UPDATED_TASK}",)
+        )
+        if label:
+            write_frame(terminal, artifact, label, screen)
+        scroll_child_until(terminal, False, (UPDATE_CHILD_ACK,))
+    terminal.resize(120, UPDATE_CHILD_ACK)
+
+
+def root_task_update_at_three_widths(terminal, artifact):
+    """The root's side of the revised task remains readable, including below the narrow shelf."""
+    markers = (f"assigned to {TARGET}", UPDATED_TASK, UPDATE_DONE)
+    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        if width == 60:
+            terminal.resize(width, UPDATE_DONE)
+            terminal.send(b"\x02", UPDATE_DONE)
+            screen = scroll_child_until(
+                terminal, True, (f"assigned to {TARGET} · {UPDATED_TASK}", UPDATE_DONE)
+            )
+        else:
+            screen = terminal.resize(width, *markers)
+        if label:
+            write_frame(terminal, artifact, label, screen)
+        if width == 60:
+            scroll_child_until(terminal, False, (UPDATE_DONE,))
+            terminal.send(b"\x02", UPDATE_DONE)
+    terminal.resize(120, *markers)
+
+
+def root_history_at_three_widths(terminal, artifact):
+    """The root's task, incoming letter, and answer remain readable at each product width."""
+    markers = (f"assigned to {TARGET}", f"received from {TARGET}", SAW)
+    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        if width == 60:
+            terminal.resize(width, SAW)
+            screen = terminal.send(b"\x02", *markers)
+        else:
+            screen = terminal.resize(width, *markers)
+        if label:
+            write_frame(terminal, artifact, label, screen)
+        if width == 60:
+            terminal.send(b"\x02", SAW)
+    terminal.resize(120, *markers)
+
+
+def child_history_at_three_widths(terminal, artifact):
+    """The child's task, work, and mail remain reachable before returning to its current tail."""
+    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        terminal.resize(width, *USER_CHILD_SIDE)
+        if width == 60:
+            terminal.send(b"\x02", CHILD, *USER_CHILD_SIDE)
+        oldest = scroll_child_until(
+            terminal, True, (f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
+        )
+        mail = scroll_child_until(
+            terminal, False, ("send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
+        )
+        if label:
+            write_frame(terminal, f"{artifact}-history", label, oldest)
+            write_frame(terminal, f"{artifact}-mail", label, mail)
+        scroll_child_until(terminal, False, USER_CHILD_SIDE)
+        if width == 60:
+            terminal.send(b"\x02", CHILD, *USER_CHILD_SIDE)
+    terminal.resize(120, *USER_CHILD_SIDE)
 
 
 def no_dropped_events(terminal):
@@ -235,6 +340,13 @@ def no_dropped_events(terminal):
         "the projection dropped a delegated event as stale"
 
 
+def no_internal_names(terminal):
+    """Correspondence uses roster labels while durable routing identities stay off screen."""
+    screen = bytes(terminal.capture)
+    for name in INTERNAL_NAMES:
+        assert name.encode() not in screen, f"internal agent identity reached the screen: {name}"
+
+
 def close_child(terminal, *markers, absent=()):
     """DRW-3, one layer per Escape: the first leaves the window, the second clears the selection."""
     terminal.send(ESC, CHILD)
@@ -242,12 +354,11 @@ def close_child(terminal, *markers, absent=()):
 
 
 def both_at_three_widths(terminal, artifact="child"):
-    """Both conversations at three widths, including what the narrowest one has to give up.
+    """Current child and root outcomes at three widths, including the narrow return path.
 
-    Docking is width-dependent, so the same markers at every width would prove neither side. At 120
-    and 95 the root's task, letter and answer stay beside the child's. At 60 the child takes the
-    column and the root is off screen — and closing it at that same width must hand the root's
-    three entries back, or the narrow layout would be a place where delegated work is unreadable.
+    Root and child history have their own semantic-scroll sweeps. Here, 120 and 95 keep the root's
+    final Handoff result beside the child's User turn. At 60 the child takes the column and the root
+    is off screen; closing it at that width must hand the root result back.
 
     The sweep opens on a width nobody asked for: a resize to the width already set sends no
     `SIGWINCH`, nothing repaints, and the frame this reads from would be empty.
@@ -298,11 +409,10 @@ def journal_snapshot(home):
 
 def visible_history_anchor(screen):
     """The first semantic history line in the viewport, independent of border geometry."""
-    prefix = "CHILD_HISTORY_LINE_"
     for row in screen.splitlines():
-        start = row.find(prefix)
+        start = row.find(HISTORY_PREFIX)
         if start >= 0:
-            return row[start:start + len(HISTORY_ANCHOR)]
+            return row[start:start + len(HISTORY_PREFIX) + 2]
     raise AssertionError("the resumed child viewport has no history anchor")
 
 
@@ -337,6 +447,23 @@ def run_smoke(provider):
                 f"received from {TARGET}",
                 SAW,
             )
+            root_history_at_three_widths(terminal, "root-history")
+            # CTL-1: the existing target updates its canonical task and schedules that child once.
+            requests_before_update, errors_before_update = provider.snapshot()
+            focus_primary_and_type(terminal, UPDATE_ASK)
+            updated_root = terminal.send(ENTER, UPDATE_DONE, UPDATED_TASK)
+            assert_ordered(
+                updated_root, UPDATE_ASK, "update_task · succeeded", UPDATED_TASK, UPDATE_DONE
+            )
+            open_child(terminal, UPDATED_TASK, UPDATE_CHILD_ACK)
+            task_update_at_three_widths(terminal, "task-update")
+            close_child(terminal, *ROOT_SIDE, UPDATED_TASK, UPDATE_DONE)
+            root_task_update_at_three_widths(terminal, "root-task-update")
+            requests_after_update, errors_after_update = provider.snapshot()
+            assert len(requests_after_update) == len(requests_before_update) + 3, \
+                "task update did not schedule the exact child once"
+            assert not errors_before_update and not errors_after_update, \
+                (errors_before_update, errors_after_update)
             # COL-3/CCV-1–CCV-4: Main's real tool transfers control, then the focused child input
             # reaches that child's provider and leaves the primary composer as a return target.
             focus_primary_and_type(terminal, HANDOFF_ASK)
@@ -344,7 +471,8 @@ def run_smoke(provider):
             open_child(terminal, *CHILD_SIDE, HANDOFF_ROW, "Controller: User")
             terminal.send(
                 ENTER,
-                *CHILD_SIDE,
+                UPDATED_TASK,
+                UPDATE_CHILD_ACK,
                 HANDOFF_ROW,
                 "Controller: User",
                 "Message Plexmaton",
@@ -375,18 +503,25 @@ def run_smoke(provider):
             # row below it, and the click that opens the child would then miss for a reason the
             # failure does not name.
             no_dropped_events(terminal)
-            # CCV-1: the child's own conversation — its prose, its tool, its letter — under the
-            # roster name, on the same entry grammar the primary uses.
-            open_child(terminal, *CHILD_SIDE)
+            no_internal_names(terminal)
+            # CCV-1/ENT-1: the child's task, work, letter and current User turn remain reachable.
+            open_child(terminal, *USER_CHILD_SIDE)
+            child_history_at_three_widths(terminal, "live")
             both_at_three_widths(terminal)
             journal = one(home / "sessions")
             no_dropped_events(terminal)
+            no_internal_names(terminal)
             terminal.quit()
 
         assert len(records(one(home / "delegated-sessions"))) > 1, "the child kept no journal"
-        kinds = {record["event"]["kind"] for record in records(one(home / "collaborations"))
-                 if "event" in record}
-        assert {"delegation_created", "mail_accepted", "handoff_completed"} <= kinds, kinds
+        collaboration_records = records(one(home / "collaborations"))
+        kinds = {record["event"]["kind"] for record in collaboration_records if "event" in record}
+        assert {"delegation_created", "task_updated", "mail_accepted", "handoff_completed"} \
+            <= kinds, kinds
+        creation = one_event(collaboration_records, "delegation_created")
+        update = one_event(collaboration_records, "task_updated")
+        assert update["delegation"] == creation["delegation"], (creation, update)
+        assert update["task"] == UPDATED_TASK, update
         durable_before_resume = journal_snapshot(home)
 
         # CHB-3/INS-1/INS-6: pointer selection opens the exact restored child at every responsive
@@ -394,7 +529,8 @@ def run_smoke(provider):
         with Terminal(project, environment, "delegate", "resume-pointer",
                       ("resume", journal.stem)) as terminal:
             root_screen = terminal.wait(
-                f"assigned to {TARGET}", f"received from {TARGET}", SAW, RESTORED
+                f"assigned to {TARGET}", f"received from {TARGET}", SAW,
+                UPDATED_TASK, UPDATE_DONE, RESTORED
             )
             assert_ordered(
                 root_screen,
@@ -404,28 +540,38 @@ def run_smoke(provider):
                 WAITING,
                 f"received from {TARGET}",
                 SAW,
+                UPDATE_ASK,
+                "update_task · succeeded",
+                UPDATED_TASK,
+                UPDATE_DONE,
+                HANDOFF_ROW,
+                HANDOFF_DONE,
                 RESTORED,
             )
             requests_before, errors_before = provider.snapshot()
             open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
+            task_update_at_three_widths(terminal, "resumed-task-update")
             both_at_three_widths(terminal, "resumed-pointer")
             # INS-6: a semantic viewport anchor belongs to the child, not the transient window.
             # Park inside the long restored message, close while the Inspector owns focus, then
             # reopen by pointer at the same width and require the same first visible history line.
             open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
-            oldest = scroll_child(
-                terminal, True, 100, f"assigned by {ROOT_AGENT}", "CHILD_WORKING"
+            oldest = scroll_child_until(
+                terminal, True, (f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
             )
             assert_ordered(oldest, f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
-            newest = scroll_child(
-                terminal, False, 100, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE
+            newest = scroll_child_until(
+                terminal,
+                False,
+                ("send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE),
             )
             assert_ordered(newest, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
+            scroll_child_until(terminal, False, USER_CHILD_SIDE)
             terminal.resize(60, *USER_CHILD_SIDE, "Controller: User")
-            parked_screen = scroll_child(terminal, True, 12, HISTORY_ANCHOR)
+            parked_screen = scroll_child_until(terminal, True, (HISTORY_PREFIX,))
             write_frame(terminal, "resumed-pointer", "anchor-parked", parked_screen)
             parked = visible_history_anchor(parked_screen)
-            assert parked == HISTORY_ANCHOR, (parked, HISTORY_ANCHOR)
+            assert parked.startswith(HISTORY_PREFIX), parked
             focus_primary(terminal)
             terminal.send(ESC, *ROOT_SIDE, absent=(DONE,))
             reopened = terminal.send(b"\t" + DOWN, CHILD, parked)
@@ -438,6 +584,7 @@ def run_smoke(provider):
             assert requests_after == requests_before, "passive child browsing contacted the provider"
             assert not errors_before and not errors_after, (errors_before, errors_after)
             no_dropped_events(terminal)
+            no_internal_names(terminal)
             terminal.quit()
         assert journal_snapshot(home) == durable_before_resume, \
             "pointer browsing appended a durable fact"
@@ -446,9 +593,13 @@ def run_smoke(provider):
         # Enter explicitly moves into the read-only window, and every width retains its work.
         with Terminal(project, environment, "delegate", "resume-keyboard",
                       ("resume", journal.stem)) as terminal:
-            terminal.wait(f"assigned to {TARGET}", f"received from {TARGET}", SAW, RESTORED)
+            terminal.wait(
+                f"assigned to {TARGET}", f"received from {TARGET}", SAW,
+                UPDATED_TASK, UPDATE_DONE, RESTORED
+            )
             requests_before, errors_before = provider.snapshot()
             terminal.send(DOWN, *USER_CHILD_SIDE, "Controller: User")
+            task_update_at_three_widths(terminal, "resumed-keyboard-task")
             terminal.send(ENTER, "Controller: User", "Message Plexmaton", *USER_CHILD_SIDE)
             terminal.widths(
                 "resumed-keyboard",
@@ -460,6 +611,7 @@ def run_smoke(provider):
             assert requests_after == requests_before, "keyboard browsing contacted the provider"
             assert not errors_before and not errors_after, (errors_before, errors_after)
             no_dropped_events(terminal)
+            no_internal_names(terminal)
             terminal.quit()
         assert journal_snapshot(home) == durable_before_resume, \
             "keyboard browsing appended a durable fact"
@@ -514,6 +666,7 @@ def run_stop_smoke(provider, paused):
             terminal.send(ENTER, STOP_ROOT_ANSWER, absent=(STOP_CHILD_LATE,))
             assert STOP_CHILD_LATE.encode() not in bytes(terminal.capture[release_start:])
             no_dropped_events(terminal)
+            no_internal_names(terminal)
             terminal.quit()
 
         requests, errors = provider.snapshot()
@@ -529,12 +682,12 @@ def main():
     if not arguments.skip_build:
         subprocess.run(["cargo", "build", "--locked", "--offline", "-p", "plexmaton-cli",
                         "--bin", "plexmaton", "--quiet"], cwd=ROOT, check=True)
-    with HandoffProvider(script()) as provider:
+    with CollaborationProvider(script()) as provider:
         run_smoke(provider)
     paused = paused_late_response()
     with AddressedProvider(stop_script(paused)) as provider:
         run_stop_smoke(provider, paused)
-    print("delegate smoke passed: one delegation; the child's own work and letter; Main Handoff "
+    print("delegate smoke passed: one delegation and task update; the child's own work and letter; Main Handoff "
           "and focused User child input; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
           "the child is closed; no dropped event; a durable ledger and child journal; passive "

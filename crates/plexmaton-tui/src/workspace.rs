@@ -3192,7 +3192,7 @@ mod tests {
             .unwrap_or_else(|| panic!("a selection must copy to something"));
         assert_eq!(
             copied.text,
-            "agent-a: Routing stays centralized and z-ordered.\nartifact://agent-b/copy-source"
+            "Agent A · primary: Routing stays centralized and z-ordered.\nartifact://agent-b/copy-source"
         );
     }
 
