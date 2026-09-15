@@ -1,5 +1,5 @@
 use plexmaton_core::{
-    AgentId, ArtifactId, CollaborationItemId, ConversationId, DelegationId, MailId,
+    AgentId, ArtifactId, AttentionId, CollaborationItemId, ConversationId, DelegationId, MailId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,6 +72,24 @@ impl From<CollaborationText> for String {
 pub struct MailEndpoint {
     pub conversation: ConversationId,
     pub agent: AgentId,
+}
+
+/// Producer-owned Attention identity published across a collaboration boundary.
+///
+/// The producer journal retains the request payload and lifecycle. This bounded reference only
+/// authenticates which canonical child event may be projected by the collaboration owner.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttentionReference {
+    pub producer: MailEndpoint,
+    pub attention_id: AttentionId,
+}
+
+impl AttentionReference {
+    pub(super) fn validate(&self) -> Result<(), CollaborationError> {
+        self.producer.validate()?;
+        validate_id(self.attention_id.as_str())
+    }
 }
 
 impl MailEndpoint {
@@ -188,6 +206,10 @@ pub enum CollaborationEvent {
         expected: DelegationRevision,
         author: MailEndpoint,
     },
+    /// Authenticates one request already committed in the producer's journal.
+    AttentionRequested { attention: AttentionReference },
+    /// Authenticates one resolution already committed in the producer's journal.
+    AttentionResolved { attention: AttentionReference },
 }
 
 /// One immutable item with its exact retry identity and expected sequence.

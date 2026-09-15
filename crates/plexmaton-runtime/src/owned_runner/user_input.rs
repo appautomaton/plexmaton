@@ -12,6 +12,11 @@ pub(super) enum UserInputCommand {
         fail: bool,
         reply: oneshot::Sender<Result<DispatchReport, RuntimeError>>,
     },
+    Approval {
+        approval_id: plexmaton_core::ApprovalId,
+        decision: plexmaton_core::ApprovalDecision,
+        reply: oneshot::Sender<Result<DispatchReport, RuntimeError>>,
+    },
     #[cfg(test)]
     Hold {
         entered: Arc<Notify>,
@@ -45,6 +50,33 @@ impl OwnedChildRunner {
                     admitted.notify_one();
                 }
             }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                return Err(OwnedRunnerError::UserInputBusy);
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                return Err(OwnedRunnerError::Closed);
+            }
+        }
+        Ok(())
+    }
+
+    /// Admits one owner-authenticated approval on the same capacity-one lane as direct input.
+    pub(crate) fn begin_attention_decision(
+        &mut self,
+        approval_id: plexmaton_core::ApprovalId,
+        decision: plexmaton_core::ApprovalDecision,
+    ) -> Result<(), OwnedRunnerError> {
+        if self.user_input_reply.is_some() {
+            return Err(OwnedRunnerError::UserInputBusy);
+        }
+        let (reply, result) = oneshot::channel();
+        let sender = self.user_input.as_ref().ok_or(OwnedRunnerError::Closed)?;
+        match sender.try_send(UserInputCommand::Approval {
+            approval_id,
+            decision,
+            reply,
+        }) {
+            Ok(()) => self.user_input_reply = Some(result),
             Err(mpsc::error::TrySendError::Full(_)) => {
                 return Err(OwnedRunnerError::UserInputBusy);
             }

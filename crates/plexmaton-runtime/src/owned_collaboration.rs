@@ -511,6 +511,7 @@ impl OwnedCollaboration {
     }
 }
 
+mod attention;
 mod handoff;
 mod inspection;
 mod lifecycle;

@@ -251,6 +251,15 @@ async fn handle_user_input(command: Option<UserInputCommand>, runtime: &mut Live
             }
             (*input, selected_skill, reply)
         }
+        Some(UserInputCommand::Approval {
+            approval_id,
+            decision,
+            reply,
+        }) => {
+            let result = runtime.submit_owned_approval(approval_id, decision).await;
+            let _caller_gone = reply.send(result).is_err();
+            return;
+        }
         #[cfg(test)]
         Some(UserInputCommand::Hold { entered, release }) => {
             entered.notify_one();
@@ -420,6 +429,9 @@ fn drain_user_input(user_input: &mut mpsc::Receiver<UserInputCommand>) {
     while let Ok(command) = user_input.try_recv() {
         match command {
             UserInputCommand::Submit { reply, .. } => {
+                let _caller_gone = reply.send(Err(RuntimeError::ShuttingDown)).is_err();
+            }
+            UserInputCommand::Approval { reply, .. } => {
                 let _caller_gone = reply.send(Err(RuntimeError::ShuttingDown)).is_err();
             }
             #[cfg(test)]

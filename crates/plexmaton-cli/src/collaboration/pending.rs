@@ -1,6 +1,9 @@
 //! Root-bound ownership of one selected collaboration projection.
 
 use plexmaton_agent::collaboration::{CollaborationItemRef, MailEndpoint};
+use plexmaton_agent::{
+    ApprovalDecisionRefusal, Input, UndeliveredInput, UnresolvedApprovalDecision,
+};
 use plexmaton_core::{AgentId, ConversationEvent, ConversationId};
 use plexmaton_runtime::{
     CollaborationIngressOutcome, DelegatedProjectionRefusal, DispatchReport, LiveRuntime,
@@ -246,6 +249,32 @@ impl Collaboration {
             return Ok(RootProjectionProgress::Applied);
         }
 
+        let runner = match self
+            .pending_projection
+            .as_ref()
+            .expect("pending projection checked above")
+        {
+            PendingRootProjection::RunnerEvent {
+                child,
+                generation,
+                event,
+                ..
+            } => Some((child.clone(), *generation, event.as_ref().clone())),
+            _ => None,
+        };
+        if let Some((child, generation, event)) = runner {
+            let mutation = self.admit_attention(&child, generation, &event).await?;
+            runtime
+                .project_delegated(&event)
+                .map_err(anyhow::Error::from)?;
+            if let Some(mutation) = mutation {
+                self.apply_live_attention(mutation);
+            }
+            self.refresh_child(runtime, &child).await?;
+            self.pending_projection.take();
+            return Ok(RootProjectionProgress::Applied);
+        }
+
         match self
             .pending_projection
             .as_ref()
@@ -255,25 +284,13 @@ impl Collaboration {
             PendingRootProjection::RefreshControls => {
                 unreachable!("control refresh handled above")
             }
-            PendingRootProjection::RunnerEvent { child, event, .. } => {
-                runtime
-                    .project_delegated(event)
-                    .map_err(anyhow::Error::from)?;
-                let child = child.clone();
-                self.refresh_child(runtime, &child).await?;
-            }
+            PendingRootProjection::RunnerEvent { .. } => unreachable!("runner handled above"),
             // `apply_collaboration` takes this result through `take_stop_settlement` so its
             // report can return exact child-owned input. Keeping it staged is safe if a caller is
             // only advancing the root projection slot.
-            PendingRootProjection::StopSettled { .. } => {
-                return Ok(RootProjectionProgress::Idle);
-            }
-            PendingRootProjection::UserInputSettled { .. } => {
-                return Ok(RootProjectionProgress::Idle);
-            }
+            PendingRootProjection::StopSettled { .. }
+            | PendingRootProjection::UserInputSettled { .. } => Ok(RootProjectionProgress::Idle),
         }
-        self.pending_projection.take();
-        Ok(RootProjectionProgress::Applied)
     }
 
     fn prepare_runner(&mut self, update: OwnedRunnerUpdate) -> Option<PendingRootProjection> {
@@ -315,11 +332,23 @@ impl Collaboration {
             .cloned()?;
         let event = match event {
             Some(event) => event,
-            None => ConversationEvent::AgentStatusChanged {
-                agent_id: agent_id.clone(),
-                status: AgentStatus::Failed,
-            },
+            None => {
+                self.live_approvals
+                    .retain(|(owner, _), _| owner != &agent_id);
+                ConversationEvent::AgentStatusChanged {
+                    agent_id: agent_id.clone(),
+                    status: AgentStatus::Failed,
+                }
+            }
         };
+        if matches!(
+            event,
+            ConversationEvent::AttentionRequested { .. }
+                | ConversationEvent::AttentionResolved { .. }
+        ) && event.clone().agent_mut() != &identity.endpoint().agent
+        {
+            return None;
+        }
         let event =
             self.prepare_forwarded_event(&identity.endpoint().conversation, &agent_id, event)?;
         Some(PendingRootProjection::RunnerEvent {
@@ -360,8 +389,23 @@ fn user_input_report(outcome: Result<DispatchReport, UserInputFailure>) -> Dispa
         Err(failure) => {
             let reason = super::undelivered_reason(failure.reason());
             let mut report = DispatchReport::default();
-            if let Some(input) = failure.into_undelivered(reason) {
-                report.undelivered.push(input);
+            let (_, input, skill) = failure.into_request().into_parts();
+            match input {
+                Input::Submitted { text } | Input::Steered { text } => report
+                    .undelivered
+                    .push(UndeliveredInput::with_skill(text, skill, reason)),
+                Input::ApprovalDecided {
+                    approval_id,
+                    decision,
+                } => report
+                    .unresolved_approvals
+                    .push(UnresolvedApprovalDecision {
+                        approval_id,
+                        decision,
+                        reason: ApprovalDecisionRefusal::NotPending,
+                        current_offer: None,
+                    }),
+                _ => {}
             }
             report
         }

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented for both routes: the primary's approvals answer inline, a background agent's are announced on its roster row |
+| Status | Implemented for both routes: primary approvals answer inline; live and passively reopened child requests use canonical collaboration references and the child's roster row. Restored decision readmission remains APV-6 work in stage 8.3 |
 | Owns | Pending request presentation, main-agent approval sequencing, and where a background request is announced |
 | Depends on | The attention rules in [`ui-ux.md`](../ui-ux.md) §attention management; the focused-surface grammar in [interaction-routing](./interaction-routing.md) INV-10 |
 | Proven by | `plexmaton-tui::state::attention`, `::content::roster` and `::workspace` tests |
@@ -54,6 +54,17 @@ ConversationEvent::AttentionRequested ──▶ AttentionQueue (arrival order, c
 ConversationEvent::AttentionResolved ───────┴──▶ remove the exact request
 ```
 
+A delegated producer commits the complete request or resolution in its own journal first. The
+collaboration log then admits only its authenticated endpoint and `AttentionId`; only that joined
+pair may cross into the root projection. The log reference never becomes model context and does
+not copy the request payload or pending-state machine. Live approval routes are process-local,
+bound to the exact child runner generation and consumed through its owner. Passive replay reads the
+same validated log/journal prefix without constructing a runner; a request with no matching log
+reference stays inert, and replay issues no decision route. Graceful shutdown drains a producer's
+final request and resolution events into the collaboration log before closing its writer, so a
+resolved request cannot return on the next passive reopen. Stage 8.3 owns restored admission and
+current-policy checks.
+
 | Fact | Value |
 | --- | --- |
 | Coalescing | By `AttentionId`: a repeat replaces its entry in place and keeps its position, so an agent asking twice is one item |
@@ -77,6 +88,6 @@ ConversationEvent::AttentionResolved ───────┴──▶ remove th
 
 | Invariant | Proven by |
 | --- | --- |
-| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row`, `parallel_primary_approvals_stay_inline_and_advance_in_arrival_order`, `primary_approval_escape_returns_to_composer_without_creating_attention_ui`, `a_roster_reads_failure_then_requests_then_work_and_rules_the_two_groups_apart`, `a_rows_marker_and_word_carry_its_attention_role_at_both_ends` |
+| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row`, `parallel_primary_approvals_stay_inline_and_advance_in_arrival_order`, `primary_approval_escape_returns_to_composer_without_creating_attention_ui`, `a_roster_reads_failure_then_requests_then_work_and_rules_the_two_groups_apart`, `a_rows_marker_and_word_carry_its_attention_role_at_both_ends`, `live_child_attention_is_canonical_before_root_projection`, `passive_attention_reopens_from_the_validated_prefix_without_waking`, `passive_orphan_attention_is_not_projected_or_activated`, `graceful_shutdown_resolution_does_not_reopen_a_child_request` |
 | ATT-2 | `an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request`, `going_to_a_request_is_the_users_move_and_marks_it_seen`, `attention_keyboard_activates_the_visible_worker_and_escape_restores_primary_card` |
-| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `the_cursor_follows_the_named_request_and_survives_an_empty_queue`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request`, `the_detail_row_is_the_ask_when_there_is_one_and_the_counts_when_there_is_not` |
+| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `the_cursor_follows_the_named_request_and_survives_an_empty_queue`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request`, `the_detail_row_is_the_ask_when_there_is_one_and_the_counts_when_there_is_not`, `attention_decision_routes_only_to_the_exact_live_child_generation`, `live_child_attention_is_canonical_before_root_projection`, `graceful_shutdown_resolution_does_not_reopen_a_child_request` |

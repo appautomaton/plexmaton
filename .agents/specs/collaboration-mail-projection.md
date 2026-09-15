@@ -39,7 +39,7 @@ does not inspect the recipient's session. No state implies consumption, seen sta
 the recipient session's branch-local `CollaborationTurnStarted` fact. Product routing consumes CMP-1 —
 `scripts/smoke-delegate.py` draws each letter in both conversations — and has not consumed the CMP-2
 join, so queued and included still read the same on screen.
-This mechanism does not project Attention: the current collaboration grammar has no action-required
-fact, and its cross-session canonical source remains unproven. Mail, task updates and Handoff are
-never inferred to be Attention. Seen or acknowledged presentation state is separate from canonical
+This mechanism does not infer Attention from mail. ATT-1–ATT-3 use distinct reference-only
+collaboration records joined to the producer journal; mail, task updates and Handoff remain
+ineligible substitutes. Seen or acknowledged presentation state is separate from canonical
 resolution.

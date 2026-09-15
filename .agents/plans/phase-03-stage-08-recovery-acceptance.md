@@ -58,9 +58,13 @@ than duplicating their entire matrices.
    Current JRN-5 cancels orphaned calls; APV-6 requires fresh admission/current policy when a
    persisted pending request is restored. First pin the supported restoration/explicit-continuation
    action with a focused test. Preserve effect-free replay and never treat a saved approval as authority.
+   Establish the first production-supported child request source under CHB-1 and carry its
+   continuation through the runtime and CLI owner route. The real PTY must show that request on the
+   roster at 120/95/60 columns without taking focus, then open it only after user navigation.
    **Closes:** changing policy, revoking a grant or replacing the tool definition before reopen
    affects fresh admission; stale decisions cannot execute the old call; no effect runs merely
-   because resume read a record. Prove the real supported flow through runtime and CLI boundaries.
+   because resume read a record. Prove the real supported flow through runtime, CLI and PTY
+   boundaries.
    If the current cancellation rule leaves no such restoration flow, present that exact scenario
    and a concrete contract change for the user's decision. Do not silently count cancellation as
    readmission, invent automatic execution, or remove APV-6 from the phase to obtain a pass.

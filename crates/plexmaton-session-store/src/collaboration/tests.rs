@@ -3,13 +3,13 @@ use std::io::Write;
 
 use plexmaton_agent::HeadRevision;
 use plexmaton_agent::collaboration::{
-    CollaborationEvent, CollaborationLimits, CollaborationSequence, CollaborationText,
-    DelegationController, DelegationRevision, MailEndpoint, MailEnvelope, Preparation,
-    TurnBoundary,
+    AttentionReference, CollaborationEvent, CollaborationLimits, CollaborationSequence,
+    CollaborationText, DelegationController, DelegationRevision, MailEndpoint, MailEnvelope,
+    Preparation, TurnBoundary,
 };
 use plexmaton_core::{
-    AgentId, CollaborationId, CollaborationItemId, ConversationId, DelegationId, HeadName, MailId,
-    TurnId,
+    AgentId, AttentionId, CollaborationId, CollaborationItemId, ConversationId, DelegationId,
+    HeadName, MailId, TurnId,
 };
 
 use super::{CollaborationAttempt, CollaborationFile, CollaborationStoreError};
@@ -104,6 +104,23 @@ fn col_4_file_roundtrip_retains_attribution_and_exact_retry() {
     file.admit(item("update"), update(0, "Inspect without changing files"))
         .expect("main task update");
     let handoff_receipt = file.admit(item("handoff"), handoff(1)).expect("handoff");
+    let attention = AttentionReference {
+        producer: endpoint("b"),
+        attention_id: AttentionId::new("approval-1").expect("Attention"),
+    };
+    let attention_receipt = file
+        .admit(
+            item("attention-request"),
+            CollaborationEvent::AttentionRequested {
+                attention: attention.clone(),
+            },
+        )
+        .expect("publish request reference");
+    file.admit(
+        item("attention-resolution"),
+        CollaborationEvent::AttentionResolved { attention },
+    )
+    .expect("publish resolution reference");
     let expected = file.ledger().clone();
     let bytes = std::fs::read(&path).expect("read file");
     drop(file);
@@ -118,6 +135,20 @@ fn col_4_file_roundtrip_retains_attribution_and_exact_retry() {
             .admit(item("handoff"), handoff(1))
             .expect("handoff retry"),
         handoff_receipt
+    );
+    assert_eq!(
+        reopened
+            .admit(
+                item("attention-request"),
+                CollaborationEvent::AttentionRequested {
+                    attention: AttentionReference {
+                        producer: endpoint("b"),
+                        attention_id: AttentionId::new("approval-1").expect("Attention"),
+                    },
+                },
+            )
+            .expect("Attention retry"),
+        attention_receipt
     );
     assert_eq!(std::fs::read(&path).expect("read after retry"), bytes);
     assert_eq!(reopened.ledger().mail_for(&endpoint("a")).count(), 1);

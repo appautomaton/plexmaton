@@ -12,7 +12,9 @@
 **COL-1 — One log, one ordered admission.** One stable collaboration identity owns contiguous,
 one-based items, each binding one exact event; derived mail and delegation views rebuild from them.
 Exact item retries return the original receipt before revision/capacity checks, while conflicting
-item identities and sender-scoped mail identities reused under another item are refused unchanged.
+item identities, sender-scoped mail identities and producer-scoped Attention identities reused
+under another item are refused unchanged. Attention resolution requires its exact earlier request
+reference and cannot repeat under another item.
 
 **COL-2 — Admission is bounded.** Constructors, admission and replay enforce the bounds below,
 including distinct artifact pointers and a mail-inaccessible control reserve.
@@ -52,7 +54,7 @@ refused.
 | Summary or task | Nonempty, at most 32 KiB UTF-8 each |
 | Identity | Nonempty, at most 256 bytes |
 | Artifact references per mail | At most 16 distinct conversation/artifact pairs |
-| Total items | 4096 mail, task, Handoff and turn records; configurable downward |
+| Total items | 4096 mail, task, Handoff, Attention-reference and turn records; configurable downward |
 | Delegations | 256; configurable downward |
 | Semantic mail bytes | 16 MiB; configurable downward; text plus endpoint/pointer identities |
 | Control reserve | 256 tail item slots unavailable to mail; configurable from zero to total items |
@@ -88,10 +90,10 @@ provider, tool or UI effects.
 
 | Invariant | Proven by |
 | --- | --- |
-| COL-1 | `col_1_exact_retry_and_replay_preserve_original_admission`, `col_1_mail_identity_and_endpoint_projection_are_canonical`, `col_4_file_roundtrip_retains_attribution_and_exact_retry` |
-| COL-2 | `col_2_mail_saturation_preserves_control_admission`, `col_2_payload_boundaries_and_retained_bytes_are_enforced`, `col_2_exact_retention_limit_and_invalid_configuration`, `col_5_schema_and_decoded_bounds_fail_without_tail_repair` |
+| COL-1 | `col_1_exact_retry_and_replay_preserve_original_admission`, `col_1_mail_identity_and_endpoint_projection_are_canonical`, `attention_references_are_bounded_exact_and_outside_turn_sources`, `col_4_file_roundtrip_retains_attribution_and_exact_retry` |
+| COL-2 | `col_2_mail_saturation_preserves_control_admission`, `col_2_payload_boundaries_and_retained_bytes_are_enforced`, `col_2_exact_retention_limit_and_invalid_configuration`, `attention_references_are_bounded_exact_and_outside_turn_sources`, `col_5_schema_and_decoded_bounds_fail_without_tail_repair` |
 | COL-3 | `col_3_update_and_handoff_races_preserve_one_controller`, `col_3_wrong_authors_cycles_and_stale_tasks_are_refused`, `col_3_declared_endpoints_and_worker_ownership_cannot_be_rebound`, `col_3_execution_permit_blocks_handoff_and_old_ticket_dies_after_handoff`, `col_3_execution_slot_is_single_and_failed_bind_releases_it`, `col_3_handoff_serializes_new_execution_admission`, `col_3_ticket_from_another_file_cannot_cross_authority`, `cin_4_one_admission_cannot_issue_execution_twice_or_after_reopen`, `col_5_live_permit_does_not_keep_a_stale_control_open`, `col_3_unbound_delegated_runtime_fails_closed`, `col_3_permission_refresh_remains_available_under_main_control`, `col_3_main_control_gates_direct_input_until_handoff`, `col_3_permit_spans_barriers_and_two_main_rounds`, `col_3_stop_joins_main_owned_child_before_handoff`, `col_3_shutdown_joins_main_owned_child_and_releases_authority`, `col_3_failed_provider_join_releases_permit_after_cleanup`, `col_3_start_failure_releases_permit_after_cleanup`, `col_3_runtime_drop_joins_session_writer_before_permit_release`, `col_3_handoff_unlocks_only_the_authenticated_owned_child_input`, `col_3_idle_handoff_opens_user_input_until_owned_stop_begins`, `col_3_reopened_user_control_requires_explicit_activation_and_preserves_history`, `ccv_1_handoff_activity_projects_pending_before_acknowledgement`, `production_handoff_routes_child_input_and_retains_the_locked_draft`; `scripts/smoke-delegate.py` |
-| COL-4 | `col_4_uncertain_append_recovers_every_byte_cut_and_retries_once`, `col_4_uncertain_handoff_recovers_before_any_execution_or_retry`, `col_4_uncertain_append_freezes_every_delegation_until_reopen`, `col_4_accepted_mail_survives_process_exit_without_drop`, `col_4_rejected_attempt_writes_nothing_and_does_not_poison` |
+| COL-4 | `col_4_uncertain_append_recovers_every_byte_cut_and_retries_once`, `col_4_uncertain_handoff_recovers_before_any_execution_or_retry`, `col_4_uncertain_append_freezes_every_delegation_until_reopen`, `col_4_accepted_mail_survives_process_exit_without_drop`, `col_4_rejected_attempt_writes_nothing_and_does_not_poison`, `graceful_shutdown_resolution_does_not_reopen_a_child_request` |
 | COL-5 | `col_5_corruption_fails_closed_without_rewriting_evidence`, `col_5_schema_and_decoded_bounds_fail_without_tail_repair`, `col_5_exclusive_writer_and_owner_only_files`, `col_5_execution_permit_retains_writer_lock_until_disposed`, `col_5_execution_reservation_retains_writer_lock_until_disposed`, `col_5_idle_control_does_not_keep_a_closed_writer_locked`, `col_5_live_permit_does_not_keep_a_stale_control_open`, `col_4_uncertain_append_recovers_every_byte_cut_and_retries_once`, `col_4_uncertain_handoff_recovers_before_any_execution_or_retry`, `col_4_uncertain_append_freezes_every_delegation_until_reopen` |
 
 ## Integration boundary
@@ -108,3 +110,9 @@ present in this log, not included in a model request or completed. [CIN-1–CIN-
 own frozen turn admission, session inclusion references and the dispatch barrier. Provider
 projection must preserve a distinct semantic mail atom, with an explicit encoding or typed refusal
 per dialect; this component proves no endpoint support.
+
+[ATT-1–ATT-3](./attention.md) join producer-journal request content to reference-only
+`AttentionRequested`/`AttentionResolved` records. Those records authenticate root projection and
+remain outside every model-source prefix. A newly admitted live request issues an exact
+runner-generation decision route; passive replay reconstructs presentation without runtime or
+decision authority.

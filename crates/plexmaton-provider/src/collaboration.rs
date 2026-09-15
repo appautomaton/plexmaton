@@ -120,6 +120,10 @@ fn render(resolved: &ResolvedTurnAdmission) -> String {
                     ("delegation", delegation.as_str()),
                 ],
             ),
+            // Attention references authenticate root projection only and are excluded from every
+            // admitted model-source prefix by the collaboration ledger.
+            CollaborationEvent::AttentionRequested { .. }
+            | CollaborationEvent::AttentionResolved { .. } => {}
         }
     }
     if assigned {

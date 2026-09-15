@@ -14,17 +14,18 @@ use std::{
 use anyhow::Context as _;
 use plexmaton_agent::collaboration::{CollaborationLimits, MailEndpoint};
 use plexmaton_core::{
-    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent, ConversationId,
-    TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ApprovalId, AttentionId, CollaborationId, CollaborationItemId,
+    ConversationEvent, ConversationId, TranscriptItemId, TurnId,
 };
 use plexmaton_runtime::{
     CollaborationRuntimeStamp, CollaborationWriter, DelegatedChildFactory, DispatchReport,
     LiveRuntime, MainCollaborationIngress, OwnedChildControlSnapshot, OwnedCollaboration,
-    OwnedCollaborationActivity, OwnedSchedulingError, OwnedShutdownReport, SchedulerLimits,
-    UserInputTarget,
+    OwnedCollaborationActivity, OwnedSchedulingError, OwnedShutdownReport, RunnerGeneration,
+    SchedulerLimits, UserInputTarget,
 };
 use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::CollaborationFile};
 
+mod attention;
 mod child_control;
 pub(crate) use child_control::undelivered_reason;
 mod history;
@@ -41,6 +42,12 @@ const RUNNERS: usize = 4;
 
 /// Prefix of every inclusion this composition root admits for its own conversation.
 const ROOT_INCLUSION: &str = "root-inclusion-";
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LiveApprovalRoute {
+    attention_id: AttentionId,
+    generation: RunnerGeneration,
+}
 
 /// One root's collaboration log, its owner, and the Main tool lane bound to this executable.
 pub(crate) struct Collaboration {
@@ -86,6 +93,8 @@ pub(crate) struct Collaboration {
     user_targets: BTreeMap<ConversationId, UserInputTarget>,
     /// Latest authenticated controller projection for each canonical child Conversation.
     controls: BTreeMap<ConversationId, OwnedChildControlSnapshot>,
+    /// Approval routes issued only by newly admitted live child requests in this process.
+    live_approvals: BTreeMap<(AgentId, ApprovalId), LiveApprovalRoute>,
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -141,6 +150,7 @@ pub(crate) fn open(
             children,
             user_targets: BTreeMap::new(),
             controls: BTreeMap::new(),
+            live_approvals: BTreeMap::new(),
             delivered,
             undelivered: false,
             root: None,
@@ -300,6 +310,14 @@ impl Collaboration {
     /// reopen. A transient runner outcome has no such source and therefore becomes an observable
     /// shutdown failure instead of disappearing with this process.
     pub(crate) async fn shutdown(&mut self) -> anyhow::Result<()> {
+        // A child already committed this request or resolution, but the root may quit before its
+        // own projection is writable. Admit the reference now so passive reopen can join the two
+        // canonical sources instead of treating a graceful shutdown as an orphan.
+        let attention_failure = self
+            .admit_pending_attention_for_shutdown()
+            .await
+            .err()
+            .map(|error| format!("admit pending Attention during shutdown: {error}"));
         let transient = self
             .pending_projection
             .as_ref()
@@ -308,8 +326,17 @@ impl Collaboration {
             .begin_shutdown()
             .await
             .map_err(|error| anyhow::anyhow!("begin collaboration shutdown: {error}"))?;
-        while self.owner.next_update().await.is_some() {}
+        let mut drained_attention_failures = Vec::new();
+        while let Some(update) = self.owner.next_update().await {
+            if let Err(error) = self.admit_shutdown_attention_update(&update).await {
+                drained_attention_failures.push(format!("admit shutdown Attention: {error}"));
+            }
+        }
         let mut failures = Vec::new();
+        if let Some(failure) = attention_failure {
+            failures.push(failure);
+        }
+        failures.extend(drained_attention_failures);
         match self.owner.finish_shutdown().await {
             Ok(report) => collect_shutdown_failures(&report, &mut failures),
             Err(failure) => {
@@ -450,6 +477,8 @@ const fn forwarded(event: &ConversationEvent) -> bool {
             | ConversationEvent::TranscriptDelta { .. }
             | ConversationEvent::TranscriptItemFinalized { .. }
             | ConversationEvent::ToolCallChanged { .. }
+            | ConversationEvent::AttentionRequested { .. }
+            | ConversationEvent::AttentionResolved { .. }
             | ConversationEvent::ArtifactAnnounced { .. }
             | ConversationEvent::RuntimeWarning { .. }
             | ConversationEvent::RuntimeError { .. }

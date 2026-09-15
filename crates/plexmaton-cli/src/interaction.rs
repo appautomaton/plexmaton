@@ -295,10 +295,16 @@ async fn apply_workspace_outcome(
         retry::sync_actions(runtime, workspace);
     }
     if let Some(agent_id) = outcome.interrupted {
-        apply_interrupt(agent_id, runtime, workspace, collaboration).await?;
+        apply_interrupt(agent_id, runtime, workspace, collaboration.as_deref_mut()).await?;
     }
     if let Some(approval) = outcome.approval {
-        dispatch_live(runtime, workspace, route_approval(approval)).await?;
+        let child = collaboration
+            .and_then(|collaboration| collaboration.dispatch_child_approval(approval.clone()));
+        if let Some((to, report)) = child {
+            apply_report(runtime, workspace, to, report);
+        } else {
+            dispatch_live(runtime, workspace, route_approval(approval)).await?;
+        }
     }
     deliver_copy(outcome.copied, clipboard, workspace)?;
     Ok(outcome.flow == Flow::Quit)

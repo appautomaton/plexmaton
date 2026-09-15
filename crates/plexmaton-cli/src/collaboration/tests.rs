@@ -4,17 +4,21 @@ use crate::{
     tests::{FixtureServer, FixtureWorkspace, fixture_http_server},
 };
 use plexmaton_agent::collaboration::{
-    CollaborationEvent, CollaborationItemRef, CollaborationText, DelegationRevision,
+    AttentionReference, CollaborationEvent, CollaborationItemRef, CollaborationText,
+    DelegationRevision,
 };
 use plexmaton_agent::{
     Agent, ApprovalPolicy, Effect, Input, ModelEvent, ModelOutputPosition, Reaction, StopReason,
-    ToolCall, TurnBudget, UnixMillis,
+    ToolCall, ToolDefinitionRevision, TurnBudget, UnixMillis,
 };
-use plexmaton_core::{DelegationId, ToolCallId, ToolCallStatus};
+use plexmaton_core::{
+    ApprovalDecision, ApprovalId, AttentionId, AttentionRequest, DelegationId, ToolCallId,
+    ToolCallStatus, ToolCapability, ToolDefinitionId,
+};
 use plexmaton_runtime::{
     DelegatedChildFactory, DispatchReport, NativeToolCatalog, OwnedStopReport, RunnerGeneration,
 };
-use plexmaton_session_store::collaboration::CollaborationAttempt;
+use plexmaton_session_store::collaboration::{CollaborationAttempt, CollaborationFile};
 use plexmaton_session_store::{
     ConversationDirectory, DelegatedConversationDirectory, DelegatedJournalFile,
 };
@@ -150,6 +154,52 @@ async fn bound_root_with_model(
     (runtime, collaboration, model, base_tools)
 }
 
+async fn reopened_bound_root(
+    fixture: &FixtureWorkspace,
+    id: &ConversationId,
+    model: plexmaton_provider::ResolvedModel,
+    base_tools: NativeToolCatalog,
+) -> (LiveRuntime, Collaboration) {
+    let journal = ConversationDirectory::under(fixture.path())
+        .expect("session directory")
+        .resume(id)
+        .expect("resume root journal");
+    let (mut collaboration, ingress) = open(fixture.path(), id).expect("reopen collaboration");
+    let root_tools = base_tools
+        .clone()
+        .with_main_collaboration(ingress)
+        .expect("restore Main collaboration tools");
+    let root_key = plexmaton_provider::resolve_api_key(&model, Some("fixture-only".into()))
+        .expect("fixture root key");
+    let (mut runtime, _recovery) = LiveRuntime::provider_with_resumed_journal(
+        agent("root"),
+        model.clone(),
+        root_key,
+        root_tools,
+        journal,
+    )
+    .await
+    .expect("resume root runtime");
+    let child_key = plexmaton_provider::resolve_api_key(&model, Some("fixture-only".into()))
+        .expect("fixture child key");
+    collaboration
+        .bind(
+            &runtime,
+            DelegatedChildFactory::new(
+                DelegatedConversationDirectory::under(fixture.path()).expect("children"),
+                model,
+                child_key,
+                base_tools,
+            ),
+        )
+        .expect("bind reopened collaboration");
+    collaboration
+        .restore(&mut runtime)
+        .await
+        .expect("restore collaboration");
+    (runtime, collaboration)
+}
+
 fn append_reaction(file: &mut DelegatedJournalFile, reaction: Reaction) {
     for record in reaction.records {
         file.append(record).expect("append delegated record");
@@ -205,6 +255,86 @@ fn seed_interrupted_tool(file: &mut DelegatedJournalFile, child: &AgentId) {
             UnixMillis::EPOCH,
         ),
     );
+}
+
+fn seed_pending_approval(
+    file: &mut DelegatedJournalFile,
+    child: &AgentId,
+) -> (ApprovalId, AttentionId) {
+    let mut owner = Agent::for_conversation(
+        child.clone(),
+        file.journal().metadata().clone(),
+        TurnBudget::default(),
+        ApprovalPolicy::default(),
+    );
+    let submitted = owner.handle_at(
+        Input::Submitted {
+            text: "change the file".to_owned(),
+        },
+        UnixMillis::EPOCH,
+    );
+    let step = submitted
+        .effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::CallModel(call) => Some(call.step_id.clone()),
+            _ => None,
+        })
+        .expect("submitted turn calls the model");
+    append_reaction(file, submitted);
+    append_reaction(
+        file,
+        owner.handle_at(
+            Input::Streamed {
+                step_id: step.clone(),
+                event: ModelEvent::Called {
+                    position: ModelOutputPosition::new(0, 0),
+                    call: ToolCall {
+                        call_id: ToolCallId::new("pending-write").expect("call"),
+                        name: "edit_file".to_owned(),
+                        arguments: r#"{"path":"README.md"}"#.to_owned(),
+                    },
+                },
+            },
+            UnixMillis::EPOCH,
+        ),
+    );
+    let mut stopped = owner.handle_at(
+        Input::Streamed {
+            step_id: step,
+            event: ModelEvent::Stopped(StopReason::ToolCalls),
+        },
+        UnixMillis::EPOCH,
+    );
+    let request = stopped
+        .effects
+        .pop()
+        .and_then(|effect| match effect {
+            Effect::AdmitTool(request) => Some(request),
+            _ => None,
+        })
+        .expect("tool call requests trusted admission");
+    append_reaction(file, stopped);
+    let admitted = request
+        .admit(
+            ToolDefinitionId::new("fixture-edit").expect("definition"),
+            ToolDefinitionRevision::new(1).expect("revision"),
+            [ToolCapability::FileWrite],
+            r#"{"path":"README.md"}"#.to_owned(),
+            "edit README.md".to_owned(),
+            None,
+        )
+        .expect("admit protected fixture");
+    let waiting = owner.handle_at(Input::ToolAdmissionResolved(admitted), UnixMillis::EPOCH);
+    append_reaction(file, waiting);
+    let pending = owner
+        .pending_approvals()
+        .next()
+        .expect("protected call is waiting");
+    (
+        pending.approval_id().clone(),
+        pending.attention_id().clone(),
+    )
 }
 
 fn failed_projection() -> PendingRootProjection {
@@ -367,6 +497,122 @@ async fn shutdown_accepts_a_pending_durable_refresh() {
         .await
         .expect("durable projection rebuilds after reopen");
     runtime.shutdown().await.expect("shutdown root");
+}
+
+/// ATT-1/APV-6/JRN-7: shutdown drains recovery resolution before a full passive reopen.
+#[tokio::test]
+async fn graceful_shutdown_resolution_does_not_reopen_a_child_request() {
+    let fixture = FixtureWorkspace::new();
+    let root_id = conversation("shutdown-attention-root");
+    let (mut runtime, mut collaboration, model, base_tools) =
+        bound_root(&fixture, root_id.clone()).await;
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("shutdown-attention-child", "child-runtime");
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("shutdown-attention-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: DelegationId::new("shutdown-attention-task").expect("delegation"),
+                delegator: root,
+                worker: worker.clone(),
+                task: CollaborationText::new("retain shutdown request").expect("task"),
+            },
+        })
+        .await
+        .expect("create child");
+    let mut child_file = collaboration
+        .children
+        .create(worker.conversation.clone(), UnixMillis::EPOCH)
+        .expect("create child journal");
+    let (approval_id, attention_id) = seed_pending_approval(&mut child_file, &worker.agent);
+    drop(child_file);
+    collaboration
+        .admit_attention(
+            &worker.conversation,
+            RunnerGeneration::new(1).expect("generation"),
+            &ConversationEvent::AttentionRequested {
+                agent_id: worker.agent.clone(),
+                attention_id: attention_id.clone(),
+                request: AttentionRequest::Approval {
+                    approval_id,
+                    call_id: ToolCallId::new("pending-write").expect("call"),
+                    tool: "edit_file".to_owned(),
+                    capabilities: vec![ToolCapability::FileWrite],
+                    detail: "edit README.md".to_owned(),
+                    reason: plexmaton_core::ApprovalReason::NativeFileChange,
+                    remember: None,
+                },
+            },
+        )
+        .await
+        .expect("admit pending request reference");
+    let child_key = plexmaton_provider::resolve_api_key(&model, Some("fixture-only".into()))
+        .expect("fixture child key");
+    collaboration
+        .owner
+        .bind_child_factory(DelegatedChildFactory::new(
+            DelegatedConversationDirectory::under(fixture.path()).expect("children"),
+            model.clone(),
+            child_key,
+            base_tools.clone(),
+        ))
+        .expect("bind child factory");
+    let selector = collaboration
+        .owner
+        .register_collaboration_targets()
+        .await
+        .expect("register child")
+        .pop()
+        .expect("one child")
+        .selector()
+        .clone();
+    collaboration
+        .owner
+        .resume_collaboration_target(&selector)
+        .await
+        .expect("activate child recovery");
+    collaboration
+        .shutdown()
+        .await
+        .expect("shutdown admits the recovery resolution");
+    runtime.shutdown().await.expect("shutdown root");
+    let file = CollaborationFile::open(
+        fixture
+            .path()
+            .join("collaborations")
+            .join(format!("{}.jsonl", root_id.as_str())),
+    )
+    .expect("reopen collaboration");
+    for resolved in [false, true] {
+        assert!(
+            file.ledger()
+                .records()
+                .iter()
+                .any(|record| match &record.event {
+                    CollaborationEvent::AttentionRequested { attention } if !resolved => {
+                        attention.producer == worker && attention.attention_id == attention_id
+                    }
+                    CollaborationEvent::AttentionResolved { attention } if resolved => {
+                        attention.producer == worker && attention.attention_id == attention_id
+                    }
+                    _ => false,
+                })
+        );
+    }
+    drop(file);
+
+    let (mut reopened_runtime, mut reopened) =
+        reopened_bound_root(&fixture, &root_id, model, base_tools).await;
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| reopened_runtime.try_next_event()).collect());
+    assert_eq!(workspace.state().attention_count(), 0);
+    assert_eq!(workspace.state().attention_pending(), 0);
+    reopened.shutdown().await.expect("shutdown reopened owner");
+    reopened_runtime
+        .shutdown()
+        .await
+        .expect("shutdown reopened root");
 }
 
 /// ENT-1/JRN-7: when an accepted ingress outlives its tool wait, the composition persists the
@@ -1213,6 +1459,388 @@ async fn later_child_activation_skips_replayed_entries_and_accepts_new_work() {
             ..
         }) if agent_id == child && item_id == fresh
     ));
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+fn workspace_with_root_draft(
+    runtime: &mut LiveRuntime,
+) -> (plexmaton_tui::Workspace, Terminal<TestBackend>) {
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    let mut terminal = Terminal::new(TestBackend::new(120, 36)).expect("terminal");
+    settle_workspace_frame(&mut workspace, &mut terminal);
+    for _ in 0..workspace.surfaces().len() {
+        if workspace.state().focused(workspace.surfaces())
+            == Some(plexmaton_tui::SurfaceId::Composer)
+        {
+            break;
+        }
+        workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        workspace.draw(&mut terminal).expect("draw composer focus");
+    }
+    workspace.handle(&Event::Paste("keep the root draft".into()));
+    (workspace, terminal)
+}
+
+fn assert_live_attention_frames(
+    workspace: &mut plexmaton_tui::Workspace,
+    terminal: &mut Terminal<TestBackend>,
+    approval_id: &ApprovalId,
+) {
+    assert_eq!(workspace.state().attention_count(), 1);
+    assert_eq!(workspace.state().attention_pending(), 1);
+    assert_eq!(workspace.state().composer().text(), "keep the root draft");
+    for width in [120, 95, 60] {
+        terminal.backend_mut().resize(width, 36);
+        workspace.handle(&Event::Resize(width, 36));
+        settle_workspace_frame(workspace, terminal);
+        let frame: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(frame.contains("approval"), "{width}: {frame}");
+        assert!(frame.contains("( !1 )"), "{width}: {frame}");
+        assert!(
+            !frame.contains("Allow once"),
+            "{width}: request stole focus"
+        );
+    }
+    for _ in 0..workspace.surfaces().len() {
+        if workspace.state().focused(workspace.surfaces()) == Some(plexmaton_tui::SurfaceId::Agents)
+        {
+            break;
+        }
+        workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
+        workspace.draw(terminal).expect("draw focus step");
+    }
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::NONE,
+    )));
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+    )));
+    assert_eq!(
+        workspace
+            .state()
+            .approval()
+            .expect("user navigation opens the request")
+            .approval_id,
+        approval_id
+    );
+    assert_eq!(workspace.state().attention_pending(), 0);
+    assert_eq!(workspace.state().attention_count(), 1);
+    for width in [120, 95, 60] {
+        terminal.backend_mut().resize(width, 36);
+        workspace.handle(&Event::Resize(width, 36));
+        settle_workspace_frame(workspace, terminal);
+        let frame: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        for marker in [
+            "exec_command",
+            "run a bounded command",
+            "Allow once",
+            "Deny",
+        ] {
+            assert!(frame.contains(marker), "{width}: missing {marker}: {frame}");
+        }
+    }
+}
+
+/// ATT-1/APV-4: a live child request is admitted before projection and issues one exact route.
+#[tokio::test]
+async fn live_child_attention_is_canonical_before_root_projection() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, mut collaboration, _, _) =
+        bound_root(&fixture, conversation("attention-root")).await;
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("attention-child", "child-runtime");
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("attention-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: DelegationId::new("attention-task").expect("delegation"),
+                delegator: root,
+                worker: worker.clone(),
+                task: CollaborationText::new("request a decision").expect("task"),
+            },
+        })
+        .await
+        .expect("create child");
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Running)
+        .await
+        .expect("announce child");
+    let (mut workspace, mut terminal) = workspace_with_root_draft(&mut runtime);
+    let child = agent("delegated-1");
+    let approval_id = ApprovalId::new("live-child-approval").expect("approval");
+    let attention_id = AttentionId::new("live-child-attention").expect("Attention");
+    let generation = RunnerGeneration::new(7).expect("generation");
+    collaboration.pending_projection = Some(PendingRootProjection::RunnerEvent {
+        child: worker.conversation.clone(),
+        generation,
+        event: Box::new(ConversationEvent::AttentionRequested {
+            agent_id: child.clone(),
+            attention_id: attention_id.clone(),
+            request: AttentionRequest::Approval {
+                approval_id: approval_id.clone(),
+                call_id: ToolCallId::new("live-child-call").expect("call"),
+                tool: "exec_command".to_owned(),
+                capabilities: vec![ToolCapability::ProcessSpawn],
+                detail: "run a bounded command".to_owned(),
+                reason: plexmaton_core::ApprovalReason::CommandExecution,
+                remember: None,
+            },
+        }),
+        recovery: pending::RecoverySource::ChildJournal,
+    });
+    assert_eq!(
+        collaboration
+            .drive_pending(&mut runtime)
+            .await
+            .expect("admit and project Attention"),
+        RootProjectionProgress::Applied
+    );
+    let records = collaboration
+        .owner
+        .records()
+        .await
+        .expect("canonical records");
+    assert!(records.iter().any(|record| matches!(
+        &record.event,
+        CollaborationEvent::AttentionRequested { attention }
+            if attention.producer == worker && attention.attention_id == attention_id
+    )));
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    assert_live_attention_frames(&mut workspace, &mut terminal, &approval_id);
+    assert_eq!(
+        collaboration
+            .live_approvals
+            .get(&(child.clone(), approval_id.clone()))
+            .map(|route| route.generation),
+        Some(generation)
+    );
+    let (_, refusal) = collaboration
+        .dispatch_child_approval(plexmaton_tui::ApprovalSubmission {
+            to: child,
+            approval_id,
+            decision: ApprovalDecision::Deny,
+        })
+        .expect("known child route");
+    assert!(matches!(
+        refusal.unresolved_approvals.as_slice(),
+        [plexmaton_agent::UnresolvedApprovalDecision {
+            reason: plexmaton_agent::ApprovalDecisionRefusal::NotPending,
+            ..
+        }]
+    ));
+    assert!(
+        collaboration
+            .owner
+            .child_session_source(&worker.conversation)
+            .await
+            .expect("inspect passive child")
+            .is_none(),
+        "a stale decision never cold-activates the child"
+    );
+    collaboration.pending_projection = Some(PendingRootProjection::RunnerEvent {
+        child: worker.conversation.clone(),
+        generation,
+        event: Box::new(ConversationEvent::AttentionResolved {
+            agent_id: agent("delegated-1"),
+            attention_id: attention_id.clone(),
+        }),
+        recovery: pending::RecoverySource::ChildJournal,
+    });
+    collaboration
+        .drive_pending(&mut runtime)
+        .await
+        .expect("admit and project resolution");
+    assert!(collaboration.live_approvals.is_empty());
+    assert!(
+        collaboration
+            .owner
+            .records()
+            .await
+            .expect("records after resolution")
+            .iter()
+            .any(|record| matches!(
+                &record.event,
+                CollaborationEvent::AttentionResolved { attention }
+                    if attention.producer == worker && attention.attention_id == attention_id
+            ))
+    );
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// ATT-1/APV-6: passive replay needs the matching collaboration reference and issues no route.
+#[tokio::test]
+async fn passive_attention_reopens_from_the_validated_prefix_without_waking() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, mut collaboration, _, _) =
+        bound_root(&fixture, conversation("passive-attention-root")).await;
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("passive-attention-child", "child-runtime");
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("passive-attention-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: DelegationId::new("passive-attention-task").expect("delegation"),
+                delegator: root,
+                worker: worker.clone(),
+                task: CollaborationText::new("retain the request").expect("task"),
+            },
+        })
+        .await
+        .expect("create child");
+    let mut child_file = collaboration
+        .children
+        .create(worker.conversation.clone(), UnixMillis::EPOCH)
+        .expect("create child journal");
+    let (approval_id, attention_id) = seed_pending_approval(&mut child_file, &worker.agent);
+    drop(child_file);
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("passive-attention-request").expect("item"),
+            event: CollaborationEvent::AttentionRequested {
+                attention: AttentionReference {
+                    producer: worker.clone(),
+                    attention_id: attention_id.clone(),
+                },
+            },
+        })
+        .await
+        .expect("publish child request reference");
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("announce passive child");
+    let child_path = collaboration
+        .children
+        .path_for(&worker.conversation)
+        .expect("child path");
+    let collaboration_path = fixture
+        .path()
+        .join("collaborations")
+        .join("passive-attention-root.jsonl");
+    let child_before = fs::read(&child_path).expect("child bytes");
+    let collaboration_before = fs::read(&collaboration_path).expect("collaboration bytes");
+    let records = collaboration.owner.records().await.expect("records");
+    collaboration
+        .replay_children(&mut runtime, &records)
+        .await
+        .expect("passively replay child request");
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    assert_eq!(workspace.state().attention_count(), 1);
+    assert!(collaboration.live_approvals.is_empty());
+    let child = agent("delegated-1");
+    let (_, refusal) = collaboration
+        .dispatch_child_approval(plexmaton_tui::ApprovalSubmission {
+            to: child,
+            approval_id,
+            decision: ApprovalDecision::Deny,
+        })
+        .expect("passive child is selectable");
+    assert!(matches!(
+        refusal.unresolved_approvals.as_slice(),
+        [plexmaton_agent::UnresolvedApprovalDecision {
+            reason: plexmaton_agent::ApprovalDecisionRefusal::NotPending,
+            ..
+        }]
+    ));
+    assert!(
+        collaboration
+            .owner
+            .child_session_source(&worker.conversation)
+            .await
+            .expect("inspect passive child")
+            .is_none()
+    );
+    assert_eq!(fs::read(&child_path).expect("child bytes"), child_before);
+    assert_eq!(
+        fs::read(&collaboration_path).expect("collaboration bytes"),
+        collaboration_before
+    );
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// APV-6: a producer-journal request without its collaboration reference stays inert on reopen.
+#[tokio::test]
+async fn passive_orphan_attention_is_not_projected_or_activated() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, mut collaboration, _, _) =
+        bound_root(&fixture, conversation("orphan-attention-root")).await;
+    let root = collaboration.root.clone().expect("root endpoint");
+    let worker = endpoint("orphan-attention-child", "child-runtime");
+    collaboration
+        .owner
+        .admit(CollaborationAttempt {
+            id: CollaborationItemId::new("orphan-attention-created").expect("item"),
+            event: CollaborationEvent::DelegationCreated {
+                delegation: DelegationId::new("orphan-attention-task").expect("delegation"),
+                delegator: root,
+                worker: worker.clone(),
+                task: CollaborationText::new("leave an orphan request").expect("task"),
+            },
+        })
+        .await
+        .expect("create child");
+    let mut child_file = collaboration
+        .children
+        .create(worker.conversation.clone(), UnixMillis::EPOCH)
+        .expect("create child journal");
+    let (_, attention_id) = seed_pending_approval(&mut child_file, &worker.agent);
+    drop(child_file);
+    collaboration
+        .sync_roster(&mut runtime, AgentStatus::Idle)
+        .await
+        .expect("announce passive child");
+    let records = collaboration.owner.records().await.expect("records");
+    collaboration
+        .replay_children(&mut runtime, &records)
+        .await
+        .expect("read orphaned child journal");
+    let mut workspace = plexmaton_tui::Workspace::default();
+    workspace.emit(std::iter::from_fn(|| runtime.try_next_event()).collect());
+    assert_eq!(workspace.state().attention_count(), 0);
+    assert!(collaboration.live_approvals.is_empty());
+    assert!(
+        collaboration
+            .replayed_prefix
+            .get(&worker.conversation)
+            .is_some_and(|prefix| prefix.iter().any(|event| matches!(
+                event,
+                ConversationEvent::AttentionRequested {
+                    attention_id: found,
+                    ..
+                } if found == &attention_id
+            ))),
+        "activation must consume the orphan event without publishing it"
+    );
+    assert!(
+        collaboration
+            .owner
+            .child_session_source(&worker.conversation)
+            .await
+            .expect("inspect passive child")
+            .is_none()
+    );
     collaboration.shutdown().await.expect("shutdown owner");
     runtime.shutdown().await.expect("shutdown root");
 }

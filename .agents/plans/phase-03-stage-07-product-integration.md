@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | COL-3, CHB-1–CHB-3, SCH-1–SCH-5, CIN-2–CIN-4, CCV-1–CCV-4, ENT-1/ENT-3, JRN-5/JRN-7, ATT-1–ATT-3, INV-7 |
-| Status | Active; 6 of 8 slices complete. Next: slice 7 (canonical background requests) |
+| Status | Active; 7 of 8 slices complete. Next: slice 8 (complete journey and consistent names) |
 
 ## Outcome
 
@@ -79,7 +79,7 @@ source paths are relative to the named crate's src directory.
    `scripts/smoke-delegate.py` drives the real tool, child-only response, Stop and passive
    User-control resume in saved 120/95/60 frames.
 
-7. **Canonical background requests — L; after 3, 5 and 6.**
+7. **Canonical background requests — L; complete.**
    Read: ATT-1–ATT-3; APV-4/APV-6; COL-1–COL-4; CMP-1/CMP-2.
    Start at producer-owned pending state, CLI child-event forwarding and the TUI Attention queue.
    The producer journal owns pending/resolved truth and decision authority. Admit bounded,
@@ -89,8 +89,11 @@ source paths are relative to the named crate's src directory.
    **Closes:** tier 2 verifies the live owner-addressed decision route and passive, effect-free
    reopen of request identities/state over the same validated prefix. Recovered orphan requests
    remain inert; restored decision admission/current-policy checks belong to stage 8.3. Live
-   acknowledgement differs from resolution; wrong-owner/stale decisions fail. A supported real
-   request reaches the PTY roster without taking focus and opens only by user navigation.
+   acknowledgement differs from resolution; wrong-owner/stale decisions fail. Product component
+   tests prove the exact 120/95/60 request, preserved root focus/draft, user navigation and producer
+   resolution. Stage 8.3 owns the first CHB-1-supported child request source, runtime/CLI
+   continuation and real PTY witness. Rejected: a fixture-only policy or false `send_mail`
+   capability bypasses product authority.
 
 8. **Complete journey and consistent names — M; after 1–7.**
    Read: UI/UX vocabulary; ENT-1; the phase exit table.

@@ -224,7 +224,9 @@ pub(super) fn entries(
     };
     match &record.event {
         // An ordering point with no content of its own.
-        CollaborationEvent::TurnAdmitted { .. } => Vec::new(),
+        CollaborationEvent::TurnAdmitted { .. }
+        | CollaborationEvent::AttentionRequested { .. }
+        | CollaborationEvent::AttentionResolved { .. } => Vec::new(),
         CollaborationEvent::DelegationCreated {
             delegator,
             worker: to,

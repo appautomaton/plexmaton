@@ -28,6 +28,24 @@ pub(super) enum UserControlRefusal {
 }
 
 impl LiveRuntime {
+    /// Applies an approval already authenticated by the collaboration owner for this exact child.
+    pub(crate) async fn submit_owned_approval(
+        &mut self,
+        approval_id: plexmaton_core::ApprovalId,
+        decision: plexmaton_core::ApprovalDecision,
+    ) -> Result<DispatchReport, RuntimeError> {
+        self.submit_selected_with_control(
+            self.agent_id.clone(),
+            Input::ApprovalDecided {
+                approval_id,
+                decision,
+            },
+            None,
+            false,
+        )
+        .await
+    }
+
     /// Persists one session-side placement after the collaboration owner outlived its tool wait.
     pub async fn link_collaboration_item(
         &mut self,

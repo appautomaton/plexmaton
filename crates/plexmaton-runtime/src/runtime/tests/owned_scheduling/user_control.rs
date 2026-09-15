@@ -1,7 +1,121 @@
 use plexmaton_agent::Input;
+use plexmaton_core::{ApprovalDecision, ApprovalId, AttentionRequest};
 
 use super::*;
+use crate::runtime::tests::tools::called;
 use crate::{UserInputRequest, UserTargetInputRequest};
+
+/// APV-4/ATT-3: Main control keeps task ownership while the exact live child resolves approval.
+#[tokio::test]
+async fn attention_decision_routes_only_to_the_exact_live_child_generation() {
+    let directory = Directory::new();
+    let workspace = TestWorkspace::new("owned-attention-decision");
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let driver = FakeDriver::new([
+        Script::Events(vec![
+            called(
+                0,
+                "background-command",
+                "exec_command",
+                serde_json::json!({"cmd":"printf no", "timeout_ms":null}),
+            ),
+            ModelEvent::Stopped(StopReason::ToolCalls),
+        ]),
+        Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
+    ]);
+    let (runtime, request) = bound_runtime(&directory, &workspace, &writer, "one", driver).await;
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main ingress");
+    owner.register(runtime).await.expect("register child");
+    owner.next_update().await.expect("initial announcement");
+    let target = user_target(
+        &owner
+            .register_collaboration_targets()
+            .await
+            .expect("register targets"),
+        "one",
+    );
+    owner.schedule(request).await.expect("start child work");
+    let (approval_id, generation) = loop {
+        let update = owner.next_update().await.expect("child approval progress");
+        if let OwnedRunnerUpdate::Runtime { identity, update } = update
+            && let RuntimeUpdate::Event(envelope) = *update
+            && let plexmaton_core::ConversationEvent::AttentionRequested {
+                request: AttentionRequest::Approval { approval_id, .. },
+                ..
+            } = envelope.event
+        {
+            break (approval_id, identity.generation());
+        }
+    };
+
+    let stale_generation =
+        RunnerGeneration::new(generation.get().saturating_add(1)).expect("different generation");
+    let stale = owner
+        .begin_attention_decision(
+            &target,
+            stale_generation,
+            approval_id.clone(),
+            ApprovalDecision::AllowOnce,
+        )
+        .expect_err("a stale generation has no decision authority");
+    assert_eq!(
+        stale.reason,
+        plexmaton_agent::ApprovalDecisionRefusal::NotPending
+    );
+
+    let wrong_id = ApprovalId::new("wrong-owner-approval").expect("approval identity");
+    owner
+        .begin_attention_decision(
+            &target,
+            generation,
+            wrong_id.clone(),
+            ApprovalDecision::Deny,
+        )
+        .expect("the producer performs final APV-4 identity validation");
+    let wrong = owner
+        .next_update()
+        .await
+        .expect("wrong decision settlement");
+    let OwnedRunnerUpdate::UserInputSettled { outcome, .. } = wrong else {
+        panic!("approval input settles before later child events");
+    };
+    let report = outcome.expect("child runtime returns a typed refusal report");
+    assert_eq!(report.unresolved_approvals.len(), 1);
+    assert_eq!(report.unresolved_approvals[0].approval_id, wrong_id);
+
+    owner
+        .begin_attention_decision(
+            &target,
+            generation,
+            approval_id.clone(),
+            ApprovalDecision::Deny,
+        )
+        .expect("Main-controlled live child accepts its exact decision");
+    let settled = owner.next_update().await.expect("decision settlement");
+    assert!(matches!(
+        settled,
+        OwnedRunnerUpdate::UserInputSettled { outcome, .. } if outcome.is_ok()
+    ));
+    loop {
+        let update = owner
+            .next_update()
+            .await
+            .expect("child resolution progress");
+        if matches!(
+            update,
+            OwnedRunnerUpdate::Runtime { update, .. }
+                if matches!(&*update, RuntimeUpdate::Event(envelope)
+                    if matches!(envelope.event, plexmaton_core::ConversationEvent::AttentionResolved { .. }))
+        ) {
+            break;
+        }
+    }
+    shutdown_owner(&mut owner).await;
+}
 
 /// COL-3/SCH-4: only the owner-issued target reaches the exact child after durable Handoff.
 #[tokio::test]

@@ -91,13 +91,12 @@ impl Collaboration {
                     continue;
                 }
             };
-            let session_agent = workers
+            let session_endpoint = workers
                 .values()
                 .find(|endpoint| endpoint.conversation == conversation)
-                .map(|endpoint| &endpoint.agent)
                 .context("restored child has no canonical collaboration endpoint")?;
             let placements = self
-                .session_placements(session_agent, journal, records)
+                .session_placements(&session_endpoint.agent, journal, records)
                 .await?;
             let replayed_prefix: VecDeque<_> = projection
                 .events()
@@ -121,6 +120,14 @@ impl Collaboration {
             let merged = super::projection::merge_session_entries(&projection, shared);
             for mut event in merged {
                 if !forwarded(&event) {
+                    continue;
+                }
+                if matches!(
+                    event,
+                    ConversationEvent::AttentionRequested { .. }
+                        | ConversationEvent::AttentionResolved { .. }
+                ) && !attention_published(records, session_endpoint, &event)
+                {
                     continue;
                 }
                 *event.agent_mut() = agent_id.clone();
@@ -149,4 +156,22 @@ impl Collaboration {
             })
             .context("project unavailable delegated history")
     }
+}
+
+fn attention_published(
+    records: &[CollaborationRecord],
+    producer: &plexmaton_agent::collaboration::MailEndpoint,
+    event: &ConversationEvent,
+) -> bool {
+    records.iter().any(|record| match (&record.event, event) {
+        (
+            CollaborationEvent::AttentionRequested { attention },
+            ConversationEvent::AttentionRequested { attention_id, .. },
+        )
+        | (
+            CollaborationEvent::AttentionResolved { attention },
+            ConversationEvent::AttentionResolved { attention_id, .. },
+        ) => &attention.producer == producer && &attention.attention_id == attention_id,
+        _ => false,
+    })
 }

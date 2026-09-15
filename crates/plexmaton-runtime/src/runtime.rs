@@ -161,6 +161,17 @@ impl LiveRuntime {
         input: Input,
         selected_skill: Option<String>,
     ) -> Result<DispatchReport, RuntimeError> {
+        self.submit_selected_with_control(to, input, selected_skill, true)
+            .await
+    }
+
+    async fn submit_selected_with_control(
+        &mut self,
+        to: AgentId,
+        input: Input,
+        selected_skill: Option<String>,
+        require_user_control: bool,
+    ) -> Result<DispatchReport, RuntimeError> {
         if to != self.agent_id {
             return Err(RuntimeError::WrongAgent {
                 expected: self.agent_id.clone(),
@@ -178,7 +189,9 @@ impl LiveRuntime {
             }
             return Err(RuntimeError::ShuttingDown);
         }
-        if let Some(refusal) = self.refuse_direct_input(&input, selected_skill.as_deref()) {
+        if require_user_control
+            && let Some(refusal) = self.refuse_direct_input(&input, selected_skill.as_deref())
+        {
             return refusal;
         }
         if matches!(&input, Input::Interrupted) {

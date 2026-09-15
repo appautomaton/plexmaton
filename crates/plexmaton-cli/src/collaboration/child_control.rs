@@ -1,6 +1,8 @@
 //! Authenticated child-controller projection and focused post-Handoff input routing.
 
-use plexmaton_agent::{Input, UndeliveredInput, UndeliveredReason};
+use plexmaton_agent::{
+    ApprovalDecisionRefusal, Input, UndeliveredInput, UndeliveredReason, UnresolvedApprovalDecision,
+};
 use plexmaton_core::AgentStatus;
 use plexmaton_runtime::{
     DispatchReport, LiveRuntime, OwnedChildControl, OwnedChildControlSnapshot, UserInputRefusal,
@@ -9,6 +11,7 @@ use plexmaton_runtime::{
 
 use super::Collaboration;
 use crate::input::AddressedInput;
+use plexmaton_tui::ApprovalSubmission;
 
 impl Collaboration {
     /// Rebuilds roster targets and their current durable controller state.
@@ -143,6 +146,48 @@ impl Collaboration {
             }
         }
     }
+
+    /// Routes an approval only when a newly admitted live request issued this exact child route.
+    pub(crate) fn dispatch_child_approval(
+        &mut self,
+        approval: ApprovalSubmission,
+    ) -> Option<(plexmaton_core::AgentId, DispatchReport)> {
+        if !self.announced.values().any(|agent| agent == &approval.to) {
+            return None;
+        }
+        let to = approval.to.clone();
+        let Some(route) = self
+            .live_approvals
+            .get(&(approval.to.clone(), approval.approval_id.clone()))
+            .cloned()
+        else {
+            return Some((
+                to,
+                refused_approval(approval, ApprovalDecisionRefusal::NotPending),
+            ));
+        };
+        let target = self.announced.iter().find_map(|(conversation, agent)| {
+            (agent == &approval.to)
+                .then(|| self.user_targets.get(conversation).cloned())
+                .flatten()
+        });
+        let Some(target) = target else {
+            return Some((
+                to,
+                refused_approval(approval, ApprovalDecisionRefusal::NotPending),
+            ));
+        };
+        let mut report = DispatchReport::default();
+        if let Err(refusal) = self.owner.begin_attention_decision(
+            &target,
+            route.generation,
+            approval.approval_id,
+            approval.decision,
+        ) {
+            report.unresolved_approvals.push(refusal);
+        }
+        Some((to, report))
+    }
 }
 
 pub(crate) fn undelivered_reason(refusal: &UserInputRefusal) -> UndeliveredReason {
@@ -170,5 +215,21 @@ fn returned_child_input(addressed: AddressedInput, reason: UndeliveredReason) ->
     report
         .undelivered
         .push(UndeliveredInput::with_skill(text, addressed.skill, reason));
+    report
+}
+
+fn refused_approval(
+    approval: ApprovalSubmission,
+    reason: ApprovalDecisionRefusal,
+) -> DispatchReport {
+    let mut report = DispatchReport::default();
+    report
+        .unresolved_approvals
+        .push(UnresolvedApprovalDecision {
+            approval_id: approval.approval_id,
+            decision: approval.decision,
+            reason,
+            current_offer: None,
+        });
     report
 }
