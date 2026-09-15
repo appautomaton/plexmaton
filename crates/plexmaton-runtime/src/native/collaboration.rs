@@ -3,6 +3,35 @@
 use super::*;
 use crate::collaboration_tools::collaboration_tool_definitions;
 
+/// Synchronized debug-binary witness that a collaboration tool entered its execution boundary.
+#[cfg(debug_assertions)]
+pub(super) fn record_invocation(call: &AdmittedToolCall) {
+    use std::io::Write as _;
+
+    const MAX_TRACE_BYTES: u64 = 4096;
+    let Some(path) = std::env::var_os("PLEXMATON_TEST_COLLABORATION_INVOCATIONS") else {
+        return;
+    };
+    let name = call.requested().name.as_str();
+    let mut trace = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .expect("open collaboration invocation trace");
+    let current = trace
+        .metadata()
+        .expect("inspect collaboration invocation trace")
+        .len();
+    assert!(
+        current + (name.len() as u64) < MAX_TRACE_BYTES,
+        "collaboration invocation trace exceeded its fixture bound"
+    );
+    writeln!(trace, "{name}").expect("append collaboration invocation trace");
+    trace
+        .sync_all()
+        .expect("persist collaboration invocation trace");
+}
+
 pub(super) fn tool_result(result: crate::CollaborationIngressResult) -> ToolExecutionResult {
     let (outcome, reference) = result.into_parts();
     let output = match outcome {

@@ -13,11 +13,16 @@ steps.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import signal
 import subprocess
 import tempfile
+import threading
+import time
 
 from provider_fixture import AddressedProvider, PausedResponse, asked, calls, response, says
 from smoke_support import (
@@ -72,21 +77,81 @@ STOP_CHILD_LATE = "STOP_CHILD_LATE_AFTER_STOP must never appear"
 STOP_ROOT_INPUT = "STOP_ROOT_INPUT root remains responsive"
 STOP_ROOT_ANSWER = "STOP_ROOT_ANSWER root answered after child Stop"
 
+KILL_ASK = "KILL_DELEGATE_ASK create a recoverable child"
+KILL_TASK = "KILL_CHILD_TASK retain this task through process death"
+KILL_WAITING = "KILL_ROOT_WAITING for durable mail"
+KILL_CHILD_WORK = "KILL_CHILD_WORK completed before process death"
+KILL_REPORT = "KILL_CHILD_REPORT durable correspondence"
+KILL_CHILD_DONE = "KILL_CHILD_DONE mail acknowledged"
+KILL_ROOT_SAW = "KILL_ROOT_SAW durable correspondence"
+KILL_UPDATE_ASK = "KILL_UPDATE_ASK revise the child task before process death"
+KILL_UPDATED_TASK = "KILL_UPDATED_TASK survive the process boundary"
+KILL_UPDATE_DONE = "KILL_UPDATE_DONE task acknowledged"
+KILL_CHILD_PAUSED = "KILL_CHILD_PAUSED transient prefix"
+KILL_CHILD_LATE = "KILL_CHILD_LATE must not survive"
+KILL_ROOT_CONTINUE = "KILL_ROOT_CONTINUE use the recovered collaboration context"
+KILL_ROOT_ANSWER = "KILL_ROOT_ANSWER recovered context retained"
+KILL_HANDOFF_ASK = "KILL_HANDOFF_ASK begin a transfer and pause before acknowledgement"
+RECOVERY_WARNING = "The previous turn didn't finish."
+KILL_ROOT_MARKERS = (
+    KILL_ASK,
+    f"assigned to {TARGET}",
+    f"received from {TARGET}",
+    KILL_ROOT_SAW,
+    KILL_UPDATE_ASK,
+    KILL_UPDATED_TASK,
+    KILL_UPDATE_DONE,
+)
+KILL_IDLE_ROOT_MARKERS = KILL_ROOT_MARKERS[:4]
+KILL_CHILD_MARKERS = (
+    f"assigned by {ROOT_AGENT}",
+    KILL_CHILD_WORK,
+    "send_mail · succeeded",
+    f"sent to {ROOT_AGENT}",
+    KILL_CHILD_DONE,
+    KILL_UPDATED_TASK,
+)
+KILL_IDLE_CHILD_MARKERS = KILL_CHILD_MARKERS[:5]
+KILL_REQUEST_CUES = (
+    KILL_ASK,
+    "call_DELEGATE_killmain",
+    KILL_TASK,
+    "call_SEND_MAIL_killchild",
+    KILL_REPORT,
+    KILL_UPDATE_ASK,
+    "call_UPDATE_TASK_killtaskupdate",
+    KILL_UPDATED_TASK,
+    KILL_ROOT_CONTINUE,
+    KILL_HANDOFF_ASK,
+)
+KILL_CHILD_REQUEST_CUES = {
+    KILL_TASK,
+    "call_SEND_MAIL_killchild",
+    KILL_UPDATED_TASK,
+}
+
 
 class QuietPausedResponse(PausedResponse):
     """Release a cancelled client without turning its expected broken pipe into a fixture error."""
 
+    def __init__(self, data):
+        super().__init__(data)
+        self.finished = threading.Event()
+
     def write(self, stream):
-        stream.write(self.prefix)
-        stream.flush()
-        assert self.release.wait(timeout=30), "paused fixture was not released"
         try:
-            stream.write(self.remainder)
+            stream.write(self.prefix)
             stream.flush()
-        except OSError:
-            # Stop closes the provider stream. The late bytes are deliberately discarded by the
-            # fixture so a socket teardown cannot hide the product-level stale-event assertion.
-            pass
+            assert self.release.wait(timeout=30), "paused fixture was not released"
+            try:
+                stream.write(self.remainder)
+                stream.flush()
+            except OSError:
+                # Stop or process death closes the provider stream. The late bytes are discarded
+                # so socket teardown cannot hide the product-level stale-event assertion.
+                pass
+        finally:
+            self.finished.set()
 
 
 def paused_late_response():
@@ -103,6 +168,19 @@ def paused_late_response():
         "choices": [{"index": 0, "delta": {"content": STOP_CHILD_LATE}, "finish_reason": None}],
     }
     data = initial[:boundary] + b"data: " + json.dumps(late).encode() + b"\n\n" + initial[boundary:]
+    return QuietPausedResponse(data)
+
+
+def paused_text_response(prefix, late, identity):
+    """Expose one transient delta, then hold the terminal event behind an owned barrier."""
+    initial = response({"role": "assistant", "content": prefix}, "stop", identity)
+    boundary = initial.index(b"\n\n") + 2
+    event = {
+        "id": identity,
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": {"content": late}, "finish_reason": None}],
+    }
+    data = initial[:boundary] + b"data: " + json.dumps(event).encode() + b"\n\n" + initial[boundary:]
     return QuietPausedResponse(data)
 
 
@@ -131,6 +209,13 @@ def update_task_reply(body):
     return calls(
         "taskupdate",
         ("update_task", {"target": delegated_target(body), "task": UPDATED_TASK}),
+    )
+
+
+def kill_update_task_reply(body):
+    return calls(
+        "killtaskupdate",
+        ("update_task", {"target": delegated_target(body), "task": KILL_UPDATED_TASK}),
     )
 
 
@@ -177,6 +262,29 @@ def script():
         ("call_HANDOFF_handoff", says(HANDOFF_DONE)),
         # After acknowledged transfer, the user's focused child composer owns this turn.
         (CHILD_INPUT, says(CHILD_ANSWER)),
+    ]
+
+
+def kill_resume_script(paused):
+    """One killed child request, one explicit root continuation and one pending Handoff cut."""
+    return [
+        (KILL_ASK, calls("killmain", ("delegate", {"task": KILL_TASK}))),
+        ("call_DELEGATE_killmain", says(KILL_WAITING)),
+        (
+            KILL_TASK,
+            calls(
+                "killchild",
+                ("send_mail", {"summary": KILL_REPORT, "artifacts": []}),
+                text=KILL_CHILD_WORK,
+            ),
+        ),
+        ("call_SEND_MAIL_killchild", says(KILL_CHILD_DONE)),
+        (KILL_REPORT, says(KILL_ROOT_SAW)),
+        (KILL_UPDATE_ASK, kill_update_task_reply),
+        ("call_UPDATE_TASK_killtaskupdate", says(KILL_UPDATE_DONE)),
+        (KILL_UPDATED_TASK, paused),
+        (KILL_ROOT_CONTINUE, says(KILL_ROOT_ANSWER)),
+        (KILL_HANDOFF_ASK, handoff_reply),
     ]
 
 
@@ -407,6 +515,314 @@ def journal_snapshot(home):
     }
 
 
+def invocation_snapshot(path):
+    """Debug-binary execution witness, bounded independently of durable exact-retry effects."""
+    if not path.exists():
+        return []
+    invocations = path.read_text().splitlines()
+    assert len(invocations) <= len(KILL_REQUEST_CUES), invocations
+    assert set(invocations) <= {"delegate", "send_mail", "update_task", "handoff"}, invocations
+    return invocations
+
+
+IDENTITY_FIELDS = {
+    "agent",
+    "session_id",
+    "record_id",
+    "id",
+    "parent",
+    "parent_id",
+    "entry_id",
+    "agent_id",
+    "item_id",
+    "turn_id",
+    "attempt_id",
+    "call_id",
+    "artifact_id",
+    "attention_id",
+    "delegation",
+    "collaboration",
+    "conversation",
+    "item",
+    "semantic_boundary",
+    "session",
+    "turn",
+}
+TARGET_ID = re.compile(r"target-v1-[0-9a-f]{64}")
+LOOPBACK_URL = re.compile(r"http://127\.0\.0\.1:[0-9]+")
+GENERATED_ID = re.compile(
+    r"\b(?:agent|collaboration-item|conversation|session|turn)-[0-9a-f][0-9a-f-]{15,}\b"
+)
+
+
+def normalize_fixture(value, identities, key=None):
+    """Keep semantic structure while replacing run-specific identity and timing values."""
+    if isinstance(value, dict):
+        return {
+            field: normalize_fixture(item, identities, field)
+            for field, item in value.items()
+            if field != "replay"
+        }
+    if isinstance(value, list):
+        return [normalize_fixture(item, identities, key) for item in value]
+    if isinstance(value, str) and key in IDENTITY_FIELDS:
+        if value not in identities:
+            digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+            identities[value] = f"<{key}:{digest}>"
+        return identities[value]
+    if key and (key.endswith("_at") or key.endswith("_unix_ms")):
+        return "<time>"
+    if key == "fingerprint":
+        return "<fingerprint>"
+    if isinstance(value, str):
+        value = LOOPBACK_URL.sub("<loopback>", value)
+        value = TARGET_ID.sub("<target>", value)
+
+        def replace_generated(match):
+            generated = match.group(0)
+            if generated not in identities:
+                digest = hashlib.sha256(generated.encode()).hexdigest()[:12]
+                identities[generated] = f"<generated:{digest}>"
+            return identities[generated]
+
+        return GENERATED_ID.sub(replace_generated, value)
+    return value
+
+
+def journal_projection(entries, identities):
+    """Reduce the selected head and its exact immutable ancestry from durable mutations."""
+    heads = {"main": None}
+    selected = "main"
+    nodes = {}
+    for record in entries:
+        kind = record.get("kind")
+        if kind == "append_entry":
+            entry = record["entry"]
+            nodes[entry["id"]] = {
+                "sequence": record["sequence"],
+                "id": entry["id"],
+                "parent_id": entry.get("parent_id"),
+                "type": entry["payload"]["type"],
+            }
+            heads[record["head"]] = entry["id"]
+        elif kind == "create_head":
+            heads[record["head"]] = record.get("at")
+        elif kind == "move_head":
+            heads[record["head"]] = record.get("to")
+        elif kind == "rename_head":
+            heads[record["renamed"]] = heads.pop(record["head"])
+            if record["head"] == selected:
+                selected = record["renamed"]
+        elif kind == "abandon_head":
+            heads.pop(record["head"])
+        elif kind == "fork_and_select_head":
+            heads[record["destination"]] = record.get("at")
+            selected = record["destination"]
+        elif kind == "select_head":
+            selected = record["destination"]
+
+    ancestry = []
+    cursor = heads[selected]
+    while cursor is not None:
+        node = nodes[cursor]
+        ancestry.append(node)
+        cursor = node["parent_id"]
+    ancestry.reverse()
+    return {
+        "selected_head": selected,
+        "selected_ancestry": normalize_fixture(ancestry, identities),
+    }
+
+
+def file_manifest(path, session, identities):
+    decoded = records(path)
+    header, entries = decoded[0], decoded[1:]
+    manifest = {
+        "format": header["format"],
+        "schema": header["schema"],
+        "records": normalize_fixture(entries, identities),
+    }
+    if session:
+        manifest.update(journal_projection(entries, identities))
+    return manifest
+
+
+def collaboration_projection(entries, identities):
+    """Summarize canonical tasks, control, correspondence and admitted cross-file items."""
+    delegations = {}
+    ordered = []
+    correspondence = []
+    admissions = []
+    for record in entries:
+        event = record.get("event")
+        if event is None:
+            continue
+        kind = event["kind"]
+        if kind == "delegation_created":
+            delegation = event["delegation"]
+            delegations[delegation] = {
+                "delegation": delegation,
+                "delegator": event["delegator"],
+                "worker": event["worker"],
+                "task_history": [event["task"]],
+                "controller": "Main",
+            }
+            ordered.append(delegation)
+        elif kind == "task_updated":
+            delegations[event["delegation"]]["task_history"].append(event["task"])
+        elif kind == "handoff_completed":
+            delegations[event["delegation"]]["controller"] = "User"
+        elif kind == "mail_accepted":
+            mail = event["mail"]
+            correspondence.append({
+                "sequence": record["sequence"],
+                "id": mail["id"],
+                "from": mail["from"],
+                "to": mail["to"],
+                "summary": mail["summary"],
+                "artifacts": mail["artifacts"],
+            })
+        elif kind == "turn_admitted":
+            admission = event["admission"]
+            admissions.append({
+                "sequence": record["sequence"],
+                "boundary": admission["boundary"],
+                "items": admission["items"],
+                "previous": admission["previous"],
+            })
+    return normalize_fixture(
+        {
+            "delegations": [delegations[delegation] for delegation in ordered],
+            "correspondence": correspondence,
+            "admissions": admissions,
+        },
+        identities,
+    )
+
+
+def semantic_manifest(home):
+    """Reviewable durable projections with stable identities, order and selected branches."""
+    identities = {}
+    root = file_manifest(one(home / "sessions"), True, identities)
+    child = file_manifest(one(home / "delegated-sessions"), True, identities)
+    collaboration_path = one(home / "collaborations")
+    collaboration = file_manifest(collaboration_path, False, identities)
+    collaboration["projection"] = collaboration_projection(
+        records(collaboration_path)[1:], identities
+    )
+    return {"root": root, "child": child, "collaboration": collaboration}
+
+
+def provider_manifest(requests, errors):
+    """Keep request ownership and tool shape without copying whole provider payloads."""
+    history = []
+    answered = set()
+    for sequence, request in enumerate(requests, start=1):
+        question = asked(request)
+        cues = [cue for cue in KILL_REQUEST_CUES if cue not in answered and cue in question]
+        assert len(cues) == 1, (sequence, cues, question)
+        cue = cues[0]
+        answered.add(cue)
+        messages = request.get("messages") or []
+        tools = [
+            tool["function"]["name"]
+            for tool in request.get("tools") or []
+            if tool.get("type") == "function"
+        ]
+        history.append({
+            "sequence": sequence,
+            "actor": "child" if cue in KILL_CHILD_REQUEST_CUES else "root",
+            "cue": cue,
+            "last_role": messages[-1]["role"],
+            "message_count": len(messages),
+            "available_tools": tools,
+            "prior_tool_calls": sum(len(message.get("tool_calls") or []) for message in messages),
+        })
+    return {
+        "requests": history,
+        "root_requests": sum(item["actor"] == "root" for item in history),
+        "child_requests": sum(item["actor"] == "child" for item in history),
+        "errors": list(errors),
+    }
+
+
+def screen_manifest(screen, markers):
+    positions = {marker: screen.index(marker) for marker in markers}
+    ordered = [marker for marker, _ in sorted(positions.items(), key=lambda item: item[1])]
+    return {"order": ordered, "count": {marker: screen.count(marker) for marker in markers}}
+
+
+def assert_recovery_prefix(before, after):
+    """Only the killed root turn may append typed recovery; all prior semantics stay exact."""
+    assert before["child"] == after["child"], "pending Handoff changed passive child history"
+    assert before["collaboration"] == after["collaboration"], \
+        "pending Handoff became durable across process death"
+    assert before["root"]["selected_head"] == after["root"]["selected_head"]
+    prior = before["root"]["records"]
+    recovered = after["root"]["records"]
+    assert recovered[:len(prior)] == prior, "root recovery changed the durable prefix"
+    suffix = recovered[len(prior):]
+    interruptions = [
+        record for record in suffix
+        if record.get("kind") == "append_entry"
+        and record["entry"]["payload"]["type"] == "turn_interrupted_by_recovery"
+    ]
+    cancelled_calls = [
+        record for record in suffix
+        if record.get("kind") == "append_entry"
+        and record["entry"]["payload"]["type"] == "tool_call_changed"
+        and record["entry"]["payload"].get("status") == "cancelled"
+        and record["entry"]["payload"].get("outcome")
+        == {"status": "cancelled", "reason": "process_died"}
+        and record["entry"]["payload"].get("item_revision") == 2
+    ]
+    finished = [
+        record for record in suffix
+        if record.get("kind") == "turn_finished"
+        and record["fact"].get("outcome") == "process_died"
+    ]
+    assert len(suffix) == 3, suffix
+    assert len(interruptions) == 1, suffix
+    assert len(cancelled_calls) == 1, suffix
+    assert len(finished) == 1, suffix
+
+
+def write_manifest(name, manifest):
+    output = ROOT / "target/smoke"
+    output.mkdir(parents=True, exist_ok=True)
+    (output / f"delegate-{name}.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+
+
+def wait_for_path(path, terminal, timeout=10):
+    deadline = time.monotonic() + timeout
+    while not path.exists():
+        assert terminal.process.poll() is None, "binary exited before the process-cut marker"
+        assert time.monotonic() < deadline, f"timed out waiting for {path.name}"
+        observe_for(terminal.master, 0.01, terminal.capture)
+    return path.read_text().splitlines()
+
+
+def kill_terminal(terminal):
+    process_group = os.getpgid(terminal.process.pid)
+    assert process_group == terminal.process.pid, "terminal binary does not own its process group"
+    os.killpg(process_group, signal.SIGKILL)
+    status = terminal.process.wait(timeout=10)
+    assert status != 0, "process-cut binary exited successfully instead of being killed"
+
+
+def binary_contains(marker):
+    with (ROOT / "target/debug/plexmaton").open("rb") as binary:
+        previous = b""
+        while chunk := binary.read(1024 * 1024):
+            data = previous + chunk
+            if marker in data:
+                return True
+            previous = data[-len(marker):]
+    return False
+
+
 def visible_history_anchor(screen):
     """The first semantic history line in the viewport, independent of border geometry."""
     for row in screen.splitlines():
@@ -617,6 +1033,271 @@ def run_smoke(provider):
             "keyboard browsing appended a durable fact"
 
 
+def run_kill_resume_smoke(provider, paused):
+    """JRN-4/JRN-5/JRN-7/CHB-3: kill the real CLI and compare exact reopened semantics."""
+    with tempfile.TemporaryDirectory(prefix="plexmaton-delegate-kill-", dir="/tmp") as folder:
+        home, project = Path(folder) / "home", Path(folder) / "project"
+        project.mkdir()
+        invocation_trace = Path(folder) / "collaboration-invocations.log"
+        environment = dict(
+            configure(home, provider),
+            PLEXMATON_TEST_COLLABORATION_INVOCATIONS=str(invocation_trace),
+        )
+
+        # First kill after task and mail are acknowledged while both conversations are idle.
+        with Terminal(project, environment, "delegate", "kill-idle") as terminal:
+            terminal.wait("Message Plexmaton")
+            terminal.prompt(KILL_ASK, KILL_WAITING, CHILD)
+            idle_root_screen = terminal.wait(*KILL_IDLE_ROOT_MARKERS)
+            idle_root = screen_manifest(idle_root_screen, KILL_IDLE_ROOT_MARKERS)
+            requests_before_idle, errors = provider.snapshot()
+            assert len(requests_before_idle) == 5 and not errors, (requests_before_idle, errors)
+            idle_invocations = invocation_snapshot(invocation_trace)
+            assert idle_invocations == ["delegate", "send_mail"], idle_invocations
+            journal = one(home / "sessions")
+            idle_bytes = journal_snapshot(home)
+            idle_manifest = semantic_manifest(home)
+            write_manifest(
+                "idle-before",
+                {
+                    "durable": idle_manifest,
+                    "root_screen": idle_root,
+                    "provider": provider_manifest(requests_before_idle, errors),
+                    "tool_invocations": idle_invocations,
+                },
+            )
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            kill_terminal(terminal)
+
+        # The first reopen is passive until explicit task-update input, which then pauses the child.
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "kill-paused-live",
+            ("resume", journal.stem),
+        ) as terminal:
+            idle_root_screen = terminal.wait(*KILL_IDLE_ROOT_MARKERS, RESTORED)
+            assert screen_manifest(idle_root_screen, KILL_IDLE_ROOT_MARKERS) == idle_root
+            assert provider.snapshot() == (requests_before_idle, errors)
+            open_child(terminal, *KILL_IDLE_CHILD_MARKERS, "Controller: Main")
+            terminal.wait(*KILL_IDLE_CHILD_MARKERS, "Controller: Main")
+            assert provider.snapshot() == (requests_before_idle, errors)
+            assert invocation_snapshot(invocation_trace) == idle_invocations
+            close_child(terminal, *KILL_IDLE_ROOT_MARKERS)
+            assert journal_snapshot(home) == idle_bytes, "idle process recovery wrote a fact"
+            assert semantic_manifest(home) == idle_manifest
+            focus_primary_and_type(terminal, KILL_UPDATE_ASK)
+            terminal.send(ENTER, KILL_UPDATE_DONE, KILL_UPDATED_TASK)
+            root_screen = terminal.wait(*KILL_ROOT_MARKERS)
+            live_root = screen_manifest(root_screen, KILL_ROOT_MARKERS)
+            open_child(terminal, *KILL_CHILD_MARKERS, KILL_CHILD_PAUSED)
+            child_screen = terminal.wait(*KILL_CHILD_MARKERS, KILL_CHILD_PAUSED)
+            live_child = screen_manifest(child_screen, KILL_CHILD_MARKERS)
+            requests_before_kill, errors = provider.snapshot()
+            assert len(requests_before_kill) == 8 and not errors, \
+                (requests_before_kill, errors)
+            invocations_before_kill = invocation_snapshot(invocation_trace)
+            assert invocations_before_kill == ["delegate", "send_mail", "update_task"], \
+                invocations_before_kill
+            journal = one(home / "sessions")
+            durable_before_resume = journal_snapshot(home)
+            manifest_before_resume = semantic_manifest(home)
+            write_manifest(
+                "kill-before",
+                {
+                    "durable": manifest_before_resume,
+                    "root_screen": live_root,
+                    "child_screen": live_child,
+                    "provider": provider_manifest(requests_before_kill, errors),
+                    "tool_invocations": invocations_before_kill,
+                },
+            )
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            kill_terminal(terminal)
+
+        paused.release.set()
+        assert paused.finished.wait(timeout=10), "paused killed request did not finish"
+        child_path = one(home / "delegated-sessions")
+        child_bytes = child_path.read_bytes()
+        assert KILL_CHILD_PAUSED.encode() not in child_bytes
+        assert KILL_CHILD_LATE.encode() not in child_bytes
+
+        # Passive pointer reopen preserves every durable byte and semantic row without a request.
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "kill-resume-pointer",
+            ("resume", journal.stem),
+        ) as terminal:
+            root_screen = terminal.wait(*KILL_ROOT_MARKERS, RESTORED)
+            assert screen_manifest(root_screen, KILL_ROOT_MARKERS) == live_root
+            requests_before, errors_before = provider.snapshot()
+            assert requests_before == requests_before_kill and not errors_before
+            open_child(terminal, *KILL_CHILD_MARKERS, "Controller: Main")
+            child_screen = terminal.wait(
+                *KILL_CHILD_MARKERS,
+                "Controller: Main",
+                absent=(KILL_CHILD_PAUSED, KILL_CHILD_LATE),
+            )
+            assert screen_manifest(child_screen, KILL_CHILD_MARKERS) == live_child
+            close_child(terminal, KILL_UPDATE_DONE, KILL_UPDATED_TASK)
+            assert invocation_snapshot(invocation_trace) == invocations_before_kill
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+        assert journal_snapshot(home) == durable_before_resume, \
+            "passive process recovery appended a durable fact"
+        assert semantic_manifest(home) == manifest_before_resume
+
+        # A second passive launch opens the same child by keyboard and adds no recovery debt.
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "kill-resume-keyboard",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(KILL_UPDATE_DONE, KILL_UPDATED_TASK, RESTORED)
+            requests_before, errors_before = provider.snapshot()
+            terminal.send(DOWN, *KILL_CHILD_MARKERS, "Controller: Main")
+            child_screen = terminal.send(
+                ENTER,
+                *KILL_CHILD_MARKERS,
+                "Controller: Main",
+                absent=(KILL_CHILD_PAUSED, KILL_CHILD_LATE),
+            )
+            assert screen_manifest(child_screen, KILL_CHILD_MARKERS) == live_child
+            assert provider.snapshot() == (requests_before, errors_before)
+            assert invocation_snapshot(invocation_trace) == invocations_before_kill
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+        assert journal_snapshot(home) == durable_before_resume, \
+            "repeat passive recovery added debt"
+
+        # Explicit root input is the first new effect and receives the same task/mail context.
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "kill-root-continuation",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(KILL_UPDATE_DONE, KILL_UPDATED_TASK, RESTORED)
+            requests_before, errors_before = provider.snapshot()
+            focus_primary_and_type(terminal, KILL_ROOT_CONTINUE)
+            terminal.send(ENTER, KILL_ROOT_ANSWER)
+            requests_after, errors_after = provider.snapshot()
+            assert len(requests_after) == len(requests_before) + 1
+            context = json.dumps(requests_after[-1], ensure_ascii=False)
+            assert KILL_REPORT in context and KILL_UPDATED_TASK in context, context
+            assert not errors_before and not errors_after
+            assert invocation_snapshot(invocation_trace) == invocations_before_kill
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+
+        # The pending controller snapshot is process-local. Kill before the Handoff append, then
+        # require canonical Main control and one typed root recovery suffix on reopen.
+        pending_ready = Path(folder) / "pending-handoff.ready"
+        pending_environment = dict(
+            environment,
+            PLEXMATON_TEST_PENDING_HANDOFF_READY=str(pending_ready),
+        )
+        with Terminal(
+            project,
+            pending_environment,
+            "delegate",
+            "kill-pending-handoff",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(KILL_ROOT_ANSWER, RESTORED)
+            requests_before_pending, errors = provider.snapshot()
+            focus_primary_and_type(terminal, KILL_HANDOFF_ASK)
+            os.write(terminal.master, ENTER)
+            marker = wait_for_path(pending_ready, terminal)
+            assert len(marker) == 2 and marker[0] and marker[1].isdigit(), marker
+            requests_at_pending, errors = provider.snapshot()
+            assert len(requests_at_pending) == len(requests_before_pending) + 1 and not errors
+            invocations_at_pending = invocation_snapshot(invocation_trace)
+            assert invocations_at_pending == [
+                "delegate", "send_mail", "update_task", "handoff"
+            ], invocations_at_pending
+            collaboration_records = records(one(home / "collaborations"))
+            assert not any(
+                record.get("event", {}).get("kind") == "handoff_completed"
+                for record in collaboration_records
+            )
+            manifest_before_pending = semantic_manifest(home)
+            write_manifest(
+                "pending-before",
+                {
+                    "durable": manifest_before_pending,
+                    "provider": provider_manifest(requests_at_pending, errors),
+                    "pending_worker": normalize_fixture(marker[0], {}, "conversation"),
+                    "pending_revision": int(marker[1]),
+                    "tool_invocations": invocations_at_pending,
+                },
+            )
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            kill_terminal(terminal)
+
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "pending-handoff-resume",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(KILL_HANDOFF_ASK, RECOVERY_WARNING, RESTORED)
+            requests_after_pending, errors = provider.snapshot()
+            assert requests_after_pending == requests_at_pending and not errors
+            assert invocation_snapshot(invocation_trace) == invocations_at_pending
+            open_child(terminal, KILL_UPDATED_TASK, "Controller: Main")
+            terminal.wait(
+                KILL_UPDATED_TASK,
+                "Controller: Main",
+                absent=(HANDOFF_ROW, KILL_CHILD_LATE),
+            )
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+        manifest_after_pending = semantic_manifest(home)
+        assert_recovery_prefix(manifest_before_pending, manifest_after_pending)
+        write_manifest(
+            "pending-after",
+            {
+                "durable": manifest_after_pending,
+                "provider": provider_manifest(requests_at_pending, errors),
+                "tool_invocations": invocations_at_pending,
+            },
+        )
+        recovered_once = journal_snapshot(home)
+
+        with Terminal(
+            project,
+            environment,
+            "delegate",
+            "pending-handoff-repeat",
+            ("resume", journal.stem),
+        ) as terminal:
+            terminal.wait(KILL_HANDOFF_ASK, RECOVERY_WARNING, RESTORED)
+            requests_repeat, errors = provider.snapshot()
+            assert requests_repeat == requests_at_pending and not errors
+            assert invocation_snapshot(invocation_trace) == invocations_at_pending
+            terminal.send(DOWN, KILL_UPDATED_TASK, "Controller: Main", absent=(HANDOFF_ROW,))
+            no_dropped_events(terminal)
+            no_internal_names(terminal)
+            terminal.quit()
+        assert journal_snapshot(home) == recovered_once, \
+            "repeat pending-Handoff resume added recovery debt"
+
+
 def stop_script(paused):
     """The child response has one visible prefix and one late marker behind the pause barrier."""
     return [
@@ -682,8 +1363,13 @@ def main():
     if not arguments.skip_build:
         subprocess.run(["cargo", "build", "--locked", "--offline", "-p", "plexmaton-cli",
                         "--bin", "plexmaton", "--quiet"], cwd=ROOT, check=True)
+    assert binary_contains(b"PLEXMATON_TEST_PENDING_HANDOFF_READY"), \
+        "the debug binary does not contain the pending-Handoff process barrier; rebuild it"
     with CollaborationProvider(script()) as provider:
         run_smoke(provider)
+    killed = paused_text_response(KILL_CHILD_PAUSED, KILL_CHILD_LATE, "killchild-paused")
+    with CollaborationProvider(kill_resume_script(killed)) as provider:
+        run_kill_resume_smoke(provider, killed)
     paused = paused_late_response()
     with AddressedProvider(stop_script(paused)) as provider:
         run_stop_smoke(provider, paused)
@@ -693,7 +1379,9 @@ def main():
           "the child is closed; no dropped event; a durable ledger and child journal; passive "
           "pointer and keyboard resume at all three widths with durable task/mail/Handoff placement, "
           "a final restoration confirmation, no request or durable write; and "
-          "focused-child Stop through a paused provider with root continuation")
+          "focused-child Stop through a paused provider with root continuation; actual CLI "
+          "kill/resume with equal passive projections, one explicit root continuation, and a "
+          "pending-Handoff recovery that stays under Main control")
 
 
 if __name__ == "__main__":

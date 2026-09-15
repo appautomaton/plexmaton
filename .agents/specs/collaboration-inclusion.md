@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and wired. Accepted: `scripts/smoke-delegate.py` delegates through the real binary and the child receives its task |
+| Status | Implemented, wired and accepted through delegation, passive restart and actual CLI process-kill recovery |
 | Owns | Turn-admission ordering, canonical session references and typed context resolution |
 | Depends on | Roadmap §Locked; COL-1–COL-5; JRN-1/JRN-7; TIM-2 |
 | Proven by | Ledger/session tests, real-file scripted runtime tests and provider refusal fixtures |
@@ -59,6 +59,11 @@ unavailable historical materialization refuse before a new collaboration turn is
 preparation failure settles the un-dispatched step through the existing turn terminal path.
 
 ## Evidence
+
+`scripts/smoke-delegate.py` kills the actual CLI after acknowledged task/mail inclusion, during a
+paused child request and before pending Handoff admission. Exact collaboration bytes and normalized
+task, control, correspondence and admission projections survive passive and repeated resume with no
+redispatch; one explicit root continuation receives the same canonical task/mail context.
 
 | Invariant | Proven by |
 | --- | --- |

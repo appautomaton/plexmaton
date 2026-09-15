@@ -4,7 +4,7 @@
 | --- | --- |
 | Phase | [Phase 03](../phases/phase-03-collaboration.md) |
 | Contract | JRN-3–JRN-7, COL-3–COL-5, CIN-2–CIN-4, CHB-1–CHB-3, SCH-2–SCH-5, APV-6, ATT-1–ATT-3, PRV-1 |
-| Status | Active; 1 of 4 slices complete. Next: slice 2 (CLI kill → resume) |
+| Status | Active; 2 of 4 slices complete. Next: slice 3 (pending approval readmission) |
 
 ## Outcome
 
@@ -23,34 +23,20 @@ than duplicating their entire matrices.
 ## Slices
 
 1. **Provisioning across process death — L; complete.**
-   Read [collaboration-tools](../specs/collaboration-tools.md) CTL-1,
-   [ledger](../specs/collaboration-ledger.md) COL-4/COL-5 and
-   [bootstrap](../specs/delegated-bootstrap.md) CHB-2/CHB-3.
-   Start at runtime `collaboration_ingress/provisioning.rs`, child construction and session-store
-   collaboration tests. Use a child process and explicit barriers around canonical creation,
-   child-journal creation and runner registration; terminate the owned process at each cut.
-   **Closes:** tier 4 proves acknowledgement/retry identity, one delegation and child journal,
-   preserved accepted mail, and explicit recovery of a canonical-only child. Reopen starts no work;
-   explicit target recovery cannot create a second child. Cover uncertain writes and refusal of
-   malformed/mismatched provenance without erasing evidence. Keep barriers test-scoped and bounded.
-   `provisioning_process_death_recovers_one_exact_passive_child` kills at all four boundaries,
-   preserves target/retry/mail and recovers one passive child; lower tiers retain other failures.
+   `provisioning_process_death_recovers_one_exact_passive_child` kills the real child process after
+   canonical creation, child-journal creation, runner registration and acknowledged mail. Every
+   cut preserves the target, retry receipts and mail, then explicitly recovers one passive child.
+   Lower tiers retain the exhaustive uncertain-write, corruption and provenance refusals.
 
-2. **CLI kill → resume with equal projections — L; pending; after 1.**
-   Read [session-journal](../specs/session-journal.md) JRN-4/JRN-5/JRN-7,
-   [inclusion](../specs/collaboration-inclusion.md) CIN-2–CIN-4 and
-   [bootstrap](../specs/delegated-bootstrap.md) CHB-3.
-   Start at CLI session startup, collaboration restore and the shared PTY/provider fixtures.
-   Kill the actual binary after acknowledged task/mail facts and during explicitly paused work;
-   graceful quit is a separate case. Capture durable records and normalized semantic projections
-   before/after restart, not only the presence of a few strings.
-   **Closes:** selected branches, entry order, identities, correspondence and control agree across
-   reopen, except documented recovery/lifecycle facts. Provider/tool counters prove zero replay
-   effects; root continuation resolves the same canonical context, and passive child browsing
-   starts no runner. Repeat resume adds no recovery debt or duplicated entries. Include a pending
-   transfer cut and compare live/reopened ledger and passive request history. Recovered orphan
-   requests remain inert here; actionable readmission belongs to slice 3.
-   Keep sanitized fixture manifests, counters and failure traces in named task artifacts.
+2. **CLI kill → resume with equal projections — L; complete.**
+   `scripts/smoke-delegate.py` kills the actual CLI while idle, during a paused child request and
+   after pending Handoff projection but before its durable mutation. Exact bytes, selected ancestry,
+   task/control/correspondence projections, sanitized request history and a synchronized tool
+   invocation trace remain equal on passive pointer, keyboard and repeated resume. No provider or
+   tool is replayed; one explicit root turn
+   receives the recovered task/mail context. The pending cut reopens under Main and appends exactly
+   one interruption, one cancelled call and one `process_died` terminal. Lower-tier JRN-4 tests own
+   torn-tail permutations; actionable approval readmission remains slice 3.
 
 3. **Pending approval readmission — L; pending; after 2.**
    Read [tool-admission](../specs/tool-admission.md) APV-6,

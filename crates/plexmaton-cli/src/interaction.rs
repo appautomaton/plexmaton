@@ -505,9 +505,13 @@ async fn apply_collaboration(
     let Some((activity, collaboration)) = activity.zip(collaboration) else {
         return Ok(());
     };
+    #[cfg(debug_assertions)]
+    let process_cut = crate::collaboration::PendingHandoffProcessCut::capture(&activity);
     frames.flush(workspace);
     let staged = collaboration.stage(activity)?;
     collaboration.apply_child_controls(workspace)?;
+    #[cfg(debug_assertions)]
+    process_cut.wait();
     if let Some((to, outcome)) = collaboration.take_user_input_settlement() {
         child_input::apply_settlement(outcome, to, runtime, workspace);
         return Ok(());

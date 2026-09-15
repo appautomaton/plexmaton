@@ -376,6 +376,8 @@ impl NativeToolCatalog {
                 }
                 .boxed();
             };
+            #[cfg(debug_assertions)]
+            collaboration::record_invocation(&call);
             let call_id = call.requested().call_id.clone();
             let cancellation = cancellation.async_token.child_token();
             return async move {

@@ -33,6 +33,10 @@ mod pending;
 mod placement;
 use pending::PendingRootProjection;
 pub(crate) use pending::RootProjectionProgress;
+#[cfg(debug_assertions)]
+mod process_cut;
+#[cfg(debug_assertions)]
+pub(crate) use process_cut::PendingHandoffProcessCut;
 
 #[cfg(test)]
 mod tests;

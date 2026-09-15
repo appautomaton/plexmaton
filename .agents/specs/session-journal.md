@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented; real CLI kill→resume acceptance remains unproven, inherited by Phase 03 |
+| Status | Implemented and accepted through real CLI process-kill recovery; APV-6 readmission remains a separate Phase 03 boundary |
 | Owns | Typed journal, heads, projections, wire, writer, recovery and commit/effect ordering |
 | Depends on | PRV-3/PRV-4 for model replay, ENT-1/ENT-3 for transcript identity and pure reduction |
 | Proven by | Agent, store, runtime and composition tests |
@@ -107,6 +107,14 @@ Provider failures, including HTTP 529/5xx, do not qualify for this rate-limit ac
 
 ## Evidence
 
+`scripts/smoke-delegate.py` is shared acceptance evidence for JRN-4/JRN-5/JRN-7. It kills the
+actual CLI while idle, during paused child work and at pending Handoff, then compares exact bytes,
+normalized selected ancestry and collaboration/request projections. A synchronized debug-binary
+invocation trace independently proves passive and repeated resume runs no collaboration tool;
+provider history proves no model request. Explicit root continuation receives the same task/mail context. The
+pending turn adds exactly one interruption, one cancelled `process_died` call and one terminal.
+The JRN-4 store tests below remain the exhaustive evidence for incomplete and uncertain tails.
+
 | Invariant | Proven by |
 | --- | --- |
 | JRN-4 | `cin_2_automatic_journal_materializes_first_collaboration_turn`, `automatic_journal_materializes_exact_bootstrap_and_first_turn_only_on_input`, `automatic_journal_rejects_extra_bootstrap_without_creating_storage`, `automatic_first_message_is_saved_and_resumes_without_another_request`, `failed_automatic_creation_returns_first_input_without_dispatch`, offline PTY blank-start smoke |
@@ -119,6 +127,5 @@ Provider failures, including HTTP 529/5xx, do not qualify for this rate-limit ac
 | JRN-6 | `jrn_6_one_commit_is_the_only_model_record`, `jrn_5_canonical_live_turn_and_journal_replay_have_equal_model_context`, `jrn_5_multi_delta_live_turn_and_replay_have_equal_visible_semantics`, `jrn_6_active_projection_rebuild_is_refused`, `jrn_6_reused_tool_call_identity_fails_the_turn_before_commit`, `jrn_6_partial_failure_and_output_limit_keep_live_transcript_order`, `jrn_6_interleaved_answer_and_reasoning_keep_first_open_order`, `decreasing_provider_output_positions_fail_before_entering_canonical_order`, `reverse_parallel_call_completion_is_sorted_before_dispatch` |
 | JRN-7 | `cin_4_inclusion_and_request_authorization_each_gate_dispatch`, `cin_4_cancelled_start_retains_inclusion_until_acknowledgement`, `the_persistence_failure_frames_match_their_fixtures` with the `persistence-*` frames, `the_cleanup_failure_frames_match_their_fixtures` with the `cleanup-failure-wide` frame, `model_dispatch_waits_for_its_request_authorization_ack`, `model_terminal_audit_commits_before_semantic_completion`, `failed_request_authorization_starts_no_model_and_freezes_the_runtime`, `failed_request_terminal_publishes_no_semantic_completion`, `durable_transition_starts_no_effect_before_append_ack`, `cancelled_submit_publishes_staged_events_before_projected_delegation`, `failed_cancelled_submit_reports_before_projected_delegation`, `uncertain_cancelled_submit_reports_before_projected_delegation`, `retained_projection_stays_with_its_root_and_applies_once`, `retained_projection_rejects_a_replacement_for_the_same_conversation`, `shutdown_surfaces_an_unresolved_transient_projection`, `shutdown_accepts_a_pending_durable_refresh`, `tim_2_agent_authorizes_only_the_exact_active_step_without_advancing_context`, `tool_effects_start_only_after_their_transition_is_acknowledged`, `failed_claim_of_queued_next_turn_text_returns_the_exact_input`, `failed_claim_of_queued_steering_returns_the_exact_input`, `a_burst_stops_after_journal_failure_and_yields_the_queued_input_report`, `cancelled_submit_keeps_commit_owned_until_next_poll`, `cancelled_shutdown_drains_every_accepted_record_before_writer_exit`, `submit_after_cancelled_shutdown_returns_text_without_a_record_or_effect`, `failed_shutdown_returns_interleaved_queued_input_and_joins_the_model`, `failed_user_append_returns_the_draft_and_starts_no_effect`, `uncertain_user_append_is_typed_and_cannot_start_an_effect`, `failed_atomic_turn_start_is_wholly_unwritten`, `panicked_writer_returns_input_and_reports_failed_cleanup`, `the_persistence_failure_frames_match_their_fixtures`, crate-graph gate |
 
-The real CLI kill→resume journey with equal visible and model projections remains unproven.
-Existing evidence covers graceful reopen and constructed interrupted journals; it does not
-establish this process-kill acceptance. Phase 03 inherits the witness from Phase 02 scoped closure.
+This process-kill journey establishes the CLI boundary. It does not change JRN-4's explicit
+process-death versus power-loss limit or APV-6's separate current-policy readmission requirement.
