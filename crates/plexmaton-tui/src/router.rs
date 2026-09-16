@@ -11,13 +11,15 @@ use ratatui::crossterm::event::{
 
 use crate::{
     intent::{
-        ApprovalIntent, Direction, DrawerIntent, InspectorIntent, MenuIntent, PointerIntent,
-        ScrollDirection, SelectionIntent, TextIntent, TuiIntent,
+        Direction, DrawerIntent, InspectorIntent, MenuIntent, PointerIntent, ScrollDirection,
+        SelectionIntent, TextIntent, TuiIntent,
     },
     state::Motion,
     surface::{KeyboardFocus, Point, SurfaceId, SurfaceTree, Viewport},
 };
 
+mod agents;
+mod approval;
 mod drawer;
 mod tree;
 
@@ -141,10 +143,15 @@ impl Router {
             }
         }
 
-        // Its own chord, resolved before focus, so the roster comes and goes from wherever the
-        // user is, including mid-draft. `⌃B` is what a hand reaching for "put the side panel away"
-        // already presses, and it is unclaimed here: `⌥B` is the word motion, not this.
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('b') {
+        // Its own chord, resolved before ordinary focus, so the roster comes and goes from either
+        // conversation, including mid-draft. A higher workspace overlay keeps every lower route
+        // stable until it closes; toggling a retained navigator behind one would corrupt the
+        // overlay's return focus. `⌥B` is the word motion, not this.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('b')
+            && !context.drawer_open
+            && !context.conversation_tree_open
+        {
             return Routed::Intent(TuiIntent::ToggleRoster);
         }
 
@@ -179,6 +186,18 @@ impl Router {
         // deliberate process-wide actions.
         if context.conversation_tree_open {
             return self.tree_key(key, context);
+        }
+
+        // The narrow Agents navigator owns the body. Its closed grammar prevents inspector,
+        // selection, retry and text commands from mutating the retained conversation underneath
+        // it; global quit, interrupt, roster and Drawer chords resolved above.
+        if context.focused == Some(SurfaceId::Agents)
+            && context
+                .surfaces
+                .get(SurfaceId::Agents)
+                .is_some_and(|surface| surface.kind.blocks_below())
+        {
+            return self.agents_key(key, context);
         }
 
         // The completion list keeps keyboard focus and the caret in the primary composer.
@@ -249,38 +268,6 @@ impl Router {
                 KeyboardFocus::TextInput => text_key(key),
                 KeyboardFocus::Navigation => navigation_key(key, context),
             },
-        }
-    }
-
-    /// Approval owns its focused grammar; every granting key needs an explicit press.
-    fn approval_key(&mut self, key: KeyEvent, context: &RouterContext<'_>) -> Routed {
-        match key.code {
-            KeyCode::Esc => self.escape(context),
-            KeyCode::Up | KeyCode::Char('k') => Routed::Intent(TuiIntent::Approval(
-                ApprovalIntent::Move(Direction::Backward),
-            )),
-            KeyCode::Down | KeyCode::Char('j') => Routed::Intent(TuiIntent::Approval(
-                ApprovalIntent::Move(Direction::Forward),
-            )),
-            KeyCode::Char(number @ '1'..='3')
-                if key.modifiers.is_empty() && key.kind == KeyEventKind::Press =>
-            {
-                Routed::Intent(TuiIntent::Approval(ApprovalIntent::Shortcut(
-                    number as u8 - b'0',
-                )))
-            }
-            KeyCode::Enter if key.kind == KeyEventKind::Press => {
-                Routed::Intent(TuiIntent::Approval(ApprovalIntent::Decide))
-            }
-            // The same chord that discloses a tool entry, doing the same thing to the request
-            // one is asking about. A page key would be a second gesture for one idea, and on
-            // a Mac laptop it is a key the keyboard does not have.
-            KeyCode::Char('o' | 'O') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                Routed::Intent(TuiIntent::Approval(ApprovalIntent::ToggleDetail))
-            }
-            KeyCode::BackTab => Routed::Intent(TuiIntent::CycleFocus(Direction::Backward)),
-            KeyCode::Tab => Routed::Intent(TuiIntent::CycleFocus(Direction::Forward)),
-            _ => Routed::Ignored(Ignored::Unbound),
         }
     }
 
@@ -825,6 +812,95 @@ mod tests {
             router.translate(&key(KeyCode::Char('f'), KeyModifiers::CONTROL), &context),
             Routed::Ignored(Ignored::Unbound),
             "an inspector chord cannot reach the workspace under a modal"
+        );
+    }
+
+    /// SURF-4/INV-10: the full-region Agents navigator cannot mutate its hidden conversation.
+    #[test]
+    fn narrow_agents_has_one_closed_navigation_grammar() {
+        let mut surfaces = tree();
+        surfaces
+            .insert(Surface {
+                id: SurfaceId::Agents,
+                bounds: Rect::new(0, 0, 40, 20),
+                z_index: 14,
+                kind: SurfaceKind::Modal,
+                viewport: None,
+            })
+            .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
+        let context = focused_on(
+            SurfaceId::Agents,
+            &surfaces,
+            KeyboardFocus::Navigation,
+            true,
+        );
+        let mut router = Router::default();
+
+        assert_eq!(
+            router.translate(&key(KeyCode::Down, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::MoveSelection(Direction::Forward))
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Enter, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Inspector(InspectorIntent::Open))
+        );
+        assert_eq!(
+            router.translate(&key(KeyCode::Esc, KeyModifiers::NONE), &context),
+            Routed::Intent(TuiIntent::Dismiss)
+        );
+        for event in [
+            key(KeyCode::Char('f'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            key(KeyCode::Down, KeyModifiers::SHIFT),
+            key(KeyCode::Tab, KeyModifiers::NONE),
+            key(KeyCode::Char('x'), KeyModifiers::NONE),
+        ] {
+            assert_eq!(
+                router.translate(&event, &context),
+                Routed::Ignored(Ignored::Unbound),
+                "{event:?} must not reach the retained conversation"
+            );
+        }
+    }
+
+    /// SURF-4/INV-6: a workspace overlay cannot mutate a retained Agents route behind itself.
+    #[test]
+    fn drawer_and_tree_own_ctrl_b_while_they_cover_the_workspace() {
+        let mut surfaces = tree();
+        for (id, z_index, kind) in [
+            (SurfaceId::ConversationTree, 15, SurfaceKind::Modal),
+            (SurfaceId::Drawer, 20, SurfaceKind::Drawer),
+        ] {
+            surfaces
+                .insert(Surface {
+                    id,
+                    bounds: Rect::new(0, 0, 40, 20),
+                    z_index,
+                    kind,
+                    viewport: None,
+                })
+                .unwrap_or_else(|error| panic!("fixture must insert: {error}"));
+        }
+        let chord = key(KeyCode::Char('b'), KeyModifiers::CONTROL);
+        let mut router = Router::default();
+
+        let mut drawer = focused_on(SurfaceId::Drawer, &surfaces, KeyboardFocus::TextInput, true);
+        drawer.drawer_open = true;
+        assert_eq!(
+            router.translate(&chord, &drawer),
+            Routed::Ignored(Ignored::Unbound)
+        );
+
+        let mut tree = focused_on(
+            SurfaceId::ConversationTree,
+            &surfaces,
+            KeyboardFocus::Navigation,
+            true,
+        );
+        tree.conversation_tree_open = true;
+        assert_eq!(
+            router.translate(&chord, &tree),
+            Routed::Ignored(Ignored::Unbound)
         );
     }
 

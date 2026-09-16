@@ -1,5 +1,6 @@
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
 
+pub(crate) mod agents_handle;
 mod child_control;
 mod chrome;
 mod command_inspection;
@@ -50,6 +51,7 @@ pub fn render(
     }
 
     let mut surfaces = layout::workspace(area, workspace_input(area, state));
+    let agents_handle = agents_handle::geometry(state, &surfaces);
     let stacking = Stacking::of(&surfaces);
     let focused = state.focused(&surfaces);
     // Both are resolved before anything is painted, and both come from the projection: whether the
@@ -151,7 +153,15 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Inspector),
                     1,
                 ),
-                title: inspector_title(state, palette, inner_width(bounds.width)),
+                title: inspector_title(
+                    state,
+                    palette,
+                    inner_width(bounds.width).saturating_sub(
+                        agents_handle
+                            .filter(|handle| handle.owner == SurfaceId::Inspector)
+                            .map_or(0, |handle| handle.bounds.width),
+                    ),
+                ),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
@@ -209,6 +219,10 @@ pub fn render(
         if cursor_owner == Some(id) {
             draw_cursor(frame, palette, state, id, bounds, &panel, steer.as_ref());
         }
+    }
+
+    if let Some(handle) = agents_handle {
+        agents_handle::render(frame, state, palette, handle);
     }
 
     surfaces
@@ -497,15 +511,21 @@ mod tests {
                 let (conversation, _activity) = painted
                     .rsplit_once('\n')
                     .unwrap_or_else(|| panic!("the region has an activity row under it"));
+                let reference = whole_conversation(
+                    &session.conversation.state,
+                    &Palette::default(),
+                    session.bounds(SurfaceId::Transcript),
+                    viewport,
+                    height,
+                );
+                let content_rows = conversation
+                    .split_once('\n')
+                    .map_or(conversation, |(_, content)| content);
+                let reference_rows = reference
+                    .split_once('\n')
+                    .map_or(reference.as_str(), |(_, content)| content);
                 assert_eq!(
-                    conversation,
-                    whole_conversation(
-                        &session.conversation.state,
-                        &Palette::default(),
-                        session.bounds(SurfaceId::Transcript),
-                        viewport,
-                        height,
-                    ),
+                    content_rows, reference_rows,
                     "virtualized and whole disagreed at {width}x{height}, {notches} notches up"
                 );
                 session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
@@ -1127,14 +1147,42 @@ mod tests {
     }
 
     #[test]
-    fn narrow_projection_keeps_every_region() {
-        let rendered = draw(&canonical_state(), 60, 30);
+    fn narrow_projection_keeps_one_major_region_and_an_explicit_agents_route() {
+        let mut state = canonical_state();
+        let (surfaces, _) = draw_frame(&state, &Palette::default(), 60, 30);
+        let rendered = draw(&state, 60, 30);
 
-        assert!(rendered.contains("Agents"));
+        assert!(rendered.contains("Agents ^B"));
+        assert!(!rendered.contains("Agents !1"));
+        assert!(rendered.contains("( !1 )"));
         assert!(
             !rendered.contains("Activity"),
             "domain entries have no second panel"
         );
+        assert!(
+            !rendered.contains("overlap study"),
+            "the collapsed navigator must not cover the conversation"
+        );
+        assert!(rendered.contains("Message Agent A"));
+        assert!(
+            rendered.contains("~/plexmaton"),
+            "the status line is the last row"
+        );
+
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        state
+            .select_agent(&agent_b)
+            .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
+        let rendered = draw(&state, 60, 30);
+        assert!(rendered.contains("Agents !1 ^B"));
+        assert!(
+            !rendered.contains("( !1 )"),
+            "the hidden primary activity line must not duplicate the count"
+        );
+
+        state.toggle_roster(&surfaces);
+        let rendered = draw(&state, 60, 30);
         // Agent B is asking, and an ask outranks a tally: its detail row carries the request
         // rather than its counts. Resolving the request hands the row back to the counts.
         assert!(rendered.contains("overlap study"), "the ask is the detail");
@@ -1143,15 +1191,12 @@ mod tests {
             agent_id: AgentId::new("agent-b").expect("fixture agent"),
             attention_id: AttentionId::new("attention-b-1").expect("fixture request"),
         });
+        let (surfaces, _) = draw_frame(&answered.state, &Palette::default(), 60, 30);
+        answered.state.toggle_roster(&surfaces);
         let counted = draw(&answered.state, 60, 30);
         assert!(counted.contains("1 tool"));
         assert!(counted.contains("@1"), "compact artifact count");
         assert!(counted.contains("1 mail"));
-        assert!(rendered.contains("Message Agent A"));
-        assert!(
-            rendered.contains("~/plexmaton"),
-            "the status line is the last row"
-        );
     }
 
     #[test]

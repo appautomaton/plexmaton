@@ -6,7 +6,7 @@
 //!
 //! `Ctrl-B` puts the panel away and brings it back; `↑`/`↓` move the selection and `Enter` enters
 //! an agent, which for one that is asking is also going to its request. `Ctrl-D` twice exits.
-//! Resize the window to watch the panel move from a column to a shelf over the conversation.
+//! Resize the window to watch the panel move between a column and the narrow full-region navigator.
 
 use std::{
     io,
@@ -151,6 +151,13 @@ fn run(workspace: &mut Workspace, terminal: &mut DefaultTerminal) -> Result<()> 
         EnableMouseCapture
     )?;
     draw(workspace, terminal)?;
+    if workspace.surfaces().get(SurfaceId::Agents).is_none() {
+        workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        )));
+        draw(workspace, terminal)?;
+    }
     focus(workspace, terminal, SurfaceId::Agents)?;
     loop {
         draw(workspace, terminal)?;

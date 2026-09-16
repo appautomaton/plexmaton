@@ -176,6 +176,7 @@ fn ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths() {
             ChildControl::User,
         ] {
             let (mut workspace, mut terminal) = fixture(width, AgentStatus::Running);
+            focus(&mut workspace, &mut terminal, SurfaceId::Composer);
             workspace
                 .set_child_control(&id("agent-b"), snapshot(1, control))
                 .expect("snapshot");

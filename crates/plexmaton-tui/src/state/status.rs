@@ -180,7 +180,11 @@ impl ViewState {
     pub fn interrupt(&mut self, surfaces: &SurfaceTree) -> Option<plexmaton_core::AgentId> {
         // TRE-1/INV-7: a modal blocks hidden conversation actions, not withdrawal of the
         // process-wide quit question. An admitted history write also remains owned.
-        if self.conversation_tree_open() {
+        if self.conversation_tree_open()
+            || surfaces
+                .get(crate::surface::SurfaceId::Agents)
+                .is_some_and(|surface| surface.kind.blocks_below())
+        {
             if self.status.set_note(StatusNote::Quiet) {
                 self.touch();
             }

@@ -74,8 +74,7 @@ before accepting a resumed child. Wake is never restored automatically after pro
 ## Integration boundary
 
 This mechanism ends at exact scheduling requests, typed runtime updates and durable collaboration
-facts. Stage 6 owns provider mail representation and [CMP-1](./collaboration-mail-projection.md);
-Stage 7
-owns native tools and product composition, including authenticating the Main ingress that holds the
-owner capability. The scheduler adds no Tokio or I/O ownership to `plexmaton-agent` and does not use
-provider text as an authority channel.
+facts. PRV-1 owns provider mail representation, and [CMP-1](./collaboration-mail-projection.md)
+owns its product projection. Native tools and product composition authenticate the Main ingress
+that holds the owner capability. The scheduler adds no Tokio or I/O ownership to `plexmaton-agent`
+and does not use provider text as an authority channel.

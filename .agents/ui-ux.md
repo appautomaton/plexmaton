@@ -90,8 +90,9 @@ After acknowledged handoff, the composer becomes available without taking keyboa
 sending a message. History, selection/scroll anchors and the capability indication remain intact;
 stop is independent of handoff.
 
-**This layout is not locked.** Its only rendered evidence is the native readback in the
-[Kitty preview](./spikes/kitty-native-preview/README.md), which the user has not accepted.
+This layout remains open to detail refinement. The user accepted its structure and function in the
+[Kitty preview](./spikes/kitty-native-preview/README.md) on 2026-09-16; later polish must preserve
+the control, focus and return behavior above.
 
 ### Context epochs and branch selection
 
@@ -312,8 +313,7 @@ The inspector is the inspected agent's **conversation**. Tool activity and artif
 their producer. It shows both incoming and outgoing mail with sender/recipient attribution, as
 projections of canonical items rather than copied transcripts. Mail status distinguishes queued
 input from inclusion in a model turn. Entries retain first-appearance order; there is no separate
-Activity surface. A composed status-and-artifact surface is Phase 03's, and the other
-areas are placed provisionally until the phase that builds them.
+Activity surface. Each remaining area keeps its own interaction and presentation contract.
 
 ## Surface model
 
@@ -346,8 +346,8 @@ a centred overlay with three-cell margins, a dialog about nothing in particular.
 
 ### Shelf: overlay without occlusion
 
-Below ultrawide, the second window is a **shelf** docked to the top edge of the conversation. It
-floats: the conversation beneath keeps its whole rectangle and its reading position, and
+When the second window has room below ultrawide, it is a **shelf** docked to the top edge of the
+conversation. It floats: the conversation beneath keeps its whole rectangle and its reading position, and
 a conversation shorter than its panel sits at the bottom, so the shelf covers only empty rows or
 rows already read. Transcripts follow their tail, so covering the top hides what has been read and
 covering the middle or bottom hides what the user is reading now. Rejected: a centred floating
@@ -421,12 +421,11 @@ Every layout class preserves the meaning of this journey even when it changes wh
 | Narrow | One major surface at a time; looking at an agent is a full-region transition, the window's maximized presentation | width < 72 |
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-- The agent navigator is one panel with one open state; the width decides only where it docks, a
-  column from medium up and a shelf over the conversation below, which is
-  [INS-3](./specs/inspector.md)'s rule applied to the second kind of panel. Closing returns every
-  column it held; the pill on the activity line goes on counting what is unanswered. Rejected: a
-  fixed column, spending width the user cannot take back, and a band below medium, which made the
-  roster the first thing a small terminal lost.
+- Medium and wider use a `Ctrl-B`-toggled Agents column. Narrow puts `Agents ^B` in the reserved
+  conversation-top row, carrying `!n` only while a child is shown. `Ctrl-B` or a complete click
+  opens full-region Agents. Arrows move a temporary cursor. `Enter` or a row click commits it;
+  `Escape` or `Ctrl-B` restores exact prior focus without changing the column preference.
+  Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
 - Each roster row carries lifecycle plus what its agent waits on, or compact non-text counts such
   as `1 tool @1 1 mail`; `@` is the artifact marker, while the conversation title keeps full nouns.
   A filled marker says which conversation is on screen; its color says that agent's state.

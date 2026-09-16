@@ -91,7 +91,7 @@ use attention::AttentionQueue;
 use focus::Focus;
 use inspector::Inspector;
 use notices::NoticeLog;
-use roster::Roster;
+use roster::{Roster, RosterNavigation};
 use scroll::ScrollState;
 
 /// Monotonic revision of the whole projection.
@@ -150,11 +150,14 @@ pub struct ViewState {
     compacting: Option<AgentId>,
     /// Submitted input no request carries yet; the composition root replaces it whole.
     queued: Vec<QueuedInput>,
-    /// Whether the user has put the roster away.
+    /// Whether the user has explicitly put the roster away.
     ///
-    /// Stored closed-side-up so `Default` means open: a workspace that starts by hiding its index
-    /// of agents would be hiding the thing the product is about.
+    /// Stored closed-side-up so `Default` keeps the column from medium upward. Narrow shows the
+    /// navigator through `roster_navigation` instead, so opening it never changes this wider-layout
+    /// preference.
     roster_closed: bool,
+    /// A reversible visit to the narrow full-region Agents navigator.
+    roster_navigation: Option<RosterNavigation>,
 }
 
 /// A message the user submitted, and the agent it is addressed to.

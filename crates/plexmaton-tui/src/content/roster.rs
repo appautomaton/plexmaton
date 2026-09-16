@@ -122,7 +122,7 @@ pub(crate) fn roster(state: &ViewState, palette: &Palette, width: u16) -> Roster
         return rows;
     }
 
-    let selected = state.selected_agent().map(|agent| agent.id.clone());
+    let selected = state.roster_cursor_agent().map(|agent| agent.id.clone());
     let mut ordered: Vec<(&AgentView, Option<&crate::AttentionView>)> = state
         .sub_agents()
         .map(|agent| (agent, state.agent_request(&agent.id)))

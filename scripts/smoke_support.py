@@ -283,8 +283,16 @@ class Terminal:
                 os.close(self.master)
             self.process.wait(timeout=10)
 
-    def wait(self, *markers, absent=()):
-        return await_screen(self.master, self.capture, self.size, markers, absent, self.frame_start)
+    def wait(self, *markers, absent=(), complete=True):
+        return await_screen(
+            self.master,
+            self.capture,
+            self.size,
+            markers,
+            absent,
+            self.frame_start,
+            complete=complete,
+        )
 
     def send(self, keys, *markers, absent=()):
         os.write(self.master, keys)

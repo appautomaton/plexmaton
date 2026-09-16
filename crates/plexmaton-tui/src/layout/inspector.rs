@@ -346,10 +346,22 @@ mod tests {
             "and leaves the agent column alone"
         );
 
-        // Narrow is "one major surface at a time": inspection is a full-region transition.
-        let narrow = open(60, 40, InspectorRequest::default());
-        assert!(narrow.get(SurfaceId::Transcript).is_none());
-        assert!(narrow.get(SurfaceId::Inspector).is_some());
+        // Narrow is "one major surface at a time": choosing the child closes the full-region
+        // navigator and gives the entire conversation region to that child.
+        for width in [48, 60, 71] {
+            let narrow = workspace(
+                Rect::new(0, 0, width, 40),
+                WorkspaceInput {
+                    inspector: Some(InspectorRequest::default()),
+                    rail: true,
+                    roster: false,
+                    ..WorkspaceInput::default()
+                },
+            );
+            assert!(narrow.get(SurfaceId::Transcript).is_none());
+            assert!(narrow.get(SurfaceId::Inspector).is_some());
+            assert!(narrow.get(SurfaceId::Agents).is_none());
+        }
 
         // Ultrawide gives the second agent a column of its own beside the conversation (ui-ux
         // §layout classes);

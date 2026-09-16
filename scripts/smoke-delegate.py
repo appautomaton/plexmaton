@@ -35,6 +35,7 @@ from smoke_support import (
     collapsed,
     fixture_environment,
     observe_for,
+    read_to_eof,
     rendered_screen,
     sgr_press,
 )
@@ -386,7 +387,16 @@ def open_child(terminal, *markers):
     names the row instead of counting hops to it.
     """
     click(terminal.master, ROSTER_ROW, terminal.capture)
+    os.write(terminal.master, sgr_press(*ROSTER_ROW)[:-1] + b"m")
     return terminal.wait(CHILD, *markers)
+
+
+def click_narrow_agents(terminal, *markers):
+    """Open the Narrow full-region navigator through its visible collapsed handle."""
+    at = (terminal.size[1] - 6, 0)
+    click(terminal.master, at, terminal.capture)
+    os.write(terminal.master, sgr_press(*at)[:-1] + b"m")
+    return terminal.wait("┌ Agents", *markers, absent=("Agents ^B",), complete=False)
 
 
 def focus_primary(terminal):
@@ -432,12 +442,11 @@ def task_update_at_three_widths(terminal, artifact):
 
 
 def root_task_update_at_three_widths(terminal, artifact):
-    """The root's side of the revised task remains readable, including below the narrow shelf."""
+    """The root's side of the revised task remains readable in every conversation region."""
     markers = (f"assigned to {TARGET}", UPDATED_TASK, UPDATE_DONE)
     for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
         if width == 60:
             terminal.resize(width, UPDATE_DONE)
-            terminal.send(b"\x02", UPDATE_DONE)
             screen = scroll_child_until(
                 terminal, True, (f"assigned to {TARGET} · {UPDATED_TASK}", UPDATE_DONE)
             )
@@ -447,7 +456,6 @@ def root_task_update_at_three_widths(terminal, artifact):
             write_frame(terminal, artifact, label, screen)
         if width == 60:
             scroll_child_until(terminal, False, (UPDATE_DONE,))
-            terminal.send(b"\x02", UPDATE_DONE)
     terminal.resize(120, *markers)
 
 
@@ -457,13 +465,13 @@ def root_history_at_three_widths(terminal, artifact):
     for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
         if width == 60:
             terminal.resize(width, SAW)
-            screen = terminal.send(b"\x02", *markers)
+            screen = scroll_child_until(terminal, True, markers)
         else:
             screen = terminal.resize(width, *markers)
         if label:
             write_frame(terminal, artifact, label, screen)
         if width == 60:
-            terminal.send(b"\x02", SAW)
+            scroll_child_until(terminal, False, (SAW,))
     terminal.resize(120, *markers)
 
 
@@ -471,8 +479,6 @@ def child_history_at_three_widths(terminal, artifact):
     """The child's task, work, and mail remain reachable before returning to its current tail."""
     for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
         terminal.resize(width, *USER_CHILD_SIDE)
-        if width == 60:
-            terminal.send(b"\x02", CHILD, *USER_CHILD_SIDE)
         oldest = scroll_child_until(
             terminal, True, (f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
         )
@@ -483,8 +489,6 @@ def child_history_at_three_widths(terminal, artifact):
             write_frame(terminal, f"{artifact}-history", label, oldest)
             write_frame(terminal, f"{artifact}-mail", label, mail)
         scroll_child_until(terminal, False, USER_CHILD_SIDE)
-        if width == 60:
-            terminal.send(b"\x02", CHILD, *USER_CHILD_SIDE)
     terminal.resize(120, *USER_CHILD_SIDE)
 
 
@@ -507,8 +511,7 @@ def no_internal_names(terminal):
 
 
 def close_child(terminal, *markers, absent=()):
-    """DRW-3, one layer per Escape: the first leaves the window, the second clears the selection."""
-    terminal.send(ESC, CHILD)
+    """Close the selected child and return to the root conversation in one Escape rung."""
     return terminal.send(ESC, *markers, absent=absent)
 
 
@@ -516,8 +519,8 @@ def both_at_three_widths(terminal, artifact="child"):
     """Current child and root outcomes at three widths, including the narrow return path.
 
     Root and child history have their own semantic-scroll sweeps. Here, 120 and 95 keep the root's
-    final Handoff result beside the child's User turn. At 60 the child takes the column and the root
-    is off screen; closing it at that width must hand the root result back.
+    final Handoff result beside the child's User turn. At 60 the child takes the full region and the
+    root is off screen; closing it at that width must hand the root result back.
 
     The sweep opens on a width nobody asked for: a resize to the width already set sends no
     `SIGWINCH`, nothing repaints, and the frame this reads from would be empty.
@@ -859,7 +862,10 @@ def kill_terminal(terminal):
     process_group = os.getpgid(terminal.process.pid)
     assert process_group == terminal.process.pid, "terminal binary does not own its process group"
     os.killpg(process_group, signal.SIGKILL)
-    status = terminal.process.wait(timeout=10)
+    # A dense final frame can still be queued on the PTY. Drain it while the killed process closes
+    # its slave; waiting without reading can leave macOS reporting the process as exiting forever.
+    read_to_eof(terminal.master, terminal.capture, timeout=10)
+    status = terminal.process.wait(timeout=1)
     assert status != 0, "process-cut binary exited successfully instead of being killed"
 
 
@@ -1035,16 +1041,18 @@ def run_smoke(provider):
             assert_ordered(newest, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
             scroll_child_until(terminal, False, USER_CHILD_SIDE)
             terminal.resize(60, *USER_CHILD_SIDE, "Controller: User")
-            parked_screen = scroll_child_until(terminal, True, (HISTORY_PREFIX,))
+            anchor_marker = f"{HISTORY_PREFIX}20"
+            scroll_child_until(terminal, True, (anchor_marker,))
+            focus_primary(terminal)
+            parked_screen = terminal.wait(anchor_marker, CHILD)
             write_frame(terminal, "resumed-pointer", "anchor-parked", parked_screen)
             parked = visible_history_anchor(parked_screen)
             assert parked.startswith(HISTORY_PREFIX), parked
-            focus_primary(terminal)
             terminal.send(ESC, *ROOT_SIDE, absent=(DONE,))
-            reopened = terminal.send(b"\t" + DOWN, CHILD, parked)
+            reopened = terminal.send(b"\x02" + DOWN + ENTER, CHILD, anchor_marker)
             write_frame(terminal, "resumed-pointer", "anchor-reopened", reopened)
-            assert visible_history_anchor(reopened) == parked, \
-                "the resumed child's reading anchor moved across close/reopen"
+            assert anchor_marker in reopened, \
+                ("the resumed child's parked history left the viewport", anchor_marker, parked)
             close_child(terminal, *ROOT_SIDE, absent=(DONE,))
             terminal.resize(120, *ROOT_SIDE, absent=(DONE,))
             requests_after, errors_after = provider.snapshot()
@@ -1351,7 +1359,7 @@ def run_kill_resume_smoke(provider, paused):
 
 def approval_attention_at_three_widths(terminal, artifact):
     """A child request stays on its roster row until explicit user navigation."""
-    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+    for width, label in [(121, None), (120, "wide"), (95, "medium")]:
         screen = terminal.resize(
             width,
             CHILD,
@@ -1362,11 +1370,27 @@ def approval_attention_at_three_widths(terminal, artifact):
         )
         if label:
             write_frame(terminal, artifact, label, screen)
+    root = terminal.resize(
+        60,
+        APPROVAL_WAITING,
+        "Message Plexmaton",
+        "Agents ^B",
+        absent=("Allow once",),
+    )
+    write_frame(terminal, artifact, "narrow", root)
+    agents = click_narrow_agents(
+        terminal,
+        CHILD,
+        "approval",
+    )
+    write_frame(terminal, f"{artifact}-agents", "narrow", agents)
+    terminal.send(b"\x02", APPROVAL_WAITING, "Message Plexmaton", "Agents ^B")
     terminal.resize(120, CHILD, "approval", APPROVAL_WAITING, "Message Plexmaton")
 
 
 def open_child_approval(terminal):
     click(terminal.master, ROSTER_ROW, terminal.capture)
+    os.write(terminal.master, sgr_press(*ROSTER_ROW)[:-1] + b"m")
     terminal.wait(CHILD)
     return terminal.send(ENTER, "read_file", "Allow once", "Deny")
 
@@ -1520,7 +1544,8 @@ def main():
     print("delegate smoke passed: one delegation and task update; the child's own work and letter; Main Handoff "
           "and focused User child input; both "
           "conversations at 120 and 95, the child alone at 60, and the root readable there once "
-          "the child is closed; no dropped event; a durable ledger and child journal; passive "
+          "the child is closed; Narrow Agents opens from its collapsed click handle; no dropped "
+          "event; a durable ledger and child journal; passive "
           "pointer and keyboard resume at all three widths with durable task/mail/Handoff placement, "
           "a final restoration confirmation, no request or durable write; and "
           "focused-child Stop through a paused provider with root continuation; actual CLI "

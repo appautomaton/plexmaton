@@ -2,11 +2,11 @@
 │[skill] Skills · Skill unavailable · input returned to the│
 │composer; SKILL.md could not be read                      │
 └──────────────────────────────────────────────────────────┘
+                                                 Agents ^B  
                                                             
-┌ Agents ──────────────────────────────────────────────────┐
-│○ Agent B · UI study                                   ask│
-│  Choose whether the overlap study should cover narrow sc…│
-└──────────────────────────────────────────────────────────┘
+                                                            
+                                                            
+                                                            
                                                             
                                                             
                                                             

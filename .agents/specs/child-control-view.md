@@ -46,9 +46,10 @@ Escape over counts when all cannot fit. The Ctrl-C Stop hint appears only while 
 keyboard focus and is running or waiting. Read-only file access and no shell describe the V1 profile;
 typed mail remains available under CHB-1 and is not a filesystem write capability.
 
-Pixel-level native user acceptance remains unproven.
+The user accepted the native structure and function on 2026-09-16. Minor visual refinements remain
+separate work and must preserve these control and input boundaries.
 
 The native fixture is not authenticated product ingress. The real PTY now proves exact-owner
 controller projection, durable Handoff history, focused User input, capabilities and Stop-hint
-behavior at all three widths, plus default-width Stop settlement. Canonical mail inclusion and Attention remain later
-[Phase 03](../phases/phase-03-collaboration.md) integration gates.
+behavior at all three widths, plus default-width Stop settlement. Canonical mail inclusion and
+Attention use their own accepted production routes and evidence.

@@ -68,9 +68,21 @@ fn run(
         EnableMouseCapture
     )?;
     draw(workspace, terminal)?;
+    if workspace.surfaces().get(SurfaceId::Agents).is_none() {
+        workspace.handle(&Event::Key(KeyEvent::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL,
+        )));
+        draw(workspace, terminal)?;
+    }
     focus(workspace, terminal, SurfaceId::Agents)?;
     workspace.handle(&Event::Key(KeyEvent::new(
         KeyCode::Down,
+        KeyModifiers::NONE,
+    )));
+    draw(workspace, terminal)?;
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Enter,
         KeyModifiers::NONE,
     )));
     draw(workspace, terminal)?;

@@ -41,7 +41,7 @@ pub(crate) const MIN_HEIGHT: u16 = 12;
 pub enum LayoutClass {
     /// Below the supported minimum; render a notice rather than a broken workspace.
     TooSmall,
-    /// One column; every region becomes a stacked band.
+    /// One major region; the full-screen agent navigator or one conversation owns it.
     Narrow,
     /// Agent column plus conversation.
     Medium,
@@ -107,8 +107,6 @@ pub struct WorkspaceInput {
     pub rail: bool,
     /// Whether the user has the roster open. Closed, it returns every column it held.
     pub roster: bool,
-    /// Rows the roster asks for when it docks as a shelf, borders included.
-    pub roster_rows: u16,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
     /// The open inspector, if one is open.
@@ -131,7 +129,6 @@ impl Default for WorkspaceInput {
             composer_menu_rows: 0,
             rail: false,
             roster: true,
-            roster_rows: 0,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
             inspector: None,
@@ -241,7 +238,6 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
             queue_floor: input.queue_floor,
         },
         input.rail && input.roster,
-        input.roster_rows,
     );
     // Over the body rather than carved from it: the Drawer belongs to the workspace, blocks
     // everything below it (SURF-4), and is gone again on `Escape`, so nothing beneath it should
@@ -293,7 +289,6 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
             composer: MIN_PANEL_HEIGHT,
         },
         true,
-        0,
     )
     .composer
     .width
@@ -320,7 +315,7 @@ pub(super) struct BodyRegions {
     pub(super) inspector: Option<Rect>,
     /// Whether the second window floats over the conversation rather than tiling beside it.
     pub(super) inspector_floats: bool,
-    /// Whether the roster is docked over the conversation rather than beside it.
+    /// Whether the roster is the narrow full-region navigator above the retained conversations.
     pub(super) agents_floats: bool,
     /// The composer, at the bottom of the conversation's column. Always present: the body was
     /// sized so that typing survives every other region.
@@ -353,7 +348,6 @@ fn body_regions(
     inspector: Option<InspectorRequest>,
     block: InputBlock,
     rail: bool,
-    roster_rows: u16,
 ) -> BodyRegions {
     // All three sections are carved from the conversation's column as one block, so the second
     // window's give-back and the shelf's guarantee are measured against the rows the conversation
@@ -395,10 +389,8 @@ fn body_regions(
                     command_inspection: None,
                 }
             }
-            // `TooSmall` returned before layout began, so it cannot reach here.
-            // Too narrow to spend width on a column, so the roster docks over the conversation
-            // instead, after the second window has been placed. The conversation keeps its whole
-            // rectangle either way; what changes is whether the panel takes columns or covers rows.
+            // `TooSmall` returned before layout began, so it cannot reach here. Narrow keeps the
+            // complete conversation geometry underneath the full-region agent navigator.
             LayoutClass::Narrow | LayoutClass::TooSmall => BodyRegions {
                 agents: None,
                 transcript: Some(body),
@@ -437,52 +429,11 @@ fn body_regions(
         None => base,
     };
     split_input(&mut placed, block);
-    if rail && placed.agents.is_none() {
-        placed = dock_roster(placed, roster_rows);
+    if rail && matches!(class, LayoutClass::Narrow) {
+        placed.agents = Some(body);
+        placed.agents_floats = true;
     }
     placed
-}
-
-/// Docks the roster over the conversation, for the widths that have no columns to give it.
-///
-/// The same rule the second window follows (INS-3): one panel, and the terminal's size decides
-/// where it lands. It floats inside whichever conversation is on screen, so that conversation keeps
-/// every row it had and the rows the panel covers are the ones already read — which is only true
-/// because a conversation shorter than its region sits at the bottom.
-///
-/// Rejected: a fixed five-row band taking rows from the conversation. It fit one agent, so the one
-/// view a product about several agents cannot afford to lose was the first thing a small terminal
-/// lost, and it cost those rows whether the user wanted the panel or not.
-fn dock_roster(mut placed: BodyRegions, rows: u16) -> BodyRegions {
-    let Some(host) = placed.transcript.or(placed.inspector) else {
-        return placed;
-    };
-    // One row below the host's top edge. That row is either the second window's title, which names
-    // the conversation being covered and carries its control state (CCV-3), or one more row of
-    // already-read conversation, which costs nothing. Covering it would leave the user unable to
-    // say which agent they are looking at, and stack two close boxes on adjacent rows.
-    let top = host.y.saturating_add(1);
-    let region = host.height.saturating_sub(1);
-    placed.agents = band(host, top, roster_shelf_rows(region, rows));
-    placed.agents_floats = placed.agents.is_some();
-    placed
-}
-
-/// Rows the docked roster may cover, or none when the conversation cannot spare them.
-///
-/// The ten-row guarantee (INS-2) outranks the panel, and below it the honest answer is no panel
-/// rather than a panel registered too short to read. This is where it differs from the second
-/// window's shelf, which keeps a floor even on a cramped terminal: that window is the thing the
-/// user asked to look at, while the roster is an index they can bring back with one chord.
-const fn roster_shelf_rows(region: u16, wanted: u16) -> u16 {
-    let ceiling = region.saturating_sub(inspector::CONVERSATION_GUARANTEE);
-    if ceiling < MIN_PANEL_HEIGHT {
-        return 0;
-    }
-    if wanted < MIN_PANEL_HEIGHT {
-        return MIN_PANEL_HEIGHT;
-    }
-    if wanted > ceiling { ceiling } else { wanted }
 }
 
 /// Rows a band that cannot scroll may have: what fits in `room`, or none if that is below `floor`.
@@ -538,7 +489,7 @@ mod tests {
         BodyRegions, DecisionMode, InspectorRequest, LayoutClass, MIN_PANEL_HEIGHT, WorkspaceInput,
         workspace,
     };
-    use crate::surface::SurfaceId;
+    use crate::surface::{SurfaceId, SurfaceKind};
 
     /// The default composer, which is the shape every one of these sizes is checked against.
     /// A rail in every fixture: the geometry under test is the crowded one, and a workspace with
@@ -551,24 +502,17 @@ mod tests {
         }
     }
 
-    /// ui-ux §responsive layout classes: one panel with one open state, and the width decides only
-    /// where it docks. Closed, it returns every column or row it held to the conversation.
+    /// ui-ux §responsive layout classes: the same panel is a column from Medium upward and the
+    /// exclusive full-region navigator on Narrow. Closing reveals the untouched conversation.
     #[test]
-    fn the_roster_docks_as_a_column_or_a_shelf_and_closing_returns_what_it_held() {
-        for (width, height) in [(140, 40), (120, 40), (88, 40), (60, 40)] {
+    fn the_roster_is_a_column_or_the_narrow_full_region_navigator() {
+        for (width, height) in [(140, 40), (120, 40), (88, 40), (71, 40), (60, 40), (48, 40)] {
             let area = Rect::new(0, 0, width, height);
-            let open = workspace(
-                area,
-                WorkspaceInput {
-                    roster_rows: 8,
-                    ..input(false)
-                },
-            );
+            let open = workspace(area, input(false));
             let closed = workspace(
                 area,
                 WorkspaceInput {
                     roster: false,
-                    roster_rows: 8,
                     ..input(false)
                 },
             );
@@ -590,15 +534,20 @@ mod tests {
             if LayoutClass::for_size(width, height) == LayoutClass::Narrow {
                 assert!(
                     panel.z_index > 0,
-                    "{width}x{height}: with no width to spend it docks over the conversation"
+                    "{width}x{height}: the navigator replaces the major region"
                 );
+                assert_eq!(panel.kind, SurfaceKind::Modal);
                 assert_eq!(
                     before, after,
-                    "{width}x{height}: a docked roster covers rows rather than taking them"
+                    "{width}x{height}: closing reveals unchanged conversation geometry"
                 );
-                assert!(
-                    panel.bounds.y > after.y,
-                    "{width}x{height}: the host's own title row survives underneath it"
+                let status = open
+                    .get(SurfaceId::Status)
+                    .unwrap_or_else(|| panic!("{width}x{height}: status"));
+                assert_eq!(
+                    panel.bounds,
+                    Rect::new(0, 0, width, status.bounds.y),
+                    "{width}x{height}: Agents owns the full body above status"
                 );
             } else {
                 assert_eq!(
@@ -610,6 +559,48 @@ mod tests {
                     "{width}x{height}: closing hands the columns back to the conversation"
                 );
             }
+        }
+    }
+
+    /// SURF-4: the narrow navigator covers conversation-owned layers while workspace overlays
+    /// remain able to cover it.
+    #[test]
+    fn the_narrow_agents_navigator_has_the_workspace_layer_boundary() {
+        let tree = workspace(
+            Rect::new(0, 0, 60, 40),
+            WorkspaceInput {
+                rail: true,
+                roster: true,
+                composer_menu_rows: 5,
+                decision_rows: 8,
+                command_inspection: true,
+                conversation_tree: true,
+                drawer_rows: 10,
+                ..WorkspaceInput::default()
+            },
+        );
+        let agents = tree.get(SurfaceId::Agents).expect("full-region navigator");
+        for id in [
+            SurfaceId::ComposerMenu,
+            SurfaceId::Approval,
+            SurfaceId::CommandInspection,
+        ] {
+            let surface = tree
+                .get(id)
+                .unwrap_or_else(|| panic!("{id:?} fixture layer"));
+            assert!(
+                surface.z_index < agents.z_index,
+                "{id:?} must paint under the navigator"
+            );
+        }
+        for id in [SurfaceId::ConversationTree, SurfaceId::Drawer] {
+            let surface = tree
+                .get(id)
+                .unwrap_or_else(|| panic!("{id:?} fixture layer"));
+            assert!(
+                surface.z_index > agents.z_index,
+                "{id:?} is a workspace overlay above the navigator"
+            );
         }
     }
 
@@ -749,6 +740,20 @@ mod tests {
                 .map(|surface| surface.bounds)
                 .collect();
             for above in tree.iter().filter(|surface| surface.z_index > 0) {
+                if above.id == SurfaceId::Agents {
+                    let covered = (above.bounds.y..above.bounds.bottom()).all(|y| {
+                        (above.bounds.x..above.bounds.right()).all(|x| {
+                            registered.iter().any(|base| {
+                                x >= base.x && x < base.right() && y >= base.y && y < base.bottom()
+                            })
+                        })
+                    });
+                    assert!(
+                        covered,
+                        "{width}x{height} {input:?}: the full-region navigator must cover only retained base cells"
+                    );
+                    continue;
+                }
                 let holders = registered
                     .iter()
                     .filter(|base| base.union(above.bounds) == **base)
@@ -873,6 +878,18 @@ mod tests {
                 let ring: Vec<_> = tree.focus_ring().collect();
                 let context = format!("{width}x{height} {input:?}");
 
+                if tree
+                    .get(SurfaceId::Agents)
+                    .is_some_and(|surface| surface.kind.blocks_below())
+                {
+                    assert_eq!(
+                        ring,
+                        vec![SurfaceId::Agents],
+                        "{context}: the full-region navigator owns focus"
+                    );
+                    continue;
+                }
+
                 let mut canonical = CANONICAL.iter();
                 for stop in &ring {
                     assert!(
@@ -964,7 +981,13 @@ mod tests {
     /// composer took three of these twelve rows, and the composer is not the thing to give up.
     #[test]
     fn the_smallest_terminal_keeps_typing_the_conversation_and_the_defect_notice() {
-        let quiet = workspace(Rect::new(0, 0, 48, 12), input(false));
+        let quiet = workspace(
+            Rect::new(0, 0, 48, 12),
+            WorkspaceInput {
+                roster: false,
+                ..input(false)
+            },
+        );
         assert!(quiet.get(SurfaceId::Composer).is_some());
         assert!(quiet.get(SurfaceId::Transcript).is_some());
         assert!(
@@ -972,7 +995,13 @@ mod tests {
             "twelve rows cannot hold both, and the conversation is not the thing to give up"
         );
 
-        let degraded = workspace(Rect::new(0, 0, 48, 12), input(true));
+        let degraded = workspace(
+            Rect::new(0, 0, 48, 12),
+            WorkspaceInput {
+                roster: false,
+                ..input(true)
+            },
+        );
         assert!(degraded.get(SurfaceId::Composer).is_some());
         assert!(degraded.get(SurfaceId::Transcript).is_some());
         assert!(

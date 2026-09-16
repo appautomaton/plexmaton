@@ -69,4 +69,5 @@ collaboration context and expose a bounded runner while keeping child history ou
 selection. The storage token proves directory origin; canonical provenance and COL-3 prove runtime
 authority. Passive UI projection opens the validated child journal without constructing a runtime;
 missing, writer-locked or invalid evidence keeps its roster row and projects one explicit warning.
-Tree/compaction routing and provider collaboration encoding remain later Phase 03 stages.
+Main-controlled child tree/compaction routing remains product work. Provider collaboration encoding
+is bounded by PRV-1's four explicit dialects and makes no live-endpoint claim.

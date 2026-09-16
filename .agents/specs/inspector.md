@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implemented and wired; passive resumed-child browsing is accepted at 120/95/60 columns |
+| Status | Implemented, wired and accepted; Narrow structure and function were approved in native Kitty on 2026-09-16 |
 | Owns | What the second window shows, where it goes, and what opening, entering, resizing, and closing it do |
-| Depends on | [surface-model](./surface-model.md) SURF-3 and SURF-5; the Escape ladder in [interaction-routing](./interaction-routing.md) INV-6; the shelf rules in [`ui-ux.md`](../ui-ux.md) §shelf |
+| Depends on | [surface-model](./surface-model.md) SURF-3–SURF-5; the Escape ladder in [interaction-routing](./interaction-routing.md) INV-6; the shelf and Narrow rules in [`ui-ux.md`](../ui-ux.md) |
 | Proven by | `plexmaton-tui::layout::inspector`, `::state::inspector`, and `::workspace` tests |
 
 The code calls this surface `Inspector` (ui-ux §product vocabulary). On screen it is the second
@@ -12,13 +12,14 @@ window: the user is talking to one agent and looking at another.
 
 ## Invariants
 
-**INS-1 — The window is the selection.** The list holds only the sub-agents, and is registered only
-while it holds one: a workspace that has delegated nothing gives the rail's column to the
-conversation. Selecting an agent, by arrow, click, or going to its request, opens its conversation
-over or beside the primary's, and `Escape` clears the selection and closes it. Nothing stores which
-agent is open apart from the selection, so no conversation is on screen twice; there is no pin and
-no follow (ui-ux §shelf). Rejected: storing the open window beside the selection, with pin and
-follow; the default path put one conversation on screen twice.
+**INS-1 — The window is the committed selection.** The list holds only sub-agents and is registered
+only when one exists. From Medium upward, arrow or click selection opens or repoints the second
+window. Narrow replaces the current conversation with a full-region navigator whose temporary
+cursor changes no window; `Enter` or a complete row click commits it and replaces Agents with that
+child. `Escape` or `Ctrl-B` cancels navigation and restores the conversation underneath. Outside
+that temporary cursor, nothing stores which agent is open apart from the selection, so no
+conversation is on screen twice. Rejected: storing a pinned/followed window beside selection, which
+put one conversation on screen twice.
 
 **INS-2 — Ten readable rows stay beneath the window, or the window takes the region outright.**
 There is no third outcome where a shelf and a squeezed conversation share a region too small for
@@ -29,9 +30,9 @@ per frame from the layout class and the user's maximize; changing it changes no 
 position, or focus.
 
 **INS-4 — Entering is explicit; closing gives focus back.** Looking at an agent leaves the keyboard
-in the list, so the arrows keep moving through it; `Enter` moves it into the window. Closing
-returns focus to the conversation only when the window held it. Rejected: focusing on
-look, which stops the arrows.
+in the list, so arrows keep moving through it and `Enter` moves into the window. A Narrow navigator
+visit records the exact focus that opened it and restores that focus on `Escape`, `Ctrl-B`, or a
+resize into Medium. Rejected: focusing on look, which stops the arrows.
 
 **INS-5 — The window's input requires CCV-2 control eligibility and window focus** (ui-ux §input). It takes a
 strip off the bottom of the window's own rectangle, never off the conversation's guarantee, and
@@ -43,7 +44,7 @@ for both keeps the conversation and shows no input.
 and reading position the main conversation uses (TR-1, TR-3, TR-5), keyed by agent. Text, tools,
 mail and artifacts share its first-appearance order and one viewport; there is no parallel detail
 surface or regrouped order. Rejected: composing status and an artifact index into the window now,
-which needs sub-region scroll ownership and an expand model the transcript lacks; Phase 03's.
+which needs sub-region scroll ownership and an expand model the transcript lacks.
 
 **INS-7 — A window with no room for its input is a navigation surface.** No input, no cursor, no
 text target, no draft. One geometry function, called by the renderer and by focus, answers all
@@ -95,10 +96,10 @@ state::inspector                         ├─ Column     the secondary column,
 
 | Invariant | Proven by |
 | --- | --- |
-| INS-1 | `the_rail_is_registered_only_when_there_is_a_roster`, `the_window_floats_over_the_primary_and_escape_closes_it`, `clicking_an_agent_in_the_list_selects_it_and_opens_its_window`, `the_journey_reaches_two_agents_without_losing_the_first`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`; `scripts/smoke-delegate.py` opens the same resumed child by pointer and keyboard |
+| INS-1 | `the_rail_is_registered_only_when_there_is_a_roster`, `the_window_floats_over_the_primary_and_escape_closes_it`, `clicking_an_agent_in_the_list_selects_it_and_opens_its_window`, `narrow_agents_navigation_restores_focus_and_commits_only_on_enter`, `narrow_agents_handle_and_rows_require_a_matching_release`, `the_journey_reaches_two_agents_without_losing_the_first`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`; `scripts/smoke-delegate.py` opens the same resumed child by pointer and keyboard |
 | INS-2 | `an_open_inspector_leaves_ten_readable_rows_or_takes_the_region_outright`, `a_dragged_height_is_clamped_rather_than_obeyed`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
 | INS-3 | `presentation_follows_the_terminal_and_the_users_maximize`, `the_composer_survives_every_presentation`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap`, `the_presentation_survives_the_window_showing_another_agent` |
-| INS-4 | `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`; `scripts/smoke-delegate.py` enters the resumed read-only child and closes it back to Main at 60 columns |
+| INS-4 | `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `narrow_agents_navigation_restores_focus_and_commits_only_on_enter`, `agents_handle_and_resize_transition_follow_the_layout_boundary`; `scripts/smoke-delegate.py` enters the resumed read-only child and closes it back to Main at 60 columns |
 | INS-5 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `only_a_press_on_the_bottom_edge_starts_a_resize`, `the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does`, `a_wheel_over_the_inspector_input_scrolls_that_inspectors_conversation`; CCV-2 |
 | INS-6 | `two_conversations_scroll_independently_and_neither_moves_the_other`, `an_inspected_conversation_keeps_its_own_reading_position_across_a_close_and_reopen`, `the_journey_reaches_two_agents_without_losing_the_first`, `a_conversation_drawn_at_two_widths_measures_correctly_at_both`, `missing_resumed_child_history_projects_one_explicit_unavailable_state`, `locked_resumed_child_history_projects_one_explicit_unavailable_state`, `corrupt_resumed_child_history_projects_one_explicit_unavailable_state`; `scripts/smoke-delegate.py` shows the exact restored child entries at all three widths, retains a semantic first-visible line through close/reopen and changes no durable bytes |
 | INS-7 | `an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor`, `an_inspector_splits_for_its_input_only_when_both_still_fit` |

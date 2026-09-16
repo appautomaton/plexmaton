@@ -506,7 +506,7 @@ impl Workspace {
                     ..Outcome::default()
                 };
             }
-            TuiIntent::ToggleRoster => self.state.toggle_roster(),
+            TuiIntent::ToggleRoster => self.state.toggle_roster(&self.surfaces),
             TuiIntent::Inspector(inspector) => self.state.inspect(&self.surfaces, inspector),
             TuiIntent::InspectCommand(action) => return self.inspect_command(action),
             TuiIntent::WithdrawQueued => return self.withdraw_queued(),
@@ -521,7 +521,8 @@ impl Workspace {
             }
             // A resize leaves the projection unchanged, so the repaint gate has to be told that the
             // painted frame no longer describes the screen (FR-1).
-            TuiIntent::TerminalResized { .. } => {
+            TuiIntent::TerminalResized { width, .. } => {
+                self.state.resize_roster(width);
                 self.painted_approval = None;
                 self.pressed = None;
                 self.state.hover_entry(None);
@@ -1015,6 +1016,7 @@ mod tests {
                     invocation,
                     ..
                 } = foldable_tool_on(surface);
+                tab_to(&mut workspace, &mut terminal, surface);
                 terminal.backend_mut().resize(width, 40);
                 workspace.handle(&Event::Resize(width, 40));
                 frame(&mut workspace, &mut terminal);
@@ -1140,6 +1142,7 @@ mod tests {
                     call,
                     invocation,
                 } = foldable_tool_on(surface);
+                tab_to(&mut workspace, &mut terminal, surface);
                 terminal.backend_mut().resize(width, 44);
                 workspace.handle(&Event::Resize(width, 44));
                 frame(&mut workspace, &mut terminal);
@@ -1223,6 +1226,7 @@ mod tests {
                     call,
                     mut invocation,
                 } = foldable_tool_on(surface);
+                tab_to(&mut workspace, &mut terminal, surface);
                 invocation.outcome = Some(ToolDetail::Diff {
                     patch: PATCH.into(),
                 });
@@ -2915,6 +2919,274 @@ mod tests {
         );
         assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
         assert_eq!(bounds(&workspace, SurfaceId::Transcript), conversation);
+    }
+
+    /// INS-1/INV-6: narrow uses Agents as one reversible full-region navigation mode.
+    #[test]
+    fn narrow_agents_navigation_restores_focus_and_commits_only_on_enter() {
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        let transcript = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(transcript.contains("Agents ^B"));
+        assert!(!transcript.contains("Agents !1"));
+        assert!(transcript.contains("( !1 )"));
+
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in "retained draft".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        let navigator = bounds(&workspace, SurfaceId::Agents);
+        let status = bounds(&workspace, SurfaceId::Status);
+        assert_eq!(navigator, Rect::new(0, 0, 60, status.y));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            selected(&workspace),
+            "none",
+            "moving the navigator cursor must not replace the retained conversation"
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
+        assert_eq!(workspace.state.composer().text(), "retained draft");
+
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Down, KeyModifiers::NONE),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        assert!(workspace.surfaces.get(SurfaceId::Transcript).is_none());
+        assert!(workspace.surfaces.get(SurfaceId::Inspector).is_some());
+        assert_eq!(selected(&workspace), "agent-b");
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
+
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
+        assert_eq!(selected(&workspace), "agent-b");
+    }
+
+    /// SURF-4/INV-6: a higher workspace overlay preserves the narrow navigator's exact return.
+    #[test]
+    fn drawer_owns_ctrl_b_without_corrupting_narrow_agents_return_focus() {
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        step(&mut workspace, &mut terminal, &ctrl('p'));
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Drawer));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        step(
+            &mut workspace,
+            &mut terminal,
+            &press(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+    }
+
+    /// INV-11: the collapsed handle and roster rows activate only after an unchanged click.
+    #[test]
+    fn narrow_agents_handle_and_rows_require_a_matching_release() {
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        let handle = crate::render::agents_handle::geometry(&workspace.state, &workspace.surfaces)
+            .expect("collapsed narrow handle");
+        let at = Point {
+            x: handle.bounds.x + 1,
+            y: handle.bounds.y,
+        };
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Drag(MouseButton::Left), at.x + 1, at.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y),
+        );
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            step(&mut workspace, &mut terminal, &mouse(kind, at.x, at.y));
+        }
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+        let agent = point_on(&terminal, &workspace, SurfaceId::Agents, "Agent B");
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), agent.x, agent.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                agent.x + 1,
+                agent.y,
+            ),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Up(MouseButton::Left), agent.x, agent.y),
+        );
+        assert_eq!(selected(&workspace), "none");
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+        ] {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &mouse(kind, agent.x, agent.y),
+            );
+        }
+        assert_eq!(selected(&workspace), "agent-b");
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        assert_eq!(focused(&workspace), Some(SurfaceId::Inspector));
+    }
+
+    /// SURF-4: a full-region navigator has a closed grammar over the retained conversation.
+    #[test]
+    fn narrow_agents_blocks_hidden_conversation_commands_and_interrupts() {
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        for character in "do not clear".chars() {
+            step(
+                &mut workspace,
+                &mut terminal,
+                &press(KeyCode::Char(character), KeyModifiers::NONE),
+            );
+        }
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+
+        for event in [
+            press(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            press(KeyCode::Down, KeyModifiers::SHIFT),
+            press(KeyCode::Char('x'), KeyModifiers::NONE),
+        ] {
+            step(&mut workspace, &mut terminal, &event);
+        }
+        let interrupted = workspace.handle(&press(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(interrupted.interrupted, None);
+        assert_eq!(workspace.state.composer().text(), "do not clear");
+        assert_eq!(selected(&workspace), "none");
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+    }
+
+    /// The 71/72 boundary changes presentation without retaining a hidden navigation mode.
+    #[test]
+    fn agents_handle_and_resize_transition_follow_the_layout_boundary() {
+        for width in [48, 60, 71] {
+            let (workspace, terminal) = drawn(width, 36);
+            assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+            assert!(
+                crate::render::agents_handle::geometry(&workspace.state, &workspace.surfaces)
+                    .is_some(),
+                "{width}: collapsed narrow conversation keeps its click route"
+            );
+            assert!(painted(&terminal, &workspace, SurfaceId::Transcript).contains("Agents"));
+        }
+        for width in [72, 88, 120, 140] {
+            let (workspace, _) = drawn(width, 36);
+            assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+            assert!(
+                crate::render::agents_handle::geometry(&workspace.state, &workspace.surfaces)
+                    .is_none(),
+                "{width}: the visible column needs no collapsed handle"
+            );
+        }
+
+        let (mut column, mut column_terminal) = drawn(88, 36);
+        assert_eq!(focused(&column), Some(SurfaceId::Agents));
+        column_terminal.backend_mut().resize(60, 36);
+        step(&mut column, &mut column_terminal, &Event::Resize(60, 36));
+        assert!(column.surfaces.get(SurfaceId::Agents).is_none());
+        assert!(column.surfaces.get(SurfaceId::Transcript).is_some());
+        assert!(
+            crate::render::agents_handle::geometry(&column.state, &column.surfaces).is_some(),
+            "crossing into Narrow collapses the column until the user explicitly reopens it"
+        );
+
+        let (mut workspace, mut terminal) = drawn(60, 36);
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Composer);
+        step(&mut workspace, &mut terminal, &ctrl('b'));
+        assert_eq!(focused(&workspace), Some(SurfaceId::Agents));
+
+        terminal.backend_mut().resize(88, 36);
+        step(&mut workspace, &mut terminal, &Event::Resize(88, 36));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_some());
+        assert_eq!(
+            focused(&workspace),
+            Some(SurfaceId::Composer),
+            "crossing into Medium ends the narrow visit and restores its origin"
+        );
+
+        terminal.backend_mut().resize(60, 36);
+        step(&mut workspace, &mut terminal, &Event::Resize(60, 36));
+        assert!(workspace.surfaces.get(SurfaceId::Agents).is_none());
+        assert_eq!(focused(&workspace), Some(SurfaceId::Composer));
+        assert!(
+            crate::render::agents_handle::geometry(&workspace.state, &workspace.surfaces).is_some()
+        );
     }
 
     /// ATT-2 and ATT-3: going to a request is a keypress, and being seen is not being answered.

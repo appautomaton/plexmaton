@@ -35,6 +35,8 @@ pub(super) enum PressTarget {
     DrawerRetract,
     Menu(MenuRow),
     Tree(crate::render::conversation_tree::Hit),
+    RosterToggle,
+    Agent(AgentId),
 }
 
 impl Workspace {
@@ -43,6 +45,12 @@ impl Workspace {
         match surface {
             SurfaceId::ConversationTree => self.tree_hit(at).map(PressTarget::Tree),
             SurfaceId::ComposerMenu => self.menu_hit(at).map(PressTarget::Menu),
+            SurfaceId::Transcript | SurfaceId::Inspector
+                if crate::render::agents_handle::hit(&self.state, &self.surfaces, surface, at) =>
+            {
+                Some(PressTarget::RosterToggle)
+            }
+            SurfaceId::Agents => self.roster_agent_at(at).map(PressTarget::Agent),
             SurfaceId::Drawer if self.drawer_retract_hit(at) => Some(PressTarget::DrawerRetract),
             SurfaceId::Drawer => self.drawer_hit(at).map(PressTarget::Drawer),
             SurfaceId::Approval => self
@@ -61,8 +69,7 @@ impl Workspace {
             SurfaceId::Transcript => self
                 .retry_hit(surface, at)
                 .map(|(target, action)| PressTarget::Retry { target, action }),
-            SurfaceId::Agents
-            | SurfaceId::Inspector
+            SurfaceId::Inspector
             | SurfaceId::Composer
             | SurfaceId::Notices
             | SurfaceId::QueuedInput
@@ -83,6 +90,14 @@ impl Workspace {
             PressTarget::Drawer(choice) => self.choose_drawer_row(choice),
             PressTarget::DrawerRetract => {
                 self.state.close_drawer();
+                Outcome::default()
+            }
+            PressTarget::RosterToggle => {
+                self.state.toggle_roster(&self.surfaces);
+                Outcome::default()
+            }
+            PressTarget::Agent(agent) => {
+                self.state.activate_roster_agent(&self.surfaces, &agent);
                 Outcome::default()
             }
             PressTarget::Approval { choice, .. } => {
@@ -107,7 +122,7 @@ impl Workspace {
                 self.pressed = None;
                 let target = self.press_target(surface, at)?;
                 // The card takes the keyboard with the press, as a click into a region does.
-                if surface == SurfaceId::Approval {
+                if matches!(surface, SurfaceId::Approval | SurfaceId::Agents) {
                     self.state.focus_surface(&self.surfaces, surface);
                 }
                 self.pressed = Some(Pressed {

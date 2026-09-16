@@ -27,6 +27,18 @@ class SmokeBoundaryTests(unittest.TestCase):
                 support.await_screen(-1, bytearray(raw), (4, 40), ("Commands", "/config"), exact_lines=("config",))
                 self.assertEqual(read.call_args.args[2](), expected)
 
+    def test_full_region_panel_can_supply_its_own_completion_witness(self):
+        raw = "\x1b[1;1H┌ Agents ─┐\x1b[2;1H│ child    │\x1b[3;1H└───────────┘\x1b[0m".encode()
+        with patch.object(support, "read_until") as read:
+            support.await_screen(
+                -1,
+                bytearray(raw),
+                (3, 13),
+                ("┌ Agents", "child"),
+                complete=False,
+            )
+            self.assertTrue(read.call_args.args[2]())
+
     def test_ready_state_needs_no_read_or_delay(self):
         support.read_until(-1, bytearray(b"ready"), lambda: True)
 

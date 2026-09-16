@@ -1502,21 +1502,31 @@ fn assert_live_attention_frames(
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        assert!(frame.contains("approval"), "{width}: {frame}");
+        if width < 72 {
+            assert!(frame.contains("Agents ^B"), "{width}: {frame}");
+            assert!(!frame.contains("Agents !1"), "{width}: {frame}");
+            assert!(
+                !frame.contains("approval"),
+                "{width}: the collapsed navigator exposed a background row: {frame}"
+            );
+        } else {
+            assert!(frame.contains("approval"), "{width}: {frame}");
+        }
         assert!(frame.contains("( !1 )"), "{width}: {frame}");
         assert!(
             !frame.contains("Allow once"),
             "{width}: request stole focus"
         );
     }
-    for _ in 0..workspace.surfaces().len() {
-        if workspace.state().focused(workspace.surfaces()) == Some(plexmaton_tui::SurfaceId::Agents)
-        {
-            break;
-        }
-        workspace.handle(&Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)));
-        workspace.draw(terminal).expect("draw focus step");
-    }
+    workspace.handle(&Event::Key(KeyEvent::new(
+        KeyCode::Char('b'),
+        KeyModifiers::CONTROL,
+    )));
+    settle_workspace_frame(workspace, terminal);
+    assert_eq!(
+        workspace.state().focused(workspace.surfaces()),
+        Some(plexmaton_tui::SurfaceId::Agents)
+    );
     workspace.handle(&Event::Key(KeyEvent::new(
         KeyCode::Down,
         KeyModifiers::NONE,

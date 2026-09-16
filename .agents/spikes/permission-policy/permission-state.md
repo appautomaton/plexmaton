@@ -18,5 +18,5 @@ is a projection of the named grant under PER-7.
 
 [Project storage](../../specs/project-permissions.md) owns persistent transactions. The
 [POSIX experiment](./store-experiment.md) retains the independent failure-protocol evidence;
-production latency has not been benchmarked. Future delegation still needs Phase 03's explicit
-owner handoff. The [HTML view](./approval-view.html) remains a presentation fixture.
+production latency has not been benchmarked. Delegation reuses the exact Session owner through
+CHB-1/CHB-2. The [HTML view](./approval-view.html) remains a presentation fixture.
