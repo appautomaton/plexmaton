@@ -5,6 +5,7 @@ import select
 import os
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("smoke_support", Path(__file__).resolve().parents[1] / "smoke_support.py")
@@ -38,6 +39,22 @@ class SmokeBoundaryTests(unittest.TestCase):
                 complete=False,
             )
             self.assertTrue(read.call_args.args[2]())
+
+    def test_terminal_wait_reports_process_exit_and_last_frame(self):
+        terminal = support.Terminal.__new__(support.Terminal)
+        terminal.master = -1
+        terminal.capture = bytearray(b"\x1b[1;1Hlast frame")
+        terminal.frame_start = 0
+        terminal.size = (2, 20)
+        terminal.process = SimpleNamespace(poll=lambda: 101)
+
+        with patch.object(support, "await_screen", side_effect=EOFError("terminal closed")):
+            with self.assertRaises(EOFError) as failure:
+                terminal.wait("missing")
+
+        message = str(failure.exception)
+        self.assertIn("process exit: 101", message)
+        self.assertIn("last frame", message)
 
     def test_ready_state_needs_no_read_or_delay(self):
         support.read_until(-1, bytearray(b"ready"), lambda: True)

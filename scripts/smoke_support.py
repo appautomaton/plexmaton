@@ -284,15 +284,21 @@ class Terminal:
             self.process.wait(timeout=10)
 
     def wait(self, *markers, absent=(), complete=True):
-        return await_screen(
-            self.master,
-            self.capture,
-            self.size,
-            markers,
-            absent,
-            self.frame_start,
-            complete=complete,
-        )
+        try:
+            return await_screen(
+                self.master,
+                self.capture,
+                self.size,
+                markers,
+                absent,
+                self.frame_start,
+                complete=complete,
+            )
+        except (EOFError, TimeoutError) as error:
+            screen = rendered_screen(bytes(self.capture[self.frame_start :]), self.size)
+            raise type(error)(
+                f"{error}; process exit: {self.process.poll()}\nlast rendered screen:\n{screen}"
+            ) from error
 
     def send(self, keys, *markers, absent=()):
         os.write(self.master, keys)
