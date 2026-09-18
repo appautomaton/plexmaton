@@ -1106,7 +1106,7 @@ mod tests {
         assert_eq!(router.capture(), Some(OVERLAY), "the drag is still held");
     }
 
-    /// INV-5: releasing twice cannot produce two gestures.
+    /// Releasing twice cannot produce two gestures: the second release finds no capture.
     #[test]
     fn capture_is_released_exactly_once() {
         let surfaces = tree();

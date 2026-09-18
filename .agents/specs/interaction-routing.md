@@ -28,9 +28,6 @@ never changes focus or transcript selection. Wheel routing retains `ui-ux.md` §
 surface regardless of position; hit testing is not consulted. Wheels keep hover routing. Terminal
 focus loss pauses motion but preserves capture for a later drag.
 
-**INV-5 — Capture is released exactly once.** A release or a cancel clears capture; a second
-release produces `Ignored::NoCapture`, never a second drag intent.
-
 **INV-6 — The Escape ladder resolves one layer per press.** Cancel active capture first, then
 resolve the focused input selection or topmost overlay. A focused primary approval returns focus
 to its composer while its card stays visible. Inside conversations, clear selection before closing
@@ -78,7 +75,8 @@ crossterm::Event ──▶ Router::translate(event, RouterContext) ──▶ Rou
 
 `RouterContext` is a read-only snapshot of input mode, focus, dismissible state, selection, and the
 last frame's `SurfaceTree`. The router mutates only its capture: a left press on a surface takes it,
-a drag keeps it, and a release or `Escape` gives it back (INV-4, INV-5).
+a drag keeps it, and a release or `Escape` gives it back (INV-4); releasing twice gives back
+nothing, which `capture_is_released_exactly_once` holds.
 
 ### Key grammar
 
@@ -191,7 +189,6 @@ is navigated, never typed into: `↑` / `↓` or `k` / `j` scroll its values (DR
 | INV-2 | `approval_numbers_follow_focus_and_the_current_choice_stage`, `printable_keys_follow_the_cursor`, `the_inspector_grammar_is_the_same_under_both_focus_modes_except_enter`, `ctrl_o_is_the_same_disclosure_intent_under_both_focus_modes` |
 | INV-3 | `approval_hover_and_arrows_share_selection_and_repeated_motion_is_free`, `drawer_hover_and_arrows_share_one_choice_without_opening_pages`, `composer_menu_hover_preserves_draft_and_arrows_continue_from_the_hovered_row`, `pointer_motion_routes_a_hover_without_capture_or_focus`, `hover_changes_only_the_foldable_rows_appearance_and_repeating_it_costs_nothing`, `wheel_routes_by_hover_and_never_changes_focus`, `the_wheel_falls_through_what_cannot_scroll_and_stops_at_what_is_merely_exhausted`, `a_wheel_over_the_workspace_with_nothing_to_scroll_says_so` |
 | INV-4 | `capture_keeps_the_drag_on_its_surface`, `wheel_is_not_captured_by_a_drag`, `focus_loss_suspends_motion_without_releasing_capture`, `dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle` |
-| INV-5 | `capture_is_released_exactly_once` |
 | INV-6 | `escape_resolves_one_layer_per_press`, `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation`, `narrow_agents_navigation_restores_focus_and_commits_only_on_enter`, `drawer_owns_ctrl_b_without_corrupting_narrow_agents_return_focus`, `drawer_and_tree_own_ctrl_b_while_they_cover_the_workspace` |
 | INV-7 | `quit_is_explicit_and_unreachable_while_typing`, `the_quit_chord_confirms_only_inside_its_one_second_window`, `the_quit_deadline_expires_once_and_costs_one_frame`, `ctrl_c_clears_a_draft_or_interrupts_but_never_does_both`, `ctrl_c_names_the_conversation_it_interrupts`, `production_mapping_preserves_message_steering_interrupt_and_approval`, `ctrl_c_child_refusal_never_falls_back_to_root_and_root_remains_routable`; `scripts/smoke-delegate.py` proves focused-child Stop does not exit or interrupt Main |
 | INV-8 | `a_modifier_does_not_make_a_pointer_event_disappear`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed` |

@@ -3770,7 +3770,7 @@ mod tests {
         assert_eq!(
             bounds(&workspace, SurfaceId::Inspector).height,
             settled,
-            "a drag after release has no capture and must move nothing (INV-5)"
+            "a drag after release has no capture and must move nothing"
         );
     }
 
