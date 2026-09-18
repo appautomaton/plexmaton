@@ -78,9 +78,9 @@ Markdown or infers formatting from regular expressions.
 workspace/Markdown/code role and modifier patches, never resolved terminal colors; painting uses the
 current palette without parsing, wrapping or rebuilding copy fragments. The explicit Markdown
 theme belongs to palette identity, independently of workspace chrome; its inherited choice follows
-the workspace palette, and its designed choice writes the named tokens directly, so a replacement
-palette reaches the inherited one and not the designed one. The designed palette's Markdown is the same named tokens: sky, mint and teal
-headings, sky links and gold inline code. A 24-bit terminal is assumed; there is no reduced-colour
+the workspace palette, and its designed choice names the designed slots rather than the palette's
+own, so a replacement palette reaches the inherited one and not the designed one. The designed palette's Markdown names the same slots: blue, green and cyan
+headings, blue links and yellow inline code. A 24-bit terminal is assumed; there is no reduced-colour
 resolution and no slot fallback.
 
 Rejected: regular-expression Markdown parsing; storing decorated text in JSONL; executing HTML or
@@ -114,12 +114,12 @@ ordinary block with it.
 | Code role | Pastel token |
 | --- | --- |
 | Text, variables, operators and punctuation | Body |
-| Keywords | Sky |
-| Types and properties, including JSON keys | Teal |
-| Functions and macros | Gold |
-| Strings | Mint |
+| Keywords | Blue |
+| Types and properties, including JSON keys | Cyan |
+| Functions and macros | Yellow |
+| Strings | Green |
 | Numbers and constants | Orange |
-| Comments | Steel, italic |
+| Comments | Muted, italic |
 
 These are content roles, not workspace attention states. Inherited palettes use Body with bold
 keywords and muted italic comments, retaining a color-free monochrome path. Headings, bold,

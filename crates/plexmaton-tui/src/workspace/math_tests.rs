@@ -207,7 +207,7 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
                 for cell in &cells {
                     assert_eq!(
                         terminal.backend().buffer()[(cell.x, cell.y)].bg,
-                        crate::theme::tokens::BAR,
+                        crate::theme::Slots::designed().ground,
                         "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
@@ -234,7 +234,7 @@ fn formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_
                 for cell in &cells {
                     assert_eq!(
                         terminal.backend().buffer()[(cell.x, cell.y)].bg,
-                        crate::theme::tokens::BAR,
+                        crate::theme::Slots::designed().ground,
                         "a selected formula cell carries the shipped palette's selection ground"
                     );
                 }
@@ -262,7 +262,7 @@ fn formula_source_fallback_and_reflow_preserve_atomic_selection_without_reprepar
             for cell in atoms(&mut workspace) {
                 assert_eq!(
                     terminal.backend().buffer()[(cell.x, cell.y)].bg,
-                    crate::theme::tokens::BAR,
+                    crate::theme::Slots::designed().ground,
                     "a selected formula cell carries the shipped palette's selection ground"
                 );
             }

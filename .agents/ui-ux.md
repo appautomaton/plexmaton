@@ -281,12 +281,14 @@ terminals with the fewest rows.
   needs the user. A theme may therefore be written by hand, and any terminal colourway can be
   carried into one. Rejected: inheriting the terminal's own theme, which let the terminal decide
   our semantics implicitly — borrowing its vocabulary is not that, because the values stay ours
-  to state. Unbuilt, and each one a place a theme cannot reach: there are no `purple` or `magenta`
-  slots, though the effort rail and the status script each invented a purple of their own; the
-  designed Markdown and code themes name colours directly rather than deriving from roles (MD-5);
-  and the effort rail carries eleven colours that belong to no slot.
+  to state. Unbuilt, and each one a place a theme cannot reach: the designed Markdown and code
+  themes name the designed slots rather than the palette's own (MD-5), so a replacement reaches the
+  inherited theme and never the designed one; the effort rail carries eleven colours that belong to
+  no slot; and no theme can be loaded from configuration yet, so the twelve values are still
+  supplied in code.
 - A surface that holds a conversation, or the roster of them, carries its own hue on its border:
-  steel for the roster, sky for the conversation the user owns, teal for a delegate's. Focus is
+  the muted slot for the roster, blue for the conversation the user owns, cyan for a delegate's.
+  Focus is
   that same hue at full strength and rest is the same hue carried most of the way to the ground,
   so a border answers both of the questions a reader asks of it — whose surface this is, and where
   the keys are going — without the two collapsing into each other. Surfaces that are something the

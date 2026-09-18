@@ -702,9 +702,10 @@ mod tests {
 
     #[test]
     fn an_injected_palette_is_the_one_the_frame_paints() {
-        let palette = Palette::from_roles(|role| match role {
-            Role::Border => Style::new().fg(Color::Magenta),
-            role => Palette::pastel().style(role),
+        // A theme changes one slot; only the roles spending that slot may change with it.
+        let palette = Palette::from_slots(crate::Slots {
+            line: Color::Magenta,
+            ..crate::Slots::designed()
         });
         let mut workspace = Workspace::with_palette(palette);
         let mut terminal = Terminal::new(TestBackend::new(120, 24))

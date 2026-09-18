@@ -457,7 +457,10 @@ mod tests {
                 .style
         };
         assert_ne!(keyword(&before).fg, keyword(&after).fg);
-        assert_eq!(keyword(&after).fg, Some(crate::theme::tokens::SKY));
+        assert_eq!(
+            keyword(&after).fg,
+            Some(crate::theme::Slots::designed().blue)
+        );
         assert_eq!(cache.layouts(), 1);
         prepared(&mut cache, &agent, &item, 60).expect("hit");
         assert_eq!(cache.layouts(), 1);

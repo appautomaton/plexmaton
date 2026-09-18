@@ -120,7 +120,7 @@ fn mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown() {
             "drag reuses measured layout"
         );
         let selected_cell = &terminal.backend().buffer()[(start.x, start.y)];
-        assert_eq!(selected_cell.bg, crate::theme::tokens::BAR);
+        assert_eq!(selected_cell.bg, crate::theme::Slots::designed().ground);
         assert!(
             selected_cell
                 .modifier
@@ -265,8 +265,8 @@ fn text_drag_copies_wrapped_code_without_its_frame() {
         "    let greeting = \"hello world from a deliberately long line\";\n    println!(\"中文🙂\");"
     );
     let keyword = terminal.backend().buffer()[(start.x + 4, start.y)].clone();
-    assert_eq!(keyword.fg, crate::theme::tokens::SKY);
-    assert_eq!(keyword.bg, crate::theme::tokens::BAR);
+    assert_eq!(keyword.fg, crate::theme::Slots::designed().blue);
+    assert_eq!(keyword.bg, crate::theme::Slots::designed().ground);
     let selected = workspace.copy_selection().expect("copy").text;
     terminal.backend_mut().resize(120, 24);
     workspace.handle(&Event::Resize(120, 24));

@@ -7,7 +7,7 @@ pub enum MarkdownTheme {
     /// Derive Markdown styles from the surrounding palette.
     #[default]
     Inherited,
-    /// Use the existing pastel palette's blue, green, teal and warm yellow accents.
+    /// Use the designed palette's blue, green, cyan and yellow slots.
     Pastel,
 }
 
@@ -49,20 +49,26 @@ impl Palette {
                 selection: self.style(Role::Selection),
             },
             MarkdownTheme::Pastel => {
-                use super::tokens::{BAR, GOLD, LINE, MINT, SKY, STEEL, TEAL};
+                // MD-5: the designed theme names slots rather than deriving from workspace roles,
+                // because document structure is not workspace attention. Unbuilt: these are the
+                // designed slots rather than the palette's own, so a swapped palette reaches the
+                // inherited theme above and never this one.
+                let slots = super::Slots::designed();
                 MarkdownStyles {
-                    // Sky, mint, teal lead the hierarchy; gold marks what you would type.
-                    headings: [SKY, MINT, TEAL]
+                    // Blue, green, cyan lead the hierarchy; yellow marks what you would type.
+                    headings: [slots.blue, slots.green, slots.cyan]
                         .map(|colour| Style::new().fg(colour).add_modifier(Modifier::BOLD)),
-                    inline_code: Style::new().fg(GOLD).bg(BAR),
+                    inline_code: Style::new().fg(slots.yellow).bg(slots.ground),
                     code: self.style(Role::Body),
-                    link: Style::new().fg(SKY).add_modifier(Modifier::UNDERLINED),
-                    quote: Style::new().fg(STEEL).add_modifier(Modifier::ITALIC),
-                    marker: Style::new().fg(STEEL),
-                    task_marker: Style::new().fg(TEAL),
-                    guide: Style::new().fg(STEEL),
-                    rule: Style::new().fg(LINE),
-                    selection: Style::new().bg(BAR),
+                    link: Style::new()
+                        .fg(slots.blue)
+                        .add_modifier(Modifier::UNDERLINED),
+                    quote: Style::new().fg(slots.muted).add_modifier(Modifier::ITALIC),
+                    marker: Style::new().fg(slots.muted),
+                    task_marker: Style::new().fg(slots.cyan),
+                    guide: Style::new().fg(slots.muted),
+                    rule: Style::new().fg(slots.line),
+                    selection: Style::new().bg(slots.ground),
                 }
             }
         }
@@ -86,11 +92,23 @@ mod tests {
             "the palette identity must include Markdown colors to request a repaint"
         );
         let styles = colored.markdown_styles();
-        assert_eq!(styles.headings[0].fg, Some(super::super::tokens::SKY));
-        assert_eq!(styles.headings[1].fg, Some(super::super::tokens::MINT));
-        assert_eq!(styles.headings[2].fg, Some(super::super::tokens::TEAL));
-        assert_eq!(styles.link.fg, Some(super::super::tokens::SKY));
-        assert_eq!(styles.inline_code.fg, Some(super::super::tokens::GOLD));
+        assert_eq!(
+            styles.headings[0].fg,
+            Some(super::super::Slots::designed().blue)
+        );
+        assert_eq!(
+            styles.headings[1].fg,
+            Some(super::super::Slots::designed().green)
+        );
+        assert_eq!(
+            styles.headings[2].fg,
+            Some(super::super::Slots::designed().cyan)
+        );
+        assert_eq!(styles.link.fg, Some(super::super::Slots::designed().blue));
+        assert_eq!(
+            styles.inline_code.fg,
+            Some(super::super::Slots::designed().yellow)
+        );
         let designed = Palette::pastel().markdown_styles();
         assert_eq!(
             designed.headings.map(|style| style.fg),

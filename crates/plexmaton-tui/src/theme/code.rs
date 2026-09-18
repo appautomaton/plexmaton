@@ -2,7 +2,7 @@
 use ratatui::style::{Modifier, Style};
 use serde::{Deserialize, Serialize};
 
-use super::{MarkdownTheme, Palette, Role, tokens};
+use super::{MarkdownTheme, Palette, Role, Slots};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum CodeRole {
@@ -25,16 +25,19 @@ impl Palette {
                 _ => self.style(Role::Body),
             };
         }
+        // MD-5: the designed theme names slots rather than deriving from workspace roles, because
+        // code meaning is not workspace attention — a keyword is not "where you are". It still
+        // reaches no further than the slots, so a theme reaches it. Unbuilt: these slots are the
+        // designed ones rather than the palette's own, so a swapped palette leaves code as it was.
+        let slots = Slots::designed();
         match role {
             CodeRole::Text => self.style(Role::Body),
-            CodeRole::Keyword => Style::new().fg(tokens::SKY),
-            CodeRole::Type | CodeRole::Property => Style::new().fg(tokens::TEAL),
-            CodeRole::Function => Style::new().fg(tokens::GOLD),
-            CodeRole::String => Style::new().fg(tokens::MINT),
-            CodeRole::Constant => Style::new().fg(tokens::ORANGE),
-            CodeRole::Comment => Style::new()
-                .fg(tokens::STEEL)
-                .add_modifier(Modifier::ITALIC),
+            CodeRole::Keyword => Style::new().fg(slots.blue),
+            CodeRole::Type | CodeRole::Property => Style::new().fg(slots.cyan),
+            CodeRole::Function => Style::new().fg(slots.yellow),
+            CodeRole::String => Style::new().fg(slots.green),
+            CodeRole::Constant => Style::new().fg(slots.orange),
+            CodeRole::Comment => Style::new().fg(slots.muted).add_modifier(Modifier::ITALIC),
         }
     }
 }

@@ -52,7 +52,8 @@ pub use surface::{
     KeyboardFocus, Point, Surface, SurfaceId, SurfaceKind, SurfaceTree, SurfaceTreeError, Viewport,
 };
 pub use theme::{
-    EFFORT_COLOR_PHASES, EffortPalette, MarkdownTheme, Palette, Role, agent_role, tool_role,
+    EFFORT_COLOR_PHASES, EffortPalette, MarkdownTheme, Palette, Role, Slots, agent_role, invert,
+    tool_role,
 };
 pub use transcript::TranscriptMetrics;
 pub use workspace::{
