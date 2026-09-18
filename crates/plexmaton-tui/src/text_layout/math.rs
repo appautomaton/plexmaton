@@ -19,7 +19,19 @@ mod flow;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const MAX_FORMULAS: usize = 256;
+/// How many formulas one prepared layout may carry across the preparation-process boundary.
+///
+/// This is a transport bound, not a rule about writing: a reply arriving from the preparation
+/// process is validated before the TUI allocates from it, and a malformed one must not be able to
+/// ask for an unbounded geometry vector. What an entry may *render* is bounded by prepared bytes
+/// ([`crate::preparation::MAX_PREPARED_BYTES`]) and by the formula that crosses that budget keeping
+/// its source, so the renderer cannot produce a layout this refuses.
+///
+/// Rejected: reusing this number inside the renderer as a limit on how many formulas a message may
+/// contain, checked in four places and enforced by abandoning Markdown for the whole entry. A
+/// budget that belongs to one channel had become a rule about documents, and a letter carrying four
+/// formulas more than it allowed reached the terminal as raw TeX, headings and all.
+pub(crate) const MAX_FORMULAS: usize = 8192;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum SourceReason {
@@ -27,8 +39,13 @@ pub(crate) enum SourceReason {
     Incomplete,
     Syntax,
     Unsupported,
+    /// The source carries a control character, so it was damaged before it reached the reader.
+    Controls,
     Capacity,
-    Width { required: usize, available: usize },
+    Width {
+        required: usize,
+        available: usize,
+    },
 }
 
 impl SourceReason {
@@ -38,6 +55,10 @@ impl SourceReason {
             Self::Incomplete => "Incomplete math · showing source".into(),
             Self::Syntax => "Math syntax refused · showing source".into(),
             Self::Unsupported => "Native math unavailable · showing source".into(),
+            // Not a limit of ours: a control character cannot be typed into a formula, so the
+            // source was damaged on its way here and the reader is told that rather than being
+            // told this terminal cannot draw it.
+            Self::Controls => "Math source is damaged · showing source".into(),
             Self::Capacity => "Math preparation limit · showing source".into(),
             Self::Width {
                 required,
@@ -60,9 +81,8 @@ impl From<MathError> for SourceReason {
                 required,
                 available,
             },
-            MathError::Controls | MathError::Unsupported(_) | MathError::Overlap => {
-                Self::Unsupported
-            }
+            MathError::Controls => Self::Controls,
+            MathError::Unsupported(_) | MathError::Overlap => Self::Unsupported,
         }
     }
 }
@@ -152,31 +172,44 @@ impl Atom {
                     lines: vec![line],
                 })
             }
-            Err(reason) => {
-                let mut lines = Vec::new();
-                let source = crate::markdown::inert(source);
-                for (source, role) in [(reason.label(), Role::Muted), (source, Role::Body)] {
-                    for line in source.split('\n') {
-                        lines.extend(
-                            super::paint::ranges(Line::styled(line.to_owned(), role), width, true)
-                                .into_iter()
-                                .map(|(line, _)| line),
-                        );
-                        if lines.len() > crate::markdown::MAX_LINES {
-                            return Err(PlainReason::Complexity);
-                        }
-                    }
+            Err(reason) => Self::source_only(source, span, width, reason),
+        }
+    }
+
+    /// One formula kept as the exact characters its author typed, under a named reason.
+    ///
+    /// Both ways a formula can end up without geometry arrive here: the engine refused it, or the
+    /// entry's preparation budget was already spent on earlier formulas. They are the same outcome
+    /// for the reader — the source, and a line saying why — so they are drawn by one function
+    /// rather than by two that would drift.
+    pub(crate) fn source_only(
+        source: &str,
+        span: usize,
+        width: usize,
+        reason: SourceReason,
+    ) -> Result<Self, PlainReason> {
+        let mut lines = Vec::new();
+        let source = crate::markdown::inert(source);
+        for (source, role) in [(reason.label(), Role::Muted), (source, Role::Body)] {
+            for line in source.split('\n') {
+                lines.extend(
+                    super::paint::ranges(Line::styled(line.to_owned(), role), width, true)
+                        .into_iter()
+                        .map(|(line, _)| line),
+                );
+                if lines.len() > crate::markdown::MAX_LINES {
+                    return Err(PlainReason::Complexity);
                 }
-                Ok(Self {
-                    span,
-                    width: lines.iter().map(Line::width).max().unwrap_or(1).max(1),
-                    height: lines.len(),
-                    axis: 0,
-                    content: FormulaContent::Source(reason),
-                    lines,
-                })
             }
         }
+        Ok(Self {
+            span,
+            width: lines.iter().map(Line::width).max().unwrap_or(1).max(1),
+            height: lines.len(),
+            axis: 0,
+            content: FormulaContent::Source(reason),
+            lines,
+        })
     }
 }
 

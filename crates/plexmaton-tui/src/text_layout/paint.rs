@@ -92,6 +92,11 @@ impl Paint {
         self.patches.capacity() * size_of::<Layer>()
     }
 
+    /// Release growth headroom once no further layer can be composed onto this paint.
+    pub(crate) fn shrink(&mut self) {
+        self.patches.shrink_to_fit();
+    }
+
     pub(crate) fn is_bounded(&self) -> bool {
         // Above the parser's maximum composed nesting, but finite for decoded worker data.
         self.patches.len() <= 256
@@ -199,6 +204,18 @@ impl std::fmt::Display for Line {
 }
 
 impl Line {
+    /// Release growth headroom once this row is final.
+    pub(crate) fn shrink(&mut self) {
+        self.style.shrink();
+        self.spans.shrink_to_fit();
+        for span in &mut self.spans {
+            span.style.shrink();
+            if let Cow::Owned(text) = &mut span.content {
+                text.shrink_to_fit();
+            }
+        }
+    }
+
     pub(crate) fn allocation_bytes(&self) -> usize {
         self.style.allocation_bytes()
             + self.spans.capacity() * size_of::<Span>()

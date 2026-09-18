@@ -6,13 +6,31 @@ use std::sync::Arc;
 
 use crate::{TranscriptEntryView, content, state::EntryAppearance, text_layout::Layout};
 
-/// Maximum retained allocation in one prepared entry, independent of its wire encoding.
-pub const MAX_PREPARED_BYTES: usize = 1024 * 1024;
+/// Accounted cost of one finished row, measured with its fragments, spans and composed paint.
+const BYTES_A_FINISHED_ROW: usize = 1536;
+
+/// What one prepared entry may cost, derived from the rows it is allowed to occupy and independent
+/// of its wire encoding.
+///
+/// Deriving it rather than restating it keeps the two budgets describing one fact: an entry that
+/// fits [`crate::markdown::MAX_LINES`] cannot fail this bound, so `Text preparation limit` means
+/// the entry is genuinely too long, never that the allocator rounded the wrong way. Rejected:
+/// writing the product out as a literal beside a comment claiming a derivation, which agrees only
+/// until someone tunes the row bound and leaves the comment asserting arithmetic the code no
+/// longer performs.
+pub const MAX_PREPARED_BYTES: usize = crate::markdown::MAX_LINES * BYTES_A_FINISHED_ROW;
 pub(crate) const MAX_KEY_BYTES: usize = 4096;
 /// Maximum number of source snapshots in one owned preparation batch.
 pub const MAX_BATCH_ITEMS: usize = 16;
-/// Maximum accounted prepared allocation admitted as one completion.
-pub const MAX_BATCH_BYTES: usize = 2 * 1024 * 1024;
+/// Maximum accounted prepared allocation admitted as one completion, derived so that a batch always
+/// carries entries the entry bound already admitted. A batch is a scheduling unit, never a second
+/// opinion on how long an entry may be; an independently chosen number here refuses a legal entry
+/// as `Capacity` and reports a limit the reader has no way to act on.
+pub const MAX_BATCH_BYTES: usize = 2 * MAX_PREPARED_BYTES;
+
+/// MD-3: an entry the entry bound admitted is never refused by the batch bound. Proven here rather
+/// than in a test because it is a relation between constants, so the compiler can hold it for free.
+const _: () = assert!(MAX_BATCH_BYTES >= MAX_PREPARED_BYTES);
 
 /// A complete batch did not fit. The owner may retry a smaller batch, never truncate entries.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

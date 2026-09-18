@@ -55,15 +55,25 @@ at most 64 KiB with explicit omitted-byte metadata. JRN-5 owns the separate mode
 canonical patch under the bound derived by MUT-6; unchanged file bytes never enter it. Slice 2
 proves production and retention bounds. Mail discloses the same way, because a summary is whatever
 another session wrote and the first real one filled the conversation it arrived in. Its compact row
-is a preview: the letter flowed onto one row, spending its line breaks as spaces, cut to the width
+is a preview: what the letter *says*, taken from the same parser that draws its body so no heading
+marker, bullet or fence reaches the row as characters, flowed onto one row and cut to the width
 being drawn, with an ellipsis whenever that is not all of it. A letter therefore always discloses —
 the body under it is the only place the letter exists as written, and whether the preview happened
-to fit is a property of the frame, not of the entry. That body keeps its gutter on every row a line
-wraps onto, so continuation reads as part of the letter rather than as the conversation around it.
+to fit is a property of the frame, not of the entry. **That body is prose, so the transcript's own
+grammar draws it**: Markdown (MD-1) and native math (MTH-1) reach a letter exactly as they reach an
+assistant message, and copy still carries the exact source. The bound named on mail is a size
+limit, not a demotion to metadata — a letter that arrives as a document has to read as one. The
+body keeps its gutter on every row a line wraps onto, so continuation reads as part of the letter
+rather than as the conversation around it; `Layout::append` re-bases its copy ranges and formula
+geometry onto that gutter so selection and atomic formula copy survive the indent.
 Rejected: reserving disclosure for tools, which silently made `Ctrl-O` inert for the one entry kind
 whose payload has no other bound; a fixed heading budget, which left a preview two thirds empty on
-a wide terminal; and a constant floor under which a letter was deemed always to fit, which showed
-an ellipsis in a panel narrower than the floor and then refused to answer it. Disclosure is view
+a wide terminal; a constant floor under which a letter was deemed always to fit, which showed
+an ellipsis in a panel narrower than the floor and then refused to answer it; and drawing the body
+as an envelope's retained source, which was right while a simulator wrote one-sentence summaries
+and wrong the moment a model wrote headings, emphasis and display formulas — those reached the
+terminal as the characters the author typed, and a second parser beside the envelope would only
+have drifted from the one the transcript already owns. Disclosure is view
 state keyed by `TranscriptItemId`, never
 another session fact: it survives lifecycle replacement, changes one cached height, and expands
 inside the parent conversation rather than creating a nested viewport. `Ctrl-O` addresses the

@@ -26,13 +26,26 @@ independent rectangle validation.
 **MD-3 — Incomplete streams stay readable and bounded.** CommonMark parses the current source
 prefix, including unclosed fences. Recognized unfinished math in native mode occupies one `Math…`
 row until its closing delimiter arrives; finalization reveals incomplete source. MTH-1 keeps the
-pending atom's exact source, including trailing newlines. Formatting caps source at 128 KiB, 32,768 events, depth 32,
-8,192 rows and 512 KiB of rendered text; formatting widths above 512 cells use literal source.
-Tables cap 16 columns and 256 rows; entries cap 256 formula boxes. Exceeding a bound
-shows a named literal-source fallback; nothing is discarded from copy or context.
+pending atom's exact source, including trailing newlines. Formatting is bounded on source bytes,
+parse events, nesting depth, rendered rows, rendered bytes and formatting width, and a width past
+that last bound uses literal source; `markdown.rs` holds every value. The row budget is the one
+bound that decides how long an entry may be: MD-4's byte budget and the preparation batch bound
+both derive from it in code, so an entry that fits it cannot fail either. Rejected: stating each
+value here beside the code that holds it, which is a second copy with nothing forcing agreement —
+this spec twice named a row bound the unstated byte budget made unreachable, refusing entries an
+order of magnitude before the number the reader was given.
+Tables are bounded on columns and rows. Exceeding one of those shows a named literal-source fallback
+for the entry; nothing is discarded from copy or context. A math budget is different in kind: it
+bounds one entry's prepared geometry, and spending it costs geometry — the formula that crosses the
+budget and every formula after it keep their exact source under a named reason, while the entry is
+still drawn as a document. Rejected: a separate cap on how many formulas an entry may contain,
+checked in four places and enforced by abandoning Markdown for the whole entry, which sent a
+645-line letter carrying four formulas more than it allowed to the terminal as raw TeX, headings
+and all.
 
-**MD-4 — Retained preparation is reused for interaction and paint.** A palette-independent LRU admits at most 128
-layout-version slots and 4 MiB of accounted allocation capacity, including text maps and composed style layers,
+**MD-4 — Retained preparation is reused for interaction and paint.** One prepared entry may cost
+MD-3's row budget times the accounted cost of a finished row; a palette-independent LRU admits a
+bounded number of layout-version slots and four full entries of accounted allocation capacity, including text maps and composed style layers,
 keyed by agent, entry, revision, width, disclosure and math capability. Native runs and atom maps
 share this accounting; its widths follow TR-1's two-width height cache.
 All transcript entry kinds share asynchronously prepared rows between painting and pointer mapping;
@@ -46,7 +59,9 @@ facts, not text prefixes (ENT-2/ENT-3). Cached outcomes retain their key on both
 oversized lookup identities refuse before key allocation. An exact refusal remains visible. An evicted layout is
 requested when reached again or needed for selected-text copy (PRE-3/PRE-4), never rebuilt by an
 input handler. PRE-1's allocation limit gives oversized entries a named refusal with source copy
-intact. Height metadata outlives layout eviction and palette replacement. `text_layouts()` counts
+intact; a finished layout releases its growth headroom first, so an entry is charged for what it
+holds rather than for the room it grew through, and the refusal means the entry is genuinely too
+long rather than that the allocator rounded the wrong way. Height metadata outlives layout eviction and palette replacement. `text_layouts()` counts
 admitted preparation results delivered to the cache, including typed refusals and results dropped
 by retention; it does not count occupied slots or parser invocations.
 Streaming Markdown also retains a bounded checkpoint only after a complete top-level paragraph, heading or physically closed fenced code block. The checkpoint carries source bytes, visible-text/row coordinates and a full-parser event
@@ -63,7 +78,8 @@ Markdown or infers formatting from regular expressions.
 workspace/Markdown/code role and modifier patches, never resolved terminal colors; painting uses the
 current palette without parsing, wrapping or rebuilding copy fragments. The explicit Markdown
 theme belongs to palette identity, independently of workspace chrome; its inherited choice follows
-the workspace palette. The designed palette's Markdown is the same named tokens: sky, mint and teal
+the workspace palette, and its designed choice writes the named tokens directly, so a replacement
+palette reaches the inherited one and not the designed one. The designed palette's Markdown is the same named tokens: sky, mint and teal
 headings, sky links and gold inline code. A 24-bit terminal is assumed; there is no reduced-colour
 resolution and no slot fallback.
 
@@ -153,6 +169,6 @@ generation; `cargo machete` reports no unused dependencies. Syntect's bundled-sy
 | MD-6 | `syntax_grammars_color_language_constructs_and_preserve_every_byte`, `syntax_grammars_compile_once_and_are_shared_by_every_renderer`, `syntax_unknown_and_budget_fallbacks_keep_complete_literal_code`, `syntax_paint_selection_and_monochrome_share_exact_code_geometry`, `syntax_streaming_open_fences_remain_literal_and_finish_canonically`, `syntax_streaming_reuses_closed_fences_without_rehighlighting_the_prefix`, `syntax_event_limits_and_invalid_ranges_refuse_partial_highlights`, `syntax_workspace_selection_preserves_colors_copy_and_cached_geometry`, `text_drag_copies_wrapped_code_without_its_frame`, `markdown_theme_change_reuses_prepared_rows_and_resolves_current_colors`, `real_preparation_driver_round_trips_semantic_rows_at_three_widths`, `real_preparation_worker_reuses_streamed_markdown_prefixes`; [native frames](#native-syntax-validation) |
 | MD-1 | `math_recognition_retains_original_delimiters_and_excludes_literal_regions`, `complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths`, `projection_fixture_composes_roots_and_multiline_loss_at_three_widths`, `markdown_styles_blocks_and_keeps_code_literal`, `markdown_controls_and_limits_are_explicit`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_frames_show_messages_at_three_widths` |
 | MD-2 | `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `markdown_tables_keep_all_values_at_wide_and_narrow_widths`, `markdown_streaming_prefixes_and_unicode_never_overflow`, `frozen_prefix_accepts_an_exact_fitting_cjk_fragment`, `markdown_frames_show_messages_at_three_widths`, `markdown_resize_round_trip_preserves_the_parked_frame` |
-| MD-3 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `logits_token_stream_never_shrinks_and_finalizes_to_the_same_layout`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `formula_failures_are_local_typed_and_keep_source_copy_independent_of_capability`, `markdown_controls_and_limits_are_explicit`, `markdown_streaming_prefixes_and_unicode_never_overflow` |
-| MD-4 | `tool_transitions_do_not_reuse_stale_prepared_status`, `preparation_result_count_includes_results_dropped_by_retention`, `streaming_preparation_keeps_the_last_painted_rows_and_geometry`, `pending_preparation_reuses_only_the_latest_compatible_revision`, `pending_preparation_preserves_geometry_boundaries_and_current_refusals`, `cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued`, `retained_style_accounting_includes_composed_patch_capacity`, `open_tool_repaint_reuses_preparation_and_keeps_hover_local`, `markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions`, `markdown_cache_byte_pressure_evicts_and_rebuilds_the_lru`, `markdown_cache_supplies_a_bounded_frozen_prefix_to_preparation`, `markdown_cache_advances_the_frozen_frontier_after_a_completed_tail_block`, `frozen_prefix_preserves_an_atomic_display_formula_and_copy_range`, `frozen_prefix_suffix_matrix_matches_canonical_at_three_widths`, `frozen_prefix_invalidates_when_a_late_definition_changes_the_frozen_events`, `frozen_prefix_rejects_malformed_hint_copy_ranges`, `frozen_prefix_accepts_an_exact_fitting_cjk_fragment`, `real_preparation_worker_reuses_streamed_markdown_prefixes`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_admission_keeps_plain_history_on_the_lightweight_path`, `markdown_resize_round_trip_preserves_the_parked_frame` |
+| MD-3 | `a_math_budget_costs_geometry_and_never_the_document`, `a_formula_without_geometry_keeps_its_exact_source_and_names_why`, `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `logits_token_stream_never_shrinks_and_finalizes_to_the_same_layout`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `formula_failures_are_local_typed_and_keep_source_copy_independent_of_capability`, `markdown_controls_and_limits_are_explicit`, `markdown_streaming_prefixes_and_unicode_never_overflow` |
+| MD-4 | `a_finished_layout_keeps_no_growth_headroom`, `tool_transitions_do_not_reuse_stale_prepared_status`, `preparation_result_count_includes_results_dropped_by_retention`, `streaming_preparation_keeps_the_last_painted_rows_and_geometry`, `pending_preparation_reuses_only_the_latest_compatible_revision`, `pending_preparation_preserves_geometry_boundaries_and_current_refusals`, `cold_preparation_is_deferred_and_hidden_rich_history_is_not_queued`, `retained_style_accounting_includes_composed_patch_capacity`, `open_tool_repaint_reuses_preparation_and_keeps_hover_local`, `markdown_cache_bounds_entries_bytes_and_replaces_streamed_revisions`, `markdown_cache_byte_pressure_evicts_and_rebuilds_the_lru`, `markdown_cache_supplies_a_bounded_frozen_prefix_to_preparation`, `markdown_cache_advances_the_frozen_frontier_after_a_completed_tail_block`, `frozen_prefix_preserves_an_atomic_display_formula_and_copy_range`, `frozen_prefix_suffix_matrix_matches_canonical_at_three_widths`, `frozen_prefix_invalidates_when_a_late_definition_changes_the_frozen_events`, `frozen_prefix_rejects_malformed_hint_copy_ranges`, `frozen_prefix_accepts_an_exact_fitting_cjk_fragment`, `real_preparation_worker_reuses_streamed_markdown_prefixes`, `markdown_hover_copy_and_streaming_share_cached_geometry_and_exact_source`, `markdown_admission_keeps_plain_history_on_the_lightweight_path`, `markdown_resize_round_trip_preserves_the_parked_frame` |
 | MD-5 | `selected_diff_keeps_semantic_colors_and_reuses_prepared_rows_at_three_widths`, `semantic_paint_keeps_custom_role_patch_order_and_nested_markdown`, `open_tool_repaint_reuses_preparation_and_keeps_hover_local`, `palette_changes_reuse_heights_and_preserve_pointer_copy_at_three_widths`, `markdown_pastel_leaves_all_workspace_roles_unchanged`, `markdown_pastel_changes_only_style_and_keeps_nested_modifiers`, `markdown_theme_change_reuses_prepared_rows_and_resolves_current_colors`; user-approved [88-column sample](../../crates/plexmaton-tui/frames/markdown-style-88.svg), with 60/120-column review frames alongside it |

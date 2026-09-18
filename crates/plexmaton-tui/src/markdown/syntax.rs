@@ -112,9 +112,6 @@ impl<'a> Source<'a> {
                 rewritten: start..rewritten.len(),
                 display: close == b']',
             });
-            if replacements.len() > crate::text_layout::math::MAX_FORMULAS {
-                return Err(super::PlainReason::Complexity);
-            }
             copied = end;
             cursor = end;
         }

@@ -9,7 +9,8 @@ use plexmaton_core::AgentId;
 use std::{collections::VecDeque, sync::Arc};
 
 const MAX_ENTRIES: usize = 128;
-const MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Retained preparation across entries: four full-size entries' worth.
+const MAX_BYTES: usize = 4 * crate::preparation::MAX_PREPARED_BYTES;
 
 #[derive(Debug)]
 pub(crate) struct PreparedEntry {
