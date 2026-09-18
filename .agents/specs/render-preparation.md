@@ -74,7 +74,7 @@ an individual refusal becomes visible; a successful batch restores the sixteen-e
 | Request | 16 entries; 192 KiB of snapshots and prefix hints admitted before cloning, 256 KiB encoded; a Markdown prefix hint is capped at 64 KiB and length prefix is checked before allocation |
 | Reply | Twice the entry allocation, so a batch always carries entries the entry bound already admitted; oversized batches return a typed refusal |
 | Prepared entry | The rows a message may occupy, times what a finished row costs; 4 KiB identity admission; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
-| Frame pins | 128 entries / 4 MiB per candidate and last-painted map, separately bounded from MD-4's LRU |
+| Frame pins | A pinned candidate and last-painted revision are retained inside MD-4's LRU and counted against its slot and allocation bounds; there is no second budget |
 | Selected-text assembly | One selection, 8 MiB including retained member identities and text capacity; no truncation or delivery acknowledgement |
 | Process | Absolute executable, empty environment, piped stdin/stdout, discarded stderr |
 | Lifetime | 2 s covering request/reply I/O and computation; another 500 ms for kill/reap; uncertain cleanup retains the child in quarantine |
