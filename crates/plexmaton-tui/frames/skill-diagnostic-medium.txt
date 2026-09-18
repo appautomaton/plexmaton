@@ -2,7 +2,7 @@
 │[skill] Skills · Skill unavailable · input returned to the composer; SKILL.md could not be   │
 │read                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents ────────────────┐┌ Agent A · primary ────────────────────────────────────────────────┐
+┌ Agents ────────────────┐┌ Agent A · primary  󱌣 1  󰇮 1 ──────────────────────────────────────┐
 │Agent B · UI study      ││                                                                   │
 │ask  Choose whether the…││                                                                   │
 │                        ││                                                                   │

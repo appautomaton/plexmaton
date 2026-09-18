@@ -14,7 +14,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::{agent_status_label, count_entries};
+use super::agent_status_label;
 use crate::{
     AgentView, ViewState,
     theme::{Palette, Role, agent_role},
@@ -68,28 +68,7 @@ fn detail(agent: &AgentView, summary: Option<&str>) -> String {
     if let Some(summary) = summary {
         return summary.to_owned();
     }
-    let counts = count_entries(agent);
-    // A glyph a scan recognises without reading, so a 26-column row can carry the state word and
-    // the tally together. These are Nerd Font Private Use codepoints, the same dependency the
-    // transcript's copy affordance already takes; a terminal font without them draws a box, so
-    // they are named here once and never spelled inline.
-    const TOOLS: char = '\u{f1323}'; // md-hammer_wrench
-    const TASKS: char = '\u{f0756}'; // md-format_list_checks
-    const MAIL: char = '\u{f01ee}'; // md-email
-    let mut parts: Vec<String> = Vec::new();
-    for (glyph, count) in [
-        (TOOLS, counts.tools),
-        (TASKS, counts.tasks),
-        (MAIL, counts.mail),
-    ] {
-        if count > 0 {
-            parts.push(format!("{glyph} {count}"));
-        }
-    }
-    if counts.artifacts > 0 {
-        parts.push(format!("@{}", counts.artifacts));
-    }
-    parts.join("  ")
+    super::tally(agent).trim_start().to_owned()
 }
 
 /// Cut to a width, saying so. A silently shortened ask reads as a different ask.
@@ -397,7 +376,7 @@ mod tests {
             .unwrap_or_else(|| panic!("Agent B stays in the roster: {text:?}"));
         let detail = &text[agent_b + 1];
         assert!(detail.contains('\u{f1323}'), "tools: {detail:?}");
-        assert!(detail.contains("@1"), "{detail:?}");
+        assert!(detail.contains('\u{f03e2}'), "artifacts: {detail:?}");
         // Agent B wrote that letter rather than receiving it. A roster says where the user's work
         // is waiting, and an agent's own outbound letter is not work waiting in it.
         assert!(
@@ -436,21 +415,21 @@ mod tests {
                 .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
         });
 
-        let counts = crate::content::entry_counts(
+        let counts = crate::content::tally(
             conversation
                 .state
                 .agent(&agent("agent-b"))
                 .unwrap_or_else(|| panic!("the canonical timeline creates Agent B")),
         );
         assert!(
-            counts.contains("1 mail"),
+            counts.contains("\u{f01ee} 1"),
             "Agent B received exactly one of the two letters: {counts:?}"
         );
 
         // Both letters are in Agent B's conversation, so a rule that counted entries rather than
         // arrivals would say two here. That is the number this test exists to refuse.
         assert!(
-            !counts.contains("2 mail"),
+            !counts.contains("\u{f01ee} 2"),
             "the letter Agent B wrote is counted where it arrived, not where it left: {counts:?}"
         );
     }

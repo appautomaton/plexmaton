@@ -36,20 +36,30 @@ pub(crate) use transcript_presentation::{
     transcript_layout_with_prefix,
 };
 
-/// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
-/// row and conversation title stay short.
-pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
+/// What has arrived for an agent, as glyphs a scan recognises without reading.
+///
+/// Nerd Font Private Use codepoints, the dependency the transcript's copy affordance already
+/// takes; a terminal font without them draws a box, so they are named once here and never spelled
+/// at a call site. Empty when there is nothing to count, so a quiet agent's row and title stay
+/// short. One formatter for every surface that shows these facts: a roster row, a conversation
+/// title, an inspected child's title. Rejected: a second, noun-spelling formatter beside this one,
+/// which is how `1 tool` and its glyph came to disagree about whether a sent letter counts.
+pub(crate) fn tally(agent: &crate::AgentView) -> String {
+    const TOOLS: char = '\u{f1323}'; // md-hammer_wrench
+    const TASKS: char = '\u{f0756}'; // md-format_list_checks
+    const MAIL: char = '\u{f01ee}'; // md-email
+    const ARTIFACTS: char = '\u{f03e2}'; // md-paperclip
+
     let counts = count_entries(agent);
     let mut parts = String::new();
-    for (count, one, many) in [
-        (counts.tools, "tool", "tools"),
-        (counts.artifacts, "artifact", "artifacts"),
-        (counts.mail, "mail", "mail"),
-        (counts.tasks, "task", "tasks"),
+    for (glyph, count) in [
+        (TOOLS, counts.tools),
+        (TASKS, counts.tasks),
+        (MAIL, counts.mail),
+        (ARTIFACTS, counts.artifacts),
     ] {
         if count > 0 {
-            let noun = if count == 1 { one } else { many };
-            parts.push_str(&format!(" · {count} {noun}"));
+            parts.push_str(&format!("  {glyph} {count}"));
         }
     }
     parts

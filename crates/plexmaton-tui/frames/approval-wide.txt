@@ -1,5 +1,5 @@
-┌ Agents ──────────────────┐┌ Agent A · primary ───────────────────────────────────────────────────────────────────────┐
-│Agent B · UI study        ││┌ Agent B · UI study · Completed · 1 tool · 1 artifact · esc ────────────────────────────┐│
+┌ Agents ──────────────────┐┌ Agent A · primary  󰇮 1 ──────────────────────────────────────────────────────────────────┐
+│Agent B · UI study        ││┌ Agent B · UI study · Completed  󱌣 1  󰏢 1 · esc ────────────────────────────────────────┐│
 │approval  Change crates/p…│││                                                                                        ││
 │                          │││                                                                                        ││
 │                          │││                                                                                        ││

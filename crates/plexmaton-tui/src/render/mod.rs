@@ -131,7 +131,7 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Transcript),
                     1,
                 ),
-                title: chrome::conversation_title(state, palette),
+                title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
@@ -1329,7 +1329,7 @@ mod tests {
         let counted = draw(&answered.state, 60, 30);
         // The tally is glyphs, so a narrow roster can carry it beside the state word.
         assert!(counted.contains('\u{f1323}'), "tools");
-        assert!(counted.contains("@1"), "compact artifact count");
+        assert!(counted.contains('\u{f03e2}'), "artifacts");
         // Agent B is the sender of the canonical letter, so its row counts no mail: a roster
         // counts what arrived for an agent, not what it wrote.
         assert!(

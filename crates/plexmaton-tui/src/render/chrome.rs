@@ -165,17 +165,27 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     })
 }
 
-/// The title names the agent and the way out.
-/// Whose conversation this is, on the primary surface's own top edge.
+/// Whose conversation this is, and what has arrived in it, on the primary surface's top edge.
 ///
 /// The composer's rule below says whom the next message addresses; this says what is being read.
 /// The two are the same name until a child's window is open, which is exactly when telling them
-/// apart matters. It carries the name alone: the lifecycle, the counts and the selection note ride
+/// apart matters. The lifecycle and the selection note ride
 /// the activity line at the other end of the same box, and saying them twice in one frame would
 /// make the box noisier than the bare conversation it replaced.
-pub(super) fn conversation_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+pub(super) fn conversation_title(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+) -> Line<'static> {
     state.primary_agent().map_or_else(Line::default, |agent| {
-        title(palette, agent.label.clone(), Role::SectionHeading, "")
+        let tally = content::tally(agent);
+        let full = title(palette, agent.label.clone(), Role::SectionHeading, tally);
+        if full.width() <= usize::from(width) {
+            full
+        } else {
+            // The name is the thing this title exists to say; the tally is what yields for it.
+            title(palette, agent.label.clone(), Role::SectionHeading, "")
+        }
     })
 }
 
@@ -193,7 +203,7 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) 
             " · esc",
         );
     };
-    let counts = content::entry_counts(agent);
+    let counts = content::tally(agent);
     let selected = selected_suffix(state, SurfaceId::Inspector);
     let lifecycle = super::child_control::lifecycle(agent);
     let detailed = title(
