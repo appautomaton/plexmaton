@@ -306,10 +306,6 @@ fn status_snapshot_isolates_invalid_selected_path() {
 fn status_context_refusals_are_typed_and_content_free() {
     use plexmaton_provider::{ContextBudgetError, EncodeError};
     for (error, reason) in [
-        (
-            EncodeError::PlainReasoningInResponses,
-            "history_incompatible",
-        ),
         (EncodeError::OpaqueReplayInChat, "history_incompatible"),
         (
             EncodeError::MissingThinkingSignature,

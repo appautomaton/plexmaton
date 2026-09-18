@@ -68,9 +68,17 @@ fn prv_5_empty_additive_fields_preserve_text_and_populated_fields_fail() {
     }
 }
 
-/// PRV-3: omitting interrupted summaries must never permit an unsigned thinking/tool batch.
+/// PRV-3: an unsigned summary in a tool turn is the signature-requiring dialect's problem alone.
+///
+/// Messages must refuse it: a `thinking` block beside `tool_use` has to arrive complete and
+/// signed, so a turn that lost its signature cannot be replayed at all. Responses has no
+/// signature — a reasoning item is identified by the provider's own opaque id — so the summary is
+/// omitted there exactly as it is in a turn that made no calls, and the call itself still goes.
+///
+/// The two were one rule until an interrupted tool turn made every later request in its
+/// conversation unencodable, which is a session that can be read and never continued.
 #[test]
-fn prv_3_unsigned_reasoning_in_tool_batches_is_still_refused() {
+fn prv_3_unsigned_reasoning_in_a_tool_turn_is_refused_by_messages_and_omitted_by_responses() {
     let call = tool_call("call", "read_file");
     let output = AssistantOutput::new(
         vec![
@@ -100,12 +108,35 @@ fn prv_3_unsigned_reasoning_in_tool_batches_is_still_refused() {
     request
         .atoms
         .push(ContextAtom::tool_batch(vec![session_entry("batch")], batch).expect("atom"));
-    for api in [ModelApi::AnthropicMessages, ModelApi::OpenaiResponses] {
-        assert!(
-            encode_request(&profile(api), &request, &[], None).is_err(),
-            "tool-turn signatures remain required"
-        );
-    }
+    assert!(
+        encode_request(&profile(ModelApi::AnthropicMessages), &request, &[], None).is_err(),
+        "a thinking block beside a tool call must arrive signed"
+    );
+
+    let encoded = encode_request(&profile(ModelApi::OpenaiResponses), &request, &[], None)
+        .expect("an unsigned summary is left out rather than refused");
+    let items = encoded["input"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the Responses request carries an input array: {encoded}"));
+    assert!(
+        items
+            .iter()
+            .all(|item| item["type"] != "reasoning" && item["summary"].is_null()),
+        "the summary with no replay item is not on the wire: {encoded}"
+    );
+    // The call and its result are what the turn actually did, and they survive.
+    assert!(
+        items
+            .iter()
+            .any(|item| item["type"] == "function_call" && item["name"] == "read_file"),
+        "the call the summary preceded still goes: {encoded}"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item["type"] == "function_call_output"),
+        "and so does its result: {encoded}"
+    );
 }
 
 /// PRV-6: Gemini 3.8 uses levels and omits deprecated candidate/budget controls.

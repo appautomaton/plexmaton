@@ -456,6 +456,11 @@ The roster of sub-agents, above the user's own conversation.
   open beside it, it is the primary column's width; with a delegate maximized there is no primary
   for it to sit above and no strip. Rejected: spanning the terminal, which made the index of who is
   working *for the user* read as chrome over somebody else's transcript.
+- Drawn: five agents in [one column](../crates/plexmaton-tui/frames/agents-strip-one-column.txt) and
+  in [two](../crates/plexmaton-tui/frames/agents-strip-two-columns.txt), the
+  [glyph vocabulary](../crates/plexmaton-tui/frames/agents-strip-tally.txt) once every request is
+  answered, and [narrow](../crates/plexmaton-tui/frames/agents-strip-narrow.txt), where there is no
+  strip at all.
 - `Ctrl-B` puts it away and brings it back, and costs the conversation no column either way. Narrow
   has no strip: `Agents ^B` sits in the reserved conversation-top row carrying `!n` only while a
   child is shown, and `Ctrl-B` or a complete click opens the full-region navigator — the same rows

@@ -128,8 +128,6 @@ pub enum FunctionToolError {
 pub enum EncodeError {
     #[error("a collaboration reference carries no content until it is resolved")]
     UnresolvedCollaboration,
-    #[error("plaintext Chat reasoning cannot be replayed through the Responses codec")]
-    PlainReasoningInResponses,
     #[error("thinking replay requires a complete signature")]
     MissingThinkingSignature,
     #[error("tool arguments must be a JSON object")]
