@@ -186,15 +186,15 @@ fn ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths() {
                 !frame.contains("^C Stop"),
                 "a child shortcut must not claim the primary's keyboard"
             );
+            // Who drives is a glyph and a word; the capability boundary is one glyph, because it
+            // is the same constant for every child and does not earn a sentence in every frame.
             let controller = if control == ChildControl::User {
-                "User"
+                "\u{f0004} User"
             } else {
-                "Main"
+                "\u{f06a9} Main"
             };
             assert!(
-                frame.contains(&format!(
-                    "Controller: {controller} | Read-only files | No shell"
-                )),
+                frame.contains(&format!("{controller}  {}", '\u{f099d}')),
                 "{width}: {frame}"
             );
             assert!(frame.contains(if control == ChildControl::HandoffPending {

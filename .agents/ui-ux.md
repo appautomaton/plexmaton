@@ -444,8 +444,10 @@ Every layout class preserves the meaning of this journey even when it changes wh
   Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
 - An agent spends two roster rows: its name, in the colour of its state and the only weight in the
   panel, and under it that state plus either what the agent waits on or a glyph tally of what has
-  arrived for it. The cursor row takes `Chosen`'s ground and keeps its own colour on top. The
-  conversation title keeps full nouns where there is width for them.
+  arrived for it, in one vocabulary every surface shares: a hammer and wrench for tool calls, a
+  checklist for tasks, an envelope for letters *received*, a paperclip for artifacts, and on an
+  inspected child a robot or a person for who is driving it beside a shield for the capability
+  boundary every child has. The cursor row takes `Chosen`'s ground and keeps its own colour on top.
   Rejected: a separate activity region, regrouping facts that belong in each agent's conversation.
 - Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
   cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,

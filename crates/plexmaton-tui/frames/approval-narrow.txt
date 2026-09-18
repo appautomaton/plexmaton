@@ -22,7 +22,7 @@
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
 │sent to Agent A · primary · Routing stays centralized and…│
-│Controller unavailable | Input locked                     │
+│Controller unavailable · input locked                     │
 ── Approval required · edit ────────────────────────────────
                                                             
    Change crates/plexmaton-core/src/lib.rs and preserve …   

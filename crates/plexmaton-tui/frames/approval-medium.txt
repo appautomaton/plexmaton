@@ -9,7 +9,7 @@
 │                        │││[+] inspect interaction fixtures · succeeded                     ││
 │                        │││@ interaction findings · artifact://agent-b/interaction-findings ││
 │                        │││sent to Agent A · primary · Routing stays centralized and z-orde…││
-│                        │││Controller unavailable | Input locked                            ││
+│                        │││Controller unavailable · input locked                            ││
 │                        ││└─────────────────────────────────────────────────────────────────┘│
 │                        ││                                                                   │
 │                        ││                                                                   │
