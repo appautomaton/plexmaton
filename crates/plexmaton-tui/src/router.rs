@@ -584,7 +584,7 @@ mod tests {
         tree
     }
 
-    /// Focus on the agent rail, which is where an arrow means "another agent".
+    /// Focus on the agents strip, which is where an arrow means "another agent".
     fn context(
         surfaces: &SurfaceTree,
         focus: KeyboardFocus,
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(
             router.translate(&down, &context(&surfaces, KeyboardFocus::Navigation, false)),
             Routed::Intent(TuiIntent::MoveSelection(Direction::Forward)),
-            "the rail is the one navigational surface made of choices"
+            "the strip is the one navigational surface made of choices"
         );
         assert_eq!(
             router.translate(
@@ -738,7 +738,7 @@ mod tests {
                 )
             ),
             Routed::Ignored(Ignored::NothingScrollable),
-            "a surface with nowhere to scroll declines by name rather than moving the rail"
+            "a surface with nowhere to scroll declines by name rather than moving the strip"
         );
     }
 

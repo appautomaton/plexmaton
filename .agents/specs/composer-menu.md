@@ -72,21 +72,6 @@ the request suffix. Dismissal survives caret motion until that token changes.
 Selected names accompany submitted, returned and retry-editor input. A historical numeric skill
 selection comes from its typed journal activation, never from interpreting currency-shaped text.
 
-## Rendered review
-
-`/effort` uses [EFF-1–EFF-5](./reasoning-effort.md), including its horizontal keys, disabled
-stops, confirmed model state and bounded presentation clock.
-
-Skills: the real workspace buffer was inspected at
-[wide](../spikes/agent-skills/frames/skill-picker-wide.svg),
-[medium](../spikes/agent-skills/frames/skill-picker-medium.svg) and
-[narrow](../spikes/agent-skills/frames/skill-picker-narrow.svg) widths. Reproduce with
-`cargo run -p plexmaton-tui --example skill_picker_preview -- target/skill-picker-preview`.
-Commands and `/resume`: the `composer-menu-commands-medium`, `composer-menu-resume-loading-medium`
-and `composer-menu-resume-medium` frames, cut from the real buffer above the composer.
-`/permissions`, rows and confirmation, at three widths: the `permission-controls-wide`,
-`permission-controls-medium` and `permission-controls-narrow` frames.
-
 ## Evidence
 
 [Named proofs](../evidence/composer-menu.md), one row an invariant.

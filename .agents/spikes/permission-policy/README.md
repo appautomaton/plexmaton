@@ -109,6 +109,6 @@ rustc --edition 2024 --test -D warnings .agents/spikes/permission-policy/policy-
 
 ## Production work
 
-[Production evidence](../../specs/permission-policy.md#reviewed-production-evidence) retains the executable journey and reviewed frames.
+[Production evidence](../../evidence/permission-policy.md#reviewed-production-evidence) retains the executable journey and reviewed frames.
 [Permission policy](../../specs/permission-policy.md) owns the production invariants;
 the finite model is comparison evidence. OS containment and MCP remain separate work.

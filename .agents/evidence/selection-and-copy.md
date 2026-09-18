@@ -14,3 +14,19 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | SEL-5 | `copy_admission_publishes_observed_delivery_without_a_timer_for_empty_requests`, `status_footer_preserves_focus_and_uses_the_last_row_for_hints`, `python3 scripts/smoke-tui.py`, `copy_receipt_preserves_layout_and_quit_priority_at_three_widths`, `clipboard_receipts_require_native_acceptance_and_suppress_cancellation`, `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52`, `native_copy_requires_an_unambiguous_local_macos_terminal`, `native_copy_uses_the_system_helper_with_utf8`, `clipboard_helper_receives_exact_unicode_source_and_eof`, `clipboard_helper_rejection_is_not_reported_as_delivery`, `clipboard_deadline_bounds_a_blocked_stdin_pipe`, `clipboard_deadline_also_bounds_waiting_after_eof`, `clipboard_delivery_keeps_route_failures_and_cleanup_separate`; local macOS/iTerm delivery manually confirmed on 2026-09-04 at `96917a4`; cleanup-timeout fault injection remains unproven |
 | SEL-8 | `clipboard_replacement_reaps_before_delivering_only_the_latest_source`, `clipboard_shutdown_reaps_a_blocked_writer_and_never_starts_pending_copy`, `clipboard_shutdown_before_polling_starts_no_process`, `oversized_copy_preserves_the_admitted_pending_source_without_terminal_effects`, `clipboard_wait_never_holds_the_production_input_and_frame_loop`, `status_cleanup_error_does_not_hide_session_shutdown_failures`; reintroducing the inline helper wait fails the production-loop witness |
 | SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |
+
+## Rendered feedback
+
+SEL-5 composition and Ctrl-J drafts were inspected at
+[120](../../crates/plexmaton-tui/frames/interaction/copied-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/copied-88.svg) and
+[60](../../crates/plexmaton-tui/frames/interaction/copied-60.svg) columns.
+The other transport's final row is
+[120](../../crates/plexmaton-tui/frames/interaction/sent-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/sent-88.svg),
+[60](../../crates/plexmaton-tui/frames/interaction/sent-60.svg);
+quit precedence is
+[120](../../crates/plexmaton-tui/frames/interaction/quit-120.svg),
+[88](../../crates/plexmaton-tui/frames/interaction/quit-88.svg),
+[60](../../crates/plexmaton-tui/frames/interaction/quit-60.svg).
+Reproduce with `cargo run -p plexmaton-tui --example interaction_preview -- target/interaction-review`.

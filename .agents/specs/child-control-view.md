@@ -32,19 +32,3 @@ of control and changes no lifecycle/controller until its owner reports a result 
 ## Evidence
 
 [Named proofs](../evidence/child-control-view.md), one row an invariant.
-
-## Native review
-
-The [Kitty fixture](../spikes/kitty-native-preview/README.md) uses the actual Workspace renderer.
-The controller/profile line is fixed conversation chrome; the title prioritizes lifecycle and
-Escape over counts when all cannot fit. The Ctrl-C Stop hint appears only while the child holds
-keyboard focus and is running or waiting. Read-only file access and no shell describe the V1 profile;
-typed mail remains available under CHB-1 and is not a filesystem write capability.
-
-The user accepted the native structure and function on 2026-09-16. Minor visual refinements remain
-separate work and must preserve these control and input boundaries.
-
-The native fixture is not authenticated product ingress. The real PTY now proves exact-owner
-controller projection, durable Handoff history, focused User input, capabilities and Stop-hint
-behavior at all three widths, plus default-width Stop settlement. Canonical mail inclusion and
-Attention use their own accepted production routes and evidence.

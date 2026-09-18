@@ -74,19 +74,6 @@ conversation-and-instance check exists to refuse; and installing the lane after 
 built, which is not possible — Main authorship does not exist on a runtime whose catalog never
 carried the lane.
 
-## Rendered review
-
-The offered switch at the three product widths, exported from real buffers by
-`cargo run -p plexmaton-tui --example switch_confirmation_preview -- crates/plexmaton-tui/frames/switch-confirmation`.
-
-| Where | Wide | Medium | Narrow |
-| --- | --- | --- | --- |
-| `/resume`, under its rows | [120](../../crates/plexmaton-tui/frames/switch-confirmation/switch-confirm-120.svg) | [88](../../crates/plexmaton-tui/frames/switch-confirmation/switch-confirm-88.svg) | [60](../../crates/plexmaton-tui/frames/switch-confirmation/switch-confirm-60.svg) |
-| `/new`, after the last entry | [120](../../crates/plexmaton-tui/frames/switch-confirmation/switch-new-120.svg) | [88](../../crates/plexmaton-tui/frames/switch-confirmation/switch-new-88.svg) | [60](../../crates/plexmaton-tui/frames/switch-confirmation/switch-new-60.svg) |
-
-At 60 the sentence wraps onto two rows and the listing keeps every row it had; the `/new` note keeps
-the draft that asked for it, so the second gesture is one key.
-
 ## Evidence
 
 [Named proofs](../evidence/conversation-picker.md), one row an invariant.

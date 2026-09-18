@@ -50,7 +50,7 @@ is SEL-1's.
 other component observes raw terminal events.
 
 **INV-10 — A navigation key means "move inside what holds focus".** An arrow chooses an agent only
-in the rail, moves the queue's cursor only in the queue, and everywhere else scrolls the surface the
+in the agents strip, moves the queue's cursor only in the queue, and everywhere else scrolls the surface the
 user is in, which is the wheel's keyboard equivalent (ui-ux §user control).
 
 **INV-11 — Retry is message-local.** Retry and Edit & retry are actions on an eligible failed
@@ -127,7 +127,7 @@ change cancels activation (INV-11).
 | `Ctrl-C` | Clear a non-empty draft; otherwise interrupt its conversation | The same |
 | `Esc` | Escape ladder | Escape ladder |
 | `Ctrl-P` | Pull the Drawer open and focus it (DRW-1) | The same |
-| `Ctrl-B` | Toggle the roster column, or enter/leave the Narrow full-region navigator | The same |
+| `Ctrl-B` | Toggle the agents strip, or enter/leave the Narrow full-region navigator | The same |
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward | Cycle focus forward / backward |
 | `q` | Unbound | Insert `q` |
 | `↑` / `k`, `↓` / `j` | Move the list selection; Narrow Agents moves an uncommitted cursor (INS-1) | `↑` / `↓` move the caret one painted row and the window follows (COM-2); `k` / `j` insert |

@@ -187,7 +187,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     scripts retain their ownership; script roots do not use full-size large glyphs. Local validation
     on `78c6e9c` plus this branch's changes passed 23 math tests, 389 TUI tests and three real-child
     native-reply tests. Math/TUI/CLI all-target Clippy, formatting, citations, frame references,
-    file length and diff whitespace checks passed. The [MTH review evidence](../specs/math-layout.md#rendered-and-terminal-evidence) records
+    file length and diff whitespace checks passed. The [MTH review evidence](../evidence/math-layout.md#rendered-and-terminal-evidence) records
     inspected 120/88/60-column formula and index frames. Tall/script roots remain coarse;
     physical-terminal pixel fidelity and CI on this branch remain unverified.
 
@@ -203,8 +203,8 @@ Visual changes are reviewed against real frames before the contract adopts them.
 19. **Unified interaction — complete.** INV-3, DRW-3, COM-3 and SEL-5 cover shared focused-menu
     hover/arrow choice, guarded Drawer retraction, conversation-only newline chords and transient
     transport receipts. The user approved the rendered proposal. Actual wide/medium/narrow
-    [Drawer controls](../specs/drawer.md#rendered-controls),
-    [copy feedback and multiline drafts](../specs/selection-and-copy.md#rendered-feedback), and
+    [Drawer controls](../evidence/drawer.md#rendered-controls),
+    [copy feedback and multiline drafts](../evidence/selection-and-copy.md#rendered-feedback), and
     APD approval frames were inspected. Local validation on `daee70c` plus this work passed
     409 TUI, 95 CLI executable, 7 CLI library and 23 measurement tests; the final Drawer grammar
     additionally passed 22 router tests. TUI/CLI all-target Clippy, 37 Python fixture tests,
@@ -217,7 +217,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     `︽` handle and lower outline within the existing border row. Its painted and hit regions share
     one geometry; content height, focus and cancellation behavior are preserved. Local focused
     Drawer and frame tests, TUI all-target Clippy and the revised corner/hover witness passed on
-    `1393bcb` plus this change. Six [rendered controls](../specs/drawer.md#rendered-controls) were
+    `1393bcb` plus this change. Six [rendered controls](../evidence/drawer.md#rendered-controls) were
     inspected at 120/88/60 columns. Full workspace and terminal verification runs in PR CI;
     no new Kitty windows were opened for this styling change. The corner regression
     witness retains both side glyphs and forbids underlines on them in rest and hover states.
@@ -236,7 +236,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     endpoint receiving the retained history/guidance, real command/status credential exclusion,
     and `/new` reset. CI runs the new model journey. Sol-high review found no remaining blockers;
     its direct-click regression failed before the fix and passed afterward.
-    Six actual [choice/refusal frames](../specs/model-selection.md#rendered-review) were inspected
+    Six actual [choice/refusal frames](../evidence/model-selection.md#rendered-review) were inspected
     at 120/88/60 columns. Refusal frames use the requested Failure color; only error text styling
     changes, with identical text and geometry. Live-provider acceptance is not claimed.
 
@@ -311,7 +311,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     user accepted the native interaction on 2026-09-13; the consumed stage plan is removed.
     On base `e5e8e0b` plus this change, 473 TUI tests and affected all-target Clippy passed.
     The rebuilt executable passed the six-request loopback rewind/resume journey. Reviewed
-    [native frames](../specs/conversation-tree.md#native-validation) include expanded/collapsed
+    [native frames](../evidence/conversation-tree.md#native-validation) include expanded/collapsed
     six-head ancestry at 120/88/60 columns; an isolated copy of the user's JSONL was also rendered
     at those widths without providers or original-state writes. Targeted review found no actionable
     issue. The PR owns head-specific CI evidence.
@@ -324,7 +324,7 @@ Visual changes are reviewed against real frames before the contract adopts them.
     On base `bf881a8` plus this change, 481 TUI tests, 14 real preparation-process
     tests, affected all-target Clippy, dependency and corpus gates passed. Restoring the old
     transcript selection overwrite fails the new workspace witness. Wide/medium/narrow normal
-    and selected [native frames](../specs/markdown.md#native-syntax-validation), monochrome and
+    and selected [native frames](../evidence/markdown.md#native-syntax-validation), monochrome and
     short viewport states were inspected; targeted Sol-high review found no actionable issue.
     The user has not yet reviewed the theme in their terminal; CI awaits publication. No live
     provider or saved-session state was used. The consumed plan is removed.

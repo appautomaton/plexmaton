@@ -67,7 +67,7 @@ pub(super) fn place_inspector(
     match presentation(class, request.maximized, conversation.height) {
         // The second conversation earns a column of its own beside the first (ui-ux §layout
         // classes), and the two are equals: ultrawide is sized for two conversations of the same
-        // width, and the agent column is untouched.
+        // width, and the strip above the primary halves with it.
         Presentation::Column => {
             let [transcript, inspector] =
                 Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])

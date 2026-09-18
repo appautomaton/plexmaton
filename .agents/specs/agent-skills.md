@@ -37,7 +37,7 @@ tool definition and therefore the request environment fingerprint; explicit cont
 budgeted by every codec. All filesystem work is off the TUI event loop with owned cancellation and
 completion; current catalog changes cannot reuse a mismatched measurement (BUD-2).
 
-## Grammar and bounds
+## Grammar
 
 User configuration remains `PLEXMATON_HOME/config.toml`. Project configuration supports optional
 `[active_model]` with `provider` and `model`, plus PER-8 permission rules; absence preserves user selection. Find the nearest valid

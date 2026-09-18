@@ -308,7 +308,7 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
 
 /// Rows for the notice strip, which yields to the workspace rather than the other way round.
 ///
-/// It outranks the agent rail and loses to the conversation. A projection that is silently wrong
+/// It outranks the agents strip and loses to the conversation. A projection that is silently wrong
 /// is the failure the notice log exists to prevent and the user has no other way to detect it,
 /// whereas a
 /// missing rail is visible in itself and recovered by resizing.

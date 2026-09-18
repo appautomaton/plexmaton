@@ -16,3 +16,41 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | PER-8 | `per_8_project_allow_requires_exact_personal_trust_and_edits_invalidate_the_review`, `per_8_untrusted_project_ask_and_deny_precede_user_allow_and_bad_sources_refuse`, `per_8_rule_grammar_is_strict_bounded_and_compiles_complete_sources`, `per_8_trusted_configuration_runs_the_command_and_dispatch_rechecks_changed_bytes`, `per_8_project_rule_review_scrolls_full_scopes_before_separate_confirmation`, `per_8_project_trust_frames_show_source_scopes_and_confirmation`; [real CLI trust, restart and revoke journey](../../scripts/smoke-permissions.py) |
 | PER-9 | `per_9_decision_evidence_tracks_precedence_and_exact_source_revisions`, `per_9_historical_command_scopes_preserve_context_and_recheck_wire_bounds`, `per_9_permission_history_replays_without_authority_or_model_content`, `per_9_provenance_refuses_foreign_late_and_duplicate_call_facts`, `per_5_failed_remember_audit_never_dispatches_the_prepared_command`, `per_5_revocation_between_preparation_and_dispatch_refuses_the_effect` |
 | PER-10 | `numbered_scope_confirmation_waits_for_the_scope_frame`, `approval_scope_confirmation_requires_a_distinct_enter_press`, `per_10_literal_shell_preserves_posix_quotes_tokens_spans_and_complete_sequences`, `per_10_expansions_redirections_control_flow_and_ambiguous_syntax_have_no_literal_scope`, `per_10_parser_limits_never_publish_partial_literal_commands`, `per_10_generated_literal_words_agree_with_bin_sh`, `per_10_arbitrary_shell_source_stays_bounded`, `per_10_catalog_prefix_matches_whole_literal_calls_and_never_peels_wrappers`, `per_10_prefix_ask_and_deny_cover_any_literal_sibling_before_exact_allow`, `per_10_prefix_wire_roundtrip_preserves_tokens_and_refuses_invalid_scopes`, `per_10_cancelled_prefix_admission_publishes_no_permission_subject`, `per_10_configured_prefix_tokens_compile_with_catalog_context_and_strict_bounds`, `per_10_project_prefix_reuses_changed_arguments_and_external_revoke_stops_dispatch`, `per_10_uncovered_syntax_keeps_exact_review_and_explicit_rules_precede_reuse`, `per_10_offers_use_meaningful_floors_and_explain_exact_fallback`, `per_10_prefix_permission_frames_show_tokens_context_and_project_lifetime` with the `prefix-permission-*` frames, `per_10_short_prefix_confirmation_retains_scope_and_all_choices`, `per_10_keyboard_and_pointer_cannot_confirm_a_scope_clipped_by_the_draft`; [real CLI trust, restart and revoke journey](../../scripts/smoke-permissions.py) |
+
+## Reviewed production evidence
+
+The completed production journey and reviewed frames are retained below.
+
+The [permission executable journey](../../scripts/smoke-permissions.py) activates reviewed project
+rules before the first Conversation, verifies the actual command effect, saves an `ls` Project
+prefix, restarts, reuses it for a different argument, revokes it and observes a denied tool result.
+It makes exactly eight local fixture requests. Its captured terminal frames were inspected at
+120, 95 and 60 columns; only the random temporary-directory suffix is normalized below.
+
+| Actual executable surface | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Project rule review | [frame](../spikes/permission-policy/frames/cli-trust-wide.txt) | [frame](../spikes/permission-policy/frames/cli-trust-medium.txt) | [frame](../spikes/permission-policy/frames/cli-trust-narrow.txt) |
+| Remember prefix | [frame](../spikes/permission-policy/frames/cli-prefix-wide.txt) | [frame](../spikes/permission-policy/frames/cli-prefix-medium.txt) | [frame](../spikes/permission-policy/frames/cli-prefix-narrow.txt) |
+
+Other reviewed Ratatui frames retain their owning component evidence:
+
+| Surface | Wide | Medium | Narrow |
+| --- | --- | --- | --- |
+| Native approval | [frame](../../crates/plexmaton-tui/frames/native-approval-wide.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-medium.txt) | [frame](../../crates/plexmaton-tui/frames/native-approval-narrow.txt) |
+| Exact fallback | [frame](../../crates/plexmaton-tui/frames/remember-permission-wide.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-medium.txt) | [frame](../../crates/plexmaton-tui/frames/remember-permission-narrow.txt) |
+| Permission controls | [frame](../../crates/plexmaton-tui/frames/permission-controls-wide.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-medium.txt) | [frame](../../crates/plexmaton-tui/frames/permission-controls-narrow.txt) |
+| Drawer | [frame](../../crates/plexmaton-tui/frames/drawer-wide.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-medium.txt) | [frame](../../crates/plexmaton-tui/frames/drawer-narrow.txt) |
+| Trust confirmation | [frame](../../crates/plexmaton-tui/frames/project-trust-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-trust-narrow.txt) |
+| Saved grant after audit failure | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-wide.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-medium.txt) | [frame](../../crates/plexmaton-tui/frames/project-permission-receipt-narrow.txt) |
+
+## Dependency admission
+
+Audited 2026-09-06 from pinned registry sources and the local Codex shell adapter comparison.
+`tree-sitter` 0.25.10 and `tree-sitter-bash` 0.25.1 are upstream Tree-sitter packages, MIT, with the
+matching 0.25 grammar API. The engine declares Rust 1.76; the grammar declares no MSRV and compiles
+with the workspace's 1.98 pin. Bundled C builds through the existing `cc`; no system parser library,
+Wasm, bindgen or language-runtime dependency is enabled. The engine uses only `std`.
+New transitive packages are `tree-sitter-language` 0.1.7 (MIT, Rust 1.77) and `streaming-iterator`
+0.1.9 (MIT/Apache-2.0, Rust 1.56). Existing regex, JSON and build dependencies keep their locked
+versions. `cargo tree -d`/`-e features` were inspected and the offline cached-advisory `cargo deny`
+audit passed. This does not claim a freshly fetched advisory database.

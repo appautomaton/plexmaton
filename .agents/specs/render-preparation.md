@@ -45,7 +45,7 @@ selection or another copy cancel obsolete delivery; failure and capacity limits 
 
 [Named proofs](../evidence/render-preparation.md), one row an invariant.
 
-## Model and limits
+## Model
 
 The TUI owns pure preparation and retained presentation data. The CLI library's concrete owner is
 shared by the executable and real-process measurement harness. It owns framed pipes and a

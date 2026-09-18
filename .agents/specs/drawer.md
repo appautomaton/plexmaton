@@ -28,11 +28,10 @@ or a matching press and release on a row hands the page to the composition root 
 owns what opening it costs. The page replaces the list inside the same surface, keeping the list's
 filter and choice for its return (SURF-5). `Escape` returns page, list, then origin, one layer per
 press. The chosen row carries `Chosen` across its whole width, a bar with weight and a hue, against `Muted`.
-INV-3 shares that choice with pointer movement. A padded bottom-center `︽` handle retracts the whole Drawer to
-its origin from any page; Esc retains the one-layer ladder. The eight-cell hit region shares the
-existing bottom-border row. Undecorated downward corners retain the side strokes; only the interior is underlined, so no
-underline crosses or protrudes beyond a side stroke. Together they form the lower outline;
-the single two-cell glyph has equal padding, a muted resting color and accent hover, without animation. INV-11 guards its press/release.
+INV-3 shares that choice with pointer movement. A bottom-centre `︽` handle retracts the whole Drawer to
+its origin from any page; Esc retains the one-layer ladder. It is two cells with equal padding on
+the existing bottom-border row, muted at rest and accent on hover, without animation, and its
+eight-cell hit region is guarded by INV-11. The border draws around it rather than through it.
 
 **DRW-4 — Configuration shows the model this process resolved.** The composition root projects
 provider, wire model ID and reasoning effort from the model handed to the runtime, without keys or
@@ -69,15 +68,3 @@ Esc    ──▶ drawer_back(): page → Pages → closed, focus back where it w
 ## Evidence
 
 [Named proofs](../evidence/drawer.md), one row an invariant.
-
-## Rendered controls
-
-Shared choice and the retract control were inspected at
-[120](../../crates/plexmaton-tui/frames/interaction/drawer-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/drawer-88.svg) and
-[60](../../crates/plexmaton-tui/frames/interaction/drawer-60.svg) columns;
-Configuration's hovered control is
-[120](../../crates/plexmaton-tui/frames/interaction/configuration-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/configuration-88.svg),
-[60](../../crates/plexmaton-tui/frames/interaction/configuration-60.svg).
-The `interaction_preview` example reproduces these frames.

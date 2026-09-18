@@ -142,19 +142,3 @@ be selected while its input holds the cursor.
 ## Evidence
 
 [Named proofs](../evidence/selection-and-copy.md), one row an invariant.
-
-## Rendered feedback
-
-SEL-5 composition and Ctrl-J drafts were inspected at
-[120](../../crates/plexmaton-tui/frames/interaction/copied-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/copied-88.svg) and
-[60](../../crates/plexmaton-tui/frames/interaction/copied-60.svg) columns.
-The other transport's final row is
-[120](../../crates/plexmaton-tui/frames/interaction/sent-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/sent-88.svg),
-[60](../../crates/plexmaton-tui/frames/interaction/sent-60.svg);
-quit precedence is
-[120](../../crates/plexmaton-tui/frames/interaction/quit-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/quit-88.svg),
-[60](../../crates/plexmaton-tui/frames/interaction/quit-60.svg).
-Reproduce with `cargo run -p plexmaton-tui --example interaction_preview -- target/interaction-review`.

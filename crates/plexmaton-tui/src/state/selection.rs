@@ -169,7 +169,7 @@ impl ViewState {
             return;
         };
         // A selection clamped at either end of the list does not move, and an unchanged highlight
-        // must not cost a frame — the same rule `move_selection` follows on the agent rail (FR-1).
+        // must not cost a frame — the same rule `move_selection` follows on the agents rail (FR-1).
         let changed = match self.selection.as_mut() {
             Some(selection) if selection.surface == surface && selection.agent == agent_id => {
                 let (anchor, focus) = selection.indices();
@@ -544,7 +544,7 @@ mod tests {
 
     /// FR-1: a selection already at the end of the list does not move, so it costs no frame.
     ///
-    /// The agent rail has had this rule and a test for it since step 2; the selection did not, and
+    /// The agents strip has had this rule and a test for it since step 2; the selection did not, and
     /// held `Shift-↑` at the oldest message repaints for as long as the key is down.
     #[test]
     fn extending_a_clamped_selection_costs_no_frame() {

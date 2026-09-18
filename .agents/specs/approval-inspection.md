@@ -30,18 +30,3 @@ keyboard focus or layer changes, terminal focus loss, or resize (INV-11). Approv
 ## Evidence
 
 [Named proofs](../evidence/approval-inspection.md), one row an invariant.
-
-## Review
-
-`cargo run -p plexmaton-tui --example approval_preview -- target/approval-review` exports the actual
-approval and modal frames at 120, 88 and 60 columns and checks exact command copy. Inspected approval frames at
-[120](../../crates/plexmaton-tui/frames/approval/choices-120.svg),
-[88](../../crates/plexmaton-tui/frames/approval/choices-88.svg), and
-[60](../../crates/plexmaton-tui/frames/approval/choices-60.svg), plus command inspection at
-[120](../../crates/plexmaton-tui/frames/approval/command-120.svg),
-[88](../../crates/plexmaton-tui/frames/approval/command-88.svg), and
-[60](../../crates/plexmaton-tui/frames/approval/command-60.svg).
-The user approved the single-heading approval layout. The
-[permission smoke](../../scripts/smoke-permissions.py) also exercises Ctrl-O, exact OSC 52 command
-copy, Esc return and numbered scope confirmation through the executable. Permission
-policy, offered scopes and the backend's correlated decision acknowledgement do not change.

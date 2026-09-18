@@ -25,7 +25,7 @@ its input. `Escape` backs out and `Ctrl-D` twice within one second exits. Ctrl-C
 only when a running child holds focus. External work is unavailable in this preview.
 
 The roster needs several agents to say anything, and this fixture has one. For the panel's own
-behaviour — ordering, the ruled break, and `Ctrl-B` — use:
+behaviour — ordering and `Ctrl-B` — use:
 
 ```sh
 cargo run --locked -p plexmaton-tui --example roster_preview

@@ -51,7 +51,7 @@ fabricates dispatch, duration or usage.
 Provider-declared errors retain `ProviderFailed`, separately from `TransportFailed` and
 `Malformed`; PRV-5 owns classification and JRN-8 owns retry eligibility.
 
-## Request timing state
+## Model
 
 ```text
 Authorized { authorized_at, semantic_boundary, request_environment }

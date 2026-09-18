@@ -362,7 +362,7 @@ impl ViewState {
         true
     }
 
-    /// What a moved selection changes besides the rail: the second window (INS-1).
+    /// What a moved selection changes besides the strip: the second window (INS-1).
     ///
     /// Landing on another agent opens or re-points the window, so a selection made in it is judged
     /// against the agent it now shows (SEL-3). Landing on the primary closes it.

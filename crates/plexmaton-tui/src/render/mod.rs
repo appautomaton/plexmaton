@@ -947,7 +947,7 @@ mod tests {
             backend.cursor_visible().then(|| backend.cursor_position())
         };
 
-        assert_eq!(cursor(&state), None, "focus starts on the agent rail");
+        assert_eq!(cursor(&state), None, "focus starts on the agents strip");
 
         state.focus_surface(&surfaces, SurfaceId::Composer);
         state.edit(&surfaces, TextIntent::Insert('h'));
@@ -1152,7 +1152,7 @@ mod tests {
         );
         assert!(
             !rendered.contains("Agents · !1"),
-            "the rail names the rail and nothing else"
+            "the strip names the strip and nothing else"
         );
         assert!(rendered.contains("remains interactive"));
         // A is the recipient, and the inspector shows incoming as well as outgoing mail, so the
@@ -1374,7 +1374,7 @@ mod tests {
     /// The pill is the number that is unanswered, coloured, on the conversation being read.
     ///
     /// It rides the border the panel already draws, so it takes no row from the conversation and
-    /// no rectangle from the surface tree. The rail is left naming the rail: the same fact painted
+    /// no rectangle from the surface tree. The strip is left naming the strip: the same fact painted
     /// in two places is the one that drifts.
     #[test]
     fn the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row() {
@@ -1411,7 +1411,7 @@ mod tests {
                     height: 1,
                     ..surfaces
                         .get(SurfaceId::Agents)
-                        .expect("the rail is registered at wide")
+                        .expect("the strip is registered at wide")
                         .bounds
                 },
             );

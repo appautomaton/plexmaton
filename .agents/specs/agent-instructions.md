@@ -40,7 +40,7 @@ Rejected: storing another prompt history in JSONL, because PRV-4 already defines
 replay from journal plus current resolved environment; and watchers without a user-facing reload
 contract.
 
-## Grammar and bounds
+## Grammar
 
 Only the exact filename `AGENTS.md` is recognized. There is no frontmatter parser, compatibility
 fallback name, Git-ignore filter or interpretation of Markdown links as automatic file reads.

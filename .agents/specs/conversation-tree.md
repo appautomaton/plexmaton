@@ -72,9 +72,9 @@ Paths below are relative to the checkout. Backend and native boundaries are impl
 | UI state/rendering | `crates/plexmaton-tui/src/surface.rs`, `layout/registration.rs`, `render/mod.rs`, `workspace/hover.rs`, `workspace/pressed.rs` | One tree state and modal surface using native layout/hover/press machinery |
 | Input/composition | `crates/plexmaton-tui/src/router.rs`, `state/composer_menu/grammar.rs`, `state/composer_menu.rs`; `crates/plexmaton-cli/src/input.rs`, `interaction.rs` | Alias-aware command parsing/completion, modal routing, runtime result conversion |
 
-Do not add agent/runtime dependencies to TUI. HeadRevision and JournalSequence currently belong to
-agent; convert to a small core-owned tree revision token at the boundary rather than importing them.
-Existing `ConversationId`, `AgentId`, `ConversationEntryId` and `HeadName` remain identity owners.
+TUI takes no agent or runtime dependency, which `check-crate-graph.sh` enforces. `ConversationId`,
+`AgentId`, `ConversationEntryId` and `HeadName` own identity; a tree revision token crosses the
+boundary rather than agent's `HeadRevision` and `JournalSequence`.
 
 ## Data boundary
 
@@ -153,8 +153,8 @@ compaction, skill preparation and pending commit. The runtime owns one navigatio
 predicate shared with metadata edits over these existing owners, also refusing shutdown,
 journal-frozen state and an unconsumed tree receipt or projection reset.
 `has_active_work()` alone is insufficient: a tool admission worker can finish while the agent
-remains in `Turn::Working` awaiting approval. Combine it with the agent turn/queue state;
-prove this gap with a pending-approval navigation refusal test in slice 10.3.
+remains in `Turn::Working` awaiting approval, so admission combines it with the agent turn and
+queue state.
 Selecting the already-current destination is a no-op. User rewind preserves the historical explicit
 skill selection, including numeric names; it does not read current skill files until resubmission.
 An unsent returned draft need not persist across process exit; the selected branch/context must.
@@ -168,61 +168,9 @@ child editors own their text, and dismissal never claims to roll back an admitte
 Search and branch summaries are not exposed. The user chose the full-viewport modal, aliases,
 close button, shared selection and Pi-style folding/labels; native visual evidence is below.
 
-Pi's branch-summary choice is unresolved scope within this feature. It is model-generated context
-from the old branch to the common ancestor, added at the destination; it is not a tree label or
-an existing compaction checkpoint. Do not expose functional-looking summary controls until its
-own prompt, persistence, cancellation and cache semantics are implemented and reviewed.
-
-### Optional search
-
-Rewind must be usable and shippable through browsing and selection alone. Include search only
-when it is a small, well-tested extension of existing tree projection and input handling; omit it
-if it needs separate infrastructure or substantial focus, state or performance machinery.
-Rejected: requiring Pi search parity before rewind, because locating a target does not justify
-delaying safe navigation or growing a second feature. A search field in the HTML fixture is not
-a production requirement. If included, define scope/matching and prove TRE-1/TRE-2/TRE-6 for it;
-search-only acceptance cases do not block a search-free delivery.
-Keep the extension point in existing semantic snapshots, stable IDs and separated input state.
-Use concrete Rust types/functions first; do not add an unused search trait, placeholder intent or
-UI control. Introduce an abstraction only when an implemented boundary earns it under
-[architecture](../standards/architecture.md#abstraction-discipline).
-
-## Acceptance coverage
-
-### Native validation
-
-[PR #26 CI](https://github.com/appautomaton/plexmaton/actions/runs/34726953698) passed
-Static and script checks, Rust and terminal tests, and macOS Apple Silicon on the PR head
-merged as `6fde843`. These results cover the implementation, not subsequent documentation edits.
-
-Actual native frames were locally inspected at 120×30, 88×30, 60×30 and 48×12, including the label editor and branch selector. No preview generator or design mockup is shipped. `scripts/smoke-tree.py` separately proves actual terminal switching with Chinese text, exact destination context, original-branch return, selected-head restart and one command effect across six loopback requests.
-
-The native presentation keeps linear steps aligned and reserves a right-side badge for named heads;
-`●` marks the current branch even when multiple names share one display anchor. Canonical branch
-selection and copy still resolve the original head tip. Controls and the active head use `Accent`,
-connectors and inactive heads use `Muted`, and previews retain `Body`/`Muted`. Selected row headings use
-`Chosen`; its background spans the row without overwriting the other semantic foregrounds or weights.
-The footer advertises the selected row's action and names expand/collapse only when available.
-Scroll offsets/capacity remain semantic in UI state; the renderer maps to two-line node blocks.
-Fixed headings do not count as scrolled rows, and connectors, summaries and spare partial rows
-cannot become pointer targets.
-[Folded state](../../crates/plexmaton-tui/frames/conversation-tree/folded-88.svg) shows the same
-control and semantic roles after a pointer toggle. Frames below come from the production Workspace renderer with a sanitized structural fixture,
-not from the user's private journal. Regenerate with
-`PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui tre_1_2_native_branch_frames`.
-
-| Scenario | Wide | Medium | Narrow |
-| --- | --- | --- | --- |
-| Omitted tool steps and shared tips | [120](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/shared-heads-60.svg) |
-| Return to an earlier branch | [120](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/interleaved-60.svg) |
-
-| Six-head structural fixture | Wide | Medium | Narrow |
-| --- | --- | --- | --- |
-| Expanded ancestry | [120](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/graph-open-60.svg) |
-| Six descendants and two heads collapsed | [120](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-120.svg) | [88](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-88.svg) | [60](../../crates/plexmaton-tui/frames/conversation-tree/graph-folded-60.svg) |
-
-These frames use sanitized text with the reported session's branch topology. Regenerate with
-`PLEXMATON_WRITE_FRAMES=1 cargo test -p plexmaton-tui tre_1_6_multibranch_graph_frames`.
+Branch summaries are not implemented. A summary would be model-generated context from the old
+branch to the common ancestor, added at the destination — neither a tree label nor a compaction
+checkpoint — so no control may advertise one until that mechanism exists.
 
 ## Evidence
 

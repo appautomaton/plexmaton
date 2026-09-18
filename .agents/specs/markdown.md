@@ -130,38 +130,6 @@ style. Selection padding retains its measured width. Source Copy and pointer
 Copy continue to use MD-1/SEL-2. Rejected: terminal-colored spans in preparation, which would
 require parsing again when the palette changes.
 
-## Native syntax validation
-
-The actual workspace, prepared rows and status script were rendered and inspected at
-[120](../../crates/plexmaton-tui/frames/syntax-theme/120.svg),
-[88](../../crates/plexmaton-tui/frames/syntax-theme/88.svg) and
-[60](../../crates/plexmaton-tui/frames/syntax-theme/60.svg) columns, plus
-selected [120](../../crates/plexmaton-tui/frames/syntax-theme/selected-120.svg),
-[88](../../crates/plexmaton-tui/frames/syntax-theme/selected-88.svg),
-[60](../../crates/plexmaton-tui/frames/syntax-theme/selected-60.svg),
-[monochrome](../../crates/plexmaton-tui/frames/syntax-theme/mono-88.svg) and
-[short viewport](../../crates/plexmaton-tui/frames/syntax-theme/short-88.svg) states.
-The fixture includes emphasis, inline code, a quote, Rust/Python/JSON and Chinese text.
-The user has not yet reviewed this theme in their terminal; no live model requests or saved
-session writes were used. Reproduce from the task checkout with:
-
-```console
-cargo run -p plexmaton-tui --example markdown_style_preview -- target/syntax-review syntax
-```
-
-## Dependency admission
-
-Audited 2026-09-13: official Tree-sitter grammars and highlight queries for Rust 0.24.2,
-Python 0.25.0, JSON 0.24.8, JavaScript 0.25.0 and TypeScript/TSX 0.23.2; Bash reuses 0.25.1.
-The highlight engine stays at the workspace's 0.25.10 generation. All are MIT, bundled C with
-no system-library requirement; the pinned Rust toolchain exceeds the engine's declared MSRV.
-No language server, filesystem grammar discovery, injected-language loading or network access.
-[Upstream highlight manifest](https://github.com/tree-sitter/tree-sitter/blob/v0.25.10/highlight/Cargo.toml)
-and grammar crate manifests own dependency metadata. Resolution added six packages without replacing existing locked dependencies; affected compilation
-and `cargo deny check` passed. `cargo tree -d` and feature output confirm one existing engine
-generation; `cargo machete` reports no unused dependencies. Syntect's bundled-syntax path was not selected: it adds bincode, which carries
-[RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141.html).
-
 ## Evidence
 
 [Named proofs](../evidence/markdown.md), one row an invariant.

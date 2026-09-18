@@ -50,19 +50,3 @@ name, display name and wire ID, with the exact accepted pair marked current.
 ## Evidence
 
 [Named proofs](../evidence/model-selection.md), one row an invariant.
-
-## Rendered review
-
-Actual `model_preview` cell-buffer frames, 120 / 88 / 60 columns:
-[choices wide](../../crates/plexmaton-tui/frames/models/models-120.svg),
-[medium](../../crates/plexmaton-tui/frames/models/models-88.svg),
-[narrow](../../crates/plexmaton-tui/frames/models/models-60.svg);
-[refusal wide](../../crates/plexmaton-tui/frames/models/refusal-120.svg),
-[medium](../../crates/plexmaton-tui/frames/models/refusal-88.svg),
-[narrow](../../crates/plexmaton-tui/frames/models/refusal-60.svg).
-
-The PTY journey uses two owned Chat Completions fixture endpoints, exact wire model/effort
-assertions, missing-credential refusal, canonical history and workspace guidance, real command
-approval, status output, and
-new-conversation reset. It never contacts a configured live provider or mutates live configuration.
-Cross-dialect replacement and incompatible Responses replay are covered at the runtime boundary.

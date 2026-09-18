@@ -37,6 +37,13 @@ A spec names the boundary and leaves the number to the module holding it: a figu
 constant is a second copy with nothing forcing agreement, and it has already gone stale here. A
 latency the product owes and a measurement taken are not copies, and stay.
 
+A spec has `## Invariants` and `## Evidence`, and between them only `## Model`, `## Grammar`,
+`## Failure modes` and `## Integration boundary`. Everything that records a review — frames someone
+looked at, a dependency audit, a PTY journey — goes to `evidence/<spec>.md` beside the named proofs,
+because it is the same kind of thing and had grown nine headings. A task, a scope still being
+argued, or a note addressed to whoever implements this are a plan's, and a plan is deleted when it
+is consumed.
+
 ## Where we are
 
 Three cells, each saying one thing: the roadmap's row for the phase, the phase file's status, the
