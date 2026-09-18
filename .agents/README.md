@@ -33,6 +33,10 @@ below and read them when their trigger applies. Harnesses determine when files e
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
 owns the first.
 
+A spec names the boundary and leaves the number to the module holding it: a figure copied beside a
+constant is a second copy with nothing forcing agreement, and it has already gone stale here. A
+latency the product owes and a measurement taken are not copies, and stay.
+
 ## Where we are
 
 Three cells, each saying one thing: the roadmap's row for the phase, the phase file's status, the

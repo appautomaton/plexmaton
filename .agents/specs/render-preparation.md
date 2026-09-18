@@ -71,17 +71,15 @@ an individual refusal becomes visible; a successful batch restores the full ceil
 | Boundary | Policy |
 | --- | --- |
 | Active / pending | One retained operation and one latest encoded batch; no per-request detached task |
-| Request | A bounded entry count; snapshots and prefix hints admitted before cloning rather than after; a Markdown prefix hint carries its own cap, and its length prefix is checked before allocation |
+| Request | Snapshots and prefix hints are admitted before cloning, not after; a Markdown prefix hint is capped separately and its length prefix checked before allocation |
 | Reply | Twice the entry allocation, so a batch always carries entries the entry bound already admitted; oversized batches return a typed refusal |
-| Prepared entry | The rows a message may occupy, times what a finished row costs; a bounded identity admission; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
+| Prepared entry | The rows a message may occupy, times what a finished row costs; identity admitted separately; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
 | Frame pins | A pinned candidate and last-painted revision are retained inside MD-4's LRU and counted against its slot and allocation bounds; there is no second budget |
-| Selected-text assembly | One selection, bounded across retained member identities and text capacity; no truncation or delivery acknowledgement |
+| Selected-text assembly | One selection, bounded across member identities and text together; no truncation or delivery acknowledgement |
 | Process | Absolute executable, empty environment, piped stdin/stdout, discarded stderr |
 | Lifetime | One deadline covering request/reply I/O and computation together, and a second for kill/reap; uncertain cleanup retains the child in quarantine |
 
-`plexmaton-tui/src/preparation.rs`, its layout cache and `plexmaton-cli/src/preparation.rs` hold
-every value above. What is written here is which boundary exists and why, because a number
-repeated in a document is a second copy with nothing forcing it to agree with the first.
+Values: `plexmaton-tui/src/preparation.rs`, its layout cache, `plexmaton-cli/src/preparation.rs`.
 
 Pending revisions preserve compatible prepared content and its height; cold or evicted entries
 use a placeholder with a known or estimated height. Unavailable entries show a compact refusal

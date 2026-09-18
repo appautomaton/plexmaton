@@ -52,17 +52,14 @@ refused.
 | Retained resource | Policy |
 | --- | --- |
 | Summary or task | Nonempty; a hard UTF-8 ceiling each |
-| Identity | Nonempty; a hard byte ceiling |
-| Artifact references per mail | A hard count of distinct conversation/artifact pairs |
+| Identity | Nonempty; a hard ceiling |
+| Artifact references per mail | Distinct conversation/artifact pairs, hard-capped |
 | Total items | One ceiling over mail, task, Handoff, Attention-reference and turn records; configurable downward |
 | Delegations | Configurable downward |
 | Semantic mail bytes | Text plus endpoint/pointer identities; configurable downward |
 | Control reserve | Tail item slots mail cannot take; configurable from zero to total items |
 
-`plexmaton-agent/src/collaboration/types.rs` holds every ceiling above. This table says which
-resources have one and which the owner may lower, never what the number is today: a number written
-here is a second copy that goes stale the first time the constant is tuned, and the reader has no
-way to tell which copy is the live one.
+Values: `plexmaton-agent/src/collaboration/types.rs`.
 
 Mail addresses peers declared through delegation creation; declaration proves neither a session
 file nor artifact availability. Item count also bounds retained control text and deduplication
