@@ -33,7 +33,7 @@ table in `AGENTS.md` allows.
 | 00 | Validate the experience and the event boundary with synthetic agents | Closed 2026-09-02 by scoping, not by a gate pass: it delivered the interaction mechanisms, each with a spec, and the contract's layout; the rest of the composition, the frames, the transcript grammar, and a real producer went to Phase 01 |
 | 01 | One real agent in the workspace: a thin loop over one provider, and the transcript grammar against its output | Closed 2026-09-03: delivered one live OpenAI-compatible agent, five bounded native tools with explicit approval and cancellation, and the reviewed responsive transcript grammar |
 | 02 | Canonical session state, persistence, durable permission policy, provider transports, context projection and project instructions | Closed 2026-09-12 by scoped evidence: delivered JSONL sessions and recovery, four provider dialects, compaction, durable permissions, AGENTS.md and conversation tree/rewind; unproven recovery/readmission acceptance inherited by Phase 03, independent export/import by Phase 04; MCP optional |
-| 03 | Durable multi-agent mailbox and runtime ownership | Closed 2026-09-16: delivered ordered durable delegation/mail, owned child scheduling, Stop and Handoff control, passive and process-kill recovery, canonical Attention and the accepted responsive agent workspace |
+| 03 | Durable multi-agent mailbox and runtime ownership | Closed 2026-09-16: delivered ordered durable delegation/mail, owned child scheduling, Stop and Handoff control, passive, process-kill and in-app switch recovery, canonical Attention and the accepted responsive agent workspace |
 | 04 | Product polish, performance hardening, math in production, and extensibility | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 
 ## Locked
@@ -44,7 +44,8 @@ Product invariants no phase may trade away, and no other document owns:
   inspector can show it on its own and revisions reconcile against one log. A dialect with no native
   form for it renders mail as an attributed message naming its sender; an unattributed one, or a
   blocking tool result, is not delegation. Bulk findings stay where they were produced; mail carries
-  a bounded summary and durable pointers.
+  a bounded message and durable pointers. The bound is a size limit, not a demotion: a letter is
+  prose its author wrote, read with the transcript's own grammar, never metadata about a message.
 - A delegated Conversation has one controller. While the main agent controls it, the user may
   inspect its attributed mail and stop work, but cannot send conversation input. An explicit,
   durable handoff after quiescence enables user input without expanding tool capabilities or

@@ -40,7 +40,7 @@ pub(super) async fn drive_session<B: Backend>(
     permissions: &mut permission_controls::PermissionControls,
     terminal_events: &mut (impl Stream<Item = io::Result<crossterm::event::Event>> + Unpin),
     preparation: &mut plexmaton_cli::preparation::LivePreparation,
-    mut collaboration: Option<&mut crate::collaboration::Collaboration>,
+    collaboration: &mut Option<crate::collaboration::Collaboration>,
     mut native_output: impl FnMut(&mut B, plexmaton_tui::math::NativeStage<'_>) -> Result<(), B::Error>,
 ) -> anyhow::Result<()>
 where
@@ -56,7 +56,7 @@ where
             .context("draw TUI frame")?;
         if restart_after_owned_updates(
             preparation,
-            collaboration.as_deref_mut(),
+            collaboration.as_mut(),
             runtime,
             workspace,
             &mut frames,
@@ -70,16 +70,16 @@ where
         let frame_deadline = frames.deadline();
         let effort_deadline = workspace.effort_animation_deadline(Instant::now());
         let collaboration_enabled = collaboration
-            .as_deref()
+            .as_ref()
             .is_some_and(|collaboration| collaboration.can_poll(runtime));
 
         tokio::select! {
             // A root with no collaboration never yields here, so the arm is inert rather than a
             // branch the loop has to skip.
-            activity = next_collaboration(collaboration.as_deref_mut()), if collaboration_enabled => {
+            activity = next_collaboration(collaboration.as_mut()), if collaboration_enabled => {
                 apply_collaboration(
                     activity,
-                    collaboration.as_deref_mut(),
+                    collaboration.as_mut(),
                     runtime,
                     workspace,
                     &mut frames,
@@ -97,7 +97,9 @@ where
             }
             update = picker.next() => {
                 frames.flush(workspace);
-                if picker.apply(update, runtime, workspace).await? && let Some(status) = status_line {
+                if picker.apply(update, runtime, collaboration, workspace).await?
+                    && let Some(status) = status_line
+                {
                     status.mark_dirty();
                 }
             }
@@ -116,7 +118,7 @@ where
                 let update = runtime_update.context("receive live runtime update")?;
                 let finished = apply_runtime_progress(
                     update,
-                    collaboration.as_deref_mut(),
+                    collaboration.as_mut(),
                     runtime,
                     workspace,
                     status_line,
@@ -139,7 +141,7 @@ where
                     picker,
                     permissions,
                     status_line,
-                    collaboration.as_deref_mut(),
+                    collaboration.as_mut(),
                     &mut frames,
                 )
                 .await?
@@ -291,6 +293,8 @@ async fn apply_workspace_outcome(
         }
     }
     if let Some(submission) = outcome.submitted {
+        // Sending a message is the plainest sign the user moved past an offered switch (SPK-2).
+        picker.forget_offer(workspace);
         child_input::dispatch(submission, collaboration.as_deref_mut(), runtime, workspace).await?;
         retry::sync_actions(runtime, workspace);
     }

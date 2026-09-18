@@ -52,10 +52,44 @@ pub(super) enum Update {
 
 /// What the one job is doing, so a join failure names the right outcome and a second request
 /// knows what it is waiting behind.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum JobKind {
     Listing,
-    Opening,
+    /// Opening, and the children this switch was confirmed to stop on the way (SPK-2).
+    ///
+    /// They travel with the job rather than staying on the picker because the confirmation is
+    /// consumed when the request is made: by the time the candidate lands, the only question left
+    /// is whether the runtime and the draft still admit a switch, and neither is about a child.
+    Opening {
+        stopping: Vec<AgentId>,
+    },
+}
+
+/// A switch already offered with what it would cost, waiting to be chosen a second time.
+///
+/// The request is kept, not just the fact that something was offered, so that choosing a different
+/// row is a different question rather than an accidental confirmation of the first one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OfferedSwitch {
+    request: ConfirmableRequest,
+    children: Vec<AgentId>,
+}
+
+/// Which switch was offered. `/new` has no row to choose again, so its second gesture is the
+/// command itself; the two share one mechanism so neither can drift into its own rules.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ConfirmableRequest {
+    New,
+    Saved(ConversationId),
+}
+
+impl ConfirmableRequest {
+    fn of(selection: &ConversationSelection) -> Self {
+        match selection {
+            ConversationSelection::Resume(id) => Self::Saved(id.clone()),
+            _ => Self::New,
+        }
+    }
 }
 
 pub(super) struct ConversationPicker {
@@ -63,6 +97,10 @@ pub(super) struct ConversationPicker {
     launcher: Launcher,
     job: Option<(JobKind, JoinHandle<Update>)>,
     cancel: JobCancellation,
+    /// One offered switch, or none. Cleared by every other rung of `start`'s ladder.
+    offered: Option<OfferedSwitch>,
+    /// Children the landed switch was confirmed to stop, carried from its job to `apply`.
+    stopping: Vec<AgentId>,
 }
 
 impl ConversationPicker {
@@ -72,6 +110,8 @@ impl ConversationPicker {
             current: None,
             job: None,
             cancel: JobCancellation::new(),
+            offered: None,
+            stopping: Vec::new(),
         }
     }
 
@@ -98,7 +138,7 @@ impl ConversationPicker {
         workspace.open_conversation_picker();
         match self.job {
             Some((JobKind::Listing, _)) => return,
-            Some((JobKind::Opening, _)) => {
+            Some((JobKind::Opening { .. }, _)) => {
                 workspace.set_conversation_picker_status(ConversationPickerStatus::Opening);
                 return;
             }
@@ -114,10 +154,26 @@ impl ConversationPicker {
         self.job = Some((JobKind::Listing, job));
     }
 
+    /// Forgets a standing offer, and takes its question off the workspace's last row.
+    ///
+    /// One call for both halves. The offer is what `start` consults; the armed note is what the
+    /// user reads. Clearing one without the other leaves a sentence on screen asking for a gesture
+    /// nothing is waiting for — the failure a single entry point exists to make unrepresentable.
+    pub fn forget_offer(&mut self, workspace: &mut Workspace) {
+        self.offered = None;
+        workspace.disarm_switch();
+    }
+
     pub fn select(&mut self, id: ConversationId, runtime: &LiveRuntime, workspace: &mut Workspace) {
         self.start(ConversationSelection::Resume(id), runtime, workspace);
     }
 
+    /// The one ladder a switch descends, and the one place an offer is made, kept or forgotten.
+    ///
+    /// Every rung above the child question also invalidates a standing offer, because each of them
+    /// means the user asked something else: a draft appeared, the root started working, a different
+    /// row was chosen. Only the same request, asked again with the same children still working,
+    /// consumes it (SPK-2).
     fn start(
         &mut self,
         selection: ConversationSelection,
@@ -125,6 +181,7 @@ impl ConversationPicker {
         workspace: &mut Workspace,
     ) {
         let refusal = if self.job.is_some() {
+            // Too early to be a different intent: the offer survives a request that never ran.
             Some(SwitchRefusal::RequestInFlight)
         } else if runtime.has_active_work() {
             Some(SwitchRefusal::Busy)
@@ -134,6 +191,9 @@ impl ConversationPicker {
             None
         };
         if let Some(refusal) = refusal {
+            if refusal != SwitchRefusal::RequestInFlight {
+                self.forget_offer(workspace);
+            }
             workspace.report_switch_refusal(refusal);
             return;
         }
@@ -143,9 +203,35 @@ impl ConversationPicker {
                 .as_ref()
                 .is_some_and(|current| &current.id == id)
         {
+            self.forget_offer(workspace);
             workspace.close_conversation_picker();
             return;
         }
+        let request = ConfirmableRequest::of(&selection);
+        let working = workspace.working_delegates();
+        let stopping = if working.is_empty() {
+            // Nothing to lose, so nothing to ask. A child restored without being woken is idle and
+            // reaches here, which is why resuming a conversation full of finished work is silent.
+            self.forget_offer(workspace);
+            Vec::new()
+        } else {
+            let children: Vec<AgentId> = working.iter().map(|(id, _)| id.clone()).collect();
+            match self.offered.take() {
+                Some(offer) if offer.request == request && offer.children == children => {
+                    workspace.disarm_switch();
+                    offer.children
+                }
+                _ => {
+                    let child = working
+                        .first()
+                        .map(|(_, label)| label.clone())
+                        .unwrap_or_default();
+                    self.offered = Some(OfferedSwitch { request, children });
+                    workspace.arm_switch(child);
+                    return;
+                }
+            }
+        };
         workspace.begin_conversation_switch();
         self.cancel = JobCancellation::new();
         let launcher = self.launcher.clone();
@@ -157,12 +243,15 @@ impl ConversationPicker {
                 Err(_) => Update::OpenFailed,
             }
         });
-        self.job = Some((JobKind::Opening, job));
+        self.job = Some((JobKind::Opening { stopping }, job));
     }
 
-    pub fn observe_closed(&self, workspace: &Workspace) {
+    pub fn observe_closed(&mut self, workspace: &Workspace) {
         if !workspace.conversation_picker_open() {
             self.cancel.cancel();
+            // The rows the offer referred to are gone. The armed row is left alone: a withdrawn
+            // listing is not the user answering, and `/new` has no listing to withdraw at all.
+            self.offered = None;
         }
     }
 
@@ -172,9 +261,14 @@ impl ConversationPicker {
         };
         let update = job.await.unwrap_or(match kind {
             JobKind::Listing => Update::ListFailed,
-            JobKind::Opening => Update::OpenFailed,
+            JobKind::Opening { .. } => Update::OpenFailed,
         });
-        self.job = None;
+        // What the user confirmed travels from the request that made it to the frame that acts on
+        // it, so `apply` never has to ask the question a second time.
+        self.stopping = match self.job.take() {
+            Some((JobKind::Opening { stopping }, _)) => stopping,
+            _ => Vec::new(),
+        };
         update
     }
 
@@ -182,6 +276,7 @@ impl ConversationPicker {
         &mut self,
         update: Update,
         runtime: &mut LiveRuntime,
+        collaboration: &mut Option<collaboration::Collaboration>,
         workspace: &mut Workspace,
     ) -> anyhow::Result<bool> {
         let accepted = !self.cancel.is_cancelled() && workspace.conversation_picker_open();
@@ -219,11 +314,29 @@ impl ConversationPicker {
                     None
                 };
                 if !accepted || refusal.is_some() {
-                    surface_shutdown_report(opened.runtime.shutdown().await?)?;
+                    discard(&mut opened).await?;
                     if let Some(refusal) = refusal.filter(|_| accepted) {
                         workspace.report_switch_refusal(refusal);
                     }
                     return Ok(false);
+                }
+                // The outgoing collaboration is moved out rather than flagged: `shutdown` is not
+                // idempotent, and the exit path at loop end calls it unconditionally on whatever is
+                // still here. Joined before the runtime, in the order the exit path uses.
+                if let Some(mut previous) = collaboration.take() {
+                    // What the user was told this would cost, charged before anything is joined.
+                    // A child that finished on its own between the confirmation and here is already
+                    // gone, and the owner answers that with a typed refusal rather than an error.
+                    for child in std::mem::take(&mut self.stopping) {
+                        match previous.stop_child_for_switch(&child).await {
+                            Ok(())
+                            | Err(plexmaton_runtime::OwnedSchedulingError::UnknownRunner) => {}
+                            Err(error) => {
+                                return Err(anyhow::anyhow!("stop {child}: {error}"));
+                            }
+                        }
+                    }
+                    previous.shutdown().await?;
                 }
                 if let Err(error) = runtime
                     .shutdown()
@@ -231,13 +344,7 @@ impl ConversationPicker {
                     .map_err(anyhow::Error::from)
                     .and_then(surface_shutdown_report)
                 {
-                    return match opened
-                        .runtime
-                        .shutdown()
-                        .await
-                        .map_err(anyhow::Error::from)
-                        .and_then(surface_shutdown_report)
-                    {
+                    return match discard(&mut opened).await {
                         Ok(()) => Err(error),
                         Err(cleanup) => {
                             Err(error.context(format!("candidate cleanup also failed: {cleanup}")))
@@ -260,6 +367,7 @@ impl ConversationPicker {
                     workspace.report_conversation_recovery(feedback);
                 }
                 *runtime = opened.runtime;
+                *collaboration = opened.collaboration;
                 self.current = opened.persisted;
                 retry::sync_actions(runtime, workspace);
                 return Ok(true);
@@ -274,10 +382,22 @@ impl ConversationPicker {
         if let Some((_, job)) = self.job.take()
             && let Update::Opened(mut opened) = job.await.context("join session loader")?
         {
-            surface_shutdown_report(opened.runtime.shutdown().await?)?;
+            discard(&mut opened).await?;
         }
         Ok(())
     }
+}
+
+/// Releases a candidate nobody took: its collaboration log's writer lock, then its runtime.
+///
+/// One function for all three places a candidate can be dropped — refused, cancelled, or cleaned up
+/// after the current runtime failed to close — because a candidate whose log stayed locked cannot be
+/// opened again, and the three sites had already drifted once when only the runtime existed.
+async fn discard(opened: &mut OpenedConversation) -> anyhow::Result<()> {
+    if let Some(collaboration) = opened.collaboration.as_mut() {
+        collaboration.shutdown().await?;
+    }
+    surface_shutdown_report(opened.runtime.shutdown().await?)
 }
 
 impl Launcher {
@@ -333,23 +453,73 @@ impl Launcher {
             })
             .await
             .context("join session file reader")??;
-        let Some(journal) = journal else {
-            let mut opened =
-                open_selected_conversation(&root, selection, agent, model, key, tools).await?;
-            opened.runtime.use_coding_session(permissions)?;
-            return Ok(opened);
+        // The child factory gets the catalog as it was before the Main lane narrowed it, exactly as
+        // the process's own startup does: a child is read-only and has no delegation of its own.
+        let child_tools = tools.clone();
+        let child_model = model.clone();
+        let child_key = key.clone();
+        let mut opened = match journal {
+            None => {
+                let lane_root = root.clone();
+                open_selected_conversation_with(
+                    &root,
+                    selection,
+                    agent,
+                    model,
+                    key,
+                    tools,
+                    async |conversation, tools| {
+                        collaboration_lane(lane_root, conversation, tools).await
+                    },
+                )
+                .await?
+            }
+            // A resumed journal is opened before the runtime rather than by it, so this branch
+            // installs the lane itself. It is the same lane, from the same function, because a
+            // conversation that could delegate in one branch and not the other would be a switch
+            // whose tools depended on which file the loader happened to find.
+            Some(journal) => {
+                let persisted = PersistedConversation {
+                    id: journal.journal().conversation_id().clone(),
+                    path: journal.path().to_path_buf(),
+                };
+                let (tools, collaboration) =
+                    collaboration_lane(root.clone(), persisted.id.clone(), tools).await?;
+                let (runtime, recovery) =
+                    LiveRuntime::provider_with_resumed_journal(agent, model, key, tools, journal)
+                        .await?;
+                OpenedConversation {
+                    runtime,
+                    recovery: Some(recovery),
+                    persisted: Some(persisted),
+                    collaboration,
+                }
+            }
         };
-        let persisted = PersistedConversation {
-            id: journal.journal().conversation_id().clone(),
-            path: journal.path().to_path_buf(),
-        };
-        let (mut runtime, recovery) =
-            LiveRuntime::provider_with_resumed_journal(agent, model, key, tools, journal).await?;
-        runtime.use_coding_session(permissions)?;
-        Ok(OpenedConversation {
-            runtime,
-            recovery: Some(recovery),
-            persisted: Some(persisted),
-        })
+        opened.runtime.use_coding_session(permissions)?;
+        collaboration::seal(&mut opened, &root, child_model, child_key, child_tools)?;
+        // Put this conversation's children back on its roster before it replaces the one on screen.
+        // Reading a child's journal is not waking it (CHB-3), and doing it here keeps that file work
+        // on the loader rather than on the frame that accepts the switch.
+        if let Some(collaboration) = opened.collaboration.as_mut() {
+            collaboration.restore(&mut opened.runtime).await?;
+        }
+        Ok(opened)
     }
+}
+
+/// One candidate conversation's Main collaboration lane, installed on the catalog it will use.
+///
+/// Shared by both of the loader's branches. An ephemeral candidate never reaches here: it has no
+/// durable identity to name a log after, so `delegate` is absent from its tools by construction.
+async fn collaboration_lane(
+    root: PathBuf,
+    conversation: ConversationId,
+    tools: NativeToolCatalog,
+) -> anyhow::Result<(NativeToolCatalog, Option<collaboration::Collaboration>)> {
+    let (collaboration, ingress) = collaboration::open_off_thread(root, conversation).await?;
+    let tools = tools
+        .with_main_collaboration(ingress)
+        .context("install the Main collaboration tools")?;
+    Ok((tools, Some(collaboration)))
 }

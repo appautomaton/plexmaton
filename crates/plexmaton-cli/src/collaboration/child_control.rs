@@ -3,10 +3,10 @@
 use plexmaton_agent::{
     ApprovalDecisionRefusal, Input, UndeliveredInput, UndeliveredReason, UnresolvedApprovalDecision,
 };
-use plexmaton_core::AgentStatus;
+use plexmaton_core::{AgentId, AgentStatus};
 use plexmaton_runtime::{
-    DispatchReport, LiveRuntime, OwnedChildControl, OwnedChildControlSnapshot, UserInputRefusal,
-    UserTargetInputRequest,
+    DispatchReport, LiveRuntime, OwnedChildControl, OwnedChildControlSnapshot,
+    OwnedSchedulingError, UserInputRefusal, UserTargetInputRequest,
 };
 
 use super::Collaboration;
@@ -113,6 +113,28 @@ impl Collaboration {
 
     /// Admits one visible child submission to the authenticated owner and leaves its settlement
     /// on the owner activity stream so provider/journal progress cannot hold the terminal loop.
+    /// Stops one working child for a switch the user confirmed, and waits for it to settle (SCH-4).
+    ///
+    /// Awaited rather than begun, unlike the focused `Ctrl-C` Stop beside it, because a switch may
+    /// be leaving several children and the owner retains exactly one pending Stop (SCH-2): a second
+    /// `begin_child_stop` would come back `StopInProgress` and leave that child running into a
+    /// shutdown. An unsettled Stop is also collected by `begin_shutdown` into the settlements this
+    /// module reports as failures, which would end a confirmed switch with an error about work the
+    /// user chose to stop. The report is consumed here: the composer a child draft would return to
+    /// is being replaced with the conversation.
+    pub(crate) async fn stop_child_for_switch(
+        &mut self,
+        agent: &AgentId,
+    ) -> Result<(), OwnedSchedulingError> {
+        let conversation = self
+            .announced
+            .iter()
+            .find_map(|(conversation, announced)| (announced == agent).then_some(conversation))
+            .ok_or(OwnedSchedulingError::UnknownRunner)?
+            .clone();
+        self.owner.stop(&conversation).await.map(|_report| ())
+    }
+
     pub(crate) fn dispatch_child_input(&mut self, addressed: AddressedInput) -> DispatchReport {
         let target = self
             .announced
@@ -151,7 +173,7 @@ impl Collaboration {
     pub(crate) fn dispatch_child_approval(
         &mut self,
         approval: ApprovalSubmission,
-    ) -> Option<(plexmaton_core::AgentId, DispatchReport)> {
+    ) -> Option<(AgentId, DispatchReport)> {
         if !self.announced.values().any(|agent| agent == &approval.to) {
             return None;
         }

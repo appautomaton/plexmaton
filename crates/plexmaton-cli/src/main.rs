@@ -46,7 +46,7 @@ use output::{RestoreTerminal, TerminalOutput};
 use plexmaton_cli::preparation;
 use session::{
     ConversationSelection, OpenedConversation, PersistedConversation, StartupAction, USAGE,
-    open_selected_conversation, parse_startup_action, report_persisted_conversation,
+    open_selected_conversation_with, parse_startup_action, report_persisted_conversation,
     restoration_feedback,
 };
 
@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
         runtime,
         recovery,
         persisted,
+        collaboration: _,
     } = opened;
     picker.current = persisted;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
@@ -275,7 +276,7 @@ async fn run(
         &mut permissions,
         &mut EventStream::new(),
         &mut render_preparation,
-        collaboration.as_mut(),
+        &mut collaboration,
         output::write_native,
     )
     .await;

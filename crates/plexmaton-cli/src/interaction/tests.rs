@@ -128,7 +128,7 @@ async fn blocked_preparation_never_holds_the_production_input_and_frame_loop() {
             &mut permissions,
             &mut input,
             &mut preparation,
-            None,
+            &mut None,
             |_, _| Ok(()),
         )
         .await;
@@ -212,7 +212,7 @@ async fn effort_command_changes_the_live_driver_without_submitting_a_message() {
         &mut permissions,
         &mut events,
         &mut preparation,
-        None,
+        &mut None,
         |_, _| Ok(()),
     )
     .await;

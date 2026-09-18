@@ -571,7 +571,6 @@ mod tests {
     use super::{Flow, Outcome, Workspace};
     use crate::{
         Page, SubmissionKind,
-        state::StatusNote,
         surface::{Point, SurfaceId},
         test_support::{Conversation, canonical_runtime},
         theme::{Palette, Role},
@@ -1683,7 +1682,7 @@ mod tests {
             revision.get().saturating_add(1),
             "clearing the draft and withdrawing the quit question is one transition"
         );
-        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        assert_eq!(workspace.state.status().armed(), None);
         assert_eq!(workspace.state.composer().text(), "");
         assert_eq!(
             cleared.interrupted, None,
@@ -1702,7 +1701,7 @@ mod tests {
             Some("agent-a"),
             "an empty draft routes the interrupt"
         );
-        assert_eq!(workspace.state.status().note(), StatusNote::Quiet);
+        assert_eq!(workspace.state.status().armed(), None);
         assert_eq!(
             workspace.state.revision().get(),
             revision.get().saturating_add(1),

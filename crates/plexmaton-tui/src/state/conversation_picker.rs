@@ -18,6 +18,9 @@ pub struct ConversationChoice {
 }
 
 /// Where `/resume`'s listing stands: its one status row, read under the rows or instead of them.
+///
+/// Only the listing's own business. A switch waiting to be confirmed is not: that is the
+/// workspace asking for a gesture, and `StatusNote::Armed` is where the workspace asks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConversationPickerStatus {
     Loading,
@@ -135,6 +138,9 @@ impl ConversationPicker {
     }
 
     /// Whether a saved row can be opened now: the listing is in, and no open is in flight.
+    ///
+    /// A refusal still admits them: it has to be answerable once its cause is gone, and a switch
+    /// waiting on `StatusNote::Armed` is answered by choosing the same row again.
     pub(crate) const fn admits_open(&self) -> bool {
         matches!(
             self,

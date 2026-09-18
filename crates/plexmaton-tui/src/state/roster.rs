@@ -43,6 +43,21 @@ impl Roster {
         self.agents.iter().skip(1)
     }
 
+    /// The children a conversation switch would interrupt, as this roster names them.
+    ///
+    /// The roster answers rather than the owner because it is what the user is reading when they
+    /// choose: the name in the sentence a switch offers is the name in the row above it (`ui-ux.md`
+    /// one name per thing), and asking the owner would put a writer round trip inside a keystroke.
+    ///
+    /// `Waiting` counts — a child blocked on an approval still loses that turn. This can be one
+    /// frame stale, and it errs toward offering the choice rather than taking the work silently:
+    /// the Stop itself goes through the owner, which refuses a runner that is already gone. A child
+    /// restored without being woken (CHB-3) is `Idle` and correctly asks nothing.
+    pub(super) fn working(&self) -> impl Iterator<Item = &AgentView> {
+        self.sub_agents()
+            .filter(|agent| matches!(agent.status, AgentStatus::Running | AgentStatus::Waiting))
+    }
+
     /// The sub-agent the user is looking at, if any.
     pub(super) fn selected(&self) -> Option<&AgentView> {
         self.selected.as_ref().and_then(|id| self.agents.get(id))
@@ -159,5 +174,12 @@ impl Roster {
             .nth(target)
             .map(|agent| agent.id.clone())
             .or_else(|| Some(current.clone()))
+    }
+}
+
+impl super::ViewState {
+    /// The delegated children a conversation switch would interrupt (SPK-2).
+    pub fn working_delegates(&self) -> impl Iterator<Item = &AgentView> {
+        self.agents.working()
     }
 }

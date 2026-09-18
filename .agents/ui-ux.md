@@ -238,8 +238,13 @@ terminals with the fewest rows.
 - An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error: they
   are message-local actions, never Commands, and neither repeats tools. JRN-8 owns eligibility and
   the bindings.
-- Switching conversations waits for idle work and an empty draft, never silently interrupting or
-  discarding input. SPK-1–SPK-3 own discovery and replacement.
+- Switching conversations waits for idle work and an empty draft. A working child does not block it:
+  the first choice arms the last row with what the switch costs that child, the same choice again
+  performs it, and its history is saved either way. Nothing is interrupted without being said first.
+  SPK-1–SPK-4 own discovery, replacement and the collaboration a replacement carries.
+- The terminal's last row is where the workspace asks for a gesture to be repeated — the quit chord,
+  a switch that would stop a child — one question at a time, in Action required. Each states what
+  repeating costs; doing something else instead withdraws it.
 
 ### Readability
 

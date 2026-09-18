@@ -78,7 +78,7 @@ async fn agi_5_wire_snapshot_is_stable_then_refreshes_on_jsonl_resume() {
         .expect("journal")
         .0
         .clone();
-    opened.runtime.shutdown().await.expect("shutdown");
+    discard(&mut opened).await.expect("shutdown");
     drop(opened);
     let bytes = fs::read(&path).expect("saved journal");
     assert!(!String::from_utf8_lossy(&bytes).contains("initial project rule"));
@@ -110,7 +110,7 @@ async fn agi_5_wire_snapshot_is_stable_then_refreshes_on_jsonl_resume() {
     assert!(current.contains("updated project rule"));
     assert!(!current.contains("initial project rule"));
     submit_and_settle(&mut resumed.runtime, "third question").await;
-    resumed.runtime.shutdown().await.expect("shutdown resumed");
+    discard(&mut resumed).await.expect("shutdown resumed");
     let requests = server
         .join()
         .expect("join fixture")
@@ -192,5 +192,5 @@ async fn agi_5_failed_or_cancelled_instruction_load_preserves_the_open_runtime()
     assert_eq!(opened.runtime.configured_model(), Some(&original));
     assert!(!opened.runtime.has_active_work());
     assert!(!launch.root.join("sessions").exists());
-    opened.runtime.shutdown().await.expect("shutdown");
+    discard(&mut opened).await.expect("shutdown");
 }

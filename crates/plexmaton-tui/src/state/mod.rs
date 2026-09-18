@@ -77,7 +77,9 @@ pub use scroll::ScrollPosition;
 pub(crate) use selection::{CopyNote, TextPoint};
 pub use selection::{CopyRequest, Selection};
 pub(crate) use status::Footer;
-pub use status::{CopyReceipt, QuitPress, Status, StatusNote};
+#[allow(unused_imports)]
+pub use status::StatusNote;
+pub use status::{Armed, CopyReceipt, QuitPress, Status};
 pub(crate) use text_input::wrap_line;
 pub use text_input::{Caret, MAX_VISIBLE_LINES, Motion, TextInput};
 
@@ -554,6 +556,58 @@ mod tests {
         surface::SurfaceId,
         test_support::canonical_state,
     };
+
+    /// SPK-2: only a delegated child with work to lose is a child a switch has to ask about.
+    ///
+    /// The primary is never one of them — it has its own gate in `has_active_work` — and a child
+    /// restored without being woken (CHB-3) is `Idle`, so resuming a conversation full of finished
+    /// delegations must ask nothing. `Waiting` counts: a child blocked on an approval still loses
+    /// that turn.
+    #[test]
+    fn only_a_child_with_work_to_lose_is_offered_for_a_switch() {
+        use plexmaton_core::{AgentStatus, ConversationEvent};
+
+        let mut conversation = crate::test_support::Conversation::canonical();
+        let primary = conversation
+            .state
+            .primary_agent()
+            .map(|agent| agent.id.clone())
+            .unwrap_or_else(|| panic!("the canonical timeline creates a primary agent"));
+        conversation.emit(ConversationEvent::AgentStatusChanged {
+            agent_id: primary,
+            status: AgentStatus::Running,
+        });
+        assert!(
+            conversation.state.working_delegates().next().is_none(),
+            "the primary has its own gate and is never a delegate"
+        );
+
+        for (index, status) in [
+            AgentStatus::Idle,
+            AgentStatus::Running,
+            AgentStatus::Waiting,
+            AgentStatus::Completed,
+            AgentStatus::Failed,
+            AgentStatus::Cancelled,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let agent_id = AgentId::new(format!("delegated-{index}"))
+                .unwrap_or_else(|error| panic!("fixture: {error}"));
+            conversation.emit(ConversationEvent::AgentCreated {
+                agent_id,
+                label: format!("Delegated {index}"),
+                status,
+            });
+        }
+        let offered: Vec<_> = conversation
+            .state
+            .working_delegates()
+            .map(|agent| agent.label.clone())
+            .collect();
+        assert_eq!(offered, ["Delegated 1", "Delegated 2"], "{offered:?}");
+    }
 
     /// SURF-3: focus is a stop on the ring, and a press on chrome is not a way off it.
     #[test]

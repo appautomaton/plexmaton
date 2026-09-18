@@ -8,7 +8,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context as _;
@@ -99,6 +99,21 @@ pub(crate) struct Collaboration {
     controls: BTreeMap<ConversationId, OwnedChildControlSnapshot>,
     /// Approval routes issued only by newly admitted live child requests in this process.
     live_approvals: BTreeMap<(AgentId, ApprovalId), LiveApprovalRoute>,
+}
+
+/// [`open`], off the thread the terminal loop is drawn on.
+///
+/// Opening reads the whole ledger to seed its delivered counter, takes the log's writer lock and
+/// spawns the writer thread. At startup that cost is paid before there is a frame to miss, but the
+/// picker opens a conversation while one is on screen, and its loader task shares a thread with the
+/// interaction loop — so the file work belongs in the blocking pool (SPK-3).
+pub(crate) async fn open_off_thread(
+    plexmaton_home: PathBuf,
+    conversation: ConversationId,
+) -> anyhow::Result<(Collaboration, MainCollaborationIngress)> {
+    tokio::task::spawn_blocking(move || open(&plexmaton_home, &conversation))
+        .await
+        .context("join the collaboration opener")?
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -437,6 +452,27 @@ fn collect_shutdown_failures(report: &OwnedShutdownReport, failures: &mut Vec<St
 ///
 /// CHB-1's floor is applied inside the factory; the catalog handed here is the root's, narrowed
 /// there rather than trusted to be narrow already.
+/// Seals an opened conversation's collaboration to the runtime that will hold it (CTL-1).
+///
+/// Shared by both composition roots — the process's own startup and the picker's loader — because
+/// the ordering is the contract, not a detail: the lane is installed before the runtime exists, and
+/// authorship is sealed to that exact instance afterwards. Two copies of this would be two chances
+/// to seal one of them to the wrong runtime.
+pub(crate) fn seal(
+    opened: &mut crate::session::OpenedConversation,
+    plexmaton_home: &Path,
+    model: plexmaton_provider::ResolvedModel,
+    key: plexmaton_provider::ApiKey,
+    tools: plexmaton_runtime::NativeToolCatalog,
+) -> anyhow::Result<()> {
+    let permissions = opened.runtime.coding_session();
+    let Some(collaboration) = opened.collaboration.as_mut() else {
+        return Ok(());
+    };
+    let factory = child_factory(plexmaton_home, model, key, tools, permissions)?;
+    collaboration.bind(&opened.runtime, factory)
+}
+
 pub(crate) fn child_factory(
     plexmaton_home: &Path,
     model: plexmaton_provider::ResolvedModel,
