@@ -287,7 +287,7 @@ impl Palette {
             section_heading: Style::new().fg(slots.text).add_modifier(Modifier::BOLD),
             accent: Style::new().fg(slots.yellow),
             key_hint: SELECTION,
-            ambient: Style::new().fg(slots.cyan).add_modifier(Modifier::ITALIC),
+            ambient: Style::new().fg(slots.cyan),
             new_information: Style::new().fg(slots.green),
             action_required: Style::new().fg(slots.orange).add_modifier(Modifier::BOLD),
             failure: Style::new().fg(slots.red).add_modifier(Modifier::BOLD),
@@ -333,7 +333,9 @@ impl Palette {
     ///
     /// A role says what a thing is — blue for where you are, cyan for work in progress, green for
     /// what finished, orange for what needs you, red for what failed, yellow for what `Enter` acts
-    /// on. Weight makes titles and the chosen row read first; italic keeps work in progress quiet.
+    /// on. Weight makes titles and the chosen row read first; a low-saturation hue with no weight
+    /// on it is what keeps work in progress quiet, because a slant would draw the eye `Ambient`
+    /// exists to spare.
     /// It differs from any other assignment of the same slots in one way only: its Markdown is
     /// designed for reading rather than inherited from the roles (MD-5).
     ///

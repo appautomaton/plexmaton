@@ -273,8 +273,13 @@ terminals with the fewest rows.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
 - Workspace colour is sixteen semantic roles; widgets name a role, never a terminal colour, and
-  a palette is a complete assignment of them. Colour says what a thing is, weight what reads
-  first, italic what stays quiet, and the row `Enter` acts on carries all three (`Chosen`).
+  a palette is a complete assignment of them. Colour says what a thing is and weight says what
+  reads first; the row `Enter` acts on carries both (`Chosen`), and what stays quiet is a
+  low-saturation hue with no weight on it. Rejected: italic as a third channel for quiet — a slant
+  standing in a field of upright monospace is unusual, and unusual attracts the eye that `Ambient`
+  exists to spare, so it worked against the one role it was introduced for. Document italic stays
+  where it is conventional and self-evidently meant: a code comment, a block quotation (MD-5,
+  MD-6).
   The status script owns its own colours (MD-5).
 - **A palette is data, not code, and colour is two layers.** The lower layer is a fixed set of
   slots named the way a terminal names them: a ground ramp — `ground`, `line`, `muted`, `text` —
