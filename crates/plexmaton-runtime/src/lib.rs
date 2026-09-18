@@ -19,8 +19,10 @@ mod runtime;
 pub use collaboration_ingress::{
     ChildCollaborationIngress, CollaborationArtifactRegistrationError, CollaborationArtifactSource,
     CollaborationIngressFailure, CollaborationIngressOutcome, CollaborationIngressRefusal,
-    CollaborationIngressSettlement, CollaborationSessionSource, MainCollaborationIngress,
-    MainRuntimeIdentity, OwnedCollaborationActivity, RegisteredCollaborationTarget,
+    CollaborationIngressResult, CollaborationIngressSettlement, CollaborationRuntimeStamp,
+    CollaborationSessionSource, MainCollaborationIngress, MainRuntimeIdentity, OwnedChildControl,
+    OwnedChildControlSnapshot, OwnedCollaborationActivity, RegisteredCollaborationTarget,
+    UserInputTarget, UserInputTicket,
 };
 pub use collaboration_read::{
     CollaborationReadError, CollaborationSessionMailProjection, SessionMailInclusion,
@@ -49,17 +51,19 @@ pub use interface::{
 pub use native::{NativePermissionCompiler, NativeToolCatalog, NativeToolSetupError};
 pub use owned_collaboration::{
     MAX_OWNED_RUNNERS, OwnedCollaboration, OwnedHandoffFailure, OwnedHandoffReport,
-    OwnedRootContextError, OwnedScheduleFailure, OwnedSchedulingError, OwnedShutdownFailure,
-    OwnedShutdownReport, OwnedShutdownSettlement, OwnedStopReport, RunnerRegistrationError,
-    RunnerRegistrationReason, SchedulerLimits, WakeAdmission, WakeFailure, WakeRefusal,
+    OwnedHandoffSettlement, OwnedRootContextError, OwnedScheduleFailure, OwnedSchedulingError,
+    OwnedShutdownFailure, OwnedShutdownReport, OwnedShutdownSettlement, OwnedStopReport,
+    OwnedUserInputSettlement, RunnerRegistrationError, RunnerRegistrationReason, SchedulerLimits,
+    UserInputFailure, UserInputRefusal, UserInputRequest, UserTargetInputFailure,
+    UserTargetInputRequest, WakeAdmission, WakeFailure, WakeRefusal,
 };
 pub(crate) use owned_runner::{ChildStartError, OwnedChildRunner};
 pub use owned_runner::{
     OwnedRunnerError, OwnedRunnerUpdate, RunnerGeneration, RunnerIdentity, WakeHint,
 };
 pub use runtime::{
-    ContextBudgetSnapshot, ContextBudgetUnavailable, LiveRuntime, ModelChangeRefusal,
-    QueuedBoundary, QueuedInput,
+    ContextBudgetSnapshot, ContextBudgetUnavailable, DelegatedProjectionRefusal, LiveRuntime,
+    ModelChangeRefusal, QueuedBoundary, QueuedInput,
 };
 
 pub use runtime::{CodingSessionPermissions, ProjectPermissionConfigurationSource};

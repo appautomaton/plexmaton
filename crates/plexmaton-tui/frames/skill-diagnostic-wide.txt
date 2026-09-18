@@ -2,39 +2,39 @@
 │[skill] Skills · Skill unavailable · input returned to the composer; SKILL.md could not be read                       │
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Agents ──────────────────┐                                                                                            
-│○ Agent B · UI study   ask│                                                                                            
-│  Choose whether the over…│                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │                                                                                            
-│                          │ I will inspect the workspace and delegate the focused UI study. Agent B is running         
-│                          │ independently; this transcript remains interactive.                                        
-│                          │                                                                                            
-│                          │ received from agent-b · Routing stays centralized and z-ordered.                           
-│                          │ [!] skill · failed                                                                         
-│                          │ · Thinking…                                                                        ( !1 )  
-│                          │── Message Agent A · primary ───────────────────────────────────────────────────────────────
-│                          │ $review check this change                                                                  
-└──────────────────────────┘────────────────────────────────────────────────────────────────────────────────────────────
+┌ Agents ──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Agent B · UI study  ask        Choose whether the overlap study should cover narrow screens.                         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Agent A · primary  󱌣 1  󰇮 1 ─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│I will inspect the workspace and delegate the focused UI study. Agent B is running independently; this transcript     │
+│remains interactive.                                                                                                  │
+│                                                                                                                      │
+│received from Agent B · UI study · Routing stays centralized and z-ordered.                                           │
+│[!] skill · failed                                                                                                    │
+│· Thinking…                                                                                                    ( !1 ) │
+── Message Agent A · primary ───────────────────────────────────────────────────────────────────────────────────────────
+ $review check this change                                                                                              
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                                                                         

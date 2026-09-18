@@ -23,7 +23,7 @@ mod attempt_tests;
 mod attempts;
 mod budget;
 mod collaboration;
-pub use collaboration::CollaborationInclusionOrigin;
+pub use collaboration::{CollaborationInclusionOrigin, CollaborationLinkOrigin};
 mod compaction;
 mod error;
 mod heads;

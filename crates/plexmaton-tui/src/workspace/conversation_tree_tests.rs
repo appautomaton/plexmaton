@@ -370,10 +370,10 @@ fn tre_1_global_quit_confirmation_rearms_after_interrupt_under_tree() {
 
     assert_eq!(workspace.handle_at(&quit, start).flow, Flow::Continue);
     assert_eq!(
-        workspace.state.status().note(),
-        crate::state::StatusNote::QuitArmed {
+        workspace.state.status().armed(),
+        Some(&crate::state::Armed::Quit {
             deadline: start + Duration::from_secs(1),
-        }
+        })
     );
     assert_eq!(
         workspace
@@ -381,10 +381,7 @@ fn tre_1_global_quit_confirmation_rearms_after_interrupt_under_tree() {
             .flow,
         Flow::Continue
     );
-    assert_eq!(
-        workspace.state.status().note(),
-        crate::state::StatusNote::Quiet
-    );
+    assert_eq!(workspace.state.status().armed(), None);
     assert_eq!(
         workspace
             .handle_at(&quit, start + Duration::from_millis(200))

@@ -46,7 +46,7 @@ use output::{RestoreTerminal, TerminalOutput};
 use plexmaton_cli::preparation;
 use session::{
     ConversationSelection, OpenedConversation, PersistedConversation, StartupAction, USAGE,
-    open_selected_conversation, parse_startup_action, report_persisted_conversation,
+    open_selected_conversation_with, parse_startup_action, report_persisted_conversation,
     restoration_feedback,
 };
 
@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
         runtime,
         recovery,
         persisted,
+        collaboration: _,
     } = opened;
     picker.current = persisted;
     // The guard is armed before anything is changed, so even a failure to enable capture restores.
@@ -138,12 +139,15 @@ async fn failed_terminal_setup(
         .and_then(surface_shutdown_report);
     session_result(
         Err(error).context("acquire terminal output"),
-        runtime_shutdown,
-        status_shutdown,
-        Ok(()),
-        preparation_shutdown,
-        picker_shutdown,
-        Ok(()),
+        SessionShutdowns {
+            runtime: runtime_shutdown,
+            collaboration: Ok(()),
+            status: status_shutdown,
+            clipboard: Ok(()),
+            preparation: preparation_shutdown,
+            picker: picker_shutdown,
+            permissions: Ok(()),
+        },
     )
 }
 /// Project only display values from the same model handed to the runtime (DRW-4, PRV-6).
@@ -243,19 +247,22 @@ async fn run(
     if let Some(path) = working_directory {
         workspace.set_working_directory(path);
     }
+    // A resumed root puts every delegation it already created back on the roster without waking
+    // any of them (CHB-3), and merges shared entries at their durable session anchors before the
+    // restoration confirmation takes its final presentation position (ENT-1/JRN-5).
+    if let Some(collaboration) = collaboration.as_mut() {
+        collaboration.restore(&mut runtime).await?;
+    }
     if let Some(recovery) = restoration_feedback(recovery) {
-        // Install the acknowledged replay before anchoring presentation after its final entry.
+        // Install the complete acknowledged replay before anchoring presentation after its final
+        // entry, including collaboration rows whose bodies remain in their canonical log.
         while let Some(event) = runtime.try_next_event() {
             workspace.emit(vec![event]);
         }
         workspace.report_conversation_recovery(recovery);
     }
-    // A resumed root puts every delegation it already created back on the roster without waking
-    // any of them (CHB-3).
-    if let Some(collaboration) = collaboration.as_mut() {
-        // The restored roster and correspondence queue on the runtime, which the loop below
-        // publishes in the order it numbered them.
-        collaboration.restore(&mut runtime).await?;
+    if let Some(collaboration) = collaboration.as_ref() {
+        collaboration.apply_child_controls(&mut workspace)?;
     }
     retry::sync_actions(&runtime, &mut workspace);
     let mut permissions = permission_controls::PermissionControls::new(runtime.coding_session());
@@ -269,13 +276,14 @@ async fn run(
         &mut permissions,
         &mut EventStream::new(),
         &mut render_preparation,
-        collaboration.as_mut(),
+        &mut collaboration,
         output::write_native,
     )
     .await;
-    if let Some(collaboration) = collaboration.as_mut() {
-        collaboration.shutdown().await;
-    }
+    let collaboration_shutdown = match collaboration.as_mut() {
+        Some(collaboration) => collaboration.shutdown().await,
+        None => Ok(()),
+    };
     let clipboard_shutdown = output
         .clipboard
         .shutdown()
@@ -294,34 +302,43 @@ async fn run(
     let shutdown = runtime.shutdown().await.context("shut down live runtime");
     session_result(
         loop_result,
-        shutdown.and_then(surface_shutdown_report),
-        status_shutdown,
-        clipboard_shutdown,
-        preparation_shutdown,
-        picker_shutdown,
-        permission_shutdown,
+        SessionShutdowns {
+            runtime: shutdown.and_then(surface_shutdown_report),
+            collaboration: collaboration_shutdown,
+            status: status_shutdown,
+            clipboard: clipboard_shutdown,
+            preparation: preparation_shutdown,
+            picker: picker_shutdown,
+            permissions: permission_shutdown,
+        },
     )?;
     Ok(picker.current)
 }
 
 /// Optional presentation cleanup must never mask retained input or a durable-session failure.
+struct SessionShutdowns {
+    runtime: anyhow::Result<()>,
+    collaboration: anyhow::Result<()>,
+    status: anyhow::Result<()>,
+    clipboard: anyhow::Result<()>,
+    preparation: anyhow::Result<()>,
+    picker: anyhow::Result<()>,
+    permissions: anyhow::Result<()>,
+}
+
 fn session_result(
     loop_result: anyhow::Result<()>,
-    runtime_shutdown: anyhow::Result<()>,
-    status_shutdown: anyhow::Result<()>,
-    clipboard_shutdown: anyhow::Result<()>,
-    preparation_shutdown: anyhow::Result<()>,
-    picker_shutdown: anyhow::Result<()>,
-    permission_shutdown: anyhow::Result<()>,
+    shutdowns: SessionShutdowns,
 ) -> anyhow::Result<()> {
     let failures: Vec<_> = [
-        runtime_shutdown,
+        shutdowns.runtime,
         loop_result,
-        status_shutdown,
-        clipboard_shutdown,
-        preparation_shutdown,
-        picker_shutdown,
-        permission_shutdown,
+        shutdowns.collaboration,
+        shutdowns.status,
+        shutdowns.clipboard,
+        shutdowns.preparation,
+        shutdowns.picker,
+        shutdowns.permissions,
     ]
     .into_iter()
     .filter_map(Result::err)

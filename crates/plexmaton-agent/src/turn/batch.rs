@@ -195,6 +195,9 @@ impl Agent {
         reaction: &mut Reaction,
     ) {
         let status = result.outcome().status();
+        let collaboration_reference = matches!(result.outcome(), ToolOutcome::Succeeded { .. })
+            .then(|| result.collaboration_reference().cloned())
+            .flatten();
         let settled = match &mut self.turn {
             Turn::Working { batch, .. } => {
                 if batch.settle(call_id, result) {
@@ -213,6 +216,15 @@ impl Agent {
             return;
         };
         self.emit_tool_status(call_id.clone(), status, reaction);
+        if let Some(reference) = collaboration_reference {
+            self.record.commit(
+                JournalEntryPayload::CollaborationItemLinked {
+                    agent_id: self.record.agent_id().clone(),
+                    reference,
+                },
+                reaction,
+            );
+        }
         if complete {
             self.continue_if_batch_complete(reaction);
         }

@@ -29,15 +29,13 @@ import fcntl
 import base64
 import os
 import pty
-import re
-import struct
 import subprocess
 import sys
 import tempfile
 import termios
-import unicodedata
 from pathlib import Path
-from smoke_support import NoModelRequests, fixture_environment, observe_for, read_until, read_to_eof
+from smoke_support import (ALTERNATE_SCREEN_EXIT, NoModelRequests, await_screen, click, collapsed,
+                           fixture_environment, read_to_eof, read_until, rendered_screen, set_size)
 
 # A blank single-agent session has no rail; these sizes exercise its owned terminal geometry.
 INITIAL_SIZE = (40, 120)
@@ -50,7 +48,6 @@ EXPECTED_ON_FULL_FRAME = (
     # bordered box saying so in the column the conversation wanted.
     "~/",
 )
-ALTERNATE_SCREEN_EXIT = b"\x1b[?1049l"
 # SGR extended mouse mode. Crossterm enables several tracking modes; this is the one that decides
 # how a report is encoded, so it is the one worth pinning.
 MOUSE_ON = b"\x1b[?1006h"
@@ -62,131 +59,6 @@ FOCUS_OFF = b"\x1b[?1004l"
 CLICK_IN_TRANSCRIPT = (40, 10)
 CLICK_IN_STATUS = (5, RESIZED[0] - 1)
 CLICK_IN_RESIZED_COMPOSER = (50, RESIZED[0] - 3)
-ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
-WHITESPACE = re.compile(r"\s+")
-# The pinned Ratatui Crossterm backend resets attributes after a completed draw, followed only
-# by cursor controls. Readiness includes this boundary, not a partial matching caption.
-FRAME_END = re.compile(rb"\x1b\[0m(?:\x1b\[(?:\?[0-9;]+[hl]|[0-9;]+H))*$")
-
-
-def set_size(fd: int, size: tuple[int, int]) -> None:
-    rows, columns = size
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
-
-
-def sgr_press(column: int, row: int) -> bytes:
-    """One left-button press, in the SGR encoding crossterm asks the terminal for."""
-    return f"\x1b[<0;{column + 1};{row + 1}M".encode()
-
-
-def cursor_visible(raw: bytes) -> bool:
-    return raw.rfind(b"\x1b[?25h") > raw.rfind(b"\x1b[?25l")
-
-
-def click(master: int, at: tuple[int, int], sink: bytearray, cursor=None) -> bytes:
-    before = len(sink)
-    os.write(master, sgr_press(*at))
-    if cursor is None:
-        observe_for(master, 0.05, sink)  # Explicit no-op observation, not transition readiness.
-    else:
-        read_until(master, sink, lambda: cursor_visible(bytes(sink)) == cursor
-                   and FRAME_END.search(bytes(sink)) is not None
-                   and (cursor or len(sink) > before),
-                   description="pointer focus")
-    return bytes(sink[before:])
-
-
-def collapsed(raw: bytes) -> str:
-    """Strips escape sequences and whitespace so cursor-move gaps do not break comparison."""
-    return WHITESPACE.sub("", ANSI.sub("", raw.decode("utf-8", errors="replace")))
-
-
-def rendered_screen(raw: bytes, size: tuple[int, int]) -> str:
-    """Applies the cursor/control subset Ratatui emits to one blank terminal buffer."""
-    rows, columns = size
-    cells = [[" "] * columns for _ in range(rows)]
-    row = 0
-    column = 0
-    text = raw.decode("utf-8", errors="replace")
-    index = 0
-    while index < len(text):
-        character = text[index]
-        if character == "\x1b" and index + 1 < len(text) and text[index + 1] == "[":
-            final = index + 2
-            while final < len(text) and not ("@" <= text[final] <= "~"):
-                final += 1
-            if final >= len(text):
-                break
-            arguments = text[index + 2 : final]
-            command = text[final]
-            values = [
-                int(value) if value.isdigit() else 0
-                for value in arguments.lstrip("?").split(";")
-            ]
-            first = values[0] if values else 0
-            if command in ("H", "f"):
-                row = max(1, first) - 1
-                column = max(1, values[1] if len(values) > 1 else 1) - 1
-            elif command == "A":
-                row = max(0, row - max(1, first))
-            elif command == "B":
-                row = min(rows - 1, row + max(1, first))
-            elif command == "C":
-                column = min(columns, column + max(1, first))
-            elif command == "D":
-                column = max(0, column - max(1, first))
-            elif command == "G":
-                column = max(1, first) - 1
-            elif command == "d":
-                row = max(1, first) - 1
-            elif command == "J" and first == 2:
-                cells = [[" "] * columns for _ in range(rows)]
-            elif command == "K":
-                if first == 1:
-                    cells[row][: min(column + 1, columns)] = [" "] * min(
-                        column + 1, columns
-                    )
-                elif first == 2:
-                    cells[row] = [" "] * columns
-                else:
-                    cells[row][min(column, columns) :] = [" "] * max(
-                        0, columns - column
-                    )
-            index = final + 1
-            continue
-        if character == "\r":
-            column = 0
-        elif character == "\n":
-            row = min(rows - 1, row + 1)
-        elif ord(character) >= 32:
-            width = 0 if unicodedata.combining(character) else 1
-            if unicodedata.east_asian_width(character) in ("W", "F"):
-                width = 2
-            if row < rows and column < columns:
-                cells[row][column] = character
-                for continuation in range(1, width):
-                    if column + continuation < columns:
-                        cells[row][column + continuation] = " "
-            column = min(columns, column + width)
-        index += 1
-    return "\n".join("".join(line) for line in cells)
-
-
-def await_screen(master, captured, size, markers=(), absent=(), start=0, complete=True, exact_lines=()):
-    def ready():
-        screen = rendered_screen(bytes(captured[start:]), size)
-        flat = collapsed(screen.encode())
-        return (FRAME_END.search(bytes(captured[start:])) is not None
-                and all(collapsed(marker.encode()) in flat for marker in markers)
-                and all(collapsed(marker.encode()) not in flat for marker in absent)
-                and all(any(row.strip(" │") == value for row in screen.splitlines()) for value in exact_lines)
-                # A frame is complete once the composer's bottom rule, a whole row of "─", is
-                # painted: the column has no box corner to wait for (ui-ux §input).
-                and (not complete or any(row.strip() and set(row.strip()) == {"─"}
-                                         for row in screen.splitlines())))
-    read_until(master, captured, ready, timeout=5,
-               description=f"screen {size} with {markers!r} without {absent!r}")
-    return rendered_screen(bytes(captured[start:]), size)
 
 
 def repaint(master, captured, markers=(), absent=(), exact_lines=()):

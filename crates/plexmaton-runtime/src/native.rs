@@ -125,6 +125,13 @@ pub struct NativePermissionCompiler {
 }
 
 impl NativePermissionCompiler {
+    /// Pins the known read/search pair for opt-in configured inspection policy.
+    #[must_use]
+    pub fn native_inspection(&self) -> plexmaton_agent::PermissionMatcher {
+        let (read, search) = FileTools::inspection_permission_definitions();
+        plexmaton_agent::PermissionMatcher::NativeInspection { read, search }
+    }
+
     /// Pins the known create/edit pair; capability names never select preset membership.
     #[must_use]
     pub fn native_file_changes(&self) -> plexmaton_agent::PermissionMatcher {
@@ -376,6 +383,8 @@ impl NativeToolCatalog {
                 }
                 .boxed();
             };
+            #[cfg(debug_assertions)]
+            collaboration::record_invocation(&call);
             let call_id = call.requested().call_id.clone();
             let cancellation = cancellation.async_token.child_token();
             return async move {
@@ -393,31 +402,7 @@ impl NativeToolCatalog {
                     _ => Err(crate::CollaborationIngressRefusal::CapabilityMismatch),
                 };
                 match result {
-                    Ok(outcome) => {
-                        let output = match outcome {
-                            CollaborationIngressOutcome::Delegated { target } => {
-                                serde_json::json!({
-                                    "status": "delegated",
-                                    "target": target.as_str(),
-                                })
-                            }
-                            CollaborationIngressOutcome::MailAccepted => {
-                                serde_json::json!({"status": "mail_accepted"})
-                            }
-                            CollaborationIngressOutcome::TaskUpdated => {
-                                serde_json::json!({"status": "task_updated"})
-                            }
-                            CollaborationIngressOutcome::HandoffCompleted => {
-                                serde_json::json!({"status": "handoff_completed"})
-                            }
-                        };
-                        ToolExecutionResult::new(
-                            ToolOutcome::Succeeded {
-                                output: output.to_string(),
-                            },
-                            None,
-                        )
-                    }
+                    Ok(result) => collaboration::tool_result(result),
                     Err(error) => bounded_failure("collaboration_ingress", &error.to_string()),
                 }
             }

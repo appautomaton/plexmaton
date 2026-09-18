@@ -17,11 +17,11 @@ pub use error::CollaborationError;
 pub use ledger::{CollaborationLedger, Preparation};
 pub use projection::{CollaborationMailProjection, MailDirection, ProjectedMail};
 pub use types::{
-    ArtifactReference, CollaborationEvent, CollaborationLimits, CollaborationRecord,
-    CollaborationSequence, CollaborationText, DelegationController, DelegationRevision,
-    DelegationView, ItemReceipt, MAX_COLLABORATION_ID_BYTES, MAX_COLLABORATION_ITEMS,
-    MAX_COLLABORATION_TEXT_BYTES, MAX_DELEGATIONS, MAX_MAIL_ARTIFACTS, MAX_RETAINED_MAIL_BYTES,
-    MailEndpoint, MailEnvelope,
+    ArtifactReference, AttentionReference, CollaborationEvent, CollaborationLimits,
+    CollaborationRecord, CollaborationSequence, CollaborationText, DelegationController,
+    DelegationRevision, DelegationView, ItemReceipt, MAX_COLLABORATION_ID_BYTES,
+    MAX_COLLABORATION_ITEMS, MAX_COLLABORATION_TEXT_BYTES, MAX_DELEGATIONS, MAX_MAIL_ARTIFACTS,
+    MAX_RETAINED_MAIL_BYTES, MailEndpoint, MailEnvelope,
 };
 
 pub use turn::{

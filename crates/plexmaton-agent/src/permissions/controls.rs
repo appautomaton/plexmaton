@@ -82,6 +82,7 @@ impl PermissionMatcher {
     #[must_use]
     pub fn label(&self) -> String {
         match self {
+            Self::NativeInspection { .. } => "Native workspace inspection".to_owned(),
             Self::NativeFileChanges { .. } => {
                 "Native create/edit; excludes agent controls and Git metadata".to_owned()
             }

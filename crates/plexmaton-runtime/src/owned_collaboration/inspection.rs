@@ -3,7 +3,19 @@
 use super::*;
 
 impl OwnedCollaboration {
-    pub(crate) async fn child_session_source(
+    pub async fn link_child_collaboration_item(
+        &mut self,
+        conversation: &ConversationId,
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+    ) -> Result<(), OwnedRunnerError> {
+        let slot = self
+            .runners
+            .get_mut(conversation)
+            .ok_or(OwnedRunnerError::Closed)?;
+        slot.runner.link_collaboration_item(reference).await
+    }
+
+    pub async fn child_session_source(
         &mut self,
         conversation: &ConversationId,
     ) -> Result<Option<crate::CollaborationSessionSource>, OwnedRunnerError> {

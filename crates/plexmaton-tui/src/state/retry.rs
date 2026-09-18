@@ -164,6 +164,13 @@ impl ViewState {
             (None, None)
         };
         let focus = self.focus;
+        // INS-1: which agent the second window shows *is* the roster's selection, and nothing is
+        // selected by arrival — so replaying the history cannot put it back. A reset that dropped
+        // it closed a window the user had open on a working child, from a cause they could not see:
+        // a retry, a compaction, a tree navigation receipt. The presentation belongs to the window
+        // rather than to what it shows, so it travels with the selection instead of being rebuilt.
+        let selected = self.agents.selected_id().cloned();
+        let inspector = self.inspector.clone();
         *self = Self {
             status,
             inputs,
@@ -173,10 +180,17 @@ impl ViewState {
             drawer,
             model,
             focus,
+            inspector,
             ..Self::default()
         };
         for event in events {
             self.apply(event);
+        }
+        // A replayed history need not contain the agent that was selected — a reset that trims it
+        // is exactly the case this cannot treat as an error. The window then stays closed, which is
+        // what its absence means.
+        if let Some(selected) = selected {
+            let _restored = self.agents.select(&selected);
         }
         self.touch();
     }

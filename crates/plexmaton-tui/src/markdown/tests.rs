@@ -1,4 +1,5 @@
 use super::*;
+use crate::text_layout::math::FormulaContent;
 
 fn text(lines: &[ratatui::text::Line<'_>]) -> String {
     lines
@@ -513,4 +514,83 @@ fn frozen_prefix_accepts_an_exact_fitting_cjk_fragment() {
     )
     .expect("reused render");
     assert!(reused.reused_prefix);
+}
+
+/// MD-1/MTH-1: what a math budget refuses is math. The entry is still a document either way.
+///
+/// The first real producer wrote a 645-line letter carrying 260 formulas. A separate count allowed
+/// 256, and exceeding it abandoned Markdown for the whole entry, so the letter reached the terminal
+/// as raw TeX — headings, lists and the 256 formulas that fit included. These assert the rule that
+/// replaced that count: a budget belonging to math may cost geometry and nothing else.
+#[test]
+fn a_math_budget_costs_geometry_and_never_the_document() {
+    let inline = (0..300)
+        .map(|index| format!("term \\(x_{{{index}}}+1\\) follows"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let source = format!("# Heading\n\n{inline}\n\n## Closing\n\n**last word**");
+    let layout = render_layout(&source, 88, MathPresentation::Native, Completion::Final)
+        .expect("a document with 300 formulas is still a document");
+    let painted = text(&layout.painted_lines(&Palette::pastel()));
+    assert_eq!(layout.formulas.len(), 300);
+    assert!(
+        layout
+            .formulas
+            .iter()
+            .all(|formula| matches!(formula.content, FormulaContent::Native(_))),
+        "every formula within the byte budget keeps its geometry"
+    );
+    for marker in ["# Heading", "## Closing", "**last word**"] {
+        assert!(
+            !painted.contains(marker),
+            "markup reached the terminal past the old count: {marker}"
+        );
+    }
+    assert!(
+        painted.contains("last word"),
+        "the document continued: {painted:.400}"
+    );
+}
+
+/// MD-4/PRE-1: an entry is charged for what it holds, not for the room it grew through.
+///
+/// A letter the size the first real producer sent — about 770 rows carrying 260 formulas — cost
+/// 1,064 KiB while it was built and 753 KiB once finished. Nearly a third was growth headroom no
+/// finished layout can ever use, and it was charged against the entry's preparation budget, so
+/// whether a letter was shown as a document came down to where the allocator happened to round.
+#[test]
+fn a_finished_layout_keeps_no_growth_headroom() {
+    let source = (0..130)
+        .map(|index| {
+            format!(
+                "Ordinary prose that wraps across the row, carrying \\(\\alpha_{{{index}}}\\) and \
+                 \\(\\frac{{k_{{{index}}}}}{{\\rho c}}\\) inside it, with a little more prose after \
+                 so the paragraph occupies several rows the way a real letter does."
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let layout = render_layout(&source, 88, MathPresentation::Native, Completion::Final)
+        .expect("a long math-heavy letter is a document");
+    assert_eq!(layout.formulas.len(), 260);
+    assert!(
+        (600..900).contains(&layout.lines.len()),
+        "fixture must match the reported letter's size class: {} rows",
+        layout.lines.len()
+    );
+    assert_eq!(layout.text.capacity(), layout.text.len());
+    assert_eq!(layout.lines.capacity(), layout.lines.len());
+    assert_eq!(layout.rows.capacity(), layout.rows.len());
+    assert_eq!(layout.formulas.capacity(), layout.formulas.len());
+    for row in &layout.rows {
+        assert_eq!(row.capacity(), row.len());
+    }
+    for line in &layout.lines {
+        assert_eq!(line.spans.capacity(), line.spans.len());
+    }
+    assert!(
+        layout.allocation_bytes() <= crate::preparation::MAX_PREPARED_BYTES,
+        "and it fits the budget it is charged against: {} bytes",
+        layout.allocation_bytes()
+    );
 }

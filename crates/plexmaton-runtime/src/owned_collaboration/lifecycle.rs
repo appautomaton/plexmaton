@@ -20,6 +20,68 @@ impl OwnedCollaboration {
             .hold_join_for_test()
     }
 
+    /// Admits one Stop without waiting for the child to release execution authority.
+    ///
+    /// The retained operation is settled by [`Self::next_update`] or [`Self::next_activity`], so
+    /// a caller can keep pumping unrelated root activity while the child joins (SCH-2/SCH-4).
+    pub fn begin_stop(
+        &mut self,
+        conversation: &ConversationId,
+    ) -> Result<(), OwnedSchedulingError> {
+        if let Some(pending) = &self.pending_stop {
+            if &pending.conversation != conversation {
+                return Err(OwnedSchedulingError::StopInProgress);
+            }
+            return Ok(());
+        }
+        if self.shutting_down {
+            return Err(OwnedSchedulingError::ShuttingDown);
+        }
+        self.remove_wake(conversation);
+        let schedule_pending = self
+            .pending_schedule
+            .as_ref()
+            .is_some_and(|pending| &pending.conversation == conversation);
+        let user_input_pending = self
+            .pending_user_input
+            .as_ref()
+            .is_some_and(|pending| &pending.conversation == conversation);
+        let target_only_pending =
+            self.has_user_target_input_for(conversation) && !user_input_pending;
+        let interrupted_target =
+            target_only_pending && self.interrupt_user_target_input(conversation);
+        let Some(slot) = self.runners.get_mut(conversation) else {
+            return if interrupted_target {
+                Ok(())
+            } else {
+                Err(OwnedSchedulingError::UnknownRunner)
+            };
+        };
+        if slot.finished {
+            return if interrupted_target {
+                Ok(())
+            } else {
+                Err(OwnedSchedulingError::RunnerClosed)
+            };
+        }
+        let stop_started = if schedule_pending || user_input_pending {
+            false
+        } else {
+            slot.runner
+                .begin_stop()
+                .map_err(OwnedSchedulingError::Control)?;
+            true
+        };
+        self.pending_stop = Some(PendingStop {
+            conversation: conversation.clone(),
+            scheduled: None,
+            user_input: None,
+            user_input_identity: None,
+            stop_started,
+        });
+        Ok(())
+    }
+
     /// Stops one child and acknowledges only after its runtime has released execution authority.
     pub async fn stop(
         &mut self,
@@ -30,27 +92,86 @@ impl OwnedCollaboration {
         {
             return Err(OwnedSchedulingError::StopInProgress);
         }
-        self.remove_wake(conversation);
         if self.pending_stop.is_none() {
-            let scheduled = if self
-                .pending_schedule
-                .as_ref()
-                .is_some_and(|pending| &pending.conversation == conversation)
-            {
-                Some(self.finish_pending_schedule().await?)
-            } else {
-                None
+            self.begin_stop(conversation)?;
+        } else {
+            self.remove_wake(conversation);
+        }
+        self.finish_pending_stop(conversation).await
+    }
+
+    async fn finish_pending_stop(
+        &mut self,
+        conversation: &ConversationId,
+    ) -> Result<OwnedStopReport, OwnedSchedulingError> {
+        let schedule_pending = self.pending_stop.as_ref().is_some_and(|pending| {
+            !pending.stop_started
+                && self
+                    .pending_schedule
+                    .as_ref()
+                    .is_some_and(|schedule| &schedule.conversation == conversation)
+        });
+        if schedule_pending {
+            let scheduled = match self.finish_pending_schedule().await {
+                Ok(report) => report,
+                Err(error) => {
+                    self.pending_stop.take();
+                    return Err(error);
+                }
             };
-            self.runners
-                .get_mut(conversation)
-                .ok_or(OwnedSchedulingError::UnknownRunner)?
+            self.pending_stop
+                .as_mut()
+                .expect("pending Stop survives schedule settlement")
+                .scheduled = Some(scheduled);
+        }
+        let user_input_pending = self.pending_stop.as_ref().is_some_and(|pending| {
+            !pending.stop_started
+                && self
+                    .pending_user_input
+                    .as_ref()
+                    .is_some_and(|input| &input.conversation == conversation)
+        });
+        if user_input_pending {
+            let identity = self
+                .runners
+                .get(conversation)
+                .expect("pending user input retains its runner")
                 .runner
-                .begin_stop()
-                .map_err(OwnedSchedulingError::Control)?;
-            self.pending_stop = Some(PendingStop {
-                conversation: conversation.clone(),
-                scheduled,
-            });
+                .identity()
+                .clone();
+            let user_input = self.finish_pending_user_input().await;
+            self.clear_user_target_input_for(conversation);
+            let pending = self
+                .pending_stop
+                .as_mut()
+                .expect("pending Stop survives user-input settlement");
+            pending.user_input = Some(user_input);
+            pending.user_input_identity = Some(identity);
+        }
+        let stop_started = self
+            .pending_stop
+            .as_ref()
+            .is_some_and(|pending| pending.stop_started);
+        if !stop_started {
+            let Some(slot) = self.runners.get_mut(conversation) else {
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
+                return Err(OwnedSchedulingError::UnknownRunner);
+            };
+            if slot.finished {
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
+                return Err(OwnedSchedulingError::RunnerClosed);
+            }
+            if let Err(error) = slot.runner.begin_stop() {
+                let mut pending = self.pending_stop.take().expect("pending Stop");
+                self.detach_stop_user_input(&mut pending);
+                return Err(OwnedSchedulingError::Control(error));
+            }
+            self.pending_stop
+                .as_mut()
+                .expect("pending Stop survives control admission")
+                .stop_started = true;
         }
         let stopped = self
             .runners
@@ -59,272 +180,28 @@ impl OwnedCollaboration {
             .runner
             .finish_stop()
             .await;
-        let pending = self
+        let mut pending = self
             .pending_stop
             .take()
             .expect("completed Stop retains its scheduling report");
         match stopped {
             Ok(stopped) => Ok(OwnedStopReport {
                 scheduled: pending.scheduled,
+                user_input: pending.user_input.map(Box::new),
                 stopped,
             }),
-            Err(error) => Err(OwnedSchedulingError::Control(error)),
-        }
-    }
-
-    /// Closes normal admission, joins queued/active work, then appends one explicit Handoff.
-    pub async fn handoff(
-        &mut self,
-        attempt: CollaborationAttempt,
-    ) -> Result<OwnedHandoffReport, OwnedHandoffFailure> {
-        if let Some(pending) = &self.pending_handoff {
-            if pending.attempt != attempt {
-                return Err(handoff_failure(
-                    OwnedSchedulingError::HandoffPending,
-                    attempt,
-                    None,
-                    None,
-                ));
-            }
-        } else {
-            self.begin_handoff(attempt).await?;
-        }
-        if !self
-            .pending_handoff
-            .as_ref()
-            .expect("retained Handoff")
-            .preflighted
-        {
-            self.finish_handoff_preflight().await?;
-        }
-        self.settle_pending_handoff().await?;
-        self.finish_pending_handoff().await
-    }
-
-    async fn begin_handoff(
-        &mut self,
-        attempt: CollaborationAttempt,
-    ) -> Result<(), OwnedHandoffFailure> {
-        if self.shutting_down {
-            return Err(handoff_failure(
-                OwnedSchedulingError::ShuttingDown,
-                attempt,
-                None,
-                None,
-            ));
-        }
-        if self.writer.has_pending_admission() {
-            return Err(handoff_failure(
-                OwnedSchedulingError::AdmissionInProgress,
-                attempt,
-                None,
-                None,
-            ));
-        }
-        match &attempt.event {
-            plexmaton_agent::collaboration::CollaborationEvent::HandoffCompleted { .. } => {}
-            _ => {
-                return Err(handoff_failure(
-                    OwnedSchedulingError::HandoffRequired,
-                    attempt,
-                    None,
-                    None,
-                ));
-            }
-        }
-        self.pending_handoff = Some(PendingHandoff {
-            attempt,
-            preflighted: false,
-            scheduled: None,
-            stopped: None,
-            schedule_settled: false,
-            stop_settled: false,
-        });
-        self.finish_handoff_preflight().await
-    }
-
-    async fn finish_handoff_preflight(&mut self) -> Result<(), OwnedHandoffFailure> {
-        let attempt = self
-            .pending_handoff
-            .as_ref()
-            .expect("Handoff preflight retains its attempt")
-            .attempt
-            .clone();
-        if let Err(error) = self.writer.preflight_handoff(attempt.clone()).await {
-            if !matches!(&error, CollaborationWriterError::Busy) {
-                self.pending_handoff.take();
-            }
-            return Err(handoff_failure(
-                OwnedSchedulingError::Writer(error),
-                attempt,
-                None,
-                None,
-            ));
-        }
-        let delegation = match &attempt.event {
-            plexmaton_agent::collaboration::CollaborationEvent::HandoffCompleted {
-                delegation,
-                ..
-            } => delegation.clone(),
-            _ => unreachable!("validated Handoff variant"),
-        };
-        self.handoff_closed.insert(delegation.clone());
-        if let Some(conversation) = self.runners.values().find_map(|slot| {
-            (slot.delegation == delegation)
-                .then(|| slot.runner.identity().endpoint().conversation.clone())
-        }) {
-            self.remove_wake(&conversation);
-        }
-        self.pending_handoff
-            .as_mut()
-            .expect("successful preflight retains Handoff")
-            .preflighted = true;
-        Ok(())
-    }
-
-    async fn settle_pending_handoff(&mut self) -> Result<(), OwnedHandoffFailure> {
-        let attempt = self
-            .pending_handoff
-            .as_ref()
-            .expect("preflighted Handoff retains its attempt")
-            .attempt
-            .clone();
-        if !self
-            .pending_handoff
-            .as_ref()
-            .expect("pending Handoff")
-            .schedule_settled
-        {
-            if let Some(pending) = &self.pending_stop {
-                let delegation = match &attempt.event {
-                    plexmaton_agent::collaboration::CollaborationEvent::HandoffCompleted {
-                        delegation,
-                        ..
-                    } => delegation,
-                    _ => unreachable!("preflight admitted only Handoff"),
-                };
-                let target = self.runners.values().find_map(|slot| {
-                    (&slot.delegation == delegation)
-                        .then(|| slot.runner.identity().endpoint().conversation.clone())
-                });
-                if target.as_ref() != Some(&pending.conversation) {
-                    return Err(handoff_failure(
-                        OwnedSchedulingError::StopInProgress,
-                        attempt,
-                        None,
-                        None,
-                    ));
-                }
-                let report = match self.stop(&pending.conversation.clone()).await {
-                    Ok(report) => report,
-                    Err(error) => {
-                        return Err(handoff_failure(error, attempt, None, None));
-                    }
-                };
-                let pending = self
-                    .pending_handoff
-                    .as_mut()
-                    .expect("Handoff survives prior Stop settlement");
-                pending.scheduled = report.scheduled;
-                pending.stopped = Some(report.stopped);
-                pending.schedule_settled = true;
-                pending.stop_settled = true;
-                return Ok(());
-            }
-            let scheduled = if self.pending_schedule.is_some() {
-                match self.finish_pending_schedule().await {
-                    Ok(report) => Some(report),
-                    Err(error) => {
-                        return Err(handoff_failure(error, attempt, None, None));
-                    }
-                }
-            } else {
-                None
-            };
-            let pending = self
-                .pending_handoff
-                .as_mut()
-                .expect("Handoff survives schedule settlement");
-            pending.scheduled = scheduled;
-            pending.schedule_settled = true;
-        }
-        if !self
-            .pending_handoff
-            .as_ref()
-            .expect("pending Handoff")
-            .stop_settled
-        {
-            let delegation = match &attempt.event {
-                plexmaton_agent::collaboration::CollaborationEvent::HandoffCompleted {
-                    delegation,
-                    ..
-                } => delegation,
-                _ => unreachable!("preflight admitted only Handoff"),
-            };
-            let stopped = if let Some(slot) = self
-                .runners
-                .values_mut()
-                .find(|slot| &slot.delegation == delegation && !slot.finished)
-            {
-                match slot.runner.stop().await {
-                    Ok(report) => Some(report),
-                    Err(error) => {
-                        let pending = self
-                            .pending_handoff
-                            .as_ref()
-                            .expect("failed Stop retains Handoff");
-                        return Err(handoff_failure(
-                            OwnedSchedulingError::Control(error),
-                            attempt,
-                            pending.scheduled.clone(),
-                            None,
-                        ));
-                    }
-                }
-            } else {
-                None
-            };
-            let pending = self
-                .pending_handoff
-                .as_mut()
-                .expect("Handoff survives Stop settlement");
-            pending.stopped = stopped;
-            pending.stop_settled = true;
-        }
-        Ok(())
-    }
-
-    async fn finish_pending_handoff(&mut self) -> Result<OwnedHandoffReport, OwnedHandoffFailure> {
-        let attempt = self
-            .pending_handoff
-            .as_ref()
-            .expect("pending Handoff exists before it is finished")
-            .attempt
-            .clone();
-        match self.writer.admit_handoff(attempt.clone()).await {
-            Ok(receipt) => {
-                let pending = self
-                    .pending_handoff
-                    .take()
-                    .expect("acknowledged Handoff retains its reports");
-                Ok(OwnedHandoffReport {
-                    receipt,
-                    scheduled: pending.scheduled,
-                    stopped: pending.stopped,
-                })
-            }
             Err(error) => {
-                let pending = self
-                    .pending_handoff
-                    .as_ref()
-                    .expect("failed Handoff retains its reports");
-                Err(handoff_failure(
-                    OwnedSchedulingError::Writer(error),
-                    attempt,
-                    pending.scheduled.clone(),
-                    pending.stopped.clone(),
-                ))
+                self.detach_stop_user_input(&mut pending);
+                Err(OwnedSchedulingError::Control(error))
             }
+        }
+    }
+
+    fn detach_stop_user_input(&mut self, pending: &mut PendingStop) {
+        if let Some(identity) = pending.user_input_identity.take()
+            && let Some(outcome) = pending.user_input.take()
+        {
+            self.detached_user_input = Some((identity, outcome));
         }
     }
 

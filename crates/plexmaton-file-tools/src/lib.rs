@@ -149,6 +149,15 @@ impl FileTools {
         catalog::permission_definitions()
     }
 
+    /// The reviewed read/search bindings eligible for the native inspection permission preset.
+    #[must_use]
+    pub fn inspection_permission_definitions() -> (
+        plexmaton_agent::PermissionDefinition,
+        plexmaton_agent::PermissionDefinition,
+    ) {
+        catalog::inspection_permission_definitions()
+    }
+
     /// Executes only a definition identity and canonical arguments produced by admission.
     pub fn execute(
         &mut self,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::session::open_selected_conversation;
 use crate::tests::{FixtureWorkspace, fixture_http_responses};
 use plexmaton_core::ConversationId;
 use plexmaton_runtime::RuntimeUpdate;

@@ -44,7 +44,7 @@ output_reserve_tokens = 1000
             opened.runtime.configured_model().expect("model").wire_id(),
             "other-wire"
         );
-        opened.runtime.shutdown().await.expect("shutdown");
+        discard(&mut opened).await.expect("shutdown");
         let mut reopened = launch
             .clone()
             .open_with_key(
@@ -72,7 +72,7 @@ output_reserve_tokens = 1000
             plexmaton_core::ReasoningEffort::High
         );
         assert!(!reopened.runtime.has_active_work());
-        reopened.runtime.shutdown().await.expect("shutdown");
+        discard(&mut reopened).await.expect("shutdown");
     }
     let fresh = launcher(root.path());
     let mut reopened = fresh
@@ -94,5 +94,5 @@ output_reserve_tokens = 1000
         "fixture-model"
     );
     assert!(!reopened.runtime.has_active_work());
-    reopened.runtime.shutdown().await.expect("shutdown");
+    discard(&mut reopened).await.expect("shutdown");
 }

@@ -217,9 +217,15 @@ fn syntax_paint_selection_and_monochrome_share_exact_code_geometry() {
                 .expect("keyword")
                 .style
         };
-        assert_eq!(token(&pastel).fg, Some(crate::theme::tokens::SKY));
+        assert_eq!(
+            token(&pastel).fg,
+            Some(crate::theme::Slots::designed().blue)
+        );
         assert_eq!(token(&selected).fg, token(&pastel).fg);
-        assert_eq!(token(&selected).bg, Some(crate::theme::tokens::BAR));
+        assert_eq!(
+            token(&selected).bg,
+            Some(crate::theme::Slots::designed().ground)
+        );
     }
 }
 

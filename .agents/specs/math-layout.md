@@ -17,9 +17,15 @@ that source; either drag direction expands every intersection, including a blank
 whole formula. Streaming completion or Markdown reinterpretation invalidates an obsolete atom.
 
 **MTH-2 — Native projection preserves mathematical meaning.** Positioned engine glyphs and rules
-become disjoint cell reservations with admitted font mappings, parser-proven single-base circumflex/macron accents, CJK text, script sizes and opaque/inherited
+become disjoint cell reservations with admitted font mappings, parser-proven single-base combining accents, CJK text, script sizes and opaque/inherited
 paint; unsupported output, collisions and indivisible width overflow are typed refusals. No
 term-dropping, private-use glyph leakage, guessed negation or silent color substitution (MD-4).
+Every primitive declares the extent it occupies in the coordinates it is drawn in, so the column
+solver can read that extent without knowing the kind; a term placed beside an expression is never
+given a cell that expression already owns. Rejected: storing a thin rule at its centre, which let a
+neighbour share a box border's column and refused every framed result written with a full stop
+after it — a projection defect that a collision refusal had been presenting as an unsupported
+construct.
 
 **MTH-3 — Geometry has a retained origin.** A layout owns one immutable run list and origin shared
 with its exact source owner; viewport slicing cannot restart it at a different baseline (MD-3).
@@ -44,7 +50,7 @@ capability from a terminal name.
 | Invariant | Proof |
 | --- | --- |
 | MTH-1 | `streaming_math_keeps_pending_geometry_until_close_and_finalization_reveals_source`, `formula_hit_cells_are_atomic_and_preserve_original_delimiters`, `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `an_atomic_range_highlights_every_blank_and_edge_cell`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `reported_roots_and_log_sum_exp_loss_project_at_three_widths`, `real_preparation_worker_preserves_the_projection_reply`, `real_preparation_worker_preserves_the_complete_native_math_reply` |
-| MTH-2 | `cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint`, `unsupported_group_accents_and_explicit_cjk_fonts_refuse_before_projection`, `logits_accents_preserve_prediction_and_gradient_at_three_widths`, `logits_cjk_labels_preserve_all_text_and_box_at_three_widths`, `real_preparation_worker_preserves_the_logits_math_reply`, `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `tall_and_indexed_roots_keep_bounded_nonoverlapping_geometry`, `unrelated_nested_scripts_stay_in_the_numerator`, `compound_root_indices_keep_their_complete_group`, `script_roots_do_not_use_full_size_radicals`, `reported_roots_and_log_sum_exp_loss_project_at_three_widths`, `non_parenthesis_vector_paths_remain_a_typed_refusal`, `independent_native_overprint_is_refused` |
+| MTH-2 | `every_admitted_accent_merges_into_one_cell_and_a_path_accent_refuses`, `an_adjacent_term_never_collides_with_a_neighbours_reservation`, `the_reported_heat_transfer_formulas_lay_out_natively`, `cjk_scripts_and_single_base_accents_keep_unicode_scale_and_paint`, `unsupported_group_accents_and_explicit_cjk_fonts_refuse_before_projection`, `logits_accents_preserve_prediction_and_gradient_at_three_widths`, `logits_cjk_labels_preserve_all_text_and_box_at_three_widths`, `real_preparation_worker_preserves_the_logits_math_reply`, `complete_attention_reply_preserves_all_formula_occurrences_at_three_widths`, `structural_corpus_preserves_tables_roots_and_explicit_overflow`, `fraction_rows_and_paired_scripts_retain_engine_geometry`, `font_glyph_mapping_preserves_not_equal_double_struck_and_macron`, `explicit_colors_do_not_become_palette_inheritance`, `framed_paint_inherits_without_erasing_explicit_color`, `radicals_span_the_radicand_and_text_keeps_word_gaps`, `tall_and_indexed_roots_keep_bounded_nonoverlapping_geometry`, `unrelated_nested_scripts_stay_in_the_numerator`, `compound_root_indices_keep_their_complete_group`, `script_roots_do_not_use_full_size_radicals`, `reported_roots_and_log_sum_exp_loss_project_at_three_widths`, `non_parenthesis_vector_paths_remain_a_typed_refusal`, `independent_native_overprint_is_refused` |
 | MTH-3 | `native_runs_keep_their_origin_and_never_cross_viewport_or_overlay_edges`, `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `complete_reply_composes_native_math_and_exact_atomic_maps_at_three_widths`; real partial-multicell pixel fidelity remains unproven |
 | MTH-4 | `root_index_normalization_bounds_layout_nodes`, `source_and_native_limits_refuse_without_truncation_or_macro_leakage`, `aggregate_cell_bound_is_checked_before_paint_allocation`, `native_reply_roundtrip_validates_the_complete_corpus_and_rejects_forged_runs`, `native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded`, `preparation_wire_rejects_mismatched_math_capability_geometry_and_atomic_maps`, `replacing_projection_revokes_math_work_even_when_semantic_keys_are_identical`; PRE-2 owns process timeout/replacement/shutdown evidence |
 | MTH-5 | `streaming_preparation_preserves_native_runs_without_rewriting_them`, `cells_native_math_and_clipboard_share_one_ordered_output_owner`, `native_encoder_rejects_invalid_scale_controls_and_capacity_before_output`, `native_capability_requires_the_complete_measured_cursor_sequence`, `failed_native_output_keeps_the_last_painted_hit_map_and_frame_identity`, `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`; direct-Kitty CLI evidence below |
@@ -77,8 +83,13 @@ roots retain the piecewise projection. Rejected: associating indices with roots 
 position and scriptscript size, which moved unrelated numerator scripts into denominator roots
 and collapsed compound indices onto one cell.
 
-Only parser-proven `\hat`/`\bar` accents over one atomic base combine before cell reservation;
-literal accent-marker glyphs and wide, multi-base or structural accents refuse before layout. CJK
+An accent over one atomic base combines before cell reservation exactly when the decoder holds a
+combining mark for the glyph the parser resolved — circumflex, macron, dot, diaeresis, tilde,
+caron, breve and ring — and admission asks that one table rather than keeping a list beside it.
+Literal accent-marker glyphs and wide, multi-base or structural accents refuse before layout, as
+does `\vec`, whose arrow is a drawn path with no mark to combine. Rejected: a second list of
+admitted labels in the engine, which let `\dot` parse, lay out over its base, and be refused three
+stages later as a cell overlap — taking the whole formula it appeared in down with it. CJK
 glyphs use the terminal font; the adapter asks the pinned engine for their text-glyph metrics at
 the admitted style instead of guessing widths from Latin math fonts. This admits its Chinese,
 kana, Hangul and fullwidth text path; explicit CJK font treatments, arbitrary Unicode font

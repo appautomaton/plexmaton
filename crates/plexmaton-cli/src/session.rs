@@ -13,6 +13,8 @@ use plexmaton_runtime::{
     ConversationRecovery, JournalTailRecovery, LiveRuntime, NativeToolCatalog,
 };
 use plexmaton_session_store::{AutomaticJournal, ConversationDirectory, RootJournalFile};
+
+use crate::collaboration::Collaboration;
 use plexmaton_tui::{ConversationRestoration, ConversationTailRepair};
 
 pub(super) const USAGE: &str =
@@ -40,6 +42,12 @@ pub(super) struct OpenedConversation {
     pub(super) runtime: LiveRuntime,
     pub(super) recovery: Option<ConversationRecovery>,
     pub(super) persisted: Option<PersistedConversation>,
+    /// The collaboration this conversation will delegate through, when it has a durable identity.
+    ///
+    /// It travels with the runtime because the two are sealed to each other: the Main lane has to
+    /// be on the catalog the runtime is built from, and the owner is bound to that exact runtime
+    /// instance. A conversation opened without one can never gain one (CTL-1).
+    pub(super) collaboration: Option<Collaboration>,
 }
 
 pub(super) fn report_persisted_conversation(
@@ -85,10 +93,15 @@ pub(super) fn parse_startup_action(arguments: &[OsString]) -> anyhow::Result<Sta
 /// Opens the selected conversation, giving the caller its identity before the runtime exists.
 ///
 /// `collaboration` receives the conversation's own identity and returns the tool catalog the
-/// runtime is built with. A root's collaboration log is named by that identity, and the Main tool
-/// lane must already be installed when the runtime is constructed, so the two cannot be ordered the
-/// other way round. An ephemeral session has no durable identity and therefore no delegation: the
-/// closure is never called for one, and `delegate` is absent from its tools.
+/// runtime is built with, plus the collaboration it opened. A root's collaboration log is named by
+/// that identity, and the Main tool lane must already be installed when the runtime is constructed,
+/// so the two cannot be ordered the other way round. An ephemeral session has no durable identity
+/// and therefore no delegation: the closure is never called for one, and `delegate` is absent from
+/// its tools.
+///
+/// It is async, and takes the identity by value, because opening a collaboration reads a whole
+/// ledger and takes its writer lock. On the loader task that work shares a thread with the terminal
+/// loop, so it belongs in the blocking pool (SPK-3) and the caller needs somewhere to await it.
 pub(super) async fn open_selected_conversation_with(
     root: &Path,
     selection: ConversationSelection,
@@ -96,7 +109,10 @@ pub(super) async fn open_selected_conversation_with(
     model: ResolvedModel,
     key: ApiKey,
     tools: NativeToolCatalog,
-    collaboration: impl FnOnce(&ConversationId, NativeToolCatalog) -> anyhow::Result<NativeToolCatalog>,
+    collaboration: impl AsyncFnOnce(
+        ConversationId,
+        NativeToolCatalog,
+    ) -> anyhow::Result<(NativeToolCatalog, Option<Collaboration>)>,
 ) -> anyhow::Result<OpenedConversation> {
     Ok(match selection {
         ConversationSelection::Automatic => {
@@ -105,7 +121,7 @@ pub(super) async fn open_selected_conversation_with(
                 id: journal.metadata().conversation_id().clone(),
                 path: journal.path().to_path_buf(),
             };
-            let tools = collaboration(&persisted.id, tools)?;
+            let (tools, collaboration) = collaboration(persisted.id.clone(), tools).await?;
             let runtime = LiveRuntime::provider_with_automatic_journal(
                 agent_id,
                 "Plexmaton",
@@ -120,21 +136,28 @@ pub(super) async fn open_selected_conversation_with(
                 runtime,
                 recovery: None,
                 persisted: Some(persisted),
+                collaboration,
             }
         }
+        // No durable identity, so no log to name and nothing to delegate through: the closure is
+        // never called and `delegate` is absent from these tools.
         ConversationSelection::Ephemeral => OpenedConversation {
             runtime: LiveRuntime::provider(agent_id, "Plexmaton", model, key, tools)
                 .context("configure live provider transport")?,
             recovery: None,
             persisted: None,
+            collaboration: None,
         },
         ConversationSelection::Create(session_id) => {
             let journal = ConversationDirectory::under(root)
                 .context("open sessions directory")?
                 .create(session_id.clone(), created_at_now()?)
                 .context("create session")?;
-            let tools = collaboration(&session_id, tools)?;
-            open_fresh_conversation(agent_id, model, key, tools, session_id, journal).await?
+            let (tools, collaboration) = collaboration(session_id.clone(), tools).await?;
+            let mut opened =
+                open_fresh_conversation(agent_id, model, key, tools, session_id, journal).await?;
+            opened.collaboration = collaboration;
+            opened
         }
         ConversationSelection::Resume(session_id) => {
             let journal = ConversationDirectory::under(root)
@@ -142,7 +165,7 @@ pub(super) async fn open_selected_conversation_with(
                 .resume(&session_id)
                 .context("resume session")?;
             let path = journal.path().to_path_buf();
-            let tools = collaboration(&session_id, tools)?;
+            let (tools, collaboration) = collaboration(session_id.clone(), tools).await?;
             let (runtime, recovery) =
                 LiveRuntime::provider_with_resumed_journal(agent_id, model, key, tools, journal)
                     .await
@@ -154,12 +177,19 @@ pub(super) async fn open_selected_conversation_with(
                     id: session_id,
                     path,
                 }),
+                collaboration,
             }
         }
     })
 }
 
-/// Opens a conversation with no collaboration, for callers that own no root composition.
+/// Opens a conversation with no collaboration at all.
+///
+/// Test-only: every composition root in the executable owns one — the process's own startup and the
+/// picker's loader both install the Main lane — so production has no caller left. It stays because
+/// nine tests are about journals, models and status rather than delegation, and spelling an empty
+/// hook at each of them would say nothing they are testing.
+#[cfg(test)]
 pub(super) async fn open_selected_conversation(
     root: &Path,
     selection: ConversationSelection,
@@ -168,9 +198,15 @@ pub(super) async fn open_selected_conversation(
     key: ApiKey,
     tools: NativeToolCatalog,
 ) -> anyhow::Result<OpenedConversation> {
-    open_selected_conversation_with(root, selection, agent_id, model, key, tools, |_, tools| {
-        Ok(tools)
-    })
+    open_selected_conversation_with(
+        root,
+        selection,
+        agent_id,
+        model,
+        key,
+        tools,
+        async |_, tools| Ok((tools, None)),
+    )
     .await
 }
 
@@ -220,6 +256,7 @@ async fn open_fresh_conversation(
             id: session_id,
             path,
         }),
+        collaboration: None,
     })
 }
 
@@ -573,7 +610,14 @@ output_reserve_tokens = 5000
             )
             .unwrap_or_else(|error| panic!("open mismatched tools: {error}"));
             assert!(
-                open_selected_conversation(root.path(), selection, agent_id(), profile, key, tools,)
+                open_selected_conversation(
+                    root.path(),
+                    selection,
+                    agent_id(),
+                    profile,
+                    key,
+                    tools,
+                )
                     .await
                     .is_err()
             );

@@ -28,6 +28,49 @@ pub(super) enum UserControlRefusal {
 }
 
 impl LiveRuntime {
+    /// Applies an approval already authenticated by the collaboration owner for this exact child.
+    pub(crate) async fn submit_owned_approval(
+        &mut self,
+        approval_id: plexmaton_core::ApprovalId,
+        decision: plexmaton_core::ApprovalDecision,
+    ) -> Result<DispatchReport, RuntimeError> {
+        self.submit_selected_with_control(
+            self.agent_id.clone(),
+            Input::ApprovalDecided {
+                approval_id,
+                decision,
+            },
+            None,
+            false,
+        )
+        .await
+    }
+
+    /// Persists one session-side placement after the collaboration owner outlived its tool wait.
+    pub async fn link_collaboration_item(
+        &mut self,
+        reference: CollaborationItemRef,
+    ) -> Result<(), RuntimeError> {
+        if !self.supports_collaboration() {
+            return Err(CollaborationError::UnsupportedContext.into());
+        }
+        let reaction = self
+            .agent
+            .link_collaboration_item(reference, self.clock.now())?;
+        self.begin_transition(reaction, Vec::new(), AfterCommit::None)?;
+        self.finish_transition().await?;
+        if self.journal_failed {
+            return Err(RuntimeError::JournalRequiresReopen);
+        }
+        Ok(())
+    }
+
+    /// Returns an opaque stamp for this exact process-local runtime instance.
+    #[must_use]
+    pub fn collaboration_runtime_stamp(&self) -> crate::CollaborationRuntimeStamp {
+        crate::CollaborationRuntimeStamp::new(Arc::clone(&self.collaboration_identity))
+    }
+
     /// Seals this user-owned root's endpoint to its Main ingress and runtime instance.
     pub fn main_collaboration_identity(&self) -> Option<crate::MainRuntimeIdentity> {
         if !matches!(self.input_control, RuntimeInputControl::User) {

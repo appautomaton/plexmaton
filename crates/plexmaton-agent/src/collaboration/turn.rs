@@ -187,6 +187,8 @@ impl CollaborationLedger {
                     .delegation(delegation)
                     .is_some_and(|task| &task.delegator == recipient || &task.worker == recipient),
                 CollaborationEvent::TurnAdmitted { .. } => false,
+                CollaborationEvent::AttentionRequested { .. }
+                | CollaborationEvent::AttentionResolved { .. } => false,
             };
             if !relevant {
                 continue;
@@ -304,5 +306,7 @@ fn source_bytes(record: &CollaborationRecord) -> usize {
                 delegation, author, ..
             } => delegation.as_str().len() + author.bytes(),
             CollaborationEvent::TurnAdmitted { .. } => 0,
+            CollaborationEvent::AttentionRequested { .. }
+            | CollaborationEvent::AttentionResolved { .. } => 0,
         }
 }

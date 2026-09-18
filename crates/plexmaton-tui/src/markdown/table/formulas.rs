@@ -11,16 +11,12 @@ pub(super) fn render(
 ) -> Result<Layout, PlainReason> {
     let mut cells = Vec::new();
     let mut bytes = 0;
-    let mut formula_count = 0;
     for row in events {
         let mut prepared = Vec::new();
         for cell in row {
             let layout = render_events(cell, width, math, completion)?;
             bytes += layout.allocation_bytes();
-            formula_count += layout.formulas.len();
-            if bytes > crate::preparation::MAX_PREPARED_BYTES
-                || formula_count > crate::text_layout::math::MAX_FORMULAS
-            {
+            if bytes > crate::preparation::MAX_PREPARED_BYTES {
                 return Err(PlainReason::Complexity);
             }
             prepared.push(layout);

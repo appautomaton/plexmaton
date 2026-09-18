@@ -187,6 +187,7 @@ struct RunnerSlot {
     joined: bool,
     shutdown_report: Option<DispatchReport>,
     shutdown_error: Option<OwnedRunnerError>,
+    input_unavailable: bool,
 }
 
 struct PendingOwnedSchedule {
@@ -198,6 +199,7 @@ struct PendingOwnedSchedule {
 struct PendingHandoff {
     attempt: CollaborationAttempt,
     preflighted: bool,
+    already_durable: bool,
     scheduled: Option<DispatchReport>,
     stopped: Option<DispatchReport>,
     schedule_settled: bool,
@@ -207,6 +209,9 @@ struct PendingHandoff {
 struct PendingStop {
     conversation: ConversationId,
     scheduled: Option<DispatchReport>,
+    user_input: Option<Result<DispatchReport, UserInputFailure>>,
+    user_input_identity: Option<RunnerIdentity>,
+    stop_started: bool,
 }
 
 /// Reports and receipt produced by one quiescent durable Handoff.
@@ -217,10 +222,31 @@ pub struct OwnedHandoffReport {
     pub stopped: Option<DispatchReport>,
 }
 
+/// Retained cold-Handoff result that has no live runner incarnation to name.
+#[derive(Debug)]
+pub struct OwnedHandoffSettlement {
+    delegation: DelegationId,
+    outcome: Box<Result<OwnedHandoffReport, OwnedHandoffFailure>>,
+}
+
+impl OwnedHandoffSettlement {
+    /// Canonical delegation whose direct Handoff wait was abandoned.
+    #[must_use]
+    pub const fn delegation(&self) -> &DelegationId {
+        &self.delegation
+    }
+
+    /// Exact terminal result retained by the owner.
+    pub fn outcome(&self) -> &Result<OwnedHandoffReport, OwnedHandoffFailure> {
+        self.outcome.as_ref()
+    }
+}
+
 /// Reports produced by settling accepted scheduling and then stopping one child.
 #[derive(Debug)]
 pub struct OwnedStopReport {
     pub scheduled: Option<DispatchReport>,
+    pub user_input: Option<Box<Result<DispatchReport, UserInputFailure>>>,
     pub stopped: DispatchReport,
 }
 
@@ -230,6 +256,8 @@ pub enum OwnedShutdownSettlement {
     Ingress(CollaborationIngressSettlement),
     Admission(Result<ItemReceipt, CollaborationWriterError>),
     Schedule(Result<DispatchReport, OwnedScheduleFailure>),
+    UserInput(Result<DispatchReport, UserInputFailure>),
+    UserTargetInput(Result<DispatchReport, UserTargetInputFailure>),
     Stop(Result<OwnedStopReport, OwnedSchedulingError>),
     Handoff(Result<OwnedHandoffReport, OwnedHandoffFailure>),
 }
@@ -299,10 +327,16 @@ pub struct OwnedCollaboration {
     pub(crate) writer: CollaborationWriter,
     limits: SchedulerLimits,
     runners: BTreeMap<ConversationId, RunnerSlot>,
-    handoff_closed: BTreeSet<DelegationId>,
+    pub(crate) handoff_closed: BTreeSet<DelegationId>,
     pending_schedule: Option<PendingOwnedSchedule>,
+    pending_user_input: Option<PendingUserInput>,
+    pub(crate) pending_user_target_input: Option<PendingUserTargetInput>,
+    pub(crate) pending_user_target_settlement: Option<OwnedUserInputSettlement>,
+    detached_user_input: Option<(RunnerIdentity, Result<DispatchReport, UserInputFailure>)>,
     pending_stop: Option<PendingStop>,
     pending_handoff: Option<PendingHandoff>,
+    pub(crate) control_snapshots:
+        BTreeMap<ConversationId, crate::collaboration_ingress::OwnedChildControlSnapshot>,
     pub(crate) ingress: Option<CollaborationIngressOwner>,
     pub(crate) pending_ingress: Option<PendingIngress>,
     pub(crate) child_factory: Option<crate::DelegatedChildFactory>,
@@ -324,8 +358,13 @@ impl OwnedCollaboration {
             runners: BTreeMap::new(),
             handoff_closed: BTreeSet::new(),
             pending_schedule: None,
+            pending_user_input: None,
+            pending_user_target_input: None,
+            pending_user_target_settlement: None,
+            detached_user_input: None,
             pending_stop: None,
             pending_handoff: None,
+            control_snapshots: BTreeMap::new(),
             ingress: None,
             pending_ingress: None,
             child_factory: None,
@@ -342,6 +381,10 @@ impl OwnedCollaboration {
     pub(crate) fn has_update_source(&self) -> bool {
         self.pending_schedule.is_some()
             || self.pending_stop.is_some()
+            || self.pending_user_input.is_some()
+            || self.pending_user_target_input.is_some()
+            || self.pending_user_target_settlement.is_some()
+            || self.detached_user_input.is_some()
             || self.pending_handoff.is_some()
             || !self.wakes.is_empty()
             || self.runners.values().any(|slot| !slot.joined)
@@ -387,6 +430,11 @@ impl OwnedCollaboration {
         &mut self,
         attempt: CollaborationAttempt,
     ) -> Result<ItemReceipt, CollaborationWriterError> {
+        if self.pending_handoff.is_some() {
+            return Err(CollaborationWriterError::AdmissionInProgress {
+                attempt: Box::new(attempt),
+            });
+        }
         self.writer.admit(attempt).await
     }
 
@@ -423,6 +471,17 @@ impl OwnedCollaboration {
         self.writer.records().await
     }
 
+    /// Resolves selected-session admission references through the canonical file owner.
+    pub async fn resolve_session_references(
+        &self,
+        references: Vec<plexmaton_agent::collaboration::CollaborationItemRef>,
+    ) -> Result<
+        Vec<std::sync::Arc<plexmaton_agent::collaboration::ResolvedTurnAdmission>>,
+        CollaborationWriterError,
+    > {
+        self.writer.resolve_context(references).await
+    }
+
     /// Reads a complete bounded mail snapshot from the live canonical writer (CMP-1).
     pub async fn mail_snapshot(
         &self,
@@ -452,15 +511,25 @@ impl OwnedCollaboration {
     }
 }
 
+mod attention;
+mod handoff;
 mod inspection;
 mod lifecycle;
 mod registration;
 mod scheduling;
 mod settlement;
 mod shutdown;
+mod user_input;
+mod user_target_input;
 mod wake;
 
 pub use registration::{RunnerRegistrationError, RunnerRegistrationReason};
+use user_input::PendingUserInput;
+pub use user_input::{UserInputFailure, UserInputRefusal, UserInputRequest};
+use user_target_input::PendingUserTargetInput;
+pub use user_target_input::{
+    OwnedUserInputSettlement, UserTargetInputFailure, UserTargetInputRequest,
+};
 use wake::PendingWake;
 pub use wake::{WakeAdmission, WakeFailure, WakeRefusal};
 

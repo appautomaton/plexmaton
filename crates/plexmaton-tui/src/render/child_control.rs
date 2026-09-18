@@ -33,25 +33,30 @@ pub(super) fn footer(
     };
     let Some(snapshot) = agent.control() else {
         return Line::styled(
-            "Controller unavailable | Input locked",
+            "Controller unavailable · input locked",
             palette.style(Role::Muted),
         );
     };
+    // Who is driving, as the one glyph that distinguishes them: a machine, or the person.
     let controller = match snapshot.control {
-        ChildControl::Main | ChildControl::HandoffPending => "Controller: Main",
-        ChildControl::User => "Controller: User",
+        ChildControl::Main | ChildControl::HandoffPending => "\u{f06a9} Main", // md-robot
+        ChildControl::User => "\u{f0004} User",                                // md-account
     };
+    // A child's capability boundary is the same for every child and never changes, so it spent
+    // twenty-eight columns of every frame saying one constant. It is still worth showing — the
+    // user should be able to see that a delegate cannot reach their files or their shell — so it
+    // keeps a cell rather than a sentence. `md-shield_lock`, defined in the spec, not guessable.
     let mut line = Line::from(vec![
         Span::styled(controller, palette.style(Role::SectionHeading)),
-        Span::styled(" | Read-only files | No shell", palette.style(Role::Muted)),
+        Span::styled("  \u{f099d}", palette.style(Role::Muted)),
     ]);
     // A keyboard hint, not a pointer button. The existing Ctrl-C route names the focused agent.
     if has_focus
         && matches!(agent.status, AgentStatus::Running | AgentStatus::Waiting)
-        && line.width() + " | ^C Stop".len() <= usize::from(width)
+        && line.width() + "  ^C Stop".len() <= usize::from(width)
     {
         line.spans
-            .push(Span::styled(" | ^C Stop", palette.style(Role::Accent)));
+            .push(Span::styled("  ^C Stop", palette.style(Role::Accent)));
     }
     line
 }

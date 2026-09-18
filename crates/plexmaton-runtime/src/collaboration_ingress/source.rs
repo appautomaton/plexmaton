@@ -11,9 +11,31 @@ use super::{ChildCollaborationIngress, IngressAuthority, MainCollaborationIngres
 /// Process-local identity unique to one `LiveRuntime` instance.
 pub(crate) struct RuntimeCollaborationIdentity;
 
+/// Opaque process-local identity for one exact `LiveRuntime` instance.
+///
+/// The value can be compared and retained, but it cannot be constructed outside the runtime. It
+/// keeps a composition root from projecting owner activity into a replacement runtime that happens
+/// to reopen the same durable conversation.
+#[derive(Clone)]
+pub struct CollaborationRuntimeStamp(Arc<RuntimeCollaborationIdentity>);
+
+impl PartialEq for CollaborationRuntimeStamp {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for CollaborationRuntimeStamp {}
+
 impl RuntimeCollaborationIdentity {
     pub(crate) fn fresh() -> Arc<Self> {
         Arc::new(Self)
+    }
+}
+
+impl CollaborationRuntimeStamp {
+    pub(crate) fn new(identity: Arc<RuntimeCollaborationIdentity>) -> Self {
+        Self(identity)
     }
 }
 
@@ -67,6 +89,21 @@ pub(super) enum SessionSourceRole {
 }
 
 impl CollaborationSessionSource {
+    #[must_use]
+    pub const fn endpoint(&self) -> &MailEndpoint {
+        &self.endpoint
+    }
+
+    #[must_use]
+    pub const fn journal(&self) -> &ConversationJournal {
+        &self.journal
+    }
+
+    #[must_use]
+    pub const fn selected_head(&self) -> &HeadName {
+        &self.head
+    }
+
     fn new(
         endpoint: MailEndpoint,
         journal: ConversationJournal,

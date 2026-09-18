@@ -342,6 +342,110 @@ fn resume_status_rows_cover_failure_no_match_and_opening() {
     assert_eq!(workspace.state.composer().text(), "/resume ");
 }
 
+/// SPK-1: a status says its whole sentence at every supported width, and reserves the rows it says
+/// it in.
+///
+/// The status was the menu's one row that truncated instead of wrapping, so on the narrow terminals
+/// where a listing is hardest to read it kept the half that named the problem and cut the half that
+/// said what to do. Two counts have to agree for the fix to hold — the rows layout reserves and the
+/// rows the frame draws — and they live in different modules, so a wrapped status that only one of
+/// them knew about would silently clip its own last line.
+#[test]
+fn a_wrapped_status_says_its_whole_sentence_and_reserves_the_rows_it_draws() {
+    // 56 columns: the sentence is 56 cells and the status has 54 to write in, so it must wrap.
+    let (mut workspace, mut terminal) = setup(56);
+    typed(&mut workspace, "/resume ");
+    workspace.open_conversation_picker();
+    workspace.set_conversation_choices(choices(), false);
+    workspace.report_switch_refusal(SwitchRefusal::DraftPresent);
+    draw(&mut workspace, &mut terminal);
+    let drawn = menu_and_composer(&workspace, &terminal);
+    // Wrapping must lose nothing: the drawn lines, rejoined, are the whole sentence.
+    let inner = crate::state::inner_width(
+        menu_bounds(&workspace)
+            .expect("the menu is registered")
+            .width,
+    );
+    let status = workspace.state.menu_status_lines(inner);
+    assert_eq!(
+        status
+            .join("")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        SwitchRefusal::DraftPresent.message(),
+        "wrapping dropped part of the sentence"
+    );
+    for line in &status {
+        assert!(
+            drawn.contains(line.trim_end()),
+            "lost {line:?} at 56:\n{drawn}"
+        );
+    }
+    // The reservation is what the frame is given, so comparing it to the menu's own height proves
+    // nothing. What a short reservation actually costs is a row of the listing: the status still
+    // draws both its lines and the rows give one up to make room.
+    let listed = drawn.matches("Discuss project").count();
+    assert_eq!(
+        listed,
+        crate::state::VISIBLE_ROWS,
+        "a status that reserved fewer rows than it draws cost the listing a row:\n{drawn}"
+    );
+}
+
+/// SPK-2: a switch that would stop a working child asks on the row the quit chord asks on.
+///
+/// The workspace already had one place for "do that again and I will do it" — `Ctrl-D`'s second
+/// press — and a confirmation that invented its own place would have been a second grammar to
+/// learn. Putting it there also costs the listing nothing: the rows the user is choosing between
+/// stay whole, which a status row inside the menu could not promise at any width.
+#[test]
+fn a_switch_that_stops_a_working_child_asks_on_the_row_the_quit_chord_uses() {
+    for width in [160_u16, 95, 60] {
+        let (mut workspace, mut terminal) = setup(width);
+        typed(&mut workspace, "/resume ");
+        workspace.open_conversation_picker();
+        workspace.set_conversation_choices(choices(), false);
+        let first = choices().first().expect("a row").id.clone();
+        workspace.arm_switch("Delegated 1".to_owned());
+        draw(&mut workspace, &mut terminal);
+
+        assert_eq!(
+            workspace.state.status().armed(),
+            Some(&crate::state::Armed::Switch {
+                child: "Delegated 1".to_owned()
+            }),
+            "{width}: the switch waits where the workspace asks for a repeated gesture"
+        );
+        let asked = region_text(
+            terminal.backend().buffer(),
+            workspace
+                .surfaces
+                .get(SurfaceId::Status)
+                .expect("status")
+                .bounds,
+        );
+        assert!(
+            asked.contains("Delegated 1 is still working."),
+            "{width}: the last row asks:\n{asked}"
+        );
+
+        // The listing is untouched: it still offers every row it had, and the row that answers the
+        // question is one of them.
+        let drawn = menu_and_composer(&workspace, &terminal);
+        assert_eq!(
+            drawn.matches("Discuss project").count(),
+            crate::state::VISIBLE_ROWS,
+            "{width}: asking must not cost the listing a row:\n{drawn}"
+        );
+        assert_eq!(
+            workspace.handle(&key(KeyCode::Enter)).conversation,
+            Some(ConversationRequest::Saved(first)),
+            "{width}: the same row stays choosable, because choosing it is the answer"
+        );
+    }
+}
+
 /// CMC-2/SKP-3: a paste opens the listing like typing does, and a character no Command starts
 /// with closes it so the draft stays text.
 #[test]

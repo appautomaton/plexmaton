@@ -200,7 +200,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
     let inspector = state.inspector_request();
     let composer_width = layout::composer_width(area, inspector);
     let mut input = WorkspaceInput {
-        status_rows: state.status().rows(),
+        status_rows: state.status().rows(area.width),
         has_notices: state.notices().next().is_some(),
         decision_rows: state.decision_rows(composer_width),
         queue_rows: state.queued_rows(composer_width),
@@ -215,9 +215,8 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         drawer_focus: state.drawer_focus(),
         conversation_tree: state.conversation_tree_open(),
         composer_menu_rows: state.composer_menu_rows(inner_width(composer_width)),
-        rail: state.sub_agents().next().is_some(),
-        roster: state.roster_open(),
-        roster_rows: state.roster_rows(area.width),
+        roster_rows: layout::strip_rows(state.sub_agents().count()),
+        roster: state.roster_visible(area.width),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),
         inspector,
     };

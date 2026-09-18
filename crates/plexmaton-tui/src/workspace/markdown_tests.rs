@@ -130,12 +130,12 @@ fn syntax_workspace_selection_preserves_colors_copy_and_cached_geometry() {
             .expect("selected frame");
         let point = keyword(terminal.backend().buffer());
         let cell = &terminal.backend().buffer()[point];
-        assert_eq!(cell.fg, crate::theme::tokens::SKY);
-        assert_eq!(cell.bg, crate::theme::tokens::BAR);
+        assert_eq!(cell.fg, crate::theme::Slots::designed().blue);
+        assert_eq!(cell.bg, crate::theme::Slots::designed().ground);
         assert!(!cell.modifier.contains(ratatui::style::Modifier::REVERSED));
         assert_eq!(
             terminal.backend().buffer()[(point.0 + 3, point.1)].fg,
-            crate::theme::tokens::GOLD
+            crate::theme::Slots::designed().yellow
         );
         assert_eq!(
             workspace.copy_selection().expect("source copy").text,

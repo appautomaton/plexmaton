@@ -12,6 +12,31 @@ pub struct CollaborationInclusionOrigin {
     reference: CollaborationItemRef,
 }
 
+/// Exact selected-branch session anchor for one canonical collaboration fact.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CollaborationLinkOrigin {
+    entry: ConversationEntryId,
+    agent: AgentId,
+    reference: CollaborationItemRef,
+}
+
+impl CollaborationLinkOrigin {
+    #[must_use]
+    pub const fn entry(&self) -> &ConversationEntryId {
+        &self.entry
+    }
+
+    #[must_use]
+    pub const fn agent(&self) -> &AgentId {
+        &self.agent
+    }
+
+    #[must_use]
+    pub const fn reference(&self) -> &CollaborationItemRef {
+        &self.reference
+    }
+}
+
 impl CollaborationInclusionOrigin {
     #[must_use]
     pub const fn entry(&self) -> &ConversationEntryId {
@@ -25,6 +50,68 @@ impl CollaborationInclusionOrigin {
 }
 
 impl ConversationJournal {
+    /// Session-side collaboration references on one selected branch, in session order.
+    pub fn collaboration_links(
+        &self,
+        head: &HeadName,
+    ) -> Result<Vec<CollaborationLinkOrigin>, JournalError> {
+        Ok(self
+            .path(head)?
+            .into_iter()
+            .filter_map(|entry| match &entry.payload {
+                JournalEntryPayload::CollaborationItemLinked {
+                    agent_id,
+                    reference,
+                } => Some(CollaborationLinkOrigin {
+                    entry: entry.id.clone(),
+                    agent: agent_id.clone(),
+                    reference: reference.clone(),
+                }),
+                _ => None,
+            })
+            .collect())
+    }
+
+    pub(super) fn validate_collaboration_link(
+        &self,
+        agent: &AgentId,
+        reference: &CollaborationItemRef,
+        parent: Option<&ConversationEntryId>,
+    ) -> Result<(), JournalError> {
+        reference.validate().map_err(JournalError::Collaboration)?;
+        let mut cursor = parent;
+        let mut announced = false;
+        while let Some(id) = cursor {
+            let entry = self
+                .entries
+                .get(id)
+                .ok_or_else(|| JournalError::MissingEntry(id.clone()))?;
+            if matches!(
+                &entry.payload,
+                JournalEntryPayload::AgentCreated { agent_id, .. } if agent_id == agent
+            ) {
+                announced = true;
+            }
+            if matches!(
+                &entry.payload,
+                JournalEntryPayload::CollaborationItemLinked { reference: existing, .. }
+                    if existing == reference
+            ) {
+                return Err(JournalError::Collaboration(
+                    CollaborationError::InvalidReference,
+                ));
+            }
+            cursor = entry.parent_id.as_ref();
+        }
+        if announced {
+            Ok(())
+        } else {
+            Err(JournalError::Collaboration(
+                CollaborationError::ForeignReference,
+            ))
+        }
+    }
+
     /// Every collaboration inclusion on one branch, in provider order.
     pub fn collaboration_inclusions(
         &self,

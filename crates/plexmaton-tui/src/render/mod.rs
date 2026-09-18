@@ -1,5 +1,6 @@
-use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
+use ratatui::{Frame, layout::Rect, widgets::Clear};
 
+pub(crate) mod agents_handle;
 mod child_control;
 mod chrome;
 mod command_inspection;
@@ -24,7 +25,7 @@ use crate::{
     layout::{self, LayoutClass},
     state::inner_width,
     surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
-    theme::Palette,
+    theme::{Palette, Role},
     transcript::TranscriptMetrics,
 };
 
@@ -50,6 +51,7 @@ pub fn render(
     }
 
     let mut surfaces = layout::workspace(area, workspace_input(area, state));
+    let agents_handle = agents_handle::geometry(state, &surfaces);
     let stacking = Stacking::of(&surfaces);
     let focused = state.focused(&surfaces);
     // Both are resolved before anything is painted, and both come from the projection: whether the
@@ -88,30 +90,19 @@ pub fn render(
         } else {
             bounds
         };
+        let hue = surface_hue(id);
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.
         let panel = match id {
-            SurfaceId::Agents => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: None,
-                body: Body::Whole {
-                    // Width-aware: the rows right-align their lifecycle word and clip their own
-                    // detail, because a roster that lets the panel wrap it loses the column the
-                    // eye scans down.
-                    lines: content::roster(state, palette, inner_width(bounds.width)).lines,
-                    follows_tail: false,
-                },
-                title: agents_title(palette),
-                badge: None,
-                edges: Edges::All,
-            }),
-            // The primary conversation has no box: its text runs into the composer's top rule,
-            // and its last row is the activity line, which also carries the selection note and
-            // the attention pill now that there is no border for them (ui-ux §input).
+            SurfaceId::Agents => Some(agents_panel(state, palette, bounds)),
+            // The primary conversation carries its own box, the same as the roster's and the
+            // inspected child's: with two conversations on one screen, a bare one reads as
+            // background rather than as a place, and its hue has no edge to say whose it is. Its
+            // last row stays the activity line, carrying the selection note and the attention pill
+            // as the box's footer rather than instead of a border (ui-ux §input).
             SurfaceId::Transcript => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Bare,
+                chrome: Chrome::Box,
                 footer: Some(chrome::activity_line(
                     state,
                     palette,
@@ -127,7 +118,7 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Transcript),
                     1,
                 ),
-                title: Line::default(),
+                title: chrome::conversation_title(state, palette, inner_width(bounds.width)),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
@@ -151,7 +142,15 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Inspector),
                     1,
                 ),
-                title: inspector_title(state, palette, inner_width(bounds.width)),
+                title: inspector_title(
+                    state,
+                    palette,
+                    inner_width(bounds.width).saturating_sub(
+                        agents_handle
+                            .filter(|handle| handle.owner == SurfaceId::Inspector)
+                            .map_or(0, |handle| handle.bounds.width),
+                    ),
+                ),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Inspector),
             }),
@@ -190,6 +189,7 @@ pub fn render(
             has_focus,
             &panel,
             state.scroll_position(id),
+            hue,
         );
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
@@ -211,7 +211,55 @@ pub fn render(
         }
     }
 
+    if let Some(handle) = agents_handle {
+        agents_handle::render(frame, state, palette, handle);
+    }
+
     surfaces
+}
+
+/// The agents strip, or the narrow navigator: the same rows, in whatever rectangle they were given.
+///
+/// Width-aware, because the rows clip their own names and asks rather than let the panel wrap them
+/// and lose the columns the eye scans down. Height-aware for the same reason: a row the panel
+/// clipped off the bottom would still be a row the pointer was told about, so the list is asked for
+/// exactly the rows the rectangle has.
+fn agents_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    let capacity = content::roster_capacity(bounds);
+    Panel {
+        insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Box,
+        footer: None,
+        body: Body::Whole {
+            lines: content::roster(state, palette, inner_width(bounds.width), capacity).lines,
+            follows_tail: false,
+        },
+        title: agents_title(state, palette, capacity),
+        badge: None,
+        edges: Edges::All,
+    }
+}
+
+/// The hue that says which surface a border belongs to.
+///
+/// One exhaustive match, so a surface cannot be added without saying whether it carries an identity
+/// of its own. Only the three holding a conversation or the roster of them do; a menu, a notice or
+/// an approval is something the workspace is saying rather than a place, and keeps the neutral line.
+const fn surface_hue(id: SurfaceId) -> Option<Role> {
+    match id {
+        SurfaceId::Agents => Some(Role::SurfaceRoster),
+        SurfaceId::Transcript => Some(Role::SurfacePrimary),
+        SurfaceId::Inspector => Some(Role::SurfaceDelegate),
+        SurfaceId::Composer
+        | SurfaceId::Status
+        | SurfaceId::Notices
+        | SurfaceId::QueuedInput
+        | SurfaceId::CommandInspection
+        | SurfaceId::ConversationTree
+        | SurfaceId::Approval
+        | SurfaceId::Drawer
+        | SurfaceId::ComposerMenu => None,
+    }
 }
 
 /// Builds the part of one surface's conversation this frame will draw.
@@ -355,7 +403,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                measured = Some(draw_panel(frame, &palette, area, false, &panel, None));
+                measured = Some(draw_panel(frame, &palette, area, false, &panel, None, None));
             })
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
@@ -384,6 +432,10 @@ mod tests {
 
     fn role_ink(palette: &Palette, role: Role) -> Ink {
         ink(palette.style(role))
+    }
+
+    fn role_ink_style(style: Style) -> Ink {
+        ink(style)
     }
 
     /// COM-5: the activity line names each current-work state in its role, idle draws nothing,
@@ -497,15 +549,21 @@ mod tests {
                 let (conversation, _activity) = painted
                     .rsplit_once('\n')
                     .unwrap_or_else(|| panic!("the region has an activity row under it"));
+                let reference = whole_conversation(
+                    &session.conversation.state,
+                    &Palette::default(),
+                    session.bounds(SurfaceId::Transcript),
+                    viewport,
+                    height,
+                );
+                let content_rows = conversation
+                    .split_once('\n')
+                    .map_or(conversation, |(_, content)| content);
+                let reference_rows = reference
+                    .split_once('\n')
+                    .map_or(reference.as_str(), |(_, content)| content);
                 assert_eq!(
-                    conversation,
-                    whole_conversation(
-                        &session.conversation.state,
-                        &Palette::default(),
-                        session.bounds(SurfaceId::Transcript),
-                        viewport,
-                        height,
-                    ),
+                    content_rows, reference_rows,
                     "virtualized and whole disagreed at {width}x{height}, {notches} notches up"
                 );
                 session.wheel(SurfaceId::Transcript, ScrollDirection::Up, 1);
@@ -529,8 +587,9 @@ mod tests {
             palette,
             crate::state::inner_width(bounds.width),
         );
-        // The conversation is bare and open at the bottom, so the reference reserves the same
-        // blank top row and side columns a box would have spent, and leaves the activity row out.
+        // The conversation is boxed and open at the bottom, so its own border spends the top row
+        // and the side columns and the content needs no padding of its own; the activity row is
+        // the panel's footer and stays out of the reference.
         let bounds = Rect {
             height: bounds.height.saturating_sub(1),
             ..bounds
@@ -538,8 +597,15 @@ mod tests {
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .block(
-                block_with(palette, Line::default(), false, Edges::Upper, Chrome::Bare)
-                    .padding(Padding::new(1, 1, 1, 0)),
+                block_with(
+                    palette,
+                    Line::default(),
+                    false,
+                    Edges::Upper,
+                    Chrome::Box,
+                    Some(Role::SurfacePrimary),
+                )
+                .padding(Padding::ZERO),
             )
             .scroll((
                 u16::try_from(viewport.offset)
@@ -672,6 +738,93 @@ mod tests {
             parked,
             "a wander across the widths moved the reader that one resize did not"
         );
+    }
+
+    /// INS-1: a child's own work must not close the window the user opened on it.
+    ///
+    /// Reported from live use: the second window was open on a delegated child and disappeared the
+    /// moment that child produced more output.
+    #[test]
+    fn a_working_child_keeps_the_window_the_user_opened_on_it() {
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        // 140 is the side-by-side column; 120 is the shelf. The reported symptom was side by side.
+        for width in [140_u16, 120] {
+            let mut session = RenderFixture::canonical(width, 30);
+            session.conversation.extend_agent(&agent_b, 3);
+            session.draw();
+            session.select(&agent_b);
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: the window opens on the selected child"
+            );
+            session
+                .conversation
+                .emit(ConversationEvent::AgentStatusChanged {
+                    agent_id: agent_b.clone(),
+                    status: AgentStatus::Running,
+                });
+            session.draw();
+            for step in 0..3 {
+                session.conversation.extend_agent(&agent_b, 1);
+                session.draw();
+                assert_eq!(
+                    session
+                        .conversation
+                        .state
+                        .inspector()
+                        .map(|view| view.agent),
+                    Some(agent_b.clone()),
+                    "{width} step {step}: the child's own output closed the window the user opened on it"
+                );
+            }
+        }
+    }
+
+    /// INS-1: a projection reset keeps the window the user opened, and the size they gave it.
+    ///
+    /// Reported from live use: the second window was open on a delegated child and vanished while
+    /// that child worked. Which agent the window shows *is* the roster's selection, so anything
+    /// that rebuilds the projection without carrying the selection closes the window — and the
+    /// events replayed into it cannot restore the selection, because nothing is selected by
+    /// arrival. Every reset path reaches this: a retry, a compaction, a tree navigation receipt.
+    #[test]
+    fn a_projection_reset_keeps_the_open_window_and_its_presentation() {
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        for width in [140_u16, 120] {
+            let mut session = RenderFixture::canonical(width, 30);
+            session.conversation.extend_agent(&agent_b, 3);
+            session.draw();
+            session.select(&agent_b);
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: the window opens on the selected child"
+            );
+
+            let history = session.conversation.replayable();
+            session.conversation.state.replace_projection(history);
+            session.draw();
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: a projection reset closed the window the user had open on a child"
+            );
+        }
     }
 
     /// TR-5: each conversation keeps its own reading position (canonical journey, step 4).
@@ -855,10 +1008,11 @@ mod tests {
     /// SURF-3: exactly one surface holds focus, and the screen says which.
     ///
     /// Reading it back from painted cells is what makes this more than a state assertion: a focus
-    /// model the renderer ignores would leave the user with no way to tell where `Tab` went. Run
-    /// against every palette, because focus must be visible whichever one is active.
+    /// model the renderer ignores would leave the user with no way to tell where `Tab` went, and a
+    /// hue the renderer ignores would leave two conversations side by side telling the user
+    /// nothing about which is which. Run against every palette, because both must survive all.
     #[test]
-    fn only_the_focused_panel_carries_the_focused_border() {
+    fn every_border_says_whose_surface_it_is_and_where_the_keys_are_going() {
         for palette in [
             Palette::pastel(),
             Palette::pastel(),
@@ -866,6 +1020,8 @@ mod tests {
             Palette::pastel(),
         ] {
             let mut state = canonical_state();
+            let quiet = |hue| role_ink_style(palette.surface_border(hue, false));
+            let lit = |hue| role_ink_style(palette.surface_border(hue, true));
 
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(
@@ -875,13 +1031,14 @@ mod tests {
             );
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
-                role_ink(&palette, Role::BorderFocused)
+                lit(Some(Role::SurfaceRoster)),
+                "the roster's own hue, at full strength while it holds focus"
             );
             // The composer's rules are its border; the conversation, bare, shows focus only by
             // what it takes away from the composer (ui-ux §input).
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::Border)
+                quiet(None)
             );
 
             // One step: the conversation follows the one agent-column surface.
@@ -890,21 +1047,26 @@ mod tests {
             assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
-                role_ink(&palette, Role::Border),
-                "the focused border moved with the ring rather than being painted twice"
+                quiet(Some(Role::SurfaceRoster)),
+                "the roster keeps saying it is the roster, quietly"
+            );
+            assert_ne!(
+                quiet(Some(Role::SurfaceRoster)),
+                lit(Some(Role::SurfaceRoster)),
+                "and the two are not the same ink"
             );
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::Border)
+                quiet(None)
             );
 
-            // Another: the composer, whose rules light up.
+            // Another: the composer, whose rules light up. It has no identity of its own.
             state.cycle_focus(&surfaces, Direction::Forward);
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(state.focused(&surfaces), Some(SurfaceId::Composer));
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::BorderFocused)
+                lit(None)
             );
         }
     }
@@ -997,7 +1159,7 @@ mod tests {
         // letter is here — pointing back at whoever wrote it, never attributed to A.
         assert!(rendered.contains("Routing stays"), "A received this letter");
         assert!(
-            rendered.contains("received from agent-b"),
+            rendered.contains("received from Agent B · UI study"),
             "A is the recipient, and the row says so in a word rather than a glyph"
         );
     }
@@ -1127,30 +1289,63 @@ mod tests {
     }
 
     #[test]
-    fn narrow_projection_keeps_every_region() {
-        let rendered = draw(&canonical_state(), 60, 30);
+    fn narrow_projection_keeps_one_major_region_and_an_explicit_agents_route() {
+        let mut state = canonical_state();
+        let (surfaces, _) = draw_frame(&state, &Palette::default(), 60, 30);
+        let rendered = draw(&state, 60, 30);
 
-        assert!(rendered.contains("Agents"));
+        assert!(rendered.contains("Agents ^B"));
+        assert!(!rendered.contains("Agents !1"));
+        assert!(rendered.contains("( !1 )"));
         assert!(
             !rendered.contains("Activity"),
             "domain entries have no second panel"
         );
-        // Agent B is asking, and an ask outranks a tally: its detail row carries the request
-        // rather than its counts. Resolving the request hands the row back to the counts.
-        assert!(rendered.contains("overlap study"), "the ask is the detail");
+        assert!(
+            !rendered.contains("overlap study"),
+            "the collapsed navigator must not cover the conversation"
+        );
+        assert!(rendered.contains("Message Agent A"));
+        assert!(
+            rendered.contains("~/plexmaton"),
+            "the status line is the last row"
+        );
+
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        state
+            .select_agent(&agent_b)
+            .unwrap_or_else(|error| panic!("agent-b exists: {error}"));
+        let rendered = draw(&state, 60, 30);
+        assert!(rendered.contains("Agents !1 ^B"));
+        assert!(
+            !rendered.contains("( !1 )"),
+            "the hidden primary activity line must not duplicate the count"
+        );
+
+        state.toggle_roster(&surfaces);
+        let rendered = draw(&state, 60, 30);
+        // Agent B is asking, and an ask outranks a tally: the row's third column carries the
+        // request rather than its counts. Resolving the request hands the column back to the
+        // counts. Sixty columns cannot hold a name, a state and a sentence, so the ask is cut —
+        // what is asserted is which field won the column, not how much of it survived.
+        assert!(rendered.contains("Choose whether"), "the ask is the detail");
         let mut answered = Conversation::canonical();
         answered.emit(ConversationEvent::AttentionResolved {
             agent_id: AgentId::new("agent-b").expect("fixture agent"),
             attention_id: AttentionId::new("attention-b-1").expect("fixture request"),
         });
+        let (surfaces, _) = draw_frame(&answered.state, &Palette::default(), 60, 30);
+        answered.state.toggle_roster(&surfaces);
         let counted = draw(&answered.state, 60, 30);
-        assert!(counted.contains("1 tool"));
-        assert!(counted.contains("@1"), "compact artifact count");
-        assert!(counted.contains("1 mail"));
-        assert!(rendered.contains("Message Agent A"));
+        // The tally is glyphs, so a narrow roster can carry it beside the state word.
+        assert!(counted.contains('\u{f1323}'), "tools");
+        assert!(counted.contains('\u{f03e2}'), "artifacts");
+        // Agent B is the sender of the canonical letter, so its row counts no mail: a roster
+        // counts what arrived for an agent, not what it wrote.
         assert!(
-            rendered.contains("~/plexmaton"),
-            "the status line is the last row"
+            !counted.contains('\u{f01ee}'),
+            "no mail arrived for the sender"
         );
     }
 
@@ -1202,8 +1397,11 @@ mod tests {
             };
             let top = region_text(&buffer, border);
             assert!(top.contains("( !1 )"), "{top:?}");
+            // The conversation carries a box, so the row's own last cell is its edge; the pill is
+            // the last thing inside it.
+            let inside = top.trim_end().trim_end_matches('│').trim_end();
             assert!(
-                top.trim_end().ends_with("( !1 )"),
+                inside.ends_with("( !1 )"),
                 "the pill sits at the far end of the row, not beside the label: {top:?}"
             );
 

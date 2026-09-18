@@ -174,7 +174,41 @@ impl Agent {
     /// commits nothing (COL-3).
     pub fn project_delegated(&mut self, event: ConversationEvent) -> Reaction {
         let mut reaction = Reaction::default();
-        self.record.emit(&mut reaction, event);
+        self.record.project_delegated(
+            event,
+            super::record::DelegatedPlacement::Tail,
+            &mut reaction,
+        );
+        reaction.into_output()
+    }
+
+    /// Retains a delegated roster identity ahead of every external transcript fact on rebuild.
+    pub fn project_delegated_roster(&mut self, event: ConversationEvent) -> Reaction {
+        let mut reaction = Reaction::default();
+        self.record.project_delegated(
+            event,
+            super::record::DelegatedPlacement::Roster,
+            &mut reaction,
+        );
+        reaction.into_output()
+    }
+
+    /// Retains a canonical collaboration row by reference, with an optional inclusion fallback.
+    pub fn project_delegated_reference(
+        &mut self,
+        event: ConversationEvent,
+        reference: crate::collaboration::CollaborationItemRef,
+        fallback: Vec<plexmaton_core::ConversationEntryId>,
+    ) -> Reaction {
+        let mut reaction = Reaction::default();
+        self.record.project_delegated(
+            event,
+            super::record::DelegatedPlacement::Collaboration {
+                reference,
+                fallback,
+            },
+            &mut reaction,
+        );
         reaction.into_output()
     }
 
@@ -357,12 +391,14 @@ mod tests {
     mod permissions;
     mod tool_outcome;
     use plexmaton_core::{
-        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, ConversationEvent,
-        ConversationId, HeadName, ToolCallId, ToolCallStatus, ToolCapability, ToolDefinitionId,
-        ToolDetail, TranscriptRole,
+        AgentId, AgentStatus, ApprovalDecision, AttentionRequest, CollaborationId,
+        CollaborationItemId, ConversationEvent, ConversationId, HeadName, ToolCallId,
+        ToolCallStatus, ToolCapability, ToolDefinitionId, ToolDetail, TranscriptItemId,
+        TranscriptRole,
     };
 
     use super::{Agent, Effect, Input, ProjectionRebuildError, Reaction, Turn, TurnBudget};
+    use crate::collaboration::{CollaborationItemRef, CollaborationSequence};
     use crate::interface::UndeliveredReason;
     use crate::model::{
         AssistantBlock, ContextAtom, ContextAtomValue, MAX_ASSISTANT_TEXT_BYTES, ModelError,
@@ -1849,6 +1885,156 @@ mod tests {
         ));
     }
 
+    /// ENT-1/JRN-3: a successful collaboration tool commits only its canonical source reference
+    /// immediately after the tool settlement; its shared body remains in the collaboration log.
+    #[test]
+    fn collaboration_tool_settlement_records_a_reference_only_sender_anchor() {
+        let mut agent = agent();
+        submit(&mut agent, "send the report");
+        call_named(&mut agent, "send-mail", "send_mail");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+        let admitted = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("send-mail", "send_mail", []),
+        )));
+        assert!(matches!(
+            admitted.effects.as_slice(),
+            [Effect::RunTool { .. }]
+        ));
+
+        let reference = CollaborationItemRef {
+            collaboration: CollaborationId::new("collaboration").expect("collaboration"),
+            item: CollaborationItemId::new("mail-item").expect("item"),
+            sequence: CollaborationSequence(7),
+        };
+        let finished = agent.handle(Input::ToolFinished {
+            call_id: id("send-mail"),
+            result: ToolExecutionResult::new(
+                ToolOutcome::Succeeded {
+                    output: r#"{"status":"mail_accepted"}"#.to_owned(),
+                },
+                None,
+            )
+            .with_collaboration_reference(reference.clone()),
+        });
+        assert!(matches!(
+            finished.records.get(0..2),
+            Some([
+                JournalRecord::AppendEntry {
+                    entry: changed,
+                    ..
+                },
+                JournalRecord::AppendEntry { entry: linked, .. }
+            ]) if matches!(changed.payload, JournalEntryPayload::ToolCallChanged { .. })
+                && matches!(
+                    &linked.payload,
+                    JournalEntryPayload::CollaborationItemLinked {
+                        reference: actual,
+                        ..
+                    } if actual == &reference
+                )
+        ));
+        assert!(matches!(
+            finished.events.first(),
+            Some(plexmaton_core::ConversationEventEnvelope {
+                event: ConversationEvent::ToolCallChanged { .. },
+                ..
+            })
+        ));
+
+        let _live = agent.project_delegated_reference(
+            ConversationEvent::RuntimeWarning {
+                agent_id: AgentId::new("agent-a").expect("agent"),
+                item_id: TranscriptItemId::new("shared-mail").expect("item"),
+                message: "shared mail".to_owned(),
+            },
+            reference,
+            Vec::new(),
+        );
+        delta(&mut agent, "after anchor");
+        stop(&mut agent, StopReason::EndOfTurn);
+        let rebuilt = agent.rebuild_projection().expect("settled replay");
+        let events = rebuilt.events();
+        let tool = events
+            .iter()
+            .position(|envelope| {
+                matches!(
+                    envelope.event,
+                    ConversationEvent::ToolCallChanged {
+                        status: ToolCallStatus::Succeeded,
+                        ..
+                    }
+                )
+            })
+            .expect("settled tool");
+        let shared = events
+            .iter()
+            .position(|envelope| {
+                matches!(
+                    &envelope.event,
+                    ConversationEvent::RuntimeWarning { item_id, .. }
+                        if item_id.as_str() == "shared-mail"
+                )
+            })
+            .expect("placed shared row");
+        let later = events
+            .iter()
+            .position(|envelope| {
+                matches!(
+                    &envelope.event,
+                    ConversationEvent::TranscriptDelta { text, .. } if text == "after anchor"
+                )
+            })
+            .expect("later assistant work");
+        assert!(
+            tool < shared && shared < later,
+            "the sender anchor fixes first appearance"
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|envelope| matches!(
+                    &envelope.event,
+                    ConversationEvent::RuntimeWarning { item_id, .. }
+                        if item_id.as_str() == "shared-mail"
+                ))
+                .count(),
+            1,
+            "rebuild duplicates no shared row"
+        );
+    }
+
+    /// JRN-3: a failed executor result cannot claim that a collaboration fact was acknowledged.
+    #[test]
+    fn failed_collaboration_tool_result_cannot_create_a_session_link() {
+        let mut agent = agent();
+        submit(&mut agent, "send the report");
+        call_named(&mut agent, "send-mail", "send_mail");
+        stop_before_admission(&mut agent, StopReason::ToolCalls);
+        let _admitted = agent.handle(Input::ToolAdmissionResolved(AdmissionOutcome::Admitted(
+            admitted("send-mail", "send_mail", []),
+        )));
+        let reference = CollaborationItemRef {
+            collaboration: CollaborationId::new("collaboration").expect("collaboration"),
+            item: CollaborationItemId::new("mail-item").expect("item"),
+            sequence: CollaborationSequence(7),
+        };
+        let finished = agent.handle(Input::ToolFinished {
+            call_id: id("send-mail"),
+            result: ToolExecutionResult::new(
+                ToolOutcome::Failed {
+                    message: "writer refused the mail".to_owned(),
+                },
+                None,
+            )
+            .with_collaboration_reference(reference),
+        });
+        assert!(finished.records.iter().all(|record| !matches!(
+            record,
+            JournalRecord::AppendEntry { entry, .. }
+                if matches!(entry.payload, JournalEntryPayload::CollaborationItemLinked { .. })
+        )));
+    }
+
     /// APV-4 and LOOP-2: denial resolves Attention, never executes, and is still a tool result in
     /// the next model request. Reusing the same approval ID is a typed non-decision.
     #[test]
@@ -2281,9 +2467,9 @@ mod tests {
         }
     }
 
-    /// JRN-5/JRN-7: process recovery settles canonical debt without rerunning its tool effect.
+    /// APV-6/JRN-5/JRN-7: recovery cancels the old approval; only new input can start work.
     #[test]
-    fn an_unfinished_restored_turn_becomes_idle_with_a_stable_cancelled_tool_result() {
+    fn apv_6_process_recovery_cancels_old_approval_and_requires_new_submission() {
         let mut live = agent();
         submit(&mut live, "change a file");
         call_named(&mut live, "write-1", "edit");
@@ -2292,6 +2478,12 @@ mod tests {
             admitted("write-1", "edit", [ToolCapability::FileWrite]),
         )));
         assert!(waiting.effects.is_empty(), "approval had not run the tool");
+        let old_approval = live
+            .pending_approvals()
+            .next()
+            .expect("old approval")
+            .approval_id()
+            .clone();
 
         let mut resumed = Agent::from_journal(
             AgentId::new("agent-a").unwrap_or_else(|error| panic!("agent: {error}")),
@@ -2351,6 +2543,34 @@ mod tests {
                 }
         ));
         assert!(resumed.recover_after_process_death().is_none());
+
+        let stale = resumed.handle_at(
+            Input::ApprovalDecided {
+                approval_id: old_approval,
+                decision: ApprovalDecision::AllowOnce,
+            },
+            UnixMillis::new(1_000),
+        );
+        assert!(stale.effects.is_empty(), "the old approval cannot continue");
+        assert!(matches!(
+            stale.unresolved_approvals.as_slice(),
+            [crate::UnresolvedApprovalDecision {
+                reason: ApprovalDecisionRefusal::NotPending,
+                ..
+            }]
+        ));
+
+        let submitted = resumed.handle_at(
+            Input::Submitted {
+                text: "request the operation again".to_owned(),
+            },
+            UnixMillis::new(1_001),
+        );
+        assert!(matches!(
+            submitted.effects.as_slice(),
+            [Effect::CallModel(_)]
+        ));
+        assert!(resumed.pending_approvals().next().is_none());
     }
 
     /// TIM-1/JRN-5: a durable atomic turn start is enough to identify process-orphaned work.

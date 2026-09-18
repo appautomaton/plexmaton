@@ -28,6 +28,11 @@ pub enum OwnedRunnerUpdate {
         identity: RunnerIdentity,
         outcome: Box<Result<DispatchReport, OwnedScheduleFailure>>,
     },
+    /// A child input whose caller was cancelled reached one retained terminal result.
+    UserInputSettled {
+        identity: RunnerIdentity,
+        outcome: Box<Result<DispatchReport, crate::UserInputFailure>>,
+    },
     /// A Stop whose caller was cancelled reached one retained terminal result.
     StopSettled {
         identity: RunnerIdentity,
@@ -82,6 +87,7 @@ impl OwnedRunnerUpdate {
             | Self::Failed { identity, .. }
             | Self::WorkerFailed { identity }
             | Self::ScheduleSettled { identity, .. }
+            | Self::UserInputSettled { identity, .. }
             | Self::StopSettled { identity, .. }
             | Self::HandoffSettled { identity, .. }
             | Self::WakeReady { identity, .. }
@@ -116,6 +122,15 @@ impl OwnedRunnerUpdate {
     pub fn schedule_outcome(&self) -> Option<&Result<DispatchReport, OwnedScheduleFailure>> {
         match self {
             Self::ScheduleSettled { outcome, .. } => Some(outcome.as_ref()),
+            _ => None,
+        }
+    }
+
+    /// Terminal result of child input whose original reply wait was cancelled.
+    #[must_use]
+    pub fn user_input_outcome(&self) -> Option<&Result<DispatchReport, crate::UserInputFailure>> {
+        match self {
+            Self::UserInputSettled { outcome, .. } => Some(outcome.as_ref()),
             _ => None,
         }
     }

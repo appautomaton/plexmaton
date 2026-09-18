@@ -164,10 +164,19 @@ fn encode_assistant(
             AssistantBlock::Reasoning { .. } => {
                 if let Some(replay) = replay {
                     input.push(decode_replay(replay)?);
-                } else if output.tool_calls().next().is_some() {
-                    return Err(EncodeError::PlainReasoningInResponses);
                 }
-                // PRV-3: a summary interrupted before its replay item stays visible locally.
+                // PRV-3: a summary interrupted before its replay item stays visible locally and
+                // is left out of the wire, whether or not the turn went on to call a tool. There
+                // is no signature here to be missing: a Responses reasoning item is identified by
+                // the provider's own opaque id, and an input that omits one is well formed — the
+                // API's ordering requirement runs the other way, binding a reasoning item that is
+                // present to the item that followed it.
+                //
+                // Rejected: refusing the turn, as Messages does. That requirement is Anthropic's
+                // and has a reason there — a `thinking` block beside `tool_use` must arrive
+                // complete and signed — but it was applied to this dialect as well, where nothing
+                // asks for it. One interrupted tool turn then made every later request in that
+                // conversation unencodable, so a session could be read and never continued.
             }
             AssistantBlock::ToolCall { call, .. } => {
                 let mut item = json!({"type":"function_call","call_id":call.call_id.as_str(),"name":call.name,"arguments":call.arguments});

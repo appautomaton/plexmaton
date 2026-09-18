@@ -3,12 +3,12 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-spec = importlib.util.spec_from_file_location("permission_fixture", Path(__file__).resolve().parents[1] / "permission_fixture.py")
+spec = importlib.util.spec_from_file_location("provider_fixture", Path(__file__).resolve().parents[1] / "provider_fixture.py")
 fixture = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fixture)
 
 
-class PermissionFixtureTests(unittest.TestCase):
+class ProviderFixtureTests(unittest.TestCase):
     def request(self, provider, body, **headers):
         client = http.client.HTTPConnection("127.0.0.1", provider.server.server_port, timeout=3)
         try:
@@ -63,6 +63,43 @@ class PermissionFixtureTests(unittest.TestCase):
         finally:
             if client is not None:
                 client.close()
+
+    def reply(self, provider, body):
+        """The bytes a request was answered with, which is the only thing routing can get wrong."""
+        client = http.client.HTTPConnection("127.0.0.1", provider.server.server_port, timeout=3)
+        try:
+            client.request("POST", "/v1/chat/completions", body, {"Authorization": "Bearer fixture-only"})
+            reply = client.getresponse()
+            self.assertEqual(reply.status, 200)
+            return reply.read()
+        finally:
+            client.close()
+
+    def test_a_reply_answers_the_request_that_asked_for_it_whoever_arrives_first(self):
+        """Two runners share one endpoint, so order cannot choose; the last message must.
+
+        The replies are scripted in the opposite order to the requests, and the bodies are
+        compared: a status code alone passes whatever the routing does, including first-in-first-out.
+        """
+        with fixture.AddressedProvider([("ROOT_ASK", b"to-root"), ("CHILD_TASK", b"to-child")]) as provider:
+            child = '{"stream":true,"messages":[{"role":"user","content":"CHILD_TASK"}]}'
+            root = '{"stream":true,"messages":[{"role":"user","content":"ROOT_ASK"}]}'
+            self.assertEqual(self.reply(provider, child.encode()), b"to-child")
+            self.assertEqual(self.reply(provider, root.encode()), b"to-root")
+
+    def test_a_cue_only_earlier_in_the_conversation_does_not_claim_the_reply(self):
+        """A root turn repeats the task it delegated; matching anywhere would steal the child's."""
+        with self.assertRaisesRegex(AssertionError, "no scripted reply is addressed to"):
+            with fixture.AddressedProvider([("CHILD_TASK", b"to-child")]) as provider:
+                body = ('{"stream":true,"messages":['
+                        '{"role":"user","content":"do CHILD_TASK"},'
+                        '{"role":"tool","content":"unrelated"}]}')
+                self.assertEqual(self.request(provider, body.encode()), 400)
+        self.assertFalse(provider.worker.is_alive())
+
+    def test_two_replies_may_not_answer_the_same_cue(self):
+        with self.assertRaisesRegex(AssertionError, "two replies answer the same cue"):
+            fixture.AddressedProvider([("SAME", b"first"), ("SAME", b"second")])
 
 
 if __name__ == "__main__":

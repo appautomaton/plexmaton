@@ -55,6 +55,11 @@ pub(crate) fn transcript_layout_with_prefix(
     math: crate::math::MathPresentation,
     prefix: Option<&crate::markdown::PrefixHint>,
 ) -> (Layout, Option<crate::markdown::PrefixCheckpoint>, bool) {
+    // An addressed item is two things with different authors: the envelope, which belongs to the
+    // conversation holding it, and the body, which is prose whoever wrote it chose. The heading is
+    // built here with the rest of the row grammar; the body is held aside and disclosed by the
+    // transcript's own grammar below, so a letter is read the way a message is read.
+    let mut disclosed = None;
     let rows = match entry {
         TranscriptEntryView::Text(item) => {
             return transcript_text_with_prefix(item, width, math, prefix);
@@ -69,21 +74,30 @@ pub(crate) fn transcript_layout_with_prefix(
             vec![Row::heading(line)]
         }
         TranscriptEntryView::Mail(mail) => {
-            let (heading, counterpart) = if mail.owner == mail.to {
-                ("received from ", &mail.from)
+            let heading = if mail.owner == mail.to {
+                "received from "
             } else {
-                ("sent to ", &mail.to)
+                "sent to "
             };
-            addressed_entry(heading, counterpart, &mail.summary, appearance, width)
+            disclosed = appearance.open.then_some(mail.summary.as_str());
+            addressed_heading(heading, &mail.counterpart, &mail.summary, width)
         }
         // The same shape, because it is the same kind of fact: one session addressed another.
         TranscriptEntryView::Task(task) => {
-            let (heading, counterpart) = if task.owner == task.to {
-                ("assigned by ", &task.from)
+            let heading = if task.owner == task.to {
+                "assigned by "
             } else {
-                ("assigned to ", &task.to)
+                "assigned to "
             };
-            addressed_entry(heading, counterpart, &task.task, appearance, width)
+            disclosed = appearance.open.then_some(task.task.as_str());
+            addressed_heading(heading, &task.counterpart, &task.task, width)
+        }
+        TranscriptEntryView::Handoff(_) => {
+            let line = Line::from(vec![
+                Span::styled("handoff", Role::NewInformation),
+                Span::styled(" · Controller: User", Role::Muted),
+            ]);
+            vec![Row::heading(line)]
         }
     };
     let mut layout = Layout::default();
@@ -91,26 +105,23 @@ pub(crate) fn transcript_layout_with_prefix(
         let reserved = usize::from(width).saturating_sub(row.gutter.width());
         layout.logical(row.line, reserved, false, row.gutter, Role::Muted);
     }
+    if let Some(body) = disclosed {
+        append_prose(&mut layout, body, width, math);
+    }
     layout
         .text
         .truncate(layout.text.trim_end_matches('\n').len());
     (layout, None, false)
 }
 
-/// One addressed item — a letter, a task — as a heading and a body, the shape a tool call has.
+/// One addressed item's envelope — who the other end is, which way it went, and a preview.
 ///
 /// The summary is whatever another session chose to write: one sentence in the fixtures, a page in
 /// practice. `Ctrl-O` reveals the rest (ENT-4), and copy carries the whole letter either way, so
 /// the row itself only has to stay a row. Rejected: putting the entire summary in the heading,
 /// which read correctly for as long as the simulator was the only thing producing mail; the first
 /// real letter filled the conversation it arrived in and pushed its own heading off the top.
-fn addressed_entry(
-    heading: &'static str,
-    counterpart: &plexmaton_core::AgentId,
-    body: &str,
-    appearance: EntryAppearance,
-    width: u16,
-) -> Vec<Row> {
+fn addressed_heading(heading: &'static str, counterpart: &str, body: &str, width: u16) -> Vec<Row> {
     // Two facts, and they answer to different owners. Who the other end is belongs to the item, so
     // both conversations agree on it. What the row *is* belongs to the conversation holding it, and
     // it is said in a word: `ui-ux.md`'s grammar keeps a name for whatever is not a position in a
@@ -118,25 +129,68 @@ fn addressed_entry(
     // that. Rejected: a bare arrow relative to the reader naming only the other end, which the
     // person who asked for the feature read backwards on both sides; and then dropping direction
     // altogether, which left the outbox and the inbox drawn identically.
-    let counterpart = counterpart.to_string();
     let spent = heading.width() + counterpart.width() + " · ".width();
+    // What the letter says, rather than how it was written: a heading marker or a fence in the
+    // preview is the markup leaking into the one row that was supposed to summarize past it.
+    let preview = crate::markdown::preview(body).unwrap_or_else(|| body.to_owned());
     let mut compact = Line::from(vec![
         Span::styled(heading, Role::Muted),
-        Span::styled(counterpart, Role::NewInformation),
+        Span::styled(counterpart.to_owned(), Role::NewInformation),
         Span::styled(
             format!(
                 " · {}",
-                opening(body, usize::from(width).saturating_sub(spent))
+                opening(&preview, usize::from(width).saturating_sub(spent))
             ),
             Role::Muted,
         ),
     ]);
     compact.treatment = Treatment::EntryHeading;
-    let mut rows = vec![Row::heading(compact)];
-    if appearance.open {
-        append_source(&mut rows, body, Treatment::Content, |_| Role::Body);
+    vec![Row::heading(compact)]
+}
+
+/// One disclosed body, drawn by the transcript's own grammar under the item's gutter.
+///
+/// A letter is prose a producer wrote, so Markdown and native math reach it exactly as they reach
+/// an assistant message (MD-1, MTH-1). The roadmap's bound on mail is a size limit, not a demotion
+/// to metadata: a letter that arrives as a document has to read as one, and the first real producer
+/// wrote headings, emphasis and display formulas. `Layout::append` re-bases the body's copy ranges,
+/// fragment columns and formula geometry onto the gutter, so selection and atomic formula copy
+/// survive the indent. Rejected: a second parser beside `addressed_heading`, which would have
+/// drifted from the one the transcript already owns, and would have had to be remembered by every
+/// later change to the grammar.
+fn append_prose(
+    layout: &mut Layout,
+    source: &str,
+    width: u16,
+    math: crate::math::MathPresentation,
+) {
+    let reserved = usize::from(width).saturating_sub(BODY.width());
+    if crate::markdown::may_format(source)
+        && let Ok(rendered) = crate::markdown::render_layout_with_prefix(
+            source,
+            reserved,
+            math,
+            // A letter is complete when it is accepted into the ledger; nothing later appends to it.
+            crate::markdown::Completion::Final,
+            None,
+        )
+    {
+        let mut body = rendered.layout;
+        for line in &mut body.lines {
+            if !line.spans.is_empty() {
+                line.treatment = Treatment::MarkdownSelectionWidth(reserved);
+            }
+        }
+        layout.append(body, BODY, Role::Muted);
+        return;
     }
-    rows
+    // Exact source, under the same gutter, whenever the body is not admissible Markdown or its
+    // layout is refused: the letter stays readable and copyable either way (MD-4).
+    for line in source.split('\n') {
+        let mut line = Line::from(vec![Span::styled(line.to_owned(), Role::Body)]);
+        line.treatment = Treatment::Content;
+        layout.logical(line, reserved, false, BODY, Role::Muted);
+    }
 }
 
 /// As much of the letter as this row holds, and an ellipsis when that is not all of it.
@@ -192,7 +246,9 @@ pub(crate) fn discloses(entry: &TranscriptEntryView) -> bool {
         }
         TranscriptEntryView::Mail(mail) => !mail.summary.is_empty(),
         TranscriptEntryView::Task(task) => !task.task.is_empty(),
-        TranscriptEntryView::Text(_) | TranscriptEntryView::Artifact(_) => false,
+        TranscriptEntryView::Text(_)
+        | TranscriptEntryView::Artifact(_)
+        | TranscriptEntryView::Handoff(_) => false,
     }
 }
 
@@ -413,13 +469,37 @@ pub(crate) fn conversation_placeholder(
 
 #[cfg(test)]
 mod tests {
-    use plexmaton_core::{TranscriptItemId, TranscriptRole};
+    use plexmaton_core::{AgentId, TranscriptItemId, TranscriptRole};
 
-    use super::{literal_text_rows, transcript_text};
+    use super::{discloses, literal_text_rows, transcript_entry, transcript_text};
     use crate::{
-        TranscriptItemView, TranscriptTextKind,
+        HandoffView, TranscriptEntryView, TranscriptItemView, TranscriptTextKind,
+        state::EntryAppearance,
         theme::{Palette, Role},
     };
+
+    /// CCV-3: acknowledged control is a stable semantic row at every accepted width.
+    #[test]
+    fn ccv_3_handoff_entry_is_distinct_at_three_widths() {
+        let child = AgentId::new("delegated-1").expect("child");
+        let entry = TranscriptEntryView::Handoff(HandoffView {
+            entry_id: TranscriptItemId::new("handoff-in").expect("item"),
+            owner: child.clone(),
+            child,
+            revision: 0,
+        });
+        for width in [120, 95, 60] {
+            let lines = transcript_entry(
+                &entry,
+                &Palette::pastel(),
+                EntryAppearance::default(),
+                width,
+            );
+            assert_eq!(lines.len(), 1, "{width} columns");
+            assert_eq!(lines[0].to_string(), "handoff · Controller: User");
+        }
+        assert!(!discloses(&entry));
+    }
 
     /// TR-1/MD-2: measurement-only geometry agrees with the actual paragraph at every small width.
     #[test]
@@ -605,6 +685,7 @@ mod mail_heading_tests {
                 owner: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 from: AgentId::new("agent-b").unwrap_or_else(|error| panic!("{error}")),
                 to: AgentId::new("agent-a").unwrap_or_else(|error| panic!("{error}")),
+                counterpart: "Agent A".to_owned(),
                 summary: summary.to_owned(),
                 revision: 0,
             });
@@ -640,6 +721,12 @@ mod addressed_entry_tests {
             owner: agent(owner),
             from: agent("delegated-1"),
             to: agent("agent-primary"),
+            counterpart: if owner == "agent-primary" {
+                "Delegated 1"
+            } else {
+                "Plexmaton"
+            }
+            .to_owned(),
             summary: "the answer".to_owned(),
             revision: 0,
         })
@@ -652,6 +739,12 @@ mod addressed_entry_tests {
             owner: agent(owner),
             from: agent("agent-primary"),
             to: agent("delegated-1"),
+            counterpart: if owner == "agent-primary" {
+                "Delegated 1"
+            } else {
+                "Plexmaton"
+            }
+            .to_owned(),
             task: "the ask".to_owned(),
             revision: 0,
         })
@@ -670,22 +763,21 @@ mod addressed_entry_tests {
         .collect()
     }
 
-    /// Each side names the *other* end. Swapping either branch's endpoint makes a row claim the
-    /// conversation is corresponding with itself, which is what this refuses.
+    /// Each side names the other end by its display label while retaining routing identities.
     #[test]
     fn each_side_of_one_item_names_the_other_end() {
-        for (sent, received, counterpart, owner) in [
+        for (sent, received, sent_heading, received_heading) in [
             (
                 letter("delegated-1"),
                 letter("agent-primary"),
-                "delegated-1",
-                "agent-primary",
+                "sent to Plexmaton",
+                "received from Delegated 1",
             ),
             (
                 task("agent-primary"),
                 task("delegated-1"),
-                "agent-primary",
-                "delegated-1",
+                "assigned to Delegated 1",
+                "assigned by Plexmaton",
             ),
         ] {
             let sent = drawn(&sent);
@@ -694,18 +786,63 @@ mod addressed_entry_tests {
                 sent, received,
                 "the outbox and the inbox must not read alike"
             );
-            assert!(
-                received.contains(counterpart),
-                "the arriving side names who addressed it: {received:?}"
-            );
-            assert!(
-                !received.contains(owner),
-                "and never names the conversation reading it: {received:?}"
-            );
-            assert!(
-                sent.contains(owner),
-                "the sending side names who it addressed: {sent:?}"
-            );
+            assert!(sent.contains(sent_heading), "{sent:?}");
+            assert!(received.contains(received_heading), "{received:?}");
+            for internal in ["agent-primary", "delegated-1"] {
+                assert!(!sent.contains(internal), "{sent:?}");
+                assert!(!received.contains(internal), "{received:?}");
+            }
         }
+    }
+
+    /// MD-1/MTH-1: a disclosed letter is prose, so the transcript's own grammar draws it.
+    ///
+    /// The first real producer wrote headings, emphasis and display formulas into its mail. Drawn
+    /// as an envelope's retained source, every one of those reached the terminal as the characters
+    /// the author typed. This asserts the three that a reader notices — a heading is a heading, a
+    /// display formula is laid-out geometry rather than its delimiters, and the exact source is
+    /// still what copy carries.
+    #[test]
+    fn a_disclosed_letter_is_drawn_as_markdown_and_native_math() {
+        let mut entry = letter("agent-primary");
+        let TranscriptEntryView::Mail(mail) = &mut entry else {
+            panic!("fixture: the letter is mail");
+        };
+        mail.summary = "## Follow-up B\n\nSet \\(h = e + p/\\rho\\) first.\n\n\\[\n\\rho c \\frac{\\partial T}{\\partial t} = \\nabla\\cdot(k\\nabla T) + \\dot{q}\n\\]\n".to_owned();
+        let layout = transcript_layout(
+            &entry,
+            EntryAppearance {
+                open: true,
+                ..EntryAppearance::compact(false)
+            },
+            80,
+            crate::math::MathPresentation::Native,
+        );
+        let painted = layout
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !painted.contains("## "),
+            "a heading marker reached the terminal: {painted}"
+        );
+        assert!(
+            !painted.contains("\\rho c"),
+            "display source reached the terminal: {painted}"
+        );
+        assert!(
+            !layout.formulas.is_empty(),
+            "no formula geometry was placed: {painted}"
+        );
+        assert!(
+            layout.text.contains("\\rho c \\frac"),
+            "copy must carry the letter exactly as it was written"
+        );
+        assert!(
+            painted.contains("received from Delegated 1"),
+            "the envelope keeps its heading: {painted}"
+        );
     }
 }

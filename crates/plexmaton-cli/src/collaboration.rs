@@ -7,22 +7,39 @@
 //! TUI already knows how to draw.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context as _;
-use plexmaton_agent::collaboration::{CollaborationEvent, CollaborationLimits, MailEndpoint};
+use plexmaton_agent::collaboration::{CollaborationLimits, MailEndpoint};
 use plexmaton_core::{
-    AgentId, AgentStatus, CollaborationId, CollaborationItemId, ConversationEvent, ConversationId,
-    DelegationId, TranscriptItemId, TurnId,
+    AgentId, AgentStatus, ApprovalId, AttentionId, CollaborationId, CollaborationItemId,
+    ConversationEvent, ConversationId, TranscriptItemId, TurnId,
 };
 use plexmaton_runtime::{
-    CollaborationIngressOutcome, CollaborationWriter, DelegatedChildFactory, LiveRuntime,
-    MainCollaborationIngress, OwnedCollaboration, OwnedCollaborationActivity, OwnedRunnerUpdate,
-    RuntimeUpdate, SchedulerLimits,
+    CollaborationRuntimeStamp, CollaborationWriter, DelegatedChildFactory, DispatchReport,
+    LiveRuntime, MainCollaborationIngress, OwnedChildControlSnapshot, OwnedCollaboration,
+    OwnedCollaborationActivity, OwnedSchedulingError, OwnedShutdownReport, RunnerGeneration,
+    SchedulerLimits, UserInputTarget,
 };
 use plexmaton_session_store::{DelegatedConversationDirectory, collaboration::CollaborationFile};
+
+mod attention;
+mod child_control;
+pub(crate) use child_control::undelivered_reason;
+mod history;
+mod pending;
+mod placement;
+use pending::PendingRootProjection;
+pub(crate) use pending::RootProjectionProgress;
+#[cfg(debug_assertions)]
+mod process_cut;
+#[cfg(debug_assertions)]
+pub(crate) use process_cut::PendingHandoffProcessCut;
+
+#[cfg(test)]
+mod tests;
 
 /// Children a root may run at once. Delegation history is unbounded; concurrency is not.
 const RUNNERS: usize = 4;
@@ -30,9 +47,24 @@ const RUNNERS: usize = 4;
 /// Prefix of every inclusion this composition root admits for its own conversation.
 const ROOT_INCLUSION: &str = "root-inclusion-";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LiveApprovalRoute {
+    attention_id: AttentionId,
+    generation: RunnerGeneration,
+}
+
 /// One root's collaboration log, its owner, and the Main tool lane bound to this executable.
 pub(crate) struct Collaboration {
     owner: OwnedCollaboration,
+    collaboration: CollaborationId,
+    /// Durable root identity. A session picker may replace only the runtime, so every projection
+    /// checks this before it can consume root-owned activity.
+    conversation: ConversationId,
+    /// The process-local runtime instance that consumed this composition's Main capability.
+    bound_runtime: Option<CollaborationRuntimeStamp>,
+    /// One selected root projection retained across a racing journal acknowledgement. The owner
+    /// keeps every later activity in its bounded lanes until this exact fact is resolved.
+    pending_projection: Option<PendingRootProjection>,
     /// Children on the roster and the short name each was given, keyed by the conversation a
     /// runner update names. A second `AgentCreated` for one agent is a reduce error, and resume and
     /// a settlement both announce, so the map is also what makes announcing idempotent.
@@ -50,17 +82,38 @@ pub(crate) struct Collaboration {
     undelivered: bool,
     /// Where the root receives mail, taken at bind time because binding consumes the proof.
     root: Option<MailEndpoint>,
-    /// Log records already on screen. The log is read whole every time and a restart replays all
-    /// of it, so the projection is the part that knows what is new.
-    shown: BTreeSet<CollaborationItemId>,
-    /// Child entries already drawn from a journal at restore.
-    ///
-    /// A child's history has two sources and they overlap: restore reads its journal, and a child
-    /// revived afterwards streams a runtime that replayed the same journal. Identities are
-    /// deterministic, so the second telling arrives as a revision gap on an entry already finished.
-    replayed: BTreeSet<TranscriptItemId>,
+    /// Log records already observed for root-turn admission. Display readiness is session-local,
+    /// so this cannot also stand in for the two independently anchored transcript rows.
+    observed: BTreeSet<CollaborationItemId>,
+    /// Shared transcript rows already projected, keyed by their stable per-session identity.
+    shown: BTreeSet<TranscriptItemId>,
+    /// Sessions with a canonical row waiting for their own durable placement link.
+    pending_placement: BTreeSet<AgentId>,
+    /// Exact journal prefix a passively reopened child will replay once when it is activated.
+    replayed_prefix: BTreeMap<ConversationId, VecDeque<ConversationEvent>>,
     /// Where a child's own journal lives, so its history can be read back after a restart.
     children: DelegatedConversationDirectory,
+    /// Authenticated input targets retained separately from display-only controller snapshots.
+    user_targets: BTreeMap<ConversationId, UserInputTarget>,
+    /// Latest authenticated controller projection for each canonical child Conversation.
+    controls: BTreeMap<ConversationId, OwnedChildControlSnapshot>,
+    /// Approval routes issued only by newly admitted live child requests in this process.
+    live_approvals: BTreeMap<(AgentId, ApprovalId), LiveApprovalRoute>,
+}
+
+/// [`open`], off the thread the terminal loop is drawn on.
+///
+/// Opening reads the whole ledger to seed its delivered counter, takes the log's writer lock and
+/// spawns the writer thread. At startup that cost is paid before there is a frame to miss, but the
+/// picker opens a conversation while one is on screen, and its loader task shares a thread with the
+/// interaction loop — so the file work belongs in the blocking pool (SPK-3).
+pub(crate) async fn open_off_thread(
+    plexmaton_home: PathBuf,
+    conversation: ConversationId,
+) -> anyhow::Result<(Collaboration, MainCollaborationIngress)> {
+    tokio::task::spawn_blocking(move || open(&plexmaton_home, &conversation))
+        .await
+        .context("join the collaboration opener")?
 }
 
 /// Opens or reopens the log for one root conversation and hands back its unbound Main tool lane.
@@ -82,7 +135,7 @@ pub(crate) fn open(
     let file = if path.exists() {
         CollaborationFile::open(&path).context("open this conversation's collaboration log")?
     } else {
-        CollaborationFile::create(&path, id, CollaborationLimits::default())
+        CollaborationFile::create(&path, id.clone(), CollaborationLimits::default())
             .context("create this conversation's collaboration log")?
     };
     // How many root inclusions this log already holds, so the counter continues rather than
@@ -108,13 +161,22 @@ pub(crate) fn open(
     Ok((
         Collaboration {
             owner,
+            collaboration: id,
+            conversation: conversation.clone(),
+            bound_runtime: None,
+            pending_projection: None,
             announced: BTreeMap::new(),
             children,
+            user_targets: BTreeMap::new(),
+            controls: BTreeMap::new(),
+            live_approvals: BTreeMap::new(),
             delivered,
             undelivered: false,
             root: None,
+            observed: BTreeSet::new(),
             shown: BTreeSet::new(),
-            replayed: BTreeSet::new(),
+            pending_placement: BTreeSet::new(),
+            replayed_prefix: BTreeMap::new(),
         },
         ingress,
     ))
@@ -130,6 +192,7 @@ impl Collaboration {
         runtime: &LiveRuntime,
         factory: DelegatedChildFactory,
     ) -> anyhow::Result<()> {
+        self.ensure_root_conversation(runtime)?;
         let identity = runtime
             .main_collaboration_identity()
             .context("this runtime cannot hold Main collaboration authorship")?;
@@ -140,6 +203,7 @@ impl Collaboration {
         self.owner
             .bind_child_factory(factory)
             .map_err(|error| anyhow::anyhow!("bind the delegated child factory: {error}"))?;
+        self.bound_runtime = Some(runtime.collaboration_runtime_stamp());
         Ok(())
     }
 
@@ -148,6 +212,7 @@ impl Collaboration {
     /// Resume does not wake a child (CHB-3); this only makes existing delegations addressable again
     /// and puts them back on the roster, with the correspondence they already exchanged.
     pub(crate) async fn restore(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
+        self.ensure_bound_runtime(runtime)?;
         // A conversation that once read its mail carries that turn's collaboration atom in its
         // journal. Nothing else hands the admission back after a restart, and a reference that
         // cannot resolve refuses every later turn the user types.
@@ -158,72 +223,31 @@ impl Collaboration {
                 anyhow::anyhow!("restore this root's collaboration context: {error}")
             })?;
         self.sync_roster(runtime, AgentStatus::Idle).await?;
-        self.replay_children(runtime)?;
+        let records = self
+            .owner
+            .records()
+            .await
+            .context("read the collaboration log for restoration")?;
+        self.replay_children(runtime, &records).await?;
+        let source = runtime
+            .collaboration_session_source()
+            .context("capture this root's selected collaboration session")?;
+        let placements = self
+            .session_placements(&source.endpoint().agent, source.journal(), &records)
+            .await?;
         // Restoring draws the whole correspondence and answers none of it: a letter the root
         // already replied to before it exited must not earn a second turn every launch.
-        let _restored = self.show(runtime).await?;
-        Ok(())
-    }
-
-    /// Reads back what each child did in an earlier process, from the child's own journal.
-    ///
-    /// A live child streams its work through its runner and [`Self::project_runner`] forwards it.
-    /// A resumed one has no runner and never will until something addresses it, so its history is
-    /// only in its journal — and without this a conversation reopened tomorrow shows the ask and
-    /// the answer with the work between them missing. Reading is not waking (CHB-3): the journal is
-    /// opened, projected and closed without constructing a runtime or dispatching anything.
-    fn replay_children(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<()> {
-        let children: Vec<(ConversationId, AgentId)> = self
-            .announced
-            .iter()
-            .map(|(conversation, agent)| (conversation.clone(), agent.clone()))
-            .collect();
-        for (conversation, agent_id) in children {
-            // A child whose journal is missing or held elsewhere keeps its roster row and its
-            // correspondence; only the work between them is unavailable.
-            let Ok(file) = self.children.resume(&conversation) else {
-                continue;
-            };
-            let journal = file.journal();
-            let Ok(projection) = journal.project(journal.selected_head()) else {
-                continue;
-            };
-            for envelope in projection.events() {
-                let mut event = envelope.event.clone();
-                if !forwarded(&event) {
-                    continue;
-                }
-                if let Some(item) = item_of(&event) {
-                    self.replayed.insert(item);
-                }
-                *event.agent_mut() = agent_id.clone();
-                runtime.project_delegated(event);
-            }
-        }
-        Ok(())
-    }
-
-    /// Puts every canonical delegation this root owns on the roster, announcing only the new ones.
-    ///
-    /// Both resume and a fresh settlement land here, because a delegation's identity on the roster
-    /// is its child conversation and only the registry knows which conversation a target addresses.
-    async fn sync_roster(
-        &mut self,
-        runtime: &mut LiveRuntime,
-        status: AgentStatus,
-    ) -> anyhow::Result<()> {
-        let targets = self
-            .owner
-            .register_collaboration_targets()
-            .await
-            .map_err(|error| anyhow::anyhow!("register delegated targets: {error}"))?;
-        let children: Vec<ConversationId> = targets
-            .iter()
-            .map(|target| target.worker().conversation.clone())
-            .collect();
-        for child in children {
-            self.announce(runtime, child, status)?;
-        }
+        let root = self
+            .root
+            .as_ref()
+            .context("restored collaboration has no Main endpoint")?
+            .agent
+            .clone();
+        self.project_session_rows(runtime, &records, &root, &placements, true, false)?;
+        self.observe_records(&records);
+        runtime.rebuild_delegated_projection().map_err(|error| {
+            anyhow::anyhow!("rebuild the durably placed collaboration projection: {error:?}")
+        })?;
         Ok(())
     }
 
@@ -232,35 +256,20 @@ impl Collaboration {
         self.owner.next_activity().await
     }
 
-    /// Projects one settled activity into the conversation events the TUI already draws.
+    /// Admits a focused child's Stop through the collaboration owner without waiting for it.
     ///
-    /// The collaboration log is the durable record; these events are a projection over it, which is
-    /// why nothing here writes to the session journal. Every settlement draws whatever the log
-    /// gained, whichever kind it was: one pass with one rule, rather than one arm per outcome that
-    /// has to remember which projection answers to it.
-    pub(crate) async fn apply(
-        &mut self,
-        runtime: &mut LiveRuntime,
-        activity: OwnedCollaborationActivity,
-    ) -> anyhow::Result<()> {
-        match activity {
-            OwnedCollaborationActivity::Ingress(settlement) => {
-                // A new child reaches the roster first, because nothing can be addressed to a
-                // session the roster cannot name.
-                if matches!(
-                    settlement.result(),
-                    Ok(CollaborationIngressOutcome::Delegated { .. })
-                ) {
-                    self.sync_roster(runtime, AgentStatus::Running).await?;
-                }
-                if settlement.result().is_ok() {
-                    self.undelivered |= self.show(runtime).await?;
-                }
-                Ok(())
-            }
-            // A child's own work reaches the root under the name the roster gave it.
-            OwnedCollaborationActivity::Runner(update) => self.project_runner(runtime, update),
-        }
+    /// The workspace names children by their local roster identity. The owner names them by their
+    /// durable Conversation, so this lookup is the only translation at the CLI boundary. A missing
+    /// or resumed child returns a typed owner refusal; callers deliberately consume that refusal
+    /// because a failed child control action must never be redirected to the root runtime (INV-7,
+    /// SCH-2, SCH-4).
+    pub(crate) fn begin_child_stop(&mut self, agent: &AgentId) -> Result<(), OwnedSchedulingError> {
+        let conversation = self
+            .announced
+            .iter()
+            .find_map(|(conversation, announced)| (announced == agent).then_some(conversation))
+            .ok_or(OwnedSchedulingError::UnknownRunner)?;
+        self.owner.begin_stop(conversation)
     }
 
     /// Gives the root a turn over whatever arrived, once it is free to take one.
@@ -272,6 +281,9 @@ impl Collaboration {
         &mut self,
         runtime: &mut LiveRuntime,
     ) -> anyhow::Result<()> {
+        if !self.matches_runtime(runtime) {
+            return Ok(());
+        }
         if self.undelivered {
             self.deliver_to_root(runtime).await
         } else {
@@ -297,61 +309,10 @@ impl Collaboration {
         self.delivered = self.delivered.saturating_add(1);
         self.undelivered = false;
         runtime
-            .start_collaboration_turn(resolved)
+            .start_collaboration_turn(std::sync::Arc::clone(&resolved))
             .await
             .context("give the root its delegated mail")?;
         Ok(())
-    }
-
-    /// Draws every fact in the log that is not on screen yet, on both sides it names.
-    ///
-    /// One pass over one log with one rule, because the alternative was three: a mail projection
-    /// that filtered a direction, a task projection that compared text, and neither reachable from
-    /// the settlement the other answered to. Every hole the user found was one of the three
-    /// forgetting what another remembered — a letter Main sent, a task nobody read, a task change
-    /// that waited for a restart.
-    ///
-    /// Returns whether anything arrived *for the root*, which is the one thing that earns it a turn.
-    async fn show(&mut self, runtime: &mut LiveRuntime) -> anyhow::Result<bool> {
-        let Some(root) = self.root.clone() else {
-            return Ok(false);
-        };
-        let Ok(records) = self.owner.records().await else {
-            return Ok(false);
-        };
-        // A task update names its delegation, so the session it was given to is read back from the
-        // record that created it — the same log, one pass earlier.
-        let workers: BTreeMap<DelegationId, MailEndpoint> = records
-            .iter()
-            .filter_map(|record| match &record.event {
-                CollaborationEvent::DelegationCreated {
-                    delegation, worker, ..
-                } => Some((delegation.clone(), worker.clone())),
-                _ => None,
-            })
-            .collect();
-        let mut arrived = false;
-        for record in &records {
-            if self.shown.contains(&record.id) {
-                continue;
-            }
-            let drawn = entries(record, &|endpoint| self.name(endpoint), &|delegation| {
-                workers.get(delegation).cloned()
-            });
-            // A record whose ends the roster cannot name yet is left for the next pass rather than
-            // marked seen, because the roster is what changes between passes.
-            if drawn.is_empty() && !matches!(record.event, CollaborationEvent::TurnAdmitted { .. })
-            {
-                continue;
-            }
-            self.shown.insert(record.id.clone());
-            for (owner, event) in drawn {
-                arrived |= owner == root.agent
-                    && matches!(&event, ConversationEvent::MailDelivered { .. });
-                runtime.project_delegated(event);
-            }
-        }
-        Ok(arrived)
     }
 
     /// Names either end of a collaboration fact the way the roster names it, root included.
@@ -362,65 +323,78 @@ impl Collaboration {
         self.announced.get(&endpoint.conversation).cloned()
     }
 
-    /// Shows what a child is doing, in the root's projection, under the name the roster gave it.
+    /// Settles retained work before joining every runner and then the writer.
     ///
-    /// A child is a separate conversation: it numbers its own events and names itself by its own
-    /// agent identity, so its envelopes cannot be forwarded as they are — the sequence would arrive
-    /// stale beside the root's own, and the name would belong to nobody the panel has heard of.
-    /// Each fact is re-addressed and renumbered instead.
-    ///
-    /// What is forwarded is the child's work: what it said, what it ran, and what went wrong. Its
-    /// own `AgentCreated` is not, because the roster already announced it under a different name;
-    /// nor are its letters and tasks, which the collaboration log already draws on both sides and
-    /// which would otherwise appear twice.
-    fn project_runner(
-        &mut self,
-        runtime: &mut LiveRuntime,
-        update: OwnedRunnerUpdate,
-    ) -> anyhow::Result<()> {
-        let (identity, event) = match update {
-            OwnedRunnerUpdate::Runtime { identity, update } => match *update {
-                RuntimeUpdate::Event(envelope) => (identity, Some(envelope.event)),
-                RuntimeUpdate::Report(_) => return Ok(()),
-                RuntimeUpdate::Finished => (identity, None),
-            },
-            OwnedRunnerUpdate::Failed { identity, .. }
-            | OwnedRunnerUpdate::WorkerFailed { identity }
-            | OwnedRunnerUpdate::WakeRejected { identity, .. } => (identity, None),
-            _ => return Ok(()),
-        };
-        let Some(agent_id) = self
-            .announced
-            .get(&identity.endpoint().conversation)
-            .cloned()
-        else {
-            return Ok(());
-        };
-        // A runner that ended without saying so leaves the roster claiming it is still working.
-        let Some(mut event) = event else {
-            runtime.project_delegated(ConversationEvent::AgentStatusChanged {
-                agent_id,
-                status: AgentStatus::Failed,
-            });
-            return Ok(());
-        };
-        if !forwarded(&event) {
-            return Ok(());
+    /// Durable pending projections are rebuilt from the collaboration log or child journal on
+    /// reopen. A transient runner outcome has no such source and therefore becomes an observable
+    /// shutdown failure instead of disappearing with this process.
+    pub(crate) async fn shutdown(&mut self) -> anyhow::Result<()> {
+        // A child already committed this request or resolution, but the root may quit before its
+        // own projection is writable. Admit the reference now so passive reopen can join the two
+        // canonical sources instead of treating a graceful shutdown as an orphan.
+        let attention_failure = self
+            .admit_pending_attention_for_shutdown()
+            .await
+            .err()
+            .map(|error| format!("admit pending Attention during shutdown: {error}"));
+        let transient = self
+            .pending_projection
+            .as_ref()
+            .and_then(PendingRootProjection::transient_description);
+        self.owner
+            .begin_shutdown()
+            .await
+            .map_err(|error| anyhow::anyhow!("begin collaboration shutdown: {error}"))?;
+        let mut drained_attention_failures = Vec::new();
+        while let Some(update) = self.owner.next_update().await {
+            if let Err(error) = self.admit_shutdown_attention_update(&update).await {
+                drained_attention_failures.push(format!("admit shutdown Attention: {error}"));
+            }
         }
-        // A runner that was revived replays its journal first, and restore already drew that part.
-        if item_of(&event).is_some_and(|item| self.replayed.contains(&item)) {
-            return Ok(());
+        let mut failures = Vec::new();
+        if let Some(failure) = attention_failure {
+            failures.push(failure);
         }
-        *event.agent_mut() = agent_id;
-        runtime.project_delegated(event);
+        failures.extend(drained_attention_failures);
+        match self.owner.finish_shutdown().await {
+            Ok(report) => collect_shutdown_failures(&report, &mut failures),
+            Err(failure) => {
+                collect_shutdown_failures(failure.report(), &mut failures);
+                failures.push(format!("join collaboration owner: {failure}"));
+            }
+        }
+        if let Some(transient) = transient {
+            failures.push(format!("unresolved root projection: {transient}"));
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(failures.join("; "))
+        }
+    }
+
+    fn matches_runtime(&self, runtime: &LiveRuntime) -> bool {
+        runtime.conversation_id() == &self.conversation
+            && self.bound_runtime.as_ref() == Some(&runtime.collaboration_runtime_stamp())
+    }
+
+    fn ensure_root_conversation(&self, runtime: &LiveRuntime) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            runtime.conversation_id() == &self.conversation,
+            "collaboration root {} cannot bind conversation {}",
+            self.conversation,
+            runtime.conversation_id()
+        );
         Ok(())
     }
 
-    /// Settles retained work before joining every runner and then the writer.
-    pub(crate) async fn shutdown(&mut self) {
-        if self.owner.begin_shutdown().await.is_ok() {
-            let _ = self.owner.finish_shutdown().await;
-        }
+    fn ensure_bound_runtime(&self, runtime: &LiveRuntime) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.matches_runtime(runtime),
+            "collaboration root {} cannot project through this runtime instance",
+            self.conversation
+        );
+        Ok(())
     }
 
     /// Puts one child on the roster under a short name, once.
@@ -443,13 +417,34 @@ impl Collaboration {
         let position = self.announced.len().saturating_add(1);
         let agent_id = AgentId::new(format!("delegated-{position}"))
             .context("build a delegated agent identity")?;
-        self.announced.insert(child, agent_id.clone());
-        runtime.project_delegated(ConversationEvent::AgentCreated {
-            agent_id,
+        let event = ConversationEvent::AgentCreated {
+            agent_id: agent_id.clone(),
             label: format!("Delegated {position}"),
             status,
-        });
+        };
+        runtime
+            .project_delegated_roster(&event)
+            .context("project delegated roster entry")?;
+        self.announced.insert(child, agent_id);
         Ok(())
+    }
+}
+
+fn collect_shutdown_failures(report: &OwnedShutdownReport, failures: &mut Vec<String>) {
+    for (identity, child) in report.runners() {
+        if child != &DispatchReport::default() {
+            failures.push(format!(
+                "child {} generation {} retained shutdown results: {child:?}",
+                identity.endpoint().conversation,
+                identity.generation().get()
+            ));
+        }
+    }
+    if !report.settlements().is_empty() {
+        failures.push(format!(
+            "collaboration shutdown retained settlements: {:?}",
+            report.settlements()
+        ));
     }
 }
 
@@ -457,15 +452,37 @@ impl Collaboration {
 ///
 /// CHB-1's floor is applied inside the factory; the catalog handed here is the root's, narrowed
 /// there rather than trusted to be narrow already.
+/// Seals an opened conversation's collaboration to the runtime that will hold it (CTL-1).
+///
+/// Shared by both composition roots — the process's own startup and the picker's loader — because
+/// the ordering is the contract, not a detail: the lane is installed before the runtime exists, and
+/// authorship is sealed to that exact instance afterwards. Two copies of this would be two chances
+/// to seal one of them to the wrong runtime.
+pub(crate) fn seal(
+    opened: &mut crate::session::OpenedConversation,
+    plexmaton_home: &Path,
+    model: plexmaton_provider::ResolvedModel,
+    key: plexmaton_provider::ApiKey,
+    tools: plexmaton_runtime::NativeToolCatalog,
+) -> anyhow::Result<()> {
+    let permissions = opened.runtime.coding_session();
+    let Some(collaboration) = opened.collaboration.as_mut() else {
+        return Ok(());
+    };
+    let factory = child_factory(plexmaton_home, model, key, tools, permissions)?;
+    collaboration.bind(&opened.runtime, factory)
+}
+
 pub(crate) fn child_factory(
     plexmaton_home: &Path,
     model: plexmaton_provider::ResolvedModel,
     key: plexmaton_provider::ApiKey,
     tools: plexmaton_runtime::NativeToolCatalog,
+    permissions: plexmaton_runtime::CodingSessionPermissions,
 ) -> anyhow::Result<DelegatedChildFactory> {
     let directory = DelegatedConversationDirectory::under(plexmaton_home)
         .context("open the delegated session directory")?;
-    Ok(DelegatedChildFactory::new(directory, model, key, tools))
+    Ok(DelegatedChildFactory::new(directory, model, key, tools).with_coding_session(permissions))
 }
 
 /// Which transcript entry a forwarded fact belongs to, when it names one.
@@ -475,6 +492,9 @@ fn item_of(event: &ConversationEvent) -> Option<TranscriptItemId> {
         | ConversationEvent::TranscriptDelta { item_id, .. }
         | ConversationEvent::TranscriptItemFinalized { item_id, .. }
         | ConversationEvent::ToolCallChanged { item_id, .. }
+        | ConversationEvent::TaskAssigned { item_id, .. }
+        | ConversationEvent::MailDelivered { item_id, .. }
+        | ConversationEvent::HandoffCompleted { item_id, .. }
         | ConversationEvent::ArtifactAnnounced { item_id, .. }
         | ConversationEvent::RuntimeWarning { item_id, .. }
         | ConversationEvent::RuntimeError { item_id, .. } => Some(item_id.clone()),
@@ -491,10 +511,15 @@ const fn forwarded(event: &ConversationEvent) -> bool {
     matches!(
         event,
         ConversationEvent::AgentStatusChanged { .. }
+            | ConversationEvent::TaskAssigned { .. }
+            | ConversationEvent::MailDelivered { .. }
+            | ConversationEvent::HandoffCompleted { .. }
             | ConversationEvent::TranscriptItemStarted { .. }
             | ConversationEvent::TranscriptDelta { .. }
             | ConversationEvent::TranscriptItemFinalized { .. }
             | ConversationEvent::ToolCallChanged { .. }
+            | ConversationEvent::AttentionRequested { .. }
+            | ConversationEvent::AttentionResolved { .. }
             | ConversationEvent::ArtifactAnnounced { .. }
             | ConversationEvent::RuntimeWarning { .. }
             | ConversationEvent::RuntimeError { .. }
@@ -502,4 +527,3 @@ const fn forwarded(event: &ConversationEvent) -> bool {
 }
 
 mod projection;
-use projection::entries;

@@ -1,34 +1,34 @@
-
-┌ Agents ──────────────────────────────────────────────────┐
-│○ Agent B · UI study                                   ask│
-│  Choose whether the overlap study should cover narrow sc…│
-└──────────────────────────────────────────────────────────┘
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- I will inspect the workspace and delegate the focused
- UI study. Agent B is running independently; this
- transcript remains interactive.
-
- received from agent-b · Routing stays centralized and z-o…
-
-
- · Responding…                                      ( !1 )
+┌ Agent A · primary  󰇮 1 ─────────────────────── Agents ^B ┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│I will inspect the workspace and delegate the focused     │
+│UI study. Agent B is running independently; this          │
+│transcript remains interactive.                           │
+│                                                          │
+│received from Agent B · UI study · Routing stays centrali…│
+│                                                          │
+│                                                          │
+│· Responding…                                      ( !1 ) │
 ── Waiting to send · 2 ─────────────────────────────────────
  Sends when this turn ends
  ↳ Also check the compaction path while you are in there

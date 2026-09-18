@@ -20,6 +20,7 @@ use crate::{Direction, surface::SurfaceId};
 mod commands;
 mod grammar;
 mod models;
+mod status;
 pub use models::{ModelChoice, ModelIdentity};
 mod navigation;
 mod session_permissions;
@@ -452,7 +453,9 @@ impl ViewState {
             return 11;
         }
         let listed = self.menu_rows().len().min(VISIBLE_ROWS);
-        let status = usize::from(self.menu_status().is_some());
+        // The rows the status will actually draw, not whether it exists: the drawing side counts
+        // the same lines, and a reservation that disagreed with it would clip its own last row.
+        let status = self.menu_status_lines(width).len();
         let heading = self.menu_heading(width).len();
         u16::try_from(
             listed

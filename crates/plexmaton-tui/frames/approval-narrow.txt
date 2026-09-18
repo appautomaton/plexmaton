@@ -1,8 +1,8 @@
-┌ Agent B · UI study · Completed · esc ────────────────────┐
-┌ Agents ──────────────────────────────────────────────────┐
-│● Agent B · UI study                              approval│
-│  Change crates/plexmaton-core/src/lib.rs and preserve it…│
-└──────────────────────────────────────────────────────────┘
+┌ Agent B · UI study · Completed  󱌣 1  󰏢 1 · esc ──────────┐
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
 │                                                          │
 │                                                          │
 │                                                          │
@@ -21,8 +21,8 @@
 │[+] inspect interaction fixtures · succeeded              │
 │@ interaction findings ·                                  │
 │artifact://agent-b/interaction-findings                   │
-│sent to agent-a · Routing stays centralized and z-ordered.│
-│Controller unavailable | Input locked                     │
+│sent to Agent A · primary · Routing stays centralized and…│
+│Controller unavailable · input locked                     │
 ── Approval required · edit ────────────────────────────────
                                                             
    Change crates/plexmaton-core/src/lib.rs and preserve …   

@@ -107,7 +107,8 @@ impl ControlDemo {
                 control,
             },
         )?;
-        workspace.set_working_directory(format!("UI fixture | {next} | ^D twice: exit"));
+        workspace
+            .set_working_directory(format!("UI fixture | ^B Agents | {next} | ^D twice: exit"));
         Ok(())
     }
 }

@@ -60,6 +60,16 @@ impl ConversationJournal {
                             state.open_turn.as_ref(),
                         )?;
                     }
+                    JournalEntryPayload::CollaborationItemLinked {
+                        agent_id,
+                        reference,
+                    } => {
+                        self.validate_collaboration_link(
+                            agent_id,
+                            reference,
+                            entry.parent_id.as_ref(),
+                        )?;
+                    }
                     JournalEntryPayload::TurnStarted { turn_id, .. } => {
                         self.validate_new_turn(turn_id, state.open_turn.as_ref())?;
                     }

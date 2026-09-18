@@ -29,6 +29,8 @@ use crate::{
     UPDATE_TASK_TOOL_NAME,
 };
 
+mod process_death;
+
 const UNKNOWN_ARTIFACT: &str =
     "artifact-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
@@ -66,6 +68,15 @@ fn endpoint(name: &str) -> MailEndpoint {
 
 fn delegation() -> DelegationId {
     DelegationId::new("delegation").expect("delegation")
+}
+
+fn settled_outcome<E>(
+    result: &Result<CollaborationIngressResult, E>,
+) -> Option<&CollaborationIngressOutcome> {
+    result
+        .as_ref()
+        .ok()
+        .map(CollaborationIngressResult::outcome)
 }
 
 fn owner(directory: &Directory) -> OwnedCollaboration {
@@ -397,9 +408,15 @@ async fn ctl_1_ingress_derives_mail_endpoints_and_current_task_revision() {
         ToolOutcome::Succeeded { output } if output.contains("mail_accepted")
     ));
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
+    let accepted = settlement.result().as_ref().expect("accepted mail result");
+    assert_eq!(
+        result.collaboration_reference(),
+        Some(accepted.reference()),
+        "the sender receives only the canonical placement reference"
+    );
 
     let child_mail = admit(
         &child,
@@ -410,8 +427,8 @@ async fn ctl_1_ingress_derives_mail_endpoints_and_current_task_revision() {
     .await;
     let (_, settlement) = execute_and_settle(&child, &mut owner, child_mail).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
 
     let update = admit(
@@ -426,8 +443,8 @@ async fn ctl_1_ingress_derives_mail_endpoints_and_current_task_revision() {
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, update).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::TaskUpdated)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::TaskUpdated)
     ));
     let view = owner
         .delegation_view(delegation())
@@ -574,8 +591,8 @@ async fn ctl_1_artifact_selector_requires_an_authenticated_sender_journal_fact()
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, mail).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
     let child_mail = owner
         .mail_snapshot(endpoint("child"))
@@ -758,9 +775,17 @@ async fn ctl_1_cancelled_tool_wait_does_not_cancel_an_accepted_ingress_mutation(
         .expect("accepted command settles");
     assert_eq!(settlement.call_id().as_str(), "cancelled-update");
     assert!(!settlement.reply_delivered());
+    assert_eq!(settlement.caller(), Some(&endpoint("main")));
+    settlement
+        .result()
+        .as_ref()
+        .expect("settled update")
+        .reference()
+        .validate()
+        .expect("canonical update reference");
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::TaskUpdated)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::TaskUpdated)
     ));
     assert_eq!(
         owner
@@ -826,9 +851,17 @@ async fn ctl_1_child_mail_cancellation_releases_the_caller_and_retains_the_mutat
         .await
         .expect("accepted child mail settles");
     assert!(!settlement.reply_delivered());
+    assert_eq!(settlement.caller(), Some(&endpoint("child")));
+    settlement
+        .result()
+        .as_ref()
+        .expect("settled mail")
+        .reference()
+        .validate()
+        .expect("canonical mail reference");
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
     let main_mail = owner
         .mail_snapshot(endpoint("main"))
@@ -884,8 +917,8 @@ async fn ctl_1_child_stop_does_not_deadlock_behind_its_accepted_mail() {
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, delegate).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::Delegated { .. })
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::Delegated { .. })
     ));
     let target = owner
         .register_collaboration_targets()
@@ -914,8 +947,8 @@ async fn ctl_1_child_stop_does_not_deadlock_behind_its_accepted_mail() {
         .expect("accepted child mail settles after Stop");
     assert!(!settlement.reply_delivered());
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
     assert_eq!(
         owner
@@ -963,8 +996,8 @@ async fn ctl_1_main_mail_wakes_an_engaged_child_for_a_fresh_second_turn() {
     )
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, delegate).await;
-    let target = match settlement.result() {
-        Ok(CollaborationIngressOutcome::Delegated { target }) => target.clone(),
+    let target = match settled_outcome(settlement.result()) {
+        Some(CollaborationIngressOutcome::Delegated { target }) => target.clone(),
         outcome => panic!("delegation did not settle: {outcome:?}"),
     };
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -991,8 +1024,8 @@ async fn ctl_1_main_mail_wakes_an_engaged_child_for_a_fresh_second_turn() {
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, mail).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
     tokio::time::timeout(Duration::from_secs(5), async {
         while driver.calls().await.len() < 2 {
@@ -1056,8 +1089,8 @@ async fn ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision() {
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut owner, handoff).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::HandoffCompleted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::HandoffCompleted)
     ));
     assert_eq!(
         owner
@@ -1090,8 +1123,8 @@ async fn ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision() {
         let mail = admit(catalog, call, SEND_MAIL_TOOL_NAME, arguments).await;
         let (_, settlement) = execute_and_settle(catalog, &mut owner, mail).await;
         assert!(matches!(
-            settlement.result(),
-            Ok(CollaborationIngressOutcome::MailAccepted)
+            settled_outcome(settlement.result()),
+            Some(CollaborationIngressOutcome::MailAccepted)
         ));
     }
 
@@ -1104,6 +1137,138 @@ async fn ctl_2_catalog_rechecks_role_and_handoff_uses_owner_derived_revision() {
             .any(|settlement| matches!(settlement, OwnedShutdownSettlement::Ingress(_)))
     );
     assert!(CollaborationFile::open(path_for(&directory)).is_ok());
+}
+
+/// CCV-1/CCV-2: authenticated Handoff reports pending before its durable User snapshot.
+#[tokio::test]
+async fn ccv_1_handoff_activity_projects_pending_before_acknowledgement() {
+    let directory = Directory::new();
+    let mut owner = owner(&directory);
+    let main_ingress = owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main");
+    let target = owner
+        .register_collaboration_target(delegation())
+        .await
+        .expect("register target");
+    let user_target = target.user_input_target();
+    let initial = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("initial Main snapshot");
+    assert_eq!(initial.revision(), 0);
+    assert_eq!(initial.control(), OwnedChildControl::Main);
+    let main = catalog(&directory)
+        .with_main_collaboration(main_ingress)
+        .expect("Main catalog");
+    let call = admit(
+        &main,
+        "visible-handoff",
+        HANDOFF_TOOL_NAME,
+        json!({"target": target.selector().as_str()}),
+    )
+    .await;
+    let execution = main.execute(call, NativeCancellation::new());
+    tokio::pin!(execution);
+
+    let pending = {
+        let pending_activity = owner.next_activity();
+        tokio::pin!(pending_activity);
+        tokio::select! {
+            activity = &mut pending_activity => activity.expect("pending control activity"),
+            result = &mut execution => panic!("Handoff acknowledged before pending control: {result:?}"),
+        }
+    };
+    assert!(matches!(
+        pending,
+        OwnedCollaborationActivity::Control(snapshot)
+            if snapshot.worker() == target.worker()
+                && snapshot.revision() == 1
+                && snapshot.control() == OwnedChildControl::HandoffPending
+    ));
+    assert!(
+        tokio::time::timeout(Duration::ZERO, &mut execution)
+            .await
+            .is_err(),
+        "the tool remains unacknowledged while pending is visible"
+    );
+    let (result, settled) = tokio::join!(execution, owner.next_activity());
+    assert!(matches!(result.outcome(), ToolOutcome::Succeeded { .. }));
+    assert!(matches!(
+        settled,
+        Some(OwnedCollaborationActivity::Ingress(settlement))
+            if matches!(
+                settled_outcome(settlement.result()),
+                Some(CollaborationIngressOutcome::HandoffCompleted)
+            )
+    ));
+    let user = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("durable User snapshot");
+    assert_eq!(user.revision(), 2);
+    assert_eq!(user.control(), OwnedChildControl::User);
+    shutdown(&mut owner).await;
+}
+
+/// CCV-1/CCV-4: a refused Handoff can return to Main and retry without a stale revision.
+#[tokio::test]
+async fn ccv_1_failed_handoff_projection_rolls_forward_to_main_before_retry() {
+    let directory = Directory::new();
+    let mut owner = owner(&directory);
+    owner
+        .bind_main_ingress(endpoint("main"))
+        .expect("bind Main");
+    let target = owner
+        .register_collaboration_target(delegation())
+        .await
+        .expect("register target");
+    let user_target = target.user_input_target();
+    let initial = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("initial Main snapshot");
+    let attempt = CollaborationAttempt {
+        id: CollaborationItemId::new("retry-handoff").expect("item"),
+        event: CollaborationEvent::HandoffCompleted {
+            delegation: delegation(),
+            expected: DelegationRevision(0),
+            author: endpoint("main"),
+        },
+    };
+
+    let pending = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("pending snapshot");
+    let repeated = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("repeated pending snapshot");
+    let rolled_back = owner
+        .child_control_snapshot(&user_target)
+        .await
+        .expect("canonical Main snapshot");
+    let retry = owner
+        .pending_handoff_snapshot(&attempt)
+        .expect("retry pending snapshot");
+
+    assert_eq!(
+        (initial.revision(), initial.control()),
+        (0, OwnedChildControl::Main)
+    );
+    assert_eq!(
+        (pending.revision(), pending.control()),
+        (1, OwnedChildControl::HandoffPending)
+    );
+    assert_eq!(repeated, pending, "repeated state is a no-op");
+    assert_eq!(
+        (rolled_back.revision(), rolled_back.control()),
+        (2, OwnedChildControl::Main)
+    );
+    assert_eq!(
+        (retry.revision(), retry.control()),
+        (3, OwnedChildControl::HandoffPending)
+    );
+    shutdown(&mut owner).await;
 }
 
 /// CTL-1/SCH-4: ingress capacity is hard and shutdown settles every accepted command.
@@ -1172,10 +1337,11 @@ async fn ctl_1_ingress_lane_is_bounded_and_shutdown_retains_all_settlements() {
         INGRESS_CAPACITY
     );
     for task in tasks {
-        assert_eq!(
-            task.await.expect("tool task"),
-            Ok(CollaborationIngressOutcome::TaskUpdated)
-        );
+        let result = task.await.expect("tool task");
+        assert!(matches!(
+            settled_outcome(&result),
+            Some(CollaborationIngressOutcome::TaskUpdated)
+        ));
     }
 }
 
@@ -1230,8 +1396,8 @@ async fn ctl_1_restart_rebuilds_targets_without_exposing_durable_identities() {
     .await;
     let (_, settlement) = execute_and_settle(&main, &mut resumed, mail).await;
     assert!(matches!(
-        settlement.result(),
-        Ok(CollaborationIngressOutcome::MailAccepted)
+        settled_outcome(settlement.result()),
+        Some(CollaborationIngressOutcome::MailAccepted)
     ));
     shutdown(&mut resumed).await;
 }
@@ -1330,8 +1496,8 @@ async fn ctl_1_cancelled_delegate_wait_settles_once_without_duplicate_creation()
         .next_ingress()
         .await
         .expect("retained delegation settles");
-    let target = match settlement.result() {
-        Ok(CollaborationIngressOutcome::Delegated { target }) => target,
+    let target = match settled_outcome(settlement.result()) {
+        Some(CollaborationIngressOutcome::Delegated { target }) => target,
         outcome => panic!("delegation did not settle: {outcome:?}"),
     };
     assert!(target.as_str().starts_with("target-v1-"));
@@ -1607,8 +1773,8 @@ async fn ctl_1_delegate_preflights_capacity_and_resumes_without_duplicate_creati
     )
     .await;
     let (result, settlement) = execute_and_settle(&main, &mut owner, delegate).await;
-    let target = match settlement.result() {
-        Ok(CollaborationIngressOutcome::Delegated { target }) => target.clone(),
+    let target = match settled_outcome(settlement.result()) {
+        Some(CollaborationIngressOutcome::Delegated { target }) => target.clone(),
         outcome => panic!("delegation did not settle: {outcome:?}"),
     };
     assert!(matches!(
@@ -1735,8 +1901,8 @@ async fn ctl_1_root_activity_multiplexes_late_ingress_without_polling() {
         activity,
         Some(OwnedCollaborationActivity::Ingress(settlement))
             if matches!(
-                settlement.result(),
-                Ok(CollaborationIngressOutcome::MailAccepted)
+                settled_outcome(settlement.result()),
+                Some(CollaborationIngressOutcome::MailAccepted)
             )
     ));
     shutdown(&mut owner).await;

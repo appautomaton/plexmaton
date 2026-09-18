@@ -1,23 +1,23 @@
-
-
-
-
-
-
-
-
-
- ▌Review the Markdown update.
-
- Summary
-
- Text selection now copies only the chosen words.
-
- ┌ rust
- │     println!("hello, 世界");
- └
-
-                                                                                 text selected
+┌ Plexmaton ──────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│▌Review the Markdown update.                                                                 │
+│                                                                                             │
+│Summary                                                                                      │
+│                                                                                             │
+│Text selection now copies only the chosen words.                                             │
+│                                                                                             │
+│┌ rust                                                                                       │
+││     println!("hello, 世界");                                                               │
+│└                                                                                            │
+│                                                                                             │
+│                                                                                text selected│
 ── Message Plexmaton ──────────────────────────────────────────────────────────────────────────
  Type a message · ⇥ to focus
 ───────────────────────────────────────────────────────────────────────────────────────────────

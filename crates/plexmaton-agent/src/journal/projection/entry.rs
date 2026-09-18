@@ -12,6 +12,10 @@ pub(super) fn project_entry(
     let source = entry.id.clone();
     let activation_owner = projector.activation_owner.take();
     match &entry.payload {
+        JournalEntryPayload::CollaborationItemLinked { agent_id, .. } => {
+            projector.activation_owner = activation_owner;
+            projector.require_agent(agent_id)
+        }
         JournalEntryPayload::CollaborationTurnStarted {
             agent_id,
             turn_id,

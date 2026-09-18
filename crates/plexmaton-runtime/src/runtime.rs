@@ -22,6 +22,8 @@ mod model;
 mod navigation;
 mod permissions;
 pub use permissions::{CodingSessionPermissions, ProjectPermissionConfigurationSource};
+mod projection;
+pub use projection::DelegatedProjectionRefusal;
 mod queue;
 pub(super) use queue::rejected_user_input;
 pub use queue::{QueuedBoundary, QueuedInput};
@@ -131,20 +133,6 @@ enum ShutdownState {
 }
 
 impl LiveRuntime {
-    /// Puts one fact about a delegated child on this conversation's roster.
-    ///
-    /// The child is a separate Conversation; only its existence and lifecycle belong to the root's
-    /// projection, and the collaboration log already holds both durably.
-    ///
-    /// Queued rather than returned, because the sequence it takes belongs to this conversation and
-    /// the queue is where that order is kept: a caller that published the envelope itself would
-    /// step in front of events numbered earlier and still waiting — behind a projection reset, for
-    /// one — and the projection drops whatever arrives after a number it has already applied.
-    pub fn project_delegated(&mut self, event: plexmaton_core::ConversationEvent) {
-        self.pending
-            .extend(self.agent.project_delegated(event).events);
-    }
-
     /// Gives one addressed input to the owned agent and performs every resulting effect.
     pub async fn submit(
         &mut self,
@@ -173,6 +161,17 @@ impl LiveRuntime {
         input: Input,
         selected_skill: Option<String>,
     ) -> Result<DispatchReport, RuntimeError> {
+        self.submit_selected_with_control(to, input, selected_skill, true)
+            .await
+    }
+
+    async fn submit_selected_with_control(
+        &mut self,
+        to: AgentId,
+        input: Input,
+        selected_skill: Option<String>,
+        require_user_control: bool,
+    ) -> Result<DispatchReport, RuntimeError> {
         if to != self.agent_id {
             return Err(RuntimeError::WrongAgent {
                 expected: self.agent_id.clone(),
@@ -190,7 +189,9 @@ impl LiveRuntime {
             }
             return Err(RuntimeError::ShuttingDown);
         }
-        if let Some(refusal) = self.refuse_direct_input(&input, selected_skill.as_deref()) {
+        if require_user_control
+            && let Some(refusal) = self.refuse_direct_input(&input, selected_skill.as_deref())
+        {
             return refusal;
         }
         if matches!(&input, Input::Interrupted) {

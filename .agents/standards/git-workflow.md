@@ -9,8 +9,8 @@
 
 [AGENTS.md](../../AGENTS.md#working-discipline) owns the default: the primary checkout stays on
 `main`, and development happens in task worktrees. A task branch and its worktree are temporary
-resources owned by the task's primary agent; delegates remain read-only. Merging starts retirement;
-cleanup completes it.
+resources owned by the task's primary agent. Delegate edit authority follows AGENTS.md.
+Merging starts retirement; cleanup completes it.
 Git refs, registered worktrees and the PR are the inventory; do not maintain a second registry.
 
 Permission to commit, publish or merge still follows AGENTS.md. An authorized merge includes

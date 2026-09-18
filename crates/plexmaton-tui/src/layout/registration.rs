@@ -15,6 +15,8 @@ const POPUP_Z_INDEX: u32 = 5;
 const MODAL_Z_INDEX: u32 = 10;
 const TREE_Z_INDEX: u32 = 15;
 const DRAWER_Z_INDEX: u32 = 20;
+/// Above conversation-owned popups and decisions, below workspace-wide overlays.
+const AGENTS_NAVIGATOR_Z_INDEX: u32 = TREE_Z_INDEX - 1;
 
 /// Registers the complete supported workspace from rectangles computed by layout.
 pub(super) fn surface_tree(
@@ -30,9 +32,13 @@ pub(super) fn surface_tree(
         &mut tree,
         SurfaceId::Agents,
         regions.agents,
-        SurfaceKind::Panel,
         if regions.agents_floats {
-            FLOATING_Z_INDEX
+            SurfaceKind::Modal
+        } else {
+            SurfaceKind::Panel
+        },
+        if regions.agents_floats {
+            AGENTS_NAVIGATOR_Z_INDEX
         } else {
             BASE_Z_INDEX
         },

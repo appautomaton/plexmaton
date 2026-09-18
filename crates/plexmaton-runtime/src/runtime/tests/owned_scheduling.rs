@@ -26,11 +26,13 @@ use super::tools::TestWorkspace;
 use super::{FakeDriver, Script, text_delta};
 use crate::runtime::{FixedWallClock, LiveRuntime};
 use crate::{
-    ChildStartError, CollaborationWriter, CollaborationWriterError, OwnedChildRunner,
-    OwnedCollaboration, OwnedRunnerUpdate, OwnedSchedulingError, OwnedShutdownSettlement,
-    PreparedChildExecution, RunnerGeneration, RunnerRegistrationReason, RuntimeUpdate,
-    ScheduledTurnRequest, SchedulerLimits, WakeAdmission, WakeHint, WakeRefusal,
+    ChildStartError, CollaborationWriter, CollaborationWriterError, DispatchReport,
+    OwnedChildRunner, OwnedCollaboration, OwnedRunnerUpdate, OwnedSchedulingError,
+    OwnedShutdownSettlement, PreparedChildExecution, RunnerGeneration, RunnerRegistrationReason,
+    RuntimeUpdate, ScheduledTurnRequest, SchedulerLimits, WakeAdmission, WakeHint, WakeRefusal,
 };
+
+mod user_control;
 
 struct Directory(std::path::PathBuf);
 
@@ -325,6 +327,277 @@ async fn sch_2_stop_completes_while_the_update_lane_is_saturated() {
     }
     runner.finish_shutdown().await.expect("join child");
     collaboration.shutdown().await.expect("join collaboration");
+}
+
+/// SCH-2/SCH-4: owner Stop admission is synchronous, and cancelling its settlement poll retains
+/// the accepted control command for the next update.
+#[tokio::test]
+async fn sch_2_owner_stop_initiation_is_cancellation_safe() {
+    let directory = Directory::new();
+    let workspace = TestWorkspace::new("owned-stop-initiation");
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let started = Arc::new(Notify::new());
+    let cancelled = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (runtime, request) = bound_runtime(
+        &directory,
+        &workspace,
+        &writer,
+        "one",
+        FakeDriver::new([Script::WaitForCancellationAndRelease {
+            started: Arc::clone(&started),
+            cancelled: Arc::clone(&cancelled),
+            release: Arc::clone(&release),
+        }]),
+    )
+    .await;
+    let conversation = runtime.conversation_id().clone();
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    owner.register(runtime).await.expect("register child");
+    owner.next_update().await.expect("initial update");
+    owner.schedule(request).await.expect("schedule child");
+    started.notified().await;
+
+    owner
+        .begin_stop(&conversation)
+        .expect("Stop admission is synchronous");
+    {
+        let next = owner.next_update();
+        tokio::pin!(next);
+        tokio::select! {
+            () = cancelled.notified() => {}
+            update = &mut next => panic!("Stop settled before the cancellation boundary: {update:?}"),
+        }
+    }
+    release.notify_one();
+    let settled = tokio::time::timeout(Duration::from_secs(5), owner.next_update())
+        .await
+        .expect("retained Stop resumes")
+        .expect("Stop update");
+    assert!(matches!(settled, OwnedRunnerUpdate::StopSettled { .. }));
+
+    owner.begin_shutdown().await.expect("begin shutdown");
+    while !owner
+        .next_update()
+        .await
+        .expect("shutdown update")
+        .is_finished()
+    {}
+    owner.finish_shutdown().await.expect("join owner");
+}
+
+/// SCH-2/SCH-4: a pending schedule is settled before the same child's Stop, and cancellation of
+/// the first owner poll retains both reports for the next poll.
+#[tokio::test]
+async fn sch_4_begin_stop_repoll_preserves_pending_schedule_report() {
+    let directory = Directory::new();
+    let workspace = TestWorkspace::new("owned-stop-pending-schedule");
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (runtime, request) = bound_runtime(
+        &directory,
+        &workspace,
+        &writer,
+        "one",
+        FakeDriver::new([Script::WaitForRelease {
+            started: Arc::clone(&started),
+            release: Arc::clone(&release),
+        }]),
+    )
+    .await;
+    let conversation = runtime.conversation_id().clone();
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    let identity = owner.register(runtime).await.expect("register child");
+    owner.next_update().await.expect("initial update");
+
+    let (entered, writer_release) = owner.hold_writer_for_test();
+    entered.recv().expect("writer is held");
+    assert!(
+        tokio::time::timeout(Duration::ZERO, owner.schedule(request))
+            .await
+            .is_err(),
+        "the accepted schedule remains pending behind the writer barrier"
+    );
+
+    owner
+        .begin_stop(&conversation)
+        .expect("Stop admission does not wait for the pending schedule");
+    assert!(
+        tokio::time::timeout(Duration::ZERO, started.notified())
+            .await
+            .is_err(),
+        "Stop cannot start the child before the pending schedule is released"
+    );
+    assert!(
+        tokio::time::timeout(Duration::ZERO, owner.next_update())
+            .await
+            .is_err(),
+        "cancelling the first settlement poll retains the accepted Stop"
+    );
+
+    writer_release.send(()).expect("release writer");
+    let mut next = Box::pin(owner.next_update());
+    tokio::select! {
+        () = started.notified() => {}
+        update = &mut next => panic!("Stop settled before the schedule completed: {update:?}"),
+    }
+    release.notify_one();
+    let settled = tokio::time::timeout(Duration::from_secs(5), next)
+        .await
+        .expect("re-poll settles the retained operations")
+        .expect("Stop update");
+    let OwnedRunnerUpdate::StopSettled {
+        identity: settled_identity,
+        outcome,
+    } = settled
+    else {
+        panic!("expected the retained Stop settlement");
+    };
+    assert_eq!(settled_identity, identity);
+    let report = outcome.expect("child Stop succeeds");
+    assert_eq!(report.scheduled, Some(DispatchReport::default()));
+    assert!(matches!(
+        report.stopped.undelivered_model.as_slice(),
+        [plexmaton_agent::UndeliveredModelInput {
+            reason: plexmaton_agent::ModelDeliveryRefusal::NoActiveStep,
+            ..
+        }]
+    ));
+
+    owner.begin_shutdown().await.expect("begin shutdown");
+    while !owner
+        .next_update()
+        .await
+        .expect("shutdown update")
+        .is_finished()
+    {}
+    owner.finish_shutdown().await.expect("join owner");
+}
+
+/// SCH-2/SCH-4: repeated same-target initiation is idempotent while another target is refused.
+#[tokio::test]
+async fn sch_2_owner_stop_initiation_is_idempotent_and_exclusive() {
+    let directory = Directory::new();
+    let workspace = TestWorkspace::new("owned-stop-initiation-exclusive");
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let started = Arc::new(Notify::new());
+    let cancelled = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (first, first_request) = bound_runtime(
+        &directory,
+        &workspace,
+        &writer,
+        "one",
+        FakeDriver::new([Script::WaitForCancellationAndRelease {
+            started: Arc::clone(&started),
+            cancelled: Arc::clone(&cancelled),
+            release: Arc::clone(&release),
+        }]),
+    )
+    .await;
+    let first_conversation = first.conversation_id().clone();
+    let (second, _) =
+        bound_runtime(&directory, &workspace, &writer, "two", FakeDriver::new([])).await;
+    let second_conversation = second.conversation_id().clone();
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(2).expect("limits"));
+    owner.register(first).await.expect("register first");
+    owner.register(second).await.expect("register second");
+    owner.next_update().await.expect("first announcement");
+    owner.next_update().await.expect("second announcement");
+    owner
+        .schedule(first_request)
+        .await
+        .expect("schedule first child");
+    started.notified().await;
+
+    owner
+        .begin_stop(&first_conversation)
+        .expect("first Stop admission");
+    owner
+        .begin_stop(&first_conversation)
+        .expect("same-target Stop is idempotent");
+    assert!(matches!(
+        owner.begin_stop(&second_conversation),
+        Err(OwnedSchedulingError::StopInProgress)
+    ));
+
+    cancelled.notified().await;
+    release.notify_one();
+    let settled = tokio::time::timeout(Duration::from_secs(5), owner.next_update())
+        .await
+        .expect("Stop settles")
+        .expect("Stop update");
+    assert!(matches!(settled, OwnedRunnerUpdate::StopSettled { .. }));
+
+    owner.begin_shutdown().await.expect("begin shutdown");
+    let mut finished = 0;
+    while finished < 2 {
+        if owner
+            .next_update()
+            .await
+            .expect("shutdown update")
+            .is_finished()
+        {
+            finished += 1;
+        }
+    }
+    owner.finish_shutdown().await.expect("join owner");
+}
+
+/// SCH-2/SCH-4: an idle Stop removes its wake before control admission and refuses an unknown
+/// conversation without creating owner state.
+#[tokio::test]
+async fn sch_2_owner_stop_on_idle_removes_wake_and_refuses_unknown() {
+    let directory = Directory::new();
+    let workspace = TestWorkspace::new("owned-stop-idle");
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let (runtime, _) =
+        bound_runtime(&directory, &workspace, &writer, "one", FakeDriver::new([])).await;
+    let conversation = runtime.conversation_id().clone();
+    let missing = ConversationId::new("missing-conversation").expect("missing conversation");
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    let identity = owner.register(runtime).await.expect("register child");
+    owner.next_update().await.expect("initial update");
+
+    assert!(matches!(
+        owner.begin_stop(&missing),
+        Err(OwnedSchedulingError::UnknownRunner)
+    ));
+    owner
+        .wake(WakeHint::new(
+            identity,
+            item("wake-before-idle-stop"),
+            TurnId::new("wake-before-idle-stop").expect("wake turn"),
+        ))
+        .expect("queue idle wake");
+    owner
+        .begin_stop(&conversation)
+        .expect("idle Stop admission");
+    let settled = tokio::time::timeout(Duration::from_secs(5), owner.next_update())
+        .await
+        .expect("idle Stop settles")
+        .expect("Stop update");
+    assert!(matches!(settled, OwnedRunnerUpdate::StopSettled { .. }));
+    assert!(
+        tokio::time::timeout(Duration::ZERO, owner.next_update())
+            .await
+            .is_err(),
+        "idle Stop removed the queued wake"
+    );
+
+    owner.begin_shutdown().await.expect("begin shutdown");
+    while !owner
+        .next_update()
+        .await
+        .expect("shutdown update")
+        .is_finished()
+    {}
+    owner.finish_shutdown().await.expect("join owner");
 }
 
 /// SCH-4: dropping an idle handle aborts its task and releases the child journal owner.

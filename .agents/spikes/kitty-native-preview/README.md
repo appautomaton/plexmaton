@@ -15,7 +15,9 @@ From the task worktree, in Kitty:
 cargo run --locked -p plexmaton-tui --example native_preview
 ```
 
-The preview starts with Main's composer focused and a Main-controlled child open. `F6` advances
+The preview starts with Main's composer focused and a Main-controlled child open. On Narrow the
+child owns the body and its top-right `Agents ^B` handle opens the full-region navigator by click;
+`Ctrl-B` is the keyboard equivalent. `F6` advances
 Main running → Main idle → Handoff pending → User idle. These are explicit fixture snapshots,
 not durable operations; the final state does not cycle back to Main. Acknowledgment keeps the
 current focus. `Tab`, or a click in the child's conversation, enters it; only User control allows
@@ -32,7 +34,7 @@ cargo run --locked -p plexmaton-tui --example roster_preview
 Five agents in four states at once: one failed, one wanting an approval, one asking a question, two
 working. `Ctrl-B` puts the panel away and brings it back, `↑`/`↓` move the selection, and `Enter`
 enters an agent, which for one that is asking is also going to its request. Resizing past 72 columns
-moves the panel from a column to a shelf over the conversation.
+moves the panel between a column and the Narrow full-region navigator.
 
 To launch a separate review window and size it in cells from another Kitty shell:
 
@@ -55,7 +57,8 @@ and explicitly agreed that the demonstration was incomplete. Source data comes f
 variant of `Scenario::canonical`; rendering and normal event routing use the real `Workspace` and
 Crossterm backend. No HTML, SVG or image is substituted for the terminal cells.
 
-Kitty's own window metadata and screen readback verified 36 rows at each requested width:
+Kitty's 2026-09-13 screen readback verified the control baseline at 36 rows per width; these files
+do not establish the refreshed Narrow navigation:
 
 | Width | Main running, primary input focused | User control, child explicitly entered |
 | --- | --- | --- |
@@ -69,10 +72,10 @@ only explicit entry revealed child input. Normal exit returned code zero, restor
 terminal modes exactly and released the alternate screen. The temporary local probe and structured
 report are in `target/native-preview-validation/`; the retained frames above are the durable evidence.
 
-Local validation: 463 TUI library tests, four preview refusal tests, all-target TUI Clippy, format,
-citations and file length passed. Targeted Sol re-review found no remaining correctness blocker.
-App screenshot access was unavailable: screen readbacks establish cells and geometry, not pixel-level
-visual approval. User acceptance of the new layout and error/panic cleanup fault probes remain pending.
+Current validation passes all 508 TUI tests, the full workspace suite, workspace Clippy, 42 Python
+tests, corpus gates, terminal lifecycle smoke and the real delegation smoke. The user reviewed the
+fresh 60 × 36 Kitty preview on 2026-09-16 and accepted its structure and function; minor visual
+refinements remain separate work.
 
 [CCV-1–CCV-4](../../specs/child-control-view.md) own the tested controller/input boundary. The fixture
 loads no provider configuration, makes no model requests and writes no conversation. Rejected
@@ -81,7 +84,7 @@ names the offline fixture. Ctrl-C interrupt requests, approvals, permissions and
 never report success. Preparation is synchronous for this finite fixture; native math output and
 production responsiveness are not demonstrated.
 
-Child history and mail are synthetic. This scenario has no Attention request; the Attention layout
-is unchanged. Authenticated control snapshots, real Stop/Handoff settlement, canonical mail inclusion
-and Attention, and provider activation remain the [Stage 7](../../plans/phase-03-stage-07-product-integration.md)
-product boundary. No product interaction contract was changed by this preview.
+Child history and mail are synthetic. This scenario has no Attention request. The separate real PTY
+covers authenticated control snapshots, Stop/Handoff settlement, provider activation, canonical
+mail and Attention. The fixture remains presentation evidence rather than an authenticated product
+source.

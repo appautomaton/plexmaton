@@ -1,6 +1,7 @@
 mod inclusion;
 use plexmaton_core::{
-    AgentId, ArtifactId, CollaborationId, CollaborationItemId, ConversationId, DelegationId, MailId,
+    AgentId, ArtifactId, AttentionId, CollaborationId, CollaborationItemId, ConversationId,
+    DelegationId, MailId,
 };
 
 use super::*;
@@ -69,6 +70,13 @@ fn handoff(expected: u64) -> CollaborationEvent {
     release_by(endpoint("a"), expected)
 }
 
+fn attention(name: &str) -> AttentionReference {
+    AttentionReference {
+        producer: endpoint("b"),
+        attention_id: AttentionId::new(name).expect("fixture identity"),
+    }
+}
+
 fn ledger(limits: CollaborationLimits) -> CollaborationLedger {
     let mut ledger = CollaborationLedger::new(
         CollaborationId::new("collaboration").expect("fixture identity"),
@@ -128,6 +136,56 @@ fn col_1_exact_retry_and_replay_preserve_original_admission() {
         Err(CollaborationError::UnexpectedSequence)
     );
     assert_eq!(replay, ledger);
+}
+
+/// ATT-1/ATT-3: the log authenticates only a producer reference and exact lifecycle order.
+#[test]
+fn attention_references_are_bounded_exact_and_outside_turn_sources() {
+    let mut ledger = ledger(CollaborationLimits::default());
+    let request = CollaborationEvent::AttentionRequested {
+        attention: attention("approval-1"),
+    };
+    let receipt = accept(&mut ledger, "attention-request", request.clone());
+    assert_eq!(
+        ledger.prepare(item("attention-request"), request),
+        Ok(Preparation::Existing(receipt))
+    );
+    refuses(
+        &mut ledger,
+        CollaborationEvent::AttentionRequested {
+            attention: attention("approval-1"),
+        },
+        CollaborationError::AttentionIdentityConflict,
+    );
+    refuses(
+        &mut ledger,
+        CollaborationEvent::AttentionResolved {
+            attention: attention("unknown"),
+        },
+        CollaborationError::UnknownAttention,
+    );
+    accept(
+        &mut ledger,
+        "attention-resolution",
+        CollaborationEvent::AttentionResolved {
+            attention: attention("approval-1"),
+        },
+    );
+    refuses(
+        &mut ledger,
+        CollaborationEvent::AttentionResolved {
+            attention: attention("approval-1"),
+        },
+        CollaborationError::AttentionAlreadyResolved,
+    );
+
+    let mut unknown = attention("foreign");
+    unknown.producer = endpoint("unknown");
+    refuses(
+        &mut ledger,
+        CollaborationEvent::AttentionRequested { attention: unknown },
+        CollaborationError::UnknownEndpoint,
+    );
 }
 
 /// COL-2: a mail flood cannot spend reserved control slots; retries still work at full capacity.

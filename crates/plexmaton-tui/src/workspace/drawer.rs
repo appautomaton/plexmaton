@@ -95,6 +95,15 @@ impl Workspace {
     pub fn has_unsent_input(&self) -> bool {
         self.state.has_unsent_input()
     }
+
+    /// The delegated children a switch would interrupt, each with the roster's name for it (SPK-2).
+    #[must_use]
+    pub fn working_delegates(&self) -> Vec<(AgentId, String)> {
+        self.state
+            .working_delegates()
+            .map(|agent| (agent.id.clone(), agent.label.clone()))
+            .collect()
+    }
     /// Makes room for `/resume`'s rows before their owned loader supplies them (SPK-1).
     pub fn open_conversation_picker(&mut self) {
         self.state.open_conversation_picker();
@@ -123,6 +132,20 @@ impl Workspace {
     /// The switch did not happen; the conversation that asked is told why (SPK-2).
     pub fn report_switch_refusal(&mut self, refusal: SwitchRefusal) {
         self.state.report_switch_refusal(refusal);
+    }
+
+    /// Offers a switch that would stop a working child, naming it as the roster does (SPK-2).
+    ///
+    /// It goes to the workspace's last row, beside the quit chord, because it is the same kind of
+    /// thing: an action waiting for the user to repeat the gesture that asked for it. The listing
+    /// keeps its rows, and `/new`, which has no rows, is answered in the same place.
+    pub fn arm_switch(&mut self, child: String) {
+        self.state.arm(crate::state::Armed::Switch { child });
+    }
+
+    /// Withdraws a switch nobody confirmed, because the user asked for something else.
+    pub fn disarm_switch(&mut self) {
+        self.state.disarm_switch();
     }
 
     /// The conversation is open: the `/resume` draft is consumed and the menu closes.

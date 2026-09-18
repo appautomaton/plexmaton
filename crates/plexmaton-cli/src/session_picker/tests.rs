@@ -154,7 +154,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     );
     assert!(
         !picker
-            .apply(Update::OpenFailed, &mut runtime, &mut workspace)
+            .apply(Update::OpenFailed, &mut runtime, &mut None, &mut workspace)
             .await
             .expect("refused")
     );
@@ -182,6 +182,7 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
             .apply(
                 Update::Opened(Box::new(opened)),
                 &mut runtime,
+                &mut None,
                 &mut workspace
             )
             .await
@@ -215,6 +216,170 @@ async fn session_switch_validates_before_replacing_and_never_dispatches() {
     );
 }
 
+/// SPK-4: a conversation the picker opens can delegate, and the one it replaces is joined once.
+///
+/// This is the defect the invariant was written for. The picker built its own catalog and never
+/// installed the Main lane, so a switch produced a runtime with no `delegate` and a collaboration
+/// whose `matches_runtime` was false forever: `can_poll` went false, the owner's activity stream
+/// stopped being polled, and every delegated child vanished from the roster with no error anywhere.
+/// `can_poll` is therefore the assertion that matters — it is the exact predicate that was false.
+#[tokio::test]
+async fn switching_carries_a_live_collaboration_into_the_replacement() {
+    let root = FixtureWorkspace::new();
+    saved(root.path(), "haiku");
+    let launcher = launcher(root.path());
+    let (mut runtime, mut workspace) = current(&launcher).await;
+    let mut picker = ConversationPicker::new(launcher.clone());
+    let mut live: Option<collaboration::Collaboration> = None;
+
+    workspace.begin_conversation_switch();
+    let opened = launcher
+        .clone()
+        .open_with_key(
+            ConversationSelection::Resume(id("haiku")),
+            agent_id(),
+            JobCancellation::new(),
+            key(&launcher),
+        )
+        .await
+        .expect("load");
+    // The lane is proven by the open having succeeded at all: sealing calls
+    // `main_collaboration_identity`, which a runtime built from a catalog without the Main lane
+    // does not have, so `open_with_key` would have failed rather than returned a collaboration.
+    assert!(
+        opened.collaboration.is_some(),
+        "a saved conversation the picker opens carries its own collaboration"
+    );
+
+    assert!(
+        picker
+            .apply(
+                Update::Opened(Box::new(opened)),
+                &mut runtime,
+                &mut live,
+                &mut workspace
+            )
+            .await
+            .expect("switch")
+    );
+    let collaboration = live.as_ref().expect("the switch installed a collaboration");
+    assert!(
+        collaboration.can_poll(&runtime),
+        "the installed collaboration must be sealed to the runtime that replaced the old one"
+    );
+
+    // The replaced conversation's log is released, so the same conversation can be opened again.
+    let reopened = launcher
+        .clone()
+        .open_with_key(
+            ConversationSelection::Resume(id("haiku")),
+            agent_id(),
+            JobCancellation::new(),
+            key(&launcher),
+        )
+        .await;
+    assert!(
+        reopened.is_err(),
+        "the conversation now on screen still holds its own log"
+    );
+    let mut live = live.take().expect("live");
+    live.shutdown().await.expect("join the live collaboration");
+    surface_shutdown_report(runtime.shutdown().await.expect("shutdown")).expect("clean");
+}
+
+/// SPK-2: a switch past a working child is offered once, and only the same choice performs it.
+///
+/// The picker remembers nothing by itself, so every way of asking something else has to put the
+/// offer back: a different row, a draft, the child finishing on its own. Getting that wrong in the
+/// forgiving direction would turn an unrelated second keystroke into consent to stop work.
+#[tokio::test]
+async fn a_switch_past_a_working_child_is_offered_once_and_only_the_same_choice_takes_it() {
+    use plexmaton_core::{
+        AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
+    };
+
+    let root = FixtureWorkspace::new();
+    saved(root.path(), "haiku");
+    saved(root.path(), "other");
+    let launcher = launcher(root.path());
+    let (runtime, mut workspace) = current(&launcher).await;
+    let child = AgentId::new("delegated-1").expect("child");
+    workspace.emit(vec![ConversationEventEnvelope {
+        sequence: EventSequence::new(u64::MAX / 2),
+        event: ConversationEvent::AgentCreated {
+            agent_id: child.clone(),
+            label: "Delegated 1".to_owned(),
+            status: AgentStatus::Running,
+        },
+    }]);
+    assert_eq!(workspace.working_delegates().len(), 1);
+    let mut picker = ConversationPicker::new(launcher.clone());
+
+    // First choice: offered, nothing started.
+    workspace.open_conversation_picker();
+    picker.select(id("haiku"), &runtime, &mut workspace);
+    assert!(picker.job.is_none(), "the offer starts no work");
+    assert_eq!(
+        picker.offered.as_ref().map(|offer| offer.children.clone()),
+        Some(vec![child.clone()])
+    );
+
+    // A different row is a different question, so it replaces the offer rather than consuming it.
+    picker.select(id("other"), &runtime, &mut workspace);
+    assert!(picker.job.is_none(), "another row asks again");
+    assert_eq!(
+        picker.offered.as_ref().map(|offer| offer.request.clone()),
+        Some(ConfirmableRequest::Saved(id("other")))
+    );
+
+    // The same row again consumes it, and the children travel with the job.
+    picker.select(id("other"), &runtime, &mut workspace);
+    assert!(picker.offered.is_none(), "the offer is spent");
+    assert!(
+        matches!(&picker.job, Some((JobKind::Opening { stopping }, _)) if stopping == &[child]),
+        "the confirmed children travel with the switch"
+    );
+    picker.shutdown().await.expect("release the candidate");
+
+    // A child that finished on its own leaves nothing to ask about.
+    let mut picker = ConversationPicker::new(launcher);
+    workspace.emit(vec![ConversationEventEnvelope {
+        sequence: EventSequence::new(u64::MAX / 2 + 1),
+        event: ConversationEvent::AgentStatusChanged {
+            agent_id: AgentId::new("delegated-1").expect("child"),
+            status: AgentStatus::Completed,
+        },
+    }]);
+    workspace.open_conversation_picker();
+    picker.select(id("haiku"), &runtime, &mut workspace);
+    assert!(picker.offered.is_none(), "an idle child asks nothing");
+    assert!(picker.job.is_some(), "and the switch starts straight away");
+    picker.shutdown().await.expect("release the candidate");
+}
+
+/// SPK-4: an ephemeral replacement has no durable identity, so it has nothing to delegate through.
+#[tokio::test]
+async fn an_ephemeral_replacement_has_no_collaboration_and_no_delegate_tool() {
+    let root = FixtureWorkspace::new();
+    let launcher = launcher(root.path());
+    let mut opened = launcher
+        .clone()
+        .open_with_key(
+            ConversationSelection::Ephemeral,
+            agent_id(),
+            JobCancellation::new(),
+            key(&launcher),
+        )
+        .await
+        .expect("load");
+    assert!(
+        opened.collaboration.is_none(),
+        "an ephemeral conversation has no durable identity to name a log after, so the Main lane \
+         is never installed and `delegate` is absent from its tools"
+    );
+    discard(&mut opened).await.expect("release");
+}
+
 /// SPK-2/SPK-3: dismissal disposes the loaded candidate and releases its writer; drafts block selection.
 #[tokio::test]
 async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
@@ -246,6 +411,7 @@ async fn cancelled_picker_releases_candidate_and_preserves_current_draft() {
             .apply(
                 Update::Opened(Box::new(opened)),
                 &mut runtime,
+                &mut None,
                 &mut workspace
             )
             .await
@@ -300,6 +466,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
                 .apply(
                     Update::Opened(Box::new(opened)),
                     &mut runtime,
+                    &mut None,
                     &mut workspace
                 )
                 .await
@@ -353,6 +520,7 @@ async fn new_session_is_lazy_and_replacement_preserves_saved_history() {
             .apply(
                 Update::Opened(Box::new(candidate)),
                 &mut runtime,
+                &mut None,
                 &mut workspace
             )
             .await
@@ -533,6 +701,7 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
             .apply(
                 Update::Opened(Box::new(candidate)),
                 &mut opened.runtime,
+                &mut None,
                 &mut workspace
             )
             .await

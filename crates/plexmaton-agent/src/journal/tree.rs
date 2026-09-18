@@ -247,6 +247,7 @@ fn semantic_row(
         JournalEntryPayload::CollaborationTurnStarted {
             agent_id: owner, ..
         } if owner == agent_id => (TreeRowKind::Notice, PreviewBuilder::default()),
+        JournalEntryPayload::CollaborationItemLinked { .. } => return None,
         JournalEntryPayload::MailDelivered {
             from, to, summary, ..
         } if from == agent_id || to == agent_id => {

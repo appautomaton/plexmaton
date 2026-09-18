@@ -37,6 +37,27 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+    /// Release the growth headroom of a layout that is finished.
+    ///
+    /// Everything here is built by pushing, so each vector and string carries whatever the
+    /// allocator's growth left over — about a third of the accounted total on a long entry. A
+    /// finished layout is never appended to again, so that headroom is memory held for a future
+    /// that does not arrive, and [`Self::allocation_bytes`] counts it against the entry's
+    /// preparation budget. Rejected: raising the budget instead, which would have kept charging
+    /// every retained entry for space it cannot use and left the cliff one longer letter away.
+    fn shrink(&mut self) {
+        self.text.shrink_to_fit();
+        self.formulas.shrink_to_fit();
+        self.rows.shrink_to_fit();
+        for row in &mut self.rows {
+            row.shrink_to_fit();
+        }
+        self.lines.shrink_to_fit();
+        for line in &mut self.lines {
+            line.shrink();
+        }
+    }
+
     /// Account owned capacities, including composed paint layers, before retaining preparation.
     pub(crate) fn allocation_bytes(&self) -> usize {
         self.text.capacity()
@@ -222,6 +243,7 @@ impl Layout {
                 .unwrap_or(0),
         );
         self.text.truncate(end);
+        self.shrink();
     }
 
     /// Cell coordinates resolve to grapheme boundaries, including either cell of a wide glyph.

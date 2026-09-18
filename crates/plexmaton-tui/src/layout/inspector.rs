@@ -72,14 +72,24 @@ pub(super) fn place_inspector(
             let [transcript, inspector] =
                 Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
                     .areas(conversation);
-            // The composer belongs to the primary's column alone, and the second column runs
-            // the full height beside it: the composer's rows were carved from the conversation
-            // before the split, so they are given back to the column that has no composer.
+            // The composer belongs to the primary's column alone, and so does the strip above it:
+            // the roster is the index of who is working for the user, not chrome over somebody
+            // else's transcript. Both were carved from the conversation before the split, so the
+            // column that has neither runs the full height beside them and gets their rows back.
+            let strip = base.agents.map_or(0, |strip| strip.height);
             let inspector = Rect {
-                height: inspector.height.saturating_add(base.composer.height),
+                y: inspector.y.saturating_sub(strip),
+                height: inspector
+                    .height
+                    .saturating_add(base.composer.height)
+                    .saturating_add(strip),
                 ..inspector
             };
             BodyRegions {
+                agents: base.agents.map(|strip| Rect {
+                    width: transcript.width,
+                    ..strip
+                }),
                 transcript: Some(transcript),
                 inspector: Some(inspector),
                 composer: Rect {
@@ -89,9 +99,16 @@ pub(super) fn place_inspector(
                 ..base
             }
         }
+        // No primary conversation left for the strip to sit above, so it is absent and its rows go
+        // to the surface that took the region.
         Presentation::Maximized => BodyRegions {
+            agents: None,
             transcript: None,
-            inspector: Some(conversation),
+            inspector: Some(base.agents.map_or(conversation, |strip| Rect {
+                y: strip.y,
+                height: strip.height.saturating_add(conversation.height),
+                ..conversation
+            })),
             ..base
         },
         // The shelf floats over the conversation rather than splitting it (`ui-ux.md` §shelf):
@@ -197,7 +214,7 @@ mod tests {
     /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
-            rail: true,
+            roster_rows: crate::layout::strip_rows(1),
             has_notices,
             ..WorkspaceInput::default()
         }
@@ -205,7 +222,7 @@ mod tests {
 
     fn inspecting(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
-            rail: true,
+            roster_rows: crate::layout::strip_rows(1),
             inspector: Some(InspectorRequest::default()),
             ..input(has_notices)
         }
@@ -321,16 +338,18 @@ mod tests {
                 Rect::new(0, 0, width, height),
                 WorkspaceInput {
                     inspector: Some(request),
-                    rail: true,
+                    roster_rows: crate::layout::strip_rows(1),
                     ..WorkspaceInput::default()
                 },
             )
         };
-        let shelf = open(120, 40, InspectorRequest::default());
+        // One column wide: two conversations do not fit side by side below the two-column
+        // threshold, so a second one arrives as a shelf over the first.
+        let shelf = open(95, 40, InspectorRequest::default());
         assert_eq!(
             height_of(&shelf, SurfaceId::Transcript),
             height_of(
-                &workspace(Rect::new(0, 0, 120, 40), input(false)),
+                &workspace(Rect::new(0, 0, 95, 40), input(false)),
                 SurfaceId::Transcript
             ),
             "a shelf floats over the conversation, which keeps its whole rectangle"
@@ -343,21 +362,37 @@ mod tests {
         );
         assert!(
             shelf.get(SurfaceId::Agents).is_some(),
-            "and leaves the agent column alone"
+            "and leaves the strip above it alone"
         );
 
-        // Narrow is "one major surface at a time": inspection is a full-region transition.
-        let narrow = open(60, 40, InspectorRequest::default());
-        assert!(narrow.get(SurfaceId::Transcript).is_none());
-        assert!(narrow.get(SurfaceId::Inspector).is_some());
+        // Narrow is "one major surface at a time": choosing the child closes the full-region
+        // navigator and gives the entire conversation region to that child.
+        for width in [48, 60, 71] {
+            let narrow = workspace(
+                Rect::new(0, 0, width, 40),
+                WorkspaceInput {
+                    inspector: Some(InspectorRequest::default()),
+                    roster_rows: crate::layout::strip_rows(1),
+                    roster: false,
+                    ..WorkspaceInput::default()
+                },
+            );
+            assert!(narrow.get(SurfaceId::Transcript).is_none());
+            assert!(narrow.get(SurfaceId::Inspector).is_some());
+            assert!(narrow.get(SurfaceId::Agents).is_none());
+        }
 
-        // Ultrawide gives the second agent a column of its own beside the conversation (ui-ux
-        // §layout classes);
-        // the agent column is untouched (ui-ux §layout classes).
+        // Two columns give the second agent one of its own beside the conversation (ui-ux §layout
+        // classes). The strip stays over the user's conversation and stops at its edge: the roster
+        // is the index of who is working for the user, not chrome over somebody else's transcript.
         let ultrawide = open(140, 40, InspectorRequest::default());
         let conversation = ultrawide
             .get(SurfaceId::Transcript)
             .unwrap_or_else(|| panic!("the conversation stays"))
+            .bounds;
+        let strip = ultrawide
+            .get(SurfaceId::Agents)
+            .unwrap_or_else(|| panic!("the strip stays"))
             .bounds;
         let second = ultrawide
             .get(SurfaceId::Inspector)
@@ -367,11 +402,20 @@ mod tests {
             conversation.right(),
             "beside the conversation"
         );
-        assert_eq!(second.bounds.y, conversation.y);
         assert_eq!(second.z_index, 0, "a column tiles; only a shelf floats");
-        assert!(
-            ultrawide.get(SurfaceId::Agents).is_some(),
-            "and the agent column stays beside both conversations"
+        assert_eq!(
+            (strip.x, strip.width),
+            (conversation.x, conversation.width),
+            "the strip is the primary column's, exactly"
+        );
+        assert_eq!(
+            strip.bottom(),
+            conversation.y,
+            "and sits directly on top of it"
+        );
+        assert_eq!(
+            second.bounds.y, strip.y,
+            "while the second column runs the full height beside both, having no strip of its own"
         );
 
         let maximized = open(
@@ -393,17 +437,17 @@ mod tests {
     fn a_dragged_height_is_clamped_rather_than_obeyed() {
         let with_rows = |rows| {
             workspace(
-                Rect::new(0, 0, 120, 40),
+                Rect::new(0, 0, 95, 40),
                 WorkspaceInput {
                     inspector: Some(InspectorRequest {
                         maximized: false,
                         rows: Some(rows),
                     }),
-                    ..WorkspaceInput::default()
+                    ..input(false)
                 },
             )
         };
-        let closed = workspace(Rect::new(0, 0, 120, 40), input(false));
+        let closed = workspace(Rect::new(0, 0, 95, 40), input(false));
         let region = readable_rows(&closed).unwrap_or_default();
 
         let greedy = with_rows(u16::MAX);

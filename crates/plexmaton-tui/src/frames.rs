@@ -42,6 +42,24 @@ mod tests {
         ("canonical-narrow", 60, 40),
     ];
 
+    /// The agents strip, with more agents than it will ever show.
+    ///
+    /// Two columns, one column, and narrow. The roster here holds five, so every frame also proves
+    /// what the cap does: three rows, the top of attention's order in them, and the count of what
+    /// is not shown on the border rather than in a row.
+    const STRIP_FRAMES: [(&str, u16, u16); 3] = [
+        ("agents-strip-two-columns", 140, 24),
+        ("agents-strip-one-column", 95, 24),
+        ("agents-strip-narrow", 60, 24),
+    ];
+
+    /// The glyph vocabulary in a roster row, frozen.
+    ///
+    /// The strip frames all show agents that are asking, and an ask outranks a tally, so none of
+    /// them proves what the counts look like. This one answers every request first, which is what
+    /// hands the third column back to the glyphs.
+    const TALLY_FRAME: (&str, u16, u16) = ("agents-strip-tally", 95, 20);
+
     /// The first blocking surface, at the same three product widths.
     const APPROVAL_FRAMES: [(&str, u16, u16); 3] = [
         ("approval-wide", 120, 40),
@@ -226,6 +244,88 @@ mod tests {
         crate::test_support::assert_frame("drawer-configuration", &drawn);
     }
 
+    /// A roster with more agents than the strip shows, one of each attention class.
+    fn crowded() -> Conversation {
+        let mut conversation = Conversation::canonical();
+        conversation
+            .state
+            .set_working_directory("~/plexmaton".to_owned());
+        for (id, label, status) in [
+            ("orion", "Orion", AgentStatus::Running),
+            ("sol", "Sol", AgentStatus::Running),
+            ("vega", "Vega", AgentStatus::Running),
+            ("lyra", "Lyra", AgentStatus::Idle),
+        ] {
+            conversation.emit(ConversationEvent::AgentCreated {
+                agent_id: AgentId::new(id).expect("fixture agent"),
+                label: label.to_owned(),
+                status,
+            });
+        }
+        conversation.emit(ConversationEvent::AgentStatusChanged {
+            agent_id: AgentId::new("sol").expect("fixture agent"),
+            status: AgentStatus::Failed,
+        });
+        conversation.emit(ConversationEvent::AttentionRequested {
+            agent_id: AgentId::new("vega").expect("fixture agent"),
+            attention_id: AttentionId::new("vega-1").expect("fixture request"),
+            request: AttentionRequest::Clarification {
+                summary: "Write the migration, or wait for the schema review?".to_owned(),
+            },
+        });
+        conversation
+    }
+
+    /// ui-ux §agents strip: the roster is rows above the user's conversation, never a column
+    /// beside it, and the rows stop at three however many agents are running.
+    #[test]
+    fn the_agents_strip_frames_match_their_fixtures() {
+        for (name, width, height) in STRIP_FRAMES {
+            let mut conversation = crowded();
+            // Two columns: open the delegate the strip is not about, so the frame also shows that
+            // the strip stops at the primary's edge.
+            if width >= 132 {
+                conversation
+                    .state
+                    .select_agent(&AgentId::new("vega").expect("fixture agent"))
+                    .expect("Vega is in the roster");
+            }
+            let drawn = draw(&conversation.state, width, height);
+            for signature in ["Agents", "Agent A · primary", "~/plexmaton"] {
+                assert!(
+                    drawn.contains(signature),
+                    "{name}: {signature:?} is not on screen"
+                );
+            }
+            assert_eq!(
+                drawn.lines().count(),
+                usize::from(height),
+                "{name}: every row painted"
+            );
+            crate::test_support::assert_frame(name, &drawn);
+        }
+    }
+
+    /// ui-ux §agents strip: an answered agent's row carries the tally, in the one glyph vocabulary
+    /// every surface shares.
+    #[test]
+    fn a_roster_rows_tally_matches_its_fixture() {
+        let (name, width, height) = TALLY_FRAME;
+        let mut conversation = crowded();
+        for (agent, request) in [("agent-b", "attention-b-1"), ("vega", "vega-1")] {
+            conversation.emit(ConversationEvent::AttentionResolved {
+                agent_id: AgentId::new(agent).expect("fixture agent"),
+                attention_id: AttentionId::new(request).expect("fixture request"),
+            });
+        }
+        let drawn = draw(&conversation.state, width, height);
+        for glyph in ['\u{f1323}', '\u{f03e2}'] {
+            assert!(drawn.contains(glyph), "{name}: {glyph:?} is not on screen");
+        }
+        crate::test_support::assert_frame(name, &drawn);
+    }
+
+    /// The canonical scenario, frozen at each width class.
     #[test]
     fn the_canonical_frames_match_their_fixtures() {
         for (name, width, height) in FRAMES {

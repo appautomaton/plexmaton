@@ -15,9 +15,9 @@ use plexmaton_session_store::{DelegatedConversationDirectory, DelegatedJournalFi
 use thiserror::Error;
 
 use crate::{
-    ChildCollaborationIngress, CollaborationIngressRefusal, DelegatedRuntimeBinding,
-    HttpSetupError, LiveRuntime, NativeToolCatalog, NativeToolSetupError, OwnedCollaboration,
-    RuntimeError,
+    ChildCollaborationIngress, CodingSessionPermissions, CollaborationIngressRefusal,
+    DelegatedRuntimeBinding, HttpSetupError, LiveRuntime, NativeToolCatalog, NativeToolSetupError,
+    OwnedCollaboration, RuntimeError,
 };
 
 /// Failure before a child runtime can enter its owned runner.
@@ -54,6 +54,7 @@ enum ChildDriver {
 pub struct DelegatedChildFactory {
     directory: DelegatedConversationDirectory,
     tools: NativeToolCatalog,
+    permissions: Option<CodingSessionPermissions>,
     driver: ChildDriver,
     #[cfg(test)]
     fail_next_build: Arc<AtomicBool>,
@@ -71,6 +72,7 @@ impl DelegatedChildFactory {
         Self {
             directory,
             tools,
+            permissions: None,
             driver: ChildDriver::Provider {
                 model: Box::new(model),
                 key,
@@ -90,9 +92,17 @@ impl DelegatedChildFactory {
         Self {
             directory,
             tools,
+            permissions: None,
             driver: ChildDriver::Synthetic { driver, clock },
             fail_next_build: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Uses the root coding Session's current policy for every child built by this factory.
+    #[must_use]
+    pub fn with_coding_session(mut self, permissions: CodingSessionPermissions) -> Self {
+        self.permissions = Some(permissions);
+        self
     }
 
     #[cfg(test)]
@@ -145,9 +155,9 @@ impl DelegatedChildFactory {
         }
         let resumed = !journal.journal().records().is_empty();
         let tools = self.tools.clone().with_child_collaboration(ingress)?;
-        match &self.driver {
+        let mut runtime = match &self.driver {
             ChildDriver::Provider { model, key } if resumed => {
-                LiveRuntime::provider_with_resumed_delegated_journal(
+                let (runtime, _) = LiveRuntime::provider_with_resumed_delegated_journal(
                     worker.agent,
                     model.as_ref().clone(),
                     key.clone(),
@@ -156,8 +166,8 @@ impl DelegatedChildFactory {
                     binding,
                 )
                 .await
-                .map(|(runtime, _)| runtime)
-                .map_err(Into::into)
+                .map_err(DelegatedChildFactoryError::from)?;
+                runtime
             }
             ChildDriver::Provider { model, key } => {
                 LiveRuntime::provider_with_fresh_delegated_journal(
@@ -170,7 +180,7 @@ impl DelegatedChildFactory {
                     binding,
                 )
                 .await
-                .map_err(Into::into)
+                .map_err(DelegatedChildFactoryError::from)?
             }
             #[cfg(test)]
             ChildDriver::Synthetic { driver, clock } if resumed => {
@@ -183,7 +193,7 @@ impl DelegatedChildFactory {
                     Arc::clone(clock),
                 )
                 .await
-                .map_err(Into::into)
+                .map_err(DelegatedChildFactoryError::from)?
             }
             #[cfg(test)]
             ChildDriver::Synthetic { driver, clock } => {
@@ -197,9 +207,13 @@ impl DelegatedChildFactory {
                     Arc::clone(clock),
                 )
                 .await
-                .map_err(Into::into)
+                .map_err(DelegatedChildFactoryError::from)?
             }
+        };
+        if let Some(permissions) = &self.permissions {
+            runtime.use_coding_session(permissions.clone())?;
         }
+        Ok(runtime)
     }
 
     pub(crate) fn reserve(
@@ -222,6 +236,14 @@ impl DelegatedChildFactory {
             }
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Opens only existing delegated history for explicit post-Handoff User activation.
+    pub(crate) fn resume(
+        &self,
+        conversation: ConversationId,
+    ) -> Result<DelegatedJournalFile, DelegatedChildFactoryError> {
+        self.directory.resume(&conversation).map_err(Into::into)
     }
 }
 

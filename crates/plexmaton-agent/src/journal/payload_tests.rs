@@ -1,10 +1,11 @@
 use plexmaton_core::{
-    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, ConversationEntryId, HeadName,
-    JournalRecordId, MailId, ToolCallId, ToolCallStatus, ToolPresentation, TranscriptItemId,
-    TurnId,
+    AgentId, AgentStatus, ArtifactId, AttentionId, AttentionRequest, CollaborationId,
+    CollaborationItemId, ConversationEntryId, HeadName, JournalRecordId, MailId, ToolCallId,
+    ToolCallStatus, ToolPresentation, TranscriptItemId, TurnId,
 };
 
 use super::{ConversationEntry, HeadRevision, JournalEntryPayload, JournalRecord, JournalSequence};
+use crate::collaboration::{CollaborationItemRef, CollaborationSequence};
 use crate::test_support::{call_block, output_with_replay, reasoning_block, replay, step};
 use crate::{ActiveTurnStatus, SkillActivation, SkillSource, ToolCall, ToolOutcome, UnixMillis};
 
@@ -24,7 +25,22 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
         name: "read_file".to_owned(),
         arguments: "{}".to_owned(),
     };
+    let collaboration_reference = CollaborationItemRef {
+        collaboration: id("collaboration", CollaborationId::new),
+        item: id("collaboration-item", CollaborationItemId::new),
+        sequence: CollaborationSequence(1),
+    };
     let payloads = vec![
+        JournalEntryPayload::CollaborationItemLinked {
+            agent_id: agent_a.clone(),
+            reference: collaboration_reference.clone(),
+        },
+        JournalEntryPayload::CollaborationTurnStarted {
+            agent_id: agent_a.clone(),
+            turn_id: id("collaboration-turn", TurnId::new),
+            reference: collaboration_reference,
+            opened_at: UnixMillis::new(90),
+        },
         JournalEntryPayload::AgentCreated {
             agent_id: agent_a.clone(),
             label: "Agent A".to_owned(),
@@ -141,23 +157,27 @@ fn jrn_3_every_canonical_payload_variant_round_trips_inside_an_append() {
     ];
 
     for (index, payload) in payloads.into_iter().enumerate() {
-        let record = JournalRecord::AppendEntry {
-            sequence: JournalSequence::new(1),
-            record_id: id(&format!("record-{index}"), JournalRecordId::new),
-            head: id("main", HeadName::new),
-            expected_head_revision: HeadRevision::new(0),
-            entry: Box::new(ConversationEntry {
-                id: id(&format!("entry-{index}"), ConversationEntryId::new),
-                parent_id: None,
-                payload,
-            }),
-        };
-        let json =
-            serde_json::to_string(&record).unwrap_or_else(|error| panic!("encode append: {error}"));
-        let decoded = serde_json::from_str::<JournalRecord>(&json)
-            .unwrap_or_else(|error| panic!("decode append: {error}"));
-        assert_eq!(decoded, record);
+        assert_payload_round_trip(index, payload);
     }
+}
+
+fn assert_payload_round_trip(index: usize, payload: JournalEntryPayload) {
+    let record = JournalRecord::AppendEntry {
+        sequence: JournalSequence::new(1),
+        record_id: id(&format!("record-{index}"), JournalRecordId::new),
+        head: id("main", HeadName::new),
+        expected_head_revision: HeadRevision::new(0),
+        entry: Box::new(ConversationEntry {
+            id: id(&format!("entry-{index}"), ConversationEntryId::new),
+            parent_id: None,
+            payload,
+        }),
+    };
+    let json =
+        serde_json::to_string(&record).unwrap_or_else(|error| panic!("encode append: {error}"));
+    let decoded = serde_json::from_str::<JournalRecord>(&json)
+        .unwrap_or_else(|error| panic!("decode append: {error}"));
+    assert_eq!(decoded, record);
 }
 
 fn permission_audit() -> Box<crate::PermissionDecisionAudit> {

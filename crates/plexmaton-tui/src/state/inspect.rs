@@ -16,7 +16,7 @@ use crate::{
     surface::{SurfaceId, SurfaceTree},
 };
 
-use super::{InspectorView, ReduceError, ViewState, inner_width};
+use super::{InspectorView, ReduceError, RosterNavigation, ViewState, inner_width};
 
 impl ViewState {
     /// The second window, if one is open: the selected agent when that is not the primary.
@@ -113,6 +113,15 @@ impl ViewState {
             self.touch();
             return true;
         }
+        if surfaces
+            .get(SurfaceId::Agents)
+            .is_some_and(|surface| surface.kind.blocks_below())
+        {
+            if self.close_roster_navigation() {
+                self.touch();
+            }
+            return true;
+        }
         if self.clear_selection() {
             return true;
         }
@@ -137,6 +146,10 @@ impl ViewState {
     /// A command with nothing open is a no-op rather than a refusal: the router translates what the
     /// user pressed, and whether there is anything to act on is this side's question.
     pub fn inspect(&mut self, surfaces: &SurfaceTree, intent: InspectorIntent) {
+        if intent == InspectorIntent::Open && self.roster_navigation.is_some() {
+            self.activate_roster_cursor(surfaces);
+            return;
+        }
         if self.agents.peeked().is_none() {
             return;
         }
@@ -219,44 +232,134 @@ impl ViewState {
         Ok(())
     }
 
-    /// Whether the roster is on screen.
+    /// Whether the roster is enabled by the user's persistent panel choice.
     #[must_use]
     pub const fn roster_open(&self) -> bool {
         !self.roster_closed
     }
 
-    /// Puts the roster away, or brings it back.
+    /// Whether the roster is on screen at this width.
+    #[must_use]
+    pub(crate) fn roster_visible(&self, width: u16) -> bool {
+        self.roster_navigation.is_some() || (width >= 72 && self.roster_open())
+    }
+
+    /// Which row the Agents panel marks for keyboard or pointer activation.
+    #[must_use]
+    pub(crate) fn roster_cursor_agent(&self) -> Option<&super::AgentView> {
+        self.roster_navigation
+            .as_ref()
+            .and_then(|navigation| navigation.cursor.as_ref())
+            .and_then(|agent| self.agents.get(agent))
+            .or_else(|| self.agents.selected())
+    }
+
+    /// Puts the roster away, or brings it back as the narrow full-region navigator.
     ///
-    /// One panel with one open state. The width decides only where it docks when it is open — a
-    /// column from medium up, a shelf over the conversation below — so this is the same verb at
-    /// every size, and closing gives every column or row it held back to the conversation.
-    pub fn toggle_roster(&mut self) {
+    /// Medium and larger retain the persistent column toggle. Narrow uses focus as the reversible
+    /// transition: `Ctrl-B` opens Agents over the body, and the same chord or `Escape` returns to
+    /// the exact control that opened it without changing the wider layout preference.
+    pub fn toggle_roster(&mut self, surfaces: &SurfaceTree) {
+        if self.close_roster_navigation() {
+            self.touch();
+            return;
+        }
+        let narrow = surfaces
+            .get(SurfaceId::Status)
+            .is_some_and(|status| status.bounds.width < 72);
+        if narrow {
+            if self.agents.sub_agents().next().is_none() {
+                return;
+            }
+            let return_focus = self
+                .focus
+                .resolve(surfaces)
+                .unwrap_or(SurfaceId::Transcript);
+            self.roster_navigation = Some(RosterNavigation {
+                return_focus,
+                cursor: self.agents.selected_id().cloned(),
+            });
+            self.focus.prefer(SurfaceId::Agents);
+            self.touch();
+            return;
+        }
         self.roster_closed = !self.roster_closed;
         self.touch();
     }
 
-    /// Rows the roster asks for when it docks as a shelf, borders included.
-    ///
-    /// Measured from the same lines it will paint, so a panel that has grown a row does not have
-    /// to be redrawn to find out. Layout still clamps it: what it wants is not what it gets.
-    #[must_use]
-    pub fn roster_rows(&self, width: u16) -> u16 {
-        if !self.roster_open() || self.sub_agents().next().is_none() {
-            return 0;
+    /// Ends an in-flight narrow navigation visit when a column becomes available.
+    pub(crate) fn resize_roster(&mut self, width: u16) {
+        if width >= 72 && self.close_roster_navigation() {
+            self.touch();
         }
-        let rows =
-            crate::content::roster(self, &crate::theme::Palette::default(), inner_width(width))
-                .lines
-                .len();
-        u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2)
     }
 
     /// Moves the agent selection one step in arrival order, clamped at both ends.
     pub fn move_selection(&mut self, direction: Direction) {
+        if let Some(current) = self
+            .roster_navigation
+            .as_ref()
+            .map(|navigation| navigation.cursor.clone())
+        {
+            let next = self.agents.moved_from(current.as_ref(), direction);
+            if next != current {
+                if let Some(navigation) = &mut self.roster_navigation {
+                    navigation.cursor = next;
+                }
+                self.touch();
+            }
+            return;
+        }
         if self.agents.move_selection(direction) {
             self.after_selection_moved();
             self.touch();
         }
+    }
+
+    /// Activates the row named by a completed pointer click.
+    pub(crate) fn activate_roster_agent(&mut self, surfaces: &SurfaceTree, agent_id: &AgentId) {
+        if self.roster_navigation.is_some() {
+            if !self.agents.contains(agent_id) {
+                return;
+            }
+            if let Some(navigation) = &mut self.roster_navigation {
+                navigation.cursor = Some(agent_id.clone());
+            }
+            self.activate_roster_cursor(surfaces);
+            return;
+        }
+        let _known = self.select_agent(agent_id);
+    }
+
+    /// Commits the narrow navigator cursor and enters that conversation.
+    fn activate_roster_cursor(&mut self, _surfaces: &SurfaceTree) {
+        let Some(agent_id) = self
+            .roster_navigation
+            .as_ref()
+            .and_then(|navigation| navigation.cursor.clone())
+        else {
+            return;
+        };
+        if !self.agents.contains(&agent_id) {
+            return;
+        }
+        let moved = self.agents.select(&agent_id).unwrap_or(false);
+        if moved {
+            self.after_selection_moved();
+        }
+        self.roster_navigation = None;
+        self.focus.prefer(SurfaceId::Inspector);
+        let _visited = self.visit_request();
+        self.touch();
+    }
+
+    /// Cancels one narrow navigator visit and restores its exact entry focus.
+    fn close_roster_navigation(&mut self) -> bool {
+        let Some(navigation) = self.roster_navigation.take() else {
+            return false;
+        };
+        self.focus.prefer(navigation.return_focus);
+        true
     }
 
     /// What a moved selection changes besides the rail: the second window (INS-1).

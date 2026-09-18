@@ -71,6 +71,7 @@ pub(crate) fn detail_fits_text_bound(detail: &ToolDetail) -> bool {
 pub struct ToolExecutionResult {
     outcome: ToolOutcome,
     presentation: Option<ToolDetail>,
+    collaboration_reference: Option<crate::collaboration::CollaborationItemRef>,
 }
 
 impl ToolExecutionResult {
@@ -80,7 +81,18 @@ impl ToolExecutionResult {
         Self {
             outcome,
             presentation,
+            collaboration_reference: None,
         }
+    }
+
+    /// Attaches the canonical collaboration fact acknowledged by this tool execution.
+    #[must_use]
+    pub fn with_collaboration_reference(
+        mut self,
+        reference: crate::collaboration::CollaborationItemRef,
+    ) -> Self {
+        self.collaboration_reference = Some(reference);
+        self
     }
 
     /// Model-facing typed outcome, unchanged by presentation concerns.
@@ -93,6 +105,14 @@ impl ToolExecutionResult {
     #[must_use]
     pub const fn presentation(&self) -> Option<&ToolDetail> {
         self.presentation.as_ref()
+    }
+
+    /// Canonical fact this successful collaboration tool placed in its session.
+    #[must_use]
+    pub const fn collaboration_reference(
+        &self,
+    ) -> Option<&crate::collaboration::CollaborationItemRef> {
+        self.collaboration_reference.as_ref()
     }
 
     /// Splits the result so the batch can retain presentation and place the outcome in model order.

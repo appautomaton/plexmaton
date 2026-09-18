@@ -62,6 +62,8 @@ pub enum TranscriptEntryView {
     Mail(MailView),
     /// One task Main assigned to a delegated session.
     Task(TaskView),
+    /// One durable transfer from Main to User control.
+    Handoff(HandoffView),
 }
 
 impl TranscriptEntryView {
@@ -74,6 +76,7 @@ impl TranscriptEntryView {
             Self::Artifact(artifact) => &artifact.entry_id,
             Self::Mail(mail) => &mail.entry_id,
             Self::Task(task) => &task.entry_id,
+            Self::Handoff(handoff) => &handoff.entry_id,
         }
     }
 
@@ -86,6 +89,7 @@ impl TranscriptEntryView {
             Self::Artifact(artifact) => artifact.revision,
             Self::Mail(mail) => mail.revision,
             Self::Task(task) => task.revision,
+            Self::Handoff(handoff) => handoff.revision,
         }
     }
 }
@@ -126,6 +130,8 @@ pub struct MailView {
     pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
+    /// Display label of the endpoint opposite `owner`; durable identities remain in `from`/`to`.
+    pub counterpart: String,
     pub summary: String,
     pub revision: u64,
 }
@@ -150,6 +156,17 @@ pub struct TaskView {
     pub owner: AgentId,
     pub from: AgentId,
     pub to: AgentId,
+    /// Display label of the endpoint opposite `owner`; durable identities remain in `from`/`to`.
+    pub counterpart: String,
     pub task: String,
+    pub revision: u64,
+}
+
+/// One side of a durable controller transfer, retained in transcript order.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HandoffView {
+    pub entry_id: TranscriptItemId,
+    pub owner: AgentId,
+    pub child: AgentId,
     pub revision: u64,
 }

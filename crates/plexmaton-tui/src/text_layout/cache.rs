@@ -9,7 +9,8 @@ use plexmaton_core::AgentId;
 use std::{collections::VecDeque, sync::Arc};
 
 const MAX_ENTRIES: usize = 128;
-const MAX_BYTES: usize = 4 * 1024 * 1024;
+/// Retained preparation across entries: four full-size entries' worth.
+const MAX_BYTES: usize = 4 * crate::preparation::MAX_PREPARED_BYTES;
 
 #[derive(Debug)]
 pub(crate) struct PreparedEntry {
@@ -456,7 +457,10 @@ mod tests {
                 .style
         };
         assert_ne!(keyword(&before).fg, keyword(&after).fg);
-        assert_eq!(keyword(&after).fg, Some(crate::theme::tokens::SKY));
+        assert_eq!(
+            keyword(&after).fg,
+            Some(crate::theme::Slots::designed().blue)
+        );
         assert_eq!(cache.layouts(), 1);
         prepared(&mut cache, &agent, &item, 60).expect("hit");
         assert_eq!(cache.layouts(), 1);

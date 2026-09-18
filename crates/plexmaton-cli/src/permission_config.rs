@@ -28,6 +28,7 @@ struct Rule {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Matcher {
+    NativeInspection {},
     NativeFileChanges {},
     ExactCommand { source: String },
     CommandPrefix { arguments: Vec<String> },
@@ -55,6 +56,7 @@ impl PermissionDeclarations {
             .enumerate()
             .map(|(index, rule)| {
                 let matcher = match &rule.matcher {
+                    Matcher::NativeInspection {} => compiler.native_inspection(),
                     Matcher::NativeFileChanges {} => compiler.native_file_changes(),
                     Matcher::CommandPrefix { arguments } => compiler
                         .command_prefix(arguments.clone())

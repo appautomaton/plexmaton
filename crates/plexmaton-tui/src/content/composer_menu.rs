@@ -27,11 +27,11 @@ pub(crate) fn composer_menu(
     let menu = state.composer_menu();
     let input = state.composer();
     let status = state.menu_status();
+    let status_lines = state.menu_status_lines(width);
     let rows = state.menu_rows();
     // The titled rule and the key line; the composer's top rule closes the menu (SKP-4). The
     // rows keep their room in a short terminal; the heading takes what is left and ends in `…`.
-    let budget =
-        usize::from(height.saturating_sub(2)).saturating_sub(usize::from(status.is_some()));
+    let budget = usize::from(height.saturating_sub(2)).saturating_sub(status_lines.len());
     let mut heading = state.menu_heading(width);
     let heading_budget = budget.saturating_sub(rows.len().min(crate::state::VISIBLE_ROWS));
     if heading.len() > heading_budget {
@@ -127,10 +127,12 @@ pub(crate) fn composer_menu(
         } else {
             Role::Muted
         };
-        lines.push(Line::styled(
-            command_summary(&format!("  {}", status.message()), usize::from(width)),
-            palette.style(role),
-        ));
+        lines.extend(status_lines.into_iter().map(|line| {
+            Line::styled(
+                command_summary(&format!("  {line}"), usize::from(width)),
+                palette.style(role),
+            )
+        }));
     }
     lines.push(Line::styled(state.menu_keys(), palette.style(Role::Muted)));
     lines

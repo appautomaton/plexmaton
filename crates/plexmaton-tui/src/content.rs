@@ -24,7 +24,9 @@ pub(crate) use composer_menu::composer_menu;
 mod drawer;
 mod roster;
 pub(crate) use command::{command_display_source, command_transcript_source};
-pub(crate) use roster::{agent_at_row, roster};
+pub(crate) use roster::{
+    STRIP_AGENTS, agent_at_row, capacity as roster_capacity, population, roster,
+};
 mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;
@@ -36,20 +38,30 @@ pub(crate) use transcript_presentation::{
     transcript_layout_with_prefix,
 };
 
-/// Counts of an agent's non-text entries. Empty when there is nothing to count, so a quiet agent's
-/// row and conversation title stay short.
-pub(crate) fn entry_counts(agent: &crate::AgentView) -> String {
+/// What has arrived for an agent, as glyphs a scan recognises without reading.
+///
+/// Nerd Font Private Use codepoints, the dependency the transcript's copy affordance already
+/// takes; a terminal font without them draws a box, so they are named once here and never spelled
+/// at a call site. Empty when there is nothing to count, so a quiet agent's row and title stay
+/// short. One formatter for every surface that shows these facts: a roster row, a conversation
+/// title, an inspected child's title. Rejected: a second, noun-spelling formatter beside this one,
+/// which is how `1 tool` and its glyph came to disagree about whether a sent letter counts.
+pub(crate) fn tally(agent: &crate::AgentView) -> String {
+    const TOOLS: char = '\u{f1323}'; // md-hammer_wrench
+    const TASKS: char = '\u{f0756}'; // md-format_list_checks
+    const MAIL: char = '\u{f01ee}'; // md-email
+    const ARTIFACTS: char = '\u{f03e2}'; // md-paperclip
+
     let counts = count_entries(agent);
     let mut parts = String::new();
-    for (count, one, many) in [
-        (counts.tools, "tool", "tools"),
-        (counts.artifacts, "artifact", "artifacts"),
-        (counts.mail, "mail", "mail"),
-        (counts.tasks, "task", "tasks"),
+    for (glyph, count) in [
+        (TOOLS, counts.tools),
+        (TASKS, counts.tasks),
+        (MAIL, counts.mail),
+        (ARTIFACTS, counts.artifacts),
     ] {
         if count > 0 {
-            let noun = if count == 1 { one } else { many };
-            parts.push_str(&format!(" · {count} {noun}"));
+            parts.push_str(&format!("  {glyph} {count}"));
         }
     }
     parts
@@ -71,7 +83,7 @@ fn count_entries(agent: &crate::AgentView) -> EntryCounts {
     agent
         .entries()
         .fold(EntryCounts::default(), |counts, entry| match entry {
-            TranscriptEntryView::Text(_) => counts,
+            TranscriptEntryView::Text(_) | TranscriptEntryView::Handoff(_) => counts,
             TranscriptEntryView::Tool(_) => EntryCounts {
                 tools: counts.tools.saturating_add(1),
                 ..counts
@@ -80,14 +92,18 @@ fn count_entries(agent: &crate::AgentView) -> EntryCounts {
                 artifacts: counts.artifacts.saturating_add(1),
                 ..counts
             },
-            TranscriptEntryView::Mail(_) => EntryCounts {
+            // Addressed entries land in both conversations, so counting them all told an agent
+            // how many letters it had handled. A roster says where the user's work is, and a
+            // letter this agent sent is not work waiting in it: only what arrived is counted.
+            TranscriptEntryView::Mail(mail) if mail.to == mail.owner => EntryCounts {
                 mail: counts.mail.saturating_add(1),
                 ..counts
             },
-            TranscriptEntryView::Task(_) => EntryCounts {
+            TranscriptEntryView::Task(task) if task.to == task.owner => EntryCounts {
                 tasks: counts.tasks.saturating_add(1),
                 ..counts
             },
+            TranscriptEntryView::Mail(_) | TranscriptEntryView::Task(_) => counts,
         })
 }
 

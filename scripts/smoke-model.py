@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 """MDL-1/MDL-2/MDL-3/MDL-4: real menu, two loopback providers, history and credential isolation."""
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 
-from permission_fixture import ScriptedProvider, command_turn, response
-from smoke_support import fixture_environment
-
-ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("permission_smoke", ROOT / "scripts/smoke-permissions.py")
-journey = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(journey)
-ENTER, ESC = journey.ENTER, journey.ESC
+from provider_fixture import ScriptedProvider, command_turn, response
+from smoke_support import ENTER, ESC, ROOT, Terminal, fixture_environment
 
 
 def run_smoke(first, second):
@@ -45,7 +38,7 @@ output_reserve_tokens = 4096
 '''
         (home / "config.toml").write_text(config)
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home), FIRST_LOGIN="fixture-only", OTHER_LOGIN="fixture-only")
-        with journey.Terminal(project, environment, "model") as terminal:
+        with Terminal(project, environment, "model", "menu") as terminal:
             terminal.wait("Message Plexmaton", "STATUS_CLEAN")
             terminal.prompt("/model", "Models", "first/same", "second/same")
             terminal.send(ESC, "/model", absent=("Enter confirm",))

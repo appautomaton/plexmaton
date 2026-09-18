@@ -39,6 +39,16 @@ impl OwnedCollaboration {
             self.shutdown_settlements
                 .push(OwnedShutdownSettlement::Stop(outcome));
         }
+        if let Some(settlement) = self.pending_user_target_settlement.take() {
+            self.shutdown_settlements
+                .push(OwnedShutdownSettlement::UserTargetInput(
+                    settlement.into_outcome(),
+                ));
+        }
+        if let Some((_identity, outcome)) = self.detached_user_input.take() {
+            self.shutdown_settlements
+                .push(OwnedShutdownSettlement::UserInput(outcome));
+        }
         if let Some(pending) = &self.pending_schedule {
             let request = pending.request.clone();
             let outcome =
@@ -50,6 +60,18 @@ impl OwnedCollaboration {
                     });
             self.shutdown_settlements
                 .push(OwnedShutdownSettlement::Schedule(outcome));
+        }
+        if self.pending_user_target_input.is_some() {
+            let settlement = self.finish_pending_user_target_input().await;
+            self.shutdown_settlements
+                .push(OwnedShutdownSettlement::UserTargetInput(
+                    settlement.into_outcome(),
+                ));
+        }
+        if self.pending_user_input.is_some() {
+            let outcome = self.finish_pending_user_input().await;
+            self.shutdown_settlements
+                .push(OwnedShutdownSettlement::UserInput(outcome));
         }
         self.shutting_down = true;
         for slot in self.runners.values_mut().filter(|slot| !slot.finished) {

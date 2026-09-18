@@ -242,9 +242,13 @@ mod tests {
 
     /// Journey steps 6 to 8: hover scrolling, shelf manipulation, and a request that interrupts
     /// nothing.
+    ///
+    /// One conversation wide. The shelf is what a second conversation becomes where two will not
+    /// fit side by side, so a journey through the shelf has to be walked in a terminal that has
+    /// one column; step 11 walks the same journey where there are two.
     #[test]
     fn the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted() {
-        let mut journey = Journey::open(120, 40);
+        let mut journey = Journey::open(95, 40);
         journey.advance(10);
 
         // 6. The wheel moves whatever is under the pointer and never touches focus (INV-3).
@@ -360,7 +364,7 @@ mod tests {
             .unwrap_or_else(|| panic!("a selection must copy to something"));
         assert_eq!(
             copied.text,
-            "artifact://agent-b/interaction-findings\nagent-a: Routing stays centralized and z-ordered."
+            "artifact://agent-b/interaction-findings\nAgent A · primary: Routing stays centralized and z-ordered."
         );
         assert!(
             journey

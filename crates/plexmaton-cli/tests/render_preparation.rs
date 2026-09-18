@@ -235,6 +235,7 @@ fn other_entries(width: u16) -> Vec<Request> {
                 owner: agent.clone(),
                 from: agent.clone(),
                 to: AgentId::new("primary").expect("recipient"),
+                counterpart: "Plexmaton".into(),
                 summary: "**literal** mail 中文".into(),
                 revision: 1,
             }),
@@ -786,13 +787,22 @@ async fn late_real_reply_cannot_attach_to_a_replaced_workspace() {
 #[tokio::test]
 async fn live_preparation_splits_capacity_batches_without_losing_valid_entries() {
     use plexmaton_core::{ConversationEvent, ConversationEventEnvelope, EventSequence};
-    let source = "**bounded** ".repeat(1000);
-    let size = request(&source, 1, 118).prepare();
-    assert!(size.refusal().is_none(), "one entry must fit");
-    assert!(
-        size.allocation_bytes() * 16 > plexmaton_tui::preparation::MAX_BATCH_BYTES,
-        "the fixture must overflow a batch, not an individual entry"
-    );
+    // Size the fixture from the budgets instead of from a count typed once: an entry must be large
+    // enough that a full batch of it overflows, and small enough to stay valid on its own. Both
+    // bounds are derived in `preparation.rs`, so retuning the row budget resizes this fixture
+    // rather than quietly turning the overflow this test needs into a batch that always fits.
+    let mut units = 1000;
+    let source = loop {
+        let source = "**bounded** ".repeat(units);
+        let size = request(&source, 1, 118).prepare();
+        assert!(size.refusal().is_none(), "one entry must fit");
+        if size.allocation_bytes() * plexmaton_tui::preparation::MAX_BATCH_ITEMS
+            > plexmaton_tui::preparation::MAX_BATCH_BYTES
+        {
+            break source;
+        }
+        units *= 2;
+    };
     let mut workspace = projected(&source);
     let agent = AgentId::new("primary").expect("agent");
     let mut sequence = 3;
@@ -847,7 +857,7 @@ async fn live_preparation_splits_capacity_batches_without_losing_valid_entries()
                                 .expect("plain text")
                                 .matches("bounded")
                                 .count(),
-                            1000
+                            units
                         );
                     }
                 }

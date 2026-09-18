@@ -28,9 +28,10 @@ hit testing stops at it and the focus ring contains only it. Main-agent approval
 `Panel` inside their conversation (ATT-1): their rows remain above the composer, and Esc returns
 focus to input without removing the card. User-opened background request overlays use `Modal`; a
 background request arriving alone registers no modal. User-opened `CommandInspection` is a read-only
-modal above the approval and below the Drawer (APD-2). The Drawer is a blocking text input above
-approvals, or a `Modal` while one of its navigated pages is open; its dismissal and geometry are
-DRW-2 and DRW-3.
+modal above the approval (APD-2). Narrow Agents is a full-body `Modal` above every
+conversation-owned popup and decision; the conversation tree and Drawer remain workspace overlays
+above it. The Drawer is a blocking text input, or a `Modal` while one of its navigated pages is
+open; its dismissal and geometry are DRW-2 and DRW-3.
 
 **SURF-5 — Hidden state survives.** A surface's focus and scroll state belong to the surface, not
 to the frame that drew it. Covering, unregistering for a frame, or re-registering does not reset
@@ -52,7 +53,7 @@ layout::workspace(area, …) ─▶ SurfaceTree ─▶ render draws each surface
 | --- | --- |
 | `id` | `SurfaceId`, a named variant. Rejected: numeric identities, which break silently when a region is added; and a second layout computed for hit testing, whose failure is a click landing one panel over |
 | `bounds` | The rectangle the surface occupies. `visible()` is `bounds ∩ clip` (SURF-2), and until a surface exists that does not fit its parent, `clip` is `bounds` and not a field |
-| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the shelf, ten for approval, twenty for the Drawer |
+| `z_index` | Draw and hit order among siblings: zero for tiled regions, one for the Inspector shelf, ten for approval, fourteen for Narrow Agents, fifteen for the conversation tree, twenty for the Drawer |
 | `kind` | What the surface is; every behavioural answer below is derived from it |
 | `viewport` | Content height and the user's position through it, filled in by the renderer because measuring needs the text; `None` until a frame has drawn it |
 
@@ -104,6 +105,6 @@ hover never does (INV-3).
 | --- | --- |
 | SURF-1 | `every_registered_surface_is_drawn_inside_its_own_bounds`, `registered_surfaces_tile_the_terminal_without_gaps_or_overlap`, `the_canonical_frames_match_their_fixtures` with the `canonical-*` frames, `a_partial_frame_measures_each_axis_from_the_edges_it_paints` |
 | SURF-2 | Unproven; no surface overflows its parent. The inspector is one composite surface whose entered input leaves a smaller conversation rectangle, but both parts remain inside its bounds and one local accessor keeps painting and row hit resolution together; a generic clip field waits for a surface that needs clipping. Which rows of a scrolled item a frame builds is [transcript-layout](./transcript-layout.md) TR-2's business |
-| SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `only_the_focused_panel_carries_the_focused_border`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in` |
-| SURF-4 | `drawer_keeps_focus_when_the_inspected_approval_resolves`, `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_drawer_opens_over_a_waiting_approval_and_leaves_the_card_alone`, `the_approval_frames_match_their_fixtures` |
+| SURF-3 | `the_inspector_takes_the_cursor_and_the_composer_keeps_one_row`, `chrome_is_neither_a_pointer_target_nor_a_focus_stop`, `focus_starts_on_the_ring_and_a_press_on_chrome_does_not_move_it`, `the_focus_ring_wraps_in_both_directions`, `focus_outside_the_ring_enters_it_from_the_matching_end`, `the_focus_ring_loses_stops_without_ever_reordering`, `every_border_says_whose_surface_it_is_and_where_the_keys_are_going`, `tab_walks_the_ring_and_a_click_focuses_the_region_it_landed_in`; user-approved boundary hues at [160](../../crates/plexmaton-tui/frames/surface-boundary/boundary-hued-160.svg) and [120](../../crates/plexmaton-tui/frames/surface-boundary/boundary-hued-120.svg), the two widths that carry the roster, the user's conversation and a delegate's at once |
+| SURF-4 | `drawer_keeps_focus_when_the_inspected_approval_resolves`, `a_blocking_surface_prevents_delivery_below_it`, `approval_keys_stay_inside_the_blocking_surface`, `the_narrow_agents_navigator_has_the_workspace_layer_boundary`, `narrow_agents_has_one_closed_navigation_grammar`, `narrow_agents_blocks_hidden_conversation_commands_and_interrupts`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `the_drawer_opens_over_a_waiting_approval_and_leaves_the_card_alone`, `the_approval_frames_match_their_fixtures` |
 | SURF-5 | `focus_returns_to_a_surface_that_comes_back` and `selecting_another_agent_opens_its_window_and_escape_returns_focus_to_the_conversation` for focus; `an_untouched_panel_has_no_stored_position`, `a_resized_conversation_keeps_the_reader_on_the_same_message`, and `each_conversation_keeps_its_own_reading_position` for scroll |

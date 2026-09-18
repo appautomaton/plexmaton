@@ -145,9 +145,6 @@ impl Workspace {
                     }
                     return None;
                 }
-                if surface == SurfaceId::Agents {
-                    self.click_agent(at);
-                }
                 match entry {
                     // The press remains pending until movement; a click does not select a block.
                     Some(_) => {
@@ -442,36 +439,27 @@ impl Workspace {
         Some((agent, index))
     }
 
-    /// Selects the agent painted under a press in the list, if the press landed on one.
-    fn click_agent(&mut self, at: Point) {
-        let Some(bounds) = self
+    /// Resolves the stable agent identity painted under a point in the list.
+    pub(super) fn roster_agent_at(&self, at: Point) -> Option<AgentId> {
+        let bounds = self
             .surfaces
             .get(SurfaceId::Agents)
-            .map(|surface| surface.bounds)
-        else {
-            return;
-        };
+            .map(|surface| surface.bounds)?;
         // Inside the border, then past whatever the list is scrolled by.
-        let Some(row) = at.y.checked_sub(bounds.y.saturating_add(1)) else {
-            return;
-        };
+        let row = at.y.checked_sub(bounds.y.saturating_add(1))?;
         if row >= bounds.height.saturating_sub(2) {
-            return;
+            return None;
         }
         let offset = self
             .surfaces
             .viewport(SurfaceId::Agents)
             .map_or(0, |viewport| viewport.offset);
-        let width = inner_width(bounds.width);
-        if let Some(agent) = content::agent_at_row(
+        content::agent_at_row(
             &self.state,
             &self.palette,
-            width,
+            inner_width(bounds.width),
+            content::roster_capacity(bounds),
             usize::from(row).saturating_add(offset),
-        ) {
-            // The agent came from the roster one line ago, so an unknown one is a race with
-            // nothing, and selecting it again is the no-op the reducer already makes it.
-            let _known = self.state.select_agent(&agent);
-        }
+        )
     }
 }

@@ -74,7 +74,8 @@ impl AgentView {
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
-            | TranscriptEntryView::Task(_) => None,
+            | TranscriptEntryView::Task(_)
+            | TranscriptEntryView::Handoff(_) => None,
         })
     }
 
@@ -306,9 +307,9 @@ impl AgentView {
         &mut self,
         entry_id: TranscriptItemId,
         id: MailId,
-        owner: AgentId,
         from: AgentId,
         to: AgentId,
+        counterpart: String,
         summary: String,
     ) -> Result<bool, ReduceError> {
         self.insert_terminal(
@@ -316,9 +317,10 @@ impl AgentView {
             TranscriptEntryView::Mail(MailView {
                 entry_id,
                 id,
-                owner,
+                owner: self.id.clone(),
                 from,
                 to,
+                counterpart,
                 summary,
                 revision: 0,
             }),
@@ -328,19 +330,37 @@ impl AgentView {
     pub(super) fn assign_task(
         &mut self,
         entry_id: TranscriptItemId,
-        owner: AgentId,
         from: AgentId,
         to: AgentId,
+        counterpart: String,
         task: String,
     ) -> Result<bool, ReduceError> {
         self.insert_terminal(
             entry_id.clone(),
             TranscriptEntryView::Task(super::TaskView {
                 entry_id,
-                owner,
+                owner: self.id.clone(),
                 from,
                 to,
+                counterpart,
                 task,
+                revision: 0,
+            }),
+        )
+    }
+
+    pub(super) fn complete_handoff(
+        &mut self,
+        entry_id: TranscriptItemId,
+        owner: AgentId,
+        child: AgentId,
+    ) -> Result<bool, ReduceError> {
+        self.insert_terminal(
+            entry_id.clone(),
+            TranscriptEntryView::Handoff(super::HandoffView {
+                entry_id,
+                owner,
+                child,
                 revision: 0,
             }),
         )
@@ -399,7 +419,10 @@ impl AgentView {
             TranscriptEntryView::Tool(_)
             | TranscriptEntryView::Artifact(_)
             | TranscriptEntryView::Mail(_)
-            | TranscriptEntryView::Task(_) => Err(ReduceError::EntryKindChanged(item_id.clone())),
+            | TranscriptEntryView::Task(_)
+            | TranscriptEntryView::Handoff(_) => {
+                Err(ReduceError::EntryKindChanged(item_id.clone()))
+            }
         }
     }
 }

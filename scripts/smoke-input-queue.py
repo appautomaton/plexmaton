@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
 """IQU-1/IQU-4: queue, withdraw and continue through a real PTY and paused loopback stream."""
 
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
 import tempfile
 
-from permission_fixture import PausedResponse, ScriptedProvider, response
-from smoke_support import fixture_environment
-
-ROOT = Path(__file__).resolve().parent.parent
-spec = importlib.util.spec_from_file_location("permission_smoke", ROOT / "scripts/smoke-permissions.py")
-journey = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(journey)
+from provider_fixture import PausedResponse, ScriptedProvider, response
+from smoke_support import ENTER, ROOT, Terminal, fixture_environment, set_size
 
 FIRST = "Inspect the queue fixture"
 OLDER = "Keep this earlier message"
@@ -41,7 +35,7 @@ def capture_widths(terminal):
     terminal.resize(120, "Waiting to send · 2", "Alt-↑")
     terminal.frame_start = len(terminal.capture)
     terminal.size = (12, 60)
-    journey.smoke.set_size(terminal.master, terminal.size)
+    set_size(terminal.master, terminal.size)
     short = terminal.wait("Message Plexmaton", "Responding", absent=("Waiting to send",))
     (output / "input-queue-short.txt").write_text(short)
     terminal.resize(120, "Waiting to send · 2", "Alt-↑")
@@ -69,7 +63,7 @@ output_reserve_tokens = 4096
 ''')
         environment = dict(fixture_environment(), PLEXMATON_HOME=str(home),
                            PLEXMATON_QUEUE_FIXTURE_KEY="fixture-only")
-        with journey.Terminal(project, environment, "input-queue") as terminal:
+        with Terminal(project, environment, "input-queue", "queue") as terminal:
             terminal.wait("Message Plexmaton")
             terminal.prompt(FIRST, "FIRST_STREAM", "Responding")
             terminal.prompt(OLDER, "Waiting to send · 1", OLDER)
@@ -78,7 +72,7 @@ output_reserve_tokens = 4096
             terminal.send(b"$", "$100", "Skills")
             terminal.send(b"\t", "$100", absent=("Tab/Enter insert",))
             # Ctrl-J inserts a real newline; Enter submits the complete two-line message.
-            terminal.send(NEWEST.removeprefix("$100 ").replace("\n", "\x0a").encode() + journey.ENTER,
+            terminal.send(NEWEST.removeprefix("$100 ").replace("\n", "\x0a").encode() + ENTER,
                           "Waiting to send · 2", "Return this exact message")
             capture_widths(terminal)
             before = saved_journal(home)
@@ -113,7 +107,7 @@ output_reserve_tokens = 4096
             assert b"Return this exact message" not in saved_journal(home)
 
             # Only an explicit resubmission makes the returned draft a third request.
-            terminal.send(journey.ENTER, "THIRD_DONE", absent=("Waiting to send",))
+            terminal.send(ENTER, "THIRD_DONE", absent=("Waiting to send",))
             requests, errors = provider.snapshot()
             assert len(requests) == 3 and not errors, (requests, errors)
             users = [message["content"] for message in requests[2]["messages"] if message["role"] == "user"]

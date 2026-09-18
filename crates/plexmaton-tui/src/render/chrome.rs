@@ -17,7 +17,7 @@ use super::panel::{Chrome, Edges};
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
-    state::{CurrentWork, StatusNote},
+    state::CurrentWork,
     surface::SurfaceId,
     theme::{Palette, Role},
 };
@@ -52,13 +52,27 @@ fn title_with(
     ])
 }
 
-/// The rail names the rail. What is unanswered is the pill's, on the conversation the user is in.
+/// The strip names the strip, and says how many agents it is not showing.
 ///
-/// Rejected: `Agents · !n`. It put the count on the panel furthest from where the user is reading,
-/// beside a list whose own rows already carry each agent's badge, so the same fact was on screen
-/// three times and the one place it mattered was not one of them.
-pub(super) fn agents_title(palette: &Palette) -> Line<'static> {
-    title(palette, "Agents", Role::SectionHeading, "")
+/// The count appears only when the strip is bounded below the roster's size, because only then is
+/// it a fact the rows do not already carry. That is what keeps the cap honest: three rows are what
+/// the user gets, and the title is where they learn there are more.
+///
+/// Rejected: `Agents · !n`, the count of what is *unanswered*. It put that number on the panel
+/// furthest from where the user is reading, beside a list whose own rows already carry each
+/// agent's badge, so the same fact was on screen three times and the one place it mattered was not
+/// one of them. The pill on the user's own conversation owns it instead (ATT-1).
+pub(super) fn agents_title(state: &ViewState, palette: &Palette, capacity: usize) -> Line<'static> {
+    let total = content::population(state);
+    if total <= capacity {
+        return title(palette, "Agents", Role::SectionHeading, "");
+    }
+    title(
+        palette,
+        "Agents",
+        Role::SectionHeading,
+        format!(" {capacity} of {total}"),
+    )
 }
 
 /// The pill: `( !n )` at the far end of the conversation's top border while `n` are unanswered.
@@ -165,7 +179,30 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
     })
 }
 
-/// The title names the agent and the way out.
+/// Whose conversation this is, and what has arrived in it, on the primary surface's top edge.
+///
+/// The composer's rule below says whom the next message addresses; this says what is being read.
+/// The two are the same name until a child's window is open, which is exactly when telling them
+/// apart matters. The lifecycle and the selection note ride
+/// the activity line at the other end of the same box, and saying them twice in one frame would
+/// make the box noisier than the bare conversation it replaced.
+pub(super) fn conversation_title(
+    state: &ViewState,
+    palette: &Palette,
+    width: u16,
+) -> Line<'static> {
+    state.primary_agent().map_or_else(Line::default, |agent| {
+        let tally = content::tally(agent);
+        let full = title(palette, agent.label.clone(), Role::SectionHeading, tally);
+        if full.width() <= usize::from(width) {
+            full
+        } else {
+            // The name is the thing this title exists to say; the tally is what yields for it.
+            title(palette, agent.label.clone(), Role::SectionHeading, "")
+        }
+    })
+}
+
 pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
     // The surface is registered only while an agent is open, so this is no title rather than a
     // word the user would otherwise never see (phase 01 §scope 1).
@@ -175,12 +212,12 @@ pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) 
     let Some(agent) = state.agent(&open.agent) else {
         return title(
             palette,
-            open.agent.to_string(),
+            "Conversation unavailable",
             Role::SectionHeading,
             " · esc",
         );
     };
-    let counts = content::entry_counts(agent);
+    let counts = content::tally(agent);
     let selected = selected_suffix(state, SurfaceId::Inspector);
     let lifecycle = super::child_control::lifecycle(agent);
     let detailed = title(
@@ -306,39 +343,39 @@ pub(super) fn render_status(
         }
         crate::state::Footer::Default => {}
     }
-    if status.note() == StatusNote::Quiet
-        && !matches!(status.footer(), crate::state::Footer::Default)
-    {
+    if status.armed().is_none() && !matches!(status.footer(), crate::state::Footer::Default) {
         render_copy_receipt(frame, state, palette, area);
         return;
     }
-    let area = Rect::new(
-        area.x,
-        area.bottom().saturating_sub(1),
-        area.width,
-        area.height.min(1),
-    );
+    // An armed question may need a second row; the cwd baseline never does.
+    let rows = status.armed_rows(area.width).min(area.height).max(1);
+    let area = Rect::new(area.x, area.bottom().saturating_sub(rows), area.width, rows);
     frame.render_widget(ratatui::widgets::Clear, area);
-    let (text, role) = match status.note() {
-        StatusNote::QuitArmed { .. } => (
-            "press Ctrl-D again to quit".to_owned(),
-            Role::ActionRequired,
-        ),
-        StatusNote::Quiet => (
-            status.working_directory().unwrap_or_default().to_owned(),
-            Role::Muted,
-        ),
-    };
-    let line = Line::from(vec![
-        Span::raw(" "),
-        Span::styled(text, palette.style(role)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    // One place, two roles: what the workspace is waiting for, or where it is running.
+    let (texts, role) = status.armed().map_or_else(
+        || {
+            (
+                vec![status.working_directory().unwrap_or_default().to_owned()],
+                Role::Muted,
+            )
+        },
+        |armed| (armed.lines(area.width), Role::ActionRequired),
+    );
+    let lines: Vec<Line<'static>> = texts
+        .into_iter()
+        .map(|text| {
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(text, palette.style(role)),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
     render_copy_receipt(frame, state, palette, area);
 }
 
 fn render_copy_receipt(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
-    if state.status().note() != StatusNote::Quiet || area.is_empty() {
+    if state.status().armed().is_some() || area.is_empty() {
         return;
     }
     let text = match state.status().copy_receipt() {
@@ -399,7 +436,7 @@ pub(super) fn block(
     focused: bool,
     edges: Edges,
 ) -> Block<'static> {
-    block_with(palette, title, focused, edges, Chrome::Box)
+    block_with(palette, title, focused, edges, Chrome::Box, None)
 }
 
 /// A region with its edges inked as `chrome` says; the geometry is the edges' either way.
@@ -409,12 +446,9 @@ pub(super) fn block_with(
     focused: bool,
     edges: Edges,
     chrome: Chrome,
+    hue: Option<Role>,
 ) -> Block<'static> {
-    let border = if focused {
-        Role::BorderFocused
-    } else {
-        Role::Border
-    };
+    let border = palette.surface_border(hue, focused);
     let (borders, set) = match chrome {
         Chrome::Box => match edges {
             Edges::All => (Borders::ALL, border::PLAIN),
@@ -451,21 +485,19 @@ pub(super) fn block_with(
             }
             (borders, border::PLAIN)
         }
-        Chrome::Bare => (Borders::NONE, border::PLAIN),
     };
     let block = Block::default()
         .borders(borders)
         .border_set(set)
-        .border_style(palette.style(border));
+        .border_style(border);
     // An empty title is no title. Ratatui still reserves the top row for one when the block has
     // no top edge, which would leave a one-row region with nowhere to paint its row.
     let empty = title.spans.iter().all(|span| span.content.is_empty());
     match chrome {
         _ if empty => block,
-        Chrome::Bare => block,
         // The rule runs into its title: `── Message Plexmaton · high ───`.
         Chrome::Rules if edges.has_top() => {
-            let mut spans = vec![Span::styled("──", palette.style(border))];
+            let mut spans = vec![Span::styled("──", border)];
             spans.extend(title.spans);
             block.title(Line::from(spans))
         }

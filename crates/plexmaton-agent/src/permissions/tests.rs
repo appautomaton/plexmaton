@@ -16,10 +16,23 @@ fn preset() -> PermissionMatcher {
         edit: definition("native-edit"),
     }
 }
+fn inspection() -> PermissionMatcher {
+    PermissionMatcher::NativeInspection {
+        read: definition("native-read"),
+        search: definition("native-search"),
+    }
+}
 fn state(id: &str) -> SessionPermissions {
     SessionPermissions::new(CodingSessionId::new(id).expect("Session"))
 }
 fn admitted(id: &str, subject: PermissionSubject) -> AdmittedToolCall {
+    admitted_with(id, subject, [ToolCapability::FileWrite])
+}
+fn admitted_with(
+    id: &str,
+    subject: PermissionSubject,
+    capabilities: impl IntoIterator<Item = ToolCapability>,
+) -> AdmittedToolCall {
     let request = AdmissionRequest::new(ToolCall {
         call_id: ToolCallId::new("call").expect("call"),
         name: "untrusted-display-name".into(),
@@ -30,7 +43,7 @@ fn admitted(id: &str, subject: PermissionSubject) -> AdmittedToolCall {
         .admit(
             ToolDefinitionId::new(id).expect("definition"),
             ToolDefinitionRevision::new(1).expect("revision"),
-            [ToolCapability::FileWrite],
+            capabilities,
             "{}".into(),
             "display text has no authority".into(),
             None,
@@ -276,6 +289,47 @@ fn per_3_file_change_preset_pins_definitions_and_excludes_control_paths() {
         ToolDefinitionRevision::new(2).expect("revision"),
     );
     assert!(!changed_definition.matches(&create("src/new.rs")));
+}
+
+#[test]
+fn per_3_inspection_preset_pins_only_read_and_search_definitions() {
+    let read = admitted_with(
+        "native-read",
+        PermissionSubject::Opaque,
+        [ToolCapability::FileRead],
+    );
+    let search = admitted_with(
+        "native-search",
+        PermissionSubject::Opaque,
+        [ToolCapability::FileRead],
+    );
+    let unrelated = admitted_with(
+        "native-lookalike",
+        PermissionSubject::Opaque,
+        [ToolCapability::FileRead],
+    );
+    let mut session = state("coding-inspection");
+    session
+        .replace_rules(
+            session.snapshot().revision(),
+            vec![PermissionRule {
+                source: PermissionRuleSource::Runtime,
+                matcher: inspection(),
+                action: PermissionRuleAction::Ask,
+            }],
+        )
+        .expect("inspection rule");
+
+    assert_eq!(decision(&session, &read), PolicyDecision::RequireApproval);
+    assert_eq!(decision(&session, &search), PolicyDecision::RequireApproval);
+    assert_eq!(decision(&session, &unrelated), PolicyDecision::Allow);
+    assert!(
+        !PermissionDefinition::new(
+            ToolDefinitionId::new("native-read").expect("id"),
+            ToolDefinitionRevision::new(2).expect("revision"),
+        )
+        .matches(&read)
+    );
 }
 
 #[test]

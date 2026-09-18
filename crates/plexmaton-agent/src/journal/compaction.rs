@@ -281,6 +281,7 @@ fn epoch_from_path(path: &[&super::ConversationEntry]) -> ContextEpoch {
 fn payload_agent_id(payload: &JournalEntryPayload) -> &AgentId {
     match payload {
         JournalEntryPayload::AgentCreated { agent_id, .. }
+        | JournalEntryPayload::CollaborationItemLinked { agent_id, .. }
         | JournalEntryPayload::TurnStatusChanged { agent_id, .. }
         | JournalEntryPayload::TurnStarted { agent_id, .. }
         | JournalEntryPayload::CollaborationTurnStarted { agent_id, .. }

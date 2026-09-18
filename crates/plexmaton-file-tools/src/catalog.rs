@@ -348,6 +348,22 @@ fn bounded_detail(value: &str, max: usize) -> &str {
     &value[..end]
 }
 
+/// Kept with the actual definitions so a preset cannot silently follow another inspection tool.
+pub(crate) fn inspection_permission_definitions() -> (
+    plexmaton_agent::PermissionDefinition,
+    plexmaton_agent::PermissionDefinition,
+) {
+    let binding = |id| {
+        plexmaton_agent::PermissionDefinition::new(
+            ToolDefinitionId::new(id)
+                .unwrap_or_else(|_| unreachable!("reviewed definition identity")),
+            ToolDefinitionRevision::new(DEFINITION_REVISION)
+                .unwrap_or_else(|| unreachable!("published nonzero revision")),
+        )
+    };
+    (binding(READ_DEFINITION_ID), binding(SEARCH_DEFINITION_ID))
+}
+
 /// Kept with the actual definitions so a preset cannot silently follow a new write-capable tool.
 pub(crate) fn permission_definitions() -> (
     plexmaton_agent::PermissionDefinition,

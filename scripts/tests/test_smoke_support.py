@@ -4,34 +4,57 @@ import socket
 import select
 import os
 import threading
-import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("smoke_support", Path(__file__).resolve().parents[1] / "smoke_support.py")
 support = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(support)
 
-terminal_spec = importlib.util.spec_from_file_location("terminal_smoke", Path(__file__).resolve().parents[1] / "smoke-tui.py")
-terminal = importlib.util.module_from_spec(terminal_spec)
-with patch.dict(sys.modules, smoke_support=support):
-    terminal_spec.loader.exec_module(terminal)
-
 
 class SmokeBoundaryTests(unittest.TestCase):
     def test_frame_boundary_requires_a_complete_draw_and_cursor_sequence(self):
         complete = b"caption\x1b[0m\x1b[3;4H\x1b[?25h"
-        self.assertIsNotNone(terminal.FRAME_END.search(complete))
-        self.assertIsNone(terminal.FRAME_END.search(complete[:-1]))
-        self.assertIsNone(terminal.FRAME_END.search(b"caption\x1b[0"))
+        self.assertIsNotNone(support.FRAME_END.search(complete))
+        self.assertIsNone(support.FRAME_END.search(complete[:-1]))
+        self.assertIsNone(support.FRAME_END.search(b"caption\x1b[0"))
 
     def test_palette_caption_cannot_stand_in_for_the_complete_filter(self):
         for query, expected in (("con", False), ("config", True)):
             # The composer's bottom rule, a whole row of "─", is the frame-complete signal.
             raw = f"\x1b[1;1HCommands\x1b[2;1H{query}\x1b[3;1H> /config\x1b[4;1H{'─' * 40}\x1b[0m".encode()
-            with patch.object(terminal, "read_until") as read:
-                terminal.await_screen(-1, bytearray(raw), (4, 40), ("Commands", "/config"), exact_lines=("config",))
+            with patch.object(support, "read_until") as read:
+                support.await_screen(-1, bytearray(raw), (4, 40), ("Commands", "/config"), exact_lines=("config",))
                 self.assertEqual(read.call_args.args[2](), expected)
+
+    def test_full_region_panel_can_supply_its_own_completion_witness(self):
+        raw = "\x1b[1;1H┌ Agents ─┐\x1b[2;1H│ child    │\x1b[3;1H└───────────┘\x1b[0m".encode()
+        with patch.object(support, "read_until") as read:
+            support.await_screen(
+                -1,
+                bytearray(raw),
+                (3, 13),
+                ("┌ Agents", "child"),
+                complete=False,
+            )
+            self.assertTrue(read.call_args.args[2]())
+
+    def test_terminal_wait_reports_process_exit_and_last_frame(self):
+        terminal = support.Terminal.__new__(support.Terminal)
+        terminal.master = -1
+        terminal.capture = bytearray(b"\x1b[1;1Hlast frame")
+        terminal.frame_start = 0
+        terminal.size = (2, 20)
+        terminal.process = SimpleNamespace(poll=lambda: 101)
+
+        with patch.object(support, "await_screen", side_effect=EOFError("terminal closed")):
+            with self.assertRaises(EOFError) as failure:
+                terminal.wait("missing")
+
+        message = str(failure.exception)
+        self.assertIn("process exit: 101", message)
+        self.assertIn("last frame", message)
 
     def test_ready_state_needs_no_read_or_delay(self):
         support.read_until(-1, bytearray(b"ready"), lambda: True)

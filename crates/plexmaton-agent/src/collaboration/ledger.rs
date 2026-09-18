@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use plexmaton_core::{
-    AgentId, CollaborationId, CollaborationItemId, ConversationId, DelegationId, MailId,
+    AgentId, AttentionId, CollaborationId, CollaborationItemId, ConversationId, DelegationId,
+    MailId,
 };
 
 use super::types::validate_id;
@@ -26,6 +27,7 @@ pub struct CollaborationLedger {
     records: Vec<CollaborationRecord>,
     items: BTreeMap<CollaborationItemId, usize>,
     mails: BTreeMap<(MailEndpoint, MailId), usize>,
+    attentions: BTreeMap<(MailEndpoint, AttentionId), bool>,
     delegations: BTreeMap<DelegationId, DelegationView>,
     endpoints: BTreeMap<ConversationId, AgentId>,
     workers: BTreeMap<ConversationId, DelegationId>,
@@ -46,6 +48,7 @@ impl CollaborationLedger {
             records: Vec::new(),
             items: BTreeMap::new(),
             mails: BTreeMap::new(),
+            attentions: BTreeMap::new(),
             delegations: BTreeMap::new(),
             endpoints: BTreeMap::new(),
             workers: BTreeMap::new(),
@@ -164,6 +167,27 @@ impl CollaborationLedger {
                 expected,
                 author,
             } => self.validate_main_control(delegation, *expected, author),
+            CollaborationEvent::AttentionRequested { attention } => {
+                self.validate_attention_endpoint(attention)?;
+                if self
+                    .attentions
+                    .contains_key(&(attention.producer.clone(), attention.attention_id.clone()))
+                {
+                    return Err(CollaborationError::AttentionIdentityConflict);
+                }
+                Ok(())
+            }
+            CollaborationEvent::AttentionResolved { attention } => {
+                self.validate_attention_endpoint(attention)?;
+                match self
+                    .attentions
+                    .get(&(attention.producer.clone(), attention.attention_id.clone()))
+                {
+                    None => Err(CollaborationError::UnknownAttention),
+                    Some(true) => Err(CollaborationError::AttentionAlreadyResolved),
+                    Some(false) => Ok(()),
+                }
+            }
         }
     }
 
@@ -221,6 +245,18 @@ impl CollaborationLedger {
                 view.revision.0 += 1;
                 view.controller = DelegationController::User;
             }
+            CollaborationEvent::AttentionRequested { attention } => {
+                self.attentions.insert(
+                    (attention.producer.clone(), attention.attention_id.clone()),
+                    false,
+                );
+            }
+            CollaborationEvent::AttentionResolved { attention } => {
+                *self
+                    .attentions
+                    .get_mut(&(attention.producer.clone(), attention.attention_id.clone()))
+                    .expect("validated Attention request exists") = true;
+            }
         }
         let receipt = record.receipt();
         self.items.insert(record.id.clone(), self.records.len());
@@ -254,6 +290,17 @@ impl CollaborationLedger {
         }
         if self.mail_bytes + mail.retained_bytes() > self.limits.mail_bytes {
             return Err(CollaborationError::MailCapacity);
+        }
+        Ok(())
+    }
+
+    fn validate_attention_endpoint(
+        &self,
+        attention: &super::AttentionReference,
+    ) -> Result<(), CollaborationError> {
+        attention.validate()?;
+        if !self.has_endpoint(&attention.producer) {
+            return Err(CollaborationError::UnknownEndpoint);
         }
         Ok(())
     }

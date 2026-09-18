@@ -3,7 +3,19 @@
 use plexmaton_core::{AgentId, AgentStatus};
 
 use super::{AgentView, ReduceError, ordered::OrderedById};
-use crate::intent::Direction;
+use crate::{intent::Direction, surface::SurfaceId};
+
+/// One visit to the narrow full-region agent navigator.
+///
+/// The cursor is deliberately separate from the selected conversation. Moving through the
+/// navigator previews rows without replacing the conversation underneath it; only `Enter` or a
+/// completed click commits that choice. `return_focus` puts the user back on the exact control
+/// they left when the navigator is dismissed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct RosterNavigation {
+    pub(super) return_focus: SurfaceId,
+    pub(super) cursor: Option<AgentId>,
+}
 
 /// The agents the workspace knows about, in the order they appeared.
 ///
@@ -31,9 +43,28 @@ impl Roster {
         self.agents.iter().skip(1)
     }
 
+    /// The children a conversation switch would interrupt, as this roster names them.
+    ///
+    /// The roster answers rather than the owner because it is what the user is reading when they
+    /// choose: the name in the sentence a switch offers is the name in the row above it (`ui-ux.md`
+    /// one name per thing), and asking the owner would put a writer round trip inside a keystroke.
+    ///
+    /// `Waiting` counts — a child blocked on an approval still loses that turn. This can be one
+    /// frame stale, and it errs toward offering the choice rather than taking the work silently:
+    /// the Stop itself goes through the owner, which refuses a runner that is already gone. A child
+    /// restored without being woken (CHB-3) is `Idle` and correctly asks nothing.
+    pub(super) fn working(&self) -> impl Iterator<Item = &AgentView> {
+        self.sub_agents()
+            .filter(|agent| matches!(agent.status, AgentStatus::Running | AgentStatus::Waiting))
+    }
+
     /// The sub-agent the user is looking at, if any.
     pub(super) fn selected(&self) -> Option<&AgentView> {
         self.selected.as_ref().and_then(|id| self.agents.get(id))
+    }
+
+    pub(super) fn selected_id(&self) -> Option<&AgentId> {
+        self.selected.as_ref()
     }
 
     /// The agent the second window shows, which is the selected sub-agent.
@@ -114,27 +145,41 @@ impl Roster {
     /// the opposite of the focus ring, where a `Tab` that stops cycling is a dead key. Leaving the
     /// list is `Escape`'s job, not the arrows'.
     pub(super) fn move_selection(&mut self, direction: Direction) -> bool {
-        let Some(current) = self.selected.clone() else {
-            // Nothing is selected yet, so either arrow lands on the first sub-agent.
-            let first = self.sub_agents().next().map(|agent| agent.id.clone());
-            let moved = first.is_some();
-            self.selected = first;
-            return moved;
-        };
-        let Some(index) = self.sub_agents().position(|agent| agent.id == current) else {
+        let next = self.moved_from(self.selected.as_ref(), direction);
+        if next == self.selected {
             return false;
+        }
+        self.selected = next;
+        true
+    }
+
+    /// Resolves one clamped list step without changing the selected conversation.
+    pub(super) fn moved_from(
+        &self,
+        current: Option<&AgentId>,
+        direction: Direction,
+    ) -> Option<AgentId> {
+        let Some(current) = current else {
+            // Nothing is selected yet, so either arrow lands on the first sub-agent.
+            return self.sub_agents().next().map(|agent| agent.id.clone());
+        };
+        let Some(index) = self.sub_agents().position(|agent| &agent.id == current) else {
+            return self.sub_agents().next().map(|agent| agent.id.clone());
         };
         let target = match direction {
             Direction::Forward => index.saturating_add(1),
             Direction::Backward => index.saturating_sub(1),
         };
-        let Some(next) = self.sub_agents().nth(target).map(|agent| agent.id.clone()) else {
-            return false;
-        };
-        if next == current {
-            return false;
-        }
-        self.selected = Some(next);
-        true
+        self.sub_agents()
+            .nth(target)
+            .map(|agent| agent.id.clone())
+            .or_else(|| Some(current.clone()))
+    }
+}
+
+impl super::ViewState {
+    /// The delegated children a conversation switch would interrupt (SPK-2).
+    pub fn working_delegates(&self) -> impl Iterator<Item = &AgentView> {
+        self.agents.working()
     }
 }

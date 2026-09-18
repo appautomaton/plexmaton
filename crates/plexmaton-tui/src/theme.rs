@@ -1,36 +1,98 @@
-//! Semantic colour tokens and the palettes that assign them a style.
+//! Colour in two layers: the slots a theme fills, and the roles the product spends them on.
 //!
-//! Widgets name a [`Role`], never a terminal colour. A [`Palette`] is one complete
-//! assignment of those tokens; [`Palette::pastel`] is the shipped one, not a closed
-//! set. A
-//! new colourway is a new assignment, not a change to a widget.
+//! A [`Slots`] is twelve colours named for where each sits — a ground ramp and eight hues around
+//! the wheel — and is the only thing a theme supplies. A [`Role`] is what a colour *means* here,
+//! and [`Palette::from_slots`] is the one place the sixteen roles are spent on those twelve slots.
+//! Widgets name a role and never a colour, so a theme changes how the product looks and never what
+//! it says. [`Palette::pastel`] is the shipped assignment, not a closed set.
 
 use plexmaton_core::{AgentStatus, ToolCallStatus};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 
 pub(crate) mod code;
 mod effort;
 mod markdown;
+#[cfg(test)]
+mod tests;
 pub use effort::{EFFORT_COLOR_PHASES, EffortPalette};
 pub(crate) use markdown::MarkdownStyles;
 
-/// The named colours, as the user wrote them for the status line, on a dark terminal ground.
+/// The twelve colours a theme assigns, each named for where it sits rather than what it is.
 ///
-/// Names, not hex values, are what a widget or a document refers to. A colour separates what a
-/// thing *is*; weight separates what reads first; italic separates what stays quiet.
-pub(crate) mod tokens {
-    use ratatui::style::Color;
+/// A slot is a position, not a paint. `red` is the slot a failure points at; what sits in it today
+/// happens to be a coral. A theme replaces the twelve values and never the twelve positions, so
+/// `red` still reads true once a crimson or a brick is assigned to it.
+///
+/// Rejected: naming a slot for the colour it currently holds — `CORAL`, `MINT`, `GOLD` — which made
+/// every name wrong the moment a theme changed the value, and hid two defects behind names that
+/// merely sounded distinct. `orange` and `yellow` sat 6° apart on the wheel and nobody noticed
+/// because "orange" and "gold" are different words; and between `blue` and `red` lay 147° of
+/// nothing, so the effort rail and the status line each invented a purple of their own rather than
+/// ask for one — landing, independently, within 2° of each other.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Slots {
+    /// Panel ground, and the colour a hue is carried toward when it is at rest.
+    pub ground: Color,
+    /// Rules, dividers and borders that belong to no particular surface.
+    pub line: Color,
+    /// Secondary text: pointers, summaries, hints.
+    pub muted: Color,
+    /// Body text.
+    pub text: Color,
+    pub red: Color,
+    pub orange: Color,
+    pub yellow: Color,
+    pub green: Color,
+    pub cyan: Color,
+    pub blue: Color,
+    pub purple: Color,
+    pub magenta: Color,
+}
 
-    pub(crate) const BODY: Color = Color::Rgb(0xE6, 0xE9, 0xF0);
-    pub(crate) const STEEL: Color = Color::Rgb(142, 162, 196);
-    pub(crate) const LINE: Color = Color::Rgb(0x3D, 0x46, 0x64);
-    pub(crate) const BAR: Color = Color::Rgb(0x1C, 0x22, 0x33);
-    pub(crate) const SKY: Color = Color::Rgb(130, 180, 240);
-    pub(crate) const TEAL: Color = Color::Rgb(120, 210, 205);
-    pub(crate) const MINT: Color = Color::Rgb(140, 218, 165);
-    pub(crate) const GOLD: Color = Color::Rgb(245, 208, 114);
-    pub(crate) const ORANGE: Color = Color::Rgb(255, 196, 102);
-    pub(crate) const CORAL: Color = Color::Rgb(255, 120, 120);
+impl Slots {
+    /// The shipped assignment: the status line's colours on a dark terminal ground.
+    ///
+    /// The ramp is one blue-tinted hue at four lightnesses rather than four greys, so panel
+    /// structure recedes behind content instead of competing with it as neutral grey does.
+    #[must_use]
+    pub const fn designed() -> Self {
+        Self {
+            ground: Color::Rgb(0x1C, 0x22, 0x33),
+            line: Color::Rgb(0x3D, 0x46, 0x64),
+            muted: Color::Rgb(142, 162, 196),
+            text: Color::Rgb(0xE6, 0xE9, 0xF0),
+            red: Color::Rgb(255, 120, 120),
+            orange: Color::Rgb(255, 196, 102),
+            yellow: Color::Rgb(245, 208, 114),
+            green: Color::Rgb(140, 218, 165),
+            cyan: Color::Rgb(120, 210, 205),
+            blue: Color::Rgb(130, 180, 240),
+            // The value two separate places arrived at on their own while this slot did not exist.
+            purple: Color::Rgb(0xC8, 0xB3, 0xEA),
+            magenta: Color::Rgb(0xE7, 0x8D, 0xCC),
+        }
+    }
+
+    /// Every slot through one transformation, for a harness that needs a palette differing in
+    /// colour alone. Roles are untouched by construction, which is the point: proving that a swap
+    /// costs a repaint must not require an API that can also change what a colour means.
+    #[must_use]
+    pub fn map(self, mut colour: impl FnMut(Color) -> Color) -> Self {
+        Self {
+            ground: colour(self.ground),
+            line: colour(self.line),
+            muted: colour(self.muted),
+            text: colour(self.text),
+            red: colour(self.red),
+            orange: colour(self.orange),
+            yellow: colour(self.yellow),
+            green: colour(self.green),
+            cyan: colour(self.cyan),
+            blue: colour(self.blue),
+            purple: colour(self.purple),
+            magenta: colour(self.magenta),
+        }
+    }
 }
 pub use markdown::MarkdownTheme;
 
@@ -47,10 +109,16 @@ pub enum Role {
     Body,
     /// Secondary text: pointers, summaries, and empty-state hints.
     Muted,
-    /// Panel borders and section dividers.
+    /// Panel borders and section dividers that belong to no particular surface.
     Border,
-    /// Border of the surface that holds keyboard focus.
+    /// Border of a focused surface that has no identity hue of its own.
     BorderFocused,
+    /// The roster of agents: the index of who exists, rather than anything anyone said.
+    SurfaceRoster,
+    /// The conversation the user owns.
+    SurfacePrimary,
+    /// A delegate's conversation, opened beside the user's own.
+    SurfaceDelegate,
     /// Headings for sections inside a panel.
     SectionHeading,
     /// Identity emphasis, such as the selected agent marker.
@@ -74,11 +142,14 @@ pub enum Role {
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::Body,
         Self::Muted,
         Self::Border,
         Self::BorderFocused,
+        Self::SurfaceRoster,
+        Self::SurfacePrimary,
+        Self::SurfaceDelegate,
         Self::SectionHeading,
         Self::Accent,
         Self::KeyHint,
@@ -133,6 +204,32 @@ pub const fn agent_role(status: AgentStatus) -> Role {
 /// colour, so a selection reads as a selection on top of whatever role painted the run.
 const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 
+/// One hue at rest: the same colour carried most of the way to *this palette's* ground.
+///
+/// Blending toward the ground rather than toward grey keeps the hue legible at low intensity, so an
+/// unfocused surface still says whose it is. The ground has to come from the palette: a hard-coded
+/// dark one quiets a hue only while the theme is dark, and on a light ground the same arithmetic
+/// brightens the resting border past the focused one — the signal inverts instead of fading.
+/// One slot's opposite. A harness swapping every slot for this proves a repaint costs styling and
+/// nothing else, without an API that could have changed a role's meaning instead.
+#[must_use]
+pub fn invert(colour: Color) -> Color {
+    match colour {
+        Color::Rgb(red, green, blue) => Color::Rgb(255 - red, 255 - green, 255 - blue),
+        other => other,
+    }
+}
+
+fn quieted(hue: Color, ground: Color) -> Color {
+    let (Color::Rgb(red, green, blue), Color::Rgb(gr, gg, gb)) = (hue, ground) else {
+        return hue;
+    };
+    let mix = |value: u8, ground: u8| {
+        u8::try_from((u16::from(value) * 45 + u16::from(ground) * 55) / 100).unwrap_or(value)
+    };
+    Color::Rgb(mix(red, gr), mix(green, gg), mix(blue, gb))
+}
+
 /// Resolved styles for every [`Role`].
 ///
 /// Fields are private on purpose. Reaching past `style` to a concrete colour is how a design
@@ -140,10 +237,16 @@ const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Palette {
     markdown: MarkdownTheme,
+    /// The ground its slots were assigned, kept so a hue can be carried toward it at rest without
+    /// any widget knowing what colour the ground is.
+    ground: Color,
     body: Style,
     muted: Style,
     border: Style,
     border_focused: Style,
+    surface_roster: Style,
+    surface_primary: Style,
+    surface_delegate: Style,
     section_heading: Style,
     accent: Style,
     key_hint: Style,
@@ -156,18 +259,64 @@ pub struct Palette {
 }
 
 impl Palette {
-    /// Builds a complete palette from a function of the colour tokens.
+    /// Spends the sixteen roles on a theme's twelve slots.
     ///
-    /// Every role is assigned exactly once. A palette that left a role unset would force a widget
-    /// to pick a colour, which is the thing this type exists to prevent.
+    /// This mapping is the product's half of the palette and lives in exactly one place. A theme
+    /// supplies colours and reaches no further, so no colourway can make a failure read as a
+    /// success, take the weight off what needs the user, or leave work in progress competing for
+    /// attention. Every role is assigned exactly once; a role left unset would force a widget to
+    /// choose a colour, which is what [`Role`] exists to prevent.
+    ///
+    /// Rejected: a seam taking a function of `Role`, which handed every caller the power to
+    /// redefine the meanings this contract reserves — the API said a theme may do the one thing
+    /// the contract says it may never do.
     #[must_use]
-    pub fn from_roles(mut style: impl FnMut(Role) -> Style) -> Self {
+    pub fn from_slots(slots: Slots) -> Self {
         Self {
             markdown: MarkdownTheme::Inherited,
+            ground: slots.ground,
+            body: Style::new().fg(slots.text),
+            muted: Style::new().fg(slots.muted),
+            border: Style::new().fg(slots.line),
+            border_focused: Style::new().fg(slots.blue),
+            // Each surface keeps the hue whose meaning it already carries: blue for where you are,
+            // cyan for work someone else is doing, muted for structure rather than content.
+            surface_roster: Style::new().fg(slots.muted),
+            surface_primary: Style::new().fg(slots.blue),
+            surface_delegate: Style::new().fg(slots.cyan),
+            section_heading: Style::new().fg(slots.text).add_modifier(Modifier::BOLD),
+            accent: Style::new().fg(slots.yellow),
+            key_hint: SELECTION,
+            ambient: Style::new().fg(slots.cyan),
+            new_information: Style::new().fg(slots.green),
+            action_required: Style::new().fg(slots.orange).add_modifier(Modifier::BOLD),
+            failure: Style::new().fg(slots.red).add_modifier(Modifier::BOLD),
+            selection: SELECTION,
+            chosen: Style::new()
+                .fg(slots.yellow)
+                .bg(slots.ground)
+                .add_modifier(Modifier::BOLD),
+        }
+    }
+
+    /// An arbitrary style per role, for the paint tests that must prove composition survives a
+    /// palette which removes a modifier or leaves a foreground unset. Deliberately not public:
+    /// outside a test, choosing per role is the thing [`Palette::from_slots`] exists to forbid.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn from_roles(mut style: impl FnMut(Role) -> Style) -> Self {
+        Self {
+            markdown: MarkdownTheme::Inherited,
+            // No slots were supplied, so resting hues blend toward the designed ground. Only the
+            // paint tests build a palette this way, and none of them draws a surface border.
+            ground: Slots::designed().ground,
             body: style(Role::Body),
             muted: style(Role::Muted),
             border: style(Role::Border),
             border_focused: style(Role::BorderFocused),
+            surface_roster: style(Role::SurfaceRoster),
+            surface_primary: style(Role::SurfacePrimary),
+            surface_delegate: style(Role::SurfaceDelegate),
             section_heading: style(Role::SectionHeading),
             accent: style(Role::Accent),
             key_hint: style(Role::KeyHint),
@@ -180,33 +329,25 @@ impl Palette {
         }
     }
 
-    /// The designed palette: the status line's named colours on a dark terminal ground.
+    /// The shipped palette: [`Slots::designed`] spent on the sixteen roles.
     ///
-    /// Each colour names what a thing is: sky for where you are, teal for work in progress, mint
-    /// for what finished, orange for what needs you, coral for what failed, violet for who is
-    /// speaking, gold for what `Enter` acts on. Weight makes titles and the chosen row read first;
-    /// italic keeps work in progress quiet. Its Markdown is the same tokens, designed for reading.
-    /// Rejected: Catppuccin's mauve-tinted tokens, which were nobody's here; and resolving through
-    /// the user's own terminal theme, which let their configuration decide what our semantics
-    /// look like.
+    /// A role says what a thing is — blue for where you are, cyan for work in progress, green for
+    /// what finished, orange for what needs you, red for what failed, yellow for what `Enter` acts
+    /// on. Weight makes titles and the chosen row read first; a low-saturation hue with no weight
+    /// on it is what keeps work in progress quiet, because a slant would draw the eye `Ambient`
+    /// exists to spare.
+    /// It differs from any other assignment of the same slots in one way only: its Markdown is
+    /// designed for reading rather than inherited from the roles (MD-5).
+    ///
+    /// Rejected: Catppuccin's mauve-tinted colours, which were nobody's here; and resolving through
+    /// the terminal's own ANSI theme, which let whatever the user happened to have configured
+    /// decide implicitly what our semantics look like. A palette stated explicitly — by us or by
+    /// the user — is the opposite of that, and is what [`Palette::from_slots`] exists for.
     #[must_use]
     pub fn pastel() -> Self {
-        use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL};
         Self {
             markdown: MarkdownTheme::Pastel,
-            body: Style::new().fg(BODY),
-            muted: Style::new().fg(STEEL),
-            border: Style::new().fg(LINE),
-            border_focused: Style::new().fg(SKY),
-            section_heading: Style::new().fg(BODY).add_modifier(Modifier::BOLD),
-            accent: Style::new().fg(GOLD),
-            key_hint: Style::new().add_modifier(Modifier::REVERSED),
-            ambient: Style::new().fg(TEAL).add_modifier(Modifier::ITALIC),
-            new_information: Style::new().fg(MINT),
-            action_required: Style::new().fg(ORANGE).add_modifier(Modifier::BOLD),
-            failure: Style::new().fg(CORAL).add_modifier(Modifier::BOLD),
-            selection: SELECTION,
-            chosen: Style::new().fg(GOLD).bg(BAR).add_modifier(Modifier::BOLD),
+            ..Self::from_slots(Slots::designed())
         }
     }
 
@@ -219,19 +360,34 @@ impl Palette {
     #[cfg(test)]
     #[must_use]
     pub(crate) fn inverted() -> Self {
-        let base = Self::pastel();
-        Self::from_roles(|role| {
-            // Only a role that already names a colour gets a different one. A role that
-            // carries its meaning in modifiers alone keeps them, so inverting cannot
-            // invent a colour where the design deliberately has none.
-            let style = base.style(role);
-            match style.fg {
-                Some(ratatui::style::Color::Rgb(r, g, b)) => {
-                    style.fg(ratatui::style::Color::Rgb(255 - r, 255 - g, 255 - b))
-                }
-                _ => style,
-            }
-        })
+        Self::from_slots(Slots::designed().map(invert))
+    }
+
+    /// The border of one surface: its own hue, at full strength while it holds focus.
+    ///
+    /// Hue says which surface this is and intensity says whether it is the one being operated, so
+    /// the two questions a reader asks of a border are answered on one channel without colliding:
+    /// a dimmed cyan is still the delegate's, just not where the keys are going. A surface with no
+    /// identity of its own — a menu, a notice, an approval — passes `None` and keeps the neutral
+    /// line. Rejected: one focus colour for every surface, which made two conversations side by
+    /// side indistinguishable except by reading their titles.
+    #[must_use]
+    pub fn surface_border(&self, hue: Option<Role>, focused: bool) -> Style {
+        let Some(hue) = hue else {
+            return if focused {
+                self.border_focused
+            } else {
+                self.border
+            };
+        };
+        let style = self.style(hue);
+        if focused {
+            return style;
+        }
+        match style.fg {
+            Some(hue) => style.fg(quieted(hue, self.ground)),
+            None => self.border,
+        }
     }
 
     /// Resolves one role.
@@ -242,6 +398,9 @@ impl Palette {
             Role::Muted => self.muted,
             Role::Border => self.border,
             Role::BorderFocused => self.border_focused,
+            Role::SurfaceRoster => self.surface_roster,
+            Role::SurfacePrimary => self.surface_primary,
+            Role::SurfaceDelegate => self.surface_delegate,
             Role::SectionHeading => self.section_heading,
             Role::Accent => self.accent,
             Role::KeyHint => self.key_hint,
@@ -258,91 +417,5 @@ impl Palette {
 impl Default for Palette {
     fn default() -> Self {
         Self::pastel()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use ratatui::style::Modifier;
-
-    use plexmaton_core::ToolCallStatus;
-
-    use super::{Palette, Role, tool_role};
-
-    fn palettes() -> [(&'static str, Palette); 2] {
-        [
-            ("pastel", Palette::pastel()),
-            ("inverted", Palette::inverted()),
-        ]
-    }
-
-    #[test]
-    fn attention_levels_are_distinguishable_in_every_palette() {
-        for (name, palette) in palettes() {
-            let styles: HashSet<_> = Role::ATTENTION
-                .iter()
-                .map(|role| format!("{:?}", palette.style(*role)))
-                .collect();
-            assert_eq!(
-                styles.len(),
-                Role::ATTENTION.len(),
-                "{name} collapses two attention levels onto one style"
-            );
-        }
-    }
-
-    #[test]
-    fn approval_tool_states_map_to_attention_without_treating_denial_as_failure() {
-        assert_eq!(
-            tool_role(ToolCallStatus::AwaitingApproval),
-            Role::ActionRequired
-        );
-        assert_eq!(tool_role(ToolCallStatus::Denied), Role::Muted);
-    }
-
-    #[test]
-    fn focused_and_unfocused_borders_never_look_alike() {
-        for (name, palette) in palettes() {
-            assert_ne!(
-                palette.style(Role::Border),
-                palette.style(Role::BorderFocused),
-                "{name} cannot show which surface has focus"
-            );
-        }
-    }
-
-    #[test]
-    fn key_hints_are_reversed_without_a_named_colour() {
-        for (name, palette) in palettes() {
-            let style = palette.style(Role::KeyHint);
-            assert!(
-                style.add_modifier.contains(Modifier::REVERSED),
-                "{name} key hints are not reversed"
-            );
-            assert!(
-                style.fg.is_none() && style.bg.is_none(),
-                "{name} key hints inject a named colour"
-            );
-            assert_ne!(
-                style,
-                palette.style(Role::Accent),
-                "{name} paints keys as identity emphasis"
-            );
-        }
-    }
-
-    #[test]
-    fn a_palette_is_a_complete_assignment_of_roles() {
-        let base = Palette::pastel();
-        let rebuilt = Palette::from_roles(|role| base.style(role));
-        for role in Role::ALL {
-            assert_eq!(
-                rebuilt.style(role),
-                base.style(role),
-                "{role:?} did not round-trip through from_roles"
-            );
-        }
     }
 }

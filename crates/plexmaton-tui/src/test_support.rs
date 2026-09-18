@@ -213,6 +213,15 @@ impl Conversation {
             "the fixture emitted an event the projection rejected: {outcome:?}"
         );
     }
+
+    /// Everything this conversation has emitted, for a caller that replays it into a projection.
+    ///
+    /// A runtime that resets a projection hands the whole acknowledged history back; a test of
+    /// what survives that reset needs the same history rather than a hand-built approximation.
+    #[must_use]
+    pub fn replayable(&self) -> Vec<ConversationEventEnvelope> {
+        self.pending.clone()
+    }
 }
 
 /// A projection, its wrapping cache, and a terminal, stepped the way the binary steps them.

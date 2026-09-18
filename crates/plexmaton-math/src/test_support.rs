@@ -26,6 +26,7 @@ pub const CORPUS: &[(&str, &str)] = &[
     ("nested root", r"\sqrt{1+\sqrt{x^2+y^2}}"),
     ("scripts", r"x_{ij}^{n+1}+\alpha_2"),
     ("matrix", r"\begin{pmatrix}a&b\\c&d\end{pmatrix}"),
+    ("framed result", r"\boxed{\frac{a}{b}}"),
     ("cases", r"f(x)=\begin{cases}x^2&x\geq0\\-x&x<0\end{cases}"),
     ("aligned", r"\begin{aligned}a&=b+c\\&=d+e\end{aligned}"),
     (

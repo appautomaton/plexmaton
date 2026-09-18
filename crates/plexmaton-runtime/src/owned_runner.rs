@@ -15,7 +15,7 @@ use crate::{DispatchReport, LiveRuntime, PreparedChildExecution, RuntimeError};
 
 const NORMAL_CAPACITY: usize = 1;
 const CONTROL_CAPACITY: usize = 1;
-const QUERY_CAPACITY: usize = 1;
+const SESSION_CAPACITY: usize = 1;
 const UPDATE_CAPACITY: usize = 1;
 
 /// Failure to place or execute one normal-lane child turn.
@@ -95,6 +95,9 @@ pub enum OwnedRunnerError {
     /// Another accepted control command currently occupies the reserved lane.
     #[error("child runner control lane is busy")]
     ControlBusy,
+    /// Another accepted user input currently occupies the bounded lane.
+    #[error("child runner user-input lane is busy")]
+    UserInputBusy,
     /// The disposable inspection lane is currently occupied.
     #[error("child runner inspection lane is busy")]
     InspectionBusy,
@@ -107,41 +110,6 @@ pub enum OwnedRunnerError {
     /// The live runtime failed while executing a control command.
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
-}
-
-/// Spawn refusal that returns the live runtime without dropping its journal owner.
-pub struct OwnedRunnerSpawnError {
-    source: OwnedRunnerError,
-    runtime: Box<LiveRuntime>,
-}
-
-impl OwnedRunnerSpawnError {
-    /// Returns the runtime for explicit shutdown or another valid owner.
-    #[must_use]
-    pub fn into_runtime(self) -> LiveRuntime {
-        *self.runtime
-    }
-}
-
-impl fmt::Debug for OwnedRunnerSpawnError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("OwnedRunnerSpawnError")
-            .field("source", &self.source)
-            .finish_non_exhaustive()
-    }
-}
-
-impl fmt::Display for OwnedRunnerSpawnError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.source.fmt(formatter)
-    }
-}
-
-impl std::error::Error for OwnedRunnerSpawnError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.source)
-    }
 }
 
 enum NormalCommand {
@@ -174,9 +142,13 @@ enum ControlCommand {
     Panic,
 }
 
-enum QueryCommand {
+enum SessionCommand {
     SessionSource {
         reply: oneshot::Sender<Option<crate::CollaborationSessionSource>>,
+    },
+    LinkCollaborationItem {
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
 }
 
@@ -185,14 +157,20 @@ pub struct OwnedChildRunner {
     identity: RunnerIdentity,
     collaboration_supported: bool,
     normal: Option<mpsc::Sender<NormalCommand>>,
+    user_input: Option<mpsc::Sender<UserInputCommand>>,
     control: Option<mpsc::Sender<ControlCommand>>,
-    query: Option<mpsc::Sender<QueryCommand>>,
+    session: Option<mpsc::Sender<SessionCommand>>,
     updates: mpsc::Receiver<OwnedRunnerUpdate>,
     worker: Option<JoinHandle<()>>,
     start_reply: Option<oneshot::Receiver<Result<DispatchReport, RuntimeError>>>,
+    user_input_reply: Option<oneshot::Receiver<Result<DispatchReport, RuntimeError>>>,
     stop_reply: Option<oneshot::Receiver<Result<DispatchReport, RuntimeError>>>,
     shutdown_reply: Option<oneshot::Receiver<Result<DispatchReport, RuntimeError>>>,
     shutdown_outcome: Option<Result<DispatchReport, RuntimeError>>,
+    #[cfg(test)]
+    fail_next_user_input: bool,
+    #[cfg(test)]
+    next_user_input_admitted: Option<Arc<Notify>>,
     #[cfg(test)]
     join_gate: Option<(Arc<Notify>, Arc<Notify>)>,
 }
@@ -227,30 +205,38 @@ impl OwnedChildRunner {
         };
         let collaboration_supported = runtime.supports_collaboration();
         let (normal, normal_rx) = mpsc::channel(NORMAL_CAPACITY);
+        let (user_input, user_input_rx) = mpsc::channel(USER_INPUT_CAPACITY);
         let (control, control_rx) = mpsc::channel(CONTROL_CAPACITY);
-        let (query, query_rx) = mpsc::channel(QUERY_CAPACITY);
+        let (session, session_rx) = mpsc::channel(SESSION_CAPACITY);
         let (updates_tx, updates) = mpsc::channel(UPDATE_CAPACITY);
         let worker_identity = identity.clone();
         let worker = tokio::spawn(actor::run_owned_child(
             runtime,
             worker_identity,
             normal_rx,
+            user_input_rx,
             control_rx,
-            query_rx,
+            session_rx,
             updates_tx,
         ));
         Ok(Self {
             identity,
             collaboration_supported,
             normal: Some(normal),
+            user_input: Some(user_input),
             control: Some(control),
-            query: Some(query),
+            session: Some(session),
             updates,
             worker: Some(worker),
             start_reply: None,
+            user_input_reply: None,
             stop_reply: None,
             shutdown_reply: None,
             shutdown_outcome: None,
+            #[cfg(test)]
+            fail_next_user_input: false,
+            #[cfg(test)]
+            next_user_input_admitted: None,
             #[cfg(test)]
             join_gate: None,
         })
@@ -400,8 +386,8 @@ impl OwnedChildRunner {
         &self,
     ) -> Result<crate::CollaborationSessionSource, OwnedRunnerError> {
         let (reply, result) = oneshot::channel();
-        let sender = self.query.as_ref().ok_or(OwnedRunnerError::Closed)?;
-        match sender.try_send(QueryCommand::SessionSource { reply }) {
+        let sender = self.session.as_ref().ok_or(OwnedRunnerError::Closed)?;
+        match sender.try_send(SessionCommand::SessionSource { reply }) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(_)) => {
                 return Err(OwnedRunnerError::InspectionBusy);
@@ -414,6 +400,24 @@ impl OwnedChildRunner {
             .await
             .map_err(|_| OwnedRunnerError::WorkerFailed)?
             .ok_or(OwnedRunnerError::CollaborationUnavailable)
+    }
+
+    /// Persists one canonical collaboration placement through the child runtime's journal owner.
+    pub(crate) async fn link_collaboration_item(
+        &self,
+        reference: plexmaton_agent::collaboration::CollaborationItemRef,
+    ) -> Result<(), OwnedRunnerError> {
+        let (reply, result) = oneshot::channel();
+        self.session
+            .as_ref()
+            .ok_or(OwnedRunnerError::Closed)?
+            .send(SessionCommand::LinkCollaborationItem { reference, reply })
+            .await
+            .map_err(|_| OwnedRunnerError::Closed)?;
+        result
+            .await
+            .map_err(|_| OwnedRunnerError::WorkerFailed)?
+            .map_err(OwnedRunnerError::from)
     }
 
     #[cfg(test)]
@@ -450,8 +454,9 @@ impl OwnedChildRunner {
             }
         }
         self.normal.take();
+        self.user_input.take();
         self.control.take();
-        self.query.take();
+        self.session.take();
         self.shutdown_reply = Some(result);
         Ok(())
     }
@@ -504,8 +509,9 @@ impl OwnedChildRunner {
 impl Drop for OwnedChildRunner {
     fn drop(&mut self) {
         self.normal.take();
+        self.user_input.take();
         self.control.take();
-        self.query.take();
+        self.session.take();
         if let Some(worker) = self.worker.take() {
             worker.abort();
         }
@@ -514,8 +520,12 @@ impl Drop for OwnedChildRunner {
 
 mod actor;
 mod identity;
+mod spawn;
 mod update;
+mod user_input;
 
 pub(crate) use identity::next_runner_generation;
 pub use identity::{RunnerGeneration, RunnerIdentity, WakeHint};
+use spawn::OwnedRunnerSpawnError;
 pub use update::OwnedRunnerUpdate;
+use user_input::{USER_INPUT_CAPACITY, UserInputCommand};

@@ -6,11 +6,16 @@ use plexmaton_core::{
     AgentId, ConversationEvent, ConversationEventEnvelope, EventSequence, TranscriptItemId,
     TranscriptRole,
 };
+use plexmaton_runtime::{DispatchReport, OwnedStopReport};
 use ratatui::{
     backend::TestBackend,
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
 };
 use std::{fs, os::unix::fs::PermissionsExt as _, path::Path, time::Duration};
+
+fn agent(value: &str) -> AgentId {
+    AgentId::new(value).expect("agent")
+}
 
 async fn ready(path: &Path) -> i32 {
     tokio::time::timeout(Duration::from_secs(3), async {
@@ -123,7 +128,7 @@ async fn blocked_preparation_never_holds_the_production_input_and_frame_loop() {
             &mut permissions,
             &mut input,
             &mut preparation,
-            None,
+            &mut None,
             |_, _| Ok(()),
         )
         .await;
@@ -207,7 +212,7 @@ async fn effort_command_changes_the_live_driver_without_submitting_a_message() {
         &mut permissions,
         &mut events,
         &mut preparation,
-        None,
+        &mut None,
         |_, _| Ok(()),
     )
     .await;
@@ -256,4 +261,83 @@ fn copy_admission_publishes_observed_delivery_without_a_timer_for_empty_requests
     assert!(row.ends_with(" Copy sent "));
     workspace.clear_copy_receipt();
     assert_eq!(workspace.note_deadline(), None);
+}
+
+/// INV-7/SCH-2: root Ctrl-C uses the root runtime, while a child target uses only the owner.
+#[tokio::test]
+async fn ctrl_c_child_refusal_never_falls_back_to_root_and_root_remains_routable() {
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, _, mut workspace, _) =
+        crate::test_support::empty_session_for(fixture.path(), agent("root"));
+    while runtime.try_next_event().is_some() {}
+    let (mut collaboration, _ingress) =
+        crate::collaboration::open(fixture.path(), runtime.conversation_id())
+            .expect("open root collaboration");
+    let child = agent("delegated-1");
+    collaboration.announce_resumed_child_for_test(
+        plexmaton_core::ConversationId::new("resumed-child").expect("conversation"),
+        child.clone(),
+    );
+
+    // The roster lookup succeeds, then the owner refuses because this resumed child has no
+    // process-local runner. The route consumes that typed refusal instead of falling back to root.
+    for _ in 0..2 {
+        apply_interrupt(
+            child.clone(),
+            &mut runtime,
+            &mut workspace,
+            Some(&mut collaboration),
+        )
+        .await
+        .expect("child Stop refusal is not a session error");
+        assert!(
+            runtime.try_next_event().is_none(),
+            "root stayed uninterrupted"
+        );
+    }
+
+    // The root branch still addresses the live runtime directly.
+    apply_interrupt(
+        runtime.agent_id().clone(),
+        &mut runtime,
+        &mut workspace,
+        Some(&mut collaboration),
+    )
+    .await
+    .expect("root interrupt route");
+
+    collaboration.shutdown().await.expect("shutdown owner");
+    runtime.shutdown().await.expect("shutdown root");
+}
+
+/// SCH-4/LOOP-6: Stop reports return exact child-owned text through the existing report path.
+#[tokio::test]
+async fn stop_settlement_restores_exact_child_input_without_a_new_event() {
+    let mut workspace = Workspace::default();
+    let fixture = FixtureWorkspace::new();
+    let (mut runtime, _, _, _) =
+        crate::test_support::empty_session_for(fixture.path(), agent("root"));
+    apply_stop_settlement(
+        Ok(OwnedStopReport {
+            scheduled: None,
+            user_input: Some(Box::new(Ok(DispatchReport {
+                undelivered: vec![plexmaton_agent::UndeliveredInput {
+                    text: "exact child draft".to_owned(),
+                    skill: None,
+                    reason: plexmaton_agent::UndeliveredReason::Interrupted,
+                }],
+                ..DispatchReport::default()
+            }))),
+            stopped: DispatchReport::default(),
+        }),
+        agent("delegated-1"),
+        &runtime,
+        &mut workspace,
+    );
+    assert_eq!(
+        workspace.state().draft(&agent("delegated-1")).text(),
+        "exact child draft"
+    );
+    assert!(workspace.state().notices().next().is_none());
+    runtime.shutdown().await.expect("shutdown root");
 }

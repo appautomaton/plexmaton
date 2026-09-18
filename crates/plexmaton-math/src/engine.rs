@@ -23,6 +23,15 @@ pub(super) struct Scene {
     pub items: Vec<Item>,
 }
 
+/// One positioned engine primitive, in em.
+///
+/// `x`/`width` are the horizontal extent and `top`/`bottom` the vertical extent, for every kind
+/// without exception; `y` is the kind's own reference line. The column solver reads the horizontal
+/// extent without knowing the kind, so a kind that reports a centre instead of an edge is given a
+/// column it never asked for, and the neighbour that is handed that column collides with it at
+/// paint time. Rejected: storing a thin rule at its centre because that is the cell it draws into
+/// — the drawn cell is derived from the extent, and a hairline whose extent is honest lands in the
+/// same cell anyway.
 #[derive(Clone)]
 pub(super) struct Item {
     pub x: f64,
@@ -179,7 +188,7 @@ fn admit(nodes: &mut [ParseNode]) -> Result<paths::PathAdmissions, MathError> {
                 }
             }
             ParseNode::Accent { label, base, .. } => {
-                if !matches!(label.as_str(), "\\hat" | "\\bar") || !single_accent_base(base) {
+                if !accent_combines(label) || !single_accent_base(base) {
                     return Err(MathError::Unsupported(Unsupported::Construct));
                 }
                 push(base.as_mut(), inherited, explicit_font)?;
@@ -326,6 +335,25 @@ fn resolved_symbol_is_accent_marker(text: &str, mode: ratex_parser::Mode) -> boo
         .is_some_and(is_accent_marker)
 }
 
+/// Whether an accent label resolves to a mark the decoder can merge into its base.
+///
+/// Asked through the font's own symbol resolution against [`decode::combining_accent`], so
+/// admission and drawing cannot drift: an accent is admitted exactly when there is a combining
+/// mark for it. Rejected: a second list of labels here, which is how `\dot` came to be parsed,
+/// laid out over its base, and then refused as an overlap by the guard three stages later.
+fn accent_combines(label: &str) -> bool {
+    let Some(codepoint) =
+        ratex_font::get_symbol(label, ratex_font::Mode::Math).and_then(|symbol| symbol.codepoint)
+    else {
+        return false;
+    };
+    let mut buffer = [0_u8; 4];
+    decode::combining_accent(codepoint.encode_utf8(&mut buffer)).is_some()
+}
+
+/// A marker glyph written as ordinary text, which the decoder would merge into whatever it sits
+/// over. Exactly the marks `accent_combines` admits, because those are the ones that would merge.
 fn is_accent_marker(ch: char) -> bool {
-    matches!(ch, '^' | '\u{02c9}')
+    let mut buffer = [0_u8; 4];
+    decode::combining_accent(ch.encode_utf8(&mut buffer)).is_some()
 }

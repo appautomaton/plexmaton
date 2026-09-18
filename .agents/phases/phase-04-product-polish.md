@@ -5,7 +5,7 @@
 | Status | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
-| Depends on | Phase 01 interaction ownership and Phase 02 acknowledged journal/accounting/budget projections |
+| Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
 
 ## Outcome
 

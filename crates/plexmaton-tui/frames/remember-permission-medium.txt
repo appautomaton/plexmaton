@@ -1,12 +1,12 @@
-── Remember permission · exec_command ───────────────────────────────
-                                                                     
-   Command "cargo test" · cwd "/home/dev/plexmaton" · timeout 120…   
-   Scope: exact command; same cwd/environment                        
-   no prefix suggestion for this command                             
-                                                                     
-   > 1. This Session                                                 
-     2. Back                                                         
-                                                                     
-   1–2 confirm · ↑↓ Enter · Esc back                                 
-   Until Plexmaton exits; kept across conversations.                 
-                                                                     
+── Remember permission · exec_command ─────────────────────────────────────────────────────────
+                                                                                               
+   Command "cargo test" · cwd "/home/dev/plexmaton" · timeout 120000 ms                        
+   Scope: exact command; same cwd/environment                                                  
+   no prefix suggestion for this command                                                       
+                                                                                               
+   > 1. This Session                                                                           
+     2. Back                                                                                   
+                                                                                               
+   1–2 confirm · ↑↓ Enter · Esc back                                                           
+   Until Plexmaton exits; kept across conversations.                                           
+                                                                                               

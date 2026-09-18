@@ -1,40 +1,40 @@
-┌ Agents ────────────────┐
-│○ Agent B · UI study ask│
-│  Choose whether the ov…│
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │
-│                        │ I will inspect the workspace and delegate the focused UI
-│                        │ study. Agent B is running independently; this transcript
-│                        │ remains interactive.
-│                        │
-│                        │ received from agent-b · Routing stays centralized and z-ordered.
-│                        │
-│                        │
-│                        │ · Responding…                                               ( !1 )
-│                        │── Waiting to send · 2 ──────────────────────────────────────────────
-│                        │ Sends when this turn ends
-│                        │ ↳ Also check the compaction path while you are in there
-│                        │ ↳ and then summarize what changed
-│                        │ Alt-↑ takes back the last one
-│                        │── Message Agent A · primary ────────────────────────────────────────
-│                        │ Type a message · ⇥ to focus
-└────────────────────────┘─────────────────────────────────────────────────────────────────────
+┌ Agents ─────────────────────────────────────────────────────────────────────────────────────┐
+│ Agent B · UI study  ask        Choose whether the overlap study should cover narrow screens.│
+└─────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Agent A · primary  󰇮 1 ─────────────────────────────────────────────────────────────────────┐
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│                                                                                             │
+│I will inspect the workspace and delegate the focused UI study. Agent B is running           │
+│independently; this transcript remains interactive.                                          │
+│                                                                                             │
+│received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
+│                                                                                             │
+│                                                                                             │
+│· Responding…                                                                         ( !1 ) │
+── Waiting to send · 2 ────────────────────────────────────────────────────────────────────────
+ Sends when this turn ends
+ ↳ Also check the compaction path while you are in there
+ ↳ and then summarize what changed
+ Alt-↑ takes back the last one
+── Message Agent A · primary ──────────────────────────────────────────────────────────────────
+ Type a message · ⇥ to focus
+───────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -90,8 +90,9 @@ After acknowledged handoff, the composer becomes available without taking keyboa
 sending a message. History, selection/scroll anchors and the capability indication remain intact;
 stop is independent of handoff.
 
-**This layout is not locked.** Its only rendered evidence is the native readback in the
-[Kitty preview](./spikes/kitty-native-preview/README.md), which the user has not accepted.
+This layout remains open to detail refinement. The user accepted its structure and function in the
+[Kitty preview](./spikes/kitty-native-preview/README.md) on 2026-09-16; later polish must preserve
+the control, focus and return behavior above.
 
 ### Context epochs and branch selection
 
@@ -139,13 +140,13 @@ other rule about input follows from this one.
   [IQU-1–IQU-4](./specs/input-queue.md) own the band. Rejected: merging a returned message into an
   existing draft, which loses separate intent and can lose its skill binding.
 - **Every rendered input sits under the conversation it addresses**, between two rules; optional
-  waiting and decision sections sit above the composer. The conversation has no edge of its own and,
-  without those sections, runs into the top rule, which names the target and the message's
-  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else. A User-controlled
-  sub-agent's input is the bottom of its window; a Main-controlled window has no input region, and
-  there is no input anywhere else. Rejected: a box around conversation and input, chrome that said
-  nothing; and current work on the composer's rule, mixing the agent's doing with the user's
-  typing.
+  waiting and decision sections sit above the composer. The conversation carries a box of its own,
+  titled with whose it is, and the composer's top rule below it names the target and the message's
+  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else — the box says what is
+  being read, the rule says what the next message addresses, and those differ exactly when a
+  sub-agent's window is open. A User-controlled sub-agent's input is the bottom of its window; a
+  Main-controlled window has no input region, and there is no input anywhere else. The composer is
+  not inside that box; it keeps its two rules.
 - While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
   row** reading `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
@@ -237,8 +238,12 @@ terminals with the fewest rows.
 - An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error: they
   are message-local actions, never Commands, and neither repeats tools. JRN-8 owns eligibility and
   the bindings.
-- Switching conversations waits for idle work and an empty draft, never silently interrupting or
-  discarding input. SPK-1–SPK-3 own discovery and replacement.
+- Switching conversations waits for idle work and an empty draft. A working child does not block
+  it: the first choice arms the last row with what the switch costs that child, the same choice
+  again performs it, and its history is saved either way. SPK-1–SPK-4 own the rest.
+- The terminal's last row is where the workspace asks for a gesture to be repeated — the quit chord,
+  a switch that would stop a child — one question at a time, in Action required. Each states what
+  repeating costs; doing something else instead withdraws it.
 
 ### Readability
 
@@ -262,10 +267,22 @@ terminals with the fewest rows.
   selection treatment without erasing those roles; unknown diff text remains undecorated source.
 - Typeset math is the primary presentation; source is an interaction layer for inspect and copy, and
   a clear failure representation.
-- Workspace colour is thirteen semantic roles; widgets name a role, never a terminal colour, and
-  a palette is a complete assignment of them. Colour says what a thing is, weight what reads
-  first, italic what stays quiet, and the row `Enter` acts on carries all three (`Chosen`).
+- Workspace colour is sixteen semantic roles; widgets name a role, never a terminal colour, and
+  a palette is a complete assignment of them. Colour says what a thing is and weight says what
+  reads first; the row `Enter` acts on carries both (`Chosen`), and what stays quiet is a
+  low-saturation hue with no weight on it. Document italic is a separate vocabulary with its own
+  conventional uses (MD-5, MD-6).
   The status script owns its own colours (MD-5).
+- **A palette is data, and colour is two layers.** Below, twelve slots named the way a terminal
+  names them: a ground ramp — `ground`, `line`, `muted`, `text` — and eight hues around a closed
+  wheel — `red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `purple`, `magenta`. A theme assigns
+  those twelve and nothing else. Above, the sixteen roles map onto slots and carry their weight;
+  that mapping is the product's, so no theme can make a failure read as a success.
+- A surface holding a conversation, or the roster of them, carries its own hue on its border:
+  muted for the roster, blue for the user's own, cyan for a delegate's. Focus is that hue at full
+  strength and rest is the same hue carried most of the way to the ground, so one border answers
+  both questions a reader asks of it — whose surface this is, and where the keys are going. Surfaces that are something the
+  workspace is saying rather than a place — a menu, a notice, an approval — keep the neutral line.
 - **The terminal is assumed modern.** Plexmaton targets a 24-bit-colour terminal and a reader with
   ordinary colour vision. There is no reduced palette, no colour-capability probe, and no degraded
   path. The product already requires far more than colour depth — an animated effort rail on a
@@ -312,8 +329,7 @@ The inspector is the inspected agent's **conversation**. Tool activity and artif
 their producer. It shows both incoming and outgoing mail with sender/recipient attribution, as
 projections of canonical items rather than copied transcripts. Mail status distinguishes queued
 input from inclusion in a model turn. Entries retain first-appearance order; there is no separate
-Activity surface. A composed status-and-artifact surface is Phase 03's, and the other
-areas are placed provisionally until the phase that builds them.
+Activity surface. Each remaining area keeps its own interaction and presentation contract.
 
 ## Surface model
 
@@ -346,8 +362,8 @@ a centred overlay with three-cell margins, a dialog about nothing in particular.
 
 ### Shelf: overlay without occlusion
 
-Below ultrawide, the second window is a **shelf** docked to the top edge of the conversation. It
-floats: the conversation beneath keeps its whole rectangle and its reading position, and
+When the second window has room below ultrawide, it is a **shelf** docked to the top edge of the
+conversation. It floats: the conversation beneath keeps its whole rectangle and its reading position, and
 a conversation shorter than its panel sits at the bottom, so the shelf covers only empty rows or
 rows already read. Transcripts follow their tail, so covering the top hides what has been read and
 covering the middle or bottom hides what the user is reading now. Rejected: a centred floating
@@ -411,30 +427,66 @@ grammar, never assigned widget by widget.
 
 Every layout class preserves the meaning of this journey even when it changes where surfaces go.
 
+## Agents strip
+
+The roster of sub-agents, above the user's own conversation.
+
+- Absent until something is delegated: the conversation is the screen (INS-1).
+- One agent, one row, and three rows at the most however many are running — so the conversation
+  moves by the same amount whether two delegates are working or twenty. The rows go to the top of
+  attention's order, which is already where what is addressed to the user sits; the title says how
+  many exist. The selected agent keeps a row whatever its rank, because the row the next `Enter`
+  acts on cannot be one the user cannot see.
+- A row is three columns that line up down the strip: the name, bold, in the colour of the state it
+  is in; that state, one word; then what the agent waits on, or a glyph tally of what has arrived
+  for it, in one vocabulary every surface shares — a hammer and wrench for tool calls, a checklist
+  for tasks, an envelope for letters *received*, a paperclip for artifacts, and on an inspected
+  child a robot or a person for who is driving it beside a shield for the capability boundary every
+  child has. An ask outranks a tally. The cursor row takes `Chosen`'s ground and keeps its own
+  colour on top. Rejected: two rows an agent, which a 26-cell rail forced and which cost the strip
+  its aligned columns; a `●` marker in the first cell, which spent the columns a name wants to say
+  in a private glyph what `Chosen` says everywhere else; and a separate activity region, regrouping
+  facts that belong in each agent's conversation.
+- The strip is where a delegate's request is announced, because it is one row above what the user
+  is already reading and attention's order puts the asking agent on the first of them. The pill on
+  the conversation's border keeps the count (ATT-1), which is now the one fact the strip cannot
+  carry: requests the cap left off, and the user's own. Rejected: a notification surface of its own,
+  which would announce a third time what the row and the count already say.
+- The strip belongs to the user's conversation and stops at its edge — with a delegate's window
+  open beside it, it is the primary column's width; with a delegate maximized there is no primary
+  for it to sit above and no strip. Rejected: spanning the terminal, which made the index of who is
+  working *for the user* read as chrome over somebody else's transcript.
+- Drawn: five agents in [one column](../crates/plexmaton-tui/frames/agents-strip-one-column.txt) and
+  in [two](../crates/plexmaton-tui/frames/agents-strip-two-columns.txt), the
+  [glyph vocabulary](../crates/plexmaton-tui/frames/agents-strip-tally.txt) once every request is
+  answered, and [narrow](../crates/plexmaton-tui/frames/agents-strip-narrow.txt), where there is no
+  strip at all.
+- `Ctrl-B` puts it away and brings it back, and costs the conversation no column either way. Narrow
+  has no strip: `Agents ^B` sits in the reserved conversation-top row carrying `!n` only while a
+  child is shown, and `Ctrl-B` or a complete click opens the full-region navigator — the same rows
+  with the whole screen to spend. Arrows move a temporary cursor there; `Enter` or a row click
+  commits it, `Escape` or `Ctrl-B` restores exact prior focus without changing the preference.
+  Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
+
 ## Responsive layout classes
 
 | Class | Product expectation | Threshold |
 | --- | --- | --- |
-| Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 132 |
-| Wide | One conversation, and the roster as a column while it is open; a second agent arrives as a shelf | 96 ≤ width < 132 |
-| Medium | One conversation, and the roster as a narrow column while it is open | 72 ≤ width < 96 |
+| Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 104 |
+| Wide | One conversation; a second agent arrives as a shelf over it | 96 ≤ width < 104 |
+| Medium | One conversation; a second agent arrives as a shelf over it | 72 ≤ width < 96 |
 | Narrow | One major surface at a time; looking at an agent is a full-region transition, the window's maximized presentation | width < 72 |
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-- The agent navigator is one panel with one open state; the width decides only where it docks, a
-  column from medium up and a shelf over the conversation below, which is
-  [INS-3](./specs/inspector.md)'s rule applied to the second kind of panel. Closing returns every
-  column it held; the pill on the activity line goes on counting what is unanswered. Rejected: a
-  fixed column, spending width the user cannot take back, and a band below medium, which made the
-  roster the first thing a small terminal lost.
-- Each roster row carries lifecycle plus what its agent waits on, or compact non-text counts such
-  as `1 tool @1 1 mail`; `@` is the artifact marker, while the conversation title keeps full nouns.
-  A filled marker says which conversation is on screen; its color says that agent's state.
-  Rejected: a separate activity region, regrouping facts that belong in each agent's conversation.
-- Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
-  cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,
-  replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
-  a working one.
+- Wide and Medium compose identically and are two names for one class. They were distinguished by
+  the width of the agent rail — 28 cells against 26 — and nothing else, so retiring the rail
+  retired the difference. Named here rather than merged, because the merge is the user's to make.
+- Nothing stands beside the conversation, so it is as wide as the terminal at every class. Ultrawide
+  is two 52-cell conversations, which is roughly where prose stops wrapping awkwardly, and the
+  threshold is exactly that. It holds one secondary column, replaced on selection. Rejected: a
+  28-cell agent rail down the left, which charged every row of the conversation for a list that
+  inked four percent of it and cut every ask it carried to a third of a sentence; and three live
+  transcripts, which is a monitoring product rather than a working one.
 - Below 48 × 12 the screen is one notice. Rejected: a clipped workspace.
 - The Drawer keeps one geometry at every layout class: full width, height from content (DRW-2).
   Rejected: maximizing it on narrow screens, which filled the terminal with three rows, and a
@@ -462,8 +514,8 @@ full of concurrent agents stays navigable:
 - Agent mail, and Main-authored task updates, each entering both conversations it names and saying
   in a word which side its row is: `sent to`, `received from`, `assigned to`, `assigned by`, naming
   the other end. The user read these on a real delegation and accepted the wording on 2026-09-14
-- Handoff: an explicit change of controller, distinct from task completion or idle. Named here and
-  not built; nothing draws it yet
+- Handoff: an explicit change of controller, distinct from task completion or idle. Both named
+  conversations receive one `handoff · Controller: User` row from the canonical durable fact
 - Undelivered steering: a message that never reached its worker, with its original text intact
 - System text, named and muted
 - Warning and error, each carrying its colour and its name

@@ -4,68 +4,39 @@ use crate::Palette;
 use crate::Role;
 use crate::text_layout::paint::{Line, MarkdownRole, Paint as Style, Span};
 use crate::text_layout::{Layout, paint as wrap};
-use crate::{math::MathPresentation, text_layout::math::Atom};
+use crate::{
+    math::MathPresentation,
+    text_layout::math::{Atom, SourceReason},
+};
 use pulldown_cmark::{Event, Tag, TagEnd};
 use ratatui::style::Modifier;
 use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
 
+mod admission;
 mod code;
+mod preview;
 mod streaming;
 mod syntax;
 mod table;
 #[cfg(test)]
 mod tests;
+pub(crate) use admission::{MAX_SOURCE_BYTES, PlainReason, inert, may_format};
+pub(crate) use preview::preview;
 use streaming::RenderStats;
 pub(crate) use streaming::{MAX_FROZEN_PREFIX_BYTES, PrefixCheckpoint, PrefixHint, RenderedLayout};
 
-pub(crate) const MAX_SOURCE_BYTES: usize = 128 * 1024;
-pub(crate) const MAX_LINES: usize = 8192;
+/// Rendered rows one transcript entry may occupy.
+///
+/// This is the bound that decides how long a message may be, so it is the one stated in MD-3 and
+/// the one [`crate::preparation::MAX_PREPARED_BYTES`] is derived from. Rejected: 8,192, which was
+/// never reachable — a finished row costs about 1.5 KiB, so the separate byte budget ran out at
+/// roughly 800 rows and refused the entry there. Two numbers described one fact and the smaller,
+/// unstated one was the real limit.
+pub(crate) const MAX_LINES: usize = 2048;
 const MAX_EVENTS: usize = 32_768;
 const MAX_DEPTH: usize = 32;
 const MAX_RENDERED_BYTES: usize = 512 * 1024;
-
-/// Conservative admission only, never Markdown parsing: any possible syntax takes the parser.
-pub(crate) fn may_format(source: &str) -> bool {
-    source.len() > MAX_SOURCE_BYTES
-        || source.chars().next().is_some_and(|c| {
-            c.is_whitespace() || c.is_ascii_digit() || matches!(c, '-' | '+' | '=')
-        })
-        || source.chars().any(|c| {
-            c.is_control()
-                || matches!(
-                    c,
-                    '*' | '_' | '`' | '[' | ']' | '<' | '>' | '\\' | '&' | '#' | '|' | '~' | '$'
-                )
-        })
-}
-
-pub(crate) fn inert(source: &str) -> String {
-    let mut text = String::with_capacity(source.len());
-    for c in source.chars() {
-        match c {
-            '\t' => text.push_str("    "),
-            '\n' => text.push('\n'),
-            c if c.is_control() => text.push('�'),
-            c => text.push(c),
-        }
-    }
-    text
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PlainReason {
-    Size,
-    Complexity,
-}
-impl PlainReason {
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Size => "Markdown size limit · showing source",
-            Self::Complexity => "Markdown layout limit · showing source",
-        }
-    }
-}
 
 #[cfg(test)]
 pub(crate) fn render(
@@ -266,6 +237,8 @@ struct Renderer {
     layout: Layout,
     current: Vec<Span>,
     atoms: Vec<Atom>,
+    /// Whether this entry's preparation budget is spent, after which formulas keep their source.
+    math_spent: bool,
     math: MathPresentation,
     completion: Completion,
     math_bytes: usize,
@@ -288,6 +261,7 @@ impl Renderer {
             layout: Layout::default(),
             current: Vec::new(),
             atoms: Vec::new(),
+            math_spent: false,
             math,
             completion,
             math_bytes: 0,
@@ -339,7 +313,6 @@ impl Renderer {
         if self.bytes > MAX_RENDERED_BYTES
             || self.layout.lines.len() > MAX_LINES
             || self.layout.text.len() > MAX_RENDERED_BYTES
-            || self.layout.formulas.len() > crate::text_layout::math::MAX_FORMULAS
         {
             return Err(PlainReason::Complexity);
         }
@@ -426,10 +399,19 @@ impl Renderer {
         Ok(())
     }
 
+    /// One formula, with geometry while this entry's preparation budget lasts and as its own source
+    /// afterwards.
+    ///
+    /// The budget bounds prepared geometry, which is the only thing a formula costs that grows with
+    /// how many of them an entry carries. Spending it therefore costs geometry: the formula is drawn
+    /// the way a refused one already is — its exact source under a named reason (MD-4) — and the
+    /// document it sits in keeps its headings, lists, emphasis and every formula that fit.
+    ///
+    /// Rejected: returning `PlainReason` from here, which abandoned Markdown for the whole entry.
+    /// A 645-line letter carrying four formulas more than a separate count allowed reached the
+    /// terminal as raw TeX, headings and all, because a budget belonging to math was allowed to
+    /// decide whether the entry was a document.
     fn math(&mut self, source: &str, display: bool) -> Result<(), PlainReason> {
-        if self.layout.formulas.len() + self.atoms.len() >= crate::text_layout::math::MAX_FORMULAS {
-            return Err(PlainReason::Complexity);
-        }
         if display {
             self.flush(false)?;
         }
@@ -439,17 +421,27 @@ impl Renderer {
             .filter(|width| *width > 0)
             .ok_or(PlainReason::Complexity)?;
         self.formula_preparations = self.formula_preparations.saturating_add(1);
-        let atom = Atom::prepare(
-            source,
-            self.current.len(),
-            width,
-            self.math,
-            self.completion,
-        )?;
+        let span = self.current.len();
+        let mut atom = if self.math_spent {
+            None
+        } else {
+            let prepared = Atom::prepare(source, span, width, self.math, self.completion)?;
+            // The formula that crosses the budget is the first to be kept as source, so the bound
+            // holds for the entry rather than being exceeded once by whatever happened to be last.
+            if self.math_bytes + prepared.allocation_bytes()
+                > crate::preparation::MAX_PREPARED_BYTES
+            {
+                self.math_spent = true;
+                None
+            } else {
+                Some(prepared)
+            }
+        };
+        let atom = match atom.take() {
+            Some(prepared) => prepared,
+            None => Atom::source_only(source, span, width, SourceReason::Capacity)?,
+        };
         self.math_bytes += atom.allocation_bytes();
-        if self.math_bytes > crate::preparation::MAX_PREPARED_BYTES {
-            return Err(PlainReason::Complexity);
-        }
         self.atoms.push(atom);
         self.current
             .push(Span::styled(source.to_owned(), self.style.clone()));

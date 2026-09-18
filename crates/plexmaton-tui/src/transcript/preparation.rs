@@ -236,7 +236,7 @@ impl TranscriptMetrics {
                 let bytes =
                     size_of::<PaintedEntry>() + key.allocation_bytes() + layout.allocation_bytes();
                 if self.drawing_text.entries.len() < 128
-                    && self.drawing_text.bytes + bytes <= 4 * 1024 * 1024
+                    && self.drawing_text.bytes + bytes <= 4 * crate::preparation::MAX_PREPARED_BYTES
                 {
                     let lines = if let Some(range) = state.selected_text_range(
                         surface,

@@ -277,16 +277,18 @@ fn native_transport_limits_refuse_locally_before_a_prepared_reply_is_encoded() {
     let decoded: Layout =
         serde_json::from_slice(&encoded).expect("valid reply despite one unsupported formula");
     assert_eq!(decoded.text, source);
-    assert!(
-        crate::markdown::render_layout(
-            &"$x$ ".repeat(MAX_FORMULAS + 1),
-            60,
-            MathPresentation::Native,
-            crate::markdown::Completion::Final,
-        )
-        .is_err(),
-        "formula count is bounded during preparation"
-    );
+    // The count bounds what a reply may carry, not what a message may say. A document with far
+    // more formulas than any letter has held still prepares, and what it prepares is still valid
+    // to send, because the renderer keeps a formula's source rather than exceeding the bound.
+    let many = crate::markdown::render_layout(
+        &"$x$ ".repeat(1_000),
+        60,
+        MathPresentation::Native,
+        crate::markdown::Completion::Final,
+    )
+    .expect("a thousand formulas is a document, not a refusal");
+    assert_eq!(many.formulas.len(), 1_000);
+    assert!(many.formulas_validate(60));
 }
 
 /// MTH-1/MD-3: an unfinished live formula owns one stable row. Growing raw TeX cannot move
@@ -407,4 +409,30 @@ fn logits_token_stream_never_shrinks_and_finalizes_to_the_same_layout() {
                 .all(|formula| matches!(formula.content, FormulaContent::Native(_)))
         );
     }
+}
+
+/// MD-4/MTH-1: a formula without geometry keeps its exact source under a named reason.
+///
+/// Two things arrive here — an engine refusal, and a formula past the entry's preparation budget —
+/// and they are one outcome for the reader, so they are drawn by one function. The budget path sits
+/// above what MD-3's 128 KiB source bound can produce, so it is proven here directly rather than
+/// through a fixture that cannot reach it.
+#[test]
+fn a_formula_without_geometry_keeps_its_exact_source_and_names_why() {
+    let atom = Atom::source_only(r"\(\alpha_i\)", 3, 40, SourceReason::Capacity).expect("atom");
+    assert_eq!(atom.content, FormulaContent::Source(SourceReason::Capacity));
+    let drawn = atom
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        drawn.contains("Math preparation limit"),
+        "the reader is told why: {drawn}"
+    );
+    assert!(
+        drawn.contains(r"\(\alpha_i\)"),
+        "the formula keeps the characters its author typed: {drawn}"
+    );
 }

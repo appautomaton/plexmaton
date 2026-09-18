@@ -329,10 +329,10 @@ fn entry_source(entry: &TranscriptEntryView) -> Option<String> {
         TranscriptEntryView::Tool(tool) => tool_source(&tool.presentation),
         // The pointer, not the human label: the pointer is the stable artifact value (SEL-2).
         TranscriptEntryView::Artifact(artifact) => Some(artifact.pointer.clone()),
-        // Recipient travels with the summary because the entry belongs to its producer.
-        TranscriptEntryView::Mail(mail) => Some(format!("{}: {}", mail.to, mail.summary)),
-        // Recipient travels with the task for the same reason it does with a letter.
-        TranscriptEntryView::Task(task) => Some(format!("{}: {}", task.to, task.task)),
+        // The opposite endpoint's display label travels with the addressed body (ENT-1).
+        TranscriptEntryView::Mail(mail) => Some(format!("{}: {}", mail.counterpart, mail.summary)),
+        TranscriptEntryView::Task(task) => Some(format!("{}: {}", task.counterpart, task.task)),
+        TranscriptEntryView::Handoff(_) => Some("Handoff completed: Controller User".to_owned()),
     }
 }
 
@@ -408,7 +408,7 @@ mod tests {
             copied.text,
             "I found the surface-routing boundary and am checking overlap behavior.\n\
              artifact://agent-b/interaction-findings\n\
-             agent-a: Routing stays centralized and z-ordered."
+             Agent A · primary: Routing stays centralized and z-ordered."
         );
     }
 

@@ -176,6 +176,7 @@ fn ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths() {
             ChildControl::User,
         ] {
             let (mut workspace, mut terminal) = fixture(width, AgentStatus::Running);
+            focus(&mut workspace, &mut terminal, SurfaceId::Composer);
             workspace
                 .set_child_control(&id("agent-b"), snapshot(1, control))
                 .expect("snapshot");
@@ -185,15 +186,15 @@ fn ccv_3_control_chrome_stays_outside_the_transcript_at_three_widths() {
                 !frame.contains("^C Stop"),
                 "a child shortcut must not claim the primary's keyboard"
             );
+            // Who drives is a glyph and a word; the capability boundary is one glyph, because it
+            // is the same constant for every child and does not earn a sentence in every frame.
             let controller = if control == ChildControl::User {
-                "User"
+                "\u{f0004} User"
             } else {
-                "Main"
+                "\u{f06a9} Main"
             };
             assert!(
-                frame.contains(&format!(
-                    "Controller: {controller} | Read-only files | No shell"
-                )),
+                frame.contains(&format!("{controller}  {}", '\u{f099d}')),
                 "{width}: {frame}"
             );
             assert!(frame.contains(if control == ChildControl::HandoffPending {
@@ -474,10 +475,14 @@ fn ccv_4_control_loss_settles_input_drag_without_copy_or_hidden_escape() {
 }
 
 /// CCV-4/INS-7: a captured release after shrinking away input retains its range without copying.
+///
+/// One conversation wide, because shrinking away the input is the shelf's own drag: two columns
+/// side by side have no shared edge to pull, and the window keeps its input however hard the
+/// chord is pressed.
 #[test]
 fn ccv_4_hidden_input_release_settles_and_escape_closes_the_window() {
     for released in [false, true] {
-        let (mut workspace, mut terminal) = fixture(120, AgentStatus::Idle);
+        let (mut workspace, mut terminal) = fixture(95, AgentStatus::Idle);
         let child = id("agent-b");
         workspace
             .set_child_control(&child, snapshot(1, ChildControl::User))

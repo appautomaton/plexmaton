@@ -459,21 +459,39 @@ fn status_cleanup_error_does_not_hide_session_shutdown_failures() {
     // STL-2: optional presentation cannot replace the durable-session diagnostic at handoff.
     let error = crate::session_result(
         Err(anyhow::anyhow!("terminal failure")),
-        Err(anyhow::anyhow!("retained user input; persistence failure")),
-        Err(anyhow::anyhow!("status-line cleanup failure")),
-        Err(anyhow::anyhow!("clipboard cleanup failure")),
-        Err(anyhow::anyhow!("preparation cleanup failure")),
-        Err(anyhow::anyhow!("picker cleanup failure")),
-        Err(anyhow::anyhow!("permission cleanup failure")),
+        crate::SessionShutdowns {
+            runtime: Err(anyhow::anyhow!("retained user input; persistence failure")),
+            collaboration: Err(anyhow::anyhow!("collaboration cleanup failure")),
+            status: Err(anyhow::anyhow!("status-line cleanup failure")),
+            clipboard: Err(anyhow::anyhow!("clipboard cleanup failure")),
+            preparation: Err(anyhow::anyhow!("preparation cleanup failure")),
+            picker: Err(anyhow::anyhow!("picker cleanup failure")),
+            permissions: Err(anyhow::anyhow!("permission cleanup failure")),
+        },
     )
     .expect_err("combined shutdown failures")
     .to_string();
     assert!(error.starts_with("retained user input"));
     assert!(error.contains("terminal failure"));
+    assert!(error.contains("collaboration cleanup failure"));
     assert!(error.contains("status-line cleanup failure"));
     assert!(error.contains("clipboard cleanup failure"));
     assert!(error.contains("preparation cleanup failure"));
     assert!(error.contains("picker cleanup failure"));
     assert!(error.contains("permission cleanup failure"));
-    assert!(crate::session_result(Ok(()), Ok(()), Ok(()), Ok(()), Ok(()), Ok(()), Ok(())).is_ok());
+    assert!(
+        crate::session_result(
+            Ok(()),
+            crate::SessionShutdowns {
+                runtime: Ok(()),
+                collaboration: Ok(()),
+                status: Ok(()),
+                clipboard: Ok(()),
+                preparation: Ok(()),
+                picker: Ok(()),
+                permissions: Ok(()),
+            },
+        )
+        .is_ok()
+    );
 }

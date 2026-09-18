@@ -65,8 +65,7 @@ impl Context {
                 BudgetError::InvalidLimits | BudgetError::InvalidAnchor => Reason::InvalidBudget,
             },
             Err(ContextBudgetError::Encoding(error)) => match error {
-                EncodeError::PlainReasoningInResponses
-                | EncodeError::MissingThinkingSignature
+                EncodeError::MissingThinkingSignature
                 | EncodeError::OpaqueReplayInChat
                 | EncodeError::UnrepresentableChatOrder
                 | EncodeError::IncompatibleReplay { .. } => Reason::HistoryIncompatible,
