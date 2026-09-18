@@ -145,12 +145,8 @@ other rule about input follows from this one.
   [reasoning effort](./specs/reasoning-effort.md) and carries nothing else — the box says what is
   being read, the rule says what the next message addresses, and those differ exactly when a
   sub-agent's window is open. A User-controlled sub-agent's input is the bottom of its window; a
-  Main-controlled window has no input region, and there is no input anywhere else. Rejected: a
-  conversation with no edge of its own, which cost the same cells a border spends and drew nothing
-  in them, so beside a boxed roster and a boxed sub-agent it read as background rather than as a
-  place and its identity hue had no edge to be painted on; a box around conversation *and* input,
-  which is not this — the composer keeps its two rules; and current work on the composer's rule,
-  mixing the agent's doing with the user's typing.
+  Main-controlled window has no input region, and there is no input anywhere else. The composer is
+  not inside that box; it keeps its two rules.
 - While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
   row** reading `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
@@ -242,10 +238,9 @@ terminals with the fewest rows.
 - An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error: they
   are message-local actions, never Commands, and neither repeats tools. JRN-8 owns eligibility and
   the bindings.
-- Switching conversations waits for idle work and an empty draft. A working child does not block it:
-  the first choice arms the last row with what the switch costs that child, the same choice again
-  performs it, and its history is saved either way. Nothing is interrupted without being said first.
-  SPK-1–SPK-4 own discovery, replacement and the collaboration a replacement carries.
+- Switching conversations waits for idle work and an empty draft. A working child does not block
+  it: the first choice arms the last row with what the switch costs that child, the same choice
+  again performs it, and its history is saved either way. SPK-1–SPK-4 own the rest.
 - The terminal's last row is where the workspace asks for a gesture to be repeated — the quit chord,
   a switch that would stop a child — one question at a time, in Action required. Each states what
   repeating costs; doing something else instead withdraws it.
@@ -275,35 +270,19 @@ terminals with the fewest rows.
 - Workspace colour is sixteen semantic roles; widgets name a role, never a terminal colour, and
   a palette is a complete assignment of them. Colour says what a thing is and weight says what
   reads first; the row `Enter` acts on carries both (`Chosen`), and what stays quiet is a
-  low-saturation hue with no weight on it. Rejected: italic as a third channel for quiet — a slant
-  standing in a field of upright monospace is unusual, and unusual attracts the eye that `Ambient`
-  exists to spare, so it worked against the one role it was introduced for. Document italic stays
-  where it is conventional and self-evidently meant: a code comment, a block quotation (MD-5,
-  MD-6).
+  low-saturation hue with no weight on it. Document italic is a separate vocabulary with its own
+  conventional uses (MD-5, MD-6).
   The status script owns its own colours (MD-5).
-- **A palette is data, not code, and colour is two layers.** The lower layer is a fixed set of
-  slots named the way a terminal names them: a ground ramp — `ground`, `line`, `muted`, `text` —
-  and eight hues around a closed wheel — `red`, `orange`, `yellow`, `green`, `cyan`, `blue`,
-  `purple`, `magenta`. A theme assigns those twelve slots a colour each, and assigns nothing else.
-  The upper layer maps the sixteen roles onto slots and carries their weight and italic; it belongs
-  to the product, so no theme can make a failure read as a success or take the weight off what
-  needs the user. A theme may therefore be written by hand, and any terminal colourway can be
-  carried into one. Rejected: inheriting the terminal's own theme, which let the terminal decide
-  our semantics implicitly — borrowing its vocabulary is not that, because the values stay ours
-  to state. Unbuilt, and each one a place a theme cannot reach: the designed Markdown and code
-  themes name the designed slots rather than the palette's own (MD-5), so a replacement reaches the
-  inherited theme and never the designed one; the effort rail carries eleven colours that belong to
-  no slot; and no theme can be loaded from configuration yet, so the twelve values are still
-  supplied in code.
-- A surface that holds a conversation, or the roster of them, carries its own hue on its border:
-  the muted slot for the roster, blue for the conversation the user owns, cyan for a delegate's.
-  Focus is
-  that same hue at full strength and rest is the same hue carried most of the way to the ground,
-  so a border answers both of the questions a reader asks of it — whose surface this is, and where
-  the keys are going — without the two collapsing into each other. Surfaces that are something the
+- **A palette is data, and colour is two layers.** Below, twelve slots named the way a terminal
+  names them: a ground ramp — `ground`, `line`, `muted`, `text` — and eight hues around a closed
+  wheel — `red`, `orange`, `yellow`, `green`, `cyan`, `blue`, `purple`, `magenta`. A theme assigns
+  those twelve and nothing else. Above, the sixteen roles map onto slots and carry their weight;
+  that mapping is the product's, so no theme can make a failure read as a success.
+- A surface holding a conversation, or the roster of them, carries its own hue on its border:
+  muted for the roster, blue for the user's own, cyan for a delegate's. Focus is that hue at full
+  strength and rest is the same hue carried most of the way to the ground, so one border answers
+  both questions a reader asks of it — whose surface this is, and where the keys are going. Surfaces that are something the
   workspace is saying rather than a place — a menu, a notice, an approval — keep the neutral line.
-  Rejected: one focus colour for every surface, which left two conversations side by side
-  distinguishable only by reading their titles.
 - **The terminal is assumed modern.** Plexmaton targets a 24-bit-colour terminal and a reader with
   ordinary colour vision. There is no reduced palette, no colour-capability probe, and no degraded
   path. The product already requires far more than colour depth — an animated effort rail on a

@@ -1,5 +1,5 @@
 ┌ Agents ──────────────────┐┌ Agent A · primary ───────────────────────────────────────────────────────────────────────┐
-│● Agent B · UI study      ││┌ Agent B · UI study · Completed · 1 tool · 1 artifact · 1 mail · esc ───────────────────┐│
+│● Agent B · UI study      ││┌ Agent B · UI study · Completed · 1 tool · 1 artifact · esc ────────────────────────────┐│
 │  approval                │││                                                                                        ││
 │                          │││                                                                                        ││
 │                          │││                                                                                        ││

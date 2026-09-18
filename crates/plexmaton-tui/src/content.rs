@@ -80,14 +80,18 @@ fn count_entries(agent: &crate::AgentView) -> EntryCounts {
                 artifacts: counts.artifacts.saturating_add(1),
                 ..counts
             },
-            TranscriptEntryView::Mail(_) => EntryCounts {
+            // Addressed entries land in both conversations, so counting them all told an agent
+            // how many letters it had handled. A roster says where the user's work is, and a
+            // letter this agent sent is not work waiting in it: only what arrived is counted.
+            TranscriptEntryView::Mail(mail) if mail.to == mail.owner => EntryCounts {
                 mail: counts.mail.saturating_add(1),
                 ..counts
             },
-            TranscriptEntryView::Task(_) => EntryCounts {
+            TranscriptEntryView::Task(task) if task.to == task.owner => EntryCounts {
                 tasks: counts.tasks.saturating_add(1),
                 ..counts
             },
+            TranscriptEntryView::Mail(_) | TranscriptEntryView::Task(_) => counts,
         })
 }
 

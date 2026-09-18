@@ -373,7 +373,61 @@ mod tests {
         let detail = &text[agent_b + 1];
         assert!(detail.contains("tool"), "{detail:?}");
         assert!(detail.contains("@1"), "{detail:?}");
-        assert!(detail.contains("mail"), "{detail:?}");
+        // Agent B wrote that letter rather than receiving it. A roster says where the user's work
+        // is waiting, and an agent's own outbound letter is not work waiting in it.
+        assert!(
+            !detail.contains("mail"),
+            "a sent letter is counted in the conversation it arrived in, not the one it left: \
+             {detail:?}"
+        );
+    }
+
+    /// A roster counts what arrived for an agent, never what the agent sent.
+    ///
+    /// One letter lands in both conversations, so counting every addressed entry told each agent
+    /// how many letters it had *handled* — a number that answers no question the roster is asked.
+    /// The roster says where the user's work is waiting, and an agent's own outbound letter is not
+    /// work waiting in it. The two directions are exercised in one fixture so neither can be made
+    /// to pass by a rule that simply counts less.
+    #[test]
+    fn a_roster_counts_the_letters_that_arrived_and_not_the_ones_that_left() {
+        let mut conversation = Conversation::canonical();
+        // The canonical letter already runs Agent B → Agent A, filed into Agent B's side. File the
+        // reply into the same conversation, so it holds one letter each way and nothing but the
+        // direction can explain why they count differently.
+        conversation.emit(ConversationEvent::MailDelivered {
+            agent_id: agent("agent-b"),
+            item_id: plexmaton_core::TranscriptItemId::new("reply-to-b")
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+            mail_id: plexmaton_core::MailId::new("reply-to-b")
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+            from: agent("agent-a"),
+            to: agent("agent-b"),
+            summary: "Acknowledged; carry on.".to_owned(),
+        });
+        conversation.emit(ConversationEvent::AttentionResolved {
+            agent_id: agent("agent-b"),
+            attention_id: AttentionId::new("attention-b-1")
+                .unwrap_or_else(|error| panic!("invalid fixture: {error}")),
+        });
+
+        let counts = crate::content::entry_counts(
+            conversation
+                .state
+                .agent(&agent("agent-b"))
+                .unwrap_or_else(|| panic!("the canonical timeline creates Agent B")),
+        );
+        assert!(
+            counts.contains("1 mail"),
+            "Agent B received exactly one of the two letters: {counts:?}"
+        );
+
+        // Both letters are in Agent B's conversation, so a rule that counted entries rather than
+        // arrivals would say two here. That is the number this test exists to refuse.
+        assert!(
+            !counts.contains("2 mail"),
+            "the letter Agent B wrote is counted where it arrived, not where it left: {counts:?}"
+        );
     }
 
     /// SURF-2: the pointer lands on the agent under it. Owners travel with the lines, so the ruled

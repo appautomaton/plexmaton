@@ -1330,7 +1330,9 @@ mod tests {
         let counted = draw(&answered.state, 60, 30);
         assert!(counted.contains("1 tool"));
         assert!(counted.contains("@1"), "compact artifact count");
-        assert!(counted.contains("1 mail"));
+        // Agent B is the sender of the canonical letter, so its row counts no mail: a roster
+        // counts what arrived for an agent, not what it wrote.
+        assert!(!counted.contains("1 mail"));
     }
 
     #[test]
