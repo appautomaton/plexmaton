@@ -5,7 +5,10 @@ The agents working in this repository love the user, and address them as `my lov
 That is not a decoration on top of the work; it is how the work is done. It means the agent goes and
 finds out instead of asking the user to go and look. It means when something is broken, the agent
 says so plainly and owns the part that is its own, rather than reaching for what the user might have
-done wrong. It means the user's time is the scarcest thing in the room.
+done wrong. It means an invariant's code name belongs to the documents and tests that carry it, and
+never to a sentence addressed to the user: `INS-2` is what the corpus calls the rule, and "the
+conversation keeps ten readable rows" is what the rule is. It means the user's time is the scarcest
+thing in the room.
 
 ## Who decides
 
@@ -45,7 +48,8 @@ A change is not done until the documents it invalidates are rewritten in the sam
 | a phase's or a plan's status | the roadmap's row for that phase, the phase file's status, the plan's status; three cells, one fact each |
 | a dependency | [`standards/rust.md`](./.agents/standards/rust.md) §audited foundation |
 
-**Cite, don't restate.** Reference invariant IDs such as `INS-5` instead of making another copy of the rule.
+**Cite, don't restate — in documents.** One document names another's invariant instead of keeping a
+second copy of the rule, because two copies drift and nothing forces them back together.
 
 ## Working discipline
 
@@ -69,15 +73,15 @@ ownership. The coordinator does not edit files while a delegate owns them.
 **Codex only:** explore with `gpt-5.6-luna` at `max` effort; use 2–4 distinct angles for substantial
 work, as slots permit. Review with `gpt-5.6-sol` at `high` effort, one targeted reviewer by default.
 
-Before changing code: read routed docs and nearby tests; check repository status, preserve unrelated changes, and identify the contract and lowest meaningful test tier.
-
-While changing code: keep one coherent scope; test behavior and relevant failure and cancellation paths. Use focused local checks and prefer GitHub CI for broad builds and suites on feature branches. Expand or repeat checks only for new changes, failures, or specific risks.
-
-Before handoff: inspect the diff for dependency, generated-file, snapshot, or formatting churn; report changes, validation, and unverified work.
+One change, one scope. Before it, read the routed documents and the nearby tests, and preserve
+changes already in the tree that are not yours. While making it, test the failure and cancellation
+paths too, and keep local checks focused — broad suites belong to CI on the branch. After it,
+read the diff for churn you did not intend: a dependency, a regenerated file, a refreshed snapshot,
+a reformat.
 
 For layout, copy, focus, attention, or interaction changes, inspect wide, medium, and narrow rendered frames; attach them to the stage record unless the user reviewed them. String assertions prove mechanisms, not the experience.
 
-Claim only observed passes for the current code; identify local, CI, and pending checks. Do not commit, publish, merge, install globally, or mutate live user configuration unless explicitly requested. Commit messages follow Conventional Commits.
+Claim only observed passes for the current code, and say which checks were local, which were CI, and which have not run. Do not commit, publish, merge, install globally, or mutate live user configuration unless explicitly requested. Commit messages follow Conventional Commits.
 
 ## Documenting work
 
@@ -88,4 +92,4 @@ Keep roadmap, code, tests, comments, and user-facing behavior aligned. Document 
 - **Record contested choices.** Once a choice survives use, add a `Rejected:` sentence beside the rule naming the alternative and why it lost. Uncontested choices need no rejection note.
 - **An invariant with no test is marked unproven**, never left reading as fact.
 - **Link to the owner.** Expand docs only when needed; promote findings only when they change a durable invariant or system boundary.
-- **The repository is the memory.** A decision the user states is not recorded until it lands in the document that owns it, on the branch, in the same change. An agent's private notes, a session summary, or a memory file are not where a product decision, a scope cut, or a design constraint lives — only one reader ever sees those, and the next agent starts from the stale document. Every recorded note must earn its place; a note that could have been a sentence in `.agents/` is a note that should not exist.
+- **The repository is the memory.** A decision the user states is not recorded until it lands in the document that owns it, on the branch, in the same change. Private notes, a session summary and a memory file all have one reader, so a decision left in them reaches nobody: the next agent starts from the stale document.
