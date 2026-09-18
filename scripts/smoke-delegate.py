@@ -38,6 +38,7 @@ from smoke_support import (
     read_to_eof,
     rendered_screen,
     sgr_press,
+    SMOKE_WIDTH,
 )
 
 ASK = "DELEGATE_ASK please have someone count the fixtures"
@@ -64,6 +65,12 @@ HANDOFF_DONE = "HANDOFF_DONE user control is ready"
 CHILD_INPUT = "USER_CHILD_INPUT answer this child directly"
 CHILD_ANSWER = "USER_CHILD_ANSWER received only by the child"
 HANDOFF_ROW = "handoff · Controller: User"
+# The child's control footer: who is driving, in one glyph rather than a sentence, beside the
+# capability boundary every child has. Built from codepoints rather than pasted, because a pasted
+# five-digit Private Use codepoint loses its last digit to whatever writes the file.
+CONTROL_MAIN = f"{chr(0xF06A9)} Main"
+CONTROL_USER = f"{chr(0xF0004)} User"
+CAPABILITIES = chr(0xF099D)
 UPDATE_ASK = "UPDATE_TASK_ASK continue the delegated child with a revised task"
 UPDATED_TASK = "RETAIN_TOTAL_2_FIXTURES"
 UPDATE_DONE = "UPDATE_TASK_DONE revised and scheduled once"
@@ -414,8 +421,15 @@ def focus_primary_and_type(terminal, text):
 
 
 def scroll_child_until(terminal, upward, markers, limit=40):
-    """Find named semantic rows by bounded user scrolling instead of assuming viewport geometry."""
-    event = f"\x1b[<{64 if upward else 65};41;6M".encode()
+    """Find named semantic rows by bounded user scrolling instead of assuming viewport geometry.
+
+    The wheel moves whatever is under the pointer, so the pointer has to be over the child. Three
+    quarters of the way across is inside it under every presentation — the right-hand column, the
+    shelf that spans the conversation, and the maximized region — where a fixed column was only
+    inside it while an agent rail pushed the conversation to the right.
+    """
+    column = 3 * terminal.size[1] // 4
+    event = f"\x1b[<{64 if upward else 65};{column};6M".encode()
     wanted = [collapsed(marker.encode()) for marker in markers]
     for _ in range(limit + 1):
         screen = rendered_screen(bytes(terminal.capture[terminal.frame_start:]), terminal.size)
@@ -430,7 +444,7 @@ def scroll_child_until(terminal, upward, markers, limit=40):
 
 def task_update_at_three_widths(terminal, artifact):
     """The revised task and its exact child continuation stay reachable at every width."""
-    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+    for width, label in [(121, None), (120, "two-columns"), (95, "one-column"), (60, "narrow")]:
         terminal.resize(width, UPDATE_CHILD_ACK)
         screen = scroll_child_until(
             terminal, True, (f"assigned by {ROOT_AGENT} · {UPDATED_TASK}",)
@@ -438,13 +452,13 @@ def task_update_at_three_widths(terminal, artifact):
         if label:
             write_frame(terminal, artifact, label, screen)
         scroll_child_until(terminal, False, (UPDATE_CHILD_ACK,))
-    terminal.resize(120, UPDATE_CHILD_ACK)
+    terminal.resize(SMOKE_WIDTH, UPDATE_CHILD_ACK)
 
 
 def root_task_update_at_three_widths(terminal, artifact):
     """The root's side of the revised task remains readable in every conversation region."""
     markers = (f"assigned to {TARGET}", UPDATED_TASK, UPDATE_DONE)
-    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+    for width, label in [(121, None), (120, "two-columns"), (95, "one-column"), (60, "narrow")]:
         if width == 60:
             terminal.resize(width, UPDATE_DONE)
             screen = scroll_child_until(
@@ -456,13 +470,13 @@ def root_task_update_at_three_widths(terminal, artifact):
             write_frame(terminal, artifact, label, screen)
         if width == 60:
             scroll_child_until(terminal, False, (UPDATE_DONE,))
-    terminal.resize(120, *markers)
+    terminal.resize(SMOKE_WIDTH, *markers)
 
 
 def root_history_at_three_widths(terminal, artifact):
     """The root's task, incoming letter, and answer remain readable at each product width."""
     markers = (f"assigned to {TARGET}", f"received from {TARGET}", SAW)
-    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+    for width, label in [(121, None), (120, "two-columns"), (95, "one-column"), (60, "narrow")]:
         if width == 60:
             terminal.resize(width, SAW)
             screen = scroll_child_until(terminal, True, markers)
@@ -472,13 +486,17 @@ def root_history_at_three_widths(terminal, artifact):
             write_frame(terminal, artifact, label, screen)
         if width == 60:
             scroll_child_until(terminal, False, (SAW,))
-    terminal.resize(120, *markers)
+    terminal.resize(SMOKE_WIDTH, *markers)
 
 
 def child_history_at_three_widths(terminal, artifact):
     """The child's task, work, and mail remain reachable before returning to its current tail."""
-    for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
-        terminal.resize(width, *USER_CHILD_SIDE)
+    for width, label in [(121, None), (120, "two-columns"), (95, "one-column"), (60, "narrow")]:
+        # A resize keeps every viewport's anchor (ui-ux §resize), and these widths no longer give
+        # the child a region of the same shape — two columns make it tall and narrow, one makes it
+        # a short shelf — so the tail is scrolled back to rather than waited for.
+        terminal.resize(width, CHILD)
+        scroll_child_until(terminal, False, USER_CHILD_SIDE)
         oldest = scroll_child_until(
             terminal, True, (f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
         )
@@ -489,7 +507,7 @@ def child_history_at_three_widths(terminal, artifact):
             write_frame(terminal, f"{artifact}-history", label, oldest)
             write_frame(terminal, f"{artifact}-mail", label, mail)
         scroll_child_until(terminal, False, USER_CHILD_SIDE)
-    terminal.resize(120, *USER_CHILD_SIDE)
+    terminal.resize(SMOKE_WIDTH, *USER_CHILD_SIDE)
 
 
 def no_dropped_events(terminal):
@@ -533,7 +551,7 @@ def both_at_three_widths(terminal, artifact="child"):
                 terminal.resize(60, *USER_CHILD_SIDE, absent=(SAW,)))
     write_frame(terminal, artifact, "narrow-root",
                 close_child(terminal, *USER_ROOT_SIDE, absent=(CHILD_ANSWER,)))
-    terminal.resize(120, *USER_ROOT_SIDE, absent=(CHILD_ANSWER,))
+    terminal.resize(SMOKE_WIDTH, *USER_ROOT_SIDE, absent=(CHILD_ANSWER,))
 
 
 def stop_hint_at_three_widths(terminal):
@@ -544,15 +562,15 @@ def stop_hint_at_three_widths(terminal):
         (95, "medium", True),
         (60, "narrow", True),
     ]:
-        screen = terminal.resize(width, "Controller: Main", STOP_CHILD_WORKING)
+        screen = terminal.resize(width, CONTROL_MAIN, STOP_CHILD_WORKING)
         screen = terminal.wait(
-            "Controller: Main", STOP_CHILD_WORKING, absent=("Preparing text",)
+            CONTROL_MAIN, STOP_CHILD_WORKING, absent=("Preparing text",)
         )
         assert ("^C Stop" in screen) == hint, (width, screen)
-        assert "Read-only files | No shell" in screen, (width, screen)
+        assert CAPABILITIES in screen, (width, screen)
         if label:
             write_frame(terminal, "stop-main", label, screen)
-    terminal.resize(120, "Controller: Main", STOP_CHILD_WORKING, "^C Stop")
+    terminal.resize(SMOKE_WIDTH, CONTROL_MAIN, STOP_CHILD_WORKING, "^C Stop")
 
 
 def write_frame(terminal, artifact, label, screen):
@@ -941,27 +959,27 @@ def run_smoke(provider):
             # reaches that child's provider and leaves the primary composer as a return target.
             focus_primary_and_type(terminal, HANDOFF_ASK)
             terminal.send(ENTER, HANDOFF_DONE, HANDOFF_ROW)
-            open_child(terminal, *CHILD_SIDE, HANDOFF_ROW, "Controller: User")
+            open_child(terminal, *CHILD_SIDE, HANDOFF_ROW, CONTROL_USER)
             terminal.send(
                 ENTER,
                 UPDATED_TASK,
                 UPDATE_CHILD_ACK,
                 HANDOFF_ROW,
-                "Controller: User",
+                CONTROL_USER,
                 "Message Plexmaton",
                 "to return",
             )
             terminal.send(
                 CHILD_INPUT.encode() + ENTER,
                 *USER_CHILD_SIDE,
-                "Controller: User",
+                CONTROL_USER,
                 "Message Plexmaton",
                 "to return",
             )
             terminal.widths(
                 "handoff-user",
                 *USER_CHILD_SIDE,
-                "Controller: User",
+                CONTROL_USER,
                 "Message Plexmaton",
                 "to return",
             )
@@ -1022,13 +1040,13 @@ def run_smoke(provider):
                 RESTORED,
             )
             requests_before, errors_before = provider.snapshot()
-            open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
+            open_child(terminal, *USER_CHILD_SIDE, CONTROL_USER)
             task_update_at_three_widths(terminal, "resumed-task-update")
             both_at_three_widths(terminal, "resumed-pointer")
             # INS-6: a semantic viewport anchor belongs to the child, not the transient window.
             # Park inside the long restored message, close while the Inspector owns focus, then
             # reopen by pointer at the same width and require the same first visible history line.
-            open_child(terminal, *USER_CHILD_SIDE, "Controller: User")
+            open_child(terminal, *USER_CHILD_SIDE, CONTROL_USER)
             oldest = scroll_child_until(
                 terminal, True, (f"assigned by {ROOT_AGENT}", "CHILD_WORKING")
             )
@@ -1040,7 +1058,11 @@ def run_smoke(provider):
             )
             assert_ordered(newest, "send_mail · succeeded", f"sent to {ROOT_AGENT}", DONE)
             scroll_child_until(terminal, False, USER_CHILD_SIDE)
-            terminal.resize(60, *USER_CHILD_SIDE, "Controller: User")
+            # The anchor survives the resize, and the region it is anchored in does not keep its
+            # shape across the two-column boundary, so the tail is scrolled back to.
+            terminal.resize(60, CHILD)
+            scroll_child_until(terminal, False, USER_CHILD_SIDE)
+            terminal.wait(*USER_CHILD_SIDE, CONTROL_USER)
             anchor_marker = f"{HISTORY_PREFIX}20"
             scroll_child_until(terminal, True, (anchor_marker,))
             focus_primary(terminal)
@@ -1054,7 +1076,7 @@ def run_smoke(provider):
             assert anchor_marker in reopened, \
                 ("the resumed child's parked history left the viewport", anchor_marker, parked)
             close_child(terminal, *ROOT_SIDE, absent=(DONE,))
-            terminal.resize(120, *ROOT_SIDE, absent=(DONE,))
+            terminal.resize(SMOKE_WIDTH, *ROOT_SIDE, absent=(DONE,))
             requests_after, errors_after = provider.snapshot()
             assert requests_after == requests_before, "passive child browsing contacted the provider"
             assert not errors_before and not errors_after, (errors_before, errors_after)
@@ -1073,13 +1095,13 @@ def run_smoke(provider):
                 UPDATED_TASK, UPDATE_DONE, RESTORED
             )
             requests_before, errors_before = provider.snapshot()
-            terminal.send(DOWN, *USER_CHILD_SIDE, "Controller: User")
+            terminal.send(DOWN, *USER_CHILD_SIDE, CONTROL_USER)
             task_update_at_three_widths(terminal, "resumed-keyboard-task")
-            terminal.send(ENTER, "Controller: User", "Message Plexmaton", *USER_CHILD_SIDE)
+            terminal.send(ENTER, CONTROL_USER, "Message Plexmaton", *USER_CHILD_SIDE)
             terminal.widths(
                 "resumed-keyboard",
                 *USER_CHILD_SIDE,
-                "Controller: User",
+                CONTROL_USER,
                 "Message Plexmaton",
             )
             requests_after, errors_after = provider.snapshot()
@@ -1140,8 +1162,8 @@ def run_kill_resume_smoke(provider, paused):
             idle_root_screen = terminal.wait(*KILL_IDLE_ROOT_MARKERS, RESTORED)
             assert screen_manifest(idle_root_screen, KILL_IDLE_ROOT_MARKERS) == idle_root
             assert provider.snapshot() == (requests_before_idle, errors)
-            open_child(terminal, *KILL_IDLE_CHILD_MARKERS, "Controller: Main")
-            terminal.wait(*KILL_IDLE_CHILD_MARKERS, "Controller: Main")
+            open_child(terminal, *KILL_IDLE_CHILD_MARKERS, CONTROL_MAIN)
+            terminal.wait(*KILL_IDLE_CHILD_MARKERS, CONTROL_MAIN)
             assert provider.snapshot() == (requests_before_idle, errors)
             assert invocation_snapshot(invocation_trace) == idle_invocations
             close_child(terminal, *KILL_IDLE_ROOT_MARKERS)
@@ -1196,10 +1218,10 @@ def run_kill_resume_smoke(provider, paused):
             assert screen_manifest(root_screen, KILL_ROOT_MARKERS) == live_root
             requests_before, errors_before = provider.snapshot()
             assert requests_before == requests_before_kill and not errors_before
-            open_child(terminal, *KILL_CHILD_MARKERS, "Controller: Main")
+            open_child(terminal, *KILL_CHILD_MARKERS, CONTROL_MAIN)
             child_screen = terminal.wait(
                 *KILL_CHILD_MARKERS,
-                "Controller: Main",
+                CONTROL_MAIN,
                 absent=(KILL_CHILD_PAUSED, KILL_CHILD_LATE),
             )
             assert screen_manifest(child_screen, KILL_CHILD_MARKERS) == live_child
@@ -1222,11 +1244,11 @@ def run_kill_resume_smoke(provider, paused):
         ) as terminal:
             terminal.wait(KILL_UPDATE_DONE, KILL_UPDATED_TASK, RESTORED)
             requests_before, errors_before = provider.snapshot()
-            terminal.send(DOWN, *KILL_CHILD_MARKERS, "Controller: Main")
+            terminal.send(DOWN, *KILL_CHILD_MARKERS, CONTROL_MAIN)
             child_screen = terminal.send(
                 ENTER,
                 *KILL_CHILD_MARKERS,
-                "Controller: Main",
+                CONTROL_MAIN,
                 absent=(KILL_CHILD_PAUSED, KILL_CHILD_LATE),
             )
             assert screen_manifest(child_screen, KILL_CHILD_MARKERS) == live_child
@@ -1317,10 +1339,10 @@ def run_kill_resume_smoke(provider, paused):
             requests_after_pending, errors = provider.snapshot()
             assert requests_after_pending == requests_at_pending and not errors
             assert invocation_snapshot(invocation_trace) == invocations_at_pending
-            open_child(terminal, KILL_UPDATED_TASK, "Controller: Main")
+            open_child(terminal, KILL_UPDATED_TASK, CONTROL_MAIN)
             terminal.wait(
                 KILL_UPDATED_TASK,
-                "Controller: Main",
+                CONTROL_MAIN,
                 absent=(HANDOFF_ROW, KILL_CHILD_LATE),
             )
             no_dropped_events(terminal)
@@ -1349,7 +1371,7 @@ def run_kill_resume_smoke(provider, paused):
             requests_repeat, errors = provider.snapshot()
             assert requests_repeat == requests_at_pending and not errors
             assert invocation_snapshot(invocation_trace) == invocations_at_pending
-            terminal.send(DOWN, KILL_UPDATED_TASK, "Controller: Main", absent=(HANDOFF_ROW,))
+            terminal.send(DOWN, KILL_UPDATED_TASK, CONTROL_MAIN, absent=(HANDOFF_ROW,))
             no_dropped_events(terminal)
             no_internal_names(terminal)
             terminal.quit()
@@ -1385,7 +1407,7 @@ def approval_attention_at_three_widths(terminal, artifact):
     )
     write_frame(terminal, f"{artifact}-agents", "narrow", agents)
     terminal.send(b"\x02", APPROVAL_WAITING, "Message Plexmaton", "Agents ^B")
-    terminal.resize(120, CHILD, "approval", APPROVAL_WAITING, "Message Plexmaton")
+    terminal.resize(SMOKE_WIDTH, CHILD, "approval", APPROVAL_WAITING, "Message Plexmaton")
 
 
 def open_child_approval(terminal):
@@ -1487,7 +1509,7 @@ def run_stop_smoke(provider, paused):
             # Selecting then entering the row is the real open/focus path; Ctrl-C then resolves
             # the Inspector conversation rather than the primary runtime (INV-7).
             open_child(terminal, STOP_CHILD_WORKING)
-            terminal.send(ENTER, "Controller: Main", STOP_CHILD_WORKING)
+            terminal.send(ENTER, CONTROL_MAIN, STOP_CHILD_WORKING)
             stop_hint_at_three_widths(terminal)
             requests, errors = provider.snapshot()
             assert len(requests) == 3 and not errors, (requests, errors)
@@ -1498,7 +1520,7 @@ def run_stop_smoke(provider, paused):
             terminal.send(
                 b"\x03",
                 f"{CHILD} · Idle",
-                "Controller: Main",
+                CONTROL_MAIN,
                 STOP_CHILD_WORKING,
             )
             assert terminal.process.poll() is None, "focused-child Stop exited the root session"

@@ -454,11 +454,11 @@ impl Workspace {
             .surfaces
             .viewport(SurfaceId::Agents)
             .map_or(0, |viewport| viewport.offset);
-        let width = inner_width(bounds.width);
         content::agent_at_row(
             &self.state,
             &self.palette,
-            width,
+            inner_width(bounds.width),
+            content::roster_capacity(bounds),
             usize::from(row).saturating_add(offset),
         )
     }

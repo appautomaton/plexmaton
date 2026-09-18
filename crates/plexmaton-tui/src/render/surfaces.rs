@@ -215,7 +215,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
         drawer_focus: state.drawer_focus(),
         conversation_tree: state.conversation_tree_open(),
         composer_menu_rows: state.composer_menu_rows(inner_width(composer_width)),
-        rail: state.sub_agents().next().is_some(),
+        roster_rows: layout::strip_rows(state.sub_agents().count()),
         roster: state.roster_visible(area.width),
         composer_rows: state.composer_rows(composer_width, layout::composer_cap(area.height)),
         inspector,

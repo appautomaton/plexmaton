@@ -2038,6 +2038,14 @@ mod tests {
             .saturating_sub(shelf.bottom())
     }
 
+    /// A terminal one conversation wide.
+    ///
+    /// Every test about the shelf asks for this, because the shelf is what a second conversation
+    /// becomes when two will not fit side by side. Above the two-column threshold the same
+    /// keystrokes open a column instead, and a test that means to exercise the shelf has to say so
+    /// in its terminal size rather than in its expectations.
+    const ONE_COLUMN: u16 = 95;
+
     /// The conversation's painted rows beneath the shelf: what the user can still read of it.
     fn painted_beneath(terminal: &Terminal<TestBackend>, workspace: &Workspace) -> String {
         let conversation = bounds(workspace, SurfaceId::Transcript);
@@ -2054,7 +2062,7 @@ mod tests {
     /// screen is ever shown twice.
     #[test]
     fn the_window_floats_over_the_primary_and_escape_closes_it() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         let before = bounds(&workspace, SurfaceId::Transcript);
 
         workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
@@ -2483,7 +2491,7 @@ mod tests {
     #[test]
     fn an_inspector_too_short_for_its_input_takes_no_typing_and_no_cursor() {
         let agent_b = AgentId::new("agent-b").unwrap_or_else(|error| panic!("fixture: {error}"));
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         acknowledge_user_control(&mut workspace);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
@@ -2898,8 +2906,13 @@ mod tests {
             "the chord reached the workspace rather than the draft"
         );
         assert!(
-            bounds(&workspace, SurfaceId::Transcript).width > conversation.width,
-            "and the columns it held went to the conversation"
+            bounds(&workspace, SurfaceId::Transcript).height > conversation.height,
+            "and the rows it held went to the conversation"
+        );
+        assert_eq!(
+            bounds(&workspace, SurfaceId::Transcript).width,
+            conversation.width,
+            "the strip never held a column, so putting it away hands none back"
         );
         assert_eq!(
             workspace.state.composer().text(),
@@ -2907,9 +2920,9 @@ mod tests {
             "the draft is untouched"
         );
         assert_eq!(
-            cursor(&terminal).map(|at| at.y),
-            caret.map(|at| at.y),
-            "the caret stays on its row; its column moves because the composer got the width back"
+            cursor(&terminal).map(|at| at.x),
+            caret.map(|at| at.x),
+            "the caret does not move sideways: the composer's width never depended on the roster"
         );
 
         step(
@@ -3661,7 +3674,7 @@ mod tests {
     /// therefore has to be measured against where the edge *is*, not where it was grabbed.
     #[test]
     fn a_drag_in_flight_survives_the_terminal_changing_size() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
 
@@ -3712,7 +3725,7 @@ mod tests {
     /// out of it (INS-2).
     #[test]
     fn dragging_the_inspectors_edge_resizes_it_and_capture_survives_leaving_the_rectangle() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
 
@@ -3764,7 +3777,7 @@ mod tests {
     /// Every mouse interaction has a keyboard equivalent, and both land in the same place.
     #[test]
     fn the_keyboard_moves_the_inspectors_edge_the_same_way_the_pointer_does() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         workspace.handle(&press(KeyCode::Down, KeyModifiers::NONE));
         frame(&mut workspace, &mut terminal);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
@@ -3803,7 +3816,7 @@ mod tests {
     /// INS-8: maximize is a presentation, not a replacement for the remembered shelf height.
     #[test]
     fn resizing_a_maximized_inspector_preserves_the_shelf_height() {
-        let (mut workspace, mut terminal) = drawn(120, 40);
+        let (mut workspace, mut terminal) = drawn(ONE_COLUMN, 40);
         let grow = press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let shrink = press(KeyCode::Up, KeyModifiers::CONTROL | KeyModifiers::SHIFT);
         let maximize = press(KeyCode::Char('f'), KeyModifiers::CONTROL);

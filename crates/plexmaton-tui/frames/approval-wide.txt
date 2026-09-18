@@ -1,40 +1,40 @@
-┌ Agents ──────────────────┐┌ Agent A · primary  󰇮 1 ──────────────────────────────────────────────────────────────────┐
-│Agent B · UI study        ││┌ Agent B · UI study · Completed  󱌣 1  󰏢 1 · esc ────────────────────────────────────────┐│
-│approval  Change crates/p…│││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││                                                                                        ││
-│                          │││I found the surface-routing boundary and am checking overlap behavior.                  ││
-│                          │││                                                                                        ││
-│                          │││[+] inspect interaction fixtures · succeeded                                            ││
-│                          │││@ interaction findings · artifact://agent-b/interaction-findings                        ││
-│                          │││sent to Agent A · primary · Routing stays centralized and z-ordered.                    ││
-│                          │││Controller unavailable · input locked                                                   ││
-│                          ││└────────────────────────────────────────────────────────────────────────────────────────┘│
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││                                                                                          │
-│                          ││I will inspect the workspace and delegate the focused UI study. Agent B is running        │
-│                          ││independently; this transcript remains interactive.                                       │
-│                          ││                                                                                          │
-│                          ││received from Agent B · UI study · Routing stays centralized and z-ordered.               │
-│                          ││· Thinking…                                                                        ( !1 ) │
-│                          │── Approval required · edit ────────────────────────────────────────────────────────────────
-│                          │                                                                                            
-│                          │   Change crates/plexmaton-core/src/lib.rs and preserve its current revision.               
-│                          │   Approval is required for this operation.                                                 
-│                          │                                                                                            
-│                          │     1. Allow once                                                                          
-│                          │   > 2. Deny                                                                                
-│                          │                                                                                            
-│                          │   1–2 decide · ↑↓ Enter · Ctrl-O details                                                   
-│                          │   Esc returns to the conversation                                                          
-│                          │                                                                                            
-│                          │── Message Agent A · primary ───────────────────────────────────────────────────────────────
-│                          │ Type a message · ⇥ to focus                                                                
-└──────────────────────────┘────────────────────────────────────────────────────────────────────────────────────────────
+┌ Agents ──────────────────────────────────────────────────┐┌ Agent B · UI study · Completed  󱌣 1  󰏢 1 · esc ──────────┐
+│ Agent B · UI study  approval   Change crates/plexmaton-c…││                                                          │
+└──────────────────────────────────────────────────────────┘│                                                          │
+┌ Agent A · primary  󰇮 1 ──────────────────────────────────┐│                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│                                                          ││                                                          │
+│I will inspect the workspace and delegate the focused     ││                                                          │
+│UI study. Agent B is running independently; this          ││                                                          │
+│transcript remains interactive.                           ││                                                          │
+│                                                          ││                                                          │
+│received from Agent B · UI study · Routing stays centrali…││                                                          │
+│· Thinking…                                        ( !1 ) ││                                                          │
+── Approval required · edit ────────────────────────────────│                                                          │
+                                                            │                                                          │
+   Change crates/plexmaton-core/src/lib.rs and preserve …   │                                                          │
+   Approval is required for this operation.                 │                                                          │
+                                                            │                                                          │
+     1. Allow once                                          │I found the surface-routing boundary and am checking      │
+   > 2. Deny                                                │overlap behavior.                                         │
+                                                            │                                                          │
+   1–2 decide · ↑↓ Enter · Ctrl-O details                   │[+] inspect interaction fixtures · succeeded              │
+   Esc returns to the conversation                          │@ interaction findings ·                                  │
+                                                            │artifact://agent-b/interaction-findings                   │
+── Message Agent A · primary ───────────────────────────────│sent to Agent A · primary · Routing stays centralized and…│
+ Type a message · ⇥ to focus                                │Controller unavailable · input locked                     │
+────────────────────────────────────────────────────────────└──────────────────────────────────────────────────────────┘
  ~/plexmaton                                                                                                            

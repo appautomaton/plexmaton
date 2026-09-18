@@ -214,6 +214,19 @@ def rendered_screen(raw, size):
     return "\n".join("".join(line) for line in cells)
 
 
+RULE_RUN = re.compile("─+")
+
+# Rows a smoke terminal has. Thirty-three rather than thirty because the agents strip takes its
+# rows from the top of the conversation, and these journeys assert that a long stretch of one is
+# on screen at once — a height claim, which the strip changed the budget for.
+SMOKE_ROWS = 33
+
+# The width a journey runs at unless it says otherwise: one conversation, which is the shape most
+# of a journey is about. Two columns are a width each journey sweeps to deliberately, not the
+# default it happens to start in.
+SMOKE_WIDTH = 95
+
+
 def await_screen(master, captured, size, markers=(), absent=(), start=0, complete=True, exact_lines=()):
     def ready():
         screen = rendered_screen(bytes(captured[start:]), size)
@@ -223,11 +236,12 @@ def await_screen(master, captured, size, markers=(), absent=(), start=0, complet
                 and all(collapsed(marker.encode()) not in flat for marker in absent)
                 and all(any(row.strip(" │") == value for row in screen.splitlines()) for value in exact_lines)
                 # A frame is complete once the composer's bottom rule is painted (ui-ux §input).
-                # That rule is the row's trailing run of "─", which is the full width alone and
-                # the width beside a docked roster; measuring the run rather than the whole row
-                # is what lets a journey with a child on screen reach readiness at all.
-                and (not complete or any(len(row) - len(row.rstrip("─")) >= size[1] // 2
-                                         for row in screen.splitlines())))
+                # The rule is the longest run of "─" on its row, not the trailing one: with a
+                # delegate's column open the rule ends where the primary's column does and the row
+                # goes on with somebody else's border, so a trailing-run test never fires there.
+                and (not complete or any(
+                    max((len(run) for run in RULE_RUN.findall(row)), default=0) >= size[1] // 2
+                    for row in screen.splitlines())))
     read_until(master, captured, ready, timeout=5,
                description=f"screen {size} with {markers!r} without {absent!r}")
     return rendered_screen(bytes(captured[start:]), size)
@@ -245,7 +259,7 @@ class Terminal:
         self.project, self.environment = project, environment
         self.journey, self.name = journey, name
         self.arguments = tuple(arguments)
-        self.size = (30, 120)
+        self.size = (SMOKE_ROWS, SMOKE_WIDTH)
         self.capture = bytearray()
         self.frame_start = 0
 
@@ -306,12 +320,12 @@ class Terminal:
 
     def resize(self, width, *markers, absent=()):
         self.frame_start = len(self.capture)
-        self.size = (30, width)
+        self.size = (SMOKE_ROWS, width)
         set_size(self.master, self.size)
         return self.wait(*markers, absent=absent)
 
     def widths(self, name, *markers):
-        for width, label in [(121, None), (120, "wide"), (95, "medium"), (60, "narrow")]:
+        for width, label in [(121, None), (120, "two-columns"), (95, "one-column"), (60, "narrow")]:
             screen = self.resize(width, *markers)
             if label:
                 # PRE-1: resize may first publish placeholders. Review the settled frame,
@@ -319,7 +333,7 @@ class Terminal:
                 screen = self.wait(*markers, absent=("Preparing text",))
                 (self.artifacts() / f"{self.journey}-{name}-{label}.txt").write_text(
                     "\n".join(row.rstrip() for row in screen.splitlines()) + "\n")
-        self.resize(120, *markers)
+        self.resize(SMOKE_WIDTH, *markers)
 
     def prompt(self, message, *markers, absent=()):
         at = (5, self.size[0] - 3)

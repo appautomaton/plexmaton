@@ -427,32 +427,61 @@ grammar, never assigned widget by widget.
 
 Every layout class preserves the meaning of this journey even when it changes where surfaces go.
 
+## Agents strip
+
+The roster of sub-agents, above the user's own conversation.
+
+- Absent until something is delegated: the conversation is the screen (INS-1).
+- One agent, one row, and three rows at the most however many are running — so the conversation
+  moves by the same amount whether two delegates are working or twenty. The rows go to the top of
+  attention's order, which is already where what is addressed to the user sits; the title says how
+  many exist. The selected agent keeps a row whatever its rank, because the row the next `Enter`
+  acts on cannot be one the user cannot see.
+- A row is three columns that line up down the strip: the name, bold, in the colour of the state it
+  is in; that state, one word; then what the agent waits on, or a glyph tally of what has arrived
+  for it, in one vocabulary every surface shares — a hammer and wrench for tool calls, a checklist
+  for tasks, an envelope for letters *received*, a paperclip for artifacts, and on an inspected
+  child a robot or a person for who is driving it beside a shield for the capability boundary every
+  child has. An ask outranks a tally. The cursor row takes `Chosen`'s ground and keeps its own
+  colour on top. Rejected: two rows an agent, which a 26-cell rail forced and which cost the strip
+  its aligned columns; a `●` marker in the first cell, which spent the columns a name wants to say
+  in a private glyph what `Chosen` says everywhere else; and a separate activity region, regrouping
+  facts that belong in each agent's conversation.
+- The strip is where a delegate's request is announced, because it is one row above what the user
+  is already reading and attention's order puts the asking agent on the first of them. The pill on
+  the conversation's border keeps the count (ATT-1), which is now the one fact the strip cannot
+  carry: requests the cap left off, and the user's own. Rejected: a notification surface of its own,
+  which would announce a third time what the row and the count already say.
+- The strip belongs to the user's conversation and stops at its edge — with a delegate's window
+  open beside it, it is the primary column's width; with a delegate maximized there is no primary
+  for it to sit above and no strip. Rejected: spanning the terminal, which made the index of who is
+  working *for the user* read as chrome over somebody else's transcript.
+- `Ctrl-B` puts it away and brings it back, and costs the conversation no column either way. Narrow
+  has no strip: `Agents ^B` sits in the reserved conversation-top row carrying `!n` only while a
+  child is shown, and `Ctrl-B` or a complete click opens the full-region navigator — the same rows
+  with the whole screen to spend. Arrows move a temporary cursor there; `Enter` or a row click
+  commits it, `Escape` or `Ctrl-B` restores exact prior focus without changing the preference.
+  Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
+
 ## Responsive layout classes
 
 | Class | Product expectation | Threshold |
 | --- | --- | --- |
-| Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 132 |
-| Wide | One conversation, and the roster as a column while it is open; a second agent arrives as a shelf | 96 ≤ width < 132 |
-| Medium | One conversation, and the roster as a narrow column while it is open | 72 ≤ width < 96 |
+| Ultrawide | Two conversations side by side; a second agent earns a column rather than an overlay | width ≥ 104 |
+| Wide | One conversation; a second agent arrives as a shelf over it | 96 ≤ width < 104 |
+| Medium | One conversation; a second agent arrives as a shelf over it | 72 ≤ width < 96 |
 | Narrow | One major surface at a time; looking at an agent is a full-region transition, the window's maximized presentation | width < 72 |
 | Too small | One explicit notice, never a clipped workspace | width < 48 or height < 12 |
 
-- Medium and wider use a `Ctrl-B`-toggled Agents column. Narrow puts `Agents ^B` in the reserved
-  conversation-top row, carrying `!n` only while a child is shown. `Ctrl-B` or a complete click
-  opens full-region Agents. Arrows move a temporary cursor. `Enter` or a row click commits it;
-  `Escape` or `Ctrl-B` restores exact prior focus without changing the column preference.
-  Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
-- An agent spends two roster rows: its name, in the colour of its state and the only weight in the
-  panel, and under it that state plus either what the agent waits on or a glyph tally of what has
-  arrived for it, in one vocabulary every surface shares: a hammer and wrench for tool calls, a
-  checklist for tasks, an envelope for letters *received*, a paperclip for artifacts, and on an
-  inspected child a robot or a person for who is driving it beside a shield for the capability
-  boundary every child has. The cursor row takes `Chosen`'s ground and keeps its own colour on top.
-  Rejected: a separate activity region, regrouping facts that belong in each agent's conversation.
-- Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
-  cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,
-  replaced on selection. Rejected: three live transcripts, which is a monitoring product rather than
-  a working one.
+- Wide and Medium compose identically and are two names for one class. They were distinguished by
+  the width of the agent rail — 28 cells against 26 — and nothing else, so retiring the rail
+  retired the difference. Named here rather than merged, because the merge is the user's to make.
+- Nothing stands beside the conversation, so it is as wide as the terminal at every class. Ultrawide
+  is two 52-cell conversations, which is roughly where prose stops wrapping awkwardly, and the
+  threshold is exactly that. It holds one secondary column, replaced on selection. Rejected: a
+  28-cell agent rail down the left, which charged every row of the conversation for a list that
+  inked four percent of it and cut every ask it carried to a third of a sentence; and three live
+  transcripts, which is a monitoring product rather than a working one.
 - Below 48 × 12 the screen is one notice. Rejected: a clipped workspace.
 - The Drawer keeps one geometry at every layout class: full width, height from content (DRW-2).
   Rejected: maximizing it on narrow screens, which filled the terminal with three rows, and a

@@ -24,7 +24,9 @@ pub(crate) use composer_menu::composer_menu;
 mod drawer;
 mod roster;
 pub(crate) use command::{command_display_source, command_transcript_source};
-pub(crate) use roster::{agent_at_row, roster};
+pub(crate) use roster::{
+    STRIP_AGENTS, agent_at_row, capacity as roster_capacity, population, roster,
+};
 mod tool;
 #[path = "content_transcript.rs"]
 mod transcript_presentation;

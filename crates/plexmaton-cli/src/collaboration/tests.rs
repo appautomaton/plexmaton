@@ -1096,7 +1096,10 @@ fn focused_child_submission(workspace: &mut plexmaton_tui::Workspace) -> plexmat
         KeyCode::Enter,
         KeyModifiers::NONE,
     )));
-    for width in [120, 95, 60] {
+    // Two columns, one, and the narrow full-region transition. The widest is 160 rather than 120
+    // because two columns halve the child's own width, and the handoff line is asserted whole
+    // rather than as whatever survived a wrap.
+    for width in [160, 95, 60] {
         terminal.backend_mut().resize(width, 36);
         workspace.handle(&Event::Resize(width, 36));
         settle_workspace_frame(workspace, &mut terminal);
@@ -1109,7 +1112,9 @@ fn focused_child_submission(workspace: &mut plexmaton_tui::Workspace) -> plexmat
             .collect();
         for marker in [
             "Controller: User",
-            "Read-only files | No shell",
+            // The capability boundary is the same for every child and never changes, so it keeps a
+            // cell rather than a sentence: `md-shield_lock`, on the child's control footer.
+            "\u{f099d}",
             "handoff · Controller: User",
             "Message Plexmaton",
             "to return",

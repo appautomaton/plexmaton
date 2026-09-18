@@ -94,20 +94,7 @@ pub fn render(
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.
         let panel = match id {
-            SurfaceId::Agents => Some(Panel {
-                insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Box,
-                footer: None,
-                body: Body::Whole {
-                    // Width-aware: the rows clip their own names and tallies, because a roster
-                    // that lets the panel wrap them loses the column the eye scans down.
-                    lines: content::roster(state, palette, inner_width(bounds.width)).lines,
-                    follows_tail: false,
-                },
-                title: agents_title(palette),
-                badge: None,
-                edges: Edges::All,
-            }),
+            SurfaceId::Agents => Some(agents_panel(state, palette, bounds)),
             // The primary conversation carries its own box, the same as the roster's and the
             // inspected child's: with two conversations on one screen, a bare one reads as
             // background rather than as a place, and its hue has no edge to say whose it is. Its
@@ -231,16 +218,28 @@ pub fn render(
     surfaces
 }
 
-/// Builds the part of one surface's conversation this frame will draw.
+/// The agents strip, or the narrow navigator: the same rows, in whatever rectangle they were given.
 ///
-/// The whole history is measured, from the cache; only the items the viewport reaches are turned
-/// into lines. A conversation with no items falls back to a whole body, because a placeholder has
-/// nothing to virtualize.
-///
-/// Two surfaces call this — the conversation for the selected agent, an inspector for the one being
-/// checked on — and each carries its own agent, its own reader and its own selection through it.
-/// One function rather than two, because a second conversation renderer is a second set of TR
-/// invariants to keep in step, and the cache is already keyed by agent.
+/// Width-aware, because the rows clip their own names and asks rather than let the panel wrap them
+/// and lose the columns the eye scans down. Height-aware for the same reason: a row the panel
+/// clipped off the bottom would still be a row the pointer was told about, so the list is asked for
+/// exactly the rows the rectangle has.
+fn agents_panel(state: &ViewState, palette: &Palette, bounds: Rect) -> Panel {
+    let capacity = content::roster_capacity(bounds);
+    Panel {
+        insets: crate::surface::ContentInsets::default(),
+        chrome: Chrome::Box,
+        footer: None,
+        body: Body::Whole {
+            lines: content::roster(state, palette, inner_width(bounds.width), capacity).lines,
+            follows_tail: false,
+        },
+        title: agents_title(state, palette, capacity),
+        badge: None,
+        edges: Edges::All,
+    }
+}
+
 /// The hue that says which surface a border belongs to.
 ///
 /// One exhaustive match, so a surface cannot be added without saying whether it carries an identity
@@ -263,6 +262,16 @@ const fn surface_hue(id: SurfaceId) -> Option<Role> {
     }
 }
 
+/// Builds the part of one surface's conversation this frame will draw.
+///
+/// The whole history is measured, from the cache; only the items the viewport reaches are turned
+/// into lines. A conversation with no items falls back to a whole body, because a placeholder has
+/// nothing to virtualize.
+///
+/// Two surfaces call this — the conversation for the selected agent, an inspector for the one being
+/// checked on — and each carries its own agent, its own reader and its own selection through it.
+/// One function rather than two, because a second conversation renderer is a second set of TR
+/// invariants to keep in step, and the cache is already keyed by agent.
 fn conversation_body(
     state: &ViewState,
     palette: &Palette,
@@ -1316,9 +1325,11 @@ mod tests {
 
         state.toggle_roster(&surfaces);
         let rendered = draw(&state, 60, 30);
-        // Agent B is asking, and an ask outranks a tally: its detail row carries the request
-        // rather than its counts. Resolving the request hands the row back to the counts.
-        assert!(rendered.contains("overlap study"), "the ask is the detail");
+        // Agent B is asking, and an ask outranks a tally: the row's third column carries the
+        // request rather than its counts. Resolving the request hands the column back to the
+        // counts. Sixty columns cannot hold a name, a state and a sentence, so the ask is cut —
+        // what is asserted is which field won the column, not how much of it survived.
+        assert!(rendered.contains("Choose whether"), "the ask is the detail");
         let mut answered = Conversation::canonical();
         answered.emit(ConversationEvent::AttentionResolved {
             agent_id: AgentId::new("agent-b").expect("fixture agent"),

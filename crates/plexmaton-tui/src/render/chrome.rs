@@ -52,13 +52,27 @@ fn title_with(
     ])
 }
 
-/// The rail names the rail. What is unanswered is the pill's, on the conversation the user is in.
+/// The strip names the strip, and says how many agents it is not showing.
 ///
-/// Rejected: `Agents · !n`. It put the count on the panel furthest from where the user is reading,
-/// beside a list whose own rows already carry each agent's badge, so the same fact was on screen
-/// three times and the one place it mattered was not one of them.
-pub(super) fn agents_title(palette: &Palette) -> Line<'static> {
-    title(palette, "Agents", Role::SectionHeading, "")
+/// The count appears only when the strip is bounded below the roster's size, because only then is
+/// it a fact the rows do not already carry. That is what keeps the cap honest: three rows are what
+/// the user gets, and the title is where they learn there are more.
+///
+/// Rejected: `Agents · !n`, the count of what is *unanswered*. It put that number on the panel
+/// furthest from where the user is reading, beside a list whose own rows already carry each
+/// agent's badge, so the same fact was on screen three times and the one place it mattered was not
+/// one of them. The pill on the user's own conversation owns it instead (ATT-1).
+pub(super) fn agents_title(state: &ViewState, palette: &Palette, capacity: usize) -> Line<'static> {
+    let total = content::population(state);
+    if total <= capacity {
+        return title(palette, "Agents", Role::SectionHeading, "");
+    }
+    title(
+        palette,
+        "Agents",
+        Role::SectionHeading,
+        format!(" {capacity} of {total}"),
+    )
 }
 
 /// The pill: `( !n )` at the far end of the conversation's top border while `n` are unanswered.

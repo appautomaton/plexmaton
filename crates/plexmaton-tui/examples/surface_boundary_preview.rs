@@ -2,8 +2,9 @@
 //!
 //! The workspace draws one conversation today and can draw two. Each carries a box in its own hue —
 //! the roster's, the user's own, a delegate's — at full strength where the keys are going and
-//! carried toward the ground at rest. Both widths where two conversations are on screen are
-//! exported: ultrawide, where they are columns, and wide, where the child takes the shelf.
+//! carried toward the ground at rest. Both exported widths now put the two conversations in
+//! columns, with the agents strip above the user's own and stopping at its edge: the roster takes
+//! rows rather than a column of its own, so a second conversation fits from 104 cells up.
 use plexmaton_core::{
     AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
     ReasoningEffort,

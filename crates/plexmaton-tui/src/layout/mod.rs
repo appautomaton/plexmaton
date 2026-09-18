@@ -4,15 +4,16 @@
 //! is registered here. The renderer then draws from the registry rather than recomputing, so
 //! painting and hit testing cannot disagree about where a region is.
 
-mod column;
 mod input_block;
 mod inspector;
 mod registration;
+mod strip;
 
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::Rect;
 
 use input_block::{InputBlock, split_input};
 pub use inspector::{InspectorRequest, SteerSplit, steer_split};
+pub use strip::rows as strip_rows;
 
 use crate::surface::SurfaceTree;
 
@@ -43,9 +44,9 @@ pub enum LayoutClass {
     TooSmall,
     /// One major region; the full-screen agent navigator or one conversation owns it.
     Narrow,
-    /// Agent column plus conversation.
+    /// One conversation, with the agents strip above it.
     Medium,
-    /// Agent column and conversation; a second agent arrives as a shelf over the conversation.
+    /// One conversation, with the agents strip above it; a second agent arrives as a shelf.
     Wide,
     /// Two conversations side by side; a second agent earns a column of its own.
     Ultrawide,
@@ -53,11 +54,19 @@ pub enum LayoutClass {
 
 impl LayoutClass {
     /// Chooses the composition for a terminal size in cells.
+    ///
+    /// The two-column width is what a second conversation needs and nothing else. It was 132 while
+    /// a twenty-eight-column agent rail came out of the terminal first, leaving the two columns 52
+    /// each; the roster is a strip of rows now, so the same two columns of 52 start 28 columns
+    /// earlier. The threshold is the old one minus the rail it no longer has to pay for, which is
+    /// why it is 104 and not a rounder number: the number the user sees is the column width, and
+    /// that one did not change. Rejected: keeping 132, which went on charging the second
+    /// conversation for a column nothing occupies.
     #[must_use]
     pub const fn for_size(width: u16, height: u16) -> Self {
         if width < MIN_WIDTH || height < MIN_HEIGHT {
             Self::TooSmall
-        } else if width >= 132 {
+        } else if width >= 104 {
             Self::Ultrawide
         } else if width >= 96 {
             Self::Wide
@@ -103,9 +112,10 @@ pub struct WorkspaceInput {
     pub conversation_tree: bool,
     /// Rows for the composer-anchored skill completion popup, including borders and footer.
     pub composer_menu_rows: u16,
-    /// Whether there is a roster to show. With no sub-agents the rail is not registered at all.
-    pub rail: bool,
-    /// Whether the user has the roster open. Closed, it returns every column it held.
+    /// Rows the agents strip asks for, borders included. Zero registers no strip at all, which is
+    /// what no sub-agents means: the conversation is the screen (INS-1).
+    pub roster_rows: u16,
+    /// Whether the user has the roster open. Closed, it returns every row it held.
     pub roster: bool,
     /// Rows the composer asks for, borders included. Grows as the draft gains lines.
     pub composer_rows: u16,
@@ -127,7 +137,7 @@ impl Default for WorkspaceInput {
             drawer_focus: crate::KeyboardFocus::TextInput,
             conversation_tree: false,
             composer_menu_rows: 0,
-            rail: false,
+            roster_rows: 0,
             roster: true,
             // Two borders and one line: an empty composer is still a place to type.
             composer_rows: MIN_PANEL_HEIGHT,
@@ -237,7 +247,7 @@ pub fn workspace(area: Rect, input: WorkspaceInput) -> SurfaceTree {
             queue: queue_height,
             queue_floor: input.queue_floor,
         },
-        input.rail && input.roster,
+        if input.roster { input.roster_rows } else { 0 },
     );
     // Over the body rather than carved from it: the Drawer belongs to the workspace, blocks
     // everything below it (SURF-4), and is gone again on `Escape`, so nothing beneath it should
@@ -275,9 +285,11 @@ pub fn composer_cap(height: u16) -> u16 {
 /// Height allocation cannot answer this for the caller: at ultrawide an open second window splits
 /// the conversation column after the composer has reserved its rows. Reusing `body_regions` keeps
 /// the width used to wrap the draft identical to the rectangle later registered for painting.
+///
+/// The roster no longer enters into it. While it was a column beside the conversation, a draft
+/// wrapped without it reflowed the moment a sub-agent appeared, and this function had to assume
+/// the narrower answer; a strip takes rows, so the composer's width is the same either way.
 pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) -> u16 {
-    // `rail: true` is the narrower of the two answers and the one the composer has to survive: a
-    // draft wrapped for the wider column would reflow the moment a sub-agent appeared.
     body_regions(
         area,
         area,
@@ -288,7 +300,7 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
             decision: 0,
             composer: MIN_PANEL_HEIGHT,
         },
-        true,
+        0,
     )
     .composer
     .width
@@ -347,63 +359,29 @@ fn body_regions(
     body: Rect,
     inspector: Option<InspectorRequest>,
     block: InputBlock,
-    rail: bool,
+    roster_rows: u16,
 ) -> BodyRegions {
     // All three sections are carved from the conversation's column as one block, so the second
     // window's give-back and the shelf's guarantee are measured against the rows the conversation
     // actually keeps. The block is divided once every region has been placed.
     let input_height = block.total();
     let class = LayoutClass::for_size(area.width, area.height);
-    // A roster of nobody is a bordered box saying so, in the column the conversation wanted. The
-    // rail earns its rectangle by having something in it; until then the conversation is the
-    // screen, which is what INS-1 says looking at the primary means.
-    let mut base = if !rail {
-        BodyRegions {
-            agents: None,
-            transcript: Some(body),
-            inspector: None,
-            inspector_floats: false,
-            agents_floats: false,
-            composer: Rect::default(),
-            decision: None,
-            queue: None,
-            drawer: None,
-            command_inspection: None,
-        }
-    } else {
-        match class {
-            LayoutClass::Ultrawide | LayoutClass::Wide => column::beside_conversation(body, 28),
-            LayoutClass::Medium => {
-                let [agents, transcript] =
-                    Layout::horizontal([Constraint::Length(26), Constraint::Min(24)]).areas(body);
-                BodyRegions {
-                    agents: Some(agents),
-                    transcript: Some(transcript),
-                    inspector: None,
-                    inspector_floats: false,
-                    agents_floats: false,
-                    composer: Rect::default(),
-                    decision: None,
-                    queue: None,
-                    drawer: None,
-                    command_inspection: None,
-                }
-            }
-            // `TooSmall` returned before layout began, so it cannot reach here. Narrow keeps the
-            // complete conversation geometry underneath the full-region agent navigator.
-            LayoutClass::Narrow | LayoutClass::TooSmall => BodyRegions {
-                agents: None,
-                transcript: Some(body),
-                inspector: None,
-                inspector_floats: false,
-                agents_floats: false,
-                composer: Rect::default(),
-                decision: None,
-                queue: None,
-                drawer: None,
-                command_inspection: None,
-            },
-        }
+    // The body is the conversation's, at every width. What the roster needs it takes in rows from
+    // the top of that conversation, never in columns from beside it: a list of four agents inked
+    // four percent of the twenty-eight-column rail it used to hold, and rented the other ninety-six
+    // percent from the one surface the user is reading. With no sub-agents it takes nothing, which
+    // is what INS-1 means by the conversation being the screen.
+    let mut base = BodyRegions {
+        agents: None,
+        transcript: Some(body),
+        inspector: None,
+        inspector_floats: false,
+        agents_floats: false,
+        composer: Rect::default(),
+        decision: None,
+        queue: None,
+        drawer: None,
+        command_inspection: None,
     };
 
     // The composer takes the bottom of the conversation's column before the second window is
@@ -423,13 +401,19 @@ fn body_regions(
         height: column.height.saturating_sub(input_height),
         ..column
     });
+    // Before the second window, so the strip is one of the things that window divides: it belongs
+    // to the user's own conversation and stops at that conversation's edge. Narrow has no strip —
+    // one major surface at a time, and the roster arrives there as the full-region navigator.
+    if !matches!(class, LayoutClass::Narrow) {
+        strip::carve(&mut base, roster_rows);
+    }
 
     let mut placed = match inspector {
         Some(request) => inspector::place_inspector(base, request, class),
         None => base,
     };
     split_input(&mut placed, block);
-    if rail && matches!(class, LayoutClass::Narrow) {
+    if roster_rows > 0 && matches!(class, LayoutClass::Narrow) {
         placed.agents = Some(body);
         placed.agents_floats = true;
     }
@@ -496,16 +480,17 @@ mod tests {
     /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
-            rail: true,
+            roster_rows: crate::layout::strip_rows(1),
             has_notices,
             ..WorkspaceInput::default()
         }
     }
 
-    /// ui-ux §responsive layout classes: the same panel is a column from Medium upward and the
-    /// exclusive full-region navigator on Narrow. Closing reveals the untouched conversation.
+    /// ui-ux §agents strip: the same panel is a strip above the conversation from Medium upward
+    /// and the exclusive full-region navigator on Narrow. Closing reveals the untouched
+    /// conversation, with the rows back rather than columns.
     #[test]
-    fn the_roster_is_a_column_or_the_narrow_full_region_navigator() {
+    fn the_roster_is_a_strip_above_the_conversation_or_the_narrow_full_region_navigator() {
         for (width, height) in [(140, 40), (120, 40), (88, 40), (71, 40), (60, 40), (48, 40)] {
             let area = Rect::new(0, 0, width, height);
             let open = workspace(area, input(false));
@@ -552,11 +537,25 @@ mod tests {
             } else {
                 assert_eq!(
                     panel.z_index, 0,
-                    "{width}x{height}: a column is part of the base layer"
+                    "{width}x{height}: a strip is part of the base layer"
+                );
+                assert_eq!(
+                    panel.bounds.width, before.width,
+                    "{width}x{height}: the strip is exactly as wide as the conversation under it"
+                );
+                assert_eq!(
+                    panel.bounds.bottom(),
+                    before.y,
+                    "{width}x{height}: and sits directly on top of it"
+                );
+                assert_eq!(
+                    after.width, before.width,
+                    "{width}x{height}: closing costs the conversation no column, because the \
+                     strip never took one"
                 );
                 assert!(
-                    after.width > before.width,
-                    "{width}x{height}: closing hands the columns back to the conversation"
+                    after.height > before.height,
+                    "{width}x{height}: closing hands the rows back to the conversation"
                 );
             }
         }
@@ -569,7 +568,7 @@ mod tests {
         let tree = workspace(
             Rect::new(0, 0, 60, 40),
             WorkspaceInput {
-                rail: true,
+                roster_rows: crate::layout::strip_rows(1),
                 roster: true,
                 composer_menu_rows: 5,
                 decision_rows: 8,
@@ -637,7 +636,7 @@ mod tests {
     /// The same, with an inspector open in its default presentation.
     fn inspecting(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
-            rail: true,
+            roster_rows: crate::layout::strip_rows(1),
             inspector: Some(InspectorRequest::default()),
             ..input(has_notices)
         }
@@ -711,8 +710,8 @@ mod tests {
 
     #[test]
     fn layout_class_covers_every_threshold() {
-        assert_eq!(LayoutClass::for_size(132, 40), LayoutClass::Ultrawide);
-        assert_eq!(LayoutClass::for_size(131, 40), LayoutClass::Wide);
+        assert_eq!(LayoutClass::for_size(104, 40), LayoutClass::Ultrawide);
+        assert_eq!(LayoutClass::for_size(103, 40), LayoutClass::Wide);
         assert_eq!(LayoutClass::for_size(96, 40), LayoutClass::Wide);
         assert_eq!(LayoutClass::for_size(95, 40), LayoutClass::Medium);
         assert_eq!(LayoutClass::for_size(72, 40), LayoutClass::Medium);
@@ -912,24 +911,44 @@ mod tests {
         }
     }
 
-    /// Stage 3 retires the second agent-column surface; the rail keeps the full column.
+    /// The roster takes rows and never a column, so the conversation runs the full width at every
+    /// size. This is the whole difference between the strip and the rail it replaced.
     #[test]
-    fn the_agent_column_is_one_surface_at_every_width() {
-        for (width, height) in [(48, 12), (60, 30), (86, 40), (95, 40)] {
-            let tree = workspace(Rect::new(0, 0, width, height), input(false));
-            assert!(tree.get(SurfaceId::Transcript).is_some());
+    fn the_strip_costs_the_conversation_rows_and_never_a_column() {
+        for (width, height) in [(48, 12), (60, 30), (86, 40), (95, 40), (140, 40)] {
+            let area = Rect::new(0, 0, width, height);
+            let tree = workspace(area, input(false));
+            let conversation = tree
+                .get(SurfaceId::Transcript)
+                .unwrap_or_else(|| panic!("{width}x{height}: conversation"));
+            assert_eq!(
+                conversation.bounds.width, width,
+                "{width}x{height}: nothing stands beside the conversation"
+            );
+            let composer = tree
+                .get(SurfaceId::Composer)
+                .unwrap_or_else(|| panic!("{width}x{height}: composer"));
+            assert_eq!(
+                composer.bounds.width, width,
+                "{width}x{height}: nor beside the composer"
+            );
         }
+        // The strip is short and stops where the conversation begins; the rail ran the whole body.
         let wide = workspace(Rect::new(0, 0, 96, 30), input(false));
         let agents = wide
             .get(SurfaceId::Agents)
-            .unwrap_or_else(|| panic!("wide keeps the agent rail"));
+            .unwrap_or_else(|| panic!("wide keeps the roster"));
         let composer = wide
             .get(SurfaceId::Composer)
             .unwrap_or_else(|| panic!("wide keeps the composer"));
         assert_eq!(
-            agents.bounds.bottom(),
-            composer.bounds.bottom(),
-            "the rail owns the entire body beside the conversation and composer"
+            agents.bounds.height,
+            crate::layout::strip_rows(1),
+            "one agent, one row, plus the box around it"
+        );
+        assert!(
+            agents.bounds.bottom() < composer.bounds.y,
+            "the strip is above the conversation, not beside it"
         );
     }
 
@@ -945,7 +964,7 @@ mod tests {
             let empty = workspace(
                 Rect::new(0, 0, width, height),
                 WorkspaceInput {
-                    rail: false,
+                    roster_rows: 0,
                     ..WorkspaceInput::default()
                 },
             );

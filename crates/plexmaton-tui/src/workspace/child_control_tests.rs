@@ -475,10 +475,14 @@ fn ccv_4_control_loss_settles_input_drag_without_copy_or_hidden_escape() {
 }
 
 /// CCV-4/INS-7: a captured release after shrinking away input retains its range without copying.
+///
+/// One conversation wide, because shrinking away the input is the shelf's own drag: two columns
+/// side by side have no shared edge to pull, and the window keeps its input however hard the
+/// chord is pressed.
 #[test]
 fn ccv_4_hidden_input_release_settles_and_escape_closes_the_window() {
     for released in [false, true] {
-        let (mut workspace, mut terminal) = fixture(120, AgentStatus::Idle);
+        let (mut workspace, mut terminal) = fixture(95, AgentStatus::Idle);
         let child = id("agent-b");
         workspace
             .set_child_control(&child, snapshot(1, ChildControl::User))

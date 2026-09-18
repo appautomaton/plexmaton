@@ -615,7 +615,7 @@ mod tests {
         let surfaces = layout::workspace(
             Rect::new(0, 0, 120, 24),
             WorkspaceInput {
-                rail: true,
+                roster_rows: layout::strip_rows(1),
                 ..WorkspaceInput::default()
             },
         );
@@ -645,7 +645,7 @@ mod tests {
         let surfaces = layout::workspace(
             Rect::new(0, 0, 120, 24),
             WorkspaceInput {
-                rail: true,
+                roster_rows: layout::strip_rows(1),
                 ..WorkspaceInput::default()
             },
         );

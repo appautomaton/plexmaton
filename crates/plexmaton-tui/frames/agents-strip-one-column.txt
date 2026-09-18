@@ -1,18 +1,9 @@
-┌ Agents ─────────────────────────────────────────────────────────────────────────────────────┐
+┌ Agents 3 of 5 ──────────────────────────────────────────────────────────────────────────────┐
+│ Sol                 failed                                                                  │
 │ Agent B · UI study  ask        Choose whether the overlap study should cover narrow screens.│
+│ Vega                ask        Write the migration, or wait for the schema review?          │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Agent A · primary  󰇮 1 ─────────────────────────────────────────────────────────────────────┐
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
-│                                                                                             │
 │                                                                                             │
 │                                                                                             │
 │                                                                                             │
@@ -26,15 +17,8 @@
 │independently; this transcript remains interactive.                                          │
 │                                                                                             │
 │received from Agent B · UI study · Routing stays centralized and z-ordered.                  │
-│                                                                                             │
-│                                                                                             │
-│· Responding…                                                                         ( !1 ) │
-── Waiting to send · 2 ────────────────────────────────────────────────────────────────────────
- Sends when this turn ends
- ↳ Also check the compaction path while you are in there
- ↳ and then summarize what changed
- Alt-↑ takes back the last one
+│· Thinking…                                                                           ( !2 ) │
 ── Message Agent A · primary ──────────────────────────────────────────────────────────────────
- Type a message · ⇥ to focus
+ Type a message · ⇥ to focus                                                                   
 ───────────────────────────────────────────────────────────────────────────────────────────────
-
+ ~/plexmaton                                                                                   
