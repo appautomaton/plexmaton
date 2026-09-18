@@ -47,10 +47,16 @@ pub enum Role {
     Body,
     /// Secondary text: pointers, summaries, and empty-state hints.
     Muted,
-    /// Panel borders and section dividers.
+    /// Panel borders and section dividers that belong to no particular surface.
     Border,
-    /// Border of the surface that holds keyboard focus.
+    /// Border of a focused surface that has no identity hue of its own.
     BorderFocused,
+    /// The roster of agents: the index of who exists, rather than anything anyone said.
+    SurfaceRoster,
+    /// The conversation the user owns.
+    SurfacePrimary,
+    /// A delegate's conversation, opened beside the user's own.
+    SurfaceDelegate,
     /// Headings for sections inside a panel.
     SectionHeading,
     /// Identity emphasis, such as the selected agent marker.
@@ -74,11 +80,14 @@ pub enum Role {
 
 impl Role {
     /// Every role, used by tests and by palette completeness checks.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 16] = [
         Self::Body,
         Self::Muted,
         Self::Border,
         Self::BorderFocused,
+        Self::SurfaceRoster,
+        Self::SurfacePrimary,
+        Self::SurfaceDelegate,
         Self::SectionHeading,
         Self::Accent,
         Self::KeyHint,
@@ -133,6 +142,22 @@ pub const fn agent_role(status: AgentStatus) -> Role {
 /// colour, so a selection reads as a selection on top of whatever role painted the run.
 const SELECTION: Style = Style::new().add_modifier(Modifier::REVERSED);
 
+/// One hue at rest: the same colour carried most of the way to the panel ground.
+///
+/// Blending toward the ground rather than toward grey keeps the hue legible at low intensity, so an
+/// unfocused surface still says whose it is.
+fn quieted(red: u8, green: u8, blue: u8) -> ratatui::style::Color {
+    const GROUND: (u8, u8, u8) = (0x1C, 0x22, 0x33);
+    let mix = |value: u8, ground: u8| {
+        u8::try_from((u16::from(value) * 45 + u16::from(ground) * 55) / 100).unwrap_or(value)
+    };
+    ratatui::style::Color::Rgb(
+        mix(red, GROUND.0),
+        mix(green, GROUND.1),
+        mix(blue, GROUND.2),
+    )
+}
+
 /// Resolved styles for every [`Role`].
 ///
 /// Fields are private on purpose. Reaching past `style` to a concrete colour is how a design
@@ -144,6 +169,9 @@ pub struct Palette {
     muted: Style,
     border: Style,
     border_focused: Style,
+    surface_roster: Style,
+    surface_primary: Style,
+    surface_delegate: Style,
     section_heading: Style,
     accent: Style,
     key_hint: Style,
@@ -168,6 +196,9 @@ impl Palette {
             muted: style(Role::Muted),
             border: style(Role::Border),
             border_focused: style(Role::BorderFocused),
+            surface_roster: style(Role::SurfaceRoster),
+            surface_primary: style(Role::SurfacePrimary),
+            surface_delegate: style(Role::SurfaceDelegate),
             section_heading: style(Role::SectionHeading),
             accent: style(Role::Accent),
             key_hint: style(Role::KeyHint),
@@ -187,8 +218,9 @@ impl Palette {
     /// speaking, gold for what `Enter` acts on. Weight makes titles and the chosen row read first;
     /// italic keeps work in progress quiet. Its Markdown is the same tokens, designed for reading.
     /// Rejected: Catppuccin's mauve-tinted tokens, which were nobody's here; and resolving through
-    /// the user's own terminal theme, which let their configuration decide what our semantics
-    /// look like.
+    /// the terminal's own ANSI theme, which let whatever the user happened to have configured
+    /// decide implicitly what our semantics look like. A palette stated explicitly — by us or by
+    /// the user — is the opposite of that, and is what [`Palette::from_roles`] exists for.
     #[must_use]
     pub fn pastel() -> Self {
         use tokens::{BAR, BODY, CORAL, GOLD, LINE, MINT, ORANGE, SKY, STEEL, TEAL};
@@ -198,6 +230,11 @@ impl Palette {
             muted: Style::new().fg(STEEL),
             border: Style::new().fg(LINE),
             border_focused: Style::new().fg(SKY),
+            // Each surface keeps the hue whose meaning it already carries: sky for where you are,
+            // teal for work someone else is doing, steel for structure rather than content.
+            surface_roster: Style::new().fg(STEEL),
+            surface_primary: Style::new().fg(SKY),
+            surface_delegate: Style::new().fg(TEAL),
             section_heading: Style::new().fg(BODY).add_modifier(Modifier::BOLD),
             accent: Style::new().fg(GOLD),
             key_hint: Style::new().add_modifier(Modifier::REVERSED),
@@ -234,6 +271,35 @@ impl Palette {
         })
     }
 
+    /// The border of one surface: its own hue, at full strength while it holds focus.
+    ///
+    /// Hue says which surface this is and intensity says whether it is the one being operated, so
+    /// the two questions a reader asks of a border are answered on one channel without colliding:
+    /// a dimmed teal is still the delegate's, just not where the keys are going. A surface with no
+    /// identity of its own — a menu, a notice, an approval — passes `None` and keeps the neutral
+    /// line. Rejected: one focus colour for every surface, which made two conversations side by
+    /// side indistinguishable except by reading their titles.
+    #[must_use]
+    pub fn surface_border(&self, hue: Option<Role>, focused: bool) -> Style {
+        let Some(hue) = hue else {
+            return if focused {
+                self.border_focused
+            } else {
+                self.border
+            };
+        };
+        let style = self.style(hue);
+        if focused {
+            return style;
+        }
+        match style.fg {
+            Some(ratatui::style::Color::Rgb(red, green, blue)) => {
+                style.fg(quieted(red, green, blue))
+            }
+            _ => self.border,
+        }
+    }
+
     /// Resolves one role.
     #[must_use]
     pub fn style(&self, role: Role) -> Style {
@@ -242,6 +308,9 @@ impl Palette {
             Role::Muted => self.muted,
             Role::Border => self.border,
             Role::BorderFocused => self.border_focused,
+            Role::SurfaceRoster => self.surface_roster,
+            Role::SurfacePrimary => self.surface_primary,
+            Role::SurfaceDelegate => self.surface_delegate,
             Role::SectionHeading => self.section_heading,
             Role::Accent => self.accent,
             Role::KeyHint => self.key_hint,
@@ -302,12 +371,39 @@ mod tests {
         assert_eq!(tool_role(ToolCallStatus::Denied), Role::Muted);
     }
 
+    /// A border answers two questions at once: whose surface this is, and whether it is the one
+    /// being operated. Hue answers the first and intensity the second, so neither may collapse
+    /// into the other and no two surfaces may say the same thing at the same intensity.
     #[test]
-    fn focused_and_unfocused_borders_never_look_alike() {
+    fn every_surface_border_says_whose_it_is_and_whether_it_has_focus() {
+        let hues = [
+            Role::SurfaceRoster,
+            Role::SurfacePrimary,
+            Role::SurfaceDelegate,
+        ];
         for (name, palette) in palettes() {
+            for hue in hues {
+                assert_ne!(
+                    palette.surface_border(Some(hue), true),
+                    palette.surface_border(Some(hue), false),
+                    "{name}: {hue:?} cannot show whether it has focus"
+                );
+            }
+            for focused in [true, false] {
+                for (first, second) in [(0, 1), (0, 2), (1, 2)] {
+                    assert_ne!(
+                        palette.surface_border(Some(hues[first]), focused),
+                        palette.surface_border(Some(hues[second]), focused),
+                        "{name}: {:?} and {:?} say the same thing at focus {focused}",
+                        hues[first],
+                        hues[second]
+                    );
+                }
+            }
+            // A surface with no identity of its own still shows focus, on the neutral line.
             assert_ne!(
-                palette.style(Role::Border),
-                palette.style(Role::BorderFocused),
+                palette.surface_border(None, true),
+                palette.surface_border(None, false),
                 "{name} cannot show which surface has focus"
             );
         }

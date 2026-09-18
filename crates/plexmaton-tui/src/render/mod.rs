@@ -25,7 +25,7 @@ use crate::{
     layout::{self, LayoutClass},
     state::inner_width,
     surface::{KeyboardFocus, SurfaceId, SurfaceTree, Viewport},
-    theme::Palette,
+    theme::{Palette, Role},
     transcript::TranscriptMetrics,
 };
 
@@ -90,6 +90,7 @@ pub fn render(
         } else {
             bounds
         };
+        let hue = surface_hue(id);
         // An exhaustive match, so a new surface identity cannot be added without stating how it is
         // drawn and whether it scrolls.
         let panel = match id {
@@ -200,6 +201,7 @@ pub fn render(
             has_focus,
             &panel,
             state.scroll_position(id),
+            hue,
         );
         // Measurement is what the wheel resolves against, so it goes back into the registry the
         // router will be handed. Only the hint strip has nothing to measure.
@@ -238,6 +240,28 @@ pub fn render(
 /// checked on — and each carries its own agent, its own reader and its own selection through it.
 /// One function rather than two, because a second conversation renderer is a second set of TR
 /// invariants to keep in step, and the cache is already keyed by agent.
+/// The hue that says which surface a border belongs to.
+///
+/// One exhaustive match, so a surface cannot be added without saying whether it carries an identity
+/// of its own. Only the three holding a conversation or the roster of them do; a menu, a notice or
+/// an approval is something the workspace is saying rather than a place, and keeps the neutral line.
+const fn surface_hue(id: SurfaceId) -> Option<Role> {
+    match id {
+        SurfaceId::Agents => Some(Role::SurfaceRoster),
+        SurfaceId::Transcript => Some(Role::SurfacePrimary),
+        SurfaceId::Inspector => Some(Role::SurfaceDelegate),
+        SurfaceId::Composer
+        | SurfaceId::Status
+        | SurfaceId::Notices
+        | SurfaceId::QueuedInput
+        | SurfaceId::CommandInspection
+        | SurfaceId::ConversationTree
+        | SurfaceId::Approval
+        | SurfaceId::Drawer
+        | SurfaceId::ComposerMenu => None,
+    }
+}
+
 fn conversation_body(
     state: &ViewState,
     palette: &Palette,
@@ -369,7 +393,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                measured = Some(draw_panel(frame, &palette, area, false, &panel, None));
+                measured = Some(draw_panel(frame, &palette, area, false, &panel, None, None));
             })
             .unwrap_or_else(|error| panic!("test render: {error}"));
 
@@ -398,6 +422,10 @@ mod tests {
 
     fn role_ink(palette: &Palette, role: Role) -> Ink {
         ink(palette.style(role))
+    }
+
+    fn role_ink_style(style: Style) -> Ink {
+        ink(style)
     }
 
     /// COM-5: the activity line names each current-work state in its role, idle draws nothing,
@@ -558,8 +586,15 @@ mod tests {
         let paragraph = Paragraph::new(lines)
             .wrap(Wrap { trim: false })
             .block(
-                block_with(palette, Line::default(), false, Edges::Upper, Chrome::Bare)
-                    .padding(Padding::new(1, 1, 1, 0)),
+                block_with(
+                    palette,
+                    Line::default(),
+                    false,
+                    Edges::Upper,
+                    Chrome::Bare,
+                    None,
+                )
+                .padding(Padding::new(1, 1, 1, 0)),
             )
             .scroll((
                 u16::try_from(viewport.offset)
@@ -692,6 +727,93 @@ mod tests {
             parked,
             "a wander across the widths moved the reader that one resize did not"
         );
+    }
+
+    /// INS-1: a child's own work must not close the window the user opened on it.
+    ///
+    /// Reported from live use: the second window was open on a delegated child and disappeared the
+    /// moment that child produced more output.
+    #[test]
+    fn a_working_child_keeps_the_window_the_user_opened_on_it() {
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        // 140 is the side-by-side column; 120 is the shelf. The reported symptom was side by side.
+        for width in [140_u16, 120] {
+            let mut session = RenderFixture::canonical(width, 30);
+            session.conversation.extend_agent(&agent_b, 3);
+            session.draw();
+            session.select(&agent_b);
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: the window opens on the selected child"
+            );
+            session
+                .conversation
+                .emit(ConversationEvent::AgentStatusChanged {
+                    agent_id: agent_b.clone(),
+                    status: AgentStatus::Running,
+                });
+            session.draw();
+            for step in 0..3 {
+                session.conversation.extend_agent(&agent_b, 1);
+                session.draw();
+                assert_eq!(
+                    session
+                        .conversation
+                        .state
+                        .inspector()
+                        .map(|view| view.agent),
+                    Some(agent_b.clone()),
+                    "{width} step {step}: the child's own output closed the window the user opened on it"
+                );
+            }
+        }
+    }
+
+    /// INS-1: a projection reset keeps the window the user opened, and the size they gave it.
+    ///
+    /// Reported from live use: the second window was open on a delegated child and vanished while
+    /// that child worked. Which agent the window shows *is* the roster's selection, so anything
+    /// that rebuilds the projection without carrying the selection closes the window — and the
+    /// events replayed into it cannot restore the selection, because nothing is selected by
+    /// arrival. Every reset path reaches this: a retry, a compaction, a tree navigation receipt.
+    #[test]
+    fn a_projection_reset_keeps_the_open_window_and_its_presentation() {
+        let agent_b =
+            AgentId::new("agent-b").unwrap_or_else(|error| panic!("invalid fixture: {error}"));
+        for width in [140_u16, 120] {
+            let mut session = RenderFixture::canonical(width, 30);
+            session.conversation.extend_agent(&agent_b, 3);
+            session.draw();
+            session.select(&agent_b);
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: the window opens on the selected child"
+            );
+
+            let history = session.conversation.replayable();
+            session.conversation.state.replace_projection(history);
+            session.draw();
+            assert_eq!(
+                session
+                    .conversation
+                    .state
+                    .inspector()
+                    .map(|view| view.agent),
+                Some(agent_b.clone()),
+                "{width}: a projection reset closed the window the user had open on a child"
+            );
+        }
     }
 
     /// TR-5: each conversation keeps its own reading position (canonical journey, step 4).
@@ -875,10 +997,11 @@ mod tests {
     /// SURF-3: exactly one surface holds focus, and the screen says which.
     ///
     /// Reading it back from painted cells is what makes this more than a state assertion: a focus
-    /// model the renderer ignores would leave the user with no way to tell where `Tab` went. Run
-    /// against every palette, because focus must be visible whichever one is active.
+    /// model the renderer ignores would leave the user with no way to tell where `Tab` went, and a
+    /// hue the renderer ignores would leave two conversations side by side telling the user
+    /// nothing about which is which. Run against every palette, because both must survive all.
     #[test]
-    fn only_the_focused_panel_carries_the_focused_border() {
+    fn every_border_says_whose_surface_it_is_and_where_the_keys_are_going() {
         for palette in [
             Palette::pastel(),
             Palette::pastel(),
@@ -886,6 +1009,8 @@ mod tests {
             Palette::pastel(),
         ] {
             let mut state = canonical_state();
+            let quiet = |hue| role_ink_style(palette.surface_border(hue, false));
+            let lit = |hue| role_ink_style(palette.surface_border(hue, true));
 
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(
@@ -895,13 +1020,14 @@ mod tests {
             );
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
-                role_ink(&palette, Role::BorderFocused)
+                lit(Some(Role::SurfaceRoster)),
+                "the roster's own hue, at full strength while it holds focus"
             );
             // The composer's rules are its border; the conversation, bare, shows focus only by
             // what it takes away from the composer (ui-ux §input).
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::Border)
+                quiet(None)
             );
 
             // One step: the conversation follows the one agent-column surface.
@@ -910,21 +1036,26 @@ mod tests {
             assert_eq!(state.focused(&surfaces), Some(SurfaceId::Transcript));
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Agents),
-                role_ink(&palette, Role::Border),
-                "the focused border moved with the ring rather than being painted twice"
+                quiet(Some(Role::SurfaceRoster)),
+                "the roster keeps saying it is the roster, quietly"
+            );
+            assert_ne!(
+                quiet(Some(Role::SurfaceRoster)),
+                lit(Some(Role::SurfaceRoster)),
+                "and the two are not the same ink"
             );
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::Border)
+                quiet(None)
             );
 
-            // Another: the composer, whose rules light up.
+            // Another: the composer, whose rules light up. It has no identity of its own.
             state.cycle_focus(&surfaces, Direction::Forward);
             let (surfaces, buffer) = draw_frame(&state, &palette, 120, 24);
             assert_eq!(state.focused(&surfaces), Some(SurfaceId::Composer));
             assert_eq!(
                 border_ink(&buffer, &surfaces, SurfaceId::Composer),
-                role_ink(&palette, Role::BorderFocused)
+                lit(None)
             );
         }
     }

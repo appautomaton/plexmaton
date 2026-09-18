@@ -200,7 +200,7 @@ pub(super) fn workspace_input(area: Rect, state: &ViewState) -> WorkspaceInput {
     let inspector = state.inspector_request();
     let composer_width = layout::composer_width(area, inspector);
     let mut input = WorkspaceInput {
-        status_rows: state.status().rows(),
+        status_rows: state.status().rows(area.width),
         has_notices: state.notices().next().is_some(),
         decision_rows: state.decision_rows(composer_width),
         queue_rows: state.queued_rows(composer_width),

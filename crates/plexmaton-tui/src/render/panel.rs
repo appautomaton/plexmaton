@@ -198,6 +198,7 @@ pub(super) fn draw_panel(
     focused: bool,
     panel: &Panel,
     parked: Option<ScrollPosition>,
+    hue: Option<Role>,
 ) -> Viewport {
     let hidden = panel.chrome.hidden(panel.edges);
     let chrome = block_with(
@@ -206,6 +207,7 @@ pub(super) fn draw_panel(
         focused,
         panel.edges,
         panel.chrome,
+        hue,
     )
     .badge(panel.badge.clone())
     .padding(Padding::new(

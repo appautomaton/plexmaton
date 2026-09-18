@@ -17,7 +17,7 @@ use super::panel::{Chrome, Edges};
 use crate::{
     ViewState, content,
     layout::{MIN_HEIGHT, MIN_WIDTH},
-    state::{CurrentWork, StatusNote},
+    state::CurrentWork,
     surface::SurfaceId,
     theme::{Palette, Role},
 };
@@ -306,39 +306,39 @@ pub(super) fn render_status(
         }
         crate::state::Footer::Default => {}
     }
-    if status.note() == StatusNote::Quiet
-        && !matches!(status.footer(), crate::state::Footer::Default)
-    {
+    if status.armed().is_none() && !matches!(status.footer(), crate::state::Footer::Default) {
         render_copy_receipt(frame, state, palette, area);
         return;
     }
-    let area = Rect::new(
-        area.x,
-        area.bottom().saturating_sub(1),
-        area.width,
-        area.height.min(1),
-    );
+    // An armed question may need a second row; the cwd baseline never does.
+    let rows = status.armed_rows(area.width).min(area.height).max(1);
+    let area = Rect::new(area.x, area.bottom().saturating_sub(rows), area.width, rows);
     frame.render_widget(ratatui::widgets::Clear, area);
-    let (text, role) = match status.note() {
-        StatusNote::QuitArmed { .. } => (
-            "press Ctrl-D again to quit".to_owned(),
-            Role::ActionRequired,
-        ),
-        StatusNote::Quiet => (
-            status.working_directory().unwrap_or_default().to_owned(),
-            Role::Muted,
-        ),
-    };
-    let line = Line::from(vec![
-        Span::raw(" "),
-        Span::styled(text, palette.style(role)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+    // One place, two roles: what the workspace is waiting for, or where it is running.
+    let (texts, role) = status.armed().map_or_else(
+        || {
+            (
+                vec![status.working_directory().unwrap_or_default().to_owned()],
+                Role::Muted,
+            )
+        },
+        |armed| (armed.lines(area.width), Role::ActionRequired),
+    );
+    let lines: Vec<Line<'static>> = texts
+        .into_iter()
+        .map(|text| {
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(text, palette.style(role)),
+            ])
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), area);
     render_copy_receipt(frame, state, palette, area);
 }
 
 fn render_copy_receipt(frame: &mut Frame<'_>, state: &ViewState, palette: &Palette, area: Rect) {
-    if state.status().note() != StatusNote::Quiet || area.is_empty() {
+    if state.status().armed().is_some() || area.is_empty() {
         return;
     }
     let text = match state.status().copy_receipt() {
@@ -399,7 +399,7 @@ pub(super) fn block(
     focused: bool,
     edges: Edges,
 ) -> Block<'static> {
-    block_with(palette, title, focused, edges, Chrome::Box)
+    block_with(palette, title, focused, edges, Chrome::Box, None)
 }
 
 /// A region with its edges inked as `chrome` says; the geometry is the edges' either way.
@@ -409,12 +409,9 @@ pub(super) fn block_with(
     focused: bool,
     edges: Edges,
     chrome: Chrome,
+    hue: Option<Role>,
 ) -> Block<'static> {
-    let border = if focused {
-        Role::BorderFocused
-    } else {
-        Role::Border
-    };
+    let border = palette.surface_border(hue, focused);
     let (borders, set) = match chrome {
         Chrome::Box => match edges {
             Edges::All => (Borders::ALL, border::PLAIN),
@@ -456,7 +453,7 @@ pub(super) fn block_with(
     let block = Block::default()
         .borders(borders)
         .border_set(set)
-        .border_style(palette.style(border));
+        .border_style(border);
     // An empty title is no title. Ratatui still reserves the top row for one when the block has
     // no top edge, which would leave a one-row region with nowhere to paint its row.
     let empty = title.spans.iter().all(|span| span.content.is_empty());
@@ -465,7 +462,7 @@ pub(super) fn block_with(
         Chrome::Bare => block,
         // The rule runs into its title: `── Message Plexmaton · high ───`.
         Chrome::Rules if edges.has_top() => {
-            let mut spans = vec![Span::styled("──", palette.style(border))];
+            let mut spans = vec![Span::styled("──", border)];
             spans.extend(title.spans);
             block.title(Line::from(spans))
         }
