@@ -169,13 +169,13 @@ exact reuse with an explanatory note. Explicit configuration can choose a narrow
 prefix, including a quoted argument such as `["git", "fetch", "team origin"]`; the UI currently
 chooses lifetime for the one backend-issued offer, without a prefix editor.
 
-| Boundary | Limit |
-| --- | --- |
-| Source | CMD-1 bounds, at most 24 KiB |
-| Parser | 512 progress callbacks (the pinned engine checks every 100 parser operations), 20 ms deadline checked at callbacks, owner cancellation |
-| Tree lowering | 2048 nodes, depth 32, 32 commands, 128 arguments per command, 24 KiB decoded total |
-| Persisted prefix | 32 arguments, 4096 decoded bytes, nonempty executable, no NUL |
-| Lifetime | Parser and tree are local to one retained admission worker; no parser cache or detached work |
+Source, parse, lowered tree and persisted prefix are each bounded separately rather than from a
+shared pool, and `plexmaton-command/src/{admission,prefix}.rs` hold the values. The parse carries a
+wall-clock deadline as well, which is the non-obvious one: a node or depth bound caps how large a
+parse becomes and says nothing about how long it takes. That deadline and owner cancellation are
+both checked at the pinned engine's progress callbacks, and a knowable callback cadence is part of
+why the engine is pinned. Parser and tree are local to one retained admission worker, with no cache
+and no detached work, so nothing accumulates across admissions.
 
 Capacity, parser failure and unsupported syntax produce typed exact fallback. No shell execution,
 expansion, PATH lookup or external process derives permission tokens. Differential tests use only a

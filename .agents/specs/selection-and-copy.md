@@ -132,10 +132,10 @@ be selected while its input holds the cursor.
 | The outer terminal declines OSC 52 | Undetectable here, and claimed nowhere (SEL-5) |
 | Local macOS rejects `pbcopy` or exceeds its deadline | Error returned to the composition root; no unacknowledged fallback reported as success |
 | A newer copy arrives during helper work | Cancel/reap the active child, coalesce pending requests to the newest exact source, then deliver it |
-| Copy source allocation exceeds 8 MiB | Explicit admission error before terminal output or cancellation; no silent truncation |
+| Copy source allocation exceeds its ceiling | Explicit admission error before terminal output or cancellation; no silent truncation |
 | The CLI leaves while copying | Cancel/reap the helper; discard pending work before terminal restoration |
 | Helper cleanup cannot establish a reaped child | Report cleanup failure and refuse any replacement |
-| tmux is absent, rejects `load-buffer -w`, or takes too long | The request has a 500 ms deadline; its child is killed and reaped before return, while the already-attempted OSC 52 route remains |
+| tmux is absent, rejects `load-buffer -w`, or takes too long | The request has a deadline; its child is killed and reaped before return, while the already-attempted OSC 52 route remains |
 | A held drag reaches the viewport boundary | The timer disarms; repeated wakeups cost no frame |
 | A write to the terminal fails | An `io::Error` out of the composition root, like any other terminal write |
 

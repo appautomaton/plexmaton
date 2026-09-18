@@ -49,15 +49,20 @@ refused.
 
 ## Model
 
-| Retained resource | Default / hard ceiling |
+| Retained resource | Policy |
 | --- | --- |
-| Summary or task | Nonempty, at most 32 KiB UTF-8 each |
-| Identity | Nonempty, at most 256 bytes |
-| Artifact references per mail | At most 16 distinct conversation/artifact pairs |
-| Total items | 4096 mail, task, Handoff, Attention-reference and turn records; configurable downward |
-| Delegations | 256; configurable downward |
-| Semantic mail bytes | 16 MiB; configurable downward; text plus endpoint/pointer identities |
-| Control reserve | 256 tail item slots unavailable to mail; configurable from zero to total items |
+| Summary or task | Nonempty; a hard UTF-8 ceiling each |
+| Identity | Nonempty; a hard byte ceiling |
+| Artifact references per mail | A hard count of distinct conversation/artifact pairs |
+| Total items | One ceiling over mail, task, Handoff, Attention-reference and turn records; configurable downward |
+| Delegations | Configurable downward |
+| Semantic mail bytes | Text plus endpoint/pointer identities; configurable downward |
+| Control reserve | Tail item slots mail cannot take; configurable from zero to total items |
+
+`plexmaton-agent/src/collaboration/types.rs` holds every ceiling above. This table says which
+resources have one and which the owner may lower, never what the number is today: a number written
+here is a second copy that goes stale the first time the constant is tuned, and the reader has no
+way to tell which copy is the live one.
 
 Mail addresses peers declared through delegation creation; declaration proves neither a session
 file nor artifact availability. Item count also bounds retained control text and deduplication

@@ -75,9 +75,9 @@ replacement flush preceding deltas first. Its limits are:
 
 | Boundary | Policy |
 | --- | --- |
-| Background frame interval | 16 ms from the last successful frame's start; later deltas do not extend it |
-| Pending events | At most 64; reaching the limit flushes early |
-| Pending text allocation | At most 128 KiB of `String` capacity; pressure flushes early, and an individually oversized event is applied without retaining it in the batch |
+| Background frame interval | Measured from the last successful frame's start; later deltas do not extend it |
+| Pending events | A bounded count; reaching it flushes early |
+| Pending text allocation | A bounded `String` capacity; pressure flushes early, and an individually oversized event is applied without retaining it in the batch |
 | Input | Resolve the original event first, then flush; input frames are not rate-limited |
 | Idle / failed output | Empty batches have no deadline; a failed draw advances neither the successful frame count nor its deadline |
 
