@@ -3468,13 +3468,10 @@ mod tests {
         );
     }
 
-    /// ENT-4/CMP-1: a letter fills one row with as much of itself as fits, and `Ctrl-O` is the rest.
-    ///
-    /// The simulator only ever sent one short sentence, so the entry inlined its whole summary and
-    /// disclosure was reserved for tools. The first letter a delegated agent actually wrote was a
-    /// page long: it filled the conversation it arrived in and could not be folded away.
-    #[test]
-    fn a_long_letter_is_one_row_until_ctrl_o_opens_it() {
+    /// A delivered letter whose body cannot fit the one row a compact entry gets, drawn once at
+    /// wide. Shared so the keyboard and the pointer are proven against the same letter rather than
+    /// against two fixtures that could drift apart.
+    fn delivered_letter() -> (Workspace, Terminal<TestBackend>, TranscriptItemId) {
         let mut conversation = Conversation::canonical();
         let sender = conversation
             .state
@@ -3508,6 +3505,17 @@ mod tests {
             .unwrap_or_else(|error| panic!("test terminal: {error}"));
         workspace.emit(conversation.drain());
         frame(&mut workspace, &mut terminal);
+        (workspace, terminal, item)
+    }
+
+    /// ENT-4/CMP-1: a letter fills one row with as much of itself as fits, and `Ctrl-O` is the rest.
+    ///
+    /// The simulator only ever sent one short sentence, so the entry inlined its whole summary and
+    /// disclosure was reserved for tools. The first letter a delegated agent actually wrote was a
+    /// page long: it filled the conversation it arrived in and could not be folded away.
+    #[test]
+    fn a_long_letter_is_one_row_until_ctrl_o_opens_it() {
+        let (mut workspace, mut terminal, item) = delivered_letter();
 
         // The heading spends the row it has: past the title, into the line after it, then stops.
         let compact = painted(&terminal, &workspace, SurfaceId::Transcript);
@@ -3536,6 +3544,68 @@ mod tests {
         );
         let opened = painted(&terminal, &workspace, SurfaceId::Transcript);
         assert!(opened.contains("Nothing was modified"), "{opened}");
+    }
+
+    /// ENT-4: a click toggles the addressed entry without selecting or copying it, and a letter is
+    /// an addressed entry.
+    ///
+    /// The parity this proves was asserted in prose and evidenced by a test that only ever clicked
+    /// a tool, so the half of ENT-4 that matters most for mail — the letter body is the only place
+    /// the letter exists as written — rested on a claim nothing exercised.
+    #[test]
+    fn a_click_opens_a_letter_the_same_way_ctrl_o_does() {
+        let (mut workspace, mut terminal, item) = delivered_letter();
+        tab_to(&mut workspace, &mut terminal, SurfaceId::Transcript);
+        let at = point_on(
+            &terminal,
+            &workspace,
+            SurfaceId::Transcript,
+            "Read-only check complete",
+        );
+
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y),
+        );
+        assert!(
+            workspace.state.disclosure().is_open(&item),
+            "a click has to reach a letter, not only a tool"
+        );
+        assert_eq!(
+            workspace
+                .state
+                .selection()
+                .map(|selection| selection.entries()),
+            None,
+            "opening a letter is not selecting it"
+        );
+        let opened = painted(&terminal, &workspace, SurfaceId::Transcript);
+        assert!(opened.contains("Nothing was modified"), "{opened}");
+
+        // The same gesture closes it, so the pointer and the keyboard address one open state.
+        let at = point_on(
+            &terminal,
+            &workspace,
+            SurfaceId::Transcript,
+            "Read-only check complete",
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Down(MouseButton::Left), at.x, at.y),
+        );
+        step(
+            &mut workspace,
+            &mut terminal,
+            &mouse(MouseEventKind::Up(MouseButton::Left), at.x, at.y),
+        );
+        assert!(!workspace.state.disclosure().is_open(&item));
     }
 
     /// INV-6 with three rungs: `Escape` resolves the selection before the surface holding it.
