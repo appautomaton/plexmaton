@@ -72,8 +72,8 @@ an individual refusal becomes visible; a successful batch restores the sixteen-e
 | --- | --- |
 | Active / pending | One retained operation and one latest encoded batch; no per-request detached task |
 | Request | 16 entries; 192 KiB of snapshots and prefix hints admitted before cloning, 256 KiB encoded; a Markdown prefix hint is capped at 64 KiB and length prefix is checked before allocation |
-| Reply | 2 MiB encoded bytes and aggregate prepared allocation; oversized batches return a typed refusal |
-| Prepared entry | 1 MiB allocation, 8,193 rows; 4 KiB identity admission; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
+| Reply | Twice the entry allocation, so a batch always carries entries the entry bound already admitted; oversized batches return a typed refusal |
+| Prepared entry | The rows a message may occupy, times what a finished row costs; 4 KiB identity admission; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
 | Frame pins | 128 entries / 4 MiB per candidate and last-painted map, separately bounded from MD-4's LRU |
 | Selected-text assembly | One selection, 8 MiB including retained member identities and text capacity; no truncation or delivery acknowledgement |
 | Process | Absolute executable, empty environment, piped stdin/stdout, discarded stderr |
