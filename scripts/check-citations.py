@@ -78,15 +78,20 @@ def check(root):
     declarations = defaultdict(list)
     prefixes = defaultdict(set)
     proofs = set()
+    # An invariant is declared in a spec; what proves it lives beside the spec, in `evidence/`.
+    # Both are read here, because a gate that stops seeing half its input passes for the wrong
+    # reason — and this one would then report zero named proofs as success.
     for path, source in documents.items():
-        if path.parent != root / ".agents/specs":
+        if path.parent not in (root / ".agents/specs", root / ".agents/evidence"):
             continue
         body = prose(source)
         for match in DECLARATION.finditer(body):
+            if path.parent != root / ".agents/specs":
+                continue
             line = body.count("\n", 0, match.start()) + 1
             declarations[match[1]].append(f"{path.relative_to(root)}:{line}")
             prefixes[match[2]].add(str(path.relative_to(root)))
-        in_evidence = False
+        in_evidence = path.parent == root / ".agents/evidence"
         for line in body.splitlines():
             if line.startswith("## Evidence"):
                 in_evidence = True
