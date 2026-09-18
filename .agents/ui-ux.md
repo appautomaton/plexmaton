@@ -442,9 +442,10 @@ Every layout class preserves the meaning of this journey even when it changes wh
   opens full-region Agents. Arrows move a temporary cursor. `Enter` or a row click commits it;
   `Escape` or `Ctrl-B` restores exact prior focus without changing the column preference.
   Rejected: a shelf over a maximized child, a fixed column, and a band that made Agents yield first.
-- Each roster row carries lifecycle plus what its agent waits on, or compact non-text counts such
-  as `1 tool @1 1 mail`; `@` is the artifact marker, while the conversation title keeps full nouns.
-  A filled marker says which conversation is on screen; its color says that agent's state.
+- An agent spends two roster rows: its name, in the colour of its state and the only weight in the
+  panel, and under it that state plus either what the agent waits on or a glyph tally of what has
+  arrived for it. The cursor row takes `Chosen`'s ground and keeps its own colour on top. The
+  conversation title keeps full nouns where there is width for them.
   Rejected: a separate activity region, regrouping facts that belong in each agent's conversation.
 - Ultrawide is 132 because two 52-cell conversations and a 28-cell agent column need it, and 52
   cells is roughly where prose stops wrapping awkwardly. It holds exactly one secondary column,

@@ -1,6 +1,6 @@
 ┌ Agents ────────────────┐┌ Agent A · primary ────────────────────────────────────────────────┐
-│○ Agent B · UI study ask││                                                                   │
-│  Choose whether the ov…││                                                                   │
+│Agent B · UI study      ││                                                                   │
+│ask  Choose whether the…││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │
 │                        ││                                                                   │

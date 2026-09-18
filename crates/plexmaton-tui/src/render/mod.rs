@@ -99,9 +99,8 @@ pub fn render(
                 chrome: Chrome::Box,
                 footer: None,
                 body: Body::Whole {
-                    // Width-aware: the rows right-align their lifecycle word and clip their own
-                    // detail, because a roster that lets the panel wrap it loses the column the
-                    // eye scans down.
+                    // Width-aware: the rows clip their own names and tallies, because a roster
+                    // that lets the panel wrap them loses the column the eye scans down.
                     lines: content::roster(state, palette, inner_width(bounds.width)).lines,
                     follows_tail: false,
                 },
@@ -1328,11 +1327,15 @@ mod tests {
         let (surfaces, _) = draw_frame(&answered.state, &Palette::default(), 60, 30);
         answered.state.toggle_roster(&surfaces);
         let counted = draw(&answered.state, 60, 30);
-        assert!(counted.contains("1 tool"));
+        // The tally is glyphs, so a narrow roster can carry it beside the state word.
+        assert!(counted.contains('\u{f1323}'), "tools");
         assert!(counted.contains("@1"), "compact artifact count");
         // Agent B is the sender of the canonical letter, so its row counts no mail: a roster
         // counts what arrived for an agent, not what it wrote.
-        assert!(!counted.contains("1 mail"));
+        assert!(
+            !counted.contains('\u{f01ee}'),
+            "no mail arrived for the sender"
+        );
     }
 
     #[test]

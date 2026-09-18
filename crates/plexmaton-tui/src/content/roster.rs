@@ -8,6 +8,7 @@
 
 use plexmaton_core::{AgentId, AgentStatus, AttentionKind};
 use ratatui::{
+    style::Modifier,
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
@@ -68,24 +69,27 @@ fn detail(agent: &AgentView, summary: Option<&str>) -> String {
         return summary.to_owned();
     }
     let counts = count_entries(agent);
+    // A glyph a scan recognises without reading, so a 26-column row can carry the state word and
+    // the tally together. These are Nerd Font Private Use codepoints, the same dependency the
+    // transcript's copy affordance already takes; a terminal font without them draws a box, so
+    // they are named here once and never spelled inline.
+    const TOOLS: char = '\u{f1323}'; // md-hammer_wrench
+    const TASKS: char = '\u{f0756}'; // md-format_list_checks
+    const MAIL: char = '\u{f01ee}'; // md-email
     let mut parts: Vec<String> = Vec::new();
-    if counts.tools > 0 {
-        parts.push(format!(
-            "{} tool{}",
-            counts.tools,
-            if counts.tools == 1 { "" } else { "s" }
-        ));
+    for (glyph, count) in [
+        (TOOLS, counts.tools),
+        (TASKS, counts.tasks),
+        (MAIL, counts.mail),
+    ] {
+        if count > 0 {
+            parts.push(format!("{glyph} {count}"));
+        }
     }
     if counts.artifacts > 0 {
         parts.push(format!("@{}", counts.artifacts));
     }
-    if counts.tasks > 0 {
-        parts.push(format!("{} task", counts.tasks));
-    }
-    if counts.mail > 0 {
-        parts.push(format!("{} mail", counts.mail));
-    }
-    parts.join(" ")
+    parts.join("  ")
 }
 
 /// Cut to a width, saying so. A silently shortened ask reads as a different ask.
@@ -156,39 +160,36 @@ pub(crate) fn roster(state: &ViewState, palette: &Palette, width: u16) -> Roster
             Some(_) => Role::Muted,
             None => agent_role(agent.status),
         };
-        // `●` open, `○` not. The glyph says which conversation is on screen and the colour says
-        // what the agent's state is, so the row's first cell — the one a scan reaches first —
-        // carries the fact the user is scanning for rather than the one they already know.
-        let marker = if selected.as_ref() == Some(&agent.id) {
-            "●"
-        } else {
-            "○"
-        };
-        let word = lifecycle(agent, request.map(|item| item.kind()));
-        let label = clip(&agent.label, inner.saturating_sub(2));
-        let mut spans = vec![
-            Span::styled(format!("{marker} "), palette.style(role)),
-            Span::styled(label.clone(), palette.style(Role::Body)),
-        ];
-        // The lifecycle word sits at the right edge when both fit on one line. When they do not,
-        // it takes the second row and the detail yields: a column this narrow is the wrong size
-        // for prose and the right size for a state word, and half an ask is worse than no ask.
-        let gap = inner.saturating_sub(label.width() + word.width() + 2);
-        let second = if label.width() + word.width() + 3 <= inner {
-            spans.push(Span::styled(" ".repeat(gap), palette.style(Role::Body)));
-            spans.push(Span::styled(word, palette.style(role)));
-            let text = detail(agent, request.map(crate::AttentionView::summary));
-            Span::styled(clip(&text, inner.saturating_sub(2)), palette.style(role))
-        } else {
-            Span::styled(word, palette.style(role))
-        };
-        rows.lines.push(Line::from(spans));
-        rows.owners.push(Some(agent.id.clone()));
-        if !second.content.is_empty() {
-            rows.lines
-                .push(Line::from(vec![Span::raw("  "), second.clone()]));
-            rows.owners.push(Some(agent.id.clone()));
+        // The name owns the first row outright: bold, in the colour of the state it is in, with
+        // the whole column to be long in. The row the cursor is on takes `Chosen`'s ground under
+        // it and keeps its own colour on top, so one row answers both questions without either
+        // channel having to give way. Rejected: a `●`/`○` marker in the first cell, which spent
+        // the two columns a name wants and said in a private glyph what the workspace already
+        // says with `Chosen` everywhere else.
+        let cursor = selected.as_ref() == Some(&agent.id);
+        let mut name = palette.style(role).add_modifier(Modifier::BOLD);
+        if cursor {
+            name.bg = palette.style(Role::Chosen).bg;
         }
+        let label = clip(&agent.label, inner);
+        rows.lines
+            .push(Line::from(Span::styled(format!("{label:<inner$}"), name)));
+        rows.owners.push(Some(agent.id.clone()));
+
+        // The second row is the state and what is waiting in it. An ask outranks a tally, so a
+        // request replaces the counts rather than crowding in beside them.
+        let word = lifecycle(agent, request.map(|item| item.kind()));
+        let rest = detail(agent, request.map(crate::AttentionView::summary));
+        let second = if rest.is_empty() {
+            word.to_owned()
+        } else {
+            format!("{word}  {rest}")
+        };
+        rows.lines.push(Line::from(Span::styled(
+            clip(&second, inner),
+            palette.style(role),
+        )));
+        rows.owners.push(Some(agent.id.clone()));
     }
     rows
 }
@@ -223,7 +224,7 @@ pub(crate) fn agent_at_row(
 mod tests {
     use plexmaton_core::{AgentId, AttentionId, AttentionRequest, ConversationEvent};
 
-    use super::{agent_at_row, roster};
+    use super::{Modifier, agent_at_row, roster};
     use crate::{
         test_support::Conversation,
         theme::{Palette, Role},
@@ -270,36 +271,51 @@ mod tests {
     fn a_roster_reads_failure_then_requests_then_work_and_rules_the_two_groups_apart() {
         let state = crowded().state;
         let rows = roster(&state, &Palette::pastel(), RAIL);
-        let names: Vec<String> = rows
-            .lines
+        // An agent's first row is its name and the one under it is its state, so the pair is
+        // taken where the owner changes rather than by how the row is painted: two of the four
+        // attention roles are bold in their own right, and weight cannot tell a name from them.
+        let names: Vec<(String, String)> = rows
+            .owners
             .iter()
-            .map(|line| line.to_string())
-            .filter(|text| text.starts_with('●') || text.starts_with('○'))
+            .enumerate()
+            .filter(|(index, owner)| {
+                owner.is_some() && (*index == 0 || rows.owners[index - 1] != **owner)
+            })
+            .map(|(index, _)| {
+                (
+                    rows.lines[index].to_string().trim_end().to_owned(),
+                    rows.lines[index + 1].to_string(),
+                )
+            })
             .collect();
         assert_eq!(names.len(), 4, "{names:?}");
-        assert!(names[0].contains("Sol"), "failure leads: {names:?}");
-        assert!(names[0].contains("failed"), "{names:?}");
-        for asking in &names[1..3] {
+        assert!(names[0].0.contains("Sol"), "failure leads: {names:?}");
+        assert!(names[0].1.contains("failed"), "{names:?}");
+        for (name, state) in &names[1..3] {
             assert!(
-                asking.contains("Vega") || asking.contains("Agent B"),
+                name.contains("Vega") || name.contains("Agent B"),
                 "requests come next: {names:?}"
             );
-            assert!(asking.contains("ask"), "and say what they want: {names:?}");
+            assert!(state.contains("ask"), "and say what they want: {names:?}");
         }
         assert!(
-            names[3].contains("Orion"),
+            names[3].0.contains("Orion"),
             "ambient work is last: {names:?}"
         );
-        assert!(names[3].contains("running"), "{names:?}");
+        assert!(names[3].1.contains("running"), "{names:?}");
 
         let ruled = rows
             .lines
             .iter()
             .position(|line| line.to_string().starts_with('─'))
             .unwrap_or_else(|| panic!("the groups are ruled apart: {rows:?}", rows = names));
-        let above = rows.lines[..ruled]
+        // Count agents above the rule, not rows: each one spends two.
+        let above = rows.owners[..ruled]
             .iter()
-            .filter(|line| line.to_string().starts_with(['●', '○']))
+            .enumerate()
+            .filter(|(index, owner)| {
+                owner.is_some() && (*index == 0 || rows.owners[index - 1] != **owner)
+            })
             .count();
         assert_eq!(
             above, 3,
@@ -324,14 +340,23 @@ mod tests {
                 .iter()
                 .find(|line| line.to_string().contains(name))
                 .unwrap_or_else(|| panic!("{name} is in the roster"));
-            let ends: Vec<_> = [line.spans.first(), line.spans.last()]
-                .into_iter()
-                .flatten()
-                .map(|span| span.style)
-                .collect();
-            for style in ends {
-                assert_eq!(style, palette.style(role), "{name} at {role:?}");
-            }
+            let index = rows
+                .lines
+                .iter()
+                .position(|candidate| candidate.to_string().contains(name))
+                .unwrap_or_else(|| panic!("{name} is in the roster"));
+            let named = line.spans.first().map(|span| span.style);
+            assert_eq!(
+                named,
+                Some(palette.style(role).add_modifier(Modifier::BOLD)),
+                "the name carries its own state, with weight: {name} at {role:?}"
+            );
+            let state = rows.lines[index + 1].spans.first().map(|span| span.style);
+            assert_eq!(
+                state,
+                Some(palette.style(role)),
+                "and the state row carries it without: {name} at {role:?}"
+            );
         }
     }
 
@@ -371,12 +396,12 @@ mod tests {
             .position(|line| line.contains("Agent B"))
             .unwrap_or_else(|| panic!("Agent B stays in the roster: {text:?}"));
         let detail = &text[agent_b + 1];
-        assert!(detail.contains("tool"), "{detail:?}");
+        assert!(detail.contains('\u{f1323}'), "tools: {detail:?}");
         assert!(detail.contains("@1"), "{detail:?}");
         // Agent B wrote that letter rather than receiving it. A roster says where the user's work
         // is waiting, and an agent's own outbound letter is not work waiting in it.
         assert!(
-            !detail.contains("mail"),
+            !detail.contains('\u{f01ee}'),
             "a sent letter is counted in the conversation it arrived in, not the one it left: \
              {detail:?}"
         );
@@ -448,9 +473,9 @@ mod tests {
                 seen = seen.saturating_add(1);
             }
         }
-        // Agent B and Vega each have something to say and spend two rows; Sol and Orion have
-        // neither an ask nor a tally, and an empty detail row is a row spent saying nothing.
-        assert_eq!(seen, 6, "two agents with a detail, two without");
+        // Every agent spends exactly two rows: its name, and the state row under it. The state
+        // row is never empty, because an agent always has a lifecycle even when it has no tally.
+        assert_eq!(seen, 8, "four agents, two rows each");
         assert!(agent_at_row(&state, &palette, RAIL, rows.lines.len() + 4).is_none());
     }
 }
