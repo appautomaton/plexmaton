@@ -454,6 +454,99 @@ fn logits_cjk_labels_preserve_all_text_and_box_at_three_widths() {
     }
 }
 
+/// MTH-2: an accent is admitted exactly when the decoder has a combining mark for it.
+///
+/// The engine once carried its own two-label list beside the decoder's two-glyph table. Every
+/// other accent parsed, was laid out as a separate glyph over its base, reserved the cell the base
+/// already held, and refused the whole formula as an overlap — so one `\dot` turned a page of
+/// thermodynamics into raw source. These are the marks that merge, each into one cell, and `\vec`
+/// is refused because its arrow is a drawn path with no mark to merge.
+#[test]
+fn every_admitted_accent_merges_into_one_cell_and_a_path_accent_refuses() {
+    for (source, expected) in [
+        (r"\[\hat q\]", "q\u{302}"),
+        (r"\[\bar q\]", "q\u{304}"),
+        (r"\[\dot q\]", "q\u{307}"),
+        (r"\[\ddot q\]", "q\u{308}"),
+        (r"\[\tilde q\]", "q\u{303}"),
+        (r"\[\check q\]", "q\u{30c}"),
+        (r"\[\breve q\]", "q\u{306}"),
+        (r"\[\mathring q\]", "q\u{30a}"),
+    ] {
+        let layout = Formula::parse(source)
+            .unwrap_or_else(|error| panic!("{source}: {error}"))
+            .layout(120)
+            .unwrap_or_else(|error| panic!("{source}: {error}"));
+        let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, expected, "{source} did not merge into one base");
+        assert_disjoint(&layout);
+    }
+    assert!(matches!(
+        Formula::parse(r"\[\vec q\]"),
+        Err(MathError::Unsupported(Unsupported::Construct))
+    ));
+}
+
+/// MTH-1: the reported heat-transfer derivation lays out natively at every reviewed width.
+///
+/// Both formulas the user pasted carry `\dot q`, and one unsupported accent refused the whole
+/// display block, so a page of thermodynamics reached the terminal as its delimiters and macros.
+#[test]
+fn the_reported_heat_transfer_formulas_lay_out_natively() {
+    for source in [
+        r"\[\frac{d}{dt}\int_V \rho e\,dV = -\int_{\partial V}\mathbf{q}\cdot\mathbf{n}\,dS + \int_V \dot{q}\,dV\]",
+        r"\[\rho c\frac{\partial T}{\partial t} = \nabla\cdot(k\nabla T)+\dot{q}\]",
+        r"\[\boxed{Gz(z)=\frac{Re\,Pr\,D}{z}=\frac{Pe\,D}{z}},\]",
+        r"\[\boxed{Br=\frac{\mu U^2}{k\Delta T}}.\]",
+    ] {
+        let formula = Formula::parse(source).unwrap_or_else(|error| panic!("{source}: {error}"));
+        for width in [120_usize, 88, 60] {
+            let layout = formula
+                .layout(width)
+                .unwrap_or_else(|error| panic!("{source} at {width}: {error}"));
+            assert_disjoint(&layout);
+            let text: String = layout.runs().iter().map(|run| run.text.as_str()).collect();
+            assert!(
+                !text.contains('\\'),
+                "{source} at {width} kept TeX in its runs: {text}"
+            );
+        }
+    }
+}
+
+/// MTH-2: a term placed beside an expression never lands in a cell that expression already owns.
+///
+/// This is the property the two boxed formulas above are instances of, and it is the one worth
+/// keeping: a framed result written in prose is followed by a comma or a full stop, so the
+/// neighbour is exactly the thing a reservation bug meets first. Rejected: adding each reported
+/// formula to a list, which cannot fail for a construct nobody has pasted yet.
+#[test]
+fn an_adjacent_term_never_collides_with_a_neighbours_reservation() {
+    for (name, body) in support::CORPUS {
+        let Ok(alone) = Formula::parse(&format!("\\[{body}\\]")) else {
+            continue;
+        };
+        for width in [120_usize, 88, 60] {
+            if alone.layout(width).is_err() {
+                continue;
+            }
+            for source in [".", ",", "+1", "z", "\\,z"]
+                .into_iter()
+                .flat_map(|term| [format!("\\[{body}{term}\\]"), format!("\\[{term}{body}\\]")])
+            {
+                let formula =
+                    Formula::parse(&source).unwrap_or_else(|error| panic!("{name}: {error}"));
+                match formula.layout(width) {
+                    Ok(layout) => assert_disjoint(&layout),
+                    // Only an honest width refusal may join a layout that already succeeded.
+                    Err(MathError::TooWide { .. }) => {}
+                    Err(error) => panic!("{name} at {width} beside a term: {error}\n{source}"),
+                }
+            }
+        }
+    }
+}
+
 /// MTH-2: admitted CJK scripts and single-base hats keep scale, Unicode and paint; an accent
 /// with a different color cannot silently inherit its base's foreground.
 #[test]

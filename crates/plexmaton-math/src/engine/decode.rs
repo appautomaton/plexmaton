@@ -54,16 +54,19 @@ pub(super) fn scene(
                 if *width < 0.0 || *height < 0.0 {
                     return Err(MathError::Unsupported(Unsupported::Construct));
                 }
-                let (kind, x, center) = if *height <= 0.15 && width > height {
-                    (Kind::Horizontal, *x, y + height / 2.0)
+                // A rule keeps the rectangle's own extents on both axes; only its reference line
+                // differs, running along the middle of a horizontal rule and down the top of a
+                // vertical one.
+                let (kind, reference) = if *height <= 0.15 && width > height {
+                    (Kind::Horizontal, y + height / 2.0)
                 } else if *width <= 0.15 && height > width {
-                    (Kind::Vertical, x + width / 2.0, *y)
+                    (Kind::Vertical, *y)
                 } else {
                     return Err(MathError::Unsupported(Unsupported::Paint));
                 };
                 items.push(Item {
-                    x: geometry(x)?,
-                    y: geometry(center)?,
+                    x: geometry(*x)?,
+                    y: geometry(reference)?,
                     width: geometry(*width)?,
                     top: geometry(*y)?,
                     bottom: geometry(y + height)?,
@@ -216,6 +219,30 @@ fn glyph_metrics(
     })
 }
 
+/// The combining mark one accent glyph becomes once it is merged into its base.
+///
+/// One table, shared with the parse-time admission in `engine`, because the two answer the same
+/// question from opposite ends: what this decides can be drawn is exactly what that may admit.
+/// Keeping them apart is what made `\dot` reach layout as a separate glyph over its base, overlap
+/// the cell the base had reserved, and refuse the whole formula it appeared in.
+///
+/// Every entry is one mark over one base — mechanically identical to the circumflex and the macron
+/// that were here first. `\vec` is absent and stays refused: its arrow is a drawn path rather than
+/// a glyph, so there is no mark to combine and no honest single-cell result.
+pub(crate) fn combining_accent(glyph: &str) -> Option<char> {
+    Some(match glyph {
+        "ˉ" => '\u{0304}',
+        "^" => '\u{0302}',
+        "˙" => '\u{0307}',
+        "¨" => '\u{0308}',
+        "~" => '\u{0303}',
+        "ˇ" => '\u{030c}',
+        "˘" => '\u{0306}',
+        "˚" => '\u{030a}',
+        _ => return None,
+    })
+}
+
 fn combine_accents(items: &mut Vec<Item>) {
     let mut index = 0;
     while index < items.len() {
@@ -230,13 +257,9 @@ fn combine_accents(items: &mut Vec<Item>) {
             index += 1;
             continue;
         };
-        let combining = match text.as_str() {
-            "ˉ" => '\u{0304}',
-            "^" => '\u{0302}',
-            _ => {
-                index += 1;
-                continue;
-            }
+        let Some(combining) = combining_accent(text) else {
+            index += 1;
+            continue;
         };
         let center = accent.x + accent.width / 2.0;
         let target = items[..index]
