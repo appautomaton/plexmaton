@@ -1,26 +1,26 @@
-
- Agent is active; no transcript item has started yet.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+┌ Plexmaton ───────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Agent is active; no transcript item has started yet.                                                                  │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
 ── Skills ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
  > project · $review  Review this change for correctness across every affected boundary
    shared · $research  Gather focused source evidence

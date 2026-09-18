@@ -1,4 +1,4 @@
-use ratatui::{Frame, layout::Rect, text::Line, widgets::Clear};
+use ratatui::{Frame, layout::Rect, widgets::Clear};
 
 pub(crate) mod agents_handle;
 mod child_control;
@@ -109,12 +109,14 @@ pub fn render(
                 badge: None,
                 edges: Edges::All,
             }),
-            // The primary conversation has no box: its text runs into the composer's top rule,
-            // and its last row is the activity line, which also carries the selection note and
-            // the attention pill now that there is no border for them (ui-ux §input).
+            // The primary conversation carries its own box, the same as the roster's and the
+            // inspected child's: with two conversations on one screen, a bare one reads as
+            // background rather than as a place, and its hue has no edge to say whose it is. Its
+            // last row stays the activity line, carrying the selection note and the attention pill
+            // as the box's footer rather than instead of a border (ui-ux §input).
             SurfaceId::Transcript => Some(Panel {
                 insets: crate::surface::ContentInsets::default(),
-                chrome: Chrome::Bare,
+                chrome: Chrome::Box,
                 footer: Some(chrome::activity_line(
                     state,
                     palette,
@@ -130,7 +132,7 @@ pub fn render(
                     stacking.over_composer(SurfaceId::Transcript),
                     1,
                 ),
-                title: Line::default(),
+                title: chrome::conversation_title(state, palette),
                 badge: None,
                 edges: stacking.over_composer(SurfaceId::Transcript),
             }),
@@ -577,8 +579,9 @@ mod tests {
             palette,
             crate::state::inner_width(bounds.width),
         );
-        // The conversation is bare and open at the bottom, so the reference reserves the same
-        // blank top row and side columns a box would have spent, and leaves the activity row out.
+        // The conversation is boxed and open at the bottom, so its own border spends the top row
+        // and the side columns and the content needs no padding of its own; the activity row is
+        // the panel's footer and stays out of the reference.
         let bounds = Rect {
             height: bounds.height.saturating_sub(1),
             ..bounds
@@ -591,10 +594,10 @@ mod tests {
                     Line::default(),
                     false,
                     Edges::Upper,
-                    Chrome::Bare,
-                    None,
+                    Chrome::Box,
+                    Some(Role::SurfacePrimary),
                 )
-                .padding(Padding::new(1, 1, 1, 0)),
+                .padding(Padding::ZERO),
             )
             .scroll((
                 u16::try_from(viewport.offset)
@@ -1378,8 +1381,11 @@ mod tests {
             };
             let top = region_text(&buffer, border);
             assert!(top.contains("( !1 )"), "{top:?}");
+            // The conversation carries a box, so the row's own last cell is its edge; the pill is
+            // the last thing inside it.
+            let inside = top.trim_end().trim_end_matches('│').trim_end();
             assert!(
-                top.trim_end().ends_with("( !1 )"),
+                inside.ends_with("( !1 )"),
                 "the pill sits at the far end of the row, not beside the label: {top:?}"
             );
 

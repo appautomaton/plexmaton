@@ -40,31 +40,28 @@ pub(super) struct Panel {
 
 /// How a region's edges are painted. The geometry is the edges'; this is only ink.
 ///
-/// The primary conversation and its composer are drawn without a box (ui-ux §input): the
-/// conversation bare, the composer between two rules. The cells a box would have spent stay
-/// reserved, so the caret, the pointer and every viewport keep the geometry they had.
+/// Every surface that holds a conversation carries a box (ui-ux §input); the composer below it
+/// sits between two rules. Ink is the only thing that varies: whichever a region chooses, the
+/// same cells are spent, so the caret, the pointer and every viewport keep the geometry they had.
+/// Rejected: a third choice painting nothing at all, which the primary conversation used until a
+/// second conversation shared the screen with it — with no edge it read as background rather than
+/// as a place, and the hue that says whose surface it is had nowhere to be painted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Chrome {
     /// Glyph borders on every edge the region has.
     Box,
     /// A rule across each horizontal edge the region has; its side columns are blank.
     Rules,
-    /// No ink: every edge the region has is a blank row or column.
-    Bare,
 }
 
 impl Chrome {
-    /// The cells the edges spend that no glyph occupies, reserved as padding.
-    pub(super) fn hidden(self, edges: Edges) -> Padding {
+    /// The cells a region's edges spend that no glyph of this chrome occupies, reserved as
+    /// padding so that every chrome costs the same geometry and only the ink differs.
+    pub(super) const fn hidden(self) -> Padding {
         match self {
             Self::Box => Padding::ZERO,
+            // A rule runs the full width, so only the side columns go unpainted.
             Self::Rules => Padding::new(1, 1, 0, 0),
-            Self::Bare => Padding::new(
-                1,
-                1,
-                u16::from(edges.has_top()),
-                u16::from(edges.has_bottom()),
-            ),
         }
     }
 }
@@ -200,7 +197,7 @@ pub(super) fn draw_panel(
     parked: Option<ScrollPosition>,
     hue: Option<Role>,
 ) -> Viewport {
-    let hidden = panel.chrome.hidden(panel.edges);
+    let hidden = panel.chrome.hidden();
     let chrome = block_with(
         palette,
         panel.title.clone(),

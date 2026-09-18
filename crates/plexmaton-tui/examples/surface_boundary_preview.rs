@@ -1,9 +1,9 @@
-//! Does a conversation surface carry its own boundary?
+//! What each conversation surface's boundary says.
 //!
-//! The workspace draws one conversation today and can draw two. The primary runs bare into the
-//! composer's rule; the inspected child is boxed. Side by side that asymmetry is the thing the user
-//! reads first, so it is exported at the two widths where both surfaces are on screen: ultrawide,
-//! where they are columns, and wide, where the child takes the shelf.
+//! The workspace draws one conversation today and can draw two. Each carries a box in its own hue —
+//! the roster's, the user's own, a delegate's — at full strength where the keys are going and
+//! carried toward the ground at rest. Both widths where two conversations are on screen are
+//! exported: ultrawide, where they are columns, and wide, where the child takes the shelf.
 use plexmaton_core::{
     AgentId, AgentStatus, ConversationEvent, ConversationEventEnvelope, EventSequence,
     ReasoningEffort,

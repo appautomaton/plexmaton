@@ -1,28 +1,28 @@
-┌ Agents ────────────────┐                                                                     
-│● Agent B · UI study    │ ┌ Agent B · UI study · Completed · esc ───────────────────────────┐ 
-│  approval              │ │                                                                 │ 
-│                        │ │                                                                 │ 
-│                        │ │                                                                 │ 
-│                        │ │I found the surface-routing boundary and am checking overlap     │ 
-│                        │ │behavior.                                                        │ 
-│                        │ │                                                                 │ 
-│                        │ │[+] inspect interaction fixtures · succeeded                     │ 
-│                        │ │@ interaction findings · artifact://agent-b/interaction-findings │ 
-│                        │ │sent to Agent A · primary · Routing stays centralized and z-orde…│ 
-│                        │ │Controller unavailable | Input locked                            │ 
-│                        │ └─────────────────────────────────────────────────────────────────┘ 
-│                        │                                                                     
-│                        │                                                                     
-│                        │                                                                     
-│                        │                                                                     
-│                        │                                                                     
-│                        │                                                                     
-│                        │ I will inspect the workspace and delegate the focused UI            
-│                        │ study. Agent B is running independently; this transcript            
-│                        │ remains interactive.                                                
-│                        │                                                                     
-│                        │ received from Agent B · UI study · Routing stays centralized and z… 
-│                        │ · Thinking…                                                 ( !1 )  
+┌ Agents ────────────────┐┌ Agent A · primary ────────────────────────────────────────────────┐
+│● Agent B · UI study    ││┌ Agent B · UI study · Completed · esc ───────────────────────────┐│
+│  approval              │││                                                                 ││
+│                        │││                                                                 ││
+│                        │││                                                                 ││
+│                        │││I found the surface-routing boundary and am checking overlap     ││
+│                        │││behavior.                                                        ││
+│                        │││                                                                 ││
+│                        │││[+] inspect interaction fixtures · succeeded                     ││
+│                        │││@ interaction findings · artifact://agent-b/interaction-findings ││
+│                        │││sent to Agent A · primary · Routing stays centralized and z-orde…││
+│                        │││Controller unavailable | Input locked                            ││
+│                        ││└─────────────────────────────────────────────────────────────────┘│
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││                                                                   │
+│                        ││I will inspect the workspace and delegate the focused UI           │
+│                        ││study. Agent B is running independently; this transcript           │
+│                        ││remains interactive.                                               │
+│                        ││                                                                   │
+│                        ││received from Agent B · UI study · Routing stays centralized and z…│
+│                        ││· Thinking…                                                 ( !1 ) │
 │                        │── Approval required · edit ─────────────────────────────────────────
 │                        │                                                                     
 │                        │   Change crates/plexmaton-core/src/lib.rs and preserve its curre…   

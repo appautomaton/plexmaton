@@ -559,7 +559,7 @@ mod tests {
             Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
         },
         layout::Rect,
-        style::{Color, Style},
+        style::Color,
     };
 
     use plexmaton_core::{

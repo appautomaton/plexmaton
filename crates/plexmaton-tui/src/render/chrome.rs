@@ -166,6 +166,19 @@ fn selected_suffix(state: &ViewState, surface: SurfaceId) -> String {
 }
 
 /// The title names the agent and the way out.
+/// Whose conversation this is, on the primary surface's own top edge.
+///
+/// The composer's rule below says whom the next message addresses; this says what is being read.
+/// The two are the same name until a child's window is open, which is exactly when telling them
+/// apart matters. It carries the name alone: the lifecycle, the counts and the selection note ride
+/// the activity line at the other end of the same box, and saying them twice in one frame would
+/// make the box noisier than the bare conversation it replaced.
+pub(super) fn conversation_title(state: &ViewState, palette: &Palette) -> Line<'static> {
+    state.primary_agent().map_or_else(Line::default, |agent| {
+        title(palette, agent.label.clone(), Role::SectionHeading, "")
+    })
+}
+
 pub(super) fn inspector_title(state: &ViewState, palette: &Palette, width: u16) -> Line<'static> {
     // The surface is registered only while an agent is open, so this is no title rather than a
     // word the user would otherwise never see (phase 01 §scope 1).
@@ -448,7 +461,6 @@ pub(super) fn block_with(
             }
             (borders, border::PLAIN)
         }
-        Chrome::Bare => (Borders::NONE, border::PLAIN),
     };
     let block = Block::default()
         .borders(borders)
@@ -459,7 +471,6 @@ pub(super) fn block_with(
     let empty = title.spans.iter().all(|span| span.content.is_empty());
     match chrome {
         _ if empty => block,
-        Chrome::Bare => block,
         // The rule runs into its title: `── Message Plexmaton · high ───`.
         Chrome::Rules if edges.has_top() => {
             let mut spans = vec![Span::styled("──", border)];

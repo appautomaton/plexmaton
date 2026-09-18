@@ -140,13 +140,17 @@ other rule about input follows from this one.
   [IQU-1–IQU-4](./specs/input-queue.md) own the band. Rejected: merging a returned message into an
   existing draft, which loses separate intent and can lose its skill binding.
 - **Every rendered input sits under the conversation it addresses**, between two rules; optional
-  waiting and decision sections sit above the composer. The conversation has no edge of its own and,
-  without those sections, runs into the top rule, which names the target and the message's
-  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else. A User-controlled
-  sub-agent's input is the bottom of its window; a Main-controlled window has no input region, and
-  there is no input anywhere else. Rejected: a box around conversation and input, chrome that said
-  nothing; and current work on the composer's rule, mixing the agent's doing with the user's
-  typing.
+  waiting and decision sections sit above the composer. The conversation carries a box of its own,
+  titled with whose it is, and the composer's top rule below it names the target and the message's
+  [reasoning effort](./specs/reasoning-effort.md) and carries nothing else — the box says what is
+  being read, the rule says what the next message addresses, and those differ exactly when a
+  sub-agent's window is open. A User-controlled sub-agent's input is the bottom of its window; a
+  Main-controlled window has no input region, and there is no input anywhere else. Rejected: a
+  conversation with no edge of its own, which cost the same cells a border spends and drew nothing
+  in them, so beside a boxed roster and a boxed sub-agent it read as background rather than as a
+  place and its identity hue had no edge to be painted on; a box around conversation *and* input,
+  which is not this — the composer keeps its two rules; and current work on the composer's rule,
+  mixing the agent's doing with the user's typing.
 - While a User-controlled sub-agent's input is active, the primary composer **collapses to a single
   row** reading `Message Agent A · ⇥ to return`, which stays clickable and stays a focus stop. Rejected: hiding
   it, which costs the affordance and jumps the tail of the transcript three rows; one row of jump is
