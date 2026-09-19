@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15, 17–27, 29 and 31 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15, 17–27, 29, 31 and 32 complete; stages 16 and 28 await the user's terminal test; stage 30 automatic-compaction visibility unstarted; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -356,15 +356,19 @@ Visual changes are reviewed against real frames before the contract adopts them.
     not a Tier 4 test to relegate but a broken handshake: the fixture created its readiness marker
     and then filled it, while the reader took existence for completeness and parsed the contents.
     Publishing the marker by rename fixed it, and CTL-1, COL-4, COL-5, CHB-2 and CHB-3 have real
-    proof again across three evidence documents. It costs 50 ms of a 15.77 s workspace suite, so
-    nothing needed relegating, while its permission-store sibling costs 4.16 s and no one had
-    mentioned it — so `standards/testing.md` now places a test by cost and determinism rather than
-    by mechanism, and states the handshake rule beside its readiness-signal rule. Both that rule and
-    the flaky rule stopped pointing at a lane CI does not have, since `verify` runs `cargo test` and
-    all seven smoke scripts in one job. Of 40 script citations in evidence tables 36 already named
-    what the script proves; the four that did not now do. Left deliberately: the standard remains
-    over its advisory 8 KB budget, and the paragraphs explaining why the policy changed are what
-    gets deleted once the corpus has settled into it.
+    proof again across three evidence documents. It costs 50 ms of a 15.77 s workspace suite while
+    its permission-store sibling costs 4.16 s unmentioned, so `standards/testing.md` now places a
+    test by cost and determinism rather than by mechanism, and states the handshake rule beside its
+    readiness-signal rule. Both that rule and the flaky rule stopped pointing at a lane CI does not
+    have, since `verify` runs `cargo test` and all seven smoke scripts in one job. Of 40 script
+    citations in evidence tables, the four that did not name what the script proves now do.
+
+32. **Inspection stops sharing the control slot — complete.** SCH-2 already required inspection and
+    control to hold separate bounded lanes; the writer had one of capacity one carrying both, so any
+    command in flight refused every read as busy and nine `plexmaton-cli` call sites reported that
+    as fatal. A delegation under load ended the session, which is what failed the delegate smoke
+    script on `main`. Reads now wait on their own lane, carrying no mutation to hand back, while the
+    control slot keeps its refusal so a mutation retains its exact attempt.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Independent lossless session export/import belongs to this phase as unstarted follow-up work.

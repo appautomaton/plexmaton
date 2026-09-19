@@ -41,6 +41,7 @@ impl CollaborationWriter {
         quiescence: Result<(), CollaborationWriterError>,
     ) -> Result<(), CollaborationWriterError> {
         self.sender.take();
+        self.inspection.take();
         let finished_failed = match self.finished.as_mut() {
             Some(finished) => (&mut *finished).await.unwrap_or(true),
             None => false,
@@ -62,6 +63,7 @@ impl CollaborationWriter {
 impl Drop for CollaborationWriter {
     fn drop(&mut self) {
         self.sender.take();
+        self.inspection.take();
         if let Some(worker) = self.worker.take() {
             let _worker_failed = worker.join().is_err();
         }

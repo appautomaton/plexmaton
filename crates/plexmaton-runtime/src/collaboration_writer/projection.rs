@@ -3,28 +3,36 @@
 use super::*;
 
 impl CollaborationWriter {
+    /// Admits one read on the inspection lane, waiting for room instead of refusing it (SCH-2).
+    ///
+    /// A read carries no mutation to hand back, so waiting costs the caller nothing it owns.
+    /// Refusing did cost: every query shared the single control slot, so any command in flight
+    /// turned a read into a failure its caller reported as fatal, ending the session.
+    async fn inspect<T>(
+        &self,
+        command: impl FnOnce(oneshot::Sender<Result<T, CollaborationWriterError>>) -> Command,
+    ) -> Result<T, CollaborationWriterError> {
+        let (reply, result) = oneshot::channel();
+        let permit = self
+            .inspection
+            .as_ref()
+            .ok_or(CollaborationWriterError::Closed)?
+            .reserve()
+            .await
+            .map_err(|_| CollaborationWriterError::Closed)?;
+        permit.send(command(reply));
+        result
+            .await
+            .map_err(|_| CollaborationWriterError::WorkerFailed)?
+    }
+
     /// Reconstructs one canonical child binding without transferring file ownership.
     pub(crate) async fn delegated_control(
         &self,
         delegation: DelegationId,
     ) -> Result<DelegatedConversationControl, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::DelegatedControl { delegation, reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
+        self.inspect(|reply| Command::DelegatedControl { delegation, reply })
             .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 
     /// Returns the current canonical task, endpoints, revision and controller for one delegation.
@@ -32,46 +40,16 @@ impl CollaborationWriter {
         &self,
         delegation: DelegationId,
     ) -> Result<DelegationView, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::DelegationView { delegation, reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
+        self.inspect(|reply| Command::DelegationView { delegation, reply })
             .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 
     /// Reconstructs every canonical child capability in creation order for root resume.
     pub(crate) async fn delegated_controls(
         &self,
     ) -> Result<Vec<DelegatedConversationControl>, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::DelegatedControls { reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
+        self.inspect(|reply| Command::DelegatedControls { reply })
             .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 
     /// Returns an owned snapshot from the current canonical file owner (CMP-1).
@@ -79,23 +57,8 @@ impl CollaborationWriter {
         &self,
         endpoint: MailEndpoint,
     ) -> Result<CollaborationMailProjection, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::ProjectMail { endpoint, reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
+        self.inspect(|reply| Command::ProjectMail { endpoint, reply })
             .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 
     /// Reads mail and its selected session admissions from one canonical writer observation.
@@ -104,27 +67,12 @@ impl CollaborationWriter {
         endpoint: MailEndpoint,
         references: Vec<CollaborationItemRef>,
     ) -> Result<SessionMailSourceSnapshot, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::ProjectSessionMail {
+        self.inspect(|reply| Command::ProjectSessionMail {
             endpoint,
             references,
             reply,
-        }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
-            .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
+        })
+        .await
     }
 
     /// Every acknowledged record in the log, in append order.
@@ -135,23 +83,7 @@ impl CollaborationWriter {
     pub(crate) async fn records(
         &self,
     ) -> Result<Vec<CollaborationRecord>, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::Records { reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
-            .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
+        self.inspect(|reply| Command::Records { reply }).await
     }
 
     /// Materializes exact session references through the current canonical file owner.
@@ -159,22 +91,7 @@ impl CollaborationWriter {
         &self,
         references: Vec<CollaborationItemRef>,
     ) -> Result<Vec<Arc<ResolvedTurnAdmission>>, CollaborationWriterError> {
-        let (reply, result) = oneshot::channel();
-        let sender = self
-            .sender
-            .as_ref()
-            .ok_or(CollaborationWriterError::Closed)?;
-        match sender.try_send(Command::ResolveContext { references, reply }) {
-            Ok(()) => {}
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                return Err(CollaborationWriterError::Busy);
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                return Err(CollaborationWriterError::Closed);
-            }
-        }
-        result
+        self.inspect(|reply| Command::ResolveContext { references, reply })
             .await
-            .map_err(|_| CollaborationWriterError::WorkerFailed)?
     }
 }
