@@ -6,7 +6,7 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 
 | Invariant | Proven by |
 | --- | --- |
-| SKP-1 | `catalog_retention_is_bounded_by_count_and_bytes`, `dollar_text_is_literal_unless_a_current_skill_selection_binds_it`, `scripts/smoke-tui.py`, crate graph gate |
+| SKP-1 | `catalog_retention_is_bounded_by_count_and_bytes`, `dollar_text_is_literal_unless_a_current_skill_selection_binds_it`; `scripts/smoke-tui.py` reaches a real on-disk skill through the executable, and the crate-graph gate forbids the TUI reaching a runtime or network client at all |
 | SKP-2 | `keyboard_completion_binds_numeric_names_and_token_edits_invalidate_binding`, `completion_from_inside_the_initial_token_preserves_the_request_suffix`, `retry_edit_submission_and_saved_draft_keep_independent_skill_bindings`, `unchanged_numeric_skill_retry_uses_the_historical_semantic_binding`, `numeric_retry_candidate_retains_only_typed_skill_selection` |
 | SKP-3 | `escape_preserves_the_query_and_tab_inserts_the_selected_choice`, `mouse_and_wheel_choose_by_name_while_focus_stays_in_the_composer`, `variables_currency_prose_and_command_substitution_do_not_open_the_picker`, `the_listing_follows_the_leading_token` |
 | SKP-4 | `short_picker_window_keeps_the_selected_tail_choice_and_controls_visible`, `the_skill_picker_frames_match_their_fixtures`; rendered review above |

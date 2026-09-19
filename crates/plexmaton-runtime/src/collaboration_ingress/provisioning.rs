@@ -174,16 +174,22 @@ pub(super) fn provisioning_process_barrier(boundary: &str, target: &TargetSelect
         std::env::var_os("PLEXMATON_TEST_PROVISIONING_READY")
             .expect("process-cut fixture provides a readiness path"),
     );
+    // Publish the marker atomically: the reader takes its existence as the barrier, so a file
+    // created empty and filled afterwards hands back a partial read as a wrong marker. Write
+    // beside it and rename, which is atomic on one filesystem, so existence implies completeness.
+    let pending = ready.with_extension("pending");
     let mut marker = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(ready)
+        .open(&pending)
         .expect("create process-cut readiness marker");
     write!(marker, "{boundary}\n{}\n", target.as_str())
         .expect("write process-cut readiness marker");
     marker
         .sync_all()
         .expect("persist process-cut readiness marker");
+    drop(marker);
+    std::fs::rename(&pending, &ready).expect("publish process-cut readiness marker");
     // The parent owns this process and normally kills it immediately. The deadline also bounds the
     // fixture if the parent disappears before Drop can reap its child.
     let deadline = Instant::now() + Duration::from_secs(30);
