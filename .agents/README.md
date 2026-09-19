@@ -59,7 +59,11 @@ Integration boundary, or a table of what a test cannot see — which names each 
 its value to the module holding it, since a figure copied beside a constant has already gone stale
 here. A latency owed and a measurement taken are not copies. `evidence/<spec>.md` holds the rest:
 each invariant mapped to the test proving it, unproven ones said to be unproven, and every record
-of a review, which had grown nine headings before it had one. Both change with the code. It has no purpose section, because `Owns` is the purpose; no out-of-scope section, because the phase file routes what is not built; and no ownership
+of a review, which had grown nine headings before it had one. A row says what kind of evidence each
+proof is: a fast deterministic test, a rendered frame the user has read, or a real-terminal script.
+All three prove something, and they do not prove it equally — a script run once by hand on a
+machine nobody recorded is not a test that runs on every change — so a row that lists them alike
+leaves a reader unable to tell how firmly an invariant stands. Both change with the code. It has no purpose section, because `Owns` is the purpose; no out-of-scope section, because the phase file routes what is not built; and no ownership
 rationale, because the code owns what owns what and the contract owns why. Rejected: a six-section
 template with Purpose, Model, Failure modes and Out of scope required, which produced eight-kilobyte
 essays restating the contract, and would have made forty specs a second, drifting codebase.

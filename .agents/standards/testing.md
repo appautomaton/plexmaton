@@ -5,8 +5,17 @@
 | Trigger | You are about to write, change, or delete a test |
 | Owns | Tier selection, test-double policy, snapshot policy, performance evidence |
 
-Tests are part of the design. Choose the lowest tier that can prove the contract, then add
-higher-tier coverage only for boundary behavior the lower tier cannot exercise.
+Tests are part of the design. Choose the lowest tier that can prove the contract; a higher tier
+earns its place only by reaching what the lower cannot. Plexmaton has one user, who runs it daily
+and reports what breaks, so that rule bites harder here: Tiers 1–3 *shape* behaviour — writing one
+forces an invariant to be stated, a failing one names what changed — while a Tier 4–5 test not
+reaching terminal lifecycle, escape sequences or a real process boundary buys detection the user
+already gives, and charges flakiness and upkeep for it.
+
+**A settled boundary is a precondition for Tiers 4–5, not for Tier 1.** Much of this project has
+boundaries nobody has drawn yet. A unit test is welcome there, and mocking the edges is often how
+the boundary gets drawn; an end-to-end test is not, because there is nothing to assert against a
+whole system nobody has decided yet. Repairing such a test defends a guess.
 
 ## Tier 0 — static and compile-time gates
 
@@ -68,24 +77,19 @@ Provide builders for variations; do not duplicate large opaque blobs across test
 
 ## Tier 4 — integration and end-to-end tests
 
-Purpose: prove that real subsystem boundaries compose correctly.
-
-- Runnable binary with deterministic synthetic runtime
-- PTY/virtual-terminal interaction where escape-sequence behavior matters
-- Full A-to-B multi-agent experience with fake providers/tools but real routing, cancellation, and UI loop
-- Process, filesystem, storage, and shutdown behavior in isolated temporary workspaces
+Purpose: reach a real boundary the cell buffer and the in-process fakes cannot — a runnable binary,
+a PTY where escape sequences matter, a real process or filesystem boundary under shutdown.
 
 Use real first-party components and fake only the external boundary. Assert user-visible and
-durable outcomes, not private call order.
+durable outcomes, not private call order. A Tier 4 test belongs in its own lane, not in the fast
+suite: one that spawns or kills a process while sitting in `cargo test` runs on every change,
+charging the whole loop for evidence that was only ever needed at a wrap-up.
 
 ## Tier 5 — compatibility and manual validation
 
-Purpose: validate assumptions that cannot be proven hermetically.
-
-- Manual use of the product against a configured provider
-- Real terminal/tmux/SSH graphics and input checks
-- Platform-specific clipboard and process behavior
-- Visual/interaction review of representative workflows
+Purpose: validate assumptions that cannot be proven hermetically. The user does this by using the
+product: a configured provider, a real terminal over tmux or SSH, platform clipboard and process
+behaviour, and a look at whether a workflow still reads well.
 
 Test targets and test scripts never contact a real or billable model endpoint, including behind an
 ignored or opt-in flag. Provider behavior is exercised with scripted streams and loopback fixture
@@ -122,8 +126,9 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
 - A test must fail for a plausible bug. Before keeping it, be able to name the regression it
   detects, and prefer proving it by mutating the implementation and watching that test fail.
 - Do not duplicate the same assertion at every tier; each tier should add distinct confidence.
-- Flaky tests are bugs. Fix the synchronization or contract; do not add retries until they turn
-  green.
+- A flaky test proves nothing, and is worse than none while a document still cites it: the corpus
+  reads as settled when it is not. Fix the synchronization or contract; failing that, move it to a
+  reporting lane and mark what it claimed unproven. Never add retries until it turns green.
 
 Rejected: a workspace-wide assertion macro solely to rewrite every `matches!`; put diagnostic
 context at ambiguous failures, and use direct equality when the expected value is the contract.
