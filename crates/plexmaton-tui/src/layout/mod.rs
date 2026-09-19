@@ -311,7 +311,7 @@ pub(super) fn composer_width(area: Rect, inspector: Option<InspectorRequest>) ->
 /// It outranks the agents strip and loses to the conversation. A projection that is silently wrong
 /// is the failure the notice log exists to prevent and the user has no other way to detect it,
 /// whereas a
-/// missing rail is visible in itself and recovered by resizing.
+/// missing strip is visible in itself and recovered by resizing.
 fn notice_rows(available: u16) -> u16 {
     NOTICE_HEIGHT.min(available.saturating_sub(MIN_PANEL_HEIGHT))
 }
@@ -476,7 +476,7 @@ mod tests {
     use crate::surface::{SurfaceId, SurfaceKind};
 
     /// The default composer, which is the shape every one of these sizes is checked against.
-    /// A rail in every fixture: the geometry under test is the crowded one, and a workspace with
+    /// A strip in every fixture: the geometry under test is the crowded one, and a workspace with
     /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {
@@ -952,14 +952,14 @@ mod tests {
         );
     }
 
-    /// The rail earns its rectangle by having a roster, at every class.
+    /// The strip earns its rectangle by having a roster, at every class.
     ///
     /// A workspace that has delegated nothing showed a bordered box reading `No sub-agents yet.` in
     /// the column the conversation wanted, on every screen and for the whole life of a session that
     /// may never delegate. Not registered rather than drawn empty: an empty panel is still a focus
     /// stop, a pointer target and a `Tab` the user has to press through.
     #[test]
-    fn the_rail_is_registered_only_when_there_is_a_roster() {
+    fn the_strip_is_registered_only_when_there_is_a_roster() {
         for (width, height) in SIZES {
             let empty = workspace(
                 Rect::new(0, 0, width, height),
@@ -970,7 +970,7 @@ mod tests {
             );
             assert!(
                 empty.get(SurfaceId::Agents).is_none(),
-                "{width}x{height}: a roster of nobody registers no rail"
+                "{width}x{height}: a roster of nobody registers no strip"
             );
             let conversation = empty
                 .get(SurfaceId::Transcript)
@@ -982,7 +982,7 @@ mod tests {
             assert!(
                 conversation.bounds.width >= narrower.bounds.width
                     && conversation.bounds.height >= narrower.bounds.height,
-                "{width}x{height}: the rows and columns the rail did not take go to the conversation"
+                "{width}x{height}: the rows the strip did not take go to the conversation"
             );
         }
     }

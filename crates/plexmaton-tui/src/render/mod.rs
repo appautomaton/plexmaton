@@ -1119,7 +1119,7 @@ mod tests {
         assert!(rendered.contains("Terminal too small"));
         assert!(rendered.contains("48 x 12"), "states the requirement");
         assert!(rendered.contains("40 x 10"), "states what it got");
-        // Nothing from the workspace may leak through; a half-drawn rail is the failure this
+        // Nothing from the workspace may leak through; a half-drawn strip is the failure this
         // notice exists to prevent.
         assert!(!rendered.contains("Agent A"));
         assert!(!rendered.contains("Activity"));
@@ -1405,7 +1405,7 @@ mod tests {
                 "the pill sits at the far end of the row, not beside the label: {top:?}"
             );
 
-            let rail = region_text(
+            let strip = region_text(
                 &buffer,
                 Rect {
                     height: 1,
@@ -1416,8 +1416,8 @@ mod tests {
                 },
             );
             assert!(
-                !rail.contains('!'),
-                "the count belongs to one place: {rail:?}"
+                !strip.contains('!'),
+                "the count belongs to one place: {strip:?}"
             );
 
             let column = |needle: char| {

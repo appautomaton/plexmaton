@@ -1,12 +1,12 @@
 //! Interactive, offline fixture for the roster, rendered directly by the terminal.
 //!
 //! The canonical fixture has one sub-agent, which shows that the roster exists but not what it is
-//! for. Several agents in different states at once is the case the panel's ordering, its ruled
-//! break and its colour hierarchy are the answer to, so that is what this starts in.
+//! for. Several agents in different states at once is the case the strip's ordering, its cap and
+//! its colour hierarchy are the answer to, so that is what this starts in.
 //!
-//! `Ctrl-B` puts the panel away and brings it back; `↑`/`↓` move the selection and `Enter` enters
+//! `Ctrl-B` puts the strip away and brings it back; `↑`/`↓` move the selection and `Enter` enters
 //! an agent, which for one that is asking is also going to its request. `Ctrl-D` twice exits.
-//! Resize the window to watch the panel move between a column and the narrow full-region navigator.
+//! Resize the window to watch it move between the strip and the narrow full-region navigator.
 
 use std::{
     io,

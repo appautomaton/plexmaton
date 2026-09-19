@@ -165,6 +165,16 @@ The tree fills the content rectangle above the existing Status/quit row. The Dra
 above it without losing the tree's cursor or draft. The single key/pointer grammar is owned by
 [interaction routing](./interaction-routing.md#key-grammar): clicks select, Enter navigates,
 child editors own their text, and dismissal never claims to roll back an admitted write.
+The native presentation keeps linear steps aligned and reserves a right-side badge for named heads;
+`●` marks the current branch even when multiple names share one display anchor. Canonical branch
+selection and copy still resolve the original head tip. Controls and the active head use `Accent`,
+connectors and inactive heads use `Muted`, and previews retain `Body`/`Muted`. Selected row headings use
+`Chosen`; its background spans the row without overwriting the other semantic foregrounds or weights.
+The footer advertises the selected row's action and names expand/collapse only when available.
+Scroll offsets/capacity remain semantic in UI state; the renderer maps to two-line node blocks.
+Fixed headings do not count as scrolled rows, and connectors, summaries and spare partial rows
+cannot become pointer targets.
+
 Search and branch summaries are not exposed. The user chose the full-viewport modal, aliases,
 close button, shared selection and Pi-style folding/labels; native visual evidence is below.
 

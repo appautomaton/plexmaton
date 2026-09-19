@@ -210,7 +210,7 @@ mod tests {
         surface::{SurfaceId, SurfaceTree},
     };
 
-    /// A rail in every fixture: the geometry under test is the crowded one, and a workspace with
+    /// A strip in every fixture: the geometry under test is the crowded one, and a workspace with
     /// no sub-agents simply has one region fewer to place.
     fn input(has_notices: bool) -> WorkspaceInput {
         WorkspaceInput {

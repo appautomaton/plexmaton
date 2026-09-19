@@ -87,7 +87,8 @@ and are offered only when effective for the whole call. Exact fallback explains 
 offered. This classifies syntax and scope, not executable effects or OS confinement (CMD-2).
 A scope the user cannot read cannot be granted: a clipped one disables remembered grants for both
 keyboard and pointer while Back stays usable, and a scope must reach a successfully delivered frame
-before a separate press can confirm it. Which of the card's parts gives way first is ui-ux's.
+before a separate press can confirm it. On a short card the complete scope is what the room is
+spent on, before repeated operation detail and explanatory notes.
 
 ## Evidence
 

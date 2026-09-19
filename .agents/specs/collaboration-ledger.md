@@ -55,7 +55,7 @@ refused.
 | Identity | Nonempty; a hard ceiling |
 | Artifact references per mail | Distinct conversation/artifact pairs, hard-capped |
 | Total items | One ceiling over mail, task, Handoff, Attention-reference and turn records; configurable downward |
-| Delegations | Configurable downward |
+| Delegations | A ceiling of its own, configurable downward |
 | Semantic mail bytes | Text plus endpoint/pointer identities; configurable downward |
 | Control reserve | Tail item slots mail cannot take; configurable from zero to total items |
 

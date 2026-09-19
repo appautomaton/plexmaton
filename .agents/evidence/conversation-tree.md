@@ -25,15 +25,6 @@ merged as `6fde843`. These results cover the implementation, not subsequent docu
 
 Actual native frames were locally inspected at 120×30, 88×30, 60×30 and 48×12, including the label editor and branch selector. No preview generator or design mockup is shipped. `scripts/smoke-tree.py` separately proves actual terminal switching with Chinese text, exact destination context, original-branch return, selected-head restart and one command effect across six loopback requests.
 
-The native presentation keeps linear steps aligned and reserves a right-side badge for named heads;
-`●` marks the current branch even when multiple names share one display anchor. Canonical branch
-selection and copy still resolve the original head tip. Controls and the active head use `Accent`,
-connectors and inactive heads use `Muted`, and previews retain `Body`/`Muted`. Selected row headings use
-`Chosen`; its background spans the row without overwriting the other semantic foregrounds or weights.
-The footer advertises the selected row's action and names expand/collapse only when available.
-Scroll offsets/capacity remain semantic in UI state; the renderer maps to two-line node blocks.
-Fixed headings do not count as scrolled rows, and connectors, summaries and spare partial rows
-cannot become pointer targets.
 [Folded state](../../crates/plexmaton-tui/frames/conversation-tree/folded-88.svg) shows the same
 control and semantic roles after a pointer toggle. Frames below come from the production Workspace renderer with a sanitized structural fixture,
 not from the user's private journal. Regenerate with

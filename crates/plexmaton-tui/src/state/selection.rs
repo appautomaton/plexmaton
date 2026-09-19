@@ -169,7 +169,7 @@ impl ViewState {
             return;
         };
         // A selection clamped at either end of the list does not move, and an unchanged highlight
-        // must not cost a frame — the same rule `move_selection` follows on the agents rail (FR-1).
+        // must not cost a frame — the same rule `move_selection` follows on the agents strip (FR-1).
         let changed = match self.selection.as_mut() {
             Some(selection) if selection.surface == surface && selection.agent == agent_id => {
                 let (anchor, focus) = selection.indices();

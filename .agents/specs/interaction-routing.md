@@ -26,7 +26,8 @@ never changes focus or transcript selection. Wheel routing retains `ui-ux.md` §
 
 **INV-4 — Capture wins for the drag gesture.** Captured button and motion events stay on their
 surface regardless of position; hit testing is not consulted. Wheels keep hover routing. Terminal
-focus loss pauses motion but preserves capture for a later drag.
+focus loss pauses motion but preserves capture for a later drag. A release or a cancel gives
+capture back exactly once: a second release produces `Ignored::NoCapture`, never a second gesture.
 
 **INV-6 — The Escape ladder resolves one layer per press.** Cancel active capture first, then
 resolve the focused input selection or topmost overlay. A focused primary approval returns focus
@@ -76,7 +77,7 @@ crossterm::Event ──▶ Router::translate(event, RouterContext) ──▶ Rou
 `RouterContext` is a read-only snapshot of input mode, focus, dismissible state, selection, and the
 last frame's `SurfaceTree`. The router mutates only its capture: a left press on a surface takes it,
 a drag keeps it, and a release or `Escape` gives it back (INV-4); releasing twice gives back
-nothing, which `capture_is_released_exactly_once` holds.
+nothing.
 
 ### Key grammar
 

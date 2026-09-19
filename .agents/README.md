@@ -6,7 +6,7 @@ Keep project instructions inside the checkout so they work in clones and linked 
 ## Layers
 
 Keep rules that apply across tasks in `AGENTS.md`. Put task-specific rules in the documents
-below and read them when their trigger applies. Harnesses determine when files enter model context.
+below and read them when their trigger applies.
 
 | Layer | Applies to | Files |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ below and read them when their trigger applies. Harnesses determine when files e
 | `ui-ux.md` | The experience contract, free of mechanism | A rule changes, or a mechanism moves to a spec | Never |
 | `phases/phase-NN-*.md` | One phase: scope, sequence with current state, exit gate, what is outstanding | Every slice that lands | Closure, below |
 | `plans/phase-NN-stage-MM-*.md` | One stage's slices | Every slice | Consumed. Deleted |
-| `specs/*.md` | One mechanism as it is now, with its evidence | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
+| `specs/*.md` | One mechanism as it is now | The mechanism changes. Rewritten in place; a retired invariant ID is never reused | The mechanism is removed. Spec, tests and citations go in one change |
 | `research/*.md` | A research gate: the invariants its result must satisfy, its corpus, candidates, and decision criteria | The comparison advances | Decided. The result becomes a spec and the file is deleted |
 | `spikes/<topic>/README.md` | Bounded investigation: read trigger, question, evidence, run command and limits; prototypes beside it, build output outside the corpus | Evidence changes | Promote decisions; delete when evidence is no longer useful |
 | `handoffs/*.md` | A letter for whoever picks up the work, written only when the user asks | Never. A stale one is deleted, not corrected | Stale |
@@ -33,21 +33,7 @@ below and read them when their trigger applies. Harnesses determine when files e
 Three operations and no others: rewrite in place, delete, append. `AGENTS.md` §Documenting work
 owns the first.
 
-A spec names the boundary and leaves the number to the module holding it: a figure copied beside a
-constant is a second copy with nothing forcing agreement, and it has already gone stale here. A
-latency the product owes and a measurement taken are not copies, and stay.
-
-A spec has `## Invariants` and `## Evidence`, and between them only `## Model`, `## Grammar`,
-`## Failure modes` and `## Integration boundary`. Everything that records a review — frames someone
-looked at, a dependency audit, a PTY journey — goes to `evidence/<spec>.md` beside the named proofs,
-because it is the same kind of thing and had grown nine headings. A task, a scope still being
-argued, or a note addressed to whoever implements this are a plan's, and a plan is deleted when it
-is consumed.
-
 ## Where we are
-
-Three cells, each saying one thing: the roadmap's row for the phase, the phase file's status, the
-plan's status. Phase, stage, slice.
 
 `phases/` holds every open phase, one file each. Phases are cut by what must be true at their gate,
 not by layer, and work is cross-cutting, so more than one can be open; in one worktree one slice is
@@ -64,15 +50,16 @@ by an implementation and its tests, outlives the current phase, and is too detai
 `roadmap.md` yet not a cross-cutting rule for `ui-ux.md`. Where documented types already carry
 the contract, the code is the spec.
 
-A spec is the front matter `Status`, `Owns`, `Depends on`, `Proven by`, then Invariants and
-Evidence. An invariant is numbered under a prefix no other spec uses, because it is cited bare, far
-from the file that defines it, and is stated in one or two sentences a failing test can be written
-for; beside it go the cite into the contract it comes from and at most one `Rejected:` sentence.
-The evidence table maps each invariant to the test that proves it, lists unproven ones as unproven,
-and is updated in the same change as the code. A spec may add a Model, as a diagram, a type, or a
-state machine; a Failure modes table; and a table for what the mechanism owns that a test cannot
-see, such as a formula or a measured cost. It has no purpose section, because `Owns` is the
-purpose; no out-of-scope section, because the phase file routes what is not built; and no ownership
+A spec is the front matter `Status`, `Owns`, `Depends on`, `Proven by`, then Invariants and a
+pointer to its Evidence. An invariant is numbered under a prefix no other spec uses, because it is
+cited bare, far from the file that defines it, and is stated in one or two sentences a failing test
+can be written for; beside it go the cite into the contract it comes from and at most one
+`Rejected:` sentence. A spec may add a Model, a Grammar, a Failure modes table, an
+Integration boundary, or a table of what a test cannot see — which names each boundary and leaves
+its value to the module holding it, since a figure copied beside a constant has already gone stale
+here. A latency owed and a measurement taken are not copies. `evidence/<spec>.md` holds the rest:
+each invariant mapped to the test proving it, unproven ones said to be unproven, and every record
+of a review, which had grown nine headings before it had one. Both change with the code. It has no purpose section, because `Owns` is the purpose; no out-of-scope section, because the phase file routes what is not built; and no ownership
 rationale, because the code owns what owns what and the contract owns why. Rejected: a six-section
 template with Purpose, Model, Failure modes and Out of scope required, which produced eight-kilobyte
 essays restating the contract, and would have made forty specs a second, drifting codebase.
@@ -121,7 +108,8 @@ escape hatch below.
 | `README.md` at the root | 4 KB | It says what the executable does and how to run it; anything else belongs in the corpus |
 | `.agents/README.md` | 8 KB | Split the corpus rules from the budget table |
 | `.agents/standards/*.md` | 8 KB | One standard covers one trigger; split by trigger |
-| `.agents/specs/*.md` | 24 KB | Split when a second mechanism or ownership boundary appears; evidence may grow with the contract it proves |
+| `.agents/specs/*.md` | 24 KB | Split when a second mechanism or ownership boundary appears |
+| `.agents/evidence/*.md` | 16 KB | A spec this heavily proven is two mechanisms; split the spec and its evidence together |
 | `.agents/plans/*.md` | 8 KB | A plan this long is a phase; the stage it plans is too big |
 | `.agents/roadmap.md` | 8 KB | Detail belongs in a phase file, a research track, or a spec |
 | `.agents/ui-ux.md` | 32 KB | Move mechanism detail into `specs/`; keep the rule here |

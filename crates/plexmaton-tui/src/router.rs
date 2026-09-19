@@ -507,7 +507,7 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
 
 /// One step down or up, meaning whatever "down" means inside the surface that holds focus.
 ///
-/// The rail is the only navigational surface made of choices, so it is the only one where an arrow
+/// The strip is the only navigational surface made of choices, so it is the only one where an arrow
 /// moves a selection; everywhere else the content is longer than the region and an arrow is the
 /// keyboard equivalent of the wheel, which every gesture must have (`ui-ux.md` §user control).
 ///
@@ -694,7 +694,7 @@ mod tests {
     /// INV-10: an arrow moves within whatever holds focus, and the wheel finally has a keyboard
     /// equivalent.
     #[test]
-    fn an_arrow_moves_the_rail_and_scrolls_everything_else() {
+    fn an_arrow_moves_the_strip_and_scrolls_everything_else() {
         let surfaces = tree();
         let mut router = Router::default();
         let down = key(KeyCode::Down, KeyModifiers::NONE);

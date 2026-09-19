@@ -75,11 +75,13 @@ replacement flush preceding deltas first. Its limits are:
 
 | Boundary | Policy |
 | --- | --- |
-| Background frame interval | Measured from the last successful frame's start; later deltas do not extend it |
-| Pending events | A bounded count; reaching it flushes early |
-| Pending text allocation | A bounded `String` capacity; pressure flushes early, and an individually oversized event is applied without retaining it in the batch |
+| Background frame interval | 16 ms, measured from the last successful frame's start; later deltas do not extend it |
+| Pending events | A hard count, so a burst cannot grow the batch without bound; reaching it flushes early |
+| Pending text allocation | A hard `String` capacity, counted rather than estimated; pressure flushes early, and an individually oversized event is applied without retaining it in the batch |
 | Input | Resolve the original event first, then flush; input frames are not rate-limited |
 | Idle / failed output | Empty batches have no deadline; a failed draw advances neither the successful frame count nor its deadline |
+
+Values: `plexmaton-cli/src/stream_frames.rs`.
 
 An unchanged projection still costs no frame, and the next loop iteration checks a due frame even
 when a different ready event won the asynchronous wait. This is coalescing, not a hard global FPS

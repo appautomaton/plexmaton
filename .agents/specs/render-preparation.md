@@ -61,15 +61,17 @@ an individual refusal becomes visible; a successful batch restores the full ceil
 | Boundary | Policy |
 | --- | --- |
 | Active / pending | One retained operation and one latest encoded batch; no per-request detached task |
-| Request | Snapshots and prefix hints are admitted before cloning, not after; a Markdown prefix hint is capped separately and its length prefix checked before allocation |
-| Reply | Twice the entry allocation, so a batch always carries entries the entry bound already admitted; oversized batches return a typed refusal |
+| Request | A hard entry count shared with the wire protocol; snapshots and prefix hints are admitted before cloning, not after; a Markdown prefix hint is capped separately and its length prefix checked before allocation |
+| Reply | One bound over both the encoded bytes and the aggregate prepared allocation they carry, so a batch cannot pass the wire and fail on arrival; oversized batches return a typed refusal. The worker's own batch bound is a separate, larger figure derived from the entry budget |
 | Prepared entry | The rows a message may occupy, times what a finished row costs; identity admitted separately; validated UTF-8 copy ranges, checked grapheme-width text fragments, atomic rectangle/run consistency and selection-padding bounds |
-| Frame pins | A pinned candidate and last-painted revision are retained inside MD-4's LRU and counted against its slot and allocation bounds; there is no second budget |
+| Frame pins | The drawing and last-painted maps have their own slot and allocation bounds, deliberately separate from MD-4's LRU: a failed frame must not evict the maps input is resolving against. The allocation bound is a multiple of the entry budget |
 | Selected-text assembly | One selection, bounded across member identities and text together; no truncation or delivery acknowledgement |
 | Process | Absolute executable, empty environment, piped stdin/stdout, discarded stderr |
 | Lifetime | One deadline covering request/reply I/O and computation together, and a second for kill/reap; uncertain cleanup retains the child in quarantine |
 
-Values: `plexmaton-tui/src/preparation.rs`, its layout cache, `plexmaton-cli/src/preparation.rs`.
+Values: `plexmaton-tui/src/{preparation,transcript/preparation}.rs`, the layout cache,
+`plexmaton-cli/src/preparation/wire.rs`. The entry row budget is `markdown.rs`'s and the
+selected-text ceiling is `workspace/copy.rs`'s, named by the invariants that own them.
 
 Pending revisions preserve compatible prepared content and its height; cold or evicted entries
 use a placeholder with a known or estimated height. Unavailable entries show a compact refusal
