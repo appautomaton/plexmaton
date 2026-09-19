@@ -86,6 +86,9 @@ impl PermissionMatcher {
             Self::NativeFileChanges { .. } => {
                 "Native create/edit; excludes agent controls and Git metadata".to_owned()
             }
+            Self::ConfinedCommands { .. } => {
+                "Commands, confined by the OS to this workspace and its caches".to_owned()
+            }
             Self::CommandPrefix { prefix, .. } => format!("Command prefix: {} …", prefix.label()),
             Self::ExactCommand { command, .. } => format!("Exact command: {:?}", command.source()),
         }
@@ -104,6 +107,34 @@ impl SessionPermissions {
             PermissionAction::EnableNativeFiles => self.enable_native_files(&intent.expected),
             PermissionAction::Revoke(id) => self.revoke(&intent.expected, id),
         }
+    }
+
+    /// Starts the Session with commands already granted, for a bound the host supplies.
+    ///
+    /// Not a `PermissionAction`, because this is not the owner's choice to make and un-make: the
+    /// fence either exists on this host or it does not, and where it does not the caller has no
+    /// matcher to pass. Revocation stays the ordinary one — the grant carries a `/permissions` row
+    /// like any other, and dies with the Session that seeded it.
+    #[must_use]
+    pub fn with_confined_commands(mut self, matcher: PermissionMatcher) -> Self {
+        let expected = self.snapshot().revision().clone();
+        let Ok(state) = self.advance(&expected) else {
+            unreachable!("a fresh Session accepts its own revision")
+        };
+        let id = PermissionGrantId::new(format!(
+            "{}:{}",
+            state.revision.session(),
+            state.revision.sequence()
+        ))
+        .unwrap_or_else(|_| {
+            unreachable!("owner and numeric revision form a nonempty grant identity")
+        });
+        state.grants.push(PermissionGrant {
+            id,
+            matcher,
+            origin: PermissionGrantOrigin::ConfinedCommandPreset,
+        });
+        self
     }
 
     fn enable_native_files(

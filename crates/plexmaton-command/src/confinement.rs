@@ -106,14 +106,8 @@ impl Confinement {
     /// diagnostic. Every path below therefore enters the profile as its own resolved form or does
     /// not enter it at all.
     pub(crate) fn resolve(workspace_root: &Path, shell: &str) -> Self {
-        if !cfg!(target_os = "macos") {
-            return Self::Unconfined(Unconfined::UnsupportedPlatform);
-        }
-        if !Path::new(SANDBOX_EXEC).exists() {
-            return Self::Unconfined(Unconfined::LauncherMissing);
-        }
-        if !launcher_applies() {
-            return Self::Unconfined(Unconfined::ApplyRefused);
+        if let Some(reason) = Self::unavailable() {
+            return Self::Unconfined(reason);
         }
         let roots = resolved_write_roots(workspace_root);
         let mut prefix = vec![OsString::from("-p"), OsString::from(profile(roots.len()))];
@@ -126,6 +120,22 @@ impl Confinement {
         prefix.push(OsString::from("--"));
         prefix.push(OsString::from(shell));
         Self::Enforced { prefix, roots }
+    }
+
+    /// Why this host cannot fence a command at all, or `None` when it can.
+    ///
+    /// Independent of any workspace, so a composition root can settle it once. A policy that stops
+    /// asking about commands is leaning on this answer: where it is `Some`, the question has
+    /// nothing underneath it and must keep being asked.
+    #[must_use]
+    pub fn unavailable() -> Option<Unconfined> {
+        if !cfg!(target_os = "macos") {
+            return Some(Unconfined::UnsupportedPlatform);
+        }
+        if !Path::new(SANDBOX_EXEC).exists() {
+            return Some(Unconfined::LauncherMissing);
+        }
+        (!launcher_applies()).then_some(Unconfined::ApplyRefused)
     }
 
     /// The program to spawn and the arguments preceding the shell's own `-c`.

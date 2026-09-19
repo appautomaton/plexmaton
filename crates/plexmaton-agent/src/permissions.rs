@@ -71,6 +71,16 @@ pub enum PermissionMatcher {
         /// Trusted edit definition.
         edit: PermissionDefinition,
     },
+    /// Every command the pinned definition admits, because the OS bounds what one can reach.
+    ///
+    /// Held only where a fence exists to hold it: the composition root grants this after its host
+    /// answers, so its presence is the assertion, and a host that cannot fence never produces one.
+    /// It covers the command's effects rather than its spelling — matching a command establishes
+    /// nothing about what it does, and a fence needs it to establish nothing.
+    ConfinedCommands {
+        /// Trusted command definition.
+        definition: PermissionDefinition,
+    },
     /// Literal argv prefix bound to execution context; every operation must be covered.
     CommandPrefix {
         /// Trusted command definition.
@@ -104,6 +114,9 @@ impl PermissionMatcher {
                         subject::FileChangeOperation::Create => create.matches(call),
                         subject::FileChangeOperation::Edit => edit.matches(call),
                     }
+            }
+            (Self::ConfinedCommands { definition }, PermissionSubject::Command { .. }) => {
+                definition.matches(call)
             }
             (
                 Self::ExactCommand {
@@ -189,6 +202,8 @@ pub enum PermissionGrantOrigin {
     Approval,
     /// The explicit native create/edit setting.
     NativeFilePreset,
+    /// Seeded at Session start on a host that can fence a command (CMD-7).
+    ConfinedCommandPreset,
 }
 
 /// Immutable policy view published by the Session owner; agents cannot mutate its authority.
