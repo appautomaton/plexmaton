@@ -80,7 +80,7 @@ pub(super) fn compact_tool_entries(
 
 /// Walks the focus ring to the conversation, whatever else is registered this frame.
 ///
-/// One `Tab` used to land there because the agent rail was always the first stop. The rail is only
+/// One `Tab` used to land there because the agent list was always the first stop. The striil is only
 /// registered when there are sub-agents now, so the number of stops before the conversation is a
 /// fact about the scenario rather than a constant a workload may assume.
 fn focus_conversation(harness: &mut Harness) -> anyhow::Result<()> {

@@ -104,8 +104,8 @@ retained entry ──┬─ original source ────────────
                                                CLI clipboard transport
 ```
 
-Clipboard admission checks each source's allocated capacity against 8 MiB before any effect or
-cancellation; refusal preserves prior accepted work and never truncates source. At most two admitted
+Clipboard admission checks each source's allocated capacity against the ceiling in
+`plexmaton-tui/src/workspace/copy.rs` before any effect or cancellation; refusal preserves prior accepted work and never truncates source. At most two admitted
 source allocations are retained. OSC 52 is written serially on the interaction loop, not by an
 independent task; slow terminal writes remain a separate output-boundary concern. The retained
 helper future survives a losing `select` poll, so a partial stdin write cannot be restarted.
@@ -132,39 +132,13 @@ be selected while its input holds the cursor.
 | The outer terminal declines OSC 52 | Undetectable here, and claimed nowhere (SEL-5) |
 | Local macOS rejects `pbcopy` or exceeds its deadline | Error returned to the composition root; no unacknowledged fallback reported as success |
 | A newer copy arrives during helper work | Cancel/reap the active child, coalesce pending requests to the newest exact source, then deliver it |
-| Copy source allocation exceeds 8 MiB | Explicit admission error before terminal output or cancellation; no silent truncation |
+| Copy source allocation exceeds its admission ceiling | Explicit admission error before terminal output or cancellation; no silent truncation |
 | The CLI leaves while copying | Cancel/reap the helper; discard pending work before terminal restoration |
 | Helper cleanup cannot establish a reaped child | Report cleanup failure and refuse any replacement |
-| tmux is absent, rejects `load-buffer -w`, or takes too long | The request has a 500 ms deadline; its child is killed and reaped before return, while the already-attempted OSC 52 route remains |
+| tmux is absent, rejects `load-buffer -w`, or takes too long | The request has its own deadline, separate from the helper's; its child is killed and reaped before return, while the already-attempted OSC 52 route remains |
 | A held drag reaches the viewport boundary | The timer disarms; repeated wakeups cost no frame |
 | A write to the terminal fails | An `io::Error` out of the composition root, like any other terminal write |
 
 ## Evidence
 
-| Invariant | Proven by |
-| --- | --- |
-| SEL-7 | `message_copy_hover_frames_are_local_and_clicking_body_never_copies` with the `message-actions-*` frames, `retry_hover_does_not_reverse_the_button_row_or_interfere_with_selection`, `copying_or_cancelling_copy_preserves_an_existing_selection`, `copy_icons_share_one_right_edge_across_roles_and_wrapped_text` |
-| SEL-1 | `formula_clicks_and_reverse_edge_drags_select_highlight_and_copy_the_complete_source`, `streamed_formula_completion_and_markdown_reinterpretation_cannot_leave_partial_tex_selected`, `pending_copy_cannot_outlive_selected_source_changes_or_cancellation`, `copy_is_the_same_at_every_width_and_scroll_position`, `copying_returns_the_source_between_the_endpoints`, `copying_a_conversation_preserves_interleaved_entry_sources`, `ctrl_o_opens_the_selections_focus_entry_in_place_at_each_drawn_width`, `dragging_across_a_conversation_selects_and_copies_what_it_crossed`, `text_drag_crosses_entries_without_selecting_their_uncovered_text`, `streamed_text_preserves_or_invalidates_selection_by_its_exact_prefix`, `text_selection_frames_cover_three_widths`, `text_drag_reuses_maps_and_records_every_sample_at_both_history_scales` |
-| SEL-2 | `formula_source_fallback_and_reflow_preserve_atomic_selection_without_repreparing_for_paint`, `native_table_cells_keep_atomic_geometry_and_exact_tabular_copy_when_narrow`, `selected_text_waits_for_missing_preparation_and_emits_one_complete_copy`, `selected_text_capacity_refuses_a_complete_request_without_emitting_a_prefix`, `tool_copy_preserves_every_retained_source_in_producer_order`, `tool_copy_is_identical_when_compact_open_resized_scrolled_and_repainted`, `copying_a_conversation_preserves_interleaved_entry_sources`, `copying_an_artifact_returns_its_pointer_rather_than_its_label`, `the_journey_copies_evidence_and_returns_to_the_prior_state`, `mouse_selects_only_visible_graphemes_and_copy_icon_keeps_markdown`, `text_drag_copies_wrapped_code_without_its_frame`, `mapped_markdown_has_width_independent_plain_text_and_exact_fragments`, `mapped_tables_copy_cell_text_without_alignment_padding` |
-| SEL-3 | `escape_clears_the_selection_before_it_closes_the_inspector`, `copying_returns_the_source_between_the_endpoints`, `a_selection_does_not_survive_the_surface_changing_agents`, `inspector_text_drag_survives_input_geometry_and_empty_drag_clears` |
-| SEL-4 | `tool_copy_is_identical_when_compact_open_resized_scrolled_and_repainted`, `direct_copy_writes_the_exact_terminated_osc_52_sequence` |
-| SEL-5 | `copy_admission_publishes_observed_delivery_without_a_timer_for_empty_requests`, `status_footer_preserves_focus_and_uses_the_last_row_for_hints`, `python3 scripts/smoke-tui.py`, `copy_receipt_preserves_layout_and_quit_priority_at_three_widths`, `clipboard_receipts_require_native_acceptance_and_suppress_cancellation`, `direct_copy_writes_the_exact_terminated_osc_52_sequence`, `tmux_copy_escapes_the_inner_sequence_inside_one_dcs_envelope`, `tmux_delivery_names_the_outer_clipboard_flag_and_stdin`, `route_detection_requires_a_non_empty_tmux_identity`, `an_editor_terminal_keeps_tmux_delivery_but_receives_plain_osc_52`, `native_copy_requires_an_unambiguous_local_macos_terminal`, `native_copy_uses_the_system_helper_with_utf8`, `clipboard_helper_receives_exact_unicode_source_and_eof`, `clipboard_helper_rejection_is_not_reported_as_delivery`, `clipboard_deadline_bounds_a_blocked_stdin_pipe`, `clipboard_deadline_also_bounds_waiting_after_eof`, `clipboard_delivery_keeps_route_failures_and_cleanup_separate`; local macOS/iTerm delivery manually confirmed on 2026-09-04 at `96917a4`; cleanup-timeout fault injection remains unproven |
-| SEL-8 | `clipboard_replacement_reaps_before_delivering_only_the_latest_source`, `clipboard_shutdown_reaps_a_blocked_writer_and_never_starts_pending_copy`, `clipboard_shutdown_before_polling_starts_no_process`, `oversized_copy_preserves_the_admitted_pending_source_without_terminal_effects`, `clipboard_wait_never_holds_the_production_input_and_frame_loop`, `status_cleanup_error_does_not_hide_session_shutdown_failures`; reintroducing the inline helper wait fails the production-loop witness |
-| SEL-6 | `an_edge_drag_scrolls_and_copies_entries_that_started_off_screen`, `drag_autoscroll_activates_on_the_content_row_beside_chrome` |
-
-
-## Rendered feedback
-
-SEL-5 composition and Ctrl-J drafts were inspected at
-[120](../../crates/plexmaton-tui/frames/interaction/copied-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/copied-88.svg) and
-[60](../../crates/plexmaton-tui/frames/interaction/copied-60.svg) columns.
-The other transport's final row is
-[120](../../crates/plexmaton-tui/frames/interaction/sent-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/sent-88.svg),
-[60](../../crates/plexmaton-tui/frames/interaction/sent-60.svg);
-quit precedence is
-[120](../../crates/plexmaton-tui/frames/interaction/quit-120.svg),
-[88](../../crates/plexmaton-tui/frames/interaction/quit-88.svg),
-[60](../../crates/plexmaton-tui/frames/interaction/quit-60.svg).
-Reproduce with `cargo run -p plexmaton-tui --example interaction_preview -- target/interaction-review`.
+[Named proofs](../evidence/selection-and-copy.md), one row an invariant.

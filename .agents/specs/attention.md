@@ -12,8 +12,9 @@
 **ATT-1 — A *background* request costs the user nothing.** A request from an agent whose
 conversation the user is not in moves no keyboard focus, changes no selected agent, opens no
 dismissible surface, moves no text cursor, and disturbs no draft. It is announced on that agent's
-roster row and nowhere else: the row takes the action-required color, sorts above the agents that
-are only working, and says what is wanted. When Narrow shows a child and hides the primary activity
+strip row and nowhere else: the row takes the action-required color, sorts above the agents that
+are only working, and says what is wanted. Because the strip is one row above the conversation
+being read, that is also where the user already is. When Narrow shows a child and hides the primary activity
 line, its collapsed conversation-top handle carries the aggregate unanswered count and opens the
 full-region roster. Both presentations use already reserved space, so the announcement costs the
 conversation no row.
@@ -71,9 +72,9 @@ resolved request cannot return on the next passive reopen.
 | Fact | Value |
 | --- | --- |
 | Coalescing | By `AttentionId`: a repeat replaces its entry in place and keeps its position, so an agent asking twice is one item |
-| Place | The asking agent's row in the roster panel, which is already a focus stop and a pointer target. No surface is registered for the queue itself |
+| Place | The asking agent's row in the agents strip, one row above the conversation the user is reading and already a focus stop and a pointer target. No surface is registered for the queue itself |
 | Which request a row shows | An approval outranks a clarification, because one agent is blocked and the other is not; within a kind it is arrival order |
-| Ordering | Failure, then an unanswered request, then everything else, with a ruled break between what is addressed to the user and what is not |
+| Ordering | Failure, then an unanswered request, then everything else. The order is the whole mechanism: the strip shows the top of it, so what is addressed to the user is what survives the cap |
 | Counts | The primary activity line ends with `( !n )`; when Narrow shows a child instead, its collapsed Agents handle carries `!n`. Both use existing chrome, cost no row and add no focus stop. Rejected: the count on the open roster's title, beside rows already carrying each agent's state |
 
 ## Failure modes
@@ -85,12 +86,8 @@ resolved request cannot return on the next passive reopen.
 | A resolution names another agent's request | Rejected as an ownership mismatch and shown in the notice log |
 | An agent with more than one request | The row names the one that outranks; entering again goes to the next |
 | Every queued request belongs to the primary | No roster row says anything: the card is already on screen, and the pill counts nothing |
-| A terminal too narrow for the roster's column | The full-region roster opens from the conversation-top handle; closed, that existing chrome still counts what is unanswered |
+| A terminal too narrow for the strip | The full-region roster opens from the conversation-top handle; closed, that existing chrome still counts what is unanswered |
 
 ## Evidence
 
-| Invariant | Proven by |
-| --- | --- |
-| ATT-1 | `a_background_request_takes_no_focus_no_selection_and_no_cursor`, `the_journey_keeps_a_second_agent_on_screen_and_takes_a_request_without_being_interrupted`, `the_pill_carries_what_is_unanswered_and_costs_the_conversation_no_row`, `narrow_projection_keeps_one_major_region_and_an_explicit_agents_route`, `parallel_primary_approvals_stay_inline_and_advance_in_arrival_order`, `primary_approval_escape_returns_to_composer_without_creating_attention_ui`, `a_roster_spends_one_row_an_agent_and_reads_failure_then_requests_then_work`, `a_rows_name_and_state_carry_its_attention_role`, `live_child_attention_is_canonical_before_root_projection`, `passive_attention_reopens_from_the_validated_prefix_without_waking`, `passive_orphan_attention_is_not_projected_or_activated`, `graceful_shutdown_resolution_does_not_reopen_a_child_request`; `scripts/smoke-delegate.py` proves no focus move and explicit navigation at 120/95/60 before and after process death |
-| ATT-2 | `an_arrow_moves_the_roster_and_entering_an_asking_agent_goes_to_its_request`, `going_to_a_request_is_the_users_move_and_marks_it_seen`, `attention_keyboard_activates_the_visible_worker_and_escape_restores_primary_card` |
-| ATT-3 | `acknowledging_marks_one_request_and_a_repeat_unmarks_it`, `an_agent_asking_twice_produces_one_queue_item`, `resolving_removes_only_the_named_request_and_repairs_the_cursor`, `the_cursor_follows_the_named_request_and_survives_an_empty_queue`, `an_open_approval_blocks_the_workspace_and_returns_only_the_selected_decision`, `approval_pointer_refuses_drag_focus_loss_resize_and_replaced_request`, `the_detail_column_is_the_ask_when_there_is_one_and_the_counts_when_there_is_not`, `attention_decision_routes_only_to_the_exact_live_child_generation`, `live_child_attention_is_canonical_before_root_projection`, `graceful_shutdown_resolution_does_not_reopen_a_child_request`; `scripts/smoke-delegate.py` proves the restored decision is stale and effect-free |
+[Named proofs](../evidence/attention.md), one row an invariant.

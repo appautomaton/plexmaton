@@ -665,7 +665,7 @@ mod tests {
                 Some(SurfaceId::Composer),
                 Some(SurfaceId::Agents),
             ],
-            "the ring runs from the agent column through the conversation and its input, and wraps"
+            "the ring runs from the agents strip through the conversation and its input, and wraps"
         );
     }
 

@@ -507,7 +507,7 @@ fn navigation_key(key: KeyEvent, context: &RouterContext<'_>) -> Routed {
 
 /// One step down or up, meaning whatever "down" means inside the surface that holds focus.
 ///
-/// The rail is the only navigational surface made of choices, so it is the only one where an arrow
+/// The strip is the only navigational surface made of choices, so it is the only one where an arrow
 /// moves a selection; everywhere else the content is longer than the region and an arrow is the
 /// keyboard equivalent of the wheel, which every gesture must have (`ui-ux.md` §user control).
 ///
@@ -584,7 +584,7 @@ mod tests {
         tree
     }
 
-    /// Focus on the agent rail, which is where an arrow means "another agent".
+    /// Focus on the agents strip, which is where an arrow means "another agent".
     fn context(
         surfaces: &SurfaceTree,
         focus: KeyboardFocus,
@@ -694,7 +694,7 @@ mod tests {
     /// INV-10: an arrow moves within whatever holds focus, and the wheel finally has a keyboard
     /// equivalent.
     #[test]
-    fn an_arrow_moves_the_rail_and_scrolls_everything_else() {
+    fn an_arrow_moves_the_strip_and_scrolls_everything_else() {
         let surfaces = tree();
         let mut router = Router::default();
         let down = key(KeyCode::Down, KeyModifiers::NONE);
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(
             router.translate(&down, &context(&surfaces, KeyboardFocus::Navigation, false)),
             Routed::Intent(TuiIntent::MoveSelection(Direction::Forward)),
-            "the rail is the one navigational surface made of choices"
+            "the strip is the one navigational surface made of choices"
         );
         assert_eq!(
             router.translate(
@@ -738,7 +738,7 @@ mod tests {
                 )
             ),
             Routed::Ignored(Ignored::NothingScrollable),
-            "a surface with nowhere to scroll declines by name rather than moving the rail"
+            "a surface with nowhere to scroll declines by name rather than moving the strip"
         );
     }
 
@@ -1106,7 +1106,7 @@ mod tests {
         assert_eq!(router.capture(), Some(OVERLAY), "the drag is still held");
     }
 
-    /// INV-5: releasing twice cannot produce two gestures.
+    /// Releasing twice cannot produce two gestures: the second release finds no capture.
     #[test]
     fn capture_is_released_exactly_once() {
         let surfaces = tree();

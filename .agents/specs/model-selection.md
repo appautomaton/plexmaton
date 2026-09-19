@@ -49,25 +49,4 @@ name, display name and wire ID, with the exact accepted pair marked current.
 
 ## Evidence
 
-| Invariant | Proven by |
-| --- | --- |
-| MDL-1 | `model_replacement_is_atomic_and_preserves_workspace_instructions`, `model_replacement_refuses_busy_and_incompatible_replay_without_mutation`; `status_resume_isolates_context_refusal_without_weakening_model_admission`; shared EFF-1 admission witnesses |
-| MDL-2 | `model_menu_filters_exact_pairs_and_retains_refusal_until_acceptance`, `model_menu_empty_and_dismissed_queries_never_submit_messages`, `model_catalog_bounds_are_visible_and_preserve_complete_identities`, `model_refusal_does_not_follow_keyboard_pointer_or_filter_to_another_choice`, `model_click_without_hover_retains_clicked_identity_after_refusal`; `scripts/smoke-tui.py` and `scripts/smoke-model.py` |
-| MDL-3 | `model_replacement_is_atomic_and_preserves_workspace_instructions`, `model_credentials_are_removed_before_install_and_fingerprinting`; `scripts/smoke-model.py` verifies both custom credential names are absent in real command and status children, with retained history/guidance at the second endpoint |
-| MDL-4 | `model_override_expires_on_new_resume_and_restart`; `scripts/smoke-model.py` proves `/new` restores the configured default without rewriting configuration |
-
-## Rendered review
-
-Actual `model_preview` cell-buffer frames, 120 / 88 / 60 columns:
-[choices wide](../../crates/plexmaton-tui/frames/models/models-120.svg),
-[medium](../../crates/plexmaton-tui/frames/models/models-88.svg),
-[narrow](../../crates/plexmaton-tui/frames/models/models-60.svg);
-[refusal wide](../../crates/plexmaton-tui/frames/models/refusal-120.svg),
-[medium](../../crates/plexmaton-tui/frames/models/refusal-88.svg),
-[narrow](../../crates/plexmaton-tui/frames/models/refusal-60.svg).
-
-The PTY journey uses two owned Chat Completions fixture endpoints, exact wire model/effort
-assertions, missing-credential refusal, canonical history and workspace guidance, real command
-approval, status output, and
-new-conversation reset. It never contacts a configured live provider or mutates live configuration.
-Cross-dialect replacement and incompatible Responses replay are covered at the runtime boundary.
+[Named proofs](../evidence/model-selection.md), one row an invariant.

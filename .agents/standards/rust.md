@@ -88,10 +88,10 @@ Foundation audited 2026-09-03; later admissions below.
 | `unicode-width` | Terminal-cell measurement | Load-bearing for layout and hit-test correctness; keep the CJK behaviour explicit and tested |
 | `unicode-segmentation` | Grapheme-aware editing and selection | Never index visible text by byte offset |
 | `proptest` | Property tests, dev-only | Defaults off; no subprocess isolation (`fork`/`timeout`) needed |
-| `tree-sitter` family | Commands and fenced code | [command audit](../specs/permission-policy.md#dependency-admission), [syntax audit](../specs/markdown.md#dependency-admission) |
+| `tree-sitter` family | Commands and fenced code | [command audit](../evidence/permission-policy.md#dependency-admission), [syntax audit](../evidence/markdown.md#dependency-admission) |
 | `uuid` | Conversation, Session and store identities | Defaults off; `std`, UUIDv7 |
 | `pulldown-cmark` | Assistant Markdown parser | Audited 2026-09-04: 0.13.4, MIT, MSRV 1.71.1. Defaults off; no native, HTML/CLI or SIMD dependencies. Presentation/bounds stay in TUI |
-| RaTeX core | Native math | Defaults off; [pins/audit](../specs/math-layout.md#dependency-admission). TUI → pure math adapter; no new external version |
+| RaTeX core | Native math | Defaults off; [pins/audit](../evidence/math-layout.md#dependency-admission). TUI → pure math adapter; no new external version |
 | `yaml_serde` / `unicode-normalization` | Skill metadata / NFKC names | Audited 2026-09-05; MIT/Apache-2.0, MSRV 1.82/1.36, `std` only; Rust `libyaml-rs`, no system library |
 
 ### Considered and not adopted

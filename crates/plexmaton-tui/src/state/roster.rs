@@ -19,7 +19,7 @@ pub(super) struct RosterNavigation {
 
 /// The agents the workspace knows about, in the order they appeared.
 ///
-/// Arrival order rather than identifier order, because the rail is a history of what happened and
+/// Arrival order rather than identifier order, because the strip is a history of what happened and
 /// re-sorting it under the user would move the row they were aiming at.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Roster {

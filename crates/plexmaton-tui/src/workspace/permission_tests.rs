@@ -54,7 +54,7 @@ fn split_view() -> PermissionStateView {
     view
 }
 
-/// One primary conversation and nothing else on screen: no rail, no strip.
+/// One primary conversation and nothing else on screen: no strip, no notices.
 fn primary_only() -> Vec<ConversationEventEnvelope> {
     use plexmaton_core::{AgentStatus, ConversationEvent, EventSequence};
     vec![ConversationEventEnvelope {
