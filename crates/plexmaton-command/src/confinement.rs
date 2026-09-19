@@ -140,11 +140,37 @@ impl Confinement {
     }
 }
 
+/// Character devices that carry no filesystem state and that ordinary programs open for
+/// themselves. A global write deny covers `/dev` like anything else, and denying these does not
+/// confine anything — it stops `git`, `python` and `curl` from starting, each reporting
+/// `could not open '/dev/null'` rather than anything a reader would connect to a fence. Inherited
+/// descriptors hide the problem: the executor opens `/dev/null` for stdin in the parent, so only a
+/// command that opens one itself is affected, which is most of them.
+///
+/// Enumerated rather than granted as `/dev`, which holds raw disk devices.
+const WRITABLE_DEVICES: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/random",
+    "/dev/urandom",
+    "/dev/stdout",
+    "/dev/stderr",
+    "/dev/tty",
+    "/dev/dtracehelper",
+    "/dev/autofs_nowait",
+];
+
 /// `(allow default)` then one global write deny, then the grants. Seatbelt takes the last matching
 /// rule, so the grants must follow the deny.
 fn profile(root_count: usize) -> String {
     let mut profile =
         String::from("(version 1)\n(allow default)\n(deny file-write* (subpath \"/\"))\n");
+    profile.push_str("(allow file-write*");
+    for device in WRITABLE_DEVICES {
+        profile.push_str(&format!(" (literal \"{device}\")"));
+    }
+    // Process substitution and anything else addressing its own descriptors by path.
+    profile.push_str(" (subpath \"/dev/fd\"))\n");
     for index in 0..root_count {
         profile.push_str(&format!(
             "(allow file-write* (subpath (param \"{ROOT_PARAMETER_PREFIX}{index}\")))\n"
@@ -201,10 +227,29 @@ mod tests {
     }
 
     #[test]
-    fn profile_without_roots_denies_every_write() {
+    fn profile_without_roots_still_grants_the_stateless_devices() {
+        // CMD-7: with no roots the fence denies every write that confines anything, and still
+        // admits the character devices — denying those stops programs from starting rather than
+        // bounding what they reach.
         let text = profile(0);
         assert!(text.contains("(deny file-write* (subpath \"/\"))"));
-        assert!(!text.contains("(allow file-write*"));
+        assert!(!text.contains("(param \"ROOT0\")"));
+        assert!(text.contains("(literal \"/dev/null\")"));
+    }
+
+    #[test]
+    fn stateless_devices_are_granted_by_path_and_never_as_a_tree() {
+        // `/dev` holds raw disk devices, so the grant is enumerated. `/dev/fd` is the one subtree,
+        // for process substitution.
+        let text = profile(1);
+        for device in WRITABLE_DEVICES {
+            assert!(
+                text.contains(&format!("(literal \"{device}\")")),
+                "{device} must be granted"
+            );
+        }
+        assert!(text.contains("(subpath \"/dev/fd\")"));
+        assert!(!text.contains("(subpath \"/dev\")"));
     }
 
     #[test]

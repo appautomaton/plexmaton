@@ -61,7 +61,10 @@ cleanup. A later bounded supervisor may pool workers without changing this owner
 **CMD-7 — A launch is confined, or the result says it is not.** On macOS the shell is launched
 through a Seatbelt profile that denies writes outside a resolved root set — the admitted workspace
 root, the temporary directory, and the toolchain caches the owner's environment names — and leaves
-reads, network and process operations untouched. The launcher applies the profile to itself and
+reads, network and process operations untouched. Stateless character devices are granted by name,
+because denying them confines nothing and instead stops ordinary programs from starting: `git`,
+`python` and `curl` all open `/dev/null` for themselves, and the inherited stdin CMD-2 supplies
+hides that from any test that only redirects into a file. The launcher applies the profile to itself and
 `exec`s the shell, so the spawned process is the shell and CMD-2's process group, CMD-5's signalling
 and CMD-3's drains are unaffected. Every root enters the profile as its own resolved form or does
 not enter it: an unresolved subpath compiles to a valid profile, exits zero and grants nothing.

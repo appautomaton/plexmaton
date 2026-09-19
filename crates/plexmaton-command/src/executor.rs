@@ -1152,6 +1152,28 @@ mod tests {
         let resolved_root = std::fs::canonicalize(&workspace.0).expect("workspace resolves");
         assert!(roots.contains(&resolved_root), "workspace must be granted");
 
+        // A command that opens a character device for itself. The executor supplies stdin from
+        // the parent, so an inherited descriptor hides this: the first fence shipped here denied
+        // `/dev/null` and stopped git, python and curl from starting, while every test that only
+        // redirected into a file still passed.
+        let devices = tool
+            .execute(
+                &admitted(
+                    &tool,
+                    "sh -c 'exec 3>/dev/null; echo probe >&3' && echo opened",
+                    5_000,
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute device write: {error}"));
+        assert_eq!(
+            devices.cause,
+            ExitCause::Exited { code: 0 },
+            "a command opening /dev/null must start: {:?}",
+            String::from_utf8_lossy(devices.stderr.head())
+        );
+
         // HOME exists and is not itself granted — only named subdirectories beneath it are — so a
         // write here is denied by the fence rather than failing for a missing parent.
         let outside = PathBuf::from(std::env::var_os("HOME").expect("HOME"))
