@@ -357,6 +357,31 @@ async fn a_switch_past_a_working_child_is_offered_once_and_only_the_same_choice_
     picker.shutdown().await.expect("release the candidate");
 }
 
+/// Starts a Session with neither preset granted.
+///
+/// A Session seeds PER-3's native file-change preset and, where CMD-7 can fence one, the confined
+/// -command preset. PER-7's fixture proves that *enabling* the setting releases what waited and
+/// that revoking writes no JSONL, so it needs the row to offer "enable" rather than "turn off",
+/// and its grant count to see only what the flow created.
+fn clear_seeded_presets(launcher: &Launcher) {
+    for origin in [
+        plexmaton_agent::PermissionGrantOrigin::NativeFilePreset,
+        plexmaton_agent::PermissionGrantOrigin::ConfinedCommandPreset,
+    ] {
+        let snapshot = launcher.permissions.snapshot().expect("seeded view");
+        if let Some(grant) = snapshot
+            .grants()
+            .iter()
+            .find(|grant| grant.origin == origin)
+        {
+            launcher
+                .permissions
+                .revoke_session_grant(snapshot.revision(), &grant.id)
+                .unwrap_or_else(|error| panic!("revoke a seeded preset: {error:?}"));
+        }
+    }
+}
+
 /// SPK-4: an ephemeral replacement has no durable identity, so it has nothing to delegate through.
 #[tokio::test]
 async fn an_ephemeral_replacement_has_no_collaboration_and_no_delegate_tool() {
@@ -596,6 +621,7 @@ async fn per_7_session_setting_before_first_turn_survives_new_and_revokes_withou
     };
     let root = FixtureWorkspace::new();
     let launcher = launcher(root.path());
+    clear_seeded_presets(&launcher);
     let mut opened = launcher
         .clone()
         .open_with_key(

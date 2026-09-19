@@ -15,9 +15,29 @@ fn catalog(root: &Path) -> NativeToolCatalog {
         .expect("catalog")
 }
 
+/// Puts a Session back to asking about native file changes.
+///
+/// A Session seeds PER-3's preset, because an edit reaches only what WFS-1 and MUT-2 already pin.
+/// These fixtures are about what happens when it is off — one needs an edit that waits, the other
+/// needs the row to offer "enable" rather than "turn off" — so they revoke it the way an owner
+/// does.
+fn ask_about_file_changes(session: &CodingSessionPermissions) {
+    let snapshot = session.snapshot().expect("current Session view");
+    let Some(grant) = snapshot
+        .grants()
+        .iter()
+        .find(|grant| grant.origin == plexmaton_agent::PermissionGrantOrigin::NativeFilePreset)
+    else {
+        return;
+    };
+    session
+        .revoke_session_grant(snapshot.revision(), &grant.id)
+        .unwrap_or_else(|error| panic!("revoke the native file preset: {error:?}"));
+}
+
 fn owner(root: &Path, home: &Path) -> CodingSessionPermissions {
     let tools = catalog(root);
-    CodingSessionPermissions::new(&tools)
+    let owner = CodingSessionPermissions::new(&tools)
         .with_project_store(
             plexmaton_permission_store::ProjectPermissionStore::open(home, root).expect("store"),
         )
@@ -26,7 +46,9 @@ fn owner(root: &Path, home: &Path) -> CodingSessionPermissions {
             root.to_owned(),
             tools.permission_compiler(),
         )))
-        .expect("valid project configuration")
+        .expect("valid project configuration");
+    ask_about_file_changes(&owner);
+    owner
 }
 
 fn native_create(root: &Path) -> AdmittedToolCall {

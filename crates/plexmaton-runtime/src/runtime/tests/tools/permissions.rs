@@ -41,6 +41,8 @@ async fn per_7_session_setting_releases_native_waiters_but_leaves_commands_pendi
         ModelEvent::Stopped(StopReason::ToolCalls),
     ])]);
     let mut runtime = runtime(driver, &workspace);
+    // PER-7 proves that enabling the setting releases what waited, so it must start off.
+    crate::runtime::tests::ask_about_file_changes(&runtime.coding_session());
     submit(&mut runtime, "create the file").await;
     tokio::time::timeout(Duration::from_secs(5), async {
         while runtime.agent.pending_approvals().count() < 2 {
@@ -124,7 +126,7 @@ async fn per_1_remembered_command_survives_runtime_replacement_and_revocation_re
     );
     let owner = first.coding_session();
     let granted = owner.snapshot().expect("granted view");
-    assert_eq!(granted.grants().len(), 1);
+    assert_eq!(crate::runtime::tests::approved(granted.grants()), 1);
     assert!(
         first
             .shutdown()
@@ -162,7 +164,10 @@ async fn per_1_remembered_command_survives_runtime_replacement_and_revocation_re
     drop(replacement);
 
     owner
-        .revoke_session_grant(granted.revision(), &granted.grants()[0].id)
+        .revoke_session_grant(
+            granted.revision(),
+            &crate::runtime::tests::approved_grant(granted.grants()).id,
+        )
         .expect("revoke exact grant");
     let mut after_revoke = runtime(command_driver(), &workspace);
     after_revoke

@@ -198,6 +198,8 @@ async fn file_observation_survives_the_runtime_boundary_into_an_approved_edit() 
         ]),
     ]);
     let mut runtime = runtime(driver.clone(), &workspace);
+    // The edit is this fixture's call that waits; see `ask_about_file_changes`.
+    crate::runtime::tests::ask_about_file_changes(&runtime.coding_session());
     submit(&mut runtime, "update the note").await;
     let approval = next_approval(&mut runtime).await;
     allow_once(&mut runtime, approval).await;

@@ -200,8 +200,6 @@ impl CommandTool {
         hash.finalize().into()
     }
 
-    /// Compiles explicit literal argv scope; configuration cannot supply execution bindings.
-    #[must_use]
     /// The preset that stops asking about a command, offered only where CMD-7 can fence one.
     ///
     /// `None` is the honest answer on a host without a fence: there, the question is the only

@@ -294,6 +294,8 @@ async fn cpl_9_a_waiting_approval_refuses_the_request() {
         workspace.catalog(),
     )
     .unwrap_or_else(|error| panic!("construct runtime: {error}"));
+    // A command is this fixture's call that waits; see `ask_about_commands`.
+    crate::runtime::tests::ask_about_commands(&runtime.coding_session());
     driver.enable();
     runtime
         .submit(
