@@ -5,11 +5,20 @@ use serde_json::Value;
 use crate::codec::DecodeError;
 
 /// PRV-5: empty additions contain no output to preserve; populated unknown fields are unsupported.
+///
+/// `inert` names the populated fields this surface has examined and found to carry no semantic
+/// content. Each entry is a decision the caller states out loud, because the default has to stay
+/// refusal: a field nobody has read might be the only place an answer arrived.
 pub(crate) fn check_additive_fields(
     fields: &serde_json::Map<String, Value>,
     surface: &'static str,
+    inert: &[&str],
 ) -> Result<(), DecodeError> {
     for (name, value) in fields {
+        if inert.contains(&name.as_str()) {
+            tracing::debug!(surface, field = name, "ignored known accounting field");
+            continue;
+        }
         let empty = value.is_null()
             || value.as_array().is_some_and(Vec::is_empty)
             || value.as_object().is_some_and(serde_json::Map::is_empty);

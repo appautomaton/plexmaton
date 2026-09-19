@@ -15,7 +15,12 @@ failure and shutdown refuse a replacement. A fully constructed driver replaces t
 atomically, without starting a request or altering canonical history; failure leaves the old driver
 intact. A model change additionally requires that the selected journal projection encode under the
 destination before acceptance, so a history that cannot be prepared at all is still refused; effort
-runs no such check, the projection it would test being the one already in use. Provider replay the
+runs no such check, the projection it would test being the one already in use. That pre-flight
+encodes what the next request will encode, delegated turns resolved from their canonical references
+(CIN-2) exactly as the request path resolves them. Each way it can fail says which: the conversation
+is too long for the destination, its delegated context could not be read, or its history cannot be
+encoded. Rejected: one sentence for all three, which named the model as the problem in two cases
+where no choice of model was. Provider replay the
 destination cannot use is not such a case: PRV-3 carries the reply's content across instead, the
 sidecars stay in the record, and selecting the original model again replays them exactly. The
 conversation is told once, afterwards, when a switch cost it that. Rejected: refusing the switch,

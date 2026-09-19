@@ -23,7 +23,11 @@ pub enum ModelChangeRefusal {
     UnprotectedCredential,
     #[error("The selected model could not be configured.")]
     InvalidModel,
-    #[error("This conversation's history cannot be prepared for the selected model.")]
+    #[error("This conversation is too long for the selected model; compact it first.")]
+    HistoryTooLong,
+    #[error("This conversation's delegated context could not be read.")]
+    UnresolvedCollaboration,
+    #[error("This conversation's history cannot be encoded for the selected model.")]
     IncompatibleHistory,
     #[error("Main controls this delegated Conversation until handoff.")]
     ControlledByMain,
@@ -100,14 +104,22 @@ impl LiveRuntime {
             tools,
             Some(candidate.max_output_tokens()),
         );
-        let basis = self
+        let mut basis = self
             .agent
             .journal()
             .budget_basis(self.agent.selected_head(), &environment)
             .map_err(|_| ModelChangeRefusal::IncompatibleHistory)?;
         if basis.recovery.is_some() {
-            return Err(ModelChangeRefusal::IncompatibleHistory);
+            return Err(ModelChangeRefusal::HistoryTooLong);
         }
+        // MDL-1: this pre-flight has to encode what the next request will encode. A journal
+        // projection keeps a delegated turn as a canonical reference (CIN-2), and the request path
+        // resolves it to its source before the codec ever sees it. Skipping that step here refused
+        // every conversation that had ever delegated — for a reason no choice of model could fix,
+        // including choosing the model it was already on.
+        self.collaboration_context
+            .resolve(&mut basis.request, self.agent.journal())
+            .map_err(|_| ModelChangeRefusal::UnresolvedCollaboration)?;
         plexmaton_provider::estimate_request(candidate, &basis.request, tools)
             .map_err(|_| ModelChangeRefusal::IncompatibleHistory)?;
         let degraded_history = plexmaton_provider::degrades_replay(candidate, &basis.request);

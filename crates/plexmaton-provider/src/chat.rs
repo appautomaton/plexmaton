@@ -103,7 +103,15 @@ impl ChatDecoder {
         }
 
         let mut events = Vec::new();
-        crate::wire::check_additive_fields(&choice.delta.extra, "chat_delta")?;
+        // PRV-5: `provider_metadata` is the gateway's own accounting — cost, cache counts, routing
+        // attempts and their status codes — delivered on the last delta beside `finish_reason`.
+        // Every field of it is billing or provenance; none of it is output. Refusing it discarded a
+        // whole completed answer at its final chunk, which is the worst moment to lose a turn.
+        crate::wire::check_additive_fields(
+            &choice.delta.extra,
+            "chat_delta",
+            &["provider_metadata"],
+        )?;
         if choice
             .delta
             .role

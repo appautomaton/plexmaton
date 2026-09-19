@@ -2,6 +2,83 @@ use super::*;
 use plexmaton_core::ReasoningEffort;
 use plexmaton_provider::{DecodeError, ModelRegistry, request_environment};
 
+/// PRV-5: one named accounting field is admitted on the Chat delta, and nothing else is.
+///
+/// The shape is the one an OpenAI-compatible gateway actually sends: it arrives on the *last*
+/// delta, beside `finish_reason`, carrying cost, cache counts and routing attempts. Refusing it
+/// threw away a completed answer at its final chunk. The allowance is one name on one surface —
+/// the same payload under another name, or on a Gemini part, still fails.
+#[test]
+fn prv_5_chat_admits_gateway_accounting_and_still_refuses_everything_else() {
+    use serde_json::json;
+    let scope = plexmaton_agent::RequestAttemptId::new("gateway-accounting").expect("scope");
+    let accounting = json!({
+        "deepseek": {"choiceIndex":0, "promptCacheHitTokens":0, "promptCacheMissTokens":6},
+        "gateway": {
+            "cost":"0.0000015", "generationId":"gen_01M2",
+            "routing": {"finalProvider":"deepseek", "modelAttemptCount":1,
+                        "modelAttempts":[{"providerAttempts":[{"statusCode":200,"success":true}]}]},
+        },
+    });
+
+    let mut codec = ProviderCodec::new(
+        &scope,
+        &profile(ModelApi::OpenaiChatCompletions),
+        DecodeLimits::production(),
+    );
+    let answer =
+        json!({"choices":[{"index":0,"delta":{"content":"Visible."},"finish_reason":null}]});
+    let events = codec
+        .push_sse("message", &answer.to_string())
+        .expect("the answer streams");
+    assert_eq!(visible_text(&events), "Visible.");
+    let last = json!({"choices":[{
+        "index":0,
+        "delta":{"provider_metadata":accounting.clone()},
+        "finish_reason":"stop",
+    }]});
+    let events = codec
+        .push_sse("message", &last.to_string())
+        .expect("accounting on the final delta must not cost the turn");
+    assert!(matches!(
+        events.last(),
+        Some(ModelEvent::Stopped(StopReason::EndOfTurn))
+    ));
+    codec.push_sse("message", "[DONE]").expect("trailer");
+    codec.finish().expect("complete stream");
+
+    // The same payload nobody has read still fails, on this surface and on the other one.
+    let mut codec = ProviderCodec::new(
+        &scope,
+        &profile(ModelApi::OpenaiChatCompletions),
+        DecodeLimits::production(),
+    );
+    let renamed = json!({"choices":[{"index":0,"delta":{"vendor_metadata":accounting.clone()},"finish_reason":"stop"}]});
+    assert!(
+        matches!(
+            codec.push_sse("message", &renamed.to_string()),
+            Err(DecodeError::UnsupportedEvent(_))
+        ),
+        "an unexamined field is refused whatever it resembles"
+    );
+    let mut codec = ProviderCodec::new(
+        &scope,
+        &profile(ModelApi::GoogleGenerateContent),
+        DecodeLimits::production(),
+    );
+    let part = json!({"candidates":[{
+        "content":{"parts":[{"text":"Visible.","provider_metadata":accounting}]},
+        "finishReason":"STOP",
+    }]});
+    assert!(
+        matches!(
+            codec.push_sse("message", &part.to_string()),
+            Err(DecodeError::UnsupportedEvent(_))
+        ),
+        "the allowance belongs to the surface that was examined, not to the name"
+    );
+}
+
 /// PRV-5: empty additive fields preserve visible output; populated unknown content fails explicitly.
 #[test]
 fn prv_5_empty_additive_fields_preserve_text_and_populated_fields_fail() {

@@ -209,7 +209,7 @@ impl GeminiDecoder {
     }
 
     fn part(&mut self, part: Part) -> Result<Vec<ModelEvent>, DecodeError> {
-        crate::wire::check_additive_fields(&part.extra, "gemini_part")?;
+        crate::wire::check_additive_fields(&part.extra, "gemini_part", &[])?;
         if let Some(call) = part.function_call {
             if part.text.is_some() || part.thought == Some(true) {
                 return Err(DecodeError::UnsupportedEvent(
