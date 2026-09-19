@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::admission::CanonicalArguments;
 use crate::capture::{CapturedStream, DrainTracker, drain};
+use crate::confinement::Confinement;
 use crate::environment::CommandEnvironment;
 use crate::process::{OsProcessOperations, ProcessOperations, try_wait_child, wait_for_child};
 use crate::result::{CommandExecutionError, CommandOutput, ExitCause, OutputStream};
@@ -44,9 +45,14 @@ async fn execute_with_operations<O: ProcessOperations>(
     cancellation: CancellationToken,
     operations: &O,
 ) -> Result<CommandOutput, CommandExecutionError> {
+    // Resolved before the cancellation check so both exits report the same decision: the field
+    // answers "was this command fenced", and a cancelled command must not answer differently from
+    // the one that ran.
+    let confinement = Confinement::resolve(workspace_root, SHELL);
     if cancellation.is_cancelled() {
         return Ok(CommandOutput {
             cause: ExitCause::Cancelled,
+            confinement,
             stdout: CapturedStream::empty(),
             stderr: CapturedStream::empty(),
             #[cfg(test)]
@@ -55,8 +61,13 @@ async fn execute_with_operations<O: ProcessOperations>(
             sent_sigkill: false,
         });
     }
-    let mut command = Command::new(SHELL);
+    // The launcher applies its profile to itself and execs the shell, so the spawned pid is the
+    // shell's: `process_group(0)`, `child.id()` and every termination path below are unaffected by
+    // wrapping. Unconfined yields the shell with an empty prefix — byte-identical to no fence.
+    let (program, prefix) = confinement.launch(SHELL);
+    let mut command = Command::new(program);
     command
+        .args(prefix)
         .arg("-c")
         .arg(arguments.cmd)
         .current_dir(workspace_root)
@@ -143,6 +154,7 @@ async fn execute_with_operations<O: ProcessOperations>(
     let (stdout, stderr) = drains?;
     Ok(CommandOutput {
         cause,
+        confinement,
         stdout,
         stderr,
         #[cfg(test)]
@@ -420,8 +432,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{
-        CapturedStream, CommandEnvironment, ExitCause, ProcessOperations, execute,
-        execute_with_operations, join_drains,
+        CapturedStream, CommandEnvironment, Confinement, ExitCause, ProcessOperations, SHELL,
+        execute, execute_with_operations, join_drains,
     };
     use crate::admission::{COMMAND_TOOL_NAME, CommandTool};
     use crate::capture::MAX_RETAINED_STREAM_BYTES;
@@ -1105,6 +1117,74 @@ mod tests {
         assert!(!output.stderr.is_complete());
         assert_eq!(output.owned_drains_at_return, 0);
         assert!(output.to_model_text().contains("stdout_complete: false"));
+    }
+
+    #[tokio::test]
+    async fn cmd_7_writes_outside_the_granted_roots_are_denied_by_the_os() {
+        // The fence through the real execution path, rather than asserted on argv. Both states
+        // assert: where no profile can be applied — off macOS, or inside an outer sandbox that
+        // forbids nesting — the claim under test becomes that the spawn is unchanged, which is
+        // what keeps an unfenced host honest instead of quietly untested.
+        let workspace = TestWorkspace::new();
+        let confinement = Confinement::resolve(&workspace.0, SHELL);
+        let tool = workspace.tool();
+
+        let inside = tool
+            .execute(
+                &admitted(&tool, "echo fenced > inside.txt", 5_000),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute in-zone write: {error}"));
+        assert_eq!(inside.cause, ExitCause::Exited { code: 0 });
+        assert!(workspace.0.join("inside.txt").exists(), "in-zone write");
+        assert_eq!(
+            inside.confinement, confinement,
+            "the result carries the decision the launch was made under"
+        );
+
+        let Confinement::Enforced { roots, .. } = &confinement else {
+            let (program, prefix) = confinement.launch(SHELL);
+            assert_eq!(program, OsStr::new(SHELL));
+            assert!(prefix.is_empty(), "an unfenced launch adds no arguments");
+            return;
+        };
+        let resolved_root = std::fs::canonicalize(&workspace.0).expect("workspace resolves");
+        assert!(roots.contains(&resolved_root), "workspace must be granted");
+
+        // HOME exists and is not itself granted — only named subdirectories beneath it are — so a
+        // write here is denied by the fence rather than failing for a missing parent.
+        let outside = PathBuf::from(std::env::var_os("HOME").expect("HOME"))
+            .join(".plexmaton-confinement-probe");
+        let _cleanup = RemoveOnDrop(outside.clone());
+        let denied = tool
+            .execute(
+                &admitted(
+                    &tool,
+                    &format!("echo escaped > {}", outside.display()),
+                    5_000,
+                ),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("execute out-of-zone write: {error}"));
+        assert_ne!(
+            denied.cause,
+            ExitCause::Exited { code: 0 },
+            "the fence must deny a write outside every granted root"
+        );
+        assert!(
+            !outside.exists(),
+            "a denied write must not create its target"
+        );
+    }
+
+    struct RemoveOnDrop(PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
     }
 
     struct EscapedProcess(Pid);
