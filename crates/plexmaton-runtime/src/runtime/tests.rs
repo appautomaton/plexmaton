@@ -26,6 +26,25 @@ use super::{
 };
 use crate::NativeToolCatalog;
 
+/// Puts a coding Session back to asking about commands.
+///
+/// These fixtures are about the approval machinery — its commit boundary, its routing, what a
+/// remembered scope covers — and they use a command as the call that waits. CMD-7's preset removes
+/// that wait, so the fixture restores it the way an owner does, by revoking the preset from
+/// `/permissions`. A state the product actually reaches, not a seam cut for the test, and one that
+/// reads the same on a host with no fence: there is no preset to revoke and commands already ask.
+pub(crate) fn ask_about_commands(session: &crate::CodingSessionPermissions) {
+    let snapshot = session.snapshot().expect("current Session view");
+    let Some(grant) = snapshot.grants().iter().find(|grant| {
+        grant.origin == plexmaton_agent::PermissionGrantOrigin::ConfinedCommandPreset
+    }) else {
+        return;
+    };
+    session
+        .revoke_session_grant(snapshot.revision(), &grant.id)
+        .unwrap_or_else(|error| panic!("revoke the confined-command preset: {error:?}"));
+}
+
 pub(crate) enum Script {
     Events(Vec<ModelEvent>),
     Fail(ModelError),

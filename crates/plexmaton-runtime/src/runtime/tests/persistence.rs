@@ -350,7 +350,7 @@ async fn runtime_with_clock<D: super::ModelDriver>(
         Vec::new(),
     )
     .unwrap_or_else(|error| panic!("open tools: {error}"));
-    LiveRuntime::with_driver_store_and_clock(
+    let runtime = LiveRuntime::with_driver_store_and_clock(
         agent_id(),
         "Plexmaton".to_owned(),
         driver,
@@ -364,7 +364,11 @@ async fn runtime_with_clock<D: super::ModelDriver>(
         clock,
     )
     .await
-    .unwrap_or_else(|error| panic!("open durable runtime: {error}"))
+    .unwrap_or_else(|error| panic!("open durable runtime: {error}"));
+    // These fixtures use a command as the call that waits; CMD-7's preset removes the wait,
+    // so restore it the way an owner does. See `ask_about_commands`.
+    super::ask_about_commands(&runtime.coding_session());
+    runtime
 }
 
 fn submission() -> Input {

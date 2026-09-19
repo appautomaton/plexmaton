@@ -25,6 +25,8 @@ async fn attention_decision_routes_only_to_the_exact_live_child_generation() {
         Script::Events(vec![ModelEvent::Stopped(StopReason::EndOfTurn)]),
     ]);
     let (runtime, request) = bound_runtime(&directory, &workspace, &writer, "one", driver).await;
+    // The command is this fixture's vehicle for a call that waits; routing is its subject.
+    crate::runtime::tests::ask_about_commands(&runtime.coding_session());
     let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
     owner
         .bind_main_ingress(endpoint("main"))

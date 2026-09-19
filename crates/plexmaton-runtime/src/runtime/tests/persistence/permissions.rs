@@ -60,6 +60,9 @@ async fn pending_command_with_scope(
             .expect("project owner");
         runtime.use_coding_session(owner).expect("attach Project");
     }
+    // After any Session replacement, because these fixtures need a command that waits and the
+    // replacement carries its own preset. See `ask_about_commands`.
+    crate::runtime::tests::ask_about_commands(&runtime.coding_session());
     runtime
         .submit(agent_id(), submission())
         .await
