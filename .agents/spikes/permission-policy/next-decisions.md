@@ -83,17 +83,37 @@ it is why the position is what it is, and why the remaining work is a fence rath
 Both probes live beside this file with their results in
 [sandbox-boundary](./sandbox-boundary.md).
 
+## What is built
+
+The fence is CMD-7. The silence it buys is PER-11: a coding Session seeds the native file-change
+preset, and the confined-command preset where a fence exists to hold it. Both are ordinary
+`/permissions` rows, so the owner can take either back and the question returns — which is also how
+every fixture that needs a call that waits gets one, without depending on the host it runs on.
+
+Rejected: relaxing the policy's fallback instead. It reached the same silence and lost the two
+things that made it answerable — PER-3's exclusions live on the preset, so a fallback would have
+granted the control plane too, and an invisible default is not revocable.
+
+The write-root list is settled enough to use: workspace, temporary directory, and the toolchain
+caches under `HOME`. A real `cargo build` compiles fresh dependencies under the generated profile.
+Its failure mode is a clean denied write, so the tail of real-use corrections is cheap.
+
 ## What is still open
 
 1. **Where this work belongs.** Phase 04 is product polish; a fence is not. It needs a stage under
    an existing phase or a phase of its own, and that is a roadmap decision.
-2. **The write-root list.** Project root, scratch, and the toolchain caches a real build reaches
-   (`~/.cargo`, `~/.rustup`, `~/.npm`, Go module cache, uv cache). Reads stay open, which is what
-   keeps the profile short and keeps a wrong entry from breaking a build in a way nobody can read.
-   This is the part that will need a tail of real-use corrections; its failure mode is a clean
-   denied write.
-3. **What "show" looks like.** The only additive piece in the whole position, and it is contract
-   text: `ui-ux.md` owns it, and it needs a rendered frame the owner has seen.
-4. **What the position deletes.** The capability engine that never runs in production, and most of
-   PER-1–PER-10 and PGR-1–PGR-5, which describe a mechanism this position does not build. The
-   deletion is its own change; a mechanism goes with its spec, tests and citations together.
+2. **"Show" beyond the transcript.** Every tool call already has a row with its invocation
+   disclosing beneath it, so removing the question left the record intact. The owner chose a
+   per-turn status-line summary on top of that floor; it is contract text, so `ui-ux.md` owns it
+   and it needs a rendered frame they have seen.
+3. **What the position deletes, now actually dead.** `prefix` and its tree-sitter parse of every
+   command — including the 20 ms budget another branch has been fighting — plus the capability
+   engine that never runs, and the part of PER-1–PER-10 describing a mechanism this position does
+   not build. Deleting `prefix` before PER-11 would have made approvals worse; after it, a command
+   on a fenced host never reaches a prefix offer. A mechanism goes with its spec, tests and
+   citations together, so this is its own change.
+4. **How wide the control-plane exclusion should be.** PER-3 excludes `.git`, `.plexmaton`,
+   `.agents`, `.codex` and `agents.md` at any depth. With the preset seeded that list is now load
+   -bearing every day: in this repository the documentation workflow writes `.agents/` constantly,
+   and each of those writes now asks. The owner's instinct was that `.git` alone is what deserves
+   protecting. Deciding that is a change to PER-3, with the frames that go with it.
