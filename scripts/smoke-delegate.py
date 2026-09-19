@@ -349,6 +349,12 @@ display_name = "DelegateFixture"
 context_window_tokens = 32768
 max_output_tokens = 4096
 output_reserve_tokens = 4096
+[providers.fixture.models.sibling]
+id = "fixture-sibling"
+display_name = "DelegateSibling"
+context_window_tokens = 32768
+max_output_tokens = 4096
+output_reserve_tokens = 4096
 '''
     if inspection_policy is not None:
         source += f'''\n[[permissions.rules]]
@@ -487,6 +493,25 @@ def root_history_at_three_widths(terminal, artifact):
         if width == 60:
             scroll_child_until(terminal, False, (SAW,))
     terminal.resize(SMOKE_WIDTH, *markers)
+
+
+def model_switch_survives_delegated_history(terminal):
+    """MDL-1: a conversation that has delegated can still choose another model.
+
+    A delegated turn lives in the projection as a canonical reference (CIN-2), resolved to its
+    source only on the way to the wire. The switch pre-flight used to encode the unresolved
+    projection, so every conversation that had ever delegated was refused — including when the
+    model it asked for was the one it already had.
+    """
+    focus_primary(terminal)
+    terminal.send(b"/model sibling", "Models", "fixture/sibling")
+    terminal.send(
+        ENTER,
+        "DelegateSibling",
+        absent=("cannot be encoded", "delegated context could not be read", "too long"),
+    )
+    terminal.send(b"/model delegate", "Models", "fixture/delegate")
+    terminal.send(ENTER, "DelegateFixture", absent=("cannot be encoded",))
 
 
 def child_history_at_three_widths(terminal, artifact):
@@ -939,6 +964,7 @@ def run_smoke(provider):
                 SAW,
             )
             root_history_at_three_widths(terminal, "root-history")
+            model_switch_survives_delegated_history(terminal)
             # CTL-1: the existing target updates its canonical task and schedules that child once.
             requests_before_update, errors_before_update = provider.snapshot()
             focus_primary_and_type(terminal, UPDATE_ASK)

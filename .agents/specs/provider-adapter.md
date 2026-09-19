@@ -82,7 +82,12 @@ refusal, rate-limit, context-limit, provider failure, transport and malformed st
 An HTTP rejection or declared stream error without a more specific category is `ProviderFailed`;
 `Transport` means the response could not arrive intact, and `Malformed` means decoding failed.
 Unknown additive wire events are observable and ignored only when they carry no semantic content;
-an unknown content-bearing event fails rather than silently losing output.
+an unknown content-bearing event fails rather than silently losing output. A populated field earns
+that exemption only by being read and named at the surface it appears on, never by resembling one
+that was: Chat admits `provider_metadata`, the gateway accounting — cost, cache counts, routing
+attempts — that rides the final delta beside `finish_reason`, and admits it nowhere else.
+Rejected: refusing it as unexamined, which was right in principle and in practice discarded a whole
+completed answer at its last chunk, on every gateway that sends it.
 
 **PRV-6 — Configuration names data, never authority.** `~/.plexmaton/config.toml` separates named
 provider routes from their named models and selects one exact provider/model pair. A route owns its
