@@ -17,6 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 
 const COMMAND_CAPACITY: usize = 1;
 
+/// SCH-2 gives inspection a lane of its own so a read consumes no control capacity. A read carries
+/// no mutation to hand back, so it waits for room here instead of refusing: sharing the single
+/// control slot made every query fail while any command was in flight, which ended the session.
+const INSPECTION_CAPACITY: usize = 8;
+
 /// Exact normal-lane request retained if scheduling cannot reach its collaboration owner.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScheduledTurnRequest {
@@ -95,7 +100,8 @@ pub enum CollaborationWriterError {
     /// The worker no longer accepts commands that carry no durable mutation.
     #[error("collaboration writer is closed")]
     Closed,
-    /// The single command slot is occupied; a query was not accepted.
+    /// The single control slot is occupied, so shutdown or a preflight was not accepted. Reads
+    /// never report this: they admit on their own lane and wait for room there.
     #[error("collaboration writer command lane is busy")]
     Busy,
     /// The worker stopped without answering an accepted command.
@@ -251,6 +257,7 @@ enum Command {
 pub struct CollaborationWriter {
     collaboration: CollaborationId,
     sender: Option<mpsc::Sender<Command>>,
+    inspection: Option<mpsc::Sender<Command>>,
     worker: Option<JoinHandle<()>>,
     finished: Option<oneshot::Receiver<bool>>,
     pending_admission: Option<PendingAdmission>,
@@ -269,6 +276,7 @@ impl CollaborationWriter {
     pub fn spawn(file: CollaborationFile) -> Result<Self, CollaborationWriterError> {
         let collaboration = file.ledger().id().clone();
         let (sender, mut receiver) = mpsc::channel(COMMAND_CAPACITY);
+        let (inspection, mut reads) = mpsc::channel(INSPECTION_CAPACITY);
         let (finished_tx, finished) = oneshot::channel();
         let worker = thread::Builder::new()
             .name("plexmaton-collaboration".into())
@@ -276,12 +284,29 @@ impl CollaborationWriter {
             .spawn(move || {
                 let mut file = file;
                 let mut failed = false;
-                while let Some(command) = receiver.blocking_recv() {
-                    if worker::process_command(&mut file, command) {
-                        failed = true;
-                        worker::reject_queued_commands(&mut receiver);
-                        break;
-                    }
+                // One thread still owns the file (SCH-1); it now takes work from two lanes, control
+                // first, so queued reads cannot delay a mutation. `recv` is cancel-safe, so the
+                // losing branch loses no command. A closed lane disables its own branch, which
+                // keeps draining the other until both are closed and empty.
+                let runtime = tokio::runtime::Builder::new_current_thread().build();
+                match runtime {
+                    Ok(runtime) => runtime.block_on(async {
+                        loop {
+                            let command = tokio::select! {
+                                biased;
+                                Some(command) = receiver.recv() => command,
+                                Some(command) = reads.recv() => command,
+                                else => break,
+                            };
+                            if worker::process_command(&mut file, command) {
+                                failed = true;
+                                worker::reject_queued_commands(&mut receiver);
+                                worker::reject_queued_commands(&mut reads);
+                                break;
+                            }
+                        }
+                    }),
+                    Err(_) => failed = true,
                 }
                 let _owner_gone = finished_tx.send(failed).is_err();
             })
@@ -289,6 +314,7 @@ impl CollaborationWriter {
         Ok(Self {
             collaboration,
             sender: Some(sender),
+            inspection: Some(inspection),
             worker: Some(worker),
             finished: Some(finished),
             pending_admission: None,

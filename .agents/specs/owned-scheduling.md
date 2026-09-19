@@ -18,7 +18,9 @@ Handoff before preflight acknowledgement.
 
 **SCH-2 — Control retains reserved progress.** Normal scheduling, User input, runtime updates,
 disposable inspection and control use separate bounded lanes. Saturated normal, User or update
-traffic cannot prevent stop or shutdown admission; inspection consumes no control capacity. Stop
+traffic cannot prevent stop or shutdown admission; inspection consumes no control capacity. A read
+carries no mutation to hand back, so it waits for room on its own lane rather than refusing, while a
+mutation still reports a busy control slot and keeps its exact attempt. Stop
 admission is synchronous and owner-retained: repeating the same target is idempotent, while a
 different target receives one typed in-progress refusal. Accepted User input settles before Stop;
 new input cannot enter while Stop is pending, and shutdown retains its exact settlement and draft.
@@ -26,6 +28,9 @@ An update names the runner endpoint and process-local generation; output from a 
 cannot settle its replacement, including across replacement owner instances. Unexpected runner
 termination is one terminal typed owner update emitted after cleanup output; observing a terminal
 update also joins that runner, so root activity cannot spin on a finished, unjoined slot.
+Rejected: one lane carrying reads and mutations alike, which this spec already forbade and the
+writer nevertheless did. Its single slot is occupied whenever any command is in flight, so every
+read failed as busy, and a reader that treats that as fatal ended the session under load.
 
 **SCH-3 — Scheduled execution owns authority exactly once.** The owner checks explicit provider
 capability and reserves bounded runner capacity before durable admission. The accepted command carries one resolved admission plus its

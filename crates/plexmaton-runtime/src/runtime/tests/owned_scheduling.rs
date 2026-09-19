@@ -2374,3 +2374,53 @@ async fn cmp_1_owned_mail_snapshot_equals_the_reopened_projection() {
         live
     );
 }
+
+/// SCH-2: inspection admits on its own lane, so a read costs the control slot nothing.
+#[tokio::test]
+async fn sch_2_a_read_is_admitted_while_the_control_slot_is_occupied() {
+    let directory = Directory::new();
+    let writer = CollaborationWriter::spawn(two_child_collaboration(&directory))
+        .expect("collaboration writer");
+    let mut owner = OwnedCollaboration::new(writer, SchedulerLimits::new(1).expect("limits"));
+    let (entered, release) = owner.hold_writer_for_test();
+    entered.recv().expect("writer is blocked");
+    let attempt = CollaborationAttempt {
+        id: item("occupies-the-control-slot"),
+        event: CollaborationEvent::TaskUpdated {
+            delegation: named_delegation("one"),
+            expected: DelegationRevision(0),
+            author: endpoint("main"),
+            task: CollaborationText::new("Hold the only control slot").expect("task"),
+        },
+    };
+    assert!(
+        tokio::time::timeout(Duration::ZERO, owner.admit(attempt))
+            .await
+            .is_err(),
+        "the accepted mutation stays queued on the control lane"
+    );
+
+    // The control lane holds that mutation and the worker is blocked, so a shared slot would
+    // refuse this read as busy and its caller would report that as fatal. Waiting here rather
+    // than completing is the proof it was admitted on a lane of its own.
+    let records = {
+        let mut read = std::pin::pin!(owner.records());
+        assert!(
+            tokio::time::timeout(Duration::ZERO, &mut read)
+                .await
+                .is_err(),
+            "the read is admitted beside the occupied control slot rather than refused"
+        );
+        release.send(()).expect("release writer");
+        read.await.expect("read beside a queued mutation")
+    };
+    assert!(!records.is_empty(), "the read observes the canonical log");
+
+    owner
+        .finish_admission()
+        .await
+        .expect("owner retained its queued mutation")
+        .expect("acknowledged mutation");
+    owner.begin_shutdown().await.expect("begin shutdown");
+    owner.finish_shutdown().await.expect("join owner");
+}
