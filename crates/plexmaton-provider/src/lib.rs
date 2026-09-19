@@ -26,7 +26,7 @@ pub use codec::{
     classify_http_error, encode_request,
 };
 pub use compaction::{
-    CompactionInput, CompactionPreparationError, PreparedCompaction, ReplacementFit,
+    CompactionInput, CompactionPreparationError, PreparedCompaction, ReplacementFit, Retention,
     plan_compaction, validate_compaction_output, validate_replacement,
 };
 pub use config::{

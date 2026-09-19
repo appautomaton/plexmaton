@@ -23,8 +23,25 @@ Rejected: fitted/lossy inputs, because even temporary history changes break the 
 **CPL-3 — The replacement preserves the current request and exact retained context.** A checkpoint
 projects its persisted summary, the latest user and its attached explicit skill when covered, and the exact retained
 suffix, followed by later entries. Summary size, retained context and output reserve are budgeted
-explicitly; no useful reduction, an oversized required user input or an unfittable environment is
-a typed planning/publication refusal, never an unbounded compaction loop.
+explicitly; a structurally empty cut, an oversized required user input or an unfittable
+environment is a typed planning refusal, never an unbounded compaction loop.
+
+A conversation no larger than the tail a checkpoint would keep has no history in front of that
+tail, and planning declines it before any summarizer call. Both quantities are this runtime's own
+— a configured retention count against `utf8_heuristic_v1` estimates (BUD-3) — so the decline is a
+default about numbers it chose, not a measurement of the provider's tokenizer, and the user lifts
+it for one request by naming the override. Nothing past the gate changes: the same cut, the same
+appended instruction, the same publication follow an overridden request.
+Rejected: comparing the covered prefix against the largest summary the model is permitted to
+write, which on a 272k-window model refused every prefix under 16k and so refused nearly every
+real compaction.
+
+Whether the replacement is smaller than what it replaces is not checked, and a larger replacement
+publishes like any other; only fitting the input window is a condition. The runtime cannot read a
+summary and cannot measure it, so a rule made of either quantity spends a finished model call to
+decide a question it has no evidence for.
+Rejected: refusing a replacement that does not reduce the frozen request, which paid for the
+call, wrote the summary, discarded it, and reported an estimator's verdict as a failure.
 
 **CPL-4 — A checkpoint is an acknowledged journal fact.** One additive checkpoint entry records its
 versioned plan and successful summarizer-attempt identity; that attempt's full output is already
@@ -61,7 +78,11 @@ keeps JRN-7's freeze/reopen rule; neither retry nor model/tool dispatch crosses 
 **CPL-9 — A request is one idle attempt with nothing to continue.** `/compact` asks the runtime
 for one compaction of the selected head. It is admitted only while idle: no turn, no pending
 approval, no owned compaction, shutdown not begun. Every other state, a missing budget, and a plan
-that finds nothing to replace or nothing that fits, is a typed refusal that writes no record. An
+that finds nothing to replace or nothing that fits, is a typed refusal that writes no record.
+One of those refusals is a default rather than an inability: a conversation inside its retention
+window (CPL-3) is declined, and `/compact --force` asks for the same request again with the gate
+removed. The decline names that override and carries the emphasis of a waiting action, because
+something is waiting on the user; the refusals the user cannot lift stay out of the way. An
 admitted request follows CPL-1–CPL-6 and CPL-8 unchanged: one authorization, one attempt, one
 checkpoint, no fabricated step and no model call afterwards. Text submitted while it runs waits
 in the runtime's bounded input queue and opens its turn once the request ends, so the first

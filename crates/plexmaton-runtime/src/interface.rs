@@ -94,6 +94,9 @@ pub enum CompactionRequestRefusal {
     BudgetUnavailable,
     /// Planning found no whole atoms that a summary would usefully replace.
     NothingToCompact,
+    /// The conversation is no larger than the tail a checkpoint would keep, so nothing sits in
+    /// front of it to summarize. The only refusal the user can lift, by asking again by name.
+    WithinRetention,
     /// The history, its required tail or the environment exceeds what the model can take.
     HistoryTooLarge,
     /// The selected head could not be projected or budgeted.

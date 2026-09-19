@@ -15,11 +15,20 @@ pub enum CompactRefusal {
     ShuttingDown,
     BudgetUnavailable,
     NothingToCompact,
+    WithinRetention,
     HistoryTooLarge,
     SourceUnavailable,
 }
 
 impl CompactRefusal {
+    /// Whether this refusal leaves the user something to do about it.
+    ///
+    /// A refusal that names an action the user can take now is emphasised like any other waiting
+    /// action; one that only reports a state the conversation is in stays out of the way.
+    pub(crate) const fn offers_an_action(self) -> bool {
+        matches!(self, Self::WithinRetention)
+    }
+
     pub(crate) const fn message(self) -> &'static str {
         match self {
             Self::TurnActive => "Could not compact: the turn is still running.",
@@ -28,6 +37,10 @@ impl CompactRefusal {
             Self::ShuttingDown => "Could not compact: Plexmaton is shutting down.",
             Self::BudgetUnavailable => "Could not compact: the model's budget is unavailable.",
             Self::NothingToCompact => "Nothing to compact yet.",
+            Self::WithinRetention => {
+                "Compaction may not be needed — context is smaller than the tail it keeps. \
+                 /compact --force runs it anyway."
+            }
             Self::HistoryTooLarge => {
                 "Could not compact: the history exceeds what the model can read at once."
             }

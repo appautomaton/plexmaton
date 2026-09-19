@@ -1,7 +1,7 @@
 //! The user's request for one compaction: admission while idle, typed refusal, no continuation.
 
 use plexmaton_core::AgentId;
-use plexmaton_provider::{CompactionPreparationError, plan_compaction};
+use plexmaton_provider::{CompactionPreparationError, Retention, plan_compaction};
 
 use super::{LiveRuntime, state::Continuation};
 use crate::{CompactionRequest, CompactionRequestRefusal, RuntimeError};
@@ -12,6 +12,7 @@ impl LiveRuntime {
     pub async fn request_compaction(
         &mut self,
         to: AgentId,
+        retention: Retention,
     ) -> Result<CompactionRequest, RuntimeError> {
         if to != self.agent_id {
             return Err(RuntimeError::WrongAgent {
@@ -21,7 +22,7 @@ impl LiveRuntime {
         }
         let request = async {
             self.finish_pending_inputs().await?;
-            let request = self.begin_requested_compaction()?;
+            let request = self.begin_requested_compaction(retention)?;
             if matches!(request, CompactionRequest::Started { .. }) {
                 self.finish_transition().await?;
             }
@@ -41,7 +42,10 @@ impl LiveRuntime {
             .is_some_and(|operation| operation.requested)
     }
 
-    fn begin_requested_compaction(&mut self) -> Result<CompactionRequest, RuntimeError> {
+    fn begin_requested_compaction(
+        &mut self,
+        retention: Retention,
+    ) -> Result<CompactionRequest, RuntimeError> {
         use CompactionRequestRefusal as Refusal;
         if self.shutdown_state != crate::runtime::ShutdownState::Open {
             return Ok(CompactionRequest::Refused(Refusal::ShuttingDown));
@@ -69,6 +73,7 @@ impl LiveRuntime {
             tools,
             &self.collaboration_context,
             id.clone(),
+            retention,
         ) {
             Ok(prepared) => prepared,
             Err(error) => return Ok(CompactionRequest::Refused(planning_refusal(&error))),
@@ -85,9 +90,8 @@ fn planning_refusal(error: &CompactionPreparationError) -> CompactionRequestRefu
         CompactionPreparationError::Source(_) | CompactionPreparationError::Budget(_) => {
             CompactionRequestRefusal::SourceUnavailable
         }
-        CompactionPreparationError::Plan(_)
-        | CompactionPreparationError::NoUsefulReduction
-        | CompactionPreparationError::ReplacementMakesNoProgress => {
+        CompactionPreparationError::WithinRetention => CompactionRequestRefusal::WithinRetention,
+        CompactionPreparationError::Plan(_) | CompactionPreparationError::NoUsefulReduction => {
             CompactionRequestRefusal::NothingToCompact
         }
         CompactionPreparationError::UnfittableEnvironment

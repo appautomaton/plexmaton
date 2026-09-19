@@ -11,7 +11,7 @@ resolves every one against the source, so a renamed or deleted test fails the bu
 | SKP-3 | `escape_preserves_the_query_and_tab_inserts_the_selected_choice`, `mouse_and_wheel_choose_by_name_while_focus_stays_in_the_composer`, `variables_currency_prose_and_command_substitution_do_not_open_the_picker`, `the_listing_follows_the_leading_token` |
 | SKP-4 | `short_picker_window_keeps_the_selected_tail_choice_and_controls_visible`, `the_skill_picker_frames_match_their_fixtures`; rendered review above |
 | CMC-1 | `the_slash_lists_the_commands_and_only_a_whole_command_runs`, `a_requested_compaction_shows_on_the_activity_line_and_ends_with_a_note`; the runtime's CPL-9 proofs. A loopback run of `/compact` through the executable is unproven |
-| CMC-2 | `the_slash_lists_the_commands_and_only_a_whole_command_runs`, `tab_completes_a_command_and_escape_keeps_the_draft`, `paste_and_unicode_inside_the_token_follow_the_same_rule`, `a_whole_draft_is_a_command_only_when_nothing_else_is_in_it` |
+| CMC-2 | `the_slash_lists_the_commands_and_only_a_whole_command_runs`, `tab_completes_a_command_and_escape_keeps_the_draft`, `paste_and_unicode_inside_the_token_follow_the_same_rule`, `a_whole_draft_is_a_command_only_when_nothing_else_is_in_it`, `a_declared_flag_keeps_the_draft_a_command` |
 | CMC-3 | `per_7_permission_controls_review_cancel_submit_and_refresh_by_identity`, `per_7_permission_controls_frames_keep_scope_and_confirmation_visible` with the `permission-controls-*` frames, `session_rows_live_in_the_menu_and_project_rows_in_the_drawer`, `per_7_session_setting_before_first_turn_survives_new_and_revokes_without_jsonl` |
 
 ## Rendered review

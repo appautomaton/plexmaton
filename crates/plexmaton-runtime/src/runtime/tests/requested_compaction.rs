@@ -51,7 +51,7 @@ async fn seeded(driver: &Arc<CompactionDriver>) -> LiveRuntime {
 
 async fn start(runtime: &mut LiveRuntime) -> plexmaton_agent::CompactionId {
     match runtime
-        .request_compaction(agent_id())
+        .request_compaction(agent_id(), plexmaton_provider::Retention::Overridden)
         .await
         .unwrap_or_else(|error| panic!("request compaction: {error}"))
     {
@@ -62,7 +62,7 @@ async fn start(runtime: &mut LiveRuntime) -> plexmaton_agent::CompactionId {
 
 async fn refusal(runtime: &mut LiveRuntime) -> CompactionRequestRefusal {
     match runtime
-        .request_compaction(agent_id())
+        .request_compaction(agent_id(), plexmaton_provider::Retention::Overridden)
         .await
         .unwrap_or_else(|error| panic!("request compaction: {error}"))
     {
@@ -327,8 +327,8 @@ async fn cpl_9_a_waiting_approval_refuses_the_request() {
 }
 
 /// CPL-3/CPL-9: without a budget nothing can be planned; an empty history has nothing to
-/// compact; and a summary that would not shrink a tiny request is refused at publication as
-/// `NoProgress`. The refusals write no record.
+/// compact; and a request whose covered prefix is entirely required user context is refused
+/// before any summarizer call, override or not. The refusals write no record.
 #[tokio::test]
 async fn cpl_9_planning_refusals_are_typed_and_write_nothing() {
     let empty = CompactionDriver::new([], []);
@@ -369,18 +369,20 @@ async fn cpl_9_planning_refusals_are_typed_and_write_nothing() {
     assert_eq!(runtime.agent.journal().records().len(), records);
     assert_eq!(driver.summary_call_count(), 0);
 
+    // Even overridden, a request whose whole covered prefix is required user context is refused
+    // before the summarizer is asked: that is what the cut is, not how its result turned out.
     driver.enable();
-    let id = start(&mut runtime).await;
-    let (_events, reports) = settle(&mut runtime).await;
     assert_eq!(
-        outcome(&reports),
-        Some(&RequestedCompactionOutcome::Failed {
-            id,
-            kind: CompactionFailure::NoProgress,
-        })
+        refusal(&mut runtime).await,
+        CompactionRequestRefusal::NothingToCompact
     );
     assert!(!has_checkpoint(&runtime));
-    assert_eq!(driver.agent_calls().await.len(), 1);
+    assert_eq!(
+        driver.summary_call_count(),
+        0,
+        "a structural refusal pays for no model call"
+    );
+    assert_eq!(runtime.agent.journal().records().len(), records);
     assert!(!runtime.has_active_work());
 }
 

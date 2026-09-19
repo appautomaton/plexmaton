@@ -1,11 +1,19 @@
 //! Canonical and alias command spellings edit one composer draft (CMC-2).
 
-use super::{Command, ViewState, grammar::exact_command};
+use super::{
+    Command, ViewState,
+    grammar::{CommandFlags, command_flags, exact_command},
+};
 
 impl ViewState {
     /// The Command the whole draft is, if it is one (CMC-2).
     pub(crate) fn exact_command(&self) -> Option<Command> {
         exact_command(self.composer().text())
+    }
+
+    /// The declared flags that draft carries, read before the draft is taken (CMC-2).
+    pub(crate) fn command_flags(&self) -> CommandFlags {
+        command_flags(self.composer().text())
     }
 
     /// Completes one canonical or alias spelling without changing the underlying Command action.

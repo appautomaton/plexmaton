@@ -61,6 +61,7 @@ pub(crate) use owned_runner::{ChildStartError, OwnedChildRunner};
 pub use owned_runner::{
     OwnedRunnerError, OwnedRunnerUpdate, RunnerGeneration, RunnerIdentity, WakeHint,
 };
+pub use plexmaton_provider::Retention;
 pub use runtime::{
     ContextBudgetSnapshot, ContextBudgetUnavailable, DelegatedProjectionRefusal, LiveRuntime,
     ModelChangeRefusal, ModelReplacement, QueuedBoundary, QueuedInput,

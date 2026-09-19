@@ -48,7 +48,8 @@ pub use child_control::{ChildControl, ChildControlRefusal, ChildControlSnapshot}
 pub(crate) use composer::apply_text;
 pub(crate) use composer::input_window;
 pub use composer_menu::{
-    Command, Listing, ModelChoice, ModelIdentity, SkillChoice, SkillChoiceSource,
+    Command, CommandFlag, CommandFlags, Listing, ModelChoice, ModelIdentity, SkillChoice,
+    SkillChoiceSource,
 };
 pub(crate) use composer_menu::{MenuRow, VISIBLE_ROWS};
 pub use configuration::ConfigurationSummary;

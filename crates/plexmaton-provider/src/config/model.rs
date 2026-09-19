@@ -86,6 +86,7 @@ impl ResolvedModel {
         api_key_env: &str,
         provider_api: Option<ModelApi>,
         model: RawModel,
+        configured_keep_recent_tokens: Option<u32>,
     ) -> Result<Self, ConfigError> {
         let api = model
             .api
@@ -111,7 +112,11 @@ impl ResolvedModel {
             context_window_tokens: model.context_window_tokens,
             max_output_tokens: model.max_output_tokens,
             output_reserve_tokens: model.output_reserve_tokens,
-            compaction_keep_recent_tokens: model.compaction_keep_recent_tokens,
+            // The model's own value wins, then the configuration's, then the built-in default.
+            compaction_keep_recent_tokens: model
+                .compaction_keep_recent_tokens
+                .or(configured_keep_recent_tokens)
+                .unwrap_or(super::DEFAULT_COMPACTION_KEEP_RECENT_TOKENS),
             token_estimator: model.token_estimator,
             cost: model.cost,
         };

@@ -37,8 +37,12 @@ loop step and the runtime's admission already names a busy conversation.
 **CMC-2 — Only a whole Command runs.** `Tab` completes the chosen Command into the draft as
 `/name ` and runs nothing; `Enter` runs a draft that is exactly a Command, with the menu open or
 dismissed. A listing Command, `/resume`, `/permissions`, `/effort` or `/model`, keeps the text after it as its query.
-Any other draft with text after the token, `/compact please` included, is text and submits as
-text. `/` followed by a character no Command starts with lists nothing. A whole Command is a
+A Command may also declare flags, which lead the text after the name: `/compact --force` is that
+Command carrying that modifier, and a listing Command's query begins after them. A flag names how
+the Command runs, never what it runs on; that is what a listing is for.
+Any other draft with text after the token, `/compact please` and an undeclared `--flag` included,
+is text and submits as text — a mistyped flag is visible as the message it became rather than
+silently running the plain Command it was modifying. `/` followed by a character no Command starts with lists nothing. A whole Command is a
 request, never unsent input a switch would lose (SPK-2).
 
 **CMC-3 — Session permissions are typed where the Session is.** `/permissions` lists the

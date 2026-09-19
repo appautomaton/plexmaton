@@ -160,6 +160,10 @@ impl fmt::Debug for ApiKey {
 #[serde(deny_unknown_fields)]
 struct RawModelRegistry {
     active_model: ModelSelection,
+    /// The tail every model keeps at a checkpoint unless it names its own. One number governs a
+    /// whole configuration, because the value is a preference about how much recent conversation
+    /// survives compaction rather than a property any single model has.
+    compaction_keep_recent_tokens: Option<u32>,
     providers: BTreeMap<String, RawProvider>,
 }
 
@@ -185,18 +189,26 @@ struct RawModel {
     instructions: String,
     #[serde(default)]
     prompt_cache: PromptCache,
+    #[serde(default = "default_context_window_tokens")]
     context_window_tokens: u32,
     max_output_tokens: u32,
     output_reserve_tokens: u32,
-    #[serde(default = "default_compaction_keep_recent_tokens")]
-    compaction_keep_recent_tokens: u32,
+    compaction_keep_recent_tokens: Option<u32>,
     #[serde(default)]
     token_estimator: TokenEstimator,
     cost: Option<ModelCost>,
 }
 
-const fn default_compaction_keep_recent_tokens() -> u32 {
-    20_000
+/// The tail a checkpoint keeps when neither the model nor the configuration names one.
+pub const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS: u32 = 20_000;
+
+/// The context window a model is assumed to have when its configuration does not say.
+///
+/// Every model worth coding against in 2026 reaches at least this far, so a configuration that
+/// omits the field means the ordinary case rather than an unusable one. A model that really is
+/// smaller says so, and the test fixtures do exactly that.
+const fn default_context_window_tokens() -> u32 {
+    200_000
 }
 
 #[derive(Debug, Error)]
@@ -281,6 +293,7 @@ impl ModelRegistry {
                     &api_key_env,
                     api,
                     model,
+                    raw.compaction_keep_recent_tokens,
                 )?;
                 models.insert((provider_name.clone(), model_name), resolved);
             }
