@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 28 model-switch degradation in progress; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15, 17–27 and 29 complete; stages 16 and 28 await the user's terminal test; stages 30 automatic-compaction visibility and 31 test-evidence kinds unstarted; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -336,6 +336,31 @@ Visual changes are reviewed against real frames before the contract adopts them.
     anything in the conversation's past, a finished thought the destination cannot replay is carried
     as text, an interrupted one is still omitted, and tool-call ids take a shape every dialect
     accepts. COM-3's route reports what a switch cost, when it cost anything.
+
+29. **Compaction declines instead of paying to find out — complete.** A conversation inside its
+    retention window has nothing in front of that tail, and CPL-3 now answers so before the
+    summarizer is asked; `/compact --force` asks again with that gate removed, and nothing past it
+    changes. Publication stopped refusing a replacement for coming back larger, because size is an
+    estimate and quality is unread. CMC-2 gained declared flags, the first in the grammar.
+
+30. **Automatic compaction is invisible — unstarted.** A checkpoint the runtime takes on its own
+    reports nothing: the same operation the user can ask for, taken automatically, leaves no line
+    in the conversation and the context silently halves. CPL-7 and CPL-9 name one operation with
+    two continuations; only the requested one reports. The user sees the same thing either way, so
+    the reporting surface is named for the wrong half. Needs a rendered frame first: an automatic
+    checkpoint lands mid-turn, between a submitted message and its answer, where a requested one
+    lands after the last entry.
+
+31. **Test evidence says what kind it is — unstarted.** `standards/testing.md` and
+    `.agents/README.md` now hold the policy: Tiers 1–3 are the instrument, Tiers 4–5 earn a place
+    only by reaching what no assertion reaches, and an evidence row says which kind of proof backs
+    an invariant. The corpus does not yet follow it. `provisioning_process_death_recovers_one_exact_passive_child`
+    spawns and kills a real process from inside the fast suite and fails three runs in four on
+    `main`, while four documents cite it as proof of five invariants; it belongs in a lane of its
+    own or those invariants are unproven. Smoke scripts are cited 46 times across 23 evidence
+    documents without saying they are a different kind of evidence. `standards/testing.md` also
+    outgrew its 8 KB budget holding the new policy; its `Owns` lists four things, and performance
+    evidence is a separate trigger.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Independent lossless session export/import belongs to this phase as unstarted follow-up work.
