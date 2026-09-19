@@ -102,6 +102,11 @@ Budgets count bytes, not lines. `./scripts/check-doc-budget.sh` measures tracked
 corpus documents; warnings are advisory. Move excess content to its owning layer using the
 escape hatch below.
 
+A budget tightens a corpus that code already documents, so a spike or plan may exceed it while its
+work is unbuilt and pay the debt once the code can be read instead. Rejected: shaving a design
+document to satisfy the gate, which spends the session on wording and leaves the next agent
+re-deriving what was cut.
+
 | Path | Budget | Escape hatch when it fires |
 | --- | --- | --- |
 | `AGENTS.md` | 10 KB | Push the section down to `standards/` and add a trigger row |

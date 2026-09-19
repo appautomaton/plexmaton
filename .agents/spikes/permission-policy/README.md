@@ -47,7 +47,9 @@ Three failure-path lessons:
   unavailable. Plexmaton retains APV-4/APV-6. Codex `never`, Claude `dontAsk`, and DSH `never`
   reject unresolved asks: no prompts and unrestricted execution are different policies.
 
-Follow-ups: [trust/modes](./trust-and-modes.md), [optional sandbox](./sandbox-boundary.md),
+Follow-ups, read first: [next decisions](./next-decisions.md),
+[enforcement boundary](./enforcement-boundary.md). Then [trust/modes](./trust-and-modes.md),
+[optional sandbox](./sandbox-boundary.md),
 [integration](./integration.md), [store experiment](./store-experiment.md),
 [approval flow](./approval-flow.md).
 
@@ -111,4 +113,4 @@ rustc --edition 2024 --test -D warnings .agents/spikes/permission-policy/policy-
 
 [Production evidence](../../evidence/permission-policy.md#reviewed-production-evidence) retains the executable journey and reviewed frames.
 [Permission policy](../../specs/permission-policy.md) owns the production invariants;
-the finite model is comparison evidence. OS containment and MCP remain separate work.
+the finite model is comparison evidence.

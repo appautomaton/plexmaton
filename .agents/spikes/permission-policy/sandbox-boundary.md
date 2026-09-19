@@ -3,7 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Read when | Scoping command containment, automatic approval or shell permission matching |
-| Status | Rule-based priority agreed; macOS fixture probe passed; production containment unproven |
+| Status | Rule-based priority agreed; macOS probe and per-command cost measured; production containment unproven |
 | Corpus | Local revisions pinned in [the spike](./README.md); OS documentation checked 2026-09-05 |
 
 ## First implementation boundary
@@ -42,12 +42,11 @@ describes per-ABI rights, irreversible inheritance and current gaps including `c
 filesystem effect or all communication. Do not claim a full write fence from Landlock alone.
 
 [Bubblewrap](https://github.com/containers/bubblewrap#sandbox-security) leaves policy to its caller;
-the launcher needs no Docker daemon or VM. Package metadata checked 2026-09-05 reports:
-[Debian amd64 0.12.0-1~deb13u1](https://packages.debian.org/trixie/bubblewrap), 55.5 kB download /
-142.0 kB installed; [Arch x86_64 0.12.0-1](https://archlinux.org/packages/extra/x86_64/bubblewrap/),
-41.7 KB / 97.4 KB. These are package sizes including support files, excluding shared dependencies;
-they are neither standalone binary sizes nor process memory measurements. No startup or build
-overhead was measured. Versioned dependency/runtime audits remain necessary before adoption.
+the launcher needs no Docker daemon or VM. Versioned dependency/runtime audits remain necessary
+before adoption, and its per-command cost on Linux is unmeasured — the packaged download sizes
+recorded here previously stood in for that and measured nothing about it.
+
+Per-command cost: [containment cost](./containment-cost.md).
 
 DSH's `packages/sandbox/sandbox-local/src/profiles.ts:16,30,51` shows a small per-command wrapper:
 bubblewrap mounts, Landlock grants, or Seatbelt rules. Its Linux Landlock profile reads `/` and its
@@ -70,7 +69,7 @@ Run from this worktree:
 python3 .agents/spikes/permission-policy/seatbelt-probe.py
 ```
 
-On macOS 26.6.2, all 13 checks passed on 2026-09-05. The outer agent sandbox refused nested
+On macOS 26.6.2, all 13 checks passed on 2026-09-05 and again on 2026-09-19. The outer agent sandbox refused nested
 `sandbox_apply`; the same disposable probe passed with execution outside that outer sandbox.
 No production process, user configuration, reference suite or real model endpoint was used.
 
@@ -101,8 +100,9 @@ integration evidence; containment questions apply only if that work is pursued:
    when its visible command is unchanged; a rule cannot infer that code's full effects.
 2. **Usable confinement.** Prove one chosen macOS profile with a tiny offline Rust build, explicit
    toolchain read paths, owned cache/scratch writes, protected control paths and blocked outside
-   reads. Measure startup and representative build overhead separately. Linux needs its own host
-   matrix and may reasonably use bubblewrap when Landlock cannot express the promised boundary.
+   reads. Per-invocation cost is measured ([containment cost](./containment-cost.md)); build
+   throughput under a wrapper is not. Linux needs its own host matrix and may reasonably use
+   bubblewrap when Landlock cannot express the promised boundary.
 3. **Lifecycle and explanation.** Pin policy before spawn; reject stale grants and unsupported
    containment; preserve cancellation and cleanup. Keep launcher startup failure separate from
    command exit. Generic `Permission denied` stderr cannot reliably identify a sandbox violation.
