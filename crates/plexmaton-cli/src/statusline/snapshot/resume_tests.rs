@@ -4,10 +4,8 @@ use crate::session::{ConversationSelection, open_selected_conversation};
 use crate::tests::{FixtureWorkspace, fixture_http_server};
 use plexmaton_agent::Input;
 use plexmaton_core::{AgentId, ConversationId};
-use plexmaton_provider::{ContextBudgetError, EncodeError, ModelRegistry};
-use plexmaton_runtime::{
-    ContextBudgetSnapshot, ModelChangeRefusal, NativeToolCatalog, RuntimeUpdate,
-};
+use plexmaton_provider::ModelRegistry;
+use plexmaton_runtime::{ContextBudgetSnapshot, NativeToolCatalog, RuntimeUpdate};
 use std::{path::Path, time::Duration};
 
 fn tools(root: &Path, model: &ResolvedModel) -> NativeToolCatalog {
@@ -21,9 +19,11 @@ fn tools(root: &Path, model: &ResolvedModel) -> NativeToolCatalog {
     .expect("fixture tools, never executed")
 }
 
-/// STL-3/MDL-1/MDL-4: reading history and observing facts do not require provider compatibility.
+/// STL-3/MDL-1/MDL-4: reading history and observing facts do not require provider compatibility,
+/// and neither does selecting a model. One conversation is written by Chat, read by Responses, and
+/// handed back to Chat, with every observed fact and every byte on disk unchanged throughout.
 #[tokio::test]
-async fn status_resume_isolates_context_refusal_without_weakening_model_admission() {
+async fn status_resume_reads_another_dialects_history_without_losing_observed_facts() {
     let root = FixtureWorkspace::new();
     let (url, server) = fixture_http_server([concat!(
         "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning\":\"private-reasoning-marker\\n\\n\",\"content\":\"fixture answer\"},\"finish_reason\":null}]}\n\n",
@@ -74,12 +74,21 @@ async fn status_resume_isolates_context_refusal_without_weakening_model_admissio
     })
     .await
     .expect("fixture settles");
-    assert_eq!(
-        opened
-            .runtime
-            .set_model(&agent, responses.clone(), key(&responses)),
-        Err(ModelChangeRefusal::IncompatibleHistory)
+    // MDL-1: crossing dialects costs the replay, not the switch, and the sidecars stay in the
+    // record — so coming back restores exact replay, and `before` is captured under the model that
+    // actually produced this history.
+    let replacement = opened
+        .runtime
+        .set_model(&agent, responses.clone(), key(&responses))
+        .expect("crossing dialects must not be refused");
+    assert!(
+        replacement.degraded_history,
+        "a Chat reply read by Responses is the case the user is told about"
     );
+    opened
+        .runtime
+        .set_model(&agent, chat.clone(), key(&chat))
+        .expect("returning to the original model");
     let dimensions = Dimensions {
         columns: 95,
         rows: 30,
@@ -113,11 +122,12 @@ async fn status_resume_isolates_context_refusal_without_weakening_model_admissio
     )
     .await
     .expect("history can be opened under the configured default");
+    // MDL-4: reopening under a different default model used to leave this conversation's status
+    // line permanently unavailable. The replay it cannot use is carried as text instead, so the
+    // budget is a real number again.
     assert!(matches!(
         reopened.runtime.context_budget(),
-        Err(ContextBudgetError::Encoding(
-            EncodeError::IncompatibleReplay { .. }
-        ))
+        Ok(ContextBudgetSnapshot::Available(_))
     ));
     let after = serde_json::to_value(Snapshot::capture(
         &reopened.runtime,
@@ -126,12 +136,9 @@ async fn status_resume_isolates_context_refusal_without_weakening_model_admissio
         dimensions,
     ))
     .expect("JSON");
-    assert_eq!(after["plexmaton"]["context"]["availability"], "unavailable");
-    assert_eq!(
-        after["plexmaton"]["context"]["reason"],
-        "history_incompatible"
-    );
-    assert!(after["context_window"]["used_percentage"].is_null());
+    assert_eq!(after["plexmaton"]["context"]["availability"], "available");
+    assert!(after["plexmaton"]["context"]["reason"].is_null());
+    assert!(!after["context_window"]["used_percentage"].is_null());
     for field in ["session_id", "cost"] {
         assert_eq!(after[field], before[field]);
     }
@@ -158,7 +165,7 @@ async fn status_resume_isolates_context_refusal_without_weakening_model_admissio
     ] {
         assert!(!encoded.contains(secret));
     }
-    status_command_keeps_partial_snapshot(&reopened.runtime, &responses).await;
+    status_command_keeps_the_whole_snapshot(&reopened.runtime, &responses).await;
     reopened
         .runtime
         .set_model(&agent, chat.clone(), key(&chat))
@@ -175,7 +182,7 @@ async fn status_resume_isolates_context_refusal_without_weakening_model_admissio
     assert_eq!(std::fs::read(path).expect("journal after inspection"), disk);
 }
 
-async fn status_command_keeps_partial_snapshot(runtime: &LiveRuntime, model: &ResolvedModel) {
+async fn status_command_keeps_the_whole_snapshot(runtime: &LiveRuntime, model: &ResolvedModel) {
     use super::super::{StatusLine, StatusLineConfig, Update};
     use plexmaton_tui::{Palette, Workspace};
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/statusline-pastel.sh");
@@ -196,7 +203,7 @@ async fn status_command_keeps_partial_snapshot(runtime: &LiveRuntime, model: &Re
             .await
             .expect("bounded status command");
         let Update::Output(Ok(text)) = update else {
-            panic!("partial snapshot must reach the script: {update:?}")
+            panic!("the snapshot must reach the script: {update:?}")
         };
         let output = text
             .lines()
@@ -204,17 +211,15 @@ async fn status_command_keeps_partial_snapshot(runtime: &LiveRuntime, model: &Re
             .map(ToString::to_string)
             .collect::<Vec<_>>()
             .join("\n");
-        for retained in [
-            "Luna",
-            "↑100",
-            "↓20",
-            "History incompatible with model · /model",
-        ] {
+        for retained in ["Luna", "↑100", "↓20"] {
             assert!(output.contains(retained), "{columns}: {output}");
         }
+        // MDL-4: this line used to read "History incompatible with model · /model" for the rest of
+        // the conversation's life, because the default model could not replay what another one
+        // wrote. It reports a capacity now, and the instruction it gave has nothing left to fix.
         assert!(
-            !output.contains(""),
-            "incompatible current capacity must not label historical input"
+            !output.contains("History incompatible"),
+            "{columns}: reading history under another dialect is not a defect: {output}"
         );
         status.apply(Ok(text), &mut workspace);
     }

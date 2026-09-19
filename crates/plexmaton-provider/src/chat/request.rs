@@ -10,6 +10,7 @@ use super::{ChatReplay, ReasoningField};
 use crate::{
     FunctionTool, ResolvedModel,
     codec::{EncodeError, tool_output},
+    degrade::{self, Carried},
 };
 
 pub(crate) fn encode(
@@ -72,7 +73,12 @@ enum AssistantPhase {
 }
 
 impl PendingAssistant {
-    fn into_message(self) -> Value {
+    /// `None` when nothing survived. A reply with no content, no reasoning and no calls is not a
+    /// message Chat accepts, and degradation is the first path that can produce one.
+    fn into_message(self) -> Option<Value> {
+        if self.content.is_none() && self.reasoning.is_empty() && self.calls.is_empty() {
+            return None;
+        }
         let mut message = json!({
             "role": "assistant",
             "content": self.content,
@@ -83,7 +89,7 @@ impl PendingAssistant {
         if !self.calls.is_empty() {
             message["tool_calls"] = Value::Array(self.calls);
         }
-        message
+        Some(message)
     }
 }
 
@@ -126,14 +132,15 @@ pub(crate) fn encode_atom(
             }));
         }
         ContextAtomValue::Assistant(output) => {
-            messages.push(encode_assistant(model, output)?);
+            messages.extend(encode_assistant(model, output)?);
         }
         ContextAtomValue::ToolBatch(batch) => {
-            messages.push(encode_assistant(model, batch.assistant())?);
+            messages.extend(encode_assistant(model, batch.assistant())?);
+            let degraded = degrade::is_degraded(batch.assistant(), model);
             messages.extend(batch.results().iter().map(|result| {
                 json!({
                     "role": "tool",
-                    "tool_call_id": result.call_id().as_str(),
+                    "tool_call_id": degrade::atom_call_id(degraded, result.call_id()),
                     "content": tool_output(result.outcome()),
                 })
             }));
@@ -142,17 +149,34 @@ pub(crate) fn encode_atom(
     Ok(messages)
 }
 
-fn encode_assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<Value, EncodeError> {
-    if let Some(replay) = output.replay() {
-        let expected = model.replay_compatibility();
-        if replay.compatible_with() != &expected {
-            return Err(EncodeError::IncompatibleReplay {
-                found: Box::new(replay.compatible_with().clone()),
-                expected: Box::new(expected),
-            });
+/// Spells what survived a replay this model cannot use. PRV-3 owns what that is; this only writes
+/// it in the dialect's own words. Demoted reasoning joins visible content, so the phase machine
+/// below never sees a reasoning block out of order and never has a field name to guess.
+fn degraded_assistant(carried: &[Carried<'_>]) -> Option<Value> {
+    let mut pending = PendingAssistant::default();
+    for block in carried {
+        match block {
+            Carried::Text(text) => pending
+                .content
+                .get_or_insert_with(String::new)
+                .push_str(text),
+            Carried::Call(call) => pending.calls.push(json!({
+                "id": degrade::atom_call_id(true, &call.call_id),
+                "type": "function",
+                "function": { "name": call.name, "arguments": call.arguments },
+            })),
         }
     }
+    pending.into_message()
+}
 
+fn encode_assistant(
+    model: &ResolvedModel,
+    output: &AssistantOutput,
+) -> Result<Option<Value>, EncodeError> {
+    if let Some(carried) = degrade::degraded(output, model) {
+        return Ok(degraded_assistant(&carried));
+    }
     let mut pending = PendingAssistant::default();
     let mut phase = AssistantPhase::default();
     for (index, block) in output.blocks().iter().enumerate() {

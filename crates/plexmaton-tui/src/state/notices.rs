@@ -44,6 +44,8 @@ pub enum NoticeView {
     SkillDiagnostic { message: String },
     /// Input the user submitted could not be handed to the runtime, and came back to the draft.
     DispatchRefused { message: String },
+    /// The selected model reads earlier replies as text, because their own form is not its own.
+    DegradedHistory,
 }
 
 /// What the session writer knows about a failed submission append.
@@ -128,6 +130,15 @@ impl ViewState {
         self.notices.push(NoticeView::DispatchRefused {
             message: bounded(message),
         });
+        self.touch();
+    }
+
+    /// Records what a model switch cost, after it succeeded (MDL-1).
+    ///
+    /// It carries no text of its own because there is only one thing to say, and saying it from
+    /// here keeps the sentence in one place rather than in whichever caller happened to notice.
+    pub(crate) fn report_degraded_history(&mut self) {
+        self.notices.push(NoticeView::DegradedHistory);
         self.touch();
     }
 }

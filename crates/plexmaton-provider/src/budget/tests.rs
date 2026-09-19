@@ -237,9 +237,10 @@ fn replay_atom(model: &ResolvedModel) -> ContextAtom {
     .expect("atom")
 }
 
-/// BUD-3/PRV-3: opaque bytes have explicit heuristic provenance; incompatible replay is still refused.
+/// BUD-3/PRV-3: opaque bytes have explicit heuristic provenance, and a model that cannot use them
+/// is charged for what it actually sends rather than for bytes that stay behind.
 #[test]
-fn bud_3_opaque_replay_is_flagged_and_incompatibility_never_becomes_a_zero_estimate() {
+fn bud_3_opaque_replay_is_flagged_and_a_degraded_atom_is_charged_for_none_of_it() {
     let responses = model("openai_responses");
     let atom = replay_atom(&responses);
     let before = atom.clone();
@@ -248,12 +249,14 @@ fn bud_3_opaque_replay_is_flagged_and_incompatibility_never_becomes_a_zero_estim
     assert!(estimated.opaque_replay_bytes > 0);
     assert!(!format!("{estimated:?}").contains("secret-ciphertext"));
     assert_eq!(atom, before);
-    assert!(matches!(
-        estimate_atom(&model("openai_chat_completions"), &atom),
-        Err(ContextBudgetError::Encoding(
-            EncodeError::IncompatibleReplay { .. }
-        ))
-    ));
+
+    // The only block here is encrypted reasoning with no visible text, so Chat carries nothing of
+    // it: no opaque bytes, and no ciphertext anywhere near the estimate. The atom is not mutated.
+    let degraded =
+        estimate_atom(&model("openai_chat_completions"), &atom).expect("a foreign replay degrades");
+    assert_eq!(degraded.opaque_replay_bytes, 0);
+    assert!(!format!("{degraded:?}").contains("secret-ciphertext"));
+    assert_eq!(atom, before);
 }
 
 /// BUD-3/BUD-4: a maximal two-result batch remains one item, with both outputs included in its cost.

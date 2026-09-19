@@ -10,6 +10,7 @@ use super::replay::{MessagePartKind, ResponseReplay};
 use crate::{
     FunctionTool, ResolvedModel,
     codec::{EncodeError, RESPONSES_CODEC_ID, tool_output},
+    degrade::{self, Carried},
 };
 
 pub(crate) fn encode(
@@ -95,10 +96,11 @@ pub(crate) fn encode_atom(
         }
         ContextAtomValue::ToolBatch(batch) => {
             encode_assistant(model, batch.assistant(), &mut input)?;
+            let degraded = degrade::is_degraded(batch.assistant(), model);
             input.extend(batch.results().iter().map(|result| {
                 json!({
                     "type": "function_call_output",
-                    "call_id": result.call_id().as_str(),
+                    "call_id": degrade::atom_call_id(degraded, result.call_id()),
                     "output": tool_output(result.outcome()),
                 })
             }));
@@ -107,25 +109,41 @@ pub(crate) fn encode_atom(
     Ok(input)
 }
 
+/// Spells what survived a replay this model cannot use. PRV-3 owns what that is; this only writes
+/// it in the dialect's own words.
+fn degraded_assistant(carried: &[Carried<'_>], input: &mut Vec<Value>) {
+    for block in carried {
+        input.push(match block {
+            Carried::Text(text) => json!({
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": text}],
+            }),
+            Carried::Call(call) => json!({
+                "type": "function_call",
+                "call_id": degrade::atom_call_id(true, &call.call_id),
+                "name": call.name,
+                "arguments": call.arguments,
+            }),
+        });
+    }
+}
+
 fn encode_assistant(
     model: &ResolvedModel,
     output: &AssistantOutput,
     input: &mut Vec<Value>,
 ) -> Result<(), EncodeError> {
+    if let Some(carried) = degrade::degraded(output, model) {
+        degraded_assistant(&carried, input);
+        return Ok(());
+    }
+    debug_assert_eq!(
+        model.replay_compatibility().codec().as_str(),
+        RESPONSES_CODEC_ID
+    );
     let mut attachments = output
         .replay()
-        .map(|replay| {
-            let expected = model.replay_compatibility();
-            debug_assert_eq!(expected.codec().as_str(), RESPONSES_CODEC_ID);
-            if replay.compatible_with() != &expected {
-                return Err(EncodeError::IncompatibleReplay {
-                    found: Box::new(replay.compatible_with().clone()),
-                    expected: Box::new(expected),
-                });
-            }
-            Ok(replay.attachments().iter().peekable())
-        })
-        .transpose()?;
+        .map(|replay| replay.attachments().iter().peekable());
 
     for (index, block) in output.blocks().iter().enumerate() {
         let block_index = u16::try_from(index)

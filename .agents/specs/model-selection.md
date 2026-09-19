@@ -9,12 +9,19 @@
 
 ## Invariants
 
-**MDL-1 — Replacement has one idle boundary.** Model and effort changes share runtime admission:
-wrong-agent, busy/queued work, approval, compaction, persistence failure and shutdown refuse a
-replacement. A fully constructed driver replaces the current one atomically, without starting a
-request or altering canonical history; failure leaves the old driver intact. The selected journal
-projection must encode under the destination model before acceptance; incompatible provider replay
-is refused without stripping its sidecars.
+**MDL-1 — Replacement has one idle boundary, and nothing in the past closes it.** Model and effort
+changes share runtime admission: wrong-agent, busy/queued work, approval, compaction, persistence
+failure and shutdown refuse a replacement. A fully constructed driver replaces the current one
+atomically, without starting a request or altering canonical history; failure leaves the old driver
+intact. A model change additionally requires that the selected journal projection encode under the
+destination before acceptance, so a history that cannot be prepared at all is still refused; effort
+runs no such check, the projection it would test being the one already in use. Provider replay the
+destination cannot use is not such a case: PRV-3 carries the reply's content across instead, the
+sidecars stay in the record, and selecting the original model again replays them exactly. The
+conversation is told once, afterwards, when a switch cost it that. Rejected: refusing the switch,
+which read replay compatibility as a property of the conversation rather than of one encoder, and so
+welded every conversation that had ever reasoned to the model that produced it — its own siblings
+included, since compatibility carries the exact wire id.
 
 **MDL-2 — A model is an exact configured pair.** The CLI supplies bounded menu summaries from its
 immutable provider/model registry; a selected row carries both identities. Only acceptance updates
@@ -30,8 +37,9 @@ snapshot and native tool owners, and computes the destination model's request en
 default and persists while that conversation remains open. New, resume and restart use the
 configured default. Model selection writes neither user/project configuration nor historical
 request metadata; EFF-5 owns the corresponding effort lifetime. Opening saved history does not
-assert that the default model can encode it; STL-3 keeps historical status available when its
-prospective context is unavailable.
+assert that the default model can encode it, and a conversation another model wrote reports a real
+context budget rather than an unavailable one; STL-3 still keeps historical status available for the
+encoding failures that remain.
 
 ## Grammar
 
@@ -41,7 +49,10 @@ pointer movement choose; Enter confirms and
 Escape dismisses while retaining the draft; Tab never confirms a model row. A matching press/release
 also confirms the row by identity (INV-11). A failed selection keeps the menu and prior model;
 choosing another row clears the old refusal. Refusal text uses the theme's Failure style, including
-wrapped lines; catalog-limit and empty-list explanations retain the Muted style.
+wrapped lines; catalog-limit and empty-list explanations retain the Muted style. An accepted
+selection that cost the conversation its replay closes the menu like any other and adds one Muted
+notice naming what the new model now reads as text. Rejected: asking first, which taxes every
+switch to warn about the reversible minority of them.
 No configuration discovery or network request is made by opening the menu. The catalog retains at
 most 256 complete entries / 64 KiB of metadata and identifies a limited list explicitly. Empty and
 no-match lists remain open; no query becomes a provider prompt. Rows display provider/configured

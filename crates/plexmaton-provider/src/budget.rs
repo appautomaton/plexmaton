@@ -148,19 +148,20 @@ fn estimate_atom(
         ContextAtomValue::Assistant(output) => Some(output),
         ContextAtomValue::ToolBatch(batch) => Some(batch.assistant()),
     };
-    let opaque_replay_bytes =
-        output
-            .and_then(|output| output.replay())
-            .map_or(Ok(0_u64), |replay| {
-                replay.attachments().iter().try_fold(0_u64, |total, item| {
-                    total
-                        .checked_add(
-                            u64::try_from(item.payload().len())
-                                .map_err(|_| BudgetError::Overflow)?,
-                        )
-                        .ok_or(BudgetError::Overflow)
-                })
-            })?;
+    // A degraded atom's sidecars never reach the wire (PRV-3), so they occupy no context. Counting
+    // them would overstate occupancy and bring compaction forward for bytes nobody sends.
+    let opaque_replay_bytes = output
+        .filter(|output| !crate::degrade::is_degraded(output, model))
+        .and_then(|output| output.replay())
+        .map_or(Ok(0_u64), |replay| {
+            replay.attachments().iter().try_fold(0_u64, |total, item| {
+                total
+                    .checked_add(
+                        u64::try_from(item.payload().len()).map_err(|_| BudgetError::Overflow)?,
+                    )
+                    .ok_or(BudgetError::Overflow)
+            })
+        })?;
     Ok(TokenEstimate {
         tokens: estimate(model.token_estimator(), &encoded)?,
         opaque_replay_bytes,

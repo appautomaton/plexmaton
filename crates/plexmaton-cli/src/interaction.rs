@@ -2,7 +2,6 @@
 
 mod child_input;
 mod model;
-use model::apply_model;
 mod stop;
 use std::{io, time::Instant};
 use stop::{apply_interrupt, apply_stop_settlement};
@@ -220,28 +219,7 @@ async fn apply_workspace_outcome(
     permissions: &mut permission_controls::PermissionControls,
     status_line: &mut Option<statusline::StatusLine>,
 ) -> anyhow::Result<bool> {
-    if let Some(change) = &outcome.model {
-        let result = apply_model(change, runtime, picker);
-        if let Ok(model) = &result {
-            workspace.set_effort_choices(model.allowed_reasoning_efforts().map(<[_]>::to_vec));
-            if let Some(status) = status_line {
-                status.mark_dirty();
-            }
-        }
-        workspace.report_model(result.map(|model| crate::configuration_summary(&model)));
-    }
-    if let Some(change) = &outcome.effort {
-        let result = runtime
-            .set_reasoning_effort(&change.agent, change.effort)
-            .map_err(|refusal| refusal.to_string())
-            .map(|model| crate::configuration_summary(&model));
-        if result.is_ok()
-            && let Some(status) = status_line
-        {
-            status.mark_dirty();
-        }
-        workspace.report_effort(result);
-    }
+    model::apply_settings(&outcome, runtime, workspace, picker, status_line);
     if let Some(agent) = &outcome.withdrawn {
         // The queue belongs to the runtime; the workspace only asked. The text comes back through
         // the same `undelivered` path that already returns messages nothing claimed (IQU-4).

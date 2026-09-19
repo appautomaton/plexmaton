@@ -1,13 +1,18 @@
 //! Stateless GenerateContent request encoding with part-local signatures.
 
 use plexmaton_agent::{
-    AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest, ToolOutcome,
+    AssistantBlock, AssistantOutput, ContextAtom, ContextAtomValue, ModelRequest, ToolCall,
+    ToolOutcome,
 };
 use plexmaton_core::ReasoningEffort;
 use serde_json::{Value, json};
 
 use super::wire::PartReplay;
-use crate::{EncodeError, FunctionTool, ResolvedModel, codec::tool_output};
+use crate::{
+    EncodeError, FunctionTool, ResolvedModel,
+    codec::tool_output,
+    degrade::{self, Carried},
+};
 
 pub(crate) fn encode(
     model: &ResolvedModel,
@@ -66,9 +71,10 @@ pub(crate) fn encode_atom(
             "role":"user",
             "parts":[{"text":crate::codec::skill_context(activation)}],
         })]),
-        ContextAtomValue::Assistant(output) => Ok(vec![assistant(model, output)?]),
+        ContextAtomValue::Assistant(output) => Ok(assistant(model, output)?.into_iter().collect()),
         ContextAtomValue::ToolBatch(batch) => {
-            let assistant = assistant(model, batch.assistant())?;
+            let assistant =
+                assistant(model, batch.assistant())?.ok_or(EncodeError::InvalidReplayItem)?;
             let parts = assistant["parts"]
                 .as_array()
                 .ok_or(EncodeError::InvalidReplayItem)?;
@@ -95,15 +101,41 @@ pub(crate) fn encode_atom(
     }
 }
 
-fn assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<Value, EncodeError> {
-    let expected = model.replay_compatibility();
-    if let Some(replay) = output.replay()
-        && replay.compatible_with() != &expected
-    {
-        return Err(EncodeError::IncompatibleReplay {
-            found: Box::new(replay.compatible_with().clone()),
-            expected: Box::new(expected),
+fn tool_args(call: &ToolCall) -> Result<Value, EncodeError> {
+    let args: Value =
+        serde_json::from_str(&call.arguments).map_err(|_| EncodeError::InvalidToolArguments)?;
+    if !args.is_object() {
+        return Err(EncodeError::InvalidToolArguments);
+    }
+    Ok(args)
+}
+
+/// Spells what survived a replay this model cannot use. PRV-3 owns what that is; this only writes
+/// it in the dialect's own words.
+///
+/// A demoted thought is plain text with no `thought` flag: the flagged shape is only legal beside
+/// the signature that authenticates it, and a thought from another model has none Gemini will take.
+/// A degraded call carries no upstream id, and `encode_atom` reads its response back out of what
+/// this wrote, so the two stay paired.
+fn degraded_assistant(carried: &[Carried<'_>]) -> Result<Option<Value>, EncodeError> {
+    let mut parts = Vec::new();
+    for block in carried {
+        parts.push(match block {
+            Carried::Text(text) => json!({ "text": text }),
+            Carried::Call(call) => {
+                json!({"functionCall":{"name":call.name, "args":tool_args(call)?}})
+            }
         });
+    }
+    Ok((!parts.is_empty()).then(|| json!({"role":"model", "parts":parts})))
+}
+
+fn assistant(
+    model: &ResolvedModel,
+    output: &AssistantOutput,
+) -> Result<Option<Value>, EncodeError> {
+    if let Some(carried) = degrade::degraded(output, model) {
+        return degraded_assistant(&carried);
     }
     let mut parts = Vec::new();
     for (index, block) in output.blocks().iter().enumerate() {
@@ -127,12 +159,7 @@ fn assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<Value, E
                     signature,
                 }),
             ) => {
-                let args: Value = serde_json::from_str(&call.arguments)
-                    .map_err(|_| EncodeError::InvalidToolArguments)?;
-                if !args.is_object() {
-                    return Err(EncodeError::InvalidToolArguments);
-                }
-                let mut function = json!({"name":call.name,"args":args});
+                let mut function = json!({"name":call.name, "args":tool_args(call)?});
                 if let Some(id) = upstream_id {
                     function["id"] = Value::String(id);
                 }
@@ -175,5 +202,5 @@ fn assistant(model: &ResolvedModel, output: &AssistantOutput) -> Result<Value, E
         }
         parts.push(part);
     }
-    Ok(json!({"role":"model","parts":parts}))
+    Ok(Some(json!({"role":"model","parts":parts})))
 }

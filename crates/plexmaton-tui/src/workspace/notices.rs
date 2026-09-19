@@ -19,4 +19,12 @@ impl Workspace {
     pub fn report_dispatch_refusal(&mut self, message: String) {
         self.state.report_dispatch_refusal(message);
     }
+
+    /// Reports that the model just selected reads earlier replies as text (MDL-1).
+    ///
+    /// The switch already succeeded, so this is a receipt and not a question: nothing was
+    /// destroyed, and selecting the original model again replays its own history exactly.
+    pub fn report_degraded_history(&mut self) {
+        self.state.report_degraded_history();
+    }
 }

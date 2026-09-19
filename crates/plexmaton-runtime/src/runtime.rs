@@ -16,7 +16,7 @@ mod collaboration;
 mod compaction;
 mod construction;
 mod model_settings;
-pub use model_settings::ModelChangeRefusal;
+pub use model_settings::{ModelChangeRefusal, ModelReplacement};
 mod journal;
 mod model;
 mod navigation;

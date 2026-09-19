@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 10 branding remains |
+| Status | Active; stages 1–9, 11–15 and 17–27 complete; stage 16 effort selection awaits user testing; stage 28 model-switch degradation in progress; stage 10 branding remains |
 | Parent roadmap | [Plexmaton Roadmap](../roadmap.md) |
 | Product contract | [UI/UX](../ui-ux.md) |
 | Depends on | Phase 01 interaction ownership; Phase 02 journal/accounting/budget projections; Phase 03 durable collaboration, owned child scheduling, Handoff/Stop, passive recovery and canonical Attention |
@@ -328,6 +328,14 @@ Visual changes are reviewed against real frames before the contract adopts them.
     short viewport states were inspected; targeted Sol-high review found no actionable issue.
     The user has not yet reviewed the theme in their terminal; CI awaits publication. No live
     provider or saved-session state was used. The consumed plan is removed.
+
+28. **A model switch degrades — in progress.** The
+    [stage plan](../plans/phase-04-stage-28-model-switch-degrades.md) owns the rule that a wire
+    encoder carries what the destination dialect accepts instead of refusing an output whose replay
+    sidecars another model produced. MDL-1 and PRV-3 change: a switch is no longer refused for
+    anything in the conversation's past, a finished thought the destination cannot replay is carried
+    as text, an interrupted one is still omitted, and tool-call ids take a shape every dialect
+    accepts. COM-3's route reports what a switch cost, when it cost anything.
 
 The status-line adapter does not bundle the approval repair or logo animation.
 Independent lossless session export/import belongs to this phase as unstarted follow-up work.

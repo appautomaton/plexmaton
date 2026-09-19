@@ -23,12 +23,26 @@ pub enum ModelChangeRefusal {
     UnprotectedCredential,
     #[error("The selected model could not be configured.")]
     InvalidModel,
-    #[error("This conversation contains history the selected model cannot replay.")]
+    #[error("This conversation's history cannot be prepared for the selected model.")]
     IncompatibleHistory,
     #[error("Main controls this delegated Conversation until handoff.")]
     ControlledByMain,
     #[error("Reopen the collaboration before changing this delegated Conversation.")]
     ControlUnavailable,
+}
+
+/// An accepted model, and whether reaching it cost the conversation its replay.
+///
+/// MDL-1: the switch itself is never refused for what the conversation already holds. What it can
+/// cost is the earlier replies' native form — PRV-3 carries a finished thought across as text — and
+/// the user is told that once, after the fact, because nothing is destroyed and selecting the
+/// original model again replays its own history exactly.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelReplacement {
+    /// The model the next request uses.
+    pub model: ResolvedModel,
+    /// Some earlier reply reaches the new model as text rather than as the thought it was.
+    pub degraded_history: bool,
 }
 
 impl LiveRuntime {
@@ -61,7 +75,7 @@ impl LiveRuntime {
         to: &AgentId,
         model: ResolvedModel,
         key: ApiKey,
-    ) -> Result<ResolvedModel, ModelChangeRefusal> {
+    ) -> Result<ModelReplacement, ModelChangeRefusal> {
         self.validate_model_change(to)?;
         if !self.tools.excludes_api_key_environment(model.api_key_env()) {
             return Err(ModelChangeRefusal::UnprotectedCredential);
@@ -96,8 +110,12 @@ impl LiveRuntime {
         }
         plexmaton_provider::estimate_request(candidate, &basis.request, tools)
             .map_err(|_| ModelChangeRefusal::IncompatibleHistory)?;
+        let degraded_history = plexmaton_provider::degrades_replay(candidate, &basis.request);
         self.driver = driver;
-        Ok(selected)
+        Ok(ModelReplacement {
+            model: selected,
+            degraded_history,
+        })
     }
 
     fn validate_model_change(&self, to: &AgentId) -> Result<(), ModelChangeRefusal> {

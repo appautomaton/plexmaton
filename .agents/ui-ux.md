@@ -234,7 +234,9 @@ terminals with the fewest rows.
 - Loading and failure states appear in the affected surface and freeze nothing else.
 - A resumed conversation is confirmed in place as UI only, with no transcript item or record, and
   an unfinished prior turn is told that nothing was rerun. JRN-5 owns the copy.
-- **Notices** is reserved for future multi-agent workflows, not routine feedback.
+- **Notices** is the workspace's own voice: one bounded sentence no producer would say, costing the
+  conversation no record — a message the runtime refused, or what a model switch cost. A refusal is
+  Failure, a receipt Muted. Never what belongs in the transcript.
 - An unanswered rate-limited request offers **Retry** and **Edit & retry** beside its error: they
   are message-local actions, never Commands, and neither repeats tools. JRN-8 owns eligibility and
   the bindings.
