@@ -1234,6 +1234,96 @@ output_reserve_tokens = 5000
             .unwrap_or_else(|error| panic!("shutdown: {error}"));
     }
 
+    /// A refused dispatch returns the user's words and opens one notice; it never ends the session.
+    ///
+    /// The runtime declines for many typed reasons — a request it cannot encode, a conversation
+    /// another controller owns, a shutdown already begun. Every one of them used to leave the
+    /// composition root by `?`, which tore down the terminal: a message the runtime would not take
+    /// cost the user every row on screen and the text they had typed. `WrongAgent` stands for all
+    /// of them here because it is the refusal that needs no provider to provoke.
+    #[tokio::test]
+    async fn a_refused_dispatch_returns_the_draft_and_opens_one_notice() {
+        use std::ffi::OsString;
+
+        use plexmaton_agent::Input;
+        use plexmaton_provider::{ModelRegistry, resolve_api_key};
+        use plexmaton_runtime::{LiveRuntime, NativeToolCatalog};
+        use plexmaton_tui::NoticeView;
+
+        let owner = plexmaton_core::AgentId::new("agent-a")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let stranger = plexmaton_core::AgentId::new("agent-b")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let config = ModelRegistry::parse(
+            r#"
+active_model = { provider = "fixture", model = "model" }
+[providers.fixture]
+base_url = "http://127.0.0.1:1/v1"
+api_key_env = "FIXTURE_KEY"
+[providers.fixture.models.model]
+api = "openai_responses"
+id = "fixture-model"
+context_window_tokens = 20000
+max_output_tokens = 5000
+output_reserve_tokens = 5000
+"#,
+        )
+        .unwrap_or_else(|error| panic!("test config: {error}"));
+        let model = config.active_model();
+        let key = resolve_api_key(model, Some(OsString::from("fixture-only")))
+            .unwrap_or_else(|error| panic!("test key: {error}"));
+        let root =
+            std::env::current_dir().unwrap_or_else(|error| panic!("test workspace: {error}"));
+        let tools = NativeToolCatalog::open(
+            &root,
+            model.api_key_env(),
+            "/bin/false",
+            "/bin/false",
+            Vec::new(),
+        )
+        .unwrap_or_else(|error| panic!("test native tools: {error}"));
+        let mut runtime =
+            LiveRuntime::provider(owner.clone(), "Agent A", model.clone(), key, tools)
+                .unwrap_or_else(|error| panic!("test runtime: {error}"));
+        let mut workspace = Workspace::default();
+
+        let outcome = dispatch_live(
+            &mut runtime,
+            &mut workspace,
+            AddressedInput {
+                skill: None,
+                to: stranger.clone(),
+                input: Input::Submitted {
+                    text: "the words the user typed".to_owned(),
+                },
+            },
+        )
+        .await;
+
+        assert!(outcome.is_ok(), "a refusal is reported, never propagated");
+        assert_eq!(
+            workspace.state().draft(&stranger).text(),
+            "the words the user typed",
+            "the draft comes back exactly, addressed where it was sent"
+        );
+        assert_eq!(
+            workspace.state().notices().count(),
+            1,
+            "one refusal is one notice"
+        );
+        assert!(
+            matches!(
+                workspace.state().notices().next(),
+                Some(NoticeView::DispatchRefused { .. })
+            ),
+            "and it says the dispatch was refused"
+        );
+        runtime
+            .shutdown()
+            .await
+            .unwrap_or_else(|error| panic!("shutdown: {error}"));
+    }
+
     /// JRN-7: the composition root restores text and maps typed persistence failures visibly.
     #[test]
     fn persistence_failure_restores_the_draft_and_opens_one_notice() {

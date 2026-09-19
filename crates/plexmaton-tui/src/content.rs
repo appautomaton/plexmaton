@@ -169,6 +169,11 @@ pub(crate) fn notices(state: &ViewState, palette: &Palette) -> Vec<Line<'static>
                     Role::Failure,
                     format!("Skills · {}", inert_inline(message)),
                 ),
+                NoticeView::DispatchRefused { message } => (
+                    "[send] ",
+                    Role::Failure,
+                    format!("Not sent · {}", inert_inline(message)),
+                ),
             };
             Line::from(vec![
                 Span::styled(marker, palette.style(role)),
