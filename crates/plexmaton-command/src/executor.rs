@@ -658,20 +658,36 @@ mod tests {
     ) -> (super::CommandExecutionError, Pid) {
         let workspace = TestWorkspace::new();
         let operations = InjectingProcessOperations::new(failure);
+        let ready = workspace.0.join("ready.pid");
+        // SIGTERM stays ignored so termination must reach SIGKILL, which is where the injected
+        // operation fires. The marker is the readiness signal the rest of this module uses: a
+        // deadline racing process startup decides nothing, and CMD-7's launcher adds real
+        // milliseconds in front of the shell, so a 25 ms budget lost that race intermittently.
         let arguments = crate::admission::CanonicalArguments {
-            cmd: "trap '' TERM; exec /bin/sleep 30".to_owned(),
-            timeout_ms: 25,
+            cmd: "trap '' TERM; /bin/sleep 30 & printf '%s' $$ > ready.pid; wait".to_owned(),
+            timeout_ms: 5_000,
             workspace_root: workspace.0.to_string_lossy().into_owned(),
         };
-        let error = execute_with_operations(
+        let cancellation = CancellationToken::new();
+        let environment = CommandEnvironment::from_pairs([]);
+        let mut execution = std::pin::pin!(execute_with_operations(
             &workspace.0,
             arguments,
-            &CommandEnvironment::from_pairs([]),
-            CancellationToken::new(),
+            &environment,
+            cancellation.clone(),
             &operations,
-        )
-        .await
-        .expect_err("injected supervision operation must fail");
+        ));
+        // Whichever comes first. An injection on the wait path fails before the command can reach
+        // its marker and needs no trigger; one on the termination path needs the command alive,
+        // which the marker — not elapsed time — is what establishes.
+        let result = tokio::select! {
+            result = &mut execution => result,
+            () = wait_for_file(&ready) => {
+                cancellation.cancel();
+                execution.await
+            }
+        };
+        let error = result.expect_err("injected supervision operation must fail");
         assert!(operations.fired.load(Ordering::SeqCst));
         let process_group = operations.spawned_group();
         (error, process_group)
