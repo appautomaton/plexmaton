@@ -81,9 +81,11 @@ Purpose: reach a real boundary the cell buffer and the in-process fakes cannot â
 a PTY where escape sequences matter, a real process or filesystem boundary under shutdown.
 
 Use real first-party components and fake only the external boundary. Assert user-visible and
-durable outcomes, not private call order. A Tier 4 test belongs in its own lane, not in the fast
-suite: one that spawns or kills a process while sitting in `cargo test` runs on every change,
-charging the whole loop for evidence that was only ever needed at a wrap-up.
+durable outcomes, not private call order. Cost and determinism place a test, never mechanism: a
+deterministic test costing tens of milliseconds belongs in the fast suite whatever it spawns; one
+whose runtime or flakiness the whole loop pays for evidence a wrap-up needs does not. Rejected:
+placing by mechanism, which condemned a 50 ms process test and overlooked a 4.16 s sibling
+spawning the same way.
 
 ## Tier 5 â€” compatibility and manual validation
 
@@ -117,8 +119,10 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
   requires it.
 - Do not use arbitrary sleeps to coordinate tests. Use events, barriers, paused/mock time, or
   explicit readiness signals. Where a file/process boundary has no event seam, bounded polling
-  may wait between checks; the marker, not elapsed time, establishes readiness. Idle process
-  fixtures block instead of spinning, preserving the PID, signal and descendant behavior under test.
+  may wait between checks; the marker, not elapsed time, establishes readiness. A marker the reader
+  parses is published atomically, written beside its destination and renamed: one created empty and
+  filled afterwards hands back a partial read. Idle process fixtures block instead of spinning,
+  preserving the PID, signal and descendant behavior under test.
 - Own temporary directories through scope exit, including assertion failure. Reserve a unique
   directory before use; never delete a guessed stale path to make a fixture fit.
 - Inject failures intentionally: partial writes, malformed events, cancellation at boundaries,
@@ -127,8 +131,8 @@ Performance evidence is a separate lane, not a timing assertion hidden in ordina
   detects, and prefer proving it by mutating the implementation and watching that test fail.
 - Do not duplicate the same assertion at every tier; each tier should add distinct confidence.
 - A flaky test proves nothing, and is worse than none while a document still cites it: the corpus
-  reads as settled when it is not. Fix the synchronization or contract; failing that, move it to a
-  reporting lane and mark what it claimed unproven. Never add retries until it turns green.
+  reads as settled when it is not. Fix the synchronization or contract, or delete it and mark what
+  it claimed unproven. Never add retries until it turns green.
 
 Rejected: a workspace-wide assertion macro solely to rewrite every `matches!`; put diagnostic
 context at ambiguous failures, and use direct equality when the expected value is the contract.
