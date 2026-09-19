@@ -3,8 +3,8 @@
 | Field | Value |
 | --- | --- |
 | Read when | Changing who may run a tool, what a grant covers, or whether a call is asked about at all |
-| Status | Draft. Source claims verified in this checkout; no measurement taken, no decision made |
-| Basis | [The spike](./README.md) pinned the comparison; [sandbox-boundary](./sandbox-boundary.md) pinned the containment options. This is the third angle: our own enforcement |
+| Status | Source claims verified in this checkout; the position they informed is in [next-decisions](./next-decisions.md) |
+| Basis | [The spike](./README.md) pinned the comparison; [sandbox-boundary](./sandbox-boundary.md) pinned the containment options and their measurements. This is the third angle: our own enforcement |
 
 The spike asked how routine work can need fewer approvals while authority stays explicit. It
 compared other harnesses and modelled the policy. It did not audit where this harness decides. That
@@ -55,8 +55,7 @@ honest case the sentence describes; these three decide.
 `ApprovalDecision` (`crates/plexmaton-core/src/permissions.rs`) is `AllowOnce`, `AllowAndRemember`,
 `Deny`. There is no `DenyAndRemember` — verified absent. Deny wins every precedence race in the
 system and is the only rule shape the product's own interface cannot produce; it exists solely for
-someone who hand-edits configuration. A user who has just refused something cannot say "and stop
-asking", and there is no view that shows the rules they wrote by hand once those are loaded.
+someone who hand-edits configuration, and once they do, no view shows it back to them.
 
 ## The engine that never runs
 
@@ -68,7 +67,7 @@ capability-Ask tiers are documented, unit-tested, and unreachable from a running
 they describe is done instead by the rule-based Deny/Ask path. Two mechanisms, one job, one of them
 never invoked.
 
-## What the comparison adds that this spike did not already hold
+## What the comparison adds, once audience is separated from problem
 
 [The spike's table](./README.md) recorded Claude's sandbox auto-allow as "an explicit exception".
 Re-reading the same corpus against the composition question shows it is not an exception anywhere —
@@ -80,20 +79,31 @@ it is the shared rule, named in code in three independent implementations:
 | grok-build | `should_auto_allow_bash() = AUTO_ALLOW_BASH && is_active()`, consumed to short-circuit to Allow |
 | Codex | under the default approval policy, a restricted sandbox returns `Decision::Allow` rather than `Prompt`, with the reason written beside it: let the sandbox enforce without a user prompt |
 
-And the converse, which is the part that matters for us: the two sources with no containment —
-kimi-code and this harness — are the two where turning the questions off leaves nothing underneath.
-Codex says so directly at its own `Never` policy: it allows the command *relying on the sandbox for
-protection*. We have no such sentence to write, because
-[the shell is unconfined](./sandbox-boundary.md) and the file tools' `openat`/`NOFOLLOW` pinning
-covers only themselves.
+The converse is ours: the two sources with no containment — kimi-code and this harness — are the two
+where turning the questions off leaves nothing underneath. Codex says so directly at its own `Never`
+policy: it allows the command *relying on the sandbox for protection*. We have no such sentence to
+write, because [the shell is unconfined](./sandbox-boundary.md) and the file tools'
+`openat`/`NOFOLLOW` pinning covers only themselves.
+
+**That reads as a deficiency only if the audience is the same, and it is not.** All three fence
+because they cannot know who is driving, on what machine, against which project, having installed
+which tools. Their prompts and capability warnings tell their user something that user did not
+already know. [Next decisions](./next-decisions.md) records what follows for a harness with one
+owner who knows all four: the composition rule holds — a fence is what makes silence safe, and
+questions without one only move work around — while the warnings, the classifiers and the tiers
+those harnesses need do not survive the audience change. Read a comparison for its mechanisms; a
+feature list copied across the audience boundary arrives as noise.
 
 ## Already answered; do not re-derive
 
-- Containment mechanisms, their platform gaps, the candidate insertion point and the deprecation of
-  `sandbox-exec`: [sandbox-boundary](./sandbox-boundary.md), with a macOS probe beside it.
+- Containment mechanisms, their platform gaps, the deprecation of `sandbox-exec`, the measured cost
+  and lifecycle, and why `nono` lost: [sandbox-boundary](./sandbox-boundary.md), with two
+  re-runnable probes beside it.
 - A delegated child sharing the root's exact Session owner: recorded as the design in
   [permission-state](./permission-state.md) and CHB-1/CHB-2, not a defect to rediscover.
 - Cross-harness precedence, lifetime and failure-path lessons: [the spike](./README.md).
+- What the position decided, and what it deliberately does not build:
+  [next-decisions](./next-decisions.md).
 
 Three agent sweeps were spent re-deriving most of that list before this file was opened. The corpus
 held it.
@@ -104,16 +114,9 @@ held it.
   — carries exactly one approval cycle (`require_approval` → `awaiting_approval` → `approval` with
   its id, four `append_entry` records). Counted by reading the JSONL, so it is reproducible, and it
   is one point of the wrong shape: that session was conversation and reading, and approval is
-  triggered by writes and commands. A baseline worth optimising against needs sessions that do the
-  work approval exists for, and nothing yet records the rate as a fact rather than an archaeology.
-- ~~No cost.~~ Measured on macOS: a constant ~6 ms per invocation, under one percent of a
-  command taking a second. [sandbox-boundary](./sandbox-boundary.md) holds the table and the
-  resolved-path constraint that running it exposed. Linux and Windows remain unmeasured.
+  triggered by writes and commands. Under the decided position this matters less than it did — the
+  design is no longer aimed at reducing an approval rate — but nothing yet records the rate as a
+  fact rather than an archaeology.
 - **No contradiction inventory.** The three findings above were found by reading; whether more spec
-  sentences describe mechanisms the code does not use is unknown.
-
-## What to decide next
-
-[Next decisions](./next-decisions.md) holds the criteria a design is judged on, the hypothesis on
-the table, and the four forks — so this file can stay what is true, and that one can stay what is
-open.
+  sentences describe mechanisms the code does not use is unknown. The capability engine proves the
+  class is non-empty.

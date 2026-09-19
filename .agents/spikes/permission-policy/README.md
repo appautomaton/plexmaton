@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Source comparison and finite experiments retained; production evidence in PER-1–PER-10 and PGR-1–PGR-5 |
+| Status | Comparison and finite experiments retained as evidence; the question is answered in [next decisions](./next-decisions.md) |
 | Read when | Extending approval scope, permission rules, durable grants or revocation |
 | Question | How can routine work require fewer approvals while authority stays explicit, scoped and revocable? |
 | Contract | [tool-admission](../../specs/tool-admission.md) APV-1–APV-6; [session-journal](../../specs/session-journal.md) JRN-1/JRN-2/JRN-7/JRN-8; [command-tool](../../specs/command-tool.md) CMD-1/CMD-2 |
@@ -47,11 +47,11 @@ Three failure-path lessons:
   unavailable. Plexmaton retains APV-4/APV-6. Codex `never`, Claude `dontAsk`, and DSH `never`
   reject unresolved asks: no prompts and unrestricted execution are different policies.
 
-Follow-ups, read first: [next decisions](./next-decisions.md),
-[enforcement boundary](./enforcement-boundary.md). Then [trust/modes](./trust-and-modes.md),
-[optional sandbox](./sandbox-boundary.md),
-[integration](./integration.md), [store experiment](./store-experiment.md),
-[approval flow](./approval-flow.md).
+Read first: [next decisions](./next-decisions.md), [enforcement
+boundary](./enforcement-boundary.md), [the fence](./sandbox-boundary.md). The table above is
+evidence about mechanisms, not features to match: those harnesses warn because they cannot know who
+is driving. Then [trust/modes](./trust-and-modes.md), [integration](./integration.md),
+[store experiment](./store-experiment.md), [approval flow](./approval-flow.md).
 
 ## Finite model semantics
 

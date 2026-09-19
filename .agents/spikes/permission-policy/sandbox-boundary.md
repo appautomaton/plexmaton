@@ -1,112 +1,127 @@
-# Rule-based approval and a small command sandbox
+# A per-command fence for the shell
 
 | Field | Value |
 | --- | --- |
-| Read when | Scoping command containment, automatic approval or shell permission matching |
-| Status | Rule-based priority agreed; macOS probe and per-command cost measured; production containment unproven |
-| Corpus | Local revisions pinned in [the spike](./README.md); OS documentation checked 2026-09-05 |
+| Read when | Scoping command containment, or choosing its mechanism |
+| Status | Mechanism chosen and measured on macOS: cost, cancellation and failure modes. Production containment unbuilt |
+| Corpus | Local revisions pinned in [the spike](./README.md); OS documentation checked 2026-09-05; probes re-run 2026-09-19 |
 
-## First implementation boundary
+[Next decisions](./next-decisions.md) owns the position this serves. In short: the shell is the one
+place where a policy sentence is not also a capability, and a fence is what closes that — not to add
+safety on top, but so the command inspection that can never be complete is never written.
 
-The user prioritizes deterministic action determination and approval. Implement rules and scoped
-grants first; a future `auto` reviewer can consume unresolved decisions at the existing approval
-boundary. No LLM classifier, unused mode setting or speculative reviewer framework is needed now.
-Explicit deny/ask precedence remains P3. If command containment is later added, the executor applies
-its separately resolved policy and grants must bind that identity alongside P4's operation and
-environment identities. Approval under containment cannot authorize an unconfined retry.
+## What is enforced today, and what is not
 
-Native file tools already have WFS-1 confinement. The shell does not (CMD-2). A native read rule
-can name project and scratch roots, but a usable shell also needs its interpreter, system libraries,
-SDKs and selected toolchain/cache paths. Redirecting `HOME`/`TMPDIR` alone imposes no OS restriction.
+Native file tools open every parent beneath a pinned root with no-follow descriptor semantics, so
+their authority is narrower than the path string a model writes (WFS-1, MUT-2). The shell has none
+of that: `command-tool.md` states its root is a starting directory rather than a sandbox, that an
+approved shell reaches absolute paths, `..`, symlinks, network and inherited host authority, and
+that the implementation claims no containment. Both sentences are honest. The second is the one this
+work changes.
 
-Command sandboxing and its shared interface remain optional. Keep policy and execution separate;
-choose interfaces and backends only if needed. Rejected: making future integration room a required
-abstraction in the first rule-based delivery. No placeholder trait, mode or dependency is needed.
+A native read rule can name project and scratch roots, but a usable shell also needs its
+interpreter, system libraries, SDKs and toolchain caches. Redirecting `HOME`/`TMPDIR` alone imposes
+no OS restriction, and CMD-2 already rejects removing `HOME`: it breaks user toolchains without
+creating confinement.
 
-If containment is pursued, `crates/plexmaton-command/src/executor.rs:58` is a candidate insertion
-point before shell code starts. Choose the interface from the actual backend requirements then;
-keep the provider, TUI and policy owner outside the child, and prove cancellation and reaping.
+## The mechanism, and why the alternatives lost
 
-## What the source comparison establishes
+**Chosen: `/usr/bin/sandbox-exec` with a parameterised profile.** Zero first-party `unsafe`, no FFI,
+an ordinary process spawn — and, measured below, it adds no process to the tree.
 
-| Candidate | Small useful scope | Work that the wrapper does not remove |
-| --- | --- | --- |
-| macOS Seatbelt via `sandbox-exec` | Per-command write roots, protected subpaths and network rules without a daemon | Apple marks the executable deprecated in this host's `/usr/share/man/man1/sandbox-exec.1`; profile compatibility and least-privilege reads need evidence |
-| Linux Landlock helper | Unprivileged restrictions on handled file operations, inherited by child execution | Probe ABI/features; additive path grants cannot directly subtract `.git` from an allowed workspace tree; metadata operations remain outside its coverage |
-| Linux bubblewrap | Mount-based read/write boundaries, private temp, optional PID/network namespaces | Namespace availability, launcher distribution, profile correctness and process ownership |
-| `nono` SDK | Common Landlock/Seatbelt vocabulary | Still needs a correctly placed launcher, dependency audit and explicit handling of incomplete enforcement; an SDK does not establish equal platform guarantees |
+| Candidate | Why not |
+| --- | --- |
+| `sandbox_init_with_parameters(3)`, the C API | FFI to a deprecated symbol plus `pre_exec`, which is `unsafe`. `standards/rust.md` forbids first-party `unsafe` by default, and `pre_exec` runs between `fork` and `exec` in a multi-threaded process where any allocation can deadlock the child |
+| `nono` SDK | `Sandbox::apply` confines the **calling** process, irreversibly. A TUI that must keep writing its journal and session store cannot be that process, and per-command confinement through it returns to `fork` + `pre_exec` + first-party `unsafe`. grok pins `=0.53.0` because a bump "can silently change [rule-emission order] and re-open the `mv x y && cat y` bypass with `is_applied()` still true", ships `bwrap` and per-spawn seccomp alongside it, and hand-maintains a glob parity guard across platforms — 6,010 lines for a scope that includes deny-inside-allow and read denial, both of which this position declines |
+| Linux Landlock | In the kernel since 5.13, unprivileged, inherited by children, and architecturally the same shape: confine, then exec. Untestable on this machine. Additive path grants only — it cannot subtract a subpath from an allowed tree — with per-ABI rights, `chmod`/`chown`/`utime` outside coverage, and varying network coverage. Not a full write fence on its own |
+| Linux bubblewrap | Mount-based boundaries, private temp, optional PID/network namespaces; expresses what Landlock cannot. Needs namespace availability, launcher distribution and process ownership, and its per-command cost is unmeasured. Untestable here |
 
-The [Linux kernel documentation](https://www.kernel.org/doc/html/latest/userspace-api/landlock.html)
-describes per-ABI rights, irreversible inheritance and current gaps including `chmod`, `chown` and
-`utime`. Network coverage also varies by ABI. An allow-list model is not a promise to block every
-filesystem effect or all communication. Do not claim a full write fence from Landlock alone.
+Apple marks `sandbox-exec` deprecated in this host's `/usr/share/man/man1/sandbox-exec.1`. The
+owner weighed that and accepted it: it is macOS's only unprivileged, per-command, in-tree
+containment primitive, and Chrome, Codex and Claude Code all ship on the same interface. Deprecated
+and universal is a different risk from deprecated and abandoned, and the probes below are what turn
+a future OS change into a loud failure instead of a silent one.
 
-[Bubblewrap](https://github.com/containers/bubblewrap#sandbox-security) leaves policy to its caller;
-the launcher needs no Docker daemon or VM. Versioned dependency/runtime audits remain necessary
-before adoption, and its per-command cost on Linux is unmeasured — the packaged download sizes
-recorded here previously stood in for that and measured nothing about it.
+Linux runs **unconfined, by decision**, until there is a host to test on. An abstraction over an
+untestable platform buys exactly what grok's parity guard exists to defend against.
 
-Per-command cost: [containment cost](./containment-cost.md).
+## Cost
 
-DSH's `packages/sandbox/sandbox-local/src/profiles.ts:16,30,51` shows a small per-command wrapper:
-bubblewrap mounts, Landlock grants, or Seatbelt rules. Its Linux Landlock profile reads `/` and its
-shell package explicitly limits the guarantee to file effects. The smaller profile does not prove
-private reads, network isolation or protected control paths. `sandbox-local/src/index.ts:490`
-selects a runner with explicit unavailable handling. This boundary fits Plexmaton better than
-copying an entire agent's startup sandbox.
+[Containment cost](./containment-cost.md): a constant ~6 ms per invocation — 2.6× on `true`, 1.8× on
+a pipeline, under a percent for anything doing real work. Cost is not a reason to defer containment
+on this platform. Build throughput under a wrapper is still unmeasured; per-invocation cost is not
+per-build cost.
 
-Grok pins `nono = 0.53.0`; `xai-grok-sandbox/src/lib.rs:195` logs and continues when the OS sandbox
-is unavailable or application fails. Its `profiles.rs:330` uses Seatbelt for write-deny exceptions
-and bubblewrap on Linux. Those choices are not evidence that plain Landlock supplies equivalent
-exceptions. Plexmaton's proposed confined launch must fail before the command starts when required
-enforcement is unavailable; unconfined execution requires a separately authorized operation.
+## Cancellation, which is what made the change small
+
+`seatbelt-lifecycle.py`, 24/24 on 2026-09-19. Every arm runs twice, bare and wrapped, because a bare
+failure means the probe is wrong rather than the wrapper — the first two runs failed exactly that
+way, on `$$` inside a subshell and on a zombie answering `kill(pid, 0)`.
+
+The finding: **`sandbox-exec` applies the profile to itself and execs the target.** The probe records
+`launched == shell`. There is no extra process, so the process group, group signalling, the drains
+and the reaping are structurally identical to an unwrapped spawn.
+
+| Evidence | Observed, bare and wrapped alike |
+| --- | --- |
+| SIGTERM and SIGKILL to the group | Launched process, shell and descendant all die within the bound |
+| Output drain | Reaches EOF immediately; no surviving pipe holder |
+| A descendant that calls `setsid(2)` | Survives both. The wrapper neither worsens nor fixes the escape CMD-5 already admits |
+
+Every cancellation invariant in `command-tool.md` therefore holds untouched, and
+`crates/plexmaton-command/src/executor.rs` needs no change below its spawn site.
+
+## How a fence fails, and which failure matters
+
+| Failure | Behaviour |
+| --- | --- |
+| Malformed profile | Loud: exit 65, a located parse error on stderr, command body never runs |
+| Well-formed profile, **unresolved** subpath | **Silent**: accepted as valid, exit 0, command runs, fence grants nothing |
+
+The second is the whole hazard, and macOS hands it to you by default — the temp root arrives as
+`/var/...` while the kernel matches `/private/var/...`. A write fence that looks applied and denies
+the roots it was told to allow is worse than no fence, because it reads as working.
+
+The defense is cheap and testable: canonicalize every path before it enters a profile, and reject at
+build time any path not equal to its own resolved form.
 
 ## Host probe
 
-Run from this worktree:
-
 ```sh
-python3 .agents/spikes/permission-policy/seatbelt-probe.py
+python3 .agents/spikes/permission-policy/seatbelt-probe.py      # 13 correctness checks
+python3 .agents/spikes/permission-policy/seatbelt-lifecycle.py  # 24 lifecycle checks
 ```
 
-On macOS 26.6.2, all 13 checks passed on 2026-09-05 and again on 2026-09-19. The outer agent sandbox refused nested
-`sandbox_apply`; the same disposable probe passed with execution outside that outer sandbox.
-No production process, user configuration, reference suite or real model endpoint was used.
+Both pass on macOS 26.6.2, 2026-09-05 and again 2026-09-19. Run them outside any outer sandbox: a
+nested `sandbox_apply` is refused, and every wrapped arm then fails for a reason unrelated to the
+question. No production process, user configuration, reference suite or model endpoint is used.
 
 | Evidence | Observed |
 | --- | --- |
-| Startup and positive controls | Profile accepted; unsandboxed fixture child can write both outside and `.git` fixtures and connect to the owned loopback listener |
+| Startup and positive controls | Profile accepted; unsandboxed fixture child can write outside and to `.git` fixtures and reach the owned loopback listener |
 | Writable roots | Project and private scratch writes succeed |
-| Restricted writes | Direct outside write, `.git` write, symlink escape and nested-shell outside write fail without creating the target |
+| Restricted writes | Direct outside write, `.git` write, symlink escape and nested-shell outside write all fail without creating the target |
 | Network sample | Child TCP connection to the same loopback listener fails |
-| Invalid profile | Command never creates its marker |
-| Deliberate limitation | Reading the synthetic outside file succeeds: this is a write-boundary experiment |
+| Deliberate limitation | Reading the synthetic outside file succeeds: this is a **write**-boundary experiment |
 
-The profile starts with `allow default` and adds restrictions. It is not suitable as a general
-security boundary: IPC, process access, inherited descriptors, hard links, path replacement races,
-restricted reads and comprehensive networking remain unproven. No production cancellation test
-or performance measurement was run. The real regression this probe detects is a missing write
-fence or a launch that bypasses the profile; parent controls distinguish denial from fixture failure.
-An in-memory mutation removing `deny file-write*` failed the outside-write assertion as intended.
+Reads stay open by design. Read confinement is what breaks builds — every compiler wants SDKs,
+sysroots and headers, discovered one failure at a time — and it buys little once the model API call
+is the largest egress channel any file the agent reads already travels through.
 
-## Remaining bounded work
+The profile starts with `allow default` and adds restrictions. It is not a general security
+boundary: IPC, process access, inherited descriptors, hard links, path-replacement races, restricted
+reads and comprehensive networking remain unproven, and the spike claims none of them. The real
+regression these probes detect is a missing write fence or a launch that bypasses the profile. An
+in-memory mutation removing `deny file-write*` fails the outside-write assertion as intended.
 
-Broad comparison is complete enough to start rule-based permission work. Command matching needs
-integration evidence; containment questions apply only if that work is pursued:
+## What remains
 
-1. **Command matching.** Start with exact scripts and explicit roots/environment. If prefix grants
-   become necessary, exercise a bounded parser corpus covering wrappers, chaining, redirection,
-   substitution and unsupported syntax returning Ask. `cargo test` can run repository code even
-   when its visible command is unchanged; a rule cannot infer that code's full effects.
-2. **Usable confinement.** Prove one chosen macOS profile with a tiny offline Rust build, explicit
-   toolchain read paths, owned cache/scratch writes, protected control paths and blocked outside
-   reads. Per-invocation cost is measured ([containment cost](./containment-cost.md)); build
-   throughput under a wrapper is not. Linux needs its own host matrix and may reasonably use
-   bubblewrap when Landlock cannot express the promised boundary.
-3. **Lifecycle and explanation.** Pin policy before spawn; reject stale grants and unsupported
-   containment; preserve cancellation and cleanup. Keep launcher startup failure separate from
-   command exit. Generic `Permission denied` stderr cannot reliably identify a sandbox violation.
-
-The first delivery implements rules and grants. It neither requires nor commits to a sandbox
-interface or backend. If containment is later chosen, read compatibility, permissions and lifecycle
-must compose; package size alone does not determine that work.
+1. **The write-root list.** Workspace root, `TMPDIR`, and the toolchain caches a real build reaches
+   under `HOME`. Derive it by running this repository's own `cargo test` under the fence and adding
+   what is denied, rather than guessing a directory layout. Its failure mode is a clean denied
+   write, which is what makes iterating safe.
+2. **Launch failure stays separate from command exit.** Generic `Permission denied` on stderr cannot
+   identify a sandbox violation; a fence that fails to apply on macOS must fail the command with its
+   own typed cause rather than running unconfined.
+3. **Confinement as a recorded fact.** macOS fenced and Linux not must be visible per command, or
+   work that succeeds on both succeeds for different reasons and nobody can see which.
